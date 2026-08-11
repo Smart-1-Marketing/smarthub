@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Client 360 — Smart 1 Hub{% endblock %}
 {% block content %}
-<div class="page-head"><h2>Client 360</h2><p>One client, every system — Knack, Websites, Google, Simvoly &amp; GHL in a single view</p></div>
+<div class="page-head"><h2>Client 360</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
 
 <form class="c360-search" onsubmit="run();return false">
   <input id="q" placeholder="Type a client name or domain…" value="{{ q or '' }}" autofocus>
@@ -18,8 +18,9 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const money=v=>{const n=Number(String(v??'').replace(/[$,]/g,''));return isFinite(n)&&n?'$'+n.toLocaleString():esc(v??'—')};
 let groups=[];
 
-// Map a Google Finder platform to its in-module tool pages (Todd: each
-// Google result carries its finder functions right here in Client 360).
+const KIND_ICON={gdrive:'&#128193; Drive',pdf:'&#128462; PDF',dropbox:'&#128230; Dropbox',image:'&#128444; Image',file:'&#128206; File'};
+
+// Google Finder functions attached to each Google result.
 function googleTools(platform,name){
   const q=encodeURIComponent(name||'');
   const P=String(platform||'');
@@ -41,7 +42,7 @@ async function run(){
   $('results').innerHTML='<div class="empty">Searching all systems… <span class="spin"></span></div>';
   const d=await fetch('/api/c360?q='+encodeURIComponent(q)).then(r=>r.json()).catch(()=>({groups:[]}));
   groups=d.groups||[];
-  if(!groups.length){ $('results').innerHTML='<div class="empty">No Knack/website match — showing live systems only.</div>'; render({client:q,products:[],websites:[]},q); return; }
+  if(!groups.length){ $('results').innerHTML='<div class="empty">No Smart 1 Team / website match — showing live systems only.</div>'; render({client:q,products:[],websites:[],creative:[],gtm_containers:[]},q); return; }
   if(groups.length>1){
     $('picker').style.display='flex';
     $('picker').innerHTML=groups.map((g,i)=>`<button class="${i===0?'sel':''}" onclick="pick(${i})">${esc(g.client)} <span class="muted">(${g.products.length} IOs)</span></button>`).join('');
@@ -56,17 +57,25 @@ function pick(i){
 function render(g,q){
   const name=g.client||q;
   const liveCount=g.products.filter(p=>String(p.status||'').toLowerCase()==='live').length;
-  let html=`
-  <div class="c360-head" style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+  const web0=(g.websites||[])[0]||null;
+
+  // ---------- header: Smart 1 Site badge · active billing · dashboard link ----------
+  let head=`
+  <div class="c360-head" style="display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap">
     <div class="avatar" style="width:52px;height:52px;border-radius:12px;font-size:20px">${esc(name[0]||'?').toUpperCase()}</div>
     <div><h3 style="font-size:19px;color:var(--navy)">${esc(name)}</h3>
     <div class="muted" style="font-size:13px">${g.products[0]?('Salesperson: '+esc(g.products[0].sales||'—')+' · Partner: '+esc(g.products[0].partner||'—')):''}</div></div>
-    ${liveCount?'<span class="pill ok" style="margin-left:auto">'+liveCount+' live product'+(liveCount>1?'s':'')+'</span>':''}
-  </div>
-  <div class="grid-2">`;
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">`;
+  if(g.smart1_site) head+=`<span class="pill info" style="font-size:12.5px;padding:5px 12px">&#11041; Smart 1 Site</span>`;
+  if(g.billing_monthly) head+=`<span class="pill ok" style="font-size:12.5px;padding:5px 12px">Active billing: ${money(g.billing_monthly)}/mo</span>`;
+  if(liveCount) head+=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px">${liveCount} live product${liveCount>1?'s':''}</span>`;
+  if(g.dash_url) head+=`<a class="btn-primary" style="padding:8px 16px;font-size:13px;text-decoration:none" href="${esc(g.dash_url)}" target="_blank" rel="noopener">Smart 1 Dashboard →</a>`;
+  head+='</div></div>';
 
-  // ---- Knack products ----
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Knack</span><h3>Creative &amp; IOs</h3><a class="open-link" href="/clients">Open in Clients →</a></div><div class="card-b flush">`;
+  let html=head+'<div class="grid-2">';
+
+  // ---------- Smart 1 Team: products & IOs ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs</h3><a class="open-link" href="/clients">Open in Clients →</a></div><div class="card-b flush">`;
   if(g.products.length){
     html+='<table><thead><tr><th>Product</th><th>Status</th><th>Monthly</th><th>IO</th></tr></thead><tbody>';
     g.products.slice(0,10).forEach(p=>{
@@ -75,17 +84,52 @@ function render(g,q){
     });
     html+='</tbody></table>';
     if(g.products.length>10)html+=`<div class="empty">+${g.products.length-10} more in the Clients module</div>`;
-  } else html+='<div class="empty">No Knack IOs matched.</div>';
+  } else html+='<div class="empty">No Smart 1 Team IOs matched.</div>';
   html+='</div></div>';
 
-  // ---- Website record (with its own Google links from ga/gtm fields) ----
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="/clients">Open in Websites →</a></div><div class="card-b">`;
-  if(g.websites.length){
+  // ---------- Creative Information (replaces the old website-record spot) ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Creative Information</h3><a class="open-link" href="/clients">Open in Clients →</a></div><div class="card-b flush">`;
+  const cre=g.creative||[];
+  if(cre.length){
+    html+='<table><thead><tr><th>Year</th><th>Product / Campaign</th><th>IO</th><th>Creative</th></tr></thead><tbody>';
+    let lastYear='';
+    cre.slice(0,12).forEach(c=>{
+      const y=c.year&&c.year!==lastYear?c.year:''; if(c.year)lastYear=c.year;
+      html+=`<tr><td><b>${esc(y)}</b></td><td>${esc(c.product||'—')}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="${esc(c.url)}" target="_blank" rel="noopener">${KIND_ICON[c.kind]||'&#128206; File'} →</a></td></tr>`;
+    });
+    html+='</tbody></table>';
+    if(cre.length>12)html+=`<div class="empty">+${cre.length-12} more creative files in the Clients module</div>`;
+  } else html+='<div class="empty">No creative files on record.</div>';
+  html+='</div></div>';
+
+  // ---------- Google card ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="/google/">Open Google Finder →</a></div><div class="card-b" id="c-google"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+
+  // ---------- GTM Containers (replaces the old Simvoly box) ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GTM Containers</h3><a class="open-link" href="/google/gtm-tools">Open GTM Tools →</a></div><div class="card-b">`;
+  const gtms=g.gtm_containers||[];
+  if(gtms.length){
+    gtms.forEach(t=>{
+      html+=`<div style="padding:9px 0;border-bottom:1px solid var(--line-soft)">
+        <b>${esc(t.id)}</b>${t.login?' <span class="pill warn">'+esc(t.login)+'</span>':''}
+        <div class="muted" style="font-size:12px;margin-top:2px">${esc(t.site||'')}</div>
+        ${gbtns([['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(t.id)],['Inspect','/google/gtm-tools?q='+encodeURIComponent(t.id)+'#inspect'],['Logs','/google/gtm-logs?q='+encodeURIComponent(t.id)]])}
+      </div>`;
+    });
+  } else html+='<div class="empty">No GTM container on record for this client.</div>';
+  html+='</div></div>';
+
+  // ---------- Smart 1 Suite Account ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Website record (moved to the bottom) ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="/clients">Open in Websites →</a></div><div class="card-b" style="display:flex;gap:36px;flex-wrap:wrap">`;
+  if(g.websites&&g.websites.length){
     g.websites.slice(0,3).forEach(w=>{
-      html+=`<dl class="kv" style="margin-bottom:10px">
+      html+=`<div style="flex:1;min-width:280px"><dl class="kv">
         <dt>Site</dt><dd>${esc(w.name||'—')}</dd>
         <dt>Domain</dt><dd>${w.domain?`<a href="https://${esc(w.domain)}" target="_blank" rel="noopener">${esc(w.domain)}</a>`:'—'}${w.domainPurchased?' <span class="pill info">we purchased</span>':''}</dd>
-        <dt>Platform</dt><dd>${esc(w.platform||'—')}</dd>
+        <dt>Platform</dt><dd>${esc((w.platform||'—').replace(/Smart1Sites/i,'Smart 1 Sites'))}</dd>
         <dt>Status</dt><dd><span class="pill ${String(w.status||'').toLowerCase()==='active'?'ok':'neutral'}">${esc(w.status||'—')}</span></dd>
         <dt>H&amp;M</dt><dd>${w.hmMonthly?money(w.hmMonthly)+' / mo':'—'}</dd>
         ${w.ga?`<dt>GA4</dt><dd>${esc(w.ga)}</dd>`:''}
@@ -95,20 +139,17 @@ function render(g,q){
       if(w.ga)links.push(['GA4 Tools','/google/ga-tools?q='+encodeURIComponent(w.ga)]);
       if(w.gtm)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(w.gtm)]);
       if(links.length)html+=gbtns(links);
+      html+='</div>';
     });
-  } else html+='<div class="empty">No website record matched.</div>';
+  } else html+='<div class="empty" style="flex:1">No website record matched.</div>';
   html+='</div></div>';
 
-  // ---- Google / Simvoly / GHL — live cards ----
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="/google/">Open Google Finder →</a></div><div class="card-b" id="c-google"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-simvoly">Simvoly</span><h3>Smart 1 Site</h3><a class="open-link" href="/sites/">Open in Sites →</a></div><div class="card-b" id="c-sites"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>GHL Sub-accounts</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
   html+='</div>';
   $('results').innerHTML=html;
 
   const term=(name||q);
 
-  // Google Finder live search — each result gets its finder functions.
+  // Google Finder live search
   fetch('/google/api/search?q='+encodeURIComponent(term)).then(async r=>{
     if(r.status===401){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';return}
     const d=await r.json();
@@ -122,25 +163,19 @@ function render(g,q){
       </div>`).join('');
   }).catch(()=>{$('c-google').innerHTML='<div class="empty">Google module unavailable.</div>'});
 
-  // Simvoly inventory (via hub -> Postgres)
-  fetch('/api/c360/sites?q='+encodeURIComponent(term)).then(r=>r.json()).then(d=>{
-    if(!d.configured){$('c-sites').innerHTML='<div class="empty">Sites database not configured yet.</div>';return}
-    const res=d.results||[];
-    if(!res.length){$('c-sites').innerHTML='<div class="empty">No Simvoly project matched.</div>';return}
-    $('c-sites').innerHTML=res.map(p=>`
-      <dl class="kv" style="margin-bottom:8px">
-        <dt>Project</dt><dd><a href="/sites/projects/${encodeURIComponent(p.project_id)}">${esc(p.name||p.project_id)}</a></dd>
-        <dt>Status</dt><dd><span class="pill ${String(p.status||'').toLowerCase()==='active'?'ok':'neutral'}">${esc(p.status||'—')}</span></dd>
-        ${p.domain?`<dt>Domain</dt><dd>${esc(p.domain)}</dd>`:''}
-      </dl>`).join('');
-  }).catch(()=>{$('c-sites').innerHTML='<div class="empty">Sites module unavailable.</div>'});
-
-  // GHL sub-accounts
+  // Smart 1 Suite account — with prefilled "Add" when there's no match.
+  const addBtn=()=>{
+    const p=new URLSearchParams({prefill:'1',name:name});
+    if(web0&&web0.domain){p.set('website','https://'+web0.domain);p.set('domain',web0.domain);}
+    return `<div class="empty">No Smart 1 Suite account yet.<br><br>
+      <a class="btn-primary" style="padding:9px 18px;font-size:13.5px;text-decoration:none" href="/suite/?${p.toString()}">+ Add to Smart 1 Suite</a>
+      <div class="muted" style="font-size:12px;margin-top:8px">Opens the Suite create form pre-filled with this client's details${web0&&web0.domain?' — brand info auto-fetched from '+esc(web0.domain):''}.</div></div>`;
+  };
   fetch('/suite/api/locations?limit=6&search='+encodeURIComponent(term)).then(async r=>{
     if(!r.ok){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
     const d=await r.json();
     const res=d.locations||[];
-    if(!res.length){$('c-ghl').innerHTML='<div class="empty">No GHL sub-account matched.</div>';return}
+    if(!res.length){$('c-ghl').innerHTML=addBtn();return}
     $('c-ghl').innerHTML='<table><thead><tr><th>Account</th><th>City</th><th>Email</th><th></th></tr></thead><tbody>'+
       res.map(l=>`<tr><td><b>${esc(l.name||'—')}</b></td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td><td><a class="open-link" href="/suite/">Manage →</a></td></tr>`).join('')+'</tbody></table>';
   }).catch(()=>{$('c-ghl').innerHTML='<div class="empty">Suite module unavailable.</div>'});

@@ -112,6 +112,51 @@ def summary() -> dict:
     }
 
 
+CREATIVE_EXCLUDE = ("sem", "website seo", "listings", "email blast")
+
+
+def _creative_items(prod_records: list[dict]) -> list[dict]:
+    """Creative file links (PDF / Drive / Dropbox / file) grouped for display,
+    newest year first — mirrors the Clients module's creative section."""
+    seen = set()
+    items = []
+    for r in prod_records:
+        url, kind = r.get("url"), (r.get("kind") or "none")
+        if not url or kind == "none":
+            continue
+        pname = str(r.get("product", "")).lower()
+        if any(x in pname for x in CREATIVE_EXCLUDE):
+            continue
+        key = (r.get("io"), url)
+        if key in seen:
+            continue
+        seen.add(key)
+        ts = str(r.get("ts") or "")
+        year = ts[:4] if len(ts) >= 4 and ts[:4].isdigit() else str(r.get("start", ""))[-4:]
+        items.append({
+            "year": year,
+            "product": r.get("product"),
+            "campaign": r.get("campaign"),
+            "io": r.get("io"),
+            "url": url,
+            "kind": kind,
+            "start": r.get("start"),
+        })
+    items.sort(key=lambda i: (i["year"], str(i.get("start") or "")), reverse=True)
+    return items
+
+
+def _parse_gtm(value) -> dict | None:
+    """websites.json holds strings like 'AdOps: GTM-TG6FPR8M'."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    label, _, rest = s.partition(":")
+    if rest.strip():
+        return {"login": label.strip(), "id": rest.strip()}
+    return {"login": "", "id": s}
+
+
 def search_client(q: str, limit: int = 8) -> list[dict]:
     """Group products + website records by client for Client 360."""
     ql = (q or "").strip().lower()
@@ -119,11 +164,14 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
         return []
     groups: dict[str, dict] = {}
 
+    raw_by_group: dict[str, list[dict]] = {}
+
     for r in products():
         client = str(r.get("client", "")).strip()
         if not client or ql not in client.lower():
             continue
         g = groups.setdefault(client.lower(), {"client": client, "products": [], "websites": []})
+        raw_by_group.setdefault(client.lower(), []).append(r)
         g["products"].append({
             "product": r.get("product"),
             "io": r.get("io"),
@@ -169,4 +217,28 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
     out.sort(key=lambda g: (-len(g["products"]), str(g["client"]).lower()))
     for g in out:
         g["products"].sort(key=lambda p: (0 if str(p.get("status", "")).lower() == "live" else 1, str(p.get("product") or "")))
+
+        # ---- header extras: billing, dashboard link, Smart 1 Site flag ----
+        live = [p for p in g["products"] if str(p.get("status", "")).lower() == "live"]
+        g["billing_monthly"] = round(sum(_num(p.get("monthly")) for p in live))
+        g["dash_url"] = next(
+            (p.get("dash") for p in live if isinstance(p.get("dash"), str) and p["dash"].startswith("http")),
+            next((p.get("dash") for p in g["products"]
+                  if isinstance(p.get("dash"), str) and p["dash"].startswith("http")), None),
+        )
+        g["smart1_site"] = any(
+            "smart1" in str(w.get("platform", "")).replace(" ", "").lower() for w in g["websites"]
+        )
+
+        # ---- creative files + GTM containers ----
+        gkey = str(g["client"]).strip().lower()
+        g["creative"] = _creative_items(raw_by_group.get(gkey, []))[:24]
+        gtms, seen_gtm = [], set()
+        for w in g["websites"]:
+            parsed = _parse_gtm(w.get("gtm"))
+            if parsed and parsed["id"] not in seen_gtm:
+                seen_gtm.add(parsed["id"])
+                parsed["site"] = w.get("name") or w.get("domain")
+                gtms.append(parsed)
+        g["gtm_containers"] = gtms
     return out[:limit]

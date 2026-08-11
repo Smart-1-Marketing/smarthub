@@ -423,6 +423,30 @@ function showApp(name) {
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
   $('whoName').textContent = name || 'Unknown';
   loadSnapshots(); loadAccounts();
+  applyPrefill();
+}
+
+// ---------- Prefill from Client 360 ("Add to Smart 1 Suite") ----------
+let prefillDone = false;
+function applyPrefill() {
+  if (prefillDone) return;
+  const p = new URLSearchParams(location.search);
+  if (!p.get('prefill')) return;
+  prefillDone = true;
+  const map = { name: 'name', website: 'website', phone: 'phone', address: 'address',
+                city: 'city', state: 'state', postalCode: 'postalCode', country: 'country' };
+  for (const [param, id] of Object.entries(map)) {
+    const v = p.get(param);
+    if (v && $(id)) $(id).value = v;
+  }
+  const domain = p.get('domain');
+  if (domain && $('brandDomain')) {
+    $('brandDomain').value = domain;
+    // Pull logo, socials, and location automatically so the form arrives filled.
+    setTimeout(() => $('brandBtn').click(), 250);
+  }
+  const nameEl = $('name');
+  if (nameEl) nameEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 $('loginForm').addEventListener('submit', async (e) => {

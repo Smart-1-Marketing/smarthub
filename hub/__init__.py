@@ -262,11 +262,11 @@ def create_hub_app() -> Flask:
         # --- Knack data ---
         age = knack_data.data_age_hours()
         if age is None:
-            add("Knack data", "error", "clients_app/data/products.json not found.")
+            add("Smart 1 Team data", "error", "clients_app/data/products.json not found.")
         elif age > 48:
-            add("Knack data", "warn", f"Last refreshed {age / 24:.1f} days ago — run the refresh workflow.")
+            add("Smart 1 Team data", "warn", f"Last refreshed {age / 24:.1f} days ago — run the refresh workflow.")
         else:
-            add("Knack data", "ok", f"Refreshed {age:.0f}h ago · {len(knack_data.products())} product rows · {len(knack_data.websites())} sites.")
+            add("Smart 1 Team data", "ok", f"Refreshed {age:.0f}h ago · {len(knack_data.products())} product rows · {len(knack_data.websites())} sites.")
 
         # --- GHL ---
         token, company = os.environ.get("GHL_PRIVATE_TOKEN"), os.environ.get("GHL_COMPANY_ID")
@@ -290,15 +290,15 @@ def create_hub_app() -> Flask:
         # --- Simvoly ---
         skey = os.environ.get("SIMVOLY_API_KEY")
         if not skey:
-            add("Simvoly Platform API", "warn", "SIMVOLY_API_KEY is not set — Sites module runs limited/mock.")
+            add("Smart 1 Sites Platform API", "warn", "SIMVOLY_API_KEY is not set — Smart 1 Sites module runs limited/mock.")
         else:
             base = os.environ.get("SIMVOLY_API_BASE_URL", "https://api.smart1sites.com").rstrip("/")
             try:
                 r = _rq.get(f"{base}/api/v1/plans", headers={"X-CLIENT-KEY": skey, "Accept": "application/json"}, timeout=12)
-                add("Simvoly Platform API", "ok" if r.ok else "error",
+                add("Smart 1 Sites Platform API", "ok" if r.ok else "error",
                     "Key is valid — plan catalog reachable." if r.ok else f"Key check failed (HTTP {r.status_code}).")
             except Exception as exc:  # noqa: BLE001
-                add("Simvoly Platform API", "error", f"Could not reach Simvoly: {exc}")
+                add("Smart 1 Sites Platform API", "error", f"Could not reach Smart 1 Sites API: {exc}")
         add("Sites database", "ok" if os.environ.get("DATABASE_URL") else "warn",
             "DATABASE_URL configured." if os.environ.get("DATABASE_URL")
             else "DATABASE_URL not set — Sites inventory won't persist.")

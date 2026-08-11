@@ -14,10 +14,10 @@
     <a class="nav-item {% if active=='dashboard' %}active{% endif %}" href="/"><span class="ico">&#8962;</span> Dashboard</a>
     <a class="nav-item {% if active=='c360' %}active{% endif %}" href="/client360"><span class="ico">&#9678;</span> Client 360</a>
     <div class="sb-section">Modules</div>
-    <a class="nav-item" href="/clients"><span class="ico">&#9636;</span> Clients <span class="tag">Knack</span></a>
-    <a class="nav-item" href="/google/"><span class="ico">G</span> Google <span class="tag">GA4&middot;GTM</span></a>
-    <a class="nav-item" href="/sites/"><span class="ico">&#11041;</span> Sites <span class="tag">Simvoly</span></a>
-    <a class="nav-item" href="/suite/"><span class="ico">&#9635;</span> Suite <span class="tag">GHL</span></a>
+    <a class="nav-item" href="/clients"><span class="ico">&#9636;</span> Clients</a>
+    <a class="nav-item" href="/google/"><span class="ico">G</span> Google</a>
+    <a class="nav-item" href="/sites/"><span class="ico">&#11041;</span> Sites</a>
+    <a class="nav-item" href="/suite/"><span class="ico">&#9635;</span> Suite</a>
     <a class="nav-item {% if active=='tools' %}active{% endif %}" href="/tools"><span class="ico">&#10022;</span> Tools</a>
     <div class="sb-section">Admin</div>
     <a class="nav-item {% if active=='activity' %}active{% endif %}" href="/activity"><span class="ico">&#8801;</span> Activity Log</a>
@@ -28,7 +28,7 @@
     <div class="topbar">
       <form class="global-search" action="/client360" method="get">
         <span class="gs-ico">&#8981;</span>
-        <input name="q" placeholder="Search any client across Knack, Google, Sites &amp; Suite&hellip;" value="{{ q or '' }}">
+        <input name="q" placeholder="Search any client across Smart 1 Team, Google, Sites &amp; Suite&hellip;" value="{{ q or '' }}">
       </form>
       <div class="spacer"></div>
       <div class="chip"><div class="avatar">{{ (user or 'U')[0]|upper }}</div><span>{{ user }}</span></div>

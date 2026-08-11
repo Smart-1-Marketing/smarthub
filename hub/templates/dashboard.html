@@ -7,9 +7,8 @@
   <div class="kpi"><div class="k-label">Active Clients</div><div class="k-value" id="k-clients"><span class="spin"></span></div><div class="k-sub" id="k-clients-sub"></div></div>
   <div class="kpi"><div class="k-label">Live Products</div><div class="k-value" id="k-live">—</div><div class="k-sub" id="k-live-sub"></div></div>
   <div class="kpi"><div class="k-label">Live Budget / mo</div><div class="k-value" id="k-budget">—</div><div class="k-sub">across live IOs</div></div>
-  <div class="kpi"><div class="k-label">Websites</div><div class="k-value" id="k-webs">—</div><div class="k-sub" id="k-webs-sub"></div></div>
+  <div class="kpi"><div class="k-label">Active Websites</div><div class="k-value" id="k-webs">—</div><div class="k-sub" id="k-webs-sub"></div></div>
   <div class="kpi"><div class="k-label">H&amp;M Billing / mo</div><div class="k-value" id="k-hm">—</div><div class="k-sub">active sites</div></div>
-  <div class="kpi"><div class="k-label">GHL Sub-accounts</div><div class="k-value" id="k-ghl">—</div><div class="k-sub">Smart 1 Suite</div></div>
 </div>
 
 <div class="grid-2">
@@ -33,17 +32,13 @@ const fmt=n=>Number(n||0).toLocaleString();
 fetch('/api/summary').then(r=>r.json()).then(s=>{
   if(s.error){$('k-clients').textContent='—';return}
   $('k-clients').textContent=fmt(s.clients_live);
-  $('k-clients-sub').textContent=fmt(s.clients_total)+' total in Knack';
+  $('k-clients-sub').textContent=fmt(s.clients_total)+' total in Smart 1 Team';
   $('k-live').textContent=fmt(s.live_products);
   $('k-budget').textContent='$'+fmt(s.live_budget_monthly);
-  $('k-webs').textContent=fmt(s.websites_total);
-  $('k-webs-sub').textContent=fmt(s.websites_active)+' active';
+  $('k-webs').textContent=fmt(s.websites_active);
+  $('k-webs-sub').textContent=fmt(s.websites_total)+' total';
   $('k-hm').textContent='$'+fmt(s.hm_monthly);
 }).catch(()=>{$('k-clients').textContent='—'});
-
-fetch('/suite/api/locations?limit=1').then(r=>r.ok?r.json():null).then(d=>{
-  $('k-ghl').textContent=d&&typeof d.count==='number'?fmt(d.count):'—';
-}).catch(()=>{$('k-ghl').textContent='—'});
 
 fetch('/api/status').then(r=>r.json()).then(d=>{
   const rows=(d.checks||[]).map(c=>{
