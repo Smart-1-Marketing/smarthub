@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GMB Tools - Command Center</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="toast-container"></div>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="topline">
+        <div>
+          <h1>📍 Google Business Profile Tools</h1>
+          <p>Generate Google Maps audits, search listings, and claim locations instantly.</p>
+        </div>
+        <div class="auth">
+          <a class="btn" href="/login">+ Add Google Account</a>
+        </div>
+      </div>
+
+      <!-- TOP NAVIGATION MENU -->
+      <nav class="nav-anchor-bar">
+        <a href="/">🔍 Quick Search</a>
+        <a href="/ga-tools">📊 GA Tools</a>
+        <a href="/gtm-tools">⚡ GTM Tools</a>
+        <a href="/webmaster-tools">🌐 Webmaster Tools</a>
+        <a href="/gmb-tools" class="active-page">📍 GMB Tools</a>
+        <a href="/history">📜 History & Logs</a>
+      </nav>
+
+      <!-- MANUAL GMB CHECKER -->
+      <div id="manual-gmb" class="manual-lookup-card" style="margin-top:20px;">
+        <h3>Manual GMB & Claim Checker</h3>
+        <p>Type a business name, city, or website domain to generate quick audit and claim links:</p>
+        <div class="manual-input-group">
+          <input id="manual-q" autocomplete="off" placeholder="e.g., Buckeye Lake Winery or buckeyelakewinery.com">
+          <button id="manual-btn" class="btn">Generate Links</button>
+        </div>
+        <div id="manual-results"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

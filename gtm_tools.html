@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GTM Tools - Command Center</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="toast-container"></div>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="topline">
+        <div>
+          <h1>⚡ Google Tag Manager Tools</h1>
+          <p>Analyze web pages, auto-generate GA4 event tags, and deploy tracking pixels into GTM workspaces.</p>
+        </div>
+        <div class="auth">
+          <a class="btn" href="/login">+ Add Google Account</a>
+        </div>
+      </div>
+
+      <!-- CLEAN NAVIGATION MENU -->
+      <nav class="nav-anchor-bar">
+        <a href="/">🔍 Quick Search</a>
+        <a href="/ga-tools">📊 GA Tools</a>
+        <a href="/gtm-tools" class="active-page">⚡ GTM Tools</a>
+        <a href="/webmaster-tools">🌐 Webmaster Tools</a>
+        <a href="/gmb-tools">📍 GMB Tools</a>
+        <a href="/history">📜 History & Logs</a>
+      </nav>
+
+      <!-- STANDALONE GTM LOOKUP & AUTO-POPULATE BAR -->
+      <div class="manual-lookup-card" style="margin-top:20px; background:#eaf2ff; border-color:#b8d2f8;">
+        <h3 style="color:#1a2e58;">🔍 Find GTM Container & Auto-Populate Tools</h3>
+        <p style="color:#24519c;">Type a client name or public GTM ID to load container parameters directly into the forms below:</p>
+        <div class="manual-input-group">
+          <input id="gtm-lookup-q" placeholder="Type client name or container ID (e.g. GTM-XXXXXX)...">
+          <button id="gtm-lookup-btn" class="btn" style="background:#24519c!important;">Search GTM Accounts</button>
+        </div>
+        <div id="gtm-lookup-results" style="margin-top:10px;"></div>
+      </div>
+
+      <!-- AI GTM EVENT GENERATOR -->
+      <div id="gtm-generator" class="manual-lookup-card" style="margin-top:20px;">
+        <h3>⚡ AI Site Analysis & GTM Event Auto-Generator</h3>
+        <p>Type a website or landing page URL to analyze elements and generate GTM tracking events:</p>
+        <div class="manual-input-group">
+          <input id="gtm-gen-url" autocomplete="off" placeholder="e.g. https://buckeyelakewinery.com/contact">
+          <button id="gtm-gen-btn" class="btn">Analyze Page Elements</button>
+        </div>
+        <div id="gtm-gen-results" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- CUSTOM TRACKING PIXEL UPLOADER -->
+      <div id="pixel-uploader" class="manual-lookup-card" style="margin-top:20px;">
+        <h3>📌 Custom Tracking Pixel & Code Uploader for GTM</h3>
+        <p>Paste third-party script tags (Meta Pixel, LinkedIn, TikTok, or Custom JS) to deploy directly into a GTM container:</p>
+        
+        <div class="comp-grid">
+          <div>
+            <label>Target Account Email:</label>
+            <input id="pixel-login" placeholder="e.g. adops@smart1marketing.com">
+          </div>
+          <div>
+            <label>GTM Account ID:</label>
+            <input id="pixel-account-id" placeholder="e.g. 9876543">
+          </div>
+          <div>
+            <label>GTM Internal Container ID:</label>
+            <input id="pixel-container-id" placeholder="e.g. 12345678">
+          </div>
+          <div>
+            <label>Tag Name in GTM:</label>
+            <input id="pixel-tag-name" placeholder="e.g. Meta Base Pixel Script">
+          </div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <label style="display:block; font-size:12px; font-weight:700; color:#1a2e58; margin-bottom:4px;">Paste Script / Pixel HTML Code:</label>
+          <textarea id="pixel-code-input" rows="5" placeholder="<script>&#10;  !function(f,b,e,v,n,t,s)...&#10;</script>" style="width:100%; font-size:12px; font-family:monospace; padding:8px; border:1px solid #ccd6e5; border-radius:6px;"></textarea>
+        </div>
+
+        <button id="btn-deploy-pixel" class="btn" style="margin-top:12px; background:#24519c!important;">Deploy Custom Pixel to GTM Workspace</button>
+        <div id="pixel-deploy-results" style="margin-top:10px;"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

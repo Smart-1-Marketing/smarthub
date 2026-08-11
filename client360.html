@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Client 360 — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head"><h2>Client 360</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
+
+<form class="c360-search" onsubmit="run();return false">
+  <input id="q" placeholder="Type a client name or domain…" value="{{ q or '' }}" autofocus>
+  <button class="btn-primary" type="submit">Search</button>
+</form>
+<div id="picker" class="c360-picker" style="display:none"></div>
+<div id="results"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money=v=>{const n=Number(String(v??'').replace(/[$,]/g,''));return isFinite(n)&&n?'$'+n.toLocaleString():esc(v??'—')};
+let groups=[];
+
+const KIND_ICON={gdrive:'&#128193; Drive',pdf:'&#128462; PDF',dropbox:'&#128230; Dropbox',image:'&#128444; Image',file:'&#128206; File'};
+
+// Google Finder functions attached to each Google result.
+function googleTools(platform,name){
+  const q=encodeURIComponent(name||'');
+  const P=String(platform||'');
+  if(P==='Google Analytics') return [
+    ['GA4 Tools','/google/ga-tools?q='+q],['Compare / AI analysis','/google/ga-tools?q='+q+'#compare'],['Reports','/google/history?q='+q]];
+  if(P==='Google Tag Manager') return [
+    ['GTM Tools','/google/gtm-tools?q='+q],['Inspect container','/google/gtm-tools?q='+q+'#inspect'],['GTM Logs','/google/gtm-logs?q='+q]];
+  if(P==='Search Console') return [['Webmaster Tools','/google/webmaster-tools?q='+q]];
+  if(P==='Google Business Profile') return [['GMB Tools','/google/gmb-tools?q='+q]];
+  return [['Open Google Finder','/google/?q='+q]];
+}
+const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href="${h}">${t} →</a>`).join('')+'</div>';
+
+async function run(){
+  const q=$('q').value.trim();
+  if(!q){return}
+  history.replaceState(null,'','/client360?q='+encodeURIComponent(q));
+  $('picker').style.display='none';
+  $('results').innerHTML='<div class="empty">Searching all systems… <span class="spin"></span></div>';
+  const d=await fetch('/api/c360?q='+encodeURIComponent(q)).then(r=>r.json()).catch(()=>({groups:[]}));
+  groups=d.groups||[];
+  if(!groups.length){ $('results').innerHTML='<div class="empty">No Smart 1 Team / website match — showing live systems only.</div>'; render({client:q,products:[],websites:[],creative:[],gtm_containers:[]},q); return; }
+  if(groups.length>1){
+    $('picker').style.display='flex';
+    $('picker').innerHTML=groups.map((g,i)=>`<button class="${i===0?'sel':''}" onclick="pick(${i})">${esc(g.client)} <span class="muted">(${g.products.length} IOs)</span></button>`).join('');
+  }
+  render(groups[0],q);
+}
+function pick(i){
+  document.querySelectorAll('#picker button').forEach((b,j)=>b.classList.toggle('sel',j===i));
+  render(groups[i],$('q').value.trim());
+}
+
+function render(g,q){
+  const name=g.client||q;
+  const liveCount=g.products.filter(p=>String(p.status||'').toLowerCase()==='live').length;
+  const web0=(g.websites||[])[0]||null;
+
+  // ---------- header: Smart 1 Site badge · active billing · dashboard link ----------
+  let head=`
+  <div class="c360-head" style="display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap">
+    <div class="avatar" style="width:52px;height:52px;border-radius:12px;font-size:20px">${esc(name[0]||'?').toUpperCase()}</div>
+    <div><h3 style="font-size:19px;color:var(--navy)">${esc(name)}</h3>
+    <div class="muted" style="font-size:13px">${g.products[0]?('Salesperson: '+esc(g.products[0].sales||'—')+' · Partner: '+esc(g.products[0].partner||'—')):''}</div></div>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">`;
+  if(g.smart1_site) head+=`<span class="pill info" style="font-size:12.5px;padding:5px 12px">&#11041; Smart 1 Site</span>`;
+  if(g.billing_monthly) head+=`<span class="pill ok" style="font-size:12.5px;padding:5px 12px">Active billing: ${money(g.billing_monthly)}/mo</span>`;
+  if(liveCount) head+=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px">${liveCount} live product${liveCount>1?'s':''}</span>`;
+  if(g.dash_url) head+=`<a class="btn-primary" style="padding:8px 16px;font-size:13px;text-decoration:none" href="${esc(g.dash_url)}" target="_blank" rel="noopener">Smart 1 Dashboard →</a>`;
+  head+='</div></div>';
+
+  let html=head+'<div class="grid-2">';
+
+  // ---------- Smart 1 Team: products & IOs ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs</h3><a class="open-link" href="/clients">Open in Clients →</a></div><div class="card-b flush">`;
+  if(g.products.length){
+    html+='<table><thead><tr><th>Product</th><th>Status</th><th>Monthly</th><th>IO</th></tr></thead><tbody>';
+    g.products.slice(0,10).forEach(p=>{
+      const live=String(p.status||'').toLowerCase()==='live';
+      html+=`<tr><td><b>${esc(p.product||'—')}</b>${p.dash?' <span class="pill info">dash</span>':''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td><td class="muted">${esc(p.io||'')}</td></tr>`;
+    });
+    html+='</tbody></table>';
+    if(g.products.length>10)html+=`<div class="empty">+${g.products.length-10} more in the Clients module</div>`;
+  } else html+='<div class="empty">No Smart 1 Team IOs matched.</div>';
+  html+='</div></div>';
+
+  // ---------- Creative Information (replaces the old website-record spot) ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Creative Information</h3><a class="open-link" href="/clients">Open in Clients →</a></div><div class="card-b flush">`;
+  const cre=g.creative||[];
+  if(cre.length){
+    html+='<table><thead><tr><th>Year</th><th>Product / Campaign</th><th>IO</th><th>Creative</th></tr></thead><tbody>';
+    let lastYear='';
+    cre.slice(0,12).forEach(c=>{
+      const y=c.year&&c.year!==lastYear?c.year:''; if(c.year)lastYear=c.year;
+      html+=`<tr><td><b>${esc(y)}</b></td><td>${esc(c.product||'—')}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="${esc(c.url)}" target="_blank" rel="noopener">${KIND_ICON[c.kind]||'&#128206; File'} →</a></td></tr>`;
+    });
+    html+='</tbody></table>';
+    if(cre.length>12)html+=`<div class="empty">+${cre.length-12} more creative files in the Clients module</div>`;
+  } else html+='<div class="empty">No creative files on record.</div>';
+  html+='</div></div>';
+
+  // ---------- Google card ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="/google/">Open Google Finder →</a></div><div class="card-b" id="c-google"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+
+  // ---------- GTM Containers (replaces the old Simvoly box) ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GTM Containers</h3><a class="open-link" href="/google/gtm-tools">Open GTM Tools →</a></div><div class="card-b">`;
+  const gtms=g.gtm_containers||[];
+  if(gtms.length){
+    gtms.forEach(t=>{
+      html+=`<div style="padding:9px 0;border-bottom:1px solid var(--line-soft)">
+        <b>${esc(t.id)}</b>${t.login?' <span class="pill warn">'+esc(t.login)+'</span>':''}
+        <div class="muted" style="font-size:12px;margin-top:2px">${esc(t.site||'')}</div>
+        ${gbtns([['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(t.id)],['Inspect','/google/gtm-tools?q='+encodeURIComponent(t.id)+'#inspect'],['Logs','/google/gtm-logs?q='+encodeURIComponent(t.id)]])}
+      </div>`;
+    });
+  } else html+='<div class="empty">No GTM container on record for this client.</div>';
+  html+='</div></div>';
+
+  // ---------- Smart 1 Suite Account ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Website record (moved to the bottom) ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="/clients">Open in Websites →</a></div><div class="card-b" style="display:flex;gap:36px;flex-wrap:wrap">`;
+  if(g.websites&&g.websites.length){
+    g.websites.slice(0,3).forEach(w=>{
+      html+=`<div style="flex:1;min-width:280px"><dl class="kv">
+        <dt>Site</dt><dd>${esc(w.name||'—')}</dd>
+        <dt>Domain</dt><dd>${w.domain?`<a href="https://${esc(w.domain)}" target="_blank" rel="noopener">${esc(w.domain)}</a>`:'—'}${w.domainPurchased?' <span class="pill info">we purchased</span>':''}</dd>
+        <dt>Platform</dt><dd>${esc((w.platform||'—').replace(/Smart1Sites/i,'Smart 1 Sites'))}</dd>
+        <dt>Status</dt><dd><span class="pill ${String(w.status||'').toLowerCase()==='active'?'ok':'neutral'}">${esc(w.status||'—')}</span></dd>
+        <dt>H&amp;M</dt><dd>${w.hmMonthly?money(w.hmMonthly)+' / mo':'—'}</dd>
+        ${w.ga?`<dt>GA4</dt><dd>${esc(w.ga)}</dd>`:''}
+        ${w.gtm?`<dt>GTM</dt><dd>${esc(w.gtm)}</dd>`:''}
+      </dl>`;
+      const links=[];
+      if(w.ga)links.push(['GA4 Tools','/google/ga-tools?q='+encodeURIComponent(w.ga)]);
+      if(w.gtm)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(w.gtm)]);
+      if(links.length)html+=gbtns(links);
+      html+='</div>';
+    });
+  } else html+='<div class="empty" style="flex:1">No website record matched.</div>';
+  html+='</div></div>';
+
+  html+='</div>';
+  $('results').innerHTML=html;
+
+  const term=(name||q);
+
+  // Google Finder live search
+  fetch('/google/api/search?q='+encodeURIComponent(term)).then(async r=>{
+    if(r.status===401){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';return}
+    const d=await r.json();
+    const res=(d.results||[]).slice(0,8);
+    if(!res.length){$('c-google').innerHTML='<div class="empty">No GA4/GTM matches for “'+esc(term)+'”.</div>';return}
+    $('c-google').innerHTML=res.map(it=>`
+      <div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
+        <b>${esc(it.name||'—')}</b> <span class="pill ${it.platform==='Google Analytics'?'info':'warn'}">${esc(it.platform||'')}</span>
+        <div class="muted" style="font-size:12px;margin-top:2px">${esc(it.resource_id||'')} · ${esc(it.google_login||'')}</div>
+        ${gbtns(googleTools(it.platform,it.name))}
+      </div>`).join('');
+  }).catch(()=>{$('c-google').innerHTML='<div class="empty">Google module unavailable.</div>'});
+
+  // Smart 1 Suite account — with prefilled "Add" when there's no match.
+  const addBtn=()=>{
+    const p=new URLSearchParams({prefill:'1',name:name});
+    if(web0&&web0.domain){p.set('website','https://'+web0.domain);p.set('domain',web0.domain);}
+    return `<div class="empty">No Smart 1 Suite account yet.<br><br>
+      <a class="btn-primary" style="padding:9px 18px;font-size:13.5px;text-decoration:none" href="/suite/?${p.toString()}">+ Add to Smart 1 Suite</a>
+      <div class="muted" style="font-size:12px;margin-top:8px">Opens the Suite create form pre-filled with this client's details${web0&&web0.domain?' — brand info auto-fetched from '+esc(web0.domain):''}.</div></div>`;
+  };
+  fetch('/suite/api/locations?limit=6&search='+encodeURIComponent(term)).then(async r=>{
+    if(!r.ok){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
+    const d=await r.json();
+    const res=d.locations||[];
+    if(!res.length){$('c-ghl').innerHTML=addBtn();return}
+    $('c-ghl').innerHTML='<table><thead><tr><th>Account</th><th>City</th><th>Email</th><th></th></tr></thead><tbody>'+
+      res.map(l=>`<tr><td><b>${esc(l.name||'—')}</b></td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td><td><a class="open-link" href="/suite/">Manage →</a></td></tr>`).join('')+'</tbody></table>';
+  }).catch(()=>{$('c-ghl').innerHTML='<div class="empty">Suite module unavailable.</div>'});
+}
+
+{% if q %}run();{% endif %}
+</script>
+{% endblock %}

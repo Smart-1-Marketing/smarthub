@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ row.project.name }} · Smart 1 Sites Admin{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><a class="back" href="{{ url_for('dashboard') }}">← All sites</a><h1>{{ row.project.name }}</h1><p class="muted">Project ID {{ row.project.id }}</p></div>
+  <span class="status large {{ row.project.status|lower }}">{{ row.project.status|title }}</span>
+</div>
+<div class="detail-grid">
+  <section class="card">
+    <h2>Account</h2>
+    <dl><dt>Domain</dt><dd>{{ row.project.domain or '—' }}</dd><dt>Owner</dt><dd>{{ row.project.owner_email or '—' }}</dd><dt>Plan</dt><dd>{{ row.plan|title }}</dd><dt>Created</dt><dd>{{ row.project.created_at or '—' }}</dd></dl>
+  </section>
+  <section class="card">
+    <h2>Pricing</h2>
+    <div class="price-line"><span>Simvoly wholesale</span><strong>{{ money(row.cost) }}/mo</strong></div>
+    <div class="price-line"><span>Client price</span><strong>{{ money(row.retail) }}{% if row.retail is not none %}/mo{% endif %}</strong></div>
+    <div class="price-line total"><span>Gross margin</span><strong>{{ money(row.margin) }}{% if row.margin_pct is not none %} · {{ '%.1f'|format(row.margin_pct) }}%{% endif %}</strong></div>
+  </section>
+</div>
+<section class="card">
+  <h2>Internal Pricing & Notes</h2>
+  <form method="post" action="{{ url_for('update_pricing', project_id=row.project.id) }}" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ session.get('csrf','') }}">
+    <div class="grid2"><label>Internal Client Name<input name="internal_client_name" value="{{ row.meta.get('internal_client_name','') }}"></label><label>Client Price / month<input type="number" min="0" step="0.01" name="retail_price" value="{{ row.meta.get('retail_price','') if row.meta.get('retail_price') is not none else '' }}"></label></div>
+    <label>Notes<textarea name="notes" rows="4">{{ row.meta.get('notes','') }}</textarea></label>
+    <div><button class="btn primary" type="submit">Save Pricing</button></div>
+  </form>
+</section>
+<section class="card danger-zone">
+  <h2>Site Controls</h2><p class="muted">Suspend is intended to be reversible. Cancel should only be used when service is ending.</p>
+  <div class="action-row">
+    <form method="post" action="{{ url_for('action_site', project_id=row.project.id, action='suspend') }}"><input type="hidden" name="csrf_token" value="{{ session.get('csrf','') }}"><button class="btn warning" type="submit">Suspend Site</button></form>
+    <form method="post" action="{{ url_for('action_site', project_id=row.project.id, action='reactivate') }}"><input type="hidden" name="csrf_token" value="{{ session.get('csrf','') }}"><button class="btn secondary" type="submit">Reactivate Site</button></form>
+  </div>
+  <hr>
+  <form method="post" action="{{ url_for('action_site', project_id=row.project.id, action='cancel') }}" class="cancel-form" onsubmit="return confirm('Cancel this Simvoly site? This action may end service depending on your configured endpoint.');">
+    <input type="hidden" name="csrf_token" value="{{ session.get('csrf','') }}">
+    <label>Type <strong>CANCEL</strong> to confirm<input name="confirm" autocomplete="off" required></label>
+    <button class="btn danger" type="submit">Cancel Site</button>
+  </form>
+</section>
+{% endblock %}

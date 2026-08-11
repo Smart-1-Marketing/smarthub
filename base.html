@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Smart 1 Hub{% endblock %}</title>
+<link rel="stylesheet" href="/assets/hub.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="sidebar">
+    <div class="sb-logo"><div class="logo-mark">S1</div><span>Smart 1 Hub</span></div>
+    <div class="sb-section">Overview</div>
+    <a class="nav-item {% if active=='dashboard' %}active{% endif %}" href="/"><span class="ico">&#8962;</span> Dashboard</a>
+    <a class="nav-item {% if active=='c360' %}active{% endif %}" href="/client360"><span class="ico">&#9678;</span> Client 360</a>
+    <div class="sb-section">Modules</div>
+    <a class="nav-item" href="/clients"><span class="ico">&#9636;</span> Clients</a>
+    <a class="nav-item" href="/google/"><span class="ico">G</span> Google</a>
+    <a class="nav-item" href="/sites/"><span class="ico">&#11041;</span> Sites</a>
+    <a class="nav-item" href="/suite/"><span class="ico">&#9635;</span> Suite</a>
+    <a class="nav-item {% if active=='tools' %}active{% endif %}" href="/tools"><span class="ico">&#10022;</span> Tools</a>
+    <div class="sb-section">Admin</div>
+    <a class="nav-item {% if active=='activity' %}active{% endif %}" href="/activity"><span class="ico">&#8801;</span> Activity Log</a>
+    <a class="nav-item {% if active=='status' %}active{% endif %}" href="/status"><span class="ico">&#9825;</span> System Status</a>
+    <div class="sb-foot">Signed in as <b style="color:#fff">{{ user }}</b><br><a href="/logout" style="color:#7d8db2">Log out</a></div>
+  </nav>
+  <div class="main">
+    <div class="topbar">
+      <form class="global-search" action="/client360" method="get">
+        <span class="gs-ico">&#8981;</span>
+        <input name="q" placeholder="Search any client across Smart 1 Team, Google, Sites &amp; Suite&hellip;" value="{{ q or '' }}">
+      </form>
+      <div class="spacer"></div>
+      <div class="chip"><div class="avatar">{{ (user or 'U')[0]|upper }}</div><span>{{ user }}</span></div>
+    </div>
+    <div class="page">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

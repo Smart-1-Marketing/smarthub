@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Status — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head"><h2>System Status</h2><p>Live checks of every key, token &amp; connection the Hub depends on</p></div>
+<div class="card">
+  <div class="card-h"><h3>Diagnostics</h3><div class="right"><button class="btn-ghost" onclick="load()">&#8635; Run checks</button></div></div>
+  <div class="card-b flush"><table id="checks"><tbody><tr><td class="empty">Running live checks… <span class="spin"></span></td></tr></tbody></table></div>
+</div>
+<div class="card">
+  <div class="card-h"><h3>Suite (GHL) deep diagnostics</h3><div class="right"><a class="open-link" href="/suite/">Open Suite →</a></div></div>
+  <div class="card-b"><p class="muted" style="font-size:13px">The Suite module has its own Status tab that additionally live-checks snapshot scope and media-upload scope on your GHL token.</p></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function load(){
+  document.getElementById('checks').innerHTML='<tbody><tr><td class="empty">Running live checks… <span class="spin"></span></td></tr></tbody>';
+  const d=await fetch('/api/status').then(r=>r.json());
+  const rows=(d.checks||[]).map(c=>{
+    const cls=c.status==='ok'?'ok':(c.status==='warn'?'warn':(c.status==='skipped'?'neutral':'err'));
+    return `<tr><td style="width:240px"><b>${esc(c.name)}</b></td><td style="width:90px"><span class="pill ${cls}">${esc(c.status)}</span></td><td class="muted">${esc(c.message)}</td></tr>`;
+  }).join('');
+  document.getElementById('checks').innerHTML='<thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>'+rows+'</tbody>';
+}
+load();
+</script>
+{% endblock %}

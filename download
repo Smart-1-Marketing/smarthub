@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+data/
+flask_session/
+*.sqlite3
+*.db
+.DS_Store
