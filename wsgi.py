@@ -171,6 +171,25 @@ if sites:
             _s["authenticated"] = True
             _s.setdefault("csrf", secrets.token_urlsafe(24))
 
+    @sites.app.errorhandler(Exception)
+    def _sites_show_error(exc):
+        """Internal tool behind Hub auth — show the real error instead of a
+        blank 500 so problems (DB, API, config) are self-diagnosing."""
+        import traceback
+        from werkzeug.exceptions import HTTPException
+        if isinstance(exc, HTTPException):
+            return exc
+        tb = traceback.format_exc()
+        return (
+            "<html><body style='font-family:system-ui;padding:40px;max-width:900px'>"
+            "<h2 style='color:#1a2e58'>Sites module error</h2>"
+            f"<p style='color:#dc2626;font-weight:600'>{type(exc).__name__}: {exc}</p>"
+            f"<pre style='background:#f4f6fa;padding:14px;border-radius:8px;"
+            f"white-space:pre-wrap;font-size:12px'>{tb}</pre>"
+            "<p><a href='/sites/'>Back to Sites</a> · <a href='/status'>System Status</a></p>"
+            "</body></html>", 500,
+        )
+
 img, img_fb = _try_load("img_app", ("modules", "image_optimizer", "app.py"), "Image Optimizer")
 pdf, pdf_fb = _try_load("pdf_app", ("modules", "pdf_optimizer", "app.py"), "PDF Optimizer")
 suite, suite_fb = _try_load("suite_app", ("modules", "suite_panel", "app.py"), "Suite Control Panel")

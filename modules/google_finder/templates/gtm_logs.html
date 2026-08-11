@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>GTM Audit Logs - Command Center</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/google/static/style.css">
 </head>
 <body>
   <main class="wrap">
@@ -15,7 +15,7 @@
           <p>Full date-stamped audit history of all tags, triggers, and deployments executed through the platform.</p>
         </div>
         <div class="auth">
-          <a class="btn" href="/" style="background:#1a2e58!important;">← Back to Main Dashboard</a>
+          <a class="btn" href="/google/" style="background:#1a2e58!important;">← Back to Main Dashboard</a>
         </div>
       </div>
 
@@ -38,7 +38,7 @@
       const listEl = document.getElementById('gtm-logs-list');
       listEl.innerHTML = '<span style="font-size:13px; color:#1a2e58;">Loading audit logs...</span>';
 
-      const resp = await fetch(`/api/gtm/logs/search?q=${encodeURIComponent(query)}`);
+      const resp = await fetch(`/google/api/gtm/logs/search?q=${encodeURIComponent(query)}`);
       const data = await resp.json();
       
       if (!data.logs || !data.logs.length) {

@@ -33,7 +33,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (statusEl) {
     statusEl.innerHTML = `${svgSpinner} <span>Auto-refreshing Google accounts in background...</span>`;
     try {
-      const r = await fetch('/api/refresh', { method: 'POST' });
+      const r = await fetch('/google/api/refresh', { method: 'POST' });
       const data = await r.json();
       statusEl.textContent = `Google accounts refreshed (${data.count || 0} assets indexed). Start typing above to search...`;
     } catch (err) {
@@ -131,7 +131,7 @@ function draw(items) {
 
   document.querySelectorAll('.btn-auto-all').forEach(btn => {
     btn.addEventListener('click', () => {
-      window.location.href = `/ga-tools?id=${encodeURIComponent(btn.dataset.id)}&login=${encodeURIComponent(btn.dataset.login)}`;
+      window.location.href = `/google/ga-tools?id=${encodeURIComponent(btn.dataset.id)}&login=${encodeURIComponent(btn.dataset.login)}`;
     });
   });
 
@@ -148,7 +148,7 @@ function draw(items) {
       modal.style.display = 'flex';
       body.innerHTML = renderSkeletonCard();
 
-      const resp = await fetch('/api/gtm/inspect', {
+      const resp = await fetch('/google/api/gtm/inspect', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ account_id, container_id, google_login })
@@ -206,7 +206,7 @@ async function search() {
 
   statusEl.innerHTML = `${svgSpinner} <span>Searching all connected Google accounts…</span>`;
 
-  const r = await fetch(`/api/search?q=${encodeURIComponent(value)}&platform=${encodeURIComponent(platform)}`);
+  const r = await fetch(`/google/api/search?q=${encodeURIComponent(value)}&platform=${encodeURIComponent(platform)}`);
   const data = await r.json();
   if (!r.ok) {
     statusEl.textContent = data.error || 'Search failed.';
@@ -235,7 +235,7 @@ if (gtmLookupBtn && gtmLookupInput) {
     if (!query) return;
 
     gtmLookupResults.innerHTML = renderSkeletonCard();
-    const r = await fetch(`/api/search?q=${encodeURIComponent(query)}&platform=gtm`);
+    const r = await fetch(`/google/api/search?q=${encodeURIComponent(query)}&platform=gtm`);
     const data = await r.json();
 
     if (data.results && data.results.length) {
@@ -275,7 +275,7 @@ if (gscLookupBtn && gscLookupInput) {
     if (!query) return;
 
     gscLookupResults.innerHTML = renderSkeletonCard();
-    const r = await fetch(`/api/search?q=${encodeURIComponent(query)}&platform=gsc`);
+    const r = await fetch(`/google/api/search?q=${encodeURIComponent(query)}&platform=gsc`);
     const data = await r.json();
 
     if (data.results && data.results.length) {
@@ -325,11 +325,11 @@ if (btnOpenDiagnostics) {
 
     try {
       const [healthRes, debugRes] = await Promise.all([
-        fetch('/health').then(async r => {
+        fetch('/google/health').then(async r => {
           const text = await r.text();
           try { return JSON.parse(text); } catch(e) { return { ok: false, error: text }; }
         }),
-        fetch('/debug/accounts').then(async r => {
+        fetch('/google/debug/accounts').then(async r => {
           const text = await r.text();
           try { return JSON.parse(text); } catch(e) { return { error: text, diagnostics: [] }; }
         })
@@ -409,7 +409,7 @@ if (btnRunGscBulk) {
 
     gscBulkResults.innerHTML = '<span style="font-size:13px; color:#1a2e58;">Executing bulk deployment across Search Console...</span>';
 
-    const resp = await fetch('/api/gsc/bulk-add', {
+    const resp = await fetch('/google/api/gsc/bulk-add', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ google_login, entries })
@@ -453,7 +453,7 @@ if (btnDeployPixel) {
 
     pixelResults.innerHTML = renderSkeletonCard();
 
-    const resp = await fetch('/api/gtm/deploy-pixel', {
+    const resp = await fetch('/google/api/gtm/deploy-pixel', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
@@ -487,7 +487,7 @@ if (gtmGenBtn && gtmGenUrlInput) {
 
     gtmGenResults.innerHTML = renderSkeletonCard();
 
-    const resp = await fetch('/api/gtm/generate-events', {
+    const resp = await fetch('/google/api/gtm/generate-events', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ url })
@@ -526,7 +526,7 @@ if (gtmGenBtn && gtmGenUrlInput) {
         btn.disabled = true;
         btn.textContent = 'Deploying…';
 
-        const deployResp = await fetch('/api/gtm/deploy-event', {
+        const deployResp = await fetch('/google/api/gtm/deploy-event', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
@@ -573,7 +573,7 @@ if (askBtn && askInput) {
 
     askResults.innerHTML = renderSkeletonCard();
 
-    const resp = await fetch('/api/ga4/ask', {
+    const resp = await fetch('/google/api/ga4/ask', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ property_id, google_login, question })
@@ -649,7 +649,7 @@ const refresh = document.getElementById('refresh');
 if (refresh) refresh.addEventListener('click', async () => {
   refresh.disabled = true;
   refresh.textContent = 'Refreshing…';
-  const r = await fetch('/api/refresh', {method:'POST'});
+  const r = await fetch('/google/api/refresh', {method:'POST'});
   const data = await r.json();
   refresh.textContent = `Refreshed ${data.count || 0} records`;
   showToast(`Refreshed ${data.count || 0} Google records!`, 'success');
@@ -659,7 +659,7 @@ if (refresh) refresh.addEventListener('click', async () => {
 
 document.querySelectorAll('.disconnect').forEach(btn => btn.addEventListener('click', async () => {
   const email = btn.dataset.email;
-  const r = await fetch(`/disconnect/${encodeURIComponent(email)}`, {method:'POST'});
+  const r = await fetch(`/google/disconnect/${encodeURIComponent(email)}`, {method:'POST'});
   if (r.ok) window.location.reload();
 }));
 
@@ -698,7 +698,7 @@ if (runCompBtn) {
     const resBox = document.getElementById('ai-comp-results');
     resBox.innerHTML = renderSkeletonCard();
 
-    const resp = await fetch('/api/ga4/compare', {
+    const resp = await fetch('/google/api/ga4/compare', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
@@ -872,7 +872,7 @@ async function fetchSavedReports(query='') {
   const listEl = document.getElementById('saved-reports-list');
   if (!listEl) return;
 
-  const resp = await fetch(`/api/reports/search?q=${encodeURIComponent(query)}`);
+  const resp = await fetch(`/google/api/reports/search?q=${encodeURIComponent(query)}`);
   const data = await resp.json();
   
   if (!data.reports || !data.reports.length) {
@@ -904,7 +904,7 @@ async function fetchGtmLogs(query='') {
   const listEl = document.getElementById('gtm-logs-list');
   if (!listEl) return;
 
-  const resp = await fetch(`/api/gtm/logs/search?q=${encodeURIComponent(query)}`);
+  const resp = await fetch(`/google/api/gtm/logs/search?q=${encodeURIComponent(query)}`);
   const data = await resp.json();
   
   if (!data.logs || !data.logs.length) {

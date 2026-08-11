@@ -25,9 +25,9 @@ function googleTools(platform,name){
   const q=encodeURIComponent(name||'');
   const P=String(platform||'');
   if(P==='Google Analytics') return [
-    ['GA4 Tools','/google/ga-tools?q='+q],['Compare / AI analysis','/google/ga-tools?q='+q+'#compare'],['Reports','/google/history?q='+q]];
+    ['GA4 Tools','/google/ga-tools?q='+q],['Compare / AI analysis','/google/ga-tools?q='+q+'#compare'],['History & Logs','/google/history?q='+q]];
   if(P==='Google Tag Manager') return [
-    ['GTM Tools','/google/gtm-tools?q='+q],['Inspect container','/google/gtm-tools?q='+q+'#inspect'],['GTM Logs','/google/gtm-logs?q='+q]];
+    ['GTM Tools','/google/gtm-tools?q='+q],['Inspect container','/google/gtm-tools?q='+q+'#inspect'],['History & Logs','/google/history?q='+q]];
   if(P==='Search Console') return [['Webmaster Tools','/google/webmaster-tools?q='+q]];
   if(P==='Google Business Profile') return [['GMB Tools','/google/gmb-tools?q='+q]];
   return [['Open Google Finder','/google/?q='+q]];
@@ -113,7 +113,7 @@ function render(g,q){
       html+=`<div style="padding:9px 0;border-bottom:1px solid var(--line-soft)">
         <b>${esc(t.id)}</b>${t.login?' <span class="pill warn">'+esc(t.login)+'</span>':''}
         <div class="muted" style="font-size:12px;margin-top:2px">${esc(t.site||'')}</div>
-        ${gbtns([['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(t.id)],['Inspect','/google/gtm-tools?q='+encodeURIComponent(t.id)+'#inspect'],['Logs','/google/gtm-logs?q='+encodeURIComponent(t.id)]])}
+        ${gbtns([['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(t.id)],['Inspect','/google/gtm-tools?q='+encodeURIComponent(t.id)+'#inspect'],['History & Logs','/google/history?q='+encodeURIComponent(t.id)]])}
       </div>`;
     });
   } else html+='<div class="empty">No GTM container on record for this client.</div>';
