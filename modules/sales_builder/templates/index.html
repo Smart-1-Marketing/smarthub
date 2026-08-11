@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart 1 Sales Builder — Proposals &amp; Insertion Orders</title>
+<style>
+  :root{--navy:#14284b;--blue:#1f63ae;--blue2:#2A6FDB;--sky:#eaf2fa;--soft:#EAF1FC;--accent:#e5a323;
+    --ink:#1d2a3a;--muted:#66758a;--line:#d5dee9;--bg:#f3f6f9;--white:#fff;--good:#178653;--bad:#c0392b;
+    --shadow:0 10px 30px rgba(20,40,75,.10)}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45}
+  a{color:var(--blue)}
+  .topbar{position:sticky;top:0;z-index:60;background:var(--navy);color:#fff}
+  .topbar .wrap{max-width:1240px;margin:0 auto;padding:13px 22px;display:flex;align-items:center;gap:16px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:16px;cursor:pointer}
+  .brand .dot{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--blue2),#6da8ee);display:grid;place-items:center;font-size:13px;font-weight:800}
+  .brand small{display:block;font-weight:600;font-size:10.5px;color:#9fb6d8;letter-spacing:1.5px;text-transform:uppercase}
+  .topnav{display:flex;gap:4px;margin-left:26px}
+  .topnav a{color:#c9d8ee;text-decoration:none;font-weight:700;font-size:13.5px;padding:8px 14px;border-radius:9px;cursor:pointer}
+  .topnav a.on{background:rgba(255,255,255,.14);color:#fff}
+  .topnav a:hover{background:rgba(255,255,255,.09)}
+  .userchip{margin-left:auto;display:flex;align-items:center;gap:9px;font-size:13px;color:#c9d8ee;cursor:pointer}
+  .userchip .av{width:30px;height:30px;border-radius:50%;background:var(--accent);color:#3a2600;font-weight:800;display:grid;place-items:center;font-size:12px}
+  .shell{max-width:1240px;margin:0 auto;padding:24px 22px 80px}
+  h1{font-size:22px;color:var(--navy);margin:0}
+  .pgsub{color:var(--muted);font-size:13.5px;margin-top:3px}
+  .headrow{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+  .headrow .grow{flex:1;min-width:240px}
+  .btn{border:0;cursor:pointer;font-weight:700;font-size:13.5px;padding:11px 18px;border-radius:10px;display:inline-flex;align-items:center;gap:8px;font-family:inherit}
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-gold{background:var(--accent);color:#3a2600}
+  .btn-line{background:#fff;border:1px solid var(--line);color:var(--navy)}
+  .btn-ghost{background:var(--sky);color:var(--navy)}
+  .btn-good{background:var(--good);color:#fff}
+  .btn-back{background:#fff;border:1px solid var(--line);color:var(--muted)}
+  .btn:hover{filter:brightness(1.04)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:13px;margin-bottom:20px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:13px;padding:15px 16px;box-shadow:var(--shadow)}
+  .stat .lab{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
+  .stat b{display:block;font-size:24px;color:var(--navy);margin-top:4px}
+  .stat .sub{font-size:11.5px;color:var(--muted);margin-top:3px}
+  .stat .sub.up{color:var(--good);font-weight:700}
+  .stat.gold{border-top:3px solid var(--accent)}
+  .stat.blue{border-top:3px solid var(--blue)}
+  .stat.green{border-top:3px solid var(--good)}
+  .cols{display:grid;grid-template-columns:1fr 340px;gap:18px;align-items:start}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+  .panel .phead{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .panel .phead .ttl{font-weight:800;color:var(--navy);font-size:14px}
+  .panel .pbody{padding:16px 18px}
+  .tabs{display:flex;gap:4px;background:var(--sky);border-radius:10px;padding:3px}
+  .tabs span{padding:7px 13px;font-size:12.5px;font-weight:700;color:var(--muted);border-radius:8px;cursor:pointer}
+  .tabs span.on{background:#fff;color:var(--navy);box-shadow:0 2px 6px rgba(20,40,75,.12)}
+  .search{margin-left:auto;display:flex;gap:8px}
+  .search input{border:1px solid #b8c6d5;border-radius:10px;padding:9px 13px;font-size:13px;width:230px;font-family:inherit}
+  .search input:focus{outline:none;border-color:var(--blue)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:#f7fafd;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;text-align:left;padding:10px 14px;border-bottom:1px solid var(--line)}
+  td{padding:12px 14px;border-bottom:1px solid #edf2f7;vertical-align:middle}
+  tr.rowlink{cursor:pointer}
+  tr.rowlink:hover td{background:#f6faff}
+  .qnum{font-weight:800;color:var(--navy)}
+  .qnum small{display:block;color:var(--muted);font-weight:600;font-size:11px}
+  .badge{display:inline-block;font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:999px;letter-spacing:.4px;text-transform:uppercase;white-space:nowrap}
+  .b-draft{background:#eef3f8;color:#53657a}
+  .b-sent{background:#e8f1fd;color:var(--blue)}
+  .b-approved{background:#eaf6ef;color:var(--good)}
+  .b-converted{background:#14284b;color:#ffd98a}
+  .b-lost{background:#fdeeee;color:var(--bad)}
+  .b-expired{background:#fff5df;color:#8a6410}
+  .money{font-weight:800;color:var(--navy)}
+  .money small{display:block;font-weight:600;color:var(--muted);font-size:11px}
+  .rowact{display:flex;gap:6px;justify-content:flex-end}
+  .ic{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:13px;display:grid;place-items:center}
+  .ic:hover{background:var(--sky)}
+  .ic.gold{background:#fff5df;border-color:#f0d69a}
+  .miss{font-size:10.5px;color:#8a6410;background:#fff5df;border:1px solid #f0d69a;border-radius:7px;padding:3px 8px;font-weight:700;display:inline-block;margin-top:4px}
+  .rail .panel{margin-bottom:16px}
+  .quick{display:grid;gap:9px;padding:16px 18px}
+  .quick .btn{justify-content:flex-start;width:100%}
+  .ai{padding:16px 18px}
+  .ai .bubble{background:linear-gradient(180deg,#f6faff,#eef4ff);border:1px solid var(--line);border-radius:12px;padding:13px 14px;font-size:12.5px;color:#33415C;margin-bottom:10px}
+  .ai .bubble b{color:var(--navy)}
+  .ai .bubble .tag2{display:inline-block;background:var(--navy);color:#ffd98a;font-size:9.5px;font-weight:800;border-radius:6px;padding:2px 7px;margin-bottom:6px;letter-spacing:.6px}
+  .aiask{display:flex;gap:8px}
+  .aiask input{flex:1;border:1px solid #b8c6d5;border-radius:10px;padding:10px 12px;font-size:12.5px;font-family:inherit}
+  .act{padding:6px 18px 14px}
+  .act .it{display:flex;gap:11px;padding:10px 0;border-bottom:1px solid #edf2f7;font-size:12.5px;align-items:flex-start}
+  .act .it:last-child{border-bottom:0}
+  .act .ico{width:28px;height:28px;border-radius:8px;background:var(--sky);display:grid;place-items:center;font-size:13px;flex:none}
+  .act .t{color:#33415C}.act .t b{color:var(--navy)}
+  .act .when{margin-left:auto;color:var(--muted);font-size:11px;white-space:nowrap;padding-top:5px}
+  /* drawer */
+  .overlay{position:fixed;inset:0;background:rgba(13,27,47,.45);z-index:90;display:none}
+  .drawer{position:fixed;top:0;right:-560px;width:540px;max-width:96vw;bottom:0;background:#fff;z-index:95;box-shadow:-18px 0 50px rgba(13,27,47,.25);transition:right .25s;display:flex;flex-direction:column}
+  .drawer.open{right:0}
+  .drawer .dhead{padding:18px 22px;border-bottom:1px solid var(--line);background:#f7fafd}
+  .drawer .dhead h2{margin:0;font-size:18px;color:var(--navy)}
+  .drawer .dhead .sub{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .drawer .dbody{flex:1;overflow:auto;padding:18px 22px}
+  .kv2{list-style:none;margin:0;padding:0}
+  .kv2 li{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #edf2f7;font-size:13px}
+  .kv2 li span{color:var(--muted)}.kv2 li b{color:var(--navy);text-align:right}
+  .dsec{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:18px 0 6px}
+  .gap{background:#fff5df;border:1px solid #f0d69a;border-radius:11px;padding:12px 14px;font-size:12.5px;color:#7a5a10;margin-top:6px}
+  .gap b{display:block;color:#5c430b;margin-bottom:4px}
+  .gap ul{margin:4px 0 0;padding-left:18px}
+  .dfoot{padding:14px 22px;border-top:1px solid var(--line);display:flex;gap:9px;flex-wrap:wrap;background:#fbfcfe}
+  .xclose{margin-left:auto;background:none;border:0;font-size:20px;cursor:pointer;color:var(--muted);float:right}
+  .note{font-size:11.5px;color:var(--muted);font-style:italic}
+  .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:#0d1b2f;color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.3);display:none;z-index:200;max-width:560px;text-align:center}
+  /* ===== builder ===== */
+  .bshell{max-width:960px;margin:0 auto}
+  .bprog{height:5px;background:var(--sky);border-radius:4px;overflow:hidden;margin:6px 0 24px}
+  .bprog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue2),var(--navy));transition:.3s}
+  .eyebrow{color:var(--blue);font-weight:800;text-transform:uppercase;letter-spacing:2px;font-size:12px}
+  h1.q{font-size:26px;color:var(--navy);margin:8px 0 6px;font-weight:800}
+  .sub{color:var(--muted);font-size:15px;margin-bottom:6px}
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:13px;margin-top:20px}
+  .cards.c3{grid-template-columns:repeat(3,1fr)}
+  .choice{border:2px solid var(--line);border-radius:13px;padding:16px;cursor:pointer;background:#fff;transition:.15s;display:flex;gap:13px;align-items:flex-start}
+  .choice:hover{border-color:#b9d0f5}.choice.on{border-color:var(--blue);background:#f6faff;box-shadow:0 8px 18px rgba(31,99,174,.14)}
+  .choice .em{font-size:24px}.choice h3{margin:0 0 3px;font-size:15px;color:var(--navy)}.choice p{margin:0;font-size:12.5px;color:var(--muted)}
+  .choice .tick{margin-left:auto;width:22px;height:22px;border-radius:50%;border:2px solid var(--line);flex:none;display:grid;place-items:center}
+  .choice.on .tick{border-color:var(--blue);background:var(--blue);color:#fff}.choice.on .tick:after{content:"✓";font-size:12px;font-weight:800}
+  .fld{margin-top:14px;display:flex;flex-direction:column}
+  .fld label{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px}
+  .fld input,.fld textarea,.fld select{border:1px solid #b8c6d5;border-radius:10px;padding:11px 13px;font-size:14px;font-family:inherit;background:#fff}
+  .fld input:focus,.fld textarea:focus,.fld select:focus{outline:none;border-color:var(--blue)}
+  .fld textarea{resize:vertical;min-height:66px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:13px}.three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:13px}
+  .pill{display:inline-flex;align-items:center;gap:7px;border:1px solid #b7c7d8;background:#fff;border-radius:18px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer;margin:6px 7px 0 0}
+  .pill:hover{background:var(--sky)}.pill.on{border-color:var(--blue);background:#edf5ff;color:var(--navy)}.pill.on:before{content:"✓ ";color:var(--blue);font-weight:800}
+  .addpill{display:flex;gap:8px;margin-top:11px;max-width:460px}.addpill input{flex:1;border:1px solid #b8c6d5;border-radius:18px;padding:9px 14px;font-size:13px}
+  .bpanel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;margin-top:20px;box-shadow:var(--shadow)}
+  .bpanel .ttl{font-weight:800;color:var(--navy);font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+  .estgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-top:12px}
+  .est{background:linear-gradient(180deg,#fbfdff,#eef4ff);border:1px solid var(--line);border-radius:11px;padding:15px;text-align:center}
+  .est b{display:block;font-size:22px;color:var(--navy);font-weight:800}.est span{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700}
+  .prod{border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin-top:11px;background:#fff;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .prod .pi{width:38px;height:38px;border-radius:10px;background:var(--sky);color:var(--blue);display:grid;place-items:center;font-size:17px;flex:none}
+  .prod .grow{flex:1;min-width:170px}.prod h4{margin:0;font-size:14px;color:var(--navy)}.prod .meta{font-size:12px;color:var(--muted)}
+  .prod .alloc{text-align:right;min-width:120px}
+  .prod .alloc input{width:92px;border:1px solid #b8c6d5;border-radius:8px;padding:6px 8px;font-size:13px;font-weight:800;color:var(--navy);text-align:right}
+  .prod .alloc small{display:block;font-weight:600;color:var(--muted);font-size:11px;margin-top:2px}
+  .prod .x{background:#fff;border:1px solid var(--line);color:#c0392b;border-radius:8px;width:28px;height:28px;cursor:pointer;font-weight:800;flex:none}
+  .addrow{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}.addrow select,.addrow input{border:1px solid #b8c6d5;border-radius:10px;padding:10px 12px;font-size:13px}
+  .addrow select{max-width:300px}
+  .reconfig{background:#fff8e8;border:1px solid #f0d69a;border-radius:11px;padding:13px 15px;margin-top:13px;display:flex;align-items:center;gap:11px;flex-wrap:wrap}
+  .reconfig p{margin:0;font-size:13.5px;color:#7a5a10;flex:1;min-width:220px}
+  .pkgs{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-top:18px}
+  .pkg{border:2px solid var(--line);border-radius:15px;padding:20px;background:#fff;cursor:pointer;position:relative}
+  .pkg:hover{border-color:#b9d0f5}.pkg.on{border-color:var(--blue);box-shadow:0 10px 24px rgba(31,99,174,.16)}
+  .pkg .flag{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:var(--accent);color:#3a2600;font-size:10.5px;font-weight:800;padding:5px 13px;border-radius:999px;text-transform:uppercase}
+  .pkg .pn{font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:1px;font-size:13px}
+  .pkg .pp{font-size:26px;font-weight:800;margin:6px 0 0}.pkg .pp small{font-size:13px;color:var(--muted);font-weight:600}
+  .pkg .ptot{font-size:12px;color:var(--muted);margin-bottom:9px}
+  .pkg ul{list-style:none;padding:0;margin:0}
+  .pkg li{font-size:12.5px;padding:5px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;color:#33415C}
+  .pkg li b{color:var(--navy)}
+  .bnav{position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.96);border-top:1px solid var(--line);z-index:60;display:none}
+  .bnav .wrap{max-width:960px;margin:0 auto;padding:13px 22px;display:flex;justify-content:space-between;gap:12px;align-items:center}
+  .savestate{font-size:11.5px;color:var(--muted)}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #c3d4ea;border-top-color:var(--blue);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:7px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .warnbox{background:#fdeeee;border:1px solid #f2c3bd;border-radius:11px;padding:12px 15px;margin-top:13px;font-size:12.5px;color:#8c2f24}
+  .warnbox b{display:block;margin-bottom:4px}
+  /* section editor */
+  .sec{border:1px solid var(--line);border-radius:12px;background:#fff;margin-top:12px;overflow:hidden}
+  .sec .shead{display:flex;align-items:center;gap:10px;padding:11px 14px;background:#f7fafd;border-bottom:1px solid #edf2f7}
+  .sec .shead input[type=text]{flex:1;border:1px solid transparent;background:transparent;font-weight:800;color:var(--navy);font-size:14px;padding:5px 7px;border-radius:7px;font-family:inherit}
+  .sec .shead input[type=text]:focus{outline:none;border-color:var(--blue);background:#fff}
+  .sec .sbody{padding:12px 14px}
+  .sec textarea{width:100%;border:1px solid #b8c6d5;border-radius:9px;padding:10px 12px;font-size:13px;font-family:inherit;min-height:64px;resize:vertical}
+  .sec .autotag{font-size:10.5px;font-weight:800;color:var(--blue);background:var(--sky);border-radius:6px;padding:3px 8px;text-transform:uppercase;letter-spacing:.5px}
+  .sec .tools{display:flex;gap:5px}
+  .sec.off{opacity:.5}
+  .airow{display:flex;gap:7px;margin-top:8px;flex-wrap:wrap}
+  .airow input{flex:1;min-width:180px;border:1px solid #b8c6d5;border-radius:9px;padding:8px 11px;font-size:12.5px}
+  /* modal */
+  .modal{position:fixed;inset:0;background:rgba(13,27,47,.5);z-index:110;display:none;align-items:center;justify-content:center;padding:20px}
+  .modal.open{display:flex}
+  .mbox{background:#fff;border-radius:16px;max-width:680px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(13,27,47,.4)}
+  .mbox .mhead{padding:18px 22px;border-bottom:1px solid var(--line)}
+  .mbox .mhead h2{margin:0;font-size:18px;color:var(--navy)}
+  .mbox .mhead .sub{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .mbox .mbody{padding:14px 22px 20px;overflow:auto}
+  .mbox .mfoot{padding:14px 22px;border-top:1px solid var(--line);display:flex;gap:9px;justify-content:flex-end;background:#fbfcfe;border-radius:0 0 16px 16px}
+  .convstep{display:none}.convstep.on{display:block}
+  iframe.ioframe{width:100%;height:calc(100vh - 130px);border:0;border-radius:14px;background:#fff;box-shadow:var(--shadow)}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+  .clientcard{border:1px solid var(--line);border-radius:13px;background:#fff;padding:16px 18px;margin-top:12px;box-shadow:var(--shadow)}
+  .clientcard h3{margin:0 0 3px;font-size:15px;color:var(--navy)}
+  .clientcard .meta{font-size:12px;color:var(--muted)}
+  @media(max-width:1000px){.cols{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:720px){.cards,.cards.c3,.estgrid,.pkgs,.two,.three{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="wrap">
+  <div class="brand" onclick="nav('dashboard')"><span class="dot">S1</span><span>SMART 1 SALES BUILDER<small>Proposals &amp; Insertion Orders</small></span></div>
+  <nav class="topnav" id="topnav">
+    <a data-v="dashboard" class="on" onclick="nav('dashboard')">Dashboard</a>
+    <a data-v="proposals" onclick="nav('proposals')">Proposals</a>
+    <a data-v="io" onclick="nav('io')">Insertion Orders</a>
+    <a data-v="clients" onclick="nav('clients')">Clients</a>
+  </nav>
+  <div class="userchip" onclick="editRep()"><span id="repName">Set your name</span><span class="av" id="repAv">S1</span></div>
+</div></div>
+
+<div class="shell">
+  <div id="view-dashboard"></div>
+  <div id="view-proposals" style="display:none"></div>
+  <div id="view-builder" style="display:none"><div class="bshell">
+    <div style="display:flex;align-items:center;gap:12px"><span class="stepLabel" style="font-size:13px;color:var(--muted);font-weight:700" id="stepLabel"></span><span style="margin-left:auto" class="savestate" id="saveState"></span></div>
+    <div class="bprog"><i id="bar"></i></div>
+    <div id="stage"></div>
+  </div></div>
+  <div id="view-io" style="display:none"></div>
+  <div id="view-clients" style="display:none"></div>
+</div>
+
+<div class="bnav" id="bnav"><div class="wrap">
+  <button class="btn btn-back" id="backBtn" onclick="prevStep()">← Back</button>
+  <span class="savestate" id="quoteTag"></span>
+  <button class="btn btn-primary" id="nextBtn" onclick="nextStep()">Continue →</button>
+</div></div>
+
+<div class="overlay" id="ov" onclick="closeDrawer()"></div>
+<div class="drawer" id="dr">
+  <div class="dhead"><button class="xclose" onclick="closeDrawer()">✕</button><h2 id="dTitle">Quote</h2><div class="sub" id="dSub"></div></div>
+  <div class="dbody" id="dBody"></div>
+  <div class="dfoot" id="dFoot"></div>
+</div>
+
+<div class="modal" id="convModal"><div class="mbox">
+  <div class="mhead"><h2 id="convTitle">Convert to Insertion Order</h2><div class="sub" id="convSub"></div></div>
+  <div class="mbody" id="convBody"></div>
+  <div class="mfoot" id="convFoot"></div>
+</div></div>
+
+<div class="toast" id="toastEl"></div>
+<script>
+/* ============================================================
+   SMART 1 DATA MODEL (mirrors the IO builder)
+   ============================================================ */
+const objectiveKPIs={
+ "Brand Awareness":["Impressions","Reach","Frequency","Video Completion Rate","Audio Completion Rate"],
+ "Lead Generation":["Form Submissions","Cost Per Lead","Conversion Rate"],
+ "Website Traffic":["Clicks","CTR","Sessions","Cost Per Click"],
+ "Store Visits":["Store Visits","Directions Clicks","Foot Traffic Lift"],
+ "Phone Calls":["Phone Calls","Call Conversion Rate","Cost Per Call"],
+ "Conversions":["Purchases","Leads","Conversion Rate","Cost Per Acquisition"],
+ "Recruitment":["Applications","Apply Clicks","Cost Per Application"],
+ "Event Promotion":["Registrations","Ticket Sales","RSVP Conversions","Event Page Visits"]};
+const GOAL_META={
+ "Brand Awareness":{em:"📣",d:"Get known in a market or category"},
+ "Lead Generation":{em:"📥",d:"Fill the funnel with qualified inquiries"},
+ "Website Traffic":{em:"🖱",d:"Drive visitors to the site"},
+ "Store Visits":{em:"📍",d:"Bring people into a location"},
+ "Phone Calls":{em:"📞",d:"Generate inbound calls"},
+ "Conversions":{em:"🛒",d:"Grow sales and purchases"},
+ "Recruitment":{em:"🧑‍💼",d:"Drive job applications"},
+ "Event Promotion":{em:"🎟",d:"Fill an event or launch"}};
+const GOAL_CATEGORIES={
+ "Brand Awareness":["OTT","DISPLAY","DIGITAL RADIO","YOUTUBE"],
+ "Lead Generation":["SEARCH ENGINE MARKETING / PAY PER CLICK","META","RETARGETING","DATA TARGETED DISPLAY"],
+ "Website Traffic":["SEARCH ENGINE MARKETING / PAY PER CLICK","DISPLAY","META","RETARGETING"],
+ "Store Visits":["MOBILE ONLY","LOCATION LOOKBACK","SEARCH ENGINE MARKETING / PAY PER CLICK","OTT"],
+ "Phone Calls":["SEARCH ENGINE MARKETING / PAY PER CLICK","MOBILE ONLY","META"],
+ "Conversions":["SEARCH ENGINE MARKETING / PAY PER CLICK","RETARGETING","DATA TARGETED DISPLAY","META"],
+ "Recruitment":["SOCIAL ADS","DISPLAY","SEARCH ENGINE MARKETING / PAY PER CLICK"],
+ "Event Promotion":["META","SOCIAL ADS","DISPLAY","DIGITAL RADIO"]};
+const industryIdeas={
+ automotive:{behavioral:["In-market vehicle buyers","Auto-intenders","Vehicle owners","Lease expiration audiences"],contextual:["Automotive research","Vehicle reviews","Financing and leasing","Local dealerships"]},
+ healthcare:{behavioral:["Health-conscious consumers","Caregivers","Parents","Condition or service intenders"],contextual:["Health and wellness","Medical services","Insurance and benefits","Local healthcare resources"]},
+ restaurant:{behavioral:["Dining enthusiasts","Food delivery users","Families","Event and celebration planners"],contextual:["Restaurants and dining","Local entertainment","Food and recipes","Events and nightlife"]},
+ home:{behavioral:["Homeowners","Home improvement intenders","Recent movers","High-value property owners"],contextual:["Home improvement","Real estate","DIY and renovation","Energy and utilities"]},
+ legal:{behavioral:["Legal-service intenders","Business owners","Homeowners","Life-event audiences"],contextual:["Legal information","Business resources","Personal finance","Local services"]},
+ retail:{behavioral:["Frequent shoppers","Category purchasers","Deal seekers","Loyalty-program users"],contextual:["Shopping and retail","Product reviews","Lifestyle interests","Local events"]},
+ general:{behavioral:["Category intenders","Recent purchasers","Engaged website visitors","Lookalike audiences"],contextual:["Industry-related content","Local news and lifestyle","Product research","Relevant professional content"]}};
+const INDUSTRY_KEYS={"Healthcare / Dental":"healthcare","Automotive":"automotive","Restaurant / Hospitality":"restaurant","Home Services":"home","Legal":"legal","Retail / E-comm":"retail"};
+const incomeOptions=["No income targeting","Under $50,000","$50,000–$74,999","$75,000–$99,999","$100,000–$149,999","$150,000–$199,999","$200,000+"];
+const INDUSTRIES=["Healthcare / Dental","Home Services","Legal","Automotive","Real Estate","Retail / E-comm","Restaurant / Hospitality","Financial Services","Fitness / Wellness","Education","B2B / Professional","Other"];
+const rateCard=[
+ {category:"PROGRAMMATIC CAMPAIGN",product:"Select Tactics - Comes with Retargeting",listedRate:"5.50 /CPM",rateType:"CPM",rateValue:5.5},
+ {category:"OUTREACH",product:"RON (Run of Network)",listedRate:"$3.50 / CPM",rateType:"CPM",rateValue:3.5},
+ {category:"OUTREACH",product:"Category",listedRate:"$4.25 / CPM",rateType:"CPM",rateValue:4.25},
+ {category:"OUTREACH",product:"Demographic",listedRate:"$4.25 / CPM",rateType:"CPM",rateValue:4.25},
+ {category:"OUTREACH",product:"Behavioral",listedRate:"$4.25 / CPM",rateType:"CPM",rateValue:4.25},
+ {category:"OUTREACH",product:"Advanced Audience",listedRate:"$5.50 / CPM",rateType:"CPM",rateValue:5.5},
+ {category:"OUTREACH",product:"Native Display",listedRate:"$13.20 / CPM",rateType:"CPM",rateValue:13.2},
+ {category:"OUTREACH",product:"Job Title",listedRate:"$7.00 / CPM",rateType:"CPM",rateValue:7.0},
+ {category:"RETARGETING",product:"Website Retargeting",listedRate:"$4.75 / CPM",rateType:"CPM",rateValue:4.75},
+ {category:"RETARGETING",product:"Facebook / Instagram Retargeting",listedRate:"25% Mgmt Fee",rateType:null,rateValue:null},
+ {category:"MOBILE ONLY",product:"RON (Run of Network)",listedRate:"$3.50 / CPM",rateType:"CPM",rateValue:3.5},
+ {category:"MOBILE ONLY",product:"In-Store Visits",listedRate:"$9.00 / CPM",rateType:"CPM",rateValue:9.0},
+ {category:"MOBILE ONLY",product:"Geo-Fence",listedRate:"$5.00 / CPM",rateType:"CPM",rateValue:5.0},
+ {category:"MOBILE ONLY",product:"Geo-Fence :: Targeted",listedRate:"$5.75 / CPM",rateType:"CPM",rateValue:5.75},
+ {category:"LOCATION LOOKBACK",product:"Demographic",listedRate:"$7.50 / CPM",rateType:"CPM",rateValue:7.5},
+ {category:"LOCATION LOOKBACK",product:"Behavioral",listedRate:"$7.50 / CPM",rateType:"CPM",rateValue:7.5},
+ {category:"OUTREACH",product:"Programmatic - RON (Run of Network)",listedRate:"$14.00 / CPM",rateType:"CPM",rateValue:14.0},
+ {category:"OUTREACH",product:"Programmatic - Targeted",listedRate:"$17.00 / CPM",rateType:"CPM",rateValue:17.0},
+ {category:"OUTREACH",product:"Premium: Non-Skippable",listedRate:"$23.00 / CPM",rateType:"CPM",rateValue:23.0},
+ {category:"YOUTUBE",product:"TrueView",listedRate:"$0.20 / CPV",rateType:"CPV",rateValue:0.2},
+ {category:"YOUTUBE",product:"TrueView - Targeted",listedRate:"$0.25 / CPV",rateType:"CPV",rateValue:0.25},
+ {category:"YOUTUBE",product:"Bumpers",listedRate:"$15.00 / CPM",rateType:"CPM",rateValue:15.0},
+ {category:"SEARCH ENGINE MARKETING / PAY PER CLICK",product:"Pay Per Click",listedRate:"15% Mgmt from Retail Cost",rateType:null,rateValue:null},
+ {category:"SEARCH ENGINE MARKETING / PAY PER CLICK",product:"Local Service Ads (LSA)",listedRate:"15% Mgmt fee monthly",rateType:null,rateValue:null},
+ {category:"SEARCH ENGINE MARKETING / PAY PER CLICK",product:"Pay Per Click - Shopping",listedRate:"15% Mgmt from Retail Cost",rateType:null,rateValue:null},
+ {category:"SEARCH ENGINE OPTIMIZATION",product:"Search Engine Optimization",listedRate:"50% of Retail / Custom Quote",rateType:null,rateValue:null},
+ {category:"SEARCH ENGINE OPTIMIZATION",product:"Local Business Boost",listedRate:"$75 Per Location / Month",rateType:null,rateValue:75.0},
+ {category:"DISPLAY",product:"Facebook | Instagram - Awareness Paid Social",listedRate:"25% Mgmt Fee",rateType:null,rateValue:null},
+ {category:"DISPLAY",product:"Facebook | Instagram - Targeted Paid Social",listedRate:"25% Mgmt Fee",rateType:null,rateValue:null},
+ {category:"DISPLAY",product:"Facebook - Leads",listedRate:"25% Mgmt Fee",rateType:null,rateValue:null},
+ {category:"VIDEO",product:"Facebook | Instagram - Paid Social Video",listedRate:"25% Mgmt Fee",rateType:null,rateValue:null},
+ {category:"VIDEO",product:"LinkedIn - Display & Text Ads",listedRate:"25% Mgmt Fee",rateType:null,rateValue:null},
+ {category:"VIDEO",product:"Tik Tok - Paid Social Media Advertising",listedRate:"25% Mgmt Fee",rateType:null,rateValue:null},
+ {category:"SOCIAL MEDIA MANAGEMENT",product:"Social Media Management",listedRate:"$199 / Month",rateType:null,rateValue:199.0},
+ {category:"DISPLAY & VIDEO",product:"IP Targeted Display",listedRate:"$18 / CPM",rateType:"CPM",rateValue:18.0},
+ {category:"DISPLAY & VIDEO",product:"IP Targeted Display - New Movers",listedRate:"$25 / CPM",rateType:"CPM",rateValue:25.0},
+ {category:"DISPLAY & VIDEO",product:"IP Targeted Video",listedRate:"$31 / CPM",rateType:"CPM",rateValue:31.0},
+ {category:"DIGITAL RADIO",product:"Programmatic - Targeted (iHeart, Pandora, Spotify…)",listedRate:"$18 / CPM",rateType:"CPM",rateValue:18.0},
+ {category:"DIGITAL RADIO",product:"Programmatic - Run of Site (ROS)",listedRate:"$13.50 / CPM",rateType:"CPM",rateValue:13.5},
+ {category:"DIGITAL RADIO",product:"Podcasts - Targeted",listedRate:"$18 / CPM",rateType:"CPM",rateValue:18.0},
+ {category:"OTT",product:"Connected TV - Targeted",listedRate:"$35 / CPM",rateType:"CPM",rateValue:35.0},
+ {category:"OTT",product:"Advanced TV - Targeted (all streaming/devices)",listedRate:"$25 / CPM",rateType:"CPM",rateValue:25.0},
+ {category:"EMAIL MARKETING",product:"List Provided Email",listedRate:"$100 / Send",rateType:null,rateValue:100.0},
+ {category:"EMAIL MARKETING",product:"Behavioral Targeted Email",listedRate:"$20 / CPM",rateType:"CPM",rateValue:20.0},
+ {category:"WEB DEVELOPMENT",product:"Landing Page",listedRate:"$100 one-time or $19/mo",rateType:null,rateValue:100.0},
+ {category:"CREATIVE / DESIGN SERVICES",product:"Standard Set of 6 Ad Creation",listedRate:"$250",rateType:null,rateValue:250.0}];
+const CATEGORY_RENAME={"PROGRAMMATIC CAMPAIGN":"DATA TARGETED DISPLAY","OUTREACH":"DISPLAY","DISPLAY":"META","VIDEO":"SOCIAL ADS","DISPLAY & VIDEO":"IP TARGETS"};
+const PRODUCT_RENAME={"PROGRAMMATIC CAMPAIGN|Select Tactics - Comes with Retargeting":"Programmatic Campaign with Retargeting"};
+rateCard.forEach(x=>{const oc=x.category||"";const k=oc+"|"+(x.product||"");if(PRODUCT_RENAME[k])x.product=PRODUCT_RENAME[k];if(CATEGORY_RENAME[oc])x.category=CATEGORY_RENAME[oc];x.label=x.category+" — "+x.product;});
+const CATEGORY_EM={"DATA TARGETED DISPLAY":"🎯","DISPLAY":"🖼","META":"📱","SOCIAL ADS":"🎬","IP TARGETS":"📡","RETARGETING":"🔁","MOBILE ONLY":"📶","LOCATION LOOKBACK":"🕓","YOUTUBE":"▶","SEARCH ENGINE MARKETING / PAY PER CLICK":"🔍","SEARCH ENGINE OPTIMIZATION":"📈","SOCIAL MEDIA MANAGEMENT":"💬","DIGITAL RADIO":"🎧","OTT":"📺","EMAIL MARKETING":"✉","WEB DEVELOPMENT":"🖥","CREATIVE / DESIGN SERVICES":"🎨"};
+const CATEGORY_ROI={"SEARCH ENGINE MARKETING / PAY PER CLICK":"4–6× ROAS","META":"3–4× ROAS","SOCIAL ADS":"3–4× ROAS","RETARGETING":"5–8× ROAS","DATA TARGETED DISPLAY":"2–3× ROAS","DISPLAY":"2–3× ROAS","OTT":"Brand lift + recall","YOUTUBE":"View-through lift","DIGITAL RADIO":"Reach + frequency","MOBILE ONLY":"Store-visit lift","LOCATION LOOKBACK":"Conquest lift","IP TARGETS":"Household match","EMAIL MARKETING":"5–8× ROAS","SEARCH ENGINE OPTIMIZATION":"Compounding","SOCIAL MEDIA MANAGEMENT":"Engagement","WEB DEVELOPMENT":"Conversion foundation","CREATIVE / DESIGN SERVICES":"Enables performance"};
+const productCategories=[...new Set(rateCard.map(x=>x.category))];
+function em(cat){return CATEGORY_EM[cat]||"•";}
+function findProduct(cat){return rateCard.find(x=>x.category===cat);}
+
+/* ============================================================
+   CONFIG + HELPERS
+   ============================================================ */
+let CFG={io_api_base:"https://insertionordersmart.onrender.com",io_app_url:"https://insertionordersmart.onrender.com",ai_enabled:false};
+function lsGet(k,d){try{return localStorage.getItem(k)||d;}catch(e){return d;}}
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+let REP_NAME=lsGet("s1_rep_name",""),REP_EMAIL=lsGet("s1_rep_email","");
+function esc(s){return String(s==null?"":s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function money(n){return "$"+(+n||0).toLocaleString('en-US');}
+function fmt(n){n=+n||0;if(n>=1e6)return(n/1e6).toFixed(n>=1e7?0:1).replace(/\.0$/,'')+'M';if(n>=1e3)return Math.round(n/1e3)+'k';return String(Math.round(n));}
+function toggle(a,v){const i=a.indexOf(v);if(i>=0)a.splice(i,1);else a.push(v);}
+let _toastT=null;
+function toast(m){const t=document.getElementById('toastEl');t.textContent=m;t.style.display='block';clearTimeout(_toastT);_toastT=setTimeout(()=>t.style.display='none',5200);}
+function ago(iso){if(!iso)return"";const d=(Date.now()-new Date(iso).getTime())/864e5;if(d<1)return"Today";if(d<2)return"Yesterday";if(d<7)return Math.floor(d)+"d ago";return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'});}
+async function api(path,opts){const r=await fetch(path,Object.assign({headers:{"Content-Type":"application/json"}},opts));const d=await r.json().catch(()=>({}));if(!r.ok&&d&&d.error)throw new Error(d.error+(d.detail?": "+d.detail:""));if(!r.ok)throw new Error("HTTP "+r.status);return d;}
+const badge=s=>({Draft:"b-draft",Sent:"b-sent",Approved:"b-approved",Converted:"b-converted",Lost:"b-lost",Expired:"b-expired"})[s]||"b-draft";
+function editRep(){const n=prompt("Salesperson name (appears on proposals):",REP_NAME||"");if(n===null)return;const e=prompt("Salesperson email:",REP_EMAIL||"");REP_NAME=(n||"").trim();REP_EMAIL=(e||"").trim();lsSet("s1_rep_name",REP_NAME);lsSet("s1_rep_email",REP_EMAIL);drawRep();}
+function drawRep(){document.getElementById('repName').textContent=REP_NAME||"Set your name";document.getElementById('repAv').textContent=(REP_NAME||"S 1").split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();}
+
+/* ============================================================
+   ROUTER
+   ============================================================ */
+const VIEWS=["dashboard","proposals","builder","io","clients"];
+function nav(v){VIEWS.forEach(x=>{document.getElementById('view-'+x).style.display=(x===v)?'':'none';});
+ document.querySelectorAll('#topnav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v||(v==='builder'&&a.dataset.v==='proposals')));
+ document.getElementById('bnav').style.display=(v==='builder')?'block':'none';
+ if(v==='dashboard')drawDashboard();
+ if(v==='proposals')drawProposals();
+ if(v==='io')drawIO();
+ if(v==='clients')drawClients();
+ window.scrollTo(0,0);}
+
+/* ============================================================
+   DASHBOARD
+   ============================================================ */
+let DASH=null,LIST=[],listTab="all";
+async function drawDashboard(){
+ const host=document.getElementById('view-dashboard');
+ host.innerHTML='<div class="empty"><span class="spin"></span>Loading dashboard…</div>';
+ try{
+  const[d,l]=await Promise.all([api('/sales/builder/api/dashboard'),api('/sales/builder/api/quotes?limit=60')]);
+  DASH=d;LIST=l.quotes||[];
+ }catch(e){host.innerHTML='<div class="empty">Could not load the dashboard ('+esc(e.message)+').</div>';return;}
+ const s=DASH.stats,hr=new Date().getHours(),greet=hr<12?"Good morning":hr<17?"Good afternoon":"Good evening";
+ const approvedReady=LIST.filter(q=>q.status==='Approved').length;
+ host.innerHTML=`
+  <div class="headrow"><div class="grow"><h1>${greet}${REP_NAME?", "+esc(REP_NAME.split(" ")[0]):""}</h1>
+   <div class="pgsub">${s.awaiting_count} proposal${s.awaiting_count===1?"":"s"} awaiting client response${approvedReady?` · ${approvedReady} approved proposal${approvedReady===1?" is":"s are"} ready to become IOs`:""}</div></div>
+   <button class="btn btn-gold" onclick="startNewProposal()">✨ New Proposal</button>
+   <button class="btn btn-primary" onclick="nav('io')">＋ New Insertion Order</button>
+   <button class="btn btn-line" onclick="nav('proposals')">🔍 Lookup</button></div>
+  <div class="stats">
+   <div class="stat blue"><div class="lab">Open Proposals</div><b>${s.open_count}</b><div class="sub">${money(s.open_monthly)}/mo proposed</div></div>
+   <div class="stat gold"><div class="lab">Awaiting Client</div><b>${s.awaiting_count}</b><div class="sub">avg. ${s.awaiting_avg_days} days out</div></div>
+   <div class="stat green"><div class="lab">Approved — Convert</div><b>${s.approved_count}</b><div class="sub ${s.approved_count?'up':''}">${s.approved_count?"ready for IO ↗":"none waiting"}</div></div>
+   <div class="stat"><div class="lab">IOs This Month</div><b>${s.converted_month_count}</b><div class="sub">${money(s.converted_month_monthly)}/mo booked</div></div>
+   <div class="stat"><div class="lab">Win Rate (90d)</div><b>${s.win_rate_90d}%</b><div class="sub">approved + converted</div></div>
+  </div>
+  <div class="cols"><div>
+   <div class="panel">
+    <div class="phead"><span class="ttl">Recent Quotes &amp; Proposals</span>
+     <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t+"s"===t+"s"?(t==="Draft"?"Drafts":t):t}</span>`).join("")}</div>
+     <div class="search"><input id="q" placeholder="Search client, quote #, website…" oninput="drawRows()"></div></div>
+    <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+    <tbody id="rows"></tbody></table>
+   </div>
+   <div class="panel" style="margin-top:16px">
+    <div class="phead"><span class="ttl">Insertion Orders</span>
+     <button class="btn btn-primary" style="padding:8px 14px;font-size:12.5px" onclick="nav('io')">＋ New IO — open the IO builder</button>
+     <div class="search"><input id="ioq" placeholder="Look up IO #, client, quote #…" oninput="drawIoRows()"></div></div>
+    <table><thead><tr><th>IO #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Converted</th><th style="text-align:right">Documents</th></tr></thead>
+    <tbody id="ioRows"></tbody></table>
+   </div>
+  </div>
+  <div class="rail">
+   <div class="panel"><div class="phead"><span class="ttl">✨ Smart 1 AI Assistant</span></div><div class="ai">
+    ${(DASH.nudges||[]).map(n=>`<div class="bubble"><span class="tag2">${esc(n.tag)}</span><br>${esc(n.text)}</div>`).join("")||'<div class="note">Nudges appear here — stale quotes, approved proposals ready to convert, and pricing guardrails.</div>'}
+    <div class="aiask"><input id="aiAsk" placeholder="e.g. build a $6k/mo proposal for an HVAC company in Carmel"><button class="btn btn-primary" style="padding:10px 14px" onclick="aiDraft()">→</button></div>
+    ${CFG.ai_enabled?'':'<div class="note" style="margin-top:7px">AI drafting needs OPENAI_API_KEY on the Sales Builder server — the guided builder works without it.</div>'}
+   </div></div>
+   <div class="panel"><div class="phead"><span class="ttl">Quick Actions</span></div><div class="quick">
+    <button class="btn btn-ghost" onclick="nav('proposals')">📋 New proposal from an existing quote</button>
+    <button class="btn btn-ghost" onclick="quickConvert()">🔁 Convert a proposal to an IO</button>
+    <button class="btn btn-ghost" onclick="nav('proposals')">🗂 Quote archive &amp; lookup</button>
+    <button class="btn btn-ghost" onclick="nav('io')">🖥 Open the IO builder</button>
+   </div></div>
+   <div class="panel"><div class="phead"><span class="ttl">Recent Activity</span></div><div class="act">
+    ${(DASH.activity||[]).slice(0,8).map(a=>`<div class="it"><span class="ico">${esc(a.icon)}</span><span class="t">${esc(a.text)}</span><span class="when">${ago(a.when)}</span></div>`).join("")||'<div class="note" style="padding:10px 0">Activity will appear here as quotes are created and updated.</div>'}
+   </div></div>
+  </div></div>`;
+ drawRows();
+ drawIoRows();
+}
+function ioRowHtml(x){
+ return `<tr class="rowlink" onclick="openDrawer(${x.id})">
+  <td><span class="qnum">IO #${esc(x.io_number)}<small>from ${esc(x.quote_number)}</small></span></td>
+  <td><b style="color:var(--navy)">${esc(x.client||"—")}</b><small style="display:block;color:var(--muted)">${esc(x.website||"")}</small></td>
+  <td style="font-size:12.5px;color:#33415C">${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td>
+  <td><span class="money">${money(x.monthly_budget)}<small>${x.months} mo · ${money(x.total_budget)} total</small></span></td>
+  <td style="font-size:12px;color:var(--muted)">${ago(x.converted_at||x.updated_at)}</td>
+  <td><div class="rowact" onclick="event.stopPropagation()">
+   ${x.io_client_pdf_url?`<button class="ic" title="Customer PDF" onclick="window.open('${esc(x.io_client_pdf_url)}','_blank')">📄</button>`:""}
+   ${x.io_internal_pdf_url?`<button class="ic" title="Internal PDF" onclick="window.open('${esc(x.io_internal_pdf_url)}','_blank')">🔒</button>`:""}
+   <button class="ic" title="View details" onclick="openDrawer(${x.id})">🔍</button>
+   <button class="ic" title="New quote based on this IO" onclick="dupQuote(${x.id})">📋</button>
+  </div></td></tr>`;
+}
+function drawIoRows(){
+ const tb=document.getElementById('ioRows');if(!tb)return;
+ const q=(document.getElementById('ioq')?.value||"").toLowerCase();
+ const rows=LIST.filter(x=>x.status==='Converted'&&x.io_number)
+  .filter(x=>!q||["io #"+x.io_number,x.io_number,x.client,x.website,x.quote_number,x.products_summary].join(" ").toLowerCase().includes(q));
+ tb.innerHTML=rows.map(ioRowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:22px">No IOs yet — convert an approved proposal above, or click <b>＋ New IO</b> to build one directly in the IO builder.</td></tr>`;
+}
+function setTab(el,t){listTab=t;document.querySelectorAll('#tabs span').forEach(s=>s.classList.remove('on'));el.classList.add('on');drawRows();}
+function rowHtml(x){
+ const gapsN=(x.gaps||[]).length,guard=(x.guardrails||[]);
+ return `<tr class="rowlink" onclick="openDrawer(${x.id})">
+  <td><span class="qnum">${esc(x.quote_number)}<small>${ago(x.created_at)}</small></span></td>
+  <td><b style="color:var(--navy)">${esc(x.client||"—")}</b><small style="display:block;color:var(--muted)">${esc(x.website||"")}</small>
+   ${x.status==='Approved'&&gapsN?`<span class="miss">⚠ ${gapsN} answers needed for IO</span>`:""}
+   ${x.status==='Draft'&&guard.length?`<span class="miss">⚠ ${esc(guard[0])}</span>`:""}</td>
+  <td style="font-size:12.5px;color:#33415C">${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td>
+  <td><span class="money">${money(x.monthly_budget)}<small>${x.months} mo · ${money(x.total_budget)} total</small></span></td>
+  <td><span class="badge ${badge(x.status)}">${x.status}</span>${x.io_number?`<small style="display:block;color:var(--muted);margin-top:3px">IO #${esc(x.io_number)}</small>`:""}</td>
+  <td><div class="rowact" onclick="event.stopPropagation()">
+   <button class="ic" title="Edit proposal" onclick="editQuote(${x.id})">✏️</button>
+   <button class="ic" title="Branded PDF" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄</button>
+   <button class="ic" title="Word copy" onclick="location.href='/sales/builder/api/quotes/${x.id}/docx'">📝</button>
+   <button class="ic" title="Duplicate as new quote" onclick="dupQuote(${x.id})">📋</button>
+   ${x.status==='Approved'?`<button class="ic gold" title="Convert to IO" onclick="openConvert(${x.id})">🔁</button>`:""}
+  </div></td></tr>`;
+}
+function drawRows(){
+ const q=(document.getElementById('q')?.value||"").toLowerCase();
+ const rows=LIST.filter(x=>(listTab==="all"||x.status===listTab)&&(!q||[x.quote_number,x.client,x.website,x.products_summary,x.io_number].join(" ").toLowerCase().includes(q)));
+ const tb=document.getElementById('rows');if(!tb)return;
+ tb.innerHTML=rows.map(rowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
+}
+function quickConvert(){const c=LIST.filter(x=>x.status==='Approved');if(!c.length){toast("No approved proposals yet — mark a quote Approved first, then convert it.");return;}openConvert(c[0].id);}
+async function aiDraft(){
+ const v=(document.getElementById('aiAsk').value||"").trim();
+ if(!v){toast("Type what you need — e.g. \"$6k/mo for an HVAC company in Carmel, lead gen\"");return;}
+ if(!CFG.ai_enabled){toast("AI drafting is not configured on the server (OPENAI_API_KEY). Opening the guided builder instead.");startNewProposal();return;}
+ toast("✨ Drafting the proposal…");
+ try{
+  const d=await api('/sales/builder/api/ai/draft-proposal',{method:'POST',body:JSON.stringify({prompt:v,categories:productCategories})});
+  const dr=d.draft||{};
+  await startNewProposal();
+  S.client=dr.client||"";S.url=dr.url||"";S.industry=INDUSTRIES.includes(dr.industry)?dr.industry:"";
+  S.objectives=(dr.objectives||[]).filter(o=>objectiveKPIs[o]);
+  S.geoType=["City/ZIP + Radius","DMA","Statewide","National","Other"].includes(dr.geoType)?dr.geoType:"City/ZIP + Radius";
+  S.geo=dr.geo||"";S.radius=+dr.radius||10;S.budget=+dr.budget||8000;S.months=+dr.months||6;
+  const cats=(dr.categories||[]).filter(c=>productCategories.includes(c)).slice(0,4);
+  if(cats.length){const seeds=[40,30,20,10];S.items=cats.map((c,i)=>{const p=findProduct(c)||{};return{label:p.label,category:c,product:p.product||c,rate:p.rateType,rateValue:p.rateValue,pctSeed:seeds[i]||10,dollars:0};});applySeeds();}
+  S.kpis=[...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].slice(0,6);
+  saveSoon();renderStep();
+  toast("✨ Draft ready — review each step and adjust. "+(dr.rationale||""));
+ }catch(e){toast("AI draft failed ("+e.message+"). Opening a blank builder.");startNewProposal();}
+}
+
+/* ============================================================
+   PROPOSALS LIST VIEW
+   ============================================================ */
+async function drawProposals(){
+ const host=document.getElementById('view-proposals');
+ host.innerHTML='<div class="empty"><span class="spin"></span>Loading proposals…</div>';
+ let l;try{l=await api('/sales/builder/api/quotes?limit=300');}catch(e){host.innerHTML='<div class="empty">'+esc(e.message)+'</div>';return;}
+ LIST=l.quotes||[];
+ host.innerHTML=`
+  <div class="headrow"><div class="grow"><h1>Proposals &amp; Quotes</h1><div class="pgsub">Every saved quote — look one up, edit it, duplicate it, or convert it to an IO.</div></div>
+   <button class="btn btn-gold" onclick="startNewProposal()">✨ New Proposal</button></div>
+  <div class="panel">
+   <div class="phead"><span class="ttl">All Quotes</span>
+    <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Lost"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t}</span>`).join("")}</div>
+    <div class="search"><input id="q" placeholder="Search client, quote #, IO #…" oninput="drawRows()"></div></div>
+   <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+   <tbody id="rows"></tbody></table>
+  </div>`;
+ drawRows();
+}
+
+/* ============================================================
+   CLIENTS VIEW (grouped from quotes)
+   ============================================================ */
+async function drawClients(){
+ const host=document.getElementById('view-clients');
+ host.innerHTML='<div class="empty"><span class="spin"></span>Loading clients…</div>';
+ let l;try{l=await api('/sales/builder/api/quotes?limit=500');}catch(e){host.innerHTML='<div class="empty">'+esc(e.message)+'</div>';return;}
+ const groups={};
+ (l.quotes||[]).forEach(q=>{const k=(q.client||"(no client name)").trim()||"(no client name)";(groups[k]=groups[k]||[]).push(q);});
+ const names=Object.keys(groups).sort((a,b)=>a.localeCompare(b));
+ host.innerHTML=`<div class="headrow"><div class="grow"><h1>Clients</h1><div class="pgsub">Every client with their quotes and IOs, pulled from the saved proposals.</div></div></div>`+
+  (names.length?names.map(n=>{const qs=groups[n];const conv=qs.filter(x=>x.status==='Converted');
+   return `<div class="clientcard"><h3>${esc(n)}</h3><div class="meta">${esc(qs[0].website||"")} · ${qs.length} quote${qs.length===1?"":"s"}${conv.length?` · ${conv.length} IO${conv.length===1?"":"s"} (${conv.map(c=>"#"+esc(c.io_number)).join(", ")})`:""}</div>
+   <div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap">${qs.map(x=>`<span class="pill" style="margin:0" onclick="openDrawer(${x.id})">${esc(x.quote_number)} · ${x.status}</span>`).join("")}</div></div>`;}).join("")
+  :'<div class="empty">No clients yet — they appear automatically as quotes are saved.</div>');
+}
+
+/* ============================================================
+   IO VIEW (existing app, embedded untouched)
+   ============================================================ */
+async function drawIO(){
+ const host=document.getElementById('view-io');
+ host.innerHTML=`<div class="headrow"><div class="grow"><h1>Insertion Orders</h1>
+  <div class="pgsub">Look up an existing IO below, or build a new one — the IO builder is the existing app, unchanged. <a style="cursor:pointer" onclick="window.open(CFG.io_app_url,'_blank')">Open the IO builder in its own tab ↗</a> · <a style="cursor:pointer" onclick="setIoUrl()">⚙ change URL</a></div></div></div>
+  <div class="panel" style="margin-bottom:16px">
+   <div class="phead"><span class="ttl">🔍 IO Lookup</span><span class="note">IOs created from converted proposals — with their quote history and PDFs</span>
+    <div class="search"><input id="ioq2" placeholder="Search IO #, client, quote #…" oninput="drawIoLookup()"></div></div>
+   <table><thead><tr><th>IO #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Converted</th><th style="text-align:right">Documents</th></tr></thead>
+   <tbody id="ioRows2"></tbody></table>
+  </div>
+  <div class="panel" style="margin-bottom:0;overflow:hidden">
+   <div class="phead"><span class="ttl">＋ IO Builder — build a new insertion order</span>
+    <button class="btn btn-primary" style="margin-left:auto;padding:8px 14px;font-size:12.5px" onclick="window.open(CFG.io_app_url,'_blank')">Open the IO builder in its own tab ↗</button></div>
+   <iframe class="ioframe" style="border-radius:0;box-shadow:none" src="${esc(CFG.io_app_url)}"></iframe>
+   <div class="note" style="padding:8px 18px 12px">If the builder doesn't load in this frame, use the button above — it's the same app either way.</div>
+  </div>`;
+ if(!LIST.length){try{const l=await api('/sales/builder/api/quotes?limit=300');LIST=l.quotes||[];}catch(e){}}
+ drawIoLookup();
+}
+function drawIoLookup(){
+ const tb=document.getElementById('ioRows2');if(!tb)return;
+ const q=(document.getElementById('ioq2')?.value||"").toLowerCase();
+ const rows=LIST.filter(x=>x.status==='Converted'&&x.io_number)
+  .filter(x=>!q||["io #"+x.io_number,x.io_number,x.client,x.website,x.quote_number,x.products_summary].join(" ").toLowerCase().includes(q));
+ tb.innerHTML=rows.map(ioRowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px">No converted IOs yet. IOs built directly in the IO builder below live in the IO system (Cloudinary / Smart 1 Suite); IOs converted from proposals show up here automatically.</td></tr>`;
+}
+function setIoUrl(){const v=prompt("IO builder URL:",CFG.io_app_url);if(v!==null&&v.trim()){CFG.io_app_url=v.trim();lsSet("s1_io_app_url",CFG.io_app_url);drawIO();}}
+
+/* ============================================================
+   DETAIL DRAWER
+   ============================================================ */
+async function openDrawer(id){
+ let d;try{d=await api('/sales/builder/api/quotes/'+id);}catch(e){toast(e.message);return;}
+ const x=d.quote,st=x.data||{};
+ document.getElementById('dTitle').textContent=x.quote_number+" — "+(x.client||"Quote");
+ document.getElementById('dSub').innerHTML=`<span class="badge ${badge(x.status)}">${x.status}</span> &nbsp; Created ${ago(x.created_at)} · rev ${x.revision}${x.website?" &nbsp;·&nbsp; "+esc(x.website):""}`;
+ const gaps=x.gaps||[];
+ document.getElementById('dBody').innerHTML=`
+  <div class="dsec">Campaign</div><ul class="kv2">
+   <li><span>Goals</span><b>${esc(x.goals_summary||"—")}</b></li>
+   <li><span>Geography</span><b>${esc(x.geo_summary||"—")}</b></li>
+   <li><span>Package</span><b>${esc(x.package||"—")}</b></li>
+   <li><span>Products</span><b>${esc(x.products_summary||"—")}</b></li>
+   <li><span>Monthly budget</span><b>${money(x.monthly_budget)}</b></li>
+   <li><span>Term / total</span><b>${x.months} months · ${money(x.total_budget)}</b></li>
+  </ul>
+  <div class="dsec">Status</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">${["Draft","Sent","Approved","Lost"].map(s=>`<span class="pill ${x.status===s?'on':''}" style="margin:0" onclick="setStatus(${x.id},'${s}')">${s}</span>`).join("")}</div>
+  <div class="dsec">Documents</div><ul class="kv2">
+   <li><span>Branded PDF</span><b><a href="/sales/builder/api/quotes/${x.id}/pdf" target="_blank">Generate / open PDF</a>${x.has_pdf?` · <a href="/sales/builder/api/quotes/${x.id}/pdf/archived" target="_blank">last saved copy</a>`:""}</b></li>
+   <li><span>Word copy</span><b><a href="/sales/builder/api/quotes/${x.id}/docx">Export .docx</a></b></li>
+  </ul>
+  ${(x.guardrails||[]).length?`<div class="warnbox"><b>🛡 Guardrails</b>${x.guardrails.map(g=>"⚠ "+esc(g)).join("<br>")}</div>`:""}
+  ${gaps.length&&x.status!=='Converted'?`<div class="dsec">Before this can become an IO</div>
+   <div class="gap"><b>⚠ ${gaps.length} answer${gaps.length>1?"s":""} still needed — the convert wizard asks only these:</b><ul>${gaps.map(g=>`<li>${esc(g.label)}</li>`).join("")}</ul></div>`:""}
+  ${x.io_number?`<div class="dsec">Insertion Order</div><ul class="kv2"><li><span>Converted to</span><b>IO #${esc(x.io_number)}</b></li>
+   ${x.io_client_pdf_url?`<li><span>Customer PDF</span><b><a href="${esc(x.io_client_pdf_url)}" target="_blank">open</a></b></li>`:""}
+   ${x.io_internal_pdf_url?`<li><span>Internal PDF</span><b><a href="${esc(x.io_internal_pdf_url)}" target="_blank">open</a></b></li>`:""}</ul>`:""}`;
+ document.getElementById('dFoot').innerHTML=`
+  <button class="btn btn-primary" onclick="closeDrawer();editQuote(${x.id})">✏️ Edit proposal</button>
+  <button class="btn btn-line" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄 PDF</button>
+  <button class="btn btn-line" onclick="location.href='/sales/builder/api/quotes/${x.id}/docx'">📝 Word</button>
+  <button class="btn btn-line" onclick="dupQuote(${x.id})">📋 Duplicate</button>
+  ${x.status!=='Converted'?`<button class="btn btn-gold" onclick="closeDrawer();openConvert(${x.id})">🔁 Convert to IO</button>`:""}`;
+ document.getElementById('ov').style.display="block";
+ document.getElementById('dr').classList.add("open");
+}
+function closeDrawer(){document.getElementById('ov').style.display="none";document.getElementById('dr').classList.remove("open");}
+async function setStatus(id,s){try{await api('/sales/builder/api/quotes/'+id,{method:'PUT',body:JSON.stringify({status:s})});toast("Status → "+s);openDrawer(id);refreshLists();}catch(e){toast(e.message);}}
+async function dupQuote(id){try{const d=await api('/sales/builder/api/quotes/'+id+'/duplicate',{method:'POST'});toast("Created "+d.quote.quote_number+" from the original.");closeDrawer();editLoaded(d.quote);}catch(e){toast(e.message);}}
+function refreshLists(){const v=VIEWS.find(x=>document.getElementById('view-'+x).style.display!=='none');if(v==='dashboard')drawDashboard();if(v==='proposals')drawProposals();}
+</script>
+<script>
+/* ============================================================
+   BUILDER STATE + PERSISTENCE
+   ============================================================ */
+let S=null,QUOTE_ID=null,QUOTE_NUMBER="",step=0,_saveT=null,_lastStep=-1;
+function freshState(){return{
+ client:"",url:"",industry:"",descriptionMode:"Build one for me",description:"",
+ objectives:[],kpis:[],exclusions:[],
+ geoType:"City/ZIP + Radius",geo:"",radius:10,population:0,ages:["25-34","35-44","45-54"],gender:"Both",income:["No income targeting"],
+ audiences:[],budgetMode:"range",budget:8000,months:6,
+ items:[],landingMode:"One landing page",landingUrl:"",landing:"",landingReview:"",
+ packages:[],selPkg:1,selectedPackage:null,estimates:null,aiEst:null,
+ mkt:{seo:"",paidSearch:"",socialPosting:"",paidSocial:""},
+ sections:null,
+ salesContact:REP_NAME||"",salesEmail:REP_EMAIL||"",
+ clientContactName:"",clientContactEmail:"",clientContactPhone:"",
+ startDate:"",endDate:"",creativeSource:"",creativeFee:"",managementFeeAck:"",
+ trackingPlan:{primaryConversion:"",ga4:"",callTracking:"",verifier:""},
+ dirty:false,keepAsIs:false,configured:false
+};}
+async function startNewProposal(){
+ S=freshState();QUOTE_ID=null;QUOTE_NUMBER="";step=0;_lastStep=-1;
+ nav('builder');renderStep();
+ try{const d=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});
+  QUOTE_ID=d.quote.id;QUOTE_NUMBER=d.quote.quote_number;drawQuoteTag("Saved as "+QUOTE_NUMBER);}
+ catch(e){drawQuoteTag("⚠ Not saved — server unreachable");}
+}
+async function editQuote(id){
+ try{const d=await api('/sales/builder/api/quotes/'+id);editLoaded(d.quote);}catch(e){toast(e.message);}
+}
+function editLoaded(q){
+ S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;step=0;_lastStep=-1;
+ nav('builder');renderStep();drawQuoteTag("Editing "+QUOTE_NUMBER+" · rev "+q.revision);
+}
+function drawQuoteTag(t){const el=document.getElementById('quoteTag');if(el)el.textContent=t;}
+function saveSoon(){clearTimeout(_saveT);setSave("…");_saveT=setTimeout(saveNow,900);}
+async function saveNow(extra){
+ if(!S)return;
+ setSave("Saving…");
+ try{
+  if(!QUOTE_ID){const d=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});QUOTE_ID=d.quote.id;QUOTE_NUMBER=d.quote.quote_number;}
+  else await api('/sales/builder/api/quotes/'+QUOTE_ID,{method:'PUT',body:JSON.stringify(Object.assign({data:S},extra||{}))});
+  setSave("✓ Saved "+(QUOTE_NUMBER||""));drawQuoteTag((QUOTE_NUMBER?QUOTE_NUMBER+" · ":"")+"autosaving");
+ }catch(e){setSave("⚠ Not saved: "+e.message);}
+}
+function setSave(t){const el=document.getElementById('saveState');if(el)el.textContent=t;}
+
+/* estimator (built-in fallback; AI refines via the IO API) */
+function ageF(){const map={"18-24":.11,"25-34":.18,"35-44":.17,"45-54":.16,"55-64":.14,"65+":.13};return S.ages.length?S.ages.reduce((s,x)=>s+(map[x]||0),0):.78;}
+function incF(){const has=S.income.filter(x=>x!=="No income targeting");if(!has.length)return 1;const m={"Under $50,000":.4,"$50,000–$74,999":.22,"$75,000–$99,999":.16,"$100,000–$149,999":.15,"$150,000–$199,999":.06,"$200,000+":.05};return Math.min(1,has.reduce((s,x)=>s+(m[x]||0),0))||.5;}
+function computePopulation(){switch(S.geoType){
+ case "City/ZIP + Radius":{const r=Math.max(1,+S.radius||10);return Math.round(Math.PI*r*r*900);}
+ case "DMA":return 1200000;case "Statewide":return 6500000;case "National":return 335000000;
+ default:return +S.population||250000;}}
+function estimates(){
+ if(S.aiEst){const a=S.aiEst;const pop=+a.population||computePopulation();const aud=+a.addressable_audience||Math.round(pop*.85*ageF()*incF());
+  return{pop,aud,hh:+a.households||Math.round(aud/1.9),dev:+a.devices||Math.round(aud*2.3),ai:true,rationale:a.rationale||""};}
+ const pop=(S.geoType==="Other"&&S.population)?+S.population:computePopulation();
+ const aud=Math.round(pop*.85*ageF()*incF());
+ return{pop,aud,hh:Math.round(aud/1.9),dev:Math.round(aud*2.3),ai:false};}
+function productDelivery(rateValue,rateType,dollars){
+ if(rateType==="CPM"&&rateValue>0)return{unit:"impr",val:Math.round(dollars/rateValue*1000)};
+ if(rateType==="CPV"&&rateValue>0)return{unit:"views",val:Math.round(dollars/rateValue)};
+ return{unit:"managed",val:0};}
+function applySeeds(){const seed=S.items.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
+ S.items.forEach(i=>{i.dollars=Math.round(S.budget*(i.pctSeed/seed)/50)*50;});}
+function buildPackages(){
+ const tiers=[{k:"Essential",mult:.7},{k:"Recommended",mult:1,rec:true},{k:"Accelerated",mult:1.5}];
+ const seed=S.items.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
+ S.packages=tiers.map(t=>{
+  const monthly=Math.round(S.budget*t.mult/250)*250;
+  const lines=S.items.map(i=>{const dollars=Math.round(monthly*(i.pctSeed/seed)/50)*50;
+   const d=productDelivery(i.rateValue,i.rate,dollars*S.months);
+   return{name:i.product,cat:i.category,amt:dollars,unit:d.unit,val:d.val};});
+  const impr=lines.filter(l=>l.unit==="impr").reduce((s,l)=>s+l.val,0);
+  const views=lines.filter(l=>l.unit==="views").reduce((s,l)=>s+l.val,0);
+  const roi=t.mult<1?"2–3×":t.mult>1?"4–6×":"3–5×";
+  return{name:t.k,rec:!!t.rec,monthly,total:monthly*S.months,lines,impr,views,roi};});
+ S.configured=true;
+ if(S.selPkg==null||S.selPkg>2)S.selPkg=1;
+ S.selectedPackage=S.packages[S.selPkg];
+}
+function recommendItems(){
+ const cats=[];S.objectives.forEach(o=>(GOAL_CATEGORIES[o]||[]).forEach(c=>{if(!cats.includes(c))cats.push(c);}));
+ const chosen=cats.slice(0,4),seeds=[40,30,20,10];
+ S.items=chosen.map((c,i)=>{const p=findProduct(c)||{};return{label:p.label,category:c,product:p.product||c,rate:p.rateType,rateValue:p.rateValue,pctSeed:seeds[i]||10,dollars:0};});
+ applySeeds();}
+function guardrailsJs(){
+ const warns=[];
+ S.items.forEach(i=>{if((i.category||"").includes("SEARCH ENGINE MARKETING")&&i.dollars>0&&i.dollars<1500)warns.push("Search budget "+money(i.dollars)+"/mo is below the $1,500 monthly minimum.");});
+ if(S.months<3)warns.push("Campaign term under 3 months — most Smart 1 programs need 3+ months to optimize.");
+ if(S.items.length>4&&S.budget/Math.max(S.items.length,1)<750)warns.push("Budget is split across many products — consider fewer products for impact.");
+ if((S.creativeSource||"").startsWith("Smart 1")&&!S.creativeFee)warns.push("Smart 1 is building creative but no creative fee is set.");
+ return warns;}
+function defaultSections(){
+ const client=S.client||"the client";
+ const goals=(S.objectives.join(", ")||"the campaign goals");
+ return[
+  {id:"about",title:"About "+client,kind:"text",enabled:true,body:S.description||""},
+  {id:"strategy",title:"Campaign Strategy",kind:"text",enabled:true,body:"This program is built around "+goals.toLowerCase()+", combining the Smart 1 products below to reach the right audience in "+(S.geo||"the target area")+" with the frequency needed to drive results."},
+  {id:"reach",title:"Target Audience & Reach",kind:"reach",enabled:true,body:""},
+  {id:"mediaplan",title:"Recommended Media Plan",kind:"mediaplan",enabled:true,body:""},
+  {id:"packages",title:"Investment Options",kind:"packages",enabled:true,body:""},
+  {id:"kpis",title:"How We Measure Success",kind:"kpis",enabled:true,body:"Reporting is provided monthly with the KPIs below, reviewed together to optimize the plan."},
+  {id:"landing",title:"Landing Page Recommendation",kind:"text",enabled:true,body:S.landing||""},
+  {id:"next",title:"Next Steps",kind:"text",enabled:true,body:"1. Approve the recommended package.\n2. Smart 1 finalizes the insertion order and creative plan.\n3. Campaign launches after tracking is verified."}];}
+function landingRec(){const g=S.objectives;
+ if(g.includes("Lead Generation")||g.includes("Phone Calls"))return "A dedicated landing page with one clear offer, a short lead form, click-to-call, and trust signals (reviews, credentials). Keep navigation minimal so every visitor converts or calls.";
+ if(g.includes("Conversions"))return "Send paid traffic to fast product/category pages with the retargeting pixel installed, clear pricing, and prominent CTAs. Add abandoned-cart retargeting.";
+ if(g.includes("Store Visits"))return "A location page with map, hours, click-to-call, and Get Directions. Ensure the Google Business Profile is claimed and consistent.";
+ return "A focused landing page aligned to the offer with a single primary CTA and a retargeting pixel installed.";}
+
+/* helper renderers */
+function card(em2,t,d,on,click){return `<div class="choice${on?' on':''}" onclick="${click}"><div class="em">${em2}</div><div><h3>${t}</h3><p>${d}</p></div><div class="tick"></div></div>`;}
+function pillRow(list,arr,kind){return '<div>'+list.map(v=>`<span class="pill${arr.includes(v)?' on':''}" onclick="pill('${kind}',this.dataset.v)" data-v="${esc(v)}">${esc(v)}</span>`).join('')+'</div>';}
+function opt(list,cur){return list.map(x=>`<option ${cur===x?'selected':''}>${esc(x)}</option>`).join('');}
+function seg(label,key){return `<div class="fld"><label>${label}</label><div>`+["Yes","No","Unknown"].map(o=>`<span class="pill${S.mkt[key]===o?' on':''}" onclick="S.mkt['${key}']='${o}';saveSoon();renderStep()">${o}</span>`).join('')+`</div></div>`;}
+function pill(kind,v){const m={exc:S.exclusions,age:S.ages,inc:S.income,aud:S.audiences,kpi:S.kpis};toggle(m[kind],v);if(kind==='age'||kind==='inc')S.aiEst=null;saveSoon();renderStep();if(kind==='age'||kind==='inc')drawEst();}
+function addCustom(kind,id){const el=document.getElementById(id);const v=(el.value||'').trim();if(!v)return;const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};if(!m[kind].includes(v))m[kind].push(v);el.value='';saveSoon();renderStep();}
+function goal(k){toggle(S.objectives,k);S.items=[];S.kpis=[];saveSoon();renderStep();}
+function setBudget(v){S.budget=+v||0;S.configured=false;applySeeds();saveSoon();renderStep();}
+
+/* ============================================================
+   BUILDER STEPS
+   ============================================================ */
+const STEPS=[
+ ()=>({eyebrow:"The Goal",title:"What are we trying to accomplish?",sub:"Pick one or more. This drives the recommended products, KPIs, and audience — using the real Smart 1 catalog.",
+   html:'<div class="cards">'+Object.keys(objectiveKPIs).map(k=>card(GOAL_META[k].em,k,GOAL_META[k].d,S.objectives.includes(k),`goal('${k}')`)).join('')+'</div>',
+   valid:()=>S.objectives.length>0}),
+
+ ()=>({eyebrow:"Customer & Industry",title:"Tell us about the customer",sub:"Smart 1 builds the business description from the website automatically.",
+   html:`<div class="fld"><label>Client / business name</label><input value="${esc(S.client)}" oninput="S.client=this.value;saveSoon();syncNext()" placeholder="Riverstone Dental Group"></div>
+   <div class="two"><div class="fld"><label>Website</label><input value="${esc(S.url)}" oninput="S.url=this.value;saveSoon()" placeholder="riverstonedental.com"></div>
+   <div class="fld"><label>Industry</label><select onchange="S.industry=this.value;saveSoon();renderStep()"><option value="">Select…</option>${opt(INDUSTRIES,S.industry)}</select></div></div>
+   <div class="bpanel"><div class="ttl">Business description</div>
+    <div class="cards" style="margin-top:6px">
+     ${card("✨","Build one for me","AI writes it from the website",S.descriptionMode==="Build one for me",`S.descriptionMode='Build one for me';renderStep()`)}
+     ${card("📝","I already have one","Paste or type it",S.descriptionMode==="I have one",`S.descriptionMode='I have one';renderStep()`)}
+    </div>
+    ${S.descriptionMode==="Build one for me"
+     ? `<div style="margin-top:12px"><button class="btn btn-ghost" id="descBtn" onclick="generateDesc()">✨ Generate description</button>
+        <div class="fld"><label>Generated (editable)</label><textarea oninput="S.description=this.value;saveSoon()" placeholder="Click Generate — or type here.">${esc(S.description)}</textarea></div></div>`
+     : `<div class="fld" style="margin-top:12px"><label>Business description</label><textarea oninput="S.description=this.value;saveSoon()" placeholder="Family & cosmetic dentistry, 4.8 stars…">${esc(S.description)}</textarea></div>`}
+   </div>`,
+   valid:()=>S.client.trim().length>0}),
+
+ ()=>{ if(!S.landing)S.landing=landingRec();
+   return{eyebrow:"Landing Page",title:"Where does the traffic land?",sub:"Enter the landing page early so Smart 1 can review it before you price the campaign.",
+   html:`<div class="two"><div class="fld"><label>Landing mode</label><select onchange="S.landingMode=this.value;saveSoon()">${opt(["One landing page","Multiple landing pages by product"],S.landingMode)}</select></div>
+   <div class="fld"><label>Landing page URL</label><input value="${esc(S.landingUrl)}" oninput="S.landingUrl=this.value;S.landingReview='';saveSoon()" placeholder="riverstonedental.com/new-patients"></div></div>
+   <div class="bpanel"><div class="ttl">🔍 Smart 1 landing page review</div>
+    <button id="lpBtn" class="btn btn-ghost" onclick="reviewLandingAI()">🔍 Review landing page</button><div id="lpReview"></div></div>
+   <div class="bpanel"><div class="ttl">🖥 Recommended landing setup (editable — goes in the proposal)</div>
+    <div class="fld" style="margin-top:6px"><textarea oninput="S.landing=this.value;saveSoon()" style="min-height:80px">${esc(S.landing)}</textarea></div></div>`,
+   valid:()=>true,after:drawLanding};},
+
+ ()=>({eyebrow:"Current Marketing",title:"What are they already doing?",sub:"Knowing what's running today shows where the gaps and quick wins are.",
+   html:`<div class="bpanel">${seg("Doing SEO / local listings?","seo")}${seg("Running paid search (Google / Bing)?","paidSearch")}${seg("Posting on social media regularly?","socialPosting")}${seg("Running paid social media ads?","paidSocial")}</div>`,
+   valid:()=>true}),
+
+ ()=>({eyebrow:"Guardrails",title:"Anything to avoid?",sub:"Flag exclusions, negative keywords, or restricted audiences up front (feeds the IO's exclusions field).",
+   html:'<div class="bpanel"><div class="ttl">🚫 Exclusions / things to avoid</div>'+
+     pillRow(["Exclude current customers","Exclude competitor staff","No off-hours delivery","Brand-safety sensitive","Avoid certain keywords","Sensitive category (health/legal)","Competitor conquesting OK"],S.exclusions,'exc')+
+     '<div class="addpill"><input id="excIn" placeholder="Add an exclusion…" onkeydown="if(event.key===\'Enter\'){addCustom(\'exc\',\'excIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'exc\',\'excIn\')">+ Add</button></div></div>',
+   valid:()=>true}),
+
+ ()=>({eyebrow:"Target Area",title:"Where should we run it?",sub:"Pick the geography — Smart 1 estimates the reach automatically.",
+   html:`<div class="two"><div class="fld"><label>Geo type</label><select onchange="S.geoType=this.value;S.aiEst=null;saveSoon();renderStep()">${opt(["City/ZIP + Radius","DMA","Statewide","National","Other"],S.geoType)}</select></div>
+   <div class="fld"><label>Area label (city, ZIPs, DMA, state…)</label><input value="${esc(S.geo)}" oninput="S.geo=this.value;S.aiEst=null;saveSoon()" placeholder="e.g. Carmel, IN"></div></div>
+   ${S.geoType==="City/ZIP + Radius"?`<div class="fld"><label>Radius (miles)</label><input type="number" min="1" value="${S.radius}" oninput="S.radius=Math.max(1,+this.value);S.aiEst=null;saveSoon();drawEst()" style="max-width:160px"></div>`:''}
+   ${S.geoType==="Other"?`<div class="fld"><label>Approx. population (optional)</label><input type="number" value="${S.population||''}" oninput="S.population=+this.value;S.aiEst=null;saveSoon();drawEst()" style="max-width:220px"></div>`:''}
+   <div class="two"><div class="fld"><label>Gender</label><select onchange="S.gender=this.value;S.aiEst=null;saveSoon();drawEst()">${opt(["Both","Male","Female"],S.gender)}</select></div><div></div></div>
+   <div class="bpanel"><div class="ttl">Age ranges</div>${pillRow(["18-24","25-34","35-44","45-54","55-64","65+"],S.ages,'age')}</div>
+   <div class="bpanel"><div class="ttl">Household income</div>${pillRow(incomeOptions,S.income,'inc')}</div>
+   <div class="bpanel"><div class="ttl">📊 Smart 1 estimated reach for this area</div>
+   <div class="estgrid" id="estGrid"></div><div class="note" id="popNote"></div>
+   <div style="margin-top:8px"><a onclick="estimateAudienceAI()" style="cursor:pointer;color:var(--blue);font-weight:700;font-size:13px">↻ Re-estimate with Smart 1 AI</a></div></div>`,
+   valid:()=>true,after:()=>{if(window._entering&&S.geo&&!S.aiEst&&!S._aiLoading)estimateAudienceAI();else drawEst();}}),
+
+ ()=>({eyebrow:"Audience Strategy",title:"Who we target",sub:"Pulled from the industry audience library. Adjust as needed.",
+   html:(()=>{const key=INDUSTRY_KEYS[S.industry]||'general';const lib=industryIdeas[key]||industryIdeas.general;
+    const list=[...(lib.behavioral||[]),...(lib.contextual||[]),"Website retargeting","Lookalike / CRM match","Competitor physical locations","Competitor conquesting"];
+    return '<div class="bpanel"><div class="ttl">🎯 Recommended audience layers — '+esc(key)+'</div>'+pillRow(list,S.audiences,'aud')+
+    '<div class="addpill"><input id="audIn" placeholder="Add a custom audience…" onkeydown="if(event.key===\'Enter\'){addCustom(\'aud\',\'audIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'aud\',\'audIn\')">+ Add</button></div></div>';})(),
+   valid:()=>true}),
+
+ ()=>({eyebrow:"Budget",title:"What's the working budget?",sub:"Monthly media budget. Three packages build around it and reconfigure if you change it.",
+   html:'<div class="cards">'+
+     card("🧭","Help me choose","Show budget ranges by goal",S.budgetMode==="range",`S.budgetMode='range';renderStep()`)+
+     card("✍️","I know the budget","Enter an exact monthly amount",S.budgetMode==="exact",`S.budgetMode='exact';renderStep()`)+'</div>'+
+   (S.budgetMode==="range"
+     ? '<div class="cards c3" style="margin-top:14px">'+[[1750,"$1k–2.5k","Entry / very local"],[3500,"$2.5k–5k","Testing a market"],[8000,"$5k–10k","Steady local growth"],[15000,"$10k–20k","Aggressive share gain"],[28000,"$20k–40k","Multi-market push"],[50000,"$40k+","Regional dominance"]].map(b=>card("💰",b[1],b[2],S.budget===b[0],`setBudget(${b[0]})`)).join('')+'</div>'
+     : `<div class="fld" style="margin-top:14px"><label>Exact monthly budget ($)</label><input type="number" value="${S.budget}" oninput="setBudget(+this.value)" placeholder="e.g. 6500" style="max-width:260px"></div>`)+
+   `<div class="fld"><label>Campaign length (months)</label><input type="number" min="1" value="${S.months}" oninput="S.months=Math.max(1,+this.value);S.configured=false;saveSoon()" style="max-width:200px"></div>`,
+   valid:()=>S.budget>0}),
+
+ ()=>{ if(S.items.length===0)recommendItems(); return{eyebrow:"The Media Mix",title:"Products & pricing",sub:"From your goals, using real catalog products & rates. Edit the monthly $ per product, add or remove products — guardrails recheck as you go.",
+   html:'<div id="prodList"></div>'+
+    '<div class="addrow"><select id="addCat">'+productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')+'</select><button class="btn btn-ghost" onclick="addItem()">+ Add product</button></div>'+
+    '<div id="reconfigWrap"></div><div id="guardWrap"></div>'+
+    '<div class="bpanel"><div class="ttl">💡 Sample ROI by product (internal only)</div><div id="roiTags" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div><div class="note">Illustrative category benchmarks — not shown to the client unless you include them.</div></div>',
+   valid:()=>S.items.length>0,after:()=>{drawItems();drawRoi();drawGuards();}};},
+
+ ()=>{ if(S.kpis.length===0)S.kpis=[...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].slice(0,6);
+   return{eyebrow:"Measurement",title:"KPI framework",sub:"KPIs come straight from the objective→KPI map. Tune them as needed.",
+   html:'<div class="bpanel"><div class="ttl">📐 KPIs</div>'+pillRow([...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))],S.kpis,'kpi')+
+     '<div class="addpill"><input id="kpiIn" placeholder="Add a KPI…" onkeydown="if(event.key===\'Enter\'){addCustom(\'kpi\',\'kpiIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'kpi\',\'kpiIn\')">+ Add</button></div></div>',
+   valid:()=>S.kpis.length>0};},
+
+ ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. Pick the featured one.",
+   html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Essential ≈ 70%, Recommended = 100%, Accelerated ≈ 150% of budget. Change the budget or products and these rebuild.</div>',
+   valid:()=>true,after:drawPkgs};},
+
+ ()=>{ if(!S.sections)S.sections=defaultSections(); S.estimates=estimates(); return{eyebrow:"Proposal Document",title:"Edit the proposal",sub:"These sections become the branded PDF and Word doc. Rename, rewrite, reorder, disable, or add sections. Auto sections (tables) fill from the campaign data.",
+   html:'<div id="secList"></div><div class="addrow"><button class="btn btn-ghost" onclick="addSection()">+ Add a custom section</button><button class="btn btn-line" onclick="S.sections=defaultSections();saveSoon();renderStep()">↺ Reset to defaults</button></div>',
+   valid:()=>true,after:drawSections};},
+
+ ()=>{ buildPackages();S.estimates=estimates(); return{eyebrow:"Review & Save",title:"Ready to deliver",sub:"Everything is saved under "+(QUOTE_NUMBER||"a new quote number")+". Generate the branded PDF, export Word, and mark it Sent when it goes to the client.",
+   html:reviewHtml(),valid:()=>true,isLast:true};}
+];
+
+function renderStep(){
+ if(!S)return;
+ const d=STEPS[step]();window._entering=(_lastStep!==step);_lastStep=step;
+ const st=document.getElementById('stage');
+ st.innerHTML=`<div class="eyebrow">${d.eyebrow}</div><h1 class="q">${d.title}</h1><div class="sub">${d.sub}</div>${d.html}`;
+ document.getElementById('stepLabel').textContent='Step '+(step+1)+' of '+STEPS.length;
+ document.getElementById('bar').style.width=((step+1)/STEPS.length*100)+'%';
+ document.getElementById('backBtn').style.visibility=step===0?'hidden':'visible';
+ document.getElementById('nextBtn').textContent=d.isLast?'Finish & back to dashboard':'Continue →';
+ if(d.after)d.after();window._valid=d.valid;syncNext();window.scrollTo(0,0);
+}
+function syncNext(){const b=document.getElementById('nextBtn');if(b)b.disabled=window._valid?!window._valid():false;}
+function nextStep(){const d=STEPS[step]();if(d.valid&&!d.valid())return;saveNow();
+ if(step<STEPS.length-1){step++;renderStep();}else{toast("Saved. "+(QUOTE_NUMBER||"")+" is on the dashboard.");nav('dashboard');}}
+function prevStep(){if(step>0){step--;renderStep();}}
+
+/* step widgets */
+function drawEst(){const e=estimates();const g=document.getElementById('estGrid');if(!g)return;
+ const L=S._aiLoading?' loading':'';
+ g.innerHTML=`<div class="est${L}"><b>${S._aiLoading?'—':fmt(e.pop)}</b><span>Est. population</span></div><div class="est${L}"><b>${S._aiLoading?'—':fmt(e.aud)}</b><span>Addressable audience</span></div><div class="est${L}"><b>${S._aiLoading?'—':fmt(e.hh)}</b><span>Households</span></div><div class="est${L}"><b>${S._aiLoading?'—':fmt(e.dev)}</b><span>Devices</span></div>`;
+ const n=document.getElementById('popNote');
+ if(n){if(S._aiLoading)n.innerHTML='<span class="spin"></span>Smart 1 is sizing this area…';
+  else if(e.ai)n.textContent="✨ Smart 1 AI estimate. "+(e.rationale||"");
+  else n.textContent="Built-in estimate — the AI re-estimate refines it from the named area.";}
+ S.estimates=e;}
+async function estimateAudienceAI(){
+ if(!S.geo){toast("Enter an area label first (city, ZIPs, DMA, or state).");return;}
+ S._aiLoading=true;drawEst();
+ try{const r=await fetch(CFG.io_api_base+"/sales/builder/api/estimate-audience",{method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({geoType:S.geoType,area:S.geo,radius:S.radius,industry:S.industry,gender:S.gender,ages:S.ages,income:S.income})});
+  const d=await r.json();
+  if(d&&d.ok&&d.estimate){S.aiEst=d.estimate;S._aiLoading=false;drawEst();saveSoon();toast("✨ AI sized this area.");return;}
+  throw new Error((d&&(d.error||d.detail))||("HTTP "+r.status));
+ }catch(e){S.aiEst=null;S._aiLoading=false;drawEst();toast("Couldn't reach the AI ("+e.message+"). Showing the built-in estimate.");}}
+async function generateDesc(){
+ const b=document.getElementById('descBtn');if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Generating…';}
+ try{const r=await fetch(CFG.io_api_base+"/sales/builder/api/generate-business-description",{method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({urls:[S.url].filter(Boolean),client:S.client,industry:S.industry,geo:S.geo,brandfetch:{}})});
+  const d=await r.json();
+  if(d&&d.description){S.description=d.description;saveSoon();renderStep();toast("✨ Description generated.");return;}
+  throw new Error((d&&(d.error||d.detail))||("HTTP "+r.status));
+ }catch(e){const c=S.client||'The business';S.description=S.description||(c+" is a "+(S.industry||"local").toLowerCase()+" business serving customers in "+(S.geo||"its service area")+". It provides products and services designed to meet the needs of customers in this category, with a focus on quality, responsiveness, and local expertise.");
+  renderStep();toast("Couldn't reach the AI ("+e.message+"). Used a placeholder you can edit.");}}
+async function reviewLandingAI(){
+ if(!S.landingUrl){toast("Enter a landing page URL first.");return;}
+ S._lpLoading=true;drawLanding();
+ try{const r=await fetch(CFG.io_api_base+"/sales/builder/api/review-landing-page",{method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({url:S.landingUrl,client:S.client,product:"Campaign landing page",objectives:S.objectives})});
+  const d=await r.json();
+  if(d&&d.review){S.landingReview=d.review;S._lpLoading=false;drawLanding();saveSoon();toast("✨ Landing page reviewed.");return;}
+  throw new Error((d&&(d.error||d.detail))||("HTTP "+r.status));
+ }catch(e){S._lpLoading=false;drawLanding();toast("Couldn't review the page ("+e.message+").");}}
+function drawLanding(){
+ const b=document.getElementById('lpBtn');if(b){b.disabled=!!S._lpLoading;b.innerHTML=S._lpLoading?'<span class="spin"></span>Reviewing…':'🔍 Review landing page';}
+ const box=document.getElementById('lpReview');if(!box)return;
+ if(S._lpLoading){box.innerHTML='<div class="note" style="margin-top:10px"><span class="spin"></span>Smart 1 is reviewing the landing page…</div>';return;}
+ box.innerHTML=S.landingReview
+  ? `<div style="margin-top:12px;background:#f6faff;border:1px solid var(--line);border-radius:10px;padding:14px;white-space:pre-wrap;font-size:13px;color:#33415C">${esc(S.landingReview)}</div>`
+  : '<div class="note" style="margin-top:8px">Add a URL and click Review — Smart 1 checks the CTA and conversion readiness before launch.</div>';}
+function drawItems(){const host=document.getElementById('prodList');if(!host)return;
+ host.innerHTML=S.items.map((i,ix)=>{const rateLabel=i.rate?(i.rate+' '+(i.rateValue||'')):'Mgmt/flat';
+  return `<div class="prod"><div class="pi">${em(i.category)}</div><div class="grow"><h4>${esc(i.product)}</h4><div class="meta">${esc(i.category)} · ${esc(rateLabel)} · ROI ${esc(CATEGORY_ROI[i.category]||'—')}</div></div>
+  <div class="alloc"><input type="number" min="0" step="50" value="${i.dollars||0}" onchange="setItemDollars(${ix},+this.value)"><small>$ / month</small></div>
+  <button class="x" onclick="rmItem(${ix})">✕</button></div>`;}).join('');}
+function setItemDollars(ix,v){S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
+ const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
+ S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
+ flagDirty();drawItems();drawGuards();saveSoon();}
+function drawRoi(){const h=document.getElementById('roiTags');if(!h)return;h.innerHTML=S.items.map(i=>`<span class="pill on" style="margin:0;cursor:default">${em(i.category)} ${esc(i.category)}: ${esc(CATEGORY_ROI[i.category]||'—')}</span>`).join('');}
+function drawGuards(){const w=document.getElementById('guardWrap');if(!w)return;const g=guardrailsJs();
+ w.innerHTML=g.length?`<div class="warnbox"><b>🛡 IO guardrail warnings (not blocks)</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:"";}
+function addItem(){const cat=document.getElementById('addCat').value;const p=findProduct(cat)||{};
+ if(S.items.some(i=>i.category===cat)){toast("That category is already in the mix.");return;}
+ S.items.push({label:p.label,category:cat,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,pctSeed:15,dollars:0});
+ applySeeds();flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
+function rmItem(i){S.items.splice(i,1);applySeeds();flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
+function flagDirty(){if(!S.configured)return;S.dirty=true;S.keepAsIs=false;drawReconfig();}
+function drawReconfig(){const w=document.getElementById('reconfigWrap');if(!w)return;
+ w.innerHTML=(S.dirty&&!S.keepAsIs)?`<div class="reconfig"><p>🔄 You changed the product mix. Reconfigure the three packages to match — or keep the current numbers as-is?</p><button class="btn btn-primary" onclick="buildPackages();S.dirty=false;drawReconfig();saveSoon()">Reconfigure</button><button class="btn btn-back" onclick="S.keepAsIs=true;S.dirty=false;drawReconfig()">Keep as is</button></div>`:'';}
+function drawPkgs(){const w=document.getElementById('pkgWrap');if(!w)return;
+ w.innerHTML=S.packages.map((p,i)=>`<div class="pkg${i===S.selPkg?' on':''}" onclick="S.selPkg=${i};S.selectedPackage=S.packages[${i}];saveSoon();drawPkgs()">${p.rec?'<div class="flag">Recommended</div>':''}<div class="pn">${p.name}</div><div class="pp">${money(p.monthly)}<small>/mo</small></div><div class="ptot">${money(p.total)} over ${S.months} mo</div><ul>${p.lines.map(l=>`<li>${esc(l.name)}<b>${money(l.amt)}</b></li>`).join('')}<li>Est. impressions<b>${fmt(p.impr)}</b></li>${p.views?`<li>Est. video views<b>${fmt(p.views)}</b></li>`:''}</ul></div>`).join('');}
+
+/* section editor */
+function drawSections(){const host=document.getElementById('secList');if(!host)return;
+ host.innerHTML=S.sections.map((s,i)=>`
+  <div class="sec${s.enabled?'':' off'}">
+   <div class="shead">
+    <input type="text" value="${esc(s.title)}" onchange="S.sections[${i}].title=this.value;saveSoon()">
+    ${s.kind!=='text'?`<span class="autotag">auto: ${esc(s.kind)}</span>`:""}
+    <div class="tools">
+     <button class="ic" title="Move up" onclick="moveSec(${i},-1)">↑</button>
+     <button class="ic" title="Move down" onclick="moveSec(${i},1)">↓</button>
+     <button class="ic" title="${s.enabled?'Hide from proposal':'Include in proposal'}" onclick="S.sections[${i}].enabled=!S.sections[${i}].enabled;saveSoon();drawSections()">${s.enabled?'👁':'🚫'}</button>
+     <button class="ic" title="Delete section" onclick="delSec(${i})">🗑</button>
+    </div>
+   </div>
+   <div class="sbody">
+    <textarea placeholder="${s.kind==='text'?'Section copy…':'Optional intro copy above the auto table…'}" onchange="S.sections[${i}].body=this.value;saveSoon()">${esc(s.body||'')}</textarea>
+    <div class="airow"><input id="aiIns${i}" placeholder="✨ AI rewrite — e.g. shorter, friendlier, more ROI-focused"><button class="btn btn-ghost" style="padding:8px 13px" onclick="aiRewrite(${i})">✨ Rewrite</button></div>
+   </div>
+  </div>`).join('');}
+function moveSec(i,d){const j=i+d;if(j<0||j>=S.sections.length)return;const t=S.sections[i];S.sections[i]=S.sections[j];S.sections[j]=t;saveSoon();drawSections();}
+function delSec(i){if(!confirm("Delete the \""+S.sections[i].title+"\" section from this proposal?"))return;S.sections.splice(i,1);saveSoon();drawSections();}
+function addSection(){S.sections.push({id:"custom"+Date.now(),title:"New Section",kind:"text",enabled:true,body:""});saveSoon();drawSections();}
+async function aiRewrite(i){
+ const ins=(document.getElementById('aiIns'+i).value||"").trim()||"make it clearer and more client-friendly";
+ const text=S.sections[i].body||"";
+ if(!text){toast("Write something in the section first, then AI can rewrite it.");return;}
+ if(!CFG.ai_enabled){toast("AI rewrite needs OPENAI_API_KEY on the Sales Builder server.");return;}
+ toast("✨ Rewriting…");
+ try{const d=await api('/sales/builder/api/ai/rewrite',{method:'POST',body:JSON.stringify({text,instruction:ins})});
+  S.sections[i].body=d.text;saveSoon();drawSections();toast("✨ Rewritten — edit further as needed.");}
+ catch(e){toast("AI rewrite failed: "+e.message);}}
+
+/* review step */
+function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPackage||{};
+ const row=(l,v)=>`<li style="display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);gap:12px"><span style="color:var(--muted)">${l}</span><b style="color:var(--navy);text-align:right">${v}</b></li>`;
+ const g=guardrailsJs();
+ return `<div class="bpanel"><ul style="list-style:none;padding:0;margin:0">
+  ${row('Quote #',esc(QUOTE_NUMBER||'assigned on save'))}${row('Client',esc(S.client||'—'))}${row('Goals',esc(S.objectives.join(', ')||'—'))}
+  ${row('Target area',esc(S.geo||S.geoType))}${row('Est. audience / households',fmt(e.aud)+' / '+fmt(e.hh))}
+  ${row('Products',esc(S.items.map(i=>i.product).join(', ')||'—'))}
+  ${row('Featured package',esc(sel.name||'—')+' · '+money(sel.monthly||0)+'/mo')}
+  ${row('Campaign total',money(sel.total||0)+' over '+S.months+' months')}
+  ${row('KPIs',esc(S.kpis.join(', ')||'—'))}</ul></div>
+  ${g.length?`<div class="warnbox"><b>🛡 Guardrails to note</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:""}
+  <div class="bpanel"><div class="ttl">Deliver</div>
+   <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:8px">
+    <button class="btn btn-good" onclick="finishAndPdf()">📄 Save &amp; open branded PDF</button>
+    <button class="btn btn-line" onclick="saveNow().then(()=>location.href='/sales/builder/api/quotes/'+QUOTE_ID+'/docx')">📝 Export Word copy</button>
+    <button class="btn btn-gold" onclick="markSent()">📤 Mark as Sent to client</button>
+   </div>
+   <div class="note" style="margin-top:10px">The PDF is archived with ${esc(QUOTE_NUMBER||'the quote')} in the database — anyone can look it up later, edit it, duplicate it, or convert it to an IO.</div></div>`;}
+async function finishAndPdf(){await saveNow({bump_revision:true});if(QUOTE_ID)window.open('/sales/builder/api/quotes/'+QUOTE_ID+'/pdf','_blank');}
+async function markSent(){await saveNow({status:"Sent"});toast((QUOTE_NUMBER||"Quote")+" marked Sent — it now shows in Awaiting Client.");}
+
+/* ============================================================
+   CONVERT-TO-IO WIZARD
+   ============================================================ */
+let CONV={quote:null,step:0,answers:{},submit:false,result:null};
+async function openConvert(id){
+ let d;try{d=await api('/sales/builder/api/quotes/'+id);}catch(e){toast(e.message);return;}
+ const q=d.quote,st=q.data||{};
+ CONV={quote:q,step:0,submit:false,result:null,answers:{
+  clientContactName:st.clientContactName||"",clientContactEmail:st.clientContactEmail||"",clientContactPhone:st.clientContactPhone||"",
+  startDate:st.startDate||"",endDate:st.endDate||"",
+  creativeSource:st.creativeSource||"",creativeFee:st.creativeFee||"",
+  primaryConversion:(st.trackingPlan||{}).primaryConversion||"",ga4:(st.trackingPlan||{}).ga4||"",
+  callTracking:(st.trackingPlan||{}).callTracking||"",verifier:(st.trackingPlan||{}).verifier||"",
+  landingUrl:st.landingUrl||"",salesContact:st.salesContact||REP_NAME||"",salesEmail:st.salesEmail||REP_EMAIL||"",
+  managementFeeAck:st.managementFeeAck||""}};
+ drawConvert();
+ document.getElementById('convModal').classList.add('open');
+}
+function convClose(){document.getElementById('convModal').classList.remove('open');}
+function convFld(label,key,type,ph,options){
+ const v=esc(CONV.answers[key]||"");
+ if(options)return `<div class="fld"><label>${label}</label><select onchange="CONV.answers['${key}']=this.value">`+['<option value="">Select…</option>'].concat(options.map(o=>`<option ${CONV.answers[key]===o?'selected':''}>${esc(o)}</option>`)).join('')+`</select></div>`;
+ return `<div class="fld"><label>${label}</label><input type="${type||'text'}" value="${v}" placeholder="${esc(ph||'')}" onchange="CONV.answers['${key}']=this.value"></div>`;}
+function drawConvert(){
+ const q=CONV.quote,gaps=q.gaps||[];
+ document.getElementById('convTitle').textContent="Convert "+q.quote_number+" → Insertion Order";
+ document.getElementById('convSub').innerHTML=esc(q.client||"")+" · "+esc(q.package||"")+" · "+money(q.monthly_budget)+"/mo · the proposal fields map to the IO automatically";
+ const body=document.getElementById('convBody'),foot=document.getElementById('convFoot');
+ if(CONV.step===0){
+  body.innerHTML=`
+   <div class="gap" style="margin-bottom:6px"><b>✨ AI gap check — ${gaps.length?gaps.length+" answer"+(gaps.length>1?"s":"")+" needed":"nothing missing"}</b>
+    Everything already in the proposal (goals, geo, audiences, products, budgets, landing pages) carries over. ${gaps.length?"Only the fields below still need answers:":"Review the prefilled fields below and continue."}</div>
+   <div class="dsec">Client contact</div>
+   <div class="two">${convFld("Contact name","clientContactName","text","Jane Smith")}${convFld("Contact email","clientContactEmail","email","jane@client.com")}</div>
+   ${convFld("Contact phone","clientContactPhone","tel","(317) 555-0123")}
+   <div class="dsec">Campaign dates</div>
+   <div class="two">${convFld("Start date","startDate","date")}${convFld("End date (blank = ongoing)","endDate","date")}</div>
+   <div class="dsec">Creative</div>
+   ${convFld("Creative source","creativeSource",null,null,["Client provides finished creative","Smart 1 builds creative (creative fee)","Mixed — some provided, some built"])}
+   ${convFld("Creative fee (if Smart 1 builds)","creativeFee","text","$250 — Standard Set of 6")}
+   <div class="dsec">Tracking plan</div>
+   <div class="two">${convFld("Primary conversion","primaryConversion","text","Form submission / phone call")}${convFld("GA4 installed?","ga4",null,null,["Yes","No","Unknown"])}</div>
+   <div class="two">${convFld("Call tracking required?","callTracking",null,null,["Yes","No","Unknown"])}${convFld("Who verifies tracking?","verifier","text","Smart 1 / client webmaster")}</div>
+   <div class="dsec">Final details</div>
+   <div class="two">${convFld("Final landing page URL","landingUrl","text","client.com/offer")}${convFld("Management fee confirmed?","managementFeeAck",null,null,["Yes — per rate card","Custom (note in IO)"])}</div>
+   <div class="two">${convFld("Smart 1 sales contact","salesContact","text","Your name")}${convFld("Sales contact email","salesEmail","email","you@smart1marketing.com")}</div>`;
+  foot.innerHTML=`<button class="btn btn-back" onclick="convClose()">Cancel</button>
+   <button class="btn btn-primary" onclick="convToReview()">Review IO →</button>`;
+ }else if(CONV.step===1){
+  const a=CONV.answers,st=CONV.quote.data||{};
+  const items=(st.items||[]).map(i=>({product:i.product,category:i.category,rate:i.rate,budget:i.dollars||0,campaignBudget:(i.dollars||0)*(st.months||1)}));
+  body.innerHTML=`
+   <div class="dsec">What happens next</div>
+   <ol style="font-size:13px;color:#33415C;padding-left:20px;line-height:1.7">
+    <li>The IO API issues the next order number (10200 series) — same counter the IO builder uses.</li>
+    <li>The customer PDF and internal PDF are generated and stored in Cloudinary, exactly like a hand-built IO.</li>
+    <li>${CONV.submit?"The finished IO is sent to Smart 1 Suite / GoHighLevel.":"The IO is prepared but NOT sent to Smart 1 Suite (you can submit from the IO builder later)."}</li>
+    <li>${esc(q.quote_number)} is marked <b>Converted</b> and linked to the new IO number.</li>
+   </ol>
+   <div class="dsec">IO summary</div>
+   <ul class="kv2">
+    <li><span>Client</span><b>${esc(st.client||"")} · ${esc(a.clientContactName||"—")}</b></li>
+    <li><span>Dates</span><b>${esc(a.startDate||"—")} → ${esc(a.endDate||"ongoing")}</b></li>
+    <li><span>Products</span><b>${items.map(i=>esc(i.product)+" ("+money(i.budget)+"/mo)").join("<br>")}</b></li>
+    <li><span>Monthly / total</span><b>${money(items.reduce((s,i)=>s+i.budget,0))} · ${money(items.reduce((s,i)=>s+i.campaignBudget,0))}</b></li>
+    <li><span>Creative</span><b>${esc(a.creativeSource||"—")}</b></li>
+    <li><span>Tracking</span><b>${esc(a.primaryConversion||"—")} · GA4: ${esc(a.ga4||"?")}</b></li>
+   </ul>
+   <label style="display:flex;gap:9px;align-items:center;margin-top:14px;font-size:13.5px;font-weight:700;color:var(--navy)">
+    <input type="checkbox" ${CONV.submit?"checked":""} onchange="CONV.submit=this.checked" style="width:17px;height:17px">
+    Also submit the finished IO to Smart 1 Suite / GoHighLevel now</label>`;
+  foot.innerHTML=`<button class="btn btn-back" onclick="CONV.step=0;drawConvert()">← Back</button>
+   <button class="btn btn-gold" onclick="runConvert()">🔁 Create the IO</button>`;
+ }else if(CONV.step===2){
+  body.innerHTML=`<div class="dsec">Working…</div><div id="convLog" style="font-size:13px;color:#33415C;line-height:2"></div>`;
+  foot.innerHTML="";
+ }else{
+  const r=CONV.result||{};
+  body.innerHTML=`<div style="text-align:center;padding:14px 0">
+   <div style="font-size:44px">✅</div>
+   <h3 style="color:var(--navy);margin:8px 0 4px">IO #${esc(r.io_number||"?")} created from ${esc(q.quote_number)}</h3>
+   <p style="color:var(--muted);font-size:13.5px">${r.submitted?"Sent to Smart 1 Suite / GoHighLevel.":"Prepared — not yet submitted to Smart 1 Suite."}</p>
+   <div style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-top:12px">
+    ${r.client_pdf_url?`<a class="btn btn-line" href="${esc(r.client_pdf_url)}" target="_blank">📄 Customer PDF</a>`:""}
+    ${r.internal_pdf_url?`<a class="btn btn-line" href="${esc(r.internal_pdf_url)}" target="_blank">🔒 Internal PDF</a>`:""}
+   </div></div>`;
+  foot.innerHTML=`<button class="btn btn-primary" onclick="convClose();nav('dashboard')">Done</button>`;
+ }
+}
+function convToReview(){
+ const a=CONV.answers,need=[];
+ if(!a.clientContactName&&!a.clientContactEmail)need.push("client contact");
+ if(!a.startDate)need.push("start date");
+ if(!a.creativeSource)need.push("creative source");
+ if(need.length){toast("Still needed before the IO: "+need.join(", ")+".");return;}
+ CONV.step=1;drawConvert();
+}
+function ioDataPayload(){
+ const st=CONV.quote.data||{},a=CONV.answers,q=CONV.quote;
+ const items=(st.items||[]).map(i=>({product:i.product,category:i.category,rate:i.rate,listedRate:i.rate?(i.rate+" "+(i.rateValue||"")):"Managed/flat",budget:i.dollars||0,campaignBudget:(i.dollars||0)*(st.months||1)}));
+ const monthly=items.reduce((s,i)=>s+(i.budget||0),0);
+ const total=items.reduce((s,i)=>s+(i.campaignBudget||0),0);
+ const customerRequirements=[
+  "Confirm the campaign start date"+(a.startDate?" ("+a.startDate+")":""),
+  (a.creativeSource||"").startsWith("Client")?"Provide finished creative assets in the required sizes":"Approve Smart 1-built creative before launch",
+  "Provide access for tracking verification (GA4 / site access)"+(a.ga4==="No"?" — GA4 needs to be installed":""),
+  "Confirm the landing page: "+(a.landingUrl||st.landingUrl||"TBD"),
+  "Review and sign the insertion order"];
+ const internalRequirements=items.map(i=>({title:i.product+" — "+i.category,items:[
+  "Monthly budget: "+money(i.budget)+" · campaign total: "+money(i.campaignBudget),
+  "Geography: "+(st.geo||st.geoType||""),
+  "Audience: "+((st.audiences||[]).join(", ")||"per proposal"),
+  "Landing page: "+(a.landingUrl||st.landingUrl||"TBD"),
+  "KPIs: "+((st.kpis||[]).join(", ")||"")]}));
+ const trackingPlan={primaryConversion:a.primaryConversion,secondaryConversions:[],ga4:a.ga4,gtm:"",callTracking:a.callTracking,thankYouPage:"",offlineImport:"",verifier:a.verifier};
+ return{
+  ioType:"Converted Proposal",client:st.client,url:st.url,
+  clientContactName:a.clientContactName,clientContactEmail:a.clientContactEmail,clientContactPhone:a.clientContactPhone,
+  salesContact:a.salesContact,salesEmail:a.salesEmail,
+  sameDates:true,start:a.startDate,end:a.endDate||"Ongoing",
+  objectives:st.objectives||[],kpis:st.kpis||[],geo:(st.geo||"")+(st.geoType==="City/ZIP + Radius"?" + "+st.radius+" mi radius":""),
+  audiences:st.audiences||[],incomes:st.income||[],dayparting:"",
+  creativeSource:a.creativeSource,creativeFee:a.creativeFee,managementFee:a.managementFeeAck,
+  exclusions:(st.exclusions||[]).join(", "),
+  landingPageMode:st.landingMode,landingPage:a.landingUrl||st.landingUrl,
+  landingPageReviews:st.landingReview?[{product:"Campaign landing page",url:a.landingUrl||st.landingUrl,review:st.landingReview}]:[],
+  items,creativeUploads:[],brandfetch:{},
+  monthlySpendFormatted:money(monthly)+" / month",totalCampaignBudgetFormatted:money(total),
+  trackingPlan,guardrailWarnings:(CONV.quote.guardrails||[]).map(g=>({message:g})),
+  internalWarnings:["Converted from proposal "+q.quote_number+" in Smart 1 Sales Builder."],
+  customerRequirements,internalRequirements,
+  mediaMixRecommendation:{},naming:{},campaignOwner:a.salesContact,
+  sourceQuote:q.quote_number};
+}
+async function runConvert(){
+ CONV.step=2;drawConvert();
+ const log=m=>{const el=document.getElementById('convLog');if(el)el.innerHTML+=m+"<br>";};
+ const base=CFG.io_api_base;
+ try{
+  log('<span class="spin"></span>Requesting the next IO order number…');
+  const on=await(await fetch(base+"/sales/builder/api/next-order-number",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
+  if(!on||!on.order_number)throw new Error("The IO API did not return an order number.");
+  const orderNumber=on.order_number;
+  log("✅ Order number <b>#"+esc(orderNumber)+"</b>"+(on.warning?" <span style='color:#8a6410'>("+esc(on.warning)+")</span>":""));
+  const payload=ioDataPayload();payload.orderNumber=orderNumber;
+  log('<span class="spin"></span>Generating the customer PDF…');
+  const cp=await(await fetch(base+"/sales/builder/api/generate-client-pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})).json();
+  if(!cp||!cp.ok)throw new Error("Customer PDF failed: "+((cp&&(cp.error||cp.detail))||"unknown"));
+  log("✅ Customer PDF ready");
+  log('<span class="spin"></span>Generating the internal PDF…');
+  const ip=await(await fetch(base+"/sales/builder/api/generate-internal-pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})).json();
+  if(!ip||!ip.ok)throw new Error("Internal PDF failed: "+((ip&&(ip.error||ip.detail))||"unknown"));
+  log("✅ Internal PDF ready");
+  let submitted=false;
+  if(CONV.submit){
+   log('<span class="spin"></span>Submitting to Smart 1 Suite / GoHighLevel…');
+   const sub=Object.assign({},payload,{client_pdf_url:cp.url,internal_pdf_url:ip.url});
+   const sr=await(await fetch(base+"/sales/builder/api/submit-io",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(sub)})).json();
+   if(sr&&sr.ok){submitted=true;log("✅ Sent to Smart 1 Suite");}
+   else log("⚠ Smart 1 Suite submit failed: "+esc((sr&&sr.error)||"unknown")+" — you can submit from the IO builder later.");
+  }
+  // save the answers back into the quote state + mark converted
+  const st=Object.assign({},CONV.quote.data||{});
+  st.clientContactName=CONV.answers.clientContactName;st.clientContactEmail=CONV.answers.clientContactEmail;st.clientContactPhone=CONV.answers.clientContactPhone;
+  st.startDate=CONV.answers.startDate;st.endDate=CONV.answers.endDate;st.creativeSource=CONV.answers.creativeSource;st.creativeFee=CONV.answers.creativeFee;
+  st.managementFeeAck=CONV.answers.managementFeeAck;st.landingUrl=CONV.answers.landingUrl||st.landingUrl;
+  st.salesContact=CONV.answers.salesContact;st.salesEmail=CONV.answers.salesEmail;
+  st.trackingPlan={primaryConversion:CONV.answers.primaryConversion,ga4:CONV.answers.ga4,callTracking:CONV.answers.callTracking,verifier:CONV.answers.verifier};
+  log('<span class="spin"></span>Linking the IO back to '+esc(CONV.quote.quote_number)+'…');
+  await api('/sales/builder/api/quotes/'+CONV.quote.id+'/converted',{method:'POST',body:JSON.stringify({io_number:orderNumber,client_pdf_url:cp.url||"",internal_pdf_url:ip.url||"",submitted,data:st})});
+  log("✅ Quote marked Converted");
+  CONV.result={io_number:orderNumber,client_pdf_url:cp.url,internal_pdf_url:ip.url,submitted};
+  CONV.step=3;drawConvert();refreshLists();
+ }catch(e){
+  log("❌ "+esc(e.message));
+  log('<br><button class="btn btn-back" onclick="CONV.step=1;drawConvert()">← Back</button> <span class="note">Nothing was saved to the quote. The IO API may be waking up (Render cold start) — try again in ~30 seconds, or finish this one in the IO builder tab.</span>');
+ }
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+(async function init(){
+ drawRep();
+ try{const c=await api('/sales/builder/api/config');CFG=Object.assign(CFG,c);}catch(e){}
+ const savedIo=lsGet("s1_io_app_url","");if(savedIo)CFG.io_app_url=savedIo;
+ nav('dashboard');
+})();
+</script>
+</body>
+</html>

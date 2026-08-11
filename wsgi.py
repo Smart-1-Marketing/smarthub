@@ -193,6 +193,16 @@ if sites:
 img, img_fb = _try_load("img_app", ("modules", "image_optimizer", "app.py"), "Image Optimizer")
 pdf, pdf_fb = _try_load("pdf_app", ("modules", "pdf_optimizer", "app.py"), "PDF Optimizer")
 suite, suite_fb = _try_load("suite_app", ("modules", "suite_panel", "app.py"), "Suite Control Panel")
+salesb, salesb_fb = _try_load("salesb_app", ("modules", "sales_builder", "app.py"), "Sales Builder")
+
+try:
+    import importlib as _il
+    propb = _il.import_module("modules.proposal_builder.app")
+    propb_fb = None
+except Exception as _pb_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    propb, propb_fb = None, _fallback_app("Proposal Builder", str(_pb_exc))
 
 
 def _mount(flask_app, prefix):
@@ -203,6 +213,8 @@ application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
     "/suite": _mount(suite.app, "/suite") if suite else suite_fb,
+    "/sales/builder": _mount(salesb.app, "/sales/builder") if salesb else salesb_fb,
+    "/sales/proposals": _mount(propb.app, "/sales/proposals") if propb else propb_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
 })

@@ -122,6 +122,9 @@ function render(g,q){
   // ---------- Smart 1 Suite Account ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
+  // ---------- Sales: proposals for this client ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals</h3><a class="open-link" href="/sales/proposals/">Open Proposal Builder →</a></div><div class="card-b" id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+
   // ---------- Website record (moved to the bottom) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="/clients">Open in Websites →</a></div><div class="card-b" style="display:flex;gap:36px;flex-wrap:wrap">`;
   if(g.websites&&g.websites.length){
@@ -149,15 +152,33 @@ function render(g,q){
 
   const term=(name||q);
 
-  // Google Finder live search
-  fetch('/google/api/search?q='+encodeURIComponent(term)).then(async r=>{
-    if(r.status===401){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';return}
-    const d=await r.json();
-    const res=(d.results||[]).slice(0,8);
-    if(!res.length){$('c-google').innerHTML='<div class="empty">No GA4/GTM matches for “'+esc(term)+'”.</div>';return}
-    $('c-google').innerHTML=res.map(it=>`
+  // Google Finder live search — matched by client NAME and by website DOMAIN
+  // (they often don't match), merged and deduped. Each result carries its
+  // finder functions.
+  const gTerms=[term];
+  (g.websites||[]).slice(0,3).forEach(w=>{
+    if(!w.domain)return;
+    const dom=String(w.domain).replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0];
+    if(dom&&!gTerms.includes(dom))gTerms.push(dom);
+    const root=dom.split('.')[0];
+    if(root&&root.length>3&&!gTerms.includes(root))gTerms.push(root);
+  });
+  Promise.all(gTerms.slice(0,5).map(t=>
+    fetch('/google/api/search?q='+encodeURIComponent(t))
+      .then(r=>r.status===401?{noauth:true}:r.json()).then(d=>Object.assign({term:t},d)).catch(()=>null)
+  )).then(all=>{
+    all=all.filter(Boolean);
+    if(all.some(a=>a.noauth)){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';return}
+    const seen=new Set(),res=[];
+    all.forEach(a=>(a.results||[]).forEach(it=>{
+      const k=(it.platform||'')+'|'+(it.resource_id||'')+'|'+(it.google_login||'');
+      if(!seen.has(k)){seen.add(k);it._via=a.term;res.push(it);}
+    }));
+    if(!res.length){$('c-google').innerHTML='<div class="empty">No GA4/GTM matches for '+gTerms.map(t=>'\u201c'+esc(t)+'\u201d').join(', ')+'.</div>';return}
+    $('c-google').innerHTML=res.slice(0,10).map(it=>`
       <div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
         <b>${esc(it.name||'—')}</b> <span class="pill ${it.platform==='Google Analytics'?'info':'warn'}">${esc(it.platform||'')}</span>
+        ${it._via&&it._via!==term?'<span class="pill neutral" title="Matched by website URL">via '+esc(it._via)+'</span>':''}
         <div class="muted" style="font-size:12px;margin-top:2px">${esc(it.resource_id||'')} · ${esc(it.google_login||'')}</div>
         ${gbtns(googleTools(it.platform,it.name))}
       </div>`).join('');
@@ -179,6 +200,17 @@ function render(g,q){
     $('c-ghl').innerHTML='<table><thead><tr><th>Account</th><th>City</th><th>Email</th><th></th></tr></thead><tbody>'+
       res.map(l=>`<tr><td><b>${esc(l.name||'—')}</b></td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td><td><a class="open-link" href="/suite/">Manage →</a></td></tr>`).join('')+'</tbody></table>';
   }).catch(()=>{$('c-ghl').innerHTML='<div class="empty">Suite module unavailable.</div>'});
+
+  // Proposals from the Proposal Builder
+  fetch('/sales/proposals/api/proposals?q='+encodeURIComponent(term)+'&limit=6',
+        {headers:{'Accept':'application/json'}}).then(async r=>{
+    if(!r.ok){$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>';return}
+    const d=await r.json();
+    const res=d.results||[];
+    if(!res.length){$('c-props').innerHTML='<div class="empty">No proposals yet for this client. <a href="/sales/proposals/">Create one →</a></div>';return}
+    $('c-props').innerHTML='<table><thead><tr><th>Business</th><th>Industry</th><th>Monthly</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>'+
+      res.map(p=>`<tr><td><b>${esc(p.business||'—')}</b><div class="muted" style="font-size:12px">${esc(p.salesperson||'')}</div></td><td>${esc(p.industry_label||'')}</td><td>${p.monthly?money(p.monthly)+'/mo':'—'}</td><td><span class="pill ${p.status==='saved'?'ok':'neutral'}">${esc(p.status||'')} · v${p.versions||1}</span></td><td class="muted">${esc(String(p.updated_at||'').slice(0,10))}</td><td>${p.pdf_url?'<a class="gbtn" href="'+esc(p.pdf_url)+'" target="_blank" rel="noopener">PDF →</a> ':''}<a class="gbtn" href="/sales/proposals/">Open →</a></td></tr>`).join('')+'</tbody></table>';
+  }).catch(()=>{$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>'});
 }
 
 {% if q %}run();{% endif %}

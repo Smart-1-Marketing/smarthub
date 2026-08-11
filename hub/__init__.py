@@ -326,6 +326,15 @@ def create_hub_app() -> Flask:
             "Client ID + secret configured. Manage connected accounts in the Google module."
             if gid and gsec else "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set — Google module disabled.")
 
+        # --- Sales section (Proposal + Sales Builder) ---
+        add("OpenAI API", "ok" if os.environ.get("OPENAI_API_KEY") else "skipped",
+            "Configured — AI proposal generation enabled." if os.environ.get("OPENAI_API_KEY")
+            else "OPENAI_API_KEY not set — proposal generation falls back to templates (optional).")
+        add("Cloudinary", "ok" if (os.environ.get("CLOUDINARY_URL") or "").startswith("cloudinary://") else "warn",
+            "Configured — proposal PDFs and logs persist to Cloudinary."
+            if (os.environ.get("CLOUDINARY_URL") or "").startswith("cloudinary://")
+            else "CLOUDINARY_URL not set — proposals persist to the local disk only.")
+
         # --- binaries for the PDF optimizer ---
         gs, qpdf = shutil.which("gs"), shutil.which("qpdf")
         if gs and qpdf:

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart 1 Proposal Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/sales/proposals/styles.css">
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="viewLogin" class="view">
+  <div class="login-card">
+    <div class="wordmark big"><span class="mark"></span>SMART<b>1</b>MARKETING</div>
+    <h1>Proposal Builder</h1>
+    <p class="muted">Internal sales tool — sign in to continue.</p>
+    <input type="password" id="pw" placeholder="Team password" autocomplete="current-password">
+    <button class="btn primary" id="loginBtn">Sign in</button>
+    <div id="loginErr" class="err"></div>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div class="wordmark"><span class="mark"></span>SMART<b>1</b>MARKETING <span class="app-name">Proposal Builder</span></div>
+    <nav>
+      <button class="btn ghost" id="navDash">Past proposals</button>
+      <button class="btn primary" id="navNew">+ New proposal</button>
+    </nav>
+  </header>
+
+  <!-- DASHBOARD / SEARCH -->
+  <div id="viewDash" class="view">
+    <div class="wrap">
+      <h2>Past proposals</h2>
+      <div class="searchbar">
+        <input id="q" type="search" placeholder="Search business, contact, email, salesperson…">
+        <select id="fIndustry"><option value="">All industries</option></select>
+      </div>
+      <div id="list" class="cards"></div>
+      <div id="listEmpty" class="empty hidden">No proposals found. Click <b>+ New proposal</b> to create your first one.</div>
+    </div>
+  </div>
+
+  <!-- NEW PROPOSAL FORM -->
+  <div id="viewNew" class="view">
+    <div class="wrap narrow">
+      <h2>New proposal</h2>
+      <h3>1 · Pick the industry</h3>
+      <div id="indGrid" class="ind-grid"></div>
+      <h3>2 · Customer information</h3>
+      <div class="grid2">
+        <label>Business name *<input id="c_business_name"></label>
+        <label>Website<input id="c_website" placeholder="https://"></label>
+        <label>Contact name<input id="c_contact_name"></label>
+        <label>Contact email<input id="c_contact_email" type="email"></label>
+        <label>Contact phone<input id="c_contact_phone"></label>
+        <label>ZIP code<input id="c_zip" maxlength="10"></label>
+        <label>City<input id="c_city"></label>
+        <label>State<input id="c_state" maxlength="20"></label>
+        <label>Monthly budget (optional)<input id="c_monthly_budget" placeholder="$5,000"></label>
+        <label>Salesperson<input id="c_salesperson"></label>
+      </div>
+      <label class="full">Goals / notes for this proposal<textarea id="c_goals" rows="3" placeholder="What does this customer want to accomplish?"></textarea></label>
+      <div class="row-end">
+        <button class="btn primary big" id="genBtn">Generate proposal →</button>
+      </div>
+      <div id="genErr" class="err"></div>
+    </div>
+  </div>
+
+  <!-- EDITOR -->
+  <div id="viewEdit" class="view">
+    <div class="editbar">
+      <div>
+        <span id="editTitle" class="edit-title"></span>
+        <span id="editMeta" class="muted"></span>
+      </div>
+      <div class="editbar-actions">
+        <button class="btn ghost" id="addBlockBtn">+ Add block</button>
+        <button class="btn ghost hidden" id="saveNewBtn">Save as new</button>
+        <button class="btn primary" id="saveBtn">Save proposal</button>
+      </div>
+    </div>
+    <div id="saveNote" class="save-note hidden"></div>
+    <div class="paper" id="canvas"></div>
+  </div>
+</div>
+
+<!-- ADD BLOCK MENU -->
+<div id="blockMenu" class="block-menu hidden">
+  <button data-add="text">Text section</button>
+  <button data-add="list">Bullet list</button>
+  <button data-add="stats">Stat cards</button>
+  <button data-add="tiers">Pricing tiers</button>
+  <button data-add="table">Table</button>
+  <button data-add="cta">Call to action</button>
+</div>
+
+<!-- LOADER OVERLAY -->
+<div id="loader" class="loader hidden">
+  <div class="loader-inner">
+    <div class="wordmark light"><span class="mark"></span>SMART<b>1</b>MARKETING</div>
+    <svg viewBox="0 0 160 160" width="150" height="150" aria-hidden="true">
+      <circle cx="80" cy="80" r="62" fill="none" stroke="rgba(0,158,210,.25)" stroke-width="2"/>
+      <circle cx="80" cy="80" r="44" fill="none" stroke="rgba(0,158,210,.35)" stroke-width="2"/>
+      <circle cx="80" cy="80" r="26" fill="none" stroke="rgba(0,158,210,.45)" stroke-width="2"/>
+      <line x1="80" y1="14" x2="80" y2="146" stroke="rgba(0,158,210,.18)" stroke-width="1.5"/>
+      <line x1="14" y1="80" x2="146" y2="80" stroke="rgba(0,158,210,.18)" stroke-width="1.5"/>
+      <path d="M80 80 L80 16 A64 64 0 0 1 122 30 Z" fill="rgba(0,158,210,.4)">
+        <animateTransform attributeName="transform" type="rotate" from="0 80 80" to="360 80 80" dur="2.4s" repeatCount="indefinite"/>
+      </path>
+      <circle cx="80" cy="80" r="6" fill="#009ED2"/>
+      <circle cx="112" cy="52" r="4" fill="#F0B429">
+        <animate attributeName="opacity" values="1;.2;1" dur="1.6s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="52" cy="104" r="4" fill="#2DBB72">
+        <animate attributeName="opacity" values="1;.2;1" dur="1.6s" begin="0.6s" repeatCount="indefinite"/>
+      </circle>
+    </svg>
+    <div id="loaderMsg" class="loader-msg">Analyzing the market…</div>
+    <div class="loader-bar"><span></span></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/sales/proposals/app.js"></script>
+</body>
+</html>
