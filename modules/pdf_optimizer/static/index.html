@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Smart 1 PDF Optimizer</title>
+  <style>
+    *{box-sizing:border-box}
+    body{
+      margin:0;padding:28px;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+      background:#f4f6f9;color:#15213a
+    }
+    .card{
+      max-width:680px;margin:auto;background:#fff;border-radius:16px;
+      padding:30px;box-shadow:0 10px 35px rgba(0,0,0,.08)
+    }
+    h1{margin:0 0 8px;font-size:30px}
+    .sub{margin:0 0 24px;color:#5e6675}
+    .drop{
+      border:2px dashed #aab2c0;border-radius:12px;padding:32px 20px;text-align:center;
+      background:#fafbfc
+    }
+    .drop input{margin-top:14px;max-width:100%}
+    label{display:block;font-weight:700;margin:20px 0 8px}
+    select,button{
+      width:100%;padding:14px;border-radius:9px;font-size:16px
+    }
+    select{border:1px solid #cbd1da;background:#fff}
+    button{
+      margin-top:18px;border:0;background:#1A2E58;color:#fff;font-weight:800;
+      cursor:pointer
+    }
+    button:disabled{opacity:.55;cursor:not-allowed}
+    .status{margin-top:18px;min-height:22px;color:#5e6675}
+    .result{
+      display:none;margin-top:20px;padding:18px;border-radius:12px;background:#f4f6f9
+    }
+    .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+    .metric{background:#fff;border-radius:9px;padding:12px}
+    .metric span{display:block;color:#697180;font-size:12px;margin-bottom:4px}
+    .metric strong{font-size:18px}
+    .download{
+      display:block;margin-top:14px;text-align:center;text-decoration:none;
+      background:#1A2E58;color:#fff;padding:13px;border-radius:9px;font-weight:800
+    }
+    @media(max-width:560px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>PDF Optimizer</h1>
+    <p class="sub">Reduce PDF file size while keeping text and vector content intact whenever possible.</p>
+
+    <div class="drop">
+      <strong>Select a PDF to optimize</strong><br>
+      <input id="file" type="file" accept="application/pdf,.pdf">
+    </div>
+
+    <label for="quality">Optimization level</label>
+    <select id="quality">
+      <option value="web" selected>Web Optimized — Recommended</option>
+      <option value="maximum">Maximum Compression</option>
+      <option value="high">High Quality</option>
+    </select>
+
+    <button id="btn" type="button">Optimize PDF</button>
+    <div id="status" class="status"></div>
+
+    <section id="result" class="result">
+      <div class="grid">
+        <div class="metric"><span>Original</span><strong id="original">—</strong></div>
+        <div class="metric"><span>Optimized</span><strong id="optimized">—</strong></div>
+        <div class="metric"><span>Savings</span><strong id="savings">—</strong></div>
+      </div>
+      <a id="download" class="download" href="#">Download Optimized PDF</a>
+    </section>
+  </main>
+
+<script>
+const fileEl = document.getElementById("file");
+const qualityEl = document.getElementById("quality");
+const btn = document.getElementById("btn");
+const statusEl = document.getElementById("status");
+const resultEl = document.getElementById("result");
+const downloadEl = document.getElementById("download");
+let objectUrl = null;
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return "—";
+  const units = ["B","KB","MB","GB"];
+  let value = bytes, unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024; unit++;
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 2)} ${units[unit]}`;
+}
+
+function filenameFromDisposition(header, fallback) {
+  if (!header) return fallback;
+  const match = header.match(/filename="?([^"]+)"?/i);
+  return match ? match[1] : fallback;
+}
+
+btn.addEventListener("click", async () => {
+  const file = fileEl.files[0];
+  if (!file) {
+    statusEl.textContent = "Choose a PDF first.";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Optimizing...";
+  statusEl.textContent = "Processing your PDF...";
+  resultEl.style.display = "none";
+
+  const form = new FormData();
+  form.append("file", file);
+  form.append("quality", qualityEl.value);
+
+  try {
+    const response = await fetch("/tools/pdf/optimize", { method:"POST", body:form });
+
+    if (!response.ok) {
+      let message = "Optimization failed.";
+      try {
+        const data = await response.json();
+        if (data.detail) message = data.detail;
+      } catch (_) {}
+      throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    const original = Number(response.headers.get("X-Original-Size"));
+    const optimized = Number(response.headers.get("X-Optimized-Size"));
+    const savings = response.headers.get("X-Savings-Percent") || "0.0";
+
+    document.getElementById("original").textContent = formatBytes(original);
+    document.getElementById("optimized").textContent = formatBytes(optimized);
+    document.getElementById("savings").textContent = `${savings}%`;
+
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = URL.createObjectURL(blob);
+
+    const fallback = file.name.replace(/\.pdf$/i, "") + "-optimized.pdf";
+    downloadEl.href = objectUrl;
+    downloadEl.download = filenameFromDisposition(
+      response.headers.get("Content-Disposition"),
+      fallback
+    );
+
+    resultEl.style.display = "block";
+    statusEl.textContent = "Optimization complete.";
+  } catch (err) {
+    statusEl.textContent = err.message || "Optimization failed.";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Optimize PDF";
+  }
+});
+</script>
+</body>
+</html>

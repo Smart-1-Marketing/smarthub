@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GA Tools - Command Center</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div id="toast-container"></div>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="topline">
+        <div>
+          <h1>📊 Google Analytics Tools</h1>
+          <p>Run performance comparisons, generate AI insights, and query GA4 data in natural language.</p>
+        </div>
+        <div class="auth">
+          <a class="btn" href="/login">+ Add Google Account</a>
+        </div>
+      </div>
+
+      <!-- TOP NAVIGATION MENU -->
+      <nav class="nav-anchor-bar">
+        <a href="/">🔍 Quick Search</a>
+        <a href="/ga-tools" class="active-page">📊 GA Tools</a>
+        <a href="/gtm-tools">⚡ GTM Tools</a>
+        <a href="/webmaster-tools">🌐 Webmaster Tools</a>
+        <a href="/gmb-tools">📍 GMB Tools</a>
+        <a href="/history">📜 History & Logs</a>
+      </nav>
+
+      <!-- GA4 NATURAL LANGUAGE "ASK ANALYTICS" -->
+      <div id="ask-analytics" class="manual-lookup-card" style="margin-top:20px;">
+        <h3>💬 Ask Analytics a Question Directly</h3>
+        <p>Type any plain-English question to pull immediate metric breakdowns from GA4:</p>
+        <div class="manual-input-group">
+          <input id="ask-q" autocomplete="off" placeholder="e.g. What were top device categories last month? or Top landing pages?">
+          <button id="ask-btn" class="btn">Ask GA4 Data</button>
+        </div>
+        <div id="ask-results" style="margin-top:10px;"></div>
+      </div>
+
+      <!-- GA4 AI COMPARISON ENGINE WITH VISUAL CHARTS -->
+      <div id="ai-comparator" class="ai-comparator-card" style="margin-top:20px;">
+        <h3>GA4 AI Performance Comparator & Visual Charts</h3>
+        <p>Compare date periods for any connected GA4 property and get automated AI insights and visual trend charts.</p>
+        
+        <div class="comp-grid">
+          <div>
+            <label>GA4 Property ID & Account:</label>
+            <input id="comp-property-id" placeholder="e.g. 312345678">
+          </div>
+          <div>
+            <label>Google Login Email:</label>
+            <input id="comp-login" placeholder="e.g. adops@smart1marketing.com">
+          </div>
+          <div>
+            <label>Preset Date Range:</label>
+            <select id="comp-date-preset">
+              <option value="last_month" selected>Last Month</option>
+              <option value="mtd">This Month to Date</option>
+              <option value="last_week">Last Week</option>
+              <option value="last_quarter">Last Quarter</option>
+              <option value="ytd">This Year to Date</option>
+              <option value="custom">Custom Date Range</option>
+            </select>
+          </div>
+          <div>
+            <label>Compare Against:</label>
+            <select id="comp-period-type">
+              <option value="previous_period">Previous Period (MoM/WoW)</option>
+              <option value="previous_year">Previous Year (YoY)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="comp-grid-secondary">
+          <div>
+            <label>Analysis Scope:</label>
+            <select id="comp-scope-type">
+              <option value="site">Entire Site</option>
+              <option value="top_10">Top 10 Pages</option>
+              <option value="top_25">Top 25 Pages</option>
+              <option value="top_50">Top 50 Pages</option>
+              <option value="page">Search Specific Page Path</option>
+            </select>
+          </div>
+
+          <div id="page-path-wrapper" style="display:none;">
+            <label>Page Path Search Filter:</label>
+            <input id="comp-page-path" placeholder="/contact-us, /blog/, or regex">
+          </div>
+
+          <div>
+            <label>Source / Medium Channel:</label>
+            <select id="comp-source-medium">
+              <option value="">All Sources / Mediums (No Filter)</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Report Persona Preset:</label>
+            <select id="comp-preset">
+              <option value="executive" selected>📊 Executive Summary</option>
+              <option value="ecommerce">🛒 E-Commerce Audit</option>
+              <option value="local">📍 Local Business Review</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Report Sentiment Mode:</label>
+            <select id="comp-tone">
+              <option value="positive" selected>🟢 Positive / Client Wins Mode</option>
+              <option value="troubling">🔴 Constructive / Optimization Needed</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="custom-date-wrapper" style="margin-top:10px;">
+          <label>Selected Period (P1):</label>
+          <div style="display:flex; gap:6px;">
+            <input type="date" id="p1-start">
+            <input type="date" id="p1-end">
+          </div>
+        </div>
+
+        <button id="run-ga4-comp" class="btn" style="margin-top:14px;">Run GA4 Comparison & AI Analysis</button>
+        <div id="ai-comp-results"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

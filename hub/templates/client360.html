@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Client 360 — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head"><h2>Client 360</h2><p>One client, every system — Knack, Websites, Google, Simvoly &amp; GHL in a single view</p></div>
+
+<form class="c360-search" onsubmit="run();return false">
+  <input id="q" placeholder="Type a client name or domain…" value="{{ q or '' }}" autofocus>
+  <button class="btn-primary" type="submit">Search</button>
+</form>
+<div id="picker" class="c360-picker" style="display:none"></div>
+<div id="results"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money=v=>{const n=Number(String(v??'').replace(/[$,]/g,''));return isFinite(n)&&n?'$'+n.toLocaleString():esc(v??'—')};
+let groups=[];
+
+// Map a Google Finder platform to its in-module tool pages (Todd: each
+// Google result carries its finder functions right here in Client 360).
+function googleTools(platform,name){
+  const q=encodeURIComponent(name||'');
+  const P=String(platform||'');
+  if(P==='Google Analytics') return [
+    ['GA4 Tools','/google/ga-tools?q='+q],['Compare / AI analysis','/google/ga-tools?q='+q+'#compare'],['Reports','/google/history?q='+q]];
+  if(P==='Google Tag Manager') return [
+    ['GTM Tools','/google/gtm-tools?q='+q],['Inspect container','/google/gtm-tools?q='+q+'#inspect'],['GTM Logs','/google/gtm-logs?q='+q]];
+  if(P==='Search Console') return [['Webmaster Tools','/google/webmaster-tools?q='+q]];
+  if(P==='Google Business Profile') return [['GMB Tools','/google/gmb-tools?q='+q]];
+  return [['Open Google Finder','/google/?q='+q]];
+}
+const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href="${h}">${t} →</a>`).join('')+'</div>';
+
+async function run(){
+  const q=$('q').value.trim();
+  if(!q){return}
+  history.replaceState(null,'','/client360?q='+encodeURIComponent(q));
+  $('picker').style.display='none';
+  $('results').innerHTML='<div class="empty">Searching all systems… <span class="spin"></span></div>';
+  const d=await fetch('/api/c360?q='+encodeURIComponent(q)).then(r=>r.json()).catch(()=>({groups:[]}));
+  groups=d.groups||[];
+  if(!groups.length){ $('results').innerHTML='<div class="empty">No Knack/website match — showing live systems only.</div>'; render({client:q,products:[],websites:[]},q); return; }
+  if(groups.length>1){
+    $('picker').style.display='flex';
+    $('picker').innerHTML=groups.map((g,i)=>`<button class="${i===0?'sel':''}" onclick="pick(${i})">${esc(g.client)} <span class="muted">(${g.products.length} IOs)</span></button>`).join('');
+  }
+  render(groups[0],q);
+}
+function pick(i){
+  document.querySelectorAll('#picker button').forEach((b,j)=>b.classList.toggle('sel',j===i));
+  render(groups[i],$('q').value.trim());
+}
+
+function render(g,q){
+  const name=g.client||q;
+  const liveCount=g.products.filter(p=>String(p.status||'').toLowerCase()==='live').length;
+  let html=`
+  <div class="c360-head" style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+    <div class="avatar" style="width:52px;height:52px;border-radius:12px;font-size:20px">${esc(name[0]||'?').toUpperCase()}</div>
+    <div><h3 style="font-size:19px;color:var(--navy)">${esc(name)}</h3>
+    <div class="muted" style="font-size:13px">${g.products[0]?('Salesperson: '+esc(g.products[0].sales||'—')+' · Partner: '+esc(g.products[0].partner||'—')):''}</div></div>
+    ${liveCount?'<span class="pill ok" style="margin-left:auto">'+liveCount+' live product'+(liveCount>1?'s':'')+'</span>':''}
+  </div>
+  <div class="grid-2">`;
+
+  // ---- Knack products ----
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Knack</span><h3>Creative &amp; IOs</h3><a class="open-link" href="/clients">Open in Clients →</a></div><div class="card-b flush">`;
+  if(g.products.length){
+    html+='<table><thead><tr><th>Product</th><th>Status</th><th>Monthly</th><th>IO</th></tr></thead><tbody>';
+    g.products.slice(0,10).forEach(p=>{
+      const live=String(p.status||'').toLowerCase()==='live';
+      html+=`<tr><td><b>${esc(p.product||'—')}</b>${p.dash?' <span class="pill info">dash</span>':''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td><td class="muted">${esc(p.io||'')}</td></tr>`;
+    });
+    html+='</tbody></table>';
+    if(g.products.length>10)html+=`<div class="empty">+${g.products.length-10} more in the Clients module</div>`;
+  } else html+='<div class="empty">No Knack IOs matched.</div>';
+  html+='</div></div>';
+
+  // ---- Website record (with its own Google links from ga/gtm fields) ----
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="/clients">Open in Websites →</a></div><div class="card-b">`;
+  if(g.websites.length){
+    g.websites.slice(0,3).forEach(w=>{
+      html+=`<dl class="kv" style="margin-bottom:10px">
+        <dt>Site</dt><dd>${esc(w.name||'—')}</dd>
+        <dt>Domain</dt><dd>${w.domain?`<a href="https://${esc(w.domain)}" target="_blank" rel="noopener">${esc(w.domain)}</a>`:'—'}${w.domainPurchased?' <span class="pill info">we purchased</span>':''}</dd>
+        <dt>Platform</dt><dd>${esc(w.platform||'—')}</dd>
+        <dt>Status</dt><dd><span class="pill ${String(w.status||'').toLowerCase()==='active'?'ok':'neutral'}">${esc(w.status||'—')}</span></dd>
+        <dt>H&amp;M</dt><dd>${w.hmMonthly?money(w.hmMonthly)+' / mo':'—'}</dd>
+        ${w.ga?`<dt>GA4</dt><dd>${esc(w.ga)}</dd>`:''}
+        ${w.gtm?`<dt>GTM</dt><dd>${esc(w.gtm)}</dd>`:''}
+      </dl>`;
+      const links=[];
+      if(w.ga)links.push(['GA4 Tools','/google/ga-tools?q='+encodeURIComponent(w.ga)]);
+      if(w.gtm)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(w.gtm)]);
+      if(links.length)html+=gbtns(links);
+    });
+  } else html+='<div class="empty">No website record matched.</div>';
+  html+='</div></div>';
+
+  // ---- Google / Simvoly / GHL — live cards ----
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="/google/">Open Google Finder →</a></div><div class="card-b" id="c-google"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-simvoly">Simvoly</span><h3>Smart 1 Site</h3><a class="open-link" href="/sites/">Open in Sites →</a></div><div class="card-b" id="c-sites"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>GHL Sub-accounts</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  html+='</div>';
+  $('results').innerHTML=html;
+
+  const term=(name||q);
+
+  // Google Finder live search — each result gets its finder functions.
+  fetch('/google/api/search?q='+encodeURIComponent(term)).then(async r=>{
+    if(r.status===401){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';return}
+    const d=await r.json();
+    const res=(d.results||[]).slice(0,8);
+    if(!res.length){$('c-google').innerHTML='<div class="empty">No GA4/GTM matches for “'+esc(term)+'”.</div>';return}
+    $('c-google').innerHTML=res.map(it=>`
+      <div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
+        <b>${esc(it.name||'—')}</b> <span class="pill ${it.platform==='Google Analytics'?'info':'warn'}">${esc(it.platform||'')}</span>
+        <div class="muted" style="font-size:12px;margin-top:2px">${esc(it.resource_id||'')} · ${esc(it.google_login||'')}</div>
+        ${gbtns(googleTools(it.platform,it.name))}
+      </div>`).join('');
+  }).catch(()=>{$('c-google').innerHTML='<div class="empty">Google module unavailable.</div>'});
+
+  // Simvoly inventory (via hub -> Postgres)
+  fetch('/api/c360/sites?q='+encodeURIComponent(term)).then(r=>r.json()).then(d=>{
+    if(!d.configured){$('c-sites').innerHTML='<div class="empty">Sites database not configured yet.</div>';return}
+    const res=d.results||[];
+    if(!res.length){$('c-sites').innerHTML='<div class="empty">No Simvoly project matched.</div>';return}
+    $('c-sites').innerHTML=res.map(p=>`
+      <dl class="kv" style="margin-bottom:8px">
+        <dt>Project</dt><dd><a href="/sites/projects/${encodeURIComponent(p.project_id)}">${esc(p.name||p.project_id)}</a></dd>
+        <dt>Status</dt><dd><span class="pill ${String(p.status||'').toLowerCase()==='active'?'ok':'neutral'}">${esc(p.status||'—')}</span></dd>
+        ${p.domain?`<dt>Domain</dt><dd>${esc(p.domain)}</dd>`:''}
+      </dl>`).join('');
+  }).catch(()=>{$('c-sites').innerHTML='<div class="empty">Sites module unavailable.</div>'});
+
+  // GHL sub-accounts
+  fetch('/suite/api/locations?limit=6&search='+encodeURIComponent(term)).then(async r=>{
+    if(!r.ok){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
+    const d=await r.json();
+    const res=d.locations||[];
+    if(!res.length){$('c-ghl').innerHTML='<div class="empty">No GHL sub-account matched.</div>';return}
+    $('c-ghl').innerHTML='<table><thead><tr><th>Account</th><th>City</th><th>Email</th><th></th></tr></thead><tbody>'+
+      res.map(l=>`<tr><td><b>${esc(l.name||'—')}</b></td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td><td><a class="open-link" href="/suite/">Manage →</a></td></tr>`).join('')+'</tbody></table>';
+  }).catch(()=>{$('c-ghl').innerHTML='<div class="empty">Suite module unavailable.</div>'});
+}
+
+{% if q %}run();{% endif %}
+</script>
+{% endblock %}

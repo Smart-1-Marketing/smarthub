@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in — Smart 1 Hub</title>
+<link rel="stylesheet" href="/assets/hub.css">
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login-card" method="post" action="/login">
+    <div class="login-logo"><div class="logo-mark">S1</div><h1>Smart 1 Hub</h1></div>
+    <div class="login-sub">One login for all Smart 1 internal tools</div>
+    {% if error %}<div class="login-err">{{ error }}</div>{% endif %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <div class="field"><label>Your name</label><input name="name" required maxlength="60" placeholder="e.g. Todd" autofocus></div>
+    <div class="field"><label>Team password</label><input name="password" type="password" required></div>
+    <button class="btn-primary full" type="submit">Sign in &rarr;</button>
+    <div class="login-note">Actions are logged under your name &middot; Sessions last 12 hours</div>
+  </form>
+</div>
+</body>
+</html>

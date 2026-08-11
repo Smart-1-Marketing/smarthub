@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="titlebar"><div><h1>Add Site</h1><p>Create a project + website from an official Simvoly template and optionally activate a paid plan.</p></div></div>
+{% if not settings.enable_write_actions %}<div class="warning">Safe mode is on. Set <code>ENABLE_WRITE_ACTIONS=true</code> only after read-only API access is verified.</div>{% endif %}
+<form class="card" method="post">
+  <input type="hidden" name="csrf_token" value="{{session.csrf}}">
+  <div class="formgrid">
+    <label>Site / project name<input name="site_name" required></label>
+    <label>Customer email<input name="email" type="email" required></label>
+    <label>First name<input name="first_name" required></label>
+    <label>Last name<input name="last_name" required></label>
+    <label>External customer ID<input name="external_customer_id" placeholder="CRM ID or stable customer identifier"></label>
+    <label>or Simvoly user ID<input name="user_id" placeholder="Use one or the other"></label>
+    <label>Template<select name="template_id"><option value="">Prompt customer to choose template</option>{% for t in templates %}<option value="{{t.template_id}}">{{t.name}}</option>{% endfor %}</select></label>
+    <label>Subdomain<input name="subdomain" placeholder="customer-name"></label>
+    <label>Activate plan<select name="plan_id"><option value="">Leave unactivated/trial</option>{% for p in plans if p.plan_id!='0' %}<option value="{{p.plan_id}}">{{p.name}} — {{money(p.monthly_price)}}/mo</option>{% endfor %}</select></label>
+    <label>Billing period<select name="period"><option>MONTHLY</option><option>YEARLY</option></select></label>
+    <label>Primary brand color<input name="brand_color" placeholder="#00a1e1"></label>
+  </div>
+  <label>Personalization tags (JSON array)<textarea name="personalization_tags" rows="7" placeholder='[{"name":"Company Name","value":"ABC Roofing"},{"name":"Phone","value":"614-555-1212"}]'></textarea></label>
+  <button class="primary" {{'disabled' if not settings.enable_write_actions}}>Create Site</button>
+</form>
+{% endblock %}

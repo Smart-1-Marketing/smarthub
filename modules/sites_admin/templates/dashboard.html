@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="titlebar">
+  <div>
+    <h1>Account Management</h1>
+    <p>{{total}} projects in the local registry · {{template_count}} templates cached.</p>
+  </div>
+  <div class="actions">
+    <form method="post" action="{{url_for('sync')}}">
+      <input type="hidden" name="csrf_token" value="{{session.csrf}}">
+      <button class="primary">Sync Platform Catalog</button>
+    </form>
+    <a class="button" href="{{url_for('export_csv', q=q, status=status, plan=plan, partner=partner)}}">Export CSV</a>
+    <a class="button" href="{{url_for('inventory')}}">Import / Discover Projects</a>
+  </div>
+</div>
+
+{% if not settings.mock_mode %}
+<div class="info">The official Platform API exposes plans, project details, websites, templates and lifecycle actions, but its documented project list is customer-scoped. Existing reseller-wide inventory is seeded through <b>Inventory Import</b> or <b>Discover Customer</b>, then refreshed with official API calls.</div>
+{% endif %}
+
+<div class="metrics">
+  <div class="metric"><b>{{total}}</b><span>Total projects</span></div>
+  <div class="metric"><b>{{statuses.get('ACTIVE',0)}}</b><span>Active</span></div>
+  <div class="metric"><b>{{statuses.get('TRIAL',0)}}</b><span>Trial</span></div>
+  <div class="metric"><b>{{statuses.get('EXPIRED',0)}}</b><span>Expired</span></div>
+  <div class="metric"><b>{{money(revenue)}}</b><span>Active client MRR</span></div>
+  <div class="metric"><b>{{money(cost)}}</b><span>Platform cost</span></div>
+  <div class="metric"><b>{{money(margin)}}</b><span>Gross margin</span></div>
+</div>
+
+<div class="grid2">
+  <section class="card">
+    <h2>Needs Attention</h2>
+    {% for a in alerts %}
+      <a class="alertrow" href="{{url_for('project_detail',pid=a.project_id)}}">
+        <span>{{a.name}}<small>#{{a.project_id}}</small></span>
+        <strong>{{a.alert_kind}}</strong>
+      </a>
+    {% else %}<p>No current alerts.</p>{% endfor %}
+  </section>
+  <section class="card">
+    <h2>Partner Portfolio</h2>
+    <p class="hint">Sorted by active clients. Click a partner to view their accounts, or download a CSV.</p>
+    {% for p in partners_main %}
+      <div class="pair">
+        <a href="{{url_for('dashboard', partner=p.name)}}">{{p.name}}</a>
+        <span><b>{{p.active}}</b> active · <a href="{{url_for('export_csv', partner=p.name)}}">CSV</a></span>
+      </div>
+    {% endfor %}
+    {% if partners_more %}
+      <details>
+        <summary>See more ({{partners_more|length}} partner{{'s' if partners_more|length != 1 else ''}} with 1 site)</summary>
+        {% for p in partners_more %}
+          <div class="pair">
+            <a href="{{url_for('dashboard', partner=p.name)}}">{{p.name}}</a>
+            <span><b>{{p.active}}</b> active · <a href="{{url_for('export_csv', partner=p.name)}}">CSV</a></span>
+          </div>
+        {% endfor %}
+      </details>
+    {% endif %}
+    {% if non_active_total %}
+      <div class="pair"><span>Non-Active Clients</span><b>{{non_active_total}}</b></div>
+    {% endif %}
+    {% if not partners_main and not partners_more and not non_active_total %}<p>No partner data yet.</p>{% endif %}
+  </section>
+</div>
+
+<form class="filters" method="get">
+  <input name="q" value="{{q}}" placeholder="Search account, domain, project ID, website ID">
+  <select name="status">
+    <option value="">All statuses</option>
+    {% for s in ['ACTIVE','TRIAL','EXPIRED'] %}<option value="{{s}}" {{'selected' if status==s}}>{{s}}</option>{% endfor %}
+  </select>
+  <select name="plan">
+    <option value="">All plans</option>
+    {% for p in plans %}<option value="{{p.plan_id}}" {{'selected' if plan==p.plan_id}}>{{p.name}}</option>{% endfor %}
+  </select>
+  <input name="partner" value="{{partner}}" placeholder="Partner">
+  <button>Filter</button>
+  <a href="{{url_for('dashboard')}}">Clear</a>
+  <a class="button" href="{{url_for('export_csv', q=q, status=status, plan=plan, partner=partner)}}">Download CSV of results</a>
+</form>
+
+{% if preview %}<div class="info">Showing the 10 most recent active sites. Search or use the filters above to see the full portfolio ({{total}} projects).</div>{% endif %}
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Account</th><th>Status</th><th>Plan</th><th>Domain</th><th>Next Billing</th><th>Client Price</th><th>Partner</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><a href="{{url_for('project_detail',pid=r.project_id)}}"><b>{{r.internal_client_name or r.name}}</b><small>Project #{{r.project_id}}</small></a></td>
+      <td><span class="pill {{status_class(r.status)}}">{{r.lifecycle_state or r.status or 'UNKNOWN'}}</span></td>
+      <td>{{r.plan_name or '—'}}<small>{{money(r.monthly_price)}} catalog</small></td>
+      <td>{{r.domain or '—'}}</td>
+      <td>{{r.next_billing_date or '—'}}</td>
+      <td>{{money(r.client_price if r.client_price is not none else r.monthly_price)}}</td>
+      <td><a href="{{url_for('dashboard', partner=r.partner_display)}}">{{r.partner_display}}</a></td>
+    </tr>
+  {% else %}<tr><td colspan="7">No projects match the current filters.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if not preview %}
+<div class="pager">
+  {% if page>1 %}<a href="?q={{q}}&status={{status}}&plan={{plan}}&partner={{partner}}&page={{page-1}}">← Previous</a>{% endif %}
+  <span>Page {{page}} of {{pages}} · {{count}} result(s)</span>
+  {% if page<pages %}<a href="?q={{q}}&status={{status}}&plan={{plan}}&partner={{partner}}&page={{page+1}}">Next →</a>{% endif %}
+</div>
+{% endif %}
+
+{% if last %}<p class="syncnote">Last sync: {{last.status}} · {{last.completed_at or last.started_at}} · {{last.details or ''}}</p>{% endif %}
+{% endblock %}

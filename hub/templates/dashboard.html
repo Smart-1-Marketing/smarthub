@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head"><h2>Dashboard</h2><p>Live rollup across all modules</p></div>
+
+<div class="kpi-row" id="kpis">
+  <div class="kpi"><div class="k-label">Active Clients</div><div class="k-value" id="k-clients"><span class="spin"></span></div><div class="k-sub" id="k-clients-sub"></div></div>
+  <div class="kpi"><div class="k-label">Live Products</div><div class="k-value" id="k-live">—</div><div class="k-sub" id="k-live-sub"></div></div>
+  <div class="kpi"><div class="k-label">Live Budget / mo</div><div class="k-value" id="k-budget">—</div><div class="k-sub">across live IOs</div></div>
+  <div class="kpi"><div class="k-label">Websites</div><div class="k-value" id="k-webs">—</div><div class="k-sub" id="k-webs-sub"></div></div>
+  <div class="kpi"><div class="k-label">H&amp;M Billing / mo</div><div class="k-value" id="k-hm">—</div><div class="k-sub">active sites</div></div>
+  <div class="kpi"><div class="k-label">GHL Sub-accounts</div><div class="k-value" id="k-ghl">—</div><div class="k-sub">Smart 1 Suite</div></div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="card-h"><h3>System checks</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
+    <div class="card-b flush"><table id="mini-status"><tbody><tr><td class="empty">Running checks… <span class="spin"></span></td></tr></tbody></table></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h3>Recent activity</h3><div class="right"><a class="open-link" href="/activity">View all →</a></div></div>
+    <div class="card-b flush"><table id="mini-activity"><tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody></table></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>Number(n||0).toLocaleString();
+
+fetch('/api/summary').then(r=>r.json()).then(s=>{
+  if(s.error){$('k-clients').textContent='—';return}
+  $('k-clients').textContent=fmt(s.clients_live);
+  $('k-clients-sub').textContent=fmt(s.clients_total)+' total in Knack';
+  $('k-live').textContent=fmt(s.live_products);
+  $('k-budget').textContent='$'+fmt(s.live_budget_monthly);
+  $('k-webs').textContent=fmt(s.websites_total);
+  $('k-webs-sub').textContent=fmt(s.websites_active)+' active';
+  $('k-hm').textContent='$'+fmt(s.hm_monthly);
+}).catch(()=>{$('k-clients').textContent='—'});
+
+fetch('/suite/api/locations?limit=1').then(r=>r.ok?r.json():null).then(d=>{
+  $('k-ghl').textContent=d&&typeof d.count==='number'?fmt(d.count):'—';
+}).catch(()=>{$('k-ghl').textContent='—'});
+
+fetch('/api/status').then(r=>r.json()).then(d=>{
+  const rows=(d.checks||[]).map(c=>{
+    const cls=c.status==='ok'?'ok':(c.status==='warn'?'warn':(c.status==='skipped'?'neutral':'err'));
+    return `<tr><td style="width:40%"><b>${esc(c.name)}</b></td><td><span class="pill ${cls}">${esc(c.status)}</span> <span class="muted">${esc(c.message)}</span></td></tr>`;
+  }).join('');
+  $('mini-status').innerHTML='<tbody>'+(rows||'<tr><td class="empty">No checks.</td></tr>')+'</tbody>';
+});
+
+fetch('/api/activity?limit=8').then(r=>r.json()).then(d=>{
+  const rows=(d.entries||[]).map(e=>{
+    const t=(e.time||'').replace('T',' ').slice(5,16);
+    return `<tr><td style="width:110px" class="muted">${esc(t)}</td><td><b>${esc(e.actor||'')}</b> <span class="pill info">${esc(e.module||'')}</span> ${esc(e.type||'')}${e.name?' — '+esc(e.name):''}</td></tr>`;
+  }).join('');
+  $('mini-activity').innerHTML='<tbody>'+(rows||'<tr><td class="empty">No activity yet.</td></tr>')+'</tbody>';
+});
+</script>
+{% endblock %}

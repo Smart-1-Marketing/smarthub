@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block content %}
+<a class="back" href="{{url_for('dashboard')}}">← Accounts</a>
+<div class="titlebar">
+  <div><h1>{{p.internal_client_name or p.name}}</h1><p>Project #{{p.project_id}} · <span class="pill {{status_class(p.status)}}">{{p.lifecycle_state or p.status}}</span></p></div>
+  <form method="post" action="{{url_for('refresh_project',pid=p.project_id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><button>Refresh from Simvoly</button></form>
+</div>
+<div class="grid3">
+  <section class="card"><h2>Project</h2><div class="pair"><span>Plan</span><b>{{p.plan_name or '—'}}</b></div><div class="pair"><span>Created</span><b>{{p.created or '—'}}</b></div><div class="pair"><span>Billing</span><b>{{p.billing_period or '—'}}</b></div><div class="pair"><span>Last billing</span><b>{{p.last_billing_date or '—'}}</b></div><div class="pair"><span>Next billing</span><b>{{p.next_billing_date or '—'}}</b></div><div class="pair"><span>Recurring</span><b>{{'Yes' if p.recurring_manual_subscription else ('No' if p.recurring_manual_subscription is not none else '—')}}</b></div><div class="pair"><span>Source</span><b>{{p.source or '—'}}</b></div></section>
+  <section class="card"><h2>Plan Pricing</h2><div class="pair"><span>Catalog monthly</span><b>{{money(p.monthly_price)}}</b></div><div class="pair"><span>Catalog annual</span><b>{{money(p.yearly_price)}}</b></div><div class="pair"><span>BG monthly (wholesale cost)</span><b>{{money(p.bg_monthly_price)}}</b></div><div class="pair"><span>Base plan</span><b>{{p.base_plan or '—'}}</b></div><div class="pair"><span>Pages</span><b>{{p.pages if p.pages is not none else '—'}}</b></div><div class="pair"><span>Storage</span><b>{{p.storage if p.storage is not none else '—'}}</b></div><div class="pair"><span>Bandwidth</span><b>{{p.bandwidth if p.bandwidth is not none else '—'}}</b></div></section>
+  <section class="card"><h2>Smart 1 Economics</h2><div class="pair"><span>Client monthly</span><b>{{money(p.client_price if p.client_price is not none else p.monthly_price)}}</b></div><div class="pair"><span>Platform cost</span><b>{{money(p.platform_cost if p.platform_cost is not none else p.bg_monthly_price)}}</b></div><div class="pair"><span>Monthly margin</span><b>{{money((p.client_price if p.client_price is not none else (p.monthly_price or 0)) - (p.platform_cost if p.platform_cost is not none else (p.bg_monthly_price or 0)))}}</b></div><div class="pair"><span>Partner</span><b>{{p.partner_display or p.partner or '—'}}</b></div><div class="pair"><span>Lifecycle override</span><b>{{p.lifecycle_state or '—'}}</b></div>{% if p.cancelled_at %}<div class="pair"><span>Cancelled at</span><b>{{p.cancelled_at}}</b></div>{% endif %}</section>
+</div>
+
+<div class="grid2">
+<section class="card">
+  <h2>Websites / Funnels</h2>
+  {% for w in websites %}
+  <div class="website block">
+    <div><b>{{w.domain or w.subdomain or w.name}}</b><small>#{{w.website_id}} · {{w.type or 'SITE'}} · {% if w.active is none %}status unknown{% else %}{{'Active' if w.active else 'Inactive'}}{% endif %}</small>{% set host = w.domain or w.subdomain or w.name %}{% if host %} <a class="button" href="{{login_url(host)}}" target="_blank" rel="noopener">Login to site ↗</a>{% endif %}</div>
+    <div class="website-actions">
+      <form method="post" action="{{url_for('connect_domain',website_id=w.website_id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><input name="domain" placeholder="domain.com" value="{{w.domain or ''}}"><button {{'disabled' if not settings.enable_write_actions}}>Connect</button></form>
+      {% if w.domain %}<form method="post" action="{{url_for('disconnect_domain',website_id=w.website_id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><input type="hidden" name="domain" value="{{w.domain}}"><button {{'disabled' if not settings.enable_write_actions}}>Disconnect</button></form>{% endif %}
+    </div>
+    <details><summary>Check plan limits (right-size)</summary><form method="post" action="{{url_for('website_check_limits',website_id=w.website_id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><div class="formgrid"><label>Plan to check against<select name="plan_id">{% for plan in plans %}<option value="{{plan.plan_id}}" {{'selected' if plan.plan_id==p.plan_id}}>{{plan.name}}</option>{% endfor %}</select></label></div><button>Check limits</button></form><p class="hint">Read-only. Asks Simvoly whether this site fits the selected plan's limits (works even with write actions off).</p></details>
+    <details><summary>Personalization</summary><form method="post" action="{{url_for('personalization',website_id=w.website_id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><div class="formgrid"><label>Primary color<input name="brand_color" placeholder="#00a1e1"></label><label>Secondary 1<input name="secondary_color_1"></label></div><label>Tags JSON<textarea name="tags" rows="5" placeholder='[{"name":"Company Name","value":"ABC Roofing"}]'></textarea></label><button {{'disabled' if not settings.enable_write_actions}}>Update personalization</button></form></details>
+    <details><summary>Permanent delete</summary><form method="post" action="{{url_for('delete_website',website_id=w.website_id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><label>Type DELETE<input name="confirm" autocomplete="off"></label><button class="danger" {{'disabled' if not settings.enable_write_actions}}>Delete Website / Funnel</button></form></details>
+  </div>
+  {% else %}<p>No website details cached yet. Click <b>Refresh from Simvoly</b>.</p>{% endfor %}
+</section>
+<section class="card">
+  <h2>Smart 1 Pricing & Account</h2>
+  <form method="post" action="{{url_for('pricing',pid=p.project_id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><div class="formgrid"><label>Client monthly charge<input name="client_price" type="number" step="0.01" value="{{p.client_price if p.client_price is not none else ''}}" placeholder="{{p.monthly_price or ''}}"></label><label>Actual platform cost<input name="platform_cost" type="number" step="0.01" value="{{p.platform_cost if p.platform_cost is not none else ''}}" placeholder="{{p.bg_monthly_price or ''}}"></label><label>Partner<input name="partner" value="{{p.partner or ''}}" placeholder="{{p.partner_display or ''}}"></label><label>Internal client name<input name="internal_client_name" value="{{p.internal_client_name or ''}}"></label></div><label>Internal notes<textarea name="notes" rows="5">{{p.notes or ''}}</textarea></label><button class="primary">Save account</button></form>
+  <p class="hint">Platform cost defaults to the plan's BG (wholesale) price shown above until you enter a specific amount here. Partner shows <b>{{p.partner_display or '—'}}</b> (auto-detected) until you save an override.</p>
+</section>
+</div>
+
+<div class="grid2">
+<section class="card">
+  <h2>Lifecycle Actions</h2>
+  {% if not settings.enable_write_actions %}<div class="warning">Write actions are disabled. This page is read-only until <code>ENABLE_WRITE_ACTIONS=true</code>.</div>{% endif %}
+  <div class="actions"><form method="post" action="{{url_for('project_action',pid=p.project_id,action='suspend')}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><button {{'disabled' if not settings.enable_write_actions}}>Suspend Project</button></form></div>
+  <form method="post" action="{{url_for('project_action',pid=p.project_id,action='reactivate')}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><div class="formgrid"><label>Plan<select name="plan_id">{% for plan in plans %}<option value="{{plan.plan_id}}" {{'selected' if plan.plan_id==p.plan_id}}>{{plan.name}}</option>{% endfor %}</select></label><label>Period<select name="period"><option {{'selected' if p.billing_period=='MONTHLY'}}>MONTHLY</option><option {{'selected' if p.billing_period=='YEARLY'}}>YEARLY</option></select></label></div><button {{'disabled' if not settings.enable_write_actions}}>Reactivate Project</button></form>
+  <hr>
+  <form method="post" action="{{url_for('project_action',pid=p.project_id,action='cancel')}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><label>Type CANCEL to expire the project and mark it cancelled in Smart 1<input name="confirm" autocomplete="off"></label><button class="danger" {{'disabled' if not settings.enable_write_actions}}>Cancel Site</button></form>
+</section>
+<section class="card">
+  <h2>Open Builder with SSO</h2>
+  <p>Simvoly requires one customer identity for the building session. The generated access URL is valid for 15 minutes.</p>
+  <form method="post" action="{{url_for('project_sso',pid=p.project_id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf}}"><div class="formgrid"><label>User email<input name="user_email" type="email"></label><label>or user ID<input name="user_id"></label><label>or external customer ID<input name="external_customer_id"></label><label>Website<select name="website_id"><option value="">Latest website in project</option>{% for w in websites %}<option value="{{w.website_id}}">{{w.domain or w.subdomain or w.name}}</option>{% endfor %}</select></label></div><label>Builder path (optional)<input name="path" placeholder="/me/website"></label><button class="primary">Open Builder</button></form>
+</section>
+</div>
+{% endblock %}

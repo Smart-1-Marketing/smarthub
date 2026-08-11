@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="titlebar"><div><h1>Project Inventory</h1><p>{{total}} projects are currently registered locally.</p></div></div>
+<div class="grid2">
+  <section class="card">
+    <h2>Import Existing Portfolio</h2>
+    <p>Import JSON from the reseller management panel's <code>list-projects</code> response. You can import one page response, a raw <code>items</code> array, or an array containing multiple page responses.</p>
+    <form method="post" action="{{url_for('inventory_import')}}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{session.csrf}}">
+      <label>JSON file<input type="file" name="file" accept=".json,.txt,application/json,text/plain"></label>
+      <label>or paste JSON<textarea name="payload" rows="12" placeholder='{"data":{"items":[...]}}'></textarea></label>
+      <button class="primary">Import Inventory</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Discover a Customer</h2>
+    <p>The official <code>/api/v1/projects</code> endpoint is customer-scoped. Search by one documented customer identifier and import all projects that customer owns or can access.</p>
+    <form method="post" action="{{url_for('inventory_discover')}}">
+      <input type="hidden" name="csrf_token" value="{{session.csrf}}">
+      <label>Identifier type<select name="identifier_type"><option value="customerEmail">Customer email</option><option value="userId">Simvoly user ID</option><option value="externalCustomerId">External customer ID</option></select></label>
+      <label>Identifier<input name="identifier_value" required></label>
+      <button class="primary">Discover Customer Projects</button>
+    </form>
+    <hr>
+    <h2>Refresh Known Projects</h2>
+    <p>Refresh a batch of already-known project IDs through the official project and website endpoints. Keep batches small to avoid a long web request.</p>
+    <form method="post" action="{{url_for('inventory_refresh_known')}}">
+      <input type="hidden" name="csrf_token" value="{{session.csrf}}">
+      <label>Batch size<input type="number" name="limit" min="1" max="100" value="25"></label>
+      <button>Refresh Known Projects</button>
+    </form>
+  </section>
+</div>
+<div class="info"><b>Why import?</b> Simvoly's supplied Platform API documentation does not define a reseller-wide “list every project” endpoint. Importing the management-panel inventory gives the app the existing project IDs without storing browser cookies or CSRF tokens. After that, each project is refreshed and managed through the official API.</div>
+{% endblock %}

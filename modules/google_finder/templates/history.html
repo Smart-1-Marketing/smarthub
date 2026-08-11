@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>History & Audit Logs - Command Center</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="toast-container"></div>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="topline">
+        <div>
+          <h1>📜 History & Deployment Audit Logs</h1>
+          <p>Search saved historical performance reports and review date-stamped GTM change logs.</p>
+        </div>
+        <div class="auth">
+          <a class="btn" href="/login">+ Add Google Account</a>
+        </div>
+      </div>
+
+      <!-- TOP NAVIGATION MENU -->
+      <nav class="nav-anchor-bar">
+        <a href="/">🔍 Quick Search</a>
+        <a href="/ga-tools">📊 GA Tools</a>
+        <a href="/gtm-tools">⚡ GTM Tools</a>
+        <a href="/webmaster-tools">🌐 Webmaster Tools</a>
+        <a href="/gmb-tools">📍 GMB Tools</a>
+        <a href="/history" class="active-page">📜 History & Logs</a>
+      </nav>
+
+      <!-- SAVED HISTORICAL REPORTS -->
+      <div id="saved-reports" class="saved-reports-section" style="margin-top: 20px; padding: 20px; background: #f8fafc; border: 1px solid #dfe6f0; border-radius: 12px;">
+        <h3 style="margin:0 0 6px; font-size:16px; color:#1a2e58;">📁 Saved Performance Reports</h3>
+        <div style="display:flex; gap:10px;">
+          <input id="search-saved-q" placeholder="Search saved reports by customer name, title, or property ID..." style="flex:1; padding:10px 12px; border:1px solid #ccd6e5; border-radius:8px; font-size:14px;">
+          <button id="btn-search-saved" class="btn" style="padding:10px 18px; font-size:14px;">Search Reports</button>
+        </div>
+        <div id="saved-reports-list" style="margin-top:16px;"></div>
+      </div>
+
+      <!-- GTM AUDIT LOGS -->
+      <div id="audit-logs" class="saved-reports-section" style="margin-top: 20px; padding: 20px; background: #f8fafc; border: 1px solid #dfe6f0; border-radius: 12px;">
+        <h3 style="margin:0 0 6px; font-size:16px; color:#1a2e58;">📜 GTM Deployment & Change Audit Logs</h3>
+        <div style="display:flex; gap:10px;">
+          <input id="search-gtm-logs-q" placeholder="Search logs by tag name, container ID, email, or action type..." style="flex:1; padding:10px 12px; border:1px solid #ccd6e5; border-radius:8px; font-size:14px;">
+          <button id="btn-search-gtm-logs" class="btn" style="padding:10px 18px; font-size:14px; background:#24519c!important;">Search Audit Logs</button>
+        </div>
+        <div id="gtm-logs-list" style="margin-top:16px;"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

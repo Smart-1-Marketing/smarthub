@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Tools — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head"><h2>Tools</h2><p>Everyday utilities — same login, no separate URLs</p></div>
+<div class="tool-tiles">
+  <a class="tool-tile" href="/tools/image/">
+    <div class="t-ico">&#128444;</div>
+    <h3>Image Optimizer &amp; Resizer</h3>
+    <p>Crop, resize &amp; compress PNG / JPG / GIF toward a target size (default 150&nbsp;KB). Animated GIFs preserved; transparent PNGs flattened for JPG.</p>
+  </a>
+  <a class="tool-tile" href="/tools/pdf/">
+    <div class="t-ico">&#128462;</div>
+    <h3>PDF Optimizer</h3>
+    <p>Ghostscript + qPDF compression with three profiles (web &middot; high &middot; maximum). Keeps text searchable and never returns a bigger file.</p>
+  </a>
+</div>
+{% endblock %}

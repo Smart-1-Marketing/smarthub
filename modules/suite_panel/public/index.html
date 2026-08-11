@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Smart 1 Suite — Control Panel</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #ffffff; --ink: #1e293b; --muted: #64748b;
+    --brand: #2563eb; --brand-dark: #1d4ed8; --line: #e2e8f0;
+    --danger: #dc2626; --danger-bg: #fef2f2; --ok: #059669; --ok-bg: #ecfdf5;
+    --warn: #b45309; --warn-bg: #fffbeb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f1f5f9; color: var(--ink); font-size: 15px; line-height: 1.5;
+  }
+  header {
+    background: var(--bg); color: #fff; padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header .brand { font-weight: 700; font-size: 18px; letter-spacing: .2px; }
+  header .brand span { color: #60a5fa; }
+  header .right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: #cbd5e1; }
+  header button.link { background: none; border: none; color: #93c5fd; cursor: pointer; font-size: 13px; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 24px; }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .tabs button {
+    background: none; border: none; padding: 12px 18px; cursor: pointer; font-size: 15px;
+    color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500;
+  }
+  .tabs button.active { color: var(--brand); border-bottom-color: var(--brand); }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+  .card h2 { margin: 0 0 4px; font-size: 17px; }
+  .card p.sub { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+  .grid .full { grid-column: 1 / -1; }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+  label .req { color: var(--danger); }
+  input, select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+    font-size: 14px; font-family: inherit; background: #fff; color: var(--ink);
+  }
+  input:focus, select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .divider { border: none; border-top: 1px solid var(--line); margin: 22px 0; }
+  .checkline { display: flex; align-items: center; gap: 9px; }
+  .checkline input { width: auto; }
+  .checkline label { margin: 0; font-weight: 600; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px;
+    border: none; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-primary:hover { background: var(--brand-dark); }
+  .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+  .btn-ghost { background: #fff; border: 1px solid var(--line); color: var(--ink); }
+  .btn-ghost:hover { background: #f8fafc; }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-sm { padding: 6px 12px; font-size: 13px; }
+
+  .toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .toolbar input { flex: 1; min-width: 200px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); }
+  td .id { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+  tr:hover td { background: #f8fafc; }
+
+  .msg { padding: 12px 14px; border-radius: 8px; font-size: 14px; margin-bottom: 16px; display: none; }
+  .msg.show { display: block; }
+  .msg.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid #a7f3d0; }
+  .msg.err { background: var(--danger-bg); color: var(--danger); border: 1px solid #fecaca; }
+  .msg.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #fde68a; }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+
+  .brandlookup { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 14px 16px; margin-bottom: 22px; }
+  .brandlookup > label { margin-bottom: 8px; }
+  .opt { color: var(--muted); font-weight: 400; }
+  .brand-preview { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .brand-preview img { max-height: 42px; max-width: 130px; object-fit: contain; background: #fff; border-radius: 6px; padding: 3px; border: 1px solid var(--line); }
+  .brand-preview .bp-name { font-weight: 600; }
+  .brand-preview .bp-desc { font-size: 12px; color: var(--muted); max-width: 340px; }
+  .brand-preview .swatches { display: flex; gap: 6px; }
+  .brand-preview .sw { width: 22px; height: 22px; border-radius: 5px; border: 1px solid rgba(0,0,0,.12); }
+
+  /* Login */
+  #login {
+    position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 50;
+  }
+  #login .box { background: #fff; border-radius: 14px; padding: 32px; width: 360px; max-width: 90vw; }
+  #login h1 { margin: 0 0 4px; font-size: 20px; }
+  #login h1 span { color: var(--brand); }
+  #login p { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+
+  /* Modal */
+  #modal, #dupModal { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: none; align-items: center; justify-content: center; z-index: 60; }
+  #modal.show, #dupModal.show { display: flex; }
+  #modal .box, #dupModal .box { background: #fff; border-radius: 14px; padding: 26px; width: 460px; max-width: 92vw; }
+  #modal h3, #dupModal h3 { margin: 0 0 8px; font-size: 17px; }
+  #modal .modal-actions, #dupModal .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  code.inline { background: #f1f5f9; padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+  .spinner { width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+
+  .who { color: #cbd5e1; }
+  .who b { color: #fff; }
+
+  .dup-list { list-style: none; margin: 10px 0 0; padding: 0; }
+  .dup-list li { padding: 8px 10px; background: #f8fafc; border: 1px solid var(--line); border-radius: 7px; margin-bottom: 6px; font-size: 13px; }
+  .dup-list .id { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); display: block; margin-top: 2px; }
+
+  .diag-list { display: flex; flex-direction: column; gap: 10px; }
+  .diag-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+  .diag-row .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+  .diag-row.ok .dot { background: var(--ok); }
+  .diag-row.warn .dot { background: var(--warn); }
+  .diag-row.error .dot { background: var(--danger); }
+  .diag-row.skipped .dot, .diag-row.info .dot { background: #94a3b8; }
+  .diag-row .diag-name { font-weight: 700; font-size: 13.5px; }
+  .diag-row .diag-msg { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .diag-row .diag-tag {
+    margin-left: auto; font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px; flex-shrink: 0; white-space: nowrap;
+  }
+  .diag-row.ok .diag-tag { background: var(--ok-bg); color: var(--ok); }
+  .diag-row.warn .diag-tag { background: var(--warn-bg); color: var(--warn); }
+  .diag-row.error .diag-tag { background: var(--danger-bg); color: var(--danger); }
+  .diag-row.skipped .diag-tag, .diag-row.info .diag-tag { background: #f1f5f9; color: #64748b; }
+
+  /* ============ Mobile ============ */
+  @media (max-width: 720px) {
+    .wrap { padding: 14px; }
+    header { padding: 14px 16px; flex-wrap: wrap; gap: 8px; }
+    .grid { grid-template-columns: 1fr; }
+    .tabs { overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+    .tabs button { padding: 10px 12px; font-size: 13.5px; }
+    .card { padding: 16px; }
+    .toolbar { flex-direction: column; align-items: stretch; }
+    .toolbar input { min-width: 0; }
+    #tableWrap { overflow-x: auto; }
+    table { min-width: 560px; }
+    #login .box { padding: 24px; width: 100%; }
+    #modal .box, #dupModal .box { padding: 18px; }
+    .diag-row { flex-wrap: wrap; }
+    .diag-row .diag-tag { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="login">
+  <div class="box">
+    <h1>Smart <span>1</span> Suite</h1>
+    <p>Control Panel — enter the access password to continue.</p>
+    <div id="loginMsg" class="msg err"></div>
+    <form id="loginForm">
+      <label>Your name</label>
+      <input type="text" id="loginName" autocomplete="name" placeholder="e.g. Todd" required style="margin-bottom:14px;" />
+      <label>Password</label>
+      <input type="password" id="loginPw" autocomplete="current-password" required />
+      <div class="hint" style="margin-bottom:4px;">Your name is attached to any account you create or delete, for the activity log.</div>
+      <button class="btn btn-primary" style="width:100%; justify-content:center; margin-top:12px;" type="submit">Unlock</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" class="hidden">
+  <header>
+    <div class="brand">Smart <span>1</span> Suite · Control Panel</div>
+    <div class="right">
+      <span id="acctCount"></span>
+      <span class="who">Hi, <b id="whoName">—</b></span>
+      <button class="link" id="logoutBtn">Log out</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="tabs">
+      <button data-tab="create" class="active">Create Account</button>
+      <button data-tab="manage">Manage Accounts</button>
+      <button data-tab="activity">Activity</button>
+      <button data-tab="diagnostics">Status</button>
+    </div>
+
+    <!-- CREATE TAB -->
+    <section id="tab-create">
+      <div class="card">
+        <h2>Create a new sub-account</h2>
+        <p class="sub">Only the account name is required. Everything else is optional.</p>
+        <div id="createMsg" class="msg"></div>
+
+        <div class="brandlookup">
+          <label>Auto-fill from client website <span class="opt">(optional — powered by Brandfetch)</span></label>
+          <div class="toolbar" style="margin-bottom:0;">
+            <input id="brandDomain" placeholder="acme.com" />
+            <button type="button" class="btn btn-ghost btn-sm" id="brandBtn">Fetch brand info</button>
+          </div>
+          <div id="brandPreview" class="brand-preview hidden"></div>
+        </div>
+
+        <form id="createForm">
+          <div class="grid">
+            <div class="full">
+              <label>Account name <span class="req">*</span></label>
+              <input id="name" required placeholder="Acme Plumbing Co." />
+            </div>
+
+            <div>
+              <label>Snapshot / template</label>
+              <select id="snapshotId"><option value="">— None —</option></select>
+              <div class="hint">Pre-loads your funnels, workflows &amp; settings.</div>
+            </div>
+            <div>
+              <label>Timezone</label>
+              <input id="timezone" placeholder="America/New_York" />
+            </div>
+
+            <div>
+              <label>Phone</label>
+              <input id="phone" placeholder="+15551234567" />
+            </div>
+            <div>
+              <label>Website</label>
+              <input id="website" placeholder="https://example.com" />
+            </div>
+
+            <div class="full"><hr class="divider" style="margin:6px 0" /></div>
+
+            <div>
+              <label>Client first name</label>
+              <input id="prospectFirstName" />
+            </div>
+            <div>
+              <label>Client last name</label>
+              <input id="prospectLastName" />
+            </div>
+            <div>
+              <label>Client email</label>
+              <input id="prospectEmail" type="email" />
+            </div>
+            <div>
+              <label>Country</label>
+              <input id="country" placeholder="US" maxlength="2" />
+            </div>
+
+            <div><label>Address</label><input id="address" /></div>
+            <div><label>City</label><input id="city" /></div>
+            <div><label>State</label><input id="state" /></div>
+            <div><label>Postal code</label><input id="postalCode" /></div>
+          </div>
+
+          <hr class="divider" />
+
+          <div class="checkline" style="margin-bottom:14px;">
+            <input type="checkbox" id="createUser" />
+            <label for="createUser">Also create a login user for this account</label>
+          </div>
+          <div id="userFields" class="grid hidden">
+            <div><label>User first name</label><input id="userFirstName" /></div>
+            <div><label>User last name</label><input id="userLastName" /></div>
+            <div><label>User email</label><input id="userEmail" type="email" /></div>
+            <div><label>User phone</label><input id="userPhone" /></div>
+            <div>
+              <label>Temp password</label>
+              <input id="userPassword" placeholder="Leave blank to auto-generate" />
+            </div>
+            <div>
+              <label>Role</label>
+              <select id="userRole"><option value="admin">Admin</option><option value="user">User</option></select>
+            </div>
+          </div>
+
+          <div style="margin-top:22px;">
+            <button class="btn btn-primary" id="createBtn" type="submit">Create account</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- MANAGE TAB -->
+    <section id="tab-manage" class="hidden">
+      <div class="card">
+        <h2>Manage accounts</h2>
+        <p class="sub">Search, review, and remove sub-accounts.</p>
+        <div id="manageMsg" class="msg"></div>
+
+        <div class="toolbar">
+          <input id="searchBox" placeholder="Search by name or email…" />
+          <button class="btn btn-ghost btn-sm" id="refreshBtn">Refresh</button>
+          <button class="btn btn-ghost btn-sm" id="csvBtn">Export CSV</button>
+        </div>
+
+        <div id="tableWrap">
+          <table>
+            <thead><tr><th>Name</th><th>Location ID</th><th>Email</th><th style="text-align:right">Actions</th></tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+          <div id="emptyState" class="empty hidden">No accounts found.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ACTIVITY TAB -->
+    <section id="tab-activity" class="hidden">
+      <div class="card">
+        <h2>Activity log</h2>
+        <p class="sub">Who created or deleted what, and login attempts. Stored on the server; may reset if the app restarts without a persistent disk attached.</p>
+        <div id="activityMsg" class="msg"></div>
+
+        <div class="toolbar">
+          <button class="btn btn-ghost btn-sm" id="activityRefreshBtn">Refresh</button>
+          <button class="btn btn-ghost btn-sm" id="activityCsvBtn">Export CSV</button>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Time</th><th>Event</th><th>Who</th><th>Account</th></tr></thead>
+            <tbody id="activityRows"></tbody>
+          </table>
+          <div id="activityEmpty" class="empty hidden">No activity recorded yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DIAGNOSTICS TAB -->
+    <section id="tab-diagnostics" class="hidden">
+      <div class="card">
+        <h2>System status</h2>
+        <p class="sub">Checks whether GoHighLevel and Brandfetch are configured and reachable, so a bad token or missing scope shows up here instead of as a mystery error later.</p>
+        <div class="toolbar">
+          <button class="btn btn-primary btn-sm" id="diagRunBtn">Run checks</button>
+          <span id="diagCheckedAt" class="hint" style="align-self:center;"></span>
+        </div>
+        <div id="diagList" class="diag-list"></div>
+        <div id="diagEmpty" class="empty">Click "Run checks" to test your GHL and Brandfetch configuration.</div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ============ DUPLICATE-NAME MODAL ============ -->
+<div id="dupModal">
+  <div class="box">
+    <h3>Possible duplicate account</h3>
+    <p id="dupText">An account with this name already exists:</p>
+    <ul class="dup-list" id="dupList"></ul>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="dupCancel">Cancel</button>
+      <button class="btn btn-primary" id="dupProceedBtn">Create anyway</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ DELETE MODAL ============ -->
+<div id="modal">
+  <div class="box">
+    <h3>Delete sub-account</h3>
+    <p>This permanently deletes <strong id="delName"></strong>. This cannot be undone.</p>
+    <div class="msg warn show" style="margin:0 0 14px;">
+      Note: HighLevel can't always fully remove the underlying Twilio subaccount via API — you may need to clean that up separately in Twilio.
+    </div>
+    <label>Type the account name to confirm</label>
+    <input id="delConfirm" placeholder="" />
+    <div class="checkline" style="margin-top:12px;">
+      <input type="checkbox" id="delTwilio" checked />
+      <label for="delTwilio">Also attempt to delete the Twilio subaccount</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="delCancel">Cancel</button>
+      <button class="btn btn-danger" id="delConfirmBtn" disabled>Delete permanently</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let accounts = [];
+let pendingDelete = null;
+
+// ---------- API helper ----------
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (res.status === 401) { showLogin(); throw new Error('Session expired — please log in again.'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error === 'duplicate' ? (data.message || 'A similar account already exists.') : (data.error || 'Request failed'));
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+function newIdemKey() {
+  return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function flash(el, type, text) {
+  el.className = 'msg ' + type + ' show';
+  el.textContent = text;
+  if (type === 'ok') setTimeout(() => el.classList.remove('show'), 6000);
+}
+
+// ---------- Login ----------
+function showLogin() { $('login').classList.remove('hidden'); $('app').classList.add('hidden'); }
+function showApp(name) {
+  $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+  $('whoName').textContent = name || 'Unknown';
+  loadSnapshots(); loadAccounts();
+}
+
+$('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api('/suite/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ password: $('loginPw').value, name: $('loginName').value.trim() }),
+    });
+    $('loginPw').value = '';
+    $('loginMsg').classList.remove('show');
+    showApp(r.name);
+  } catch (err) { flash($('loginMsg'), 'err', err.message); }
+});
+
+$('logoutBtn').addEventListener('click', () => { location.href = '/logout'; });
+
+// ---------- Tabs ----------
+const TAB_NAMES = ['create', 'manage', 'activity', 'diagnostics'];
+document.querySelectorAll('.tabs button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.tabs button').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    const tab = b.dataset.tab;
+    TAB_NAMES.forEach((t) => $('tab-' + t).classList.toggle('hidden', tab !== t));
+    if (tab === 'manage') loadAccounts();
+    if (tab === 'activity') loadActivity();
+  });
+});
+
+// ---------- Create ----------
+$('createUser').addEventListener('change', (e) => $('userFields').classList.toggle('hidden', !e.target.checked));
+
+// Brand lookup (Brandfetch)
+let fetchedSocial = null;
+let fetchedLogo = null;
+$('brandBtn').addEventListener('click', async () => {
+  const domain = $('brandDomain').value.trim();
+  if (!domain) { flash($('createMsg'), 'warn', 'Enter a domain first, e.g. acme.com'); return; }
+  const btn = $('brandBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Fetching…';
+  try {
+    const b = await api('/suite/api/brand?domain=' + encodeURIComponent(domain));
+    // Auto-populate every field Brandfetch returns (overwrites existing values).
+    const setVal = (id, val) => { if (val) $(id).value = val; };
+    const filled = [];
+    if (b.name) { setVal('name', b.name); filled.push('name'); }
+    if (b.website) { setVal('website', b.website); filled.push('website'); }
+    if (b.location?.city) { setVal('city', b.location.city); filled.push('city'); }
+    if (b.location?.state) { setVal('state', b.location.state); filled.push('state'); }
+    if (b.location?.country) { setVal('country', b.location.country); filled.push('country'); }
+    fetchedSocial = b.social && Object.keys(b.social).length ? b.social : null;
+    if (fetchedSocial) filled.push(Object.keys(fetchedSocial).length + ' social link(s)');
+    fetchedLogo = b.logo || null;
+    if (fetchedLogo) filled.push('logo');
+
+    // Render a small preview card.
+    const prev = $('brandPreview');
+    const swatches = (b.colors || []).slice(0, 6)
+      .map((c) => `<span class="sw" style="background:${esc(c.hex)}" title="${esc(c.hex)}"></span>`).join('');
+    prev.innerHTML =
+      (b.logo ? `<img src="${esc(b.logo)}" alt="logo" onerror="this.style.display='none'" />` : '') +
+      `<div><div class="bp-name">${esc(b.name || b.domain)}</div>` +
+      (b.description ? `<div class="bp-desc">${esc(b.description)}</div>` : '') + `</div>` +
+      (swatches ? `<div class="swatches">${swatches}</div>` : '') +
+      (fetchedSocial ? `<div class="bp-desc">${Object.keys(fetchedSocial).length} social link(s) found</div>` : '');
+    prev.classList.remove('hidden');
+    const summary = filled.length ? 'Auto-filled: ' + filled.join(', ') + '.' : 'No mappable fields found.';
+    flash($('createMsg'), 'ok', summary + ' Review, then Create account to push it all to GHL.');
+  } catch (err) {
+    flash($('createMsg'), 'err', err.message);
+    $('brandPreview').classList.add('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Fetch brand info';
+  }
+});
+
+async function loadSnapshots() {
+  try {
+    const { snapshots } = await api('/suite/api/snapshots');
+    const sel = $('snapshotId');
+    sel.innerHTML = '<option value="">— None —</option>';
+    (snapshots || []).forEach((s) => {
+      const o = document.createElement('option');
+      o.value = s.id; o.textContent = s.name || s.id; sel.appendChild(o);
+    });
+  } catch (err) {
+    // Snapshot listing is non-critical; leave the picker empty.
+    console.warn('Snapshots unavailable:', err.message);
+  }
+}
+
+let pendingCreateBody = null;
+
+function buildCreateBody() {
+  const fields = ['name','snapshotId','timezone','phone','website','prospectFirstName','prospectLastName',
+    'prospectEmail','country','address','city','state','postalCode'];
+  const body = {};
+  fields.forEach((f) => { const v = $(f).value.trim(); if (v) body[f] = v; });
+
+  if (fetchedSocial) body.social = fetchedSocial;
+  if (fetchedLogo) body.logoUrl = fetchedLogo;
+
+  if ($('createUser').checked) {
+    body.createUser = true;
+    ['userFirstName','userLastName','userEmail','userPhone','userPassword'].forEach((f) => {
+      const v = $(f).value.trim(); if (v) body[f] = v;
+    });
+    body.userRole = $('userRole').value;
+  }
+  return body;
+}
+
+// Shared by the normal submit and the "create anyway" duplicate resubmit —
+// both pass the same idempotencyKey, so double-clicking either one can
+// never create two accounts.
+async function submitCreate(body) {
+  const btn = $('createBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creating…';
+  try {
+    const r = await api('/suite/api/locations', { method: 'POST', body: JSON.stringify(body) });
+    let msg = `Account "${body.name}" created. Location ID: ${r.locationId || 'n/a'}.`;
+    if (r.user) msg += ' Login user created.';
+    if (r.logoSet) msg += r.logoHosted ? ' Logo uploaded to GHL & applied.' : ' Logo applied.';
+    const warnings = [r.userWarning, r.logoWarning, r.logoUploadWarning].filter(Boolean);
+    if (warnings.length) { flash($('createMsg'), 'warn', msg + ' ' + warnings.join(' ')); }
+    else { flash($('createMsg'), 'ok', msg); }
+    $('createForm').reset();
+    $('userFields').classList.add('hidden');
+    $('brandPreview').classList.add('hidden');
+    $('brandDomain').value = '';
+    fetchedSocial = null;
+    fetchedLogo = null;
+    pendingCreateBody = null;
+    loadAccounts();
+  } catch (err) {
+    if (err.status === 409 && err.data?.duplicates) {
+      pendingCreateBody = body;
+      openDuplicateModal(err.data);
+    } else {
+      flash($('createMsg'), 'err', err.message);
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create account';
+  }
+}
+
+$('createForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = buildCreateBody();
+  body.idempotencyKey = newIdemKey(); // fresh key per genuine submit attempt
+  await submitCreate(body);
+});
+
+// ---------- Duplicate-account confirmation ----------
+function openDuplicateModal(data) {
+  $('dupText').textContent = data.message || 'A similar account already exists:';
+  $('dupList').innerHTML = (data.duplicates || [])
+    .map((d) => `<li>${esc(d.name || '(unnamed)')}<span class="id">${esc(d.id || '')}</span></li>`).join('');
+  $('dupModal').classList.add('show');
+}
+$('dupCancel').addEventListener('click', () => {
+  $('dupModal').classList.remove('show');
+  pendingCreateBody = null;
+});
+$('dupProceedBtn').addEventListener('click', async () => {
+  if (!pendingCreateBody) { $('dupModal').classList.remove('show'); return; }
+  $('dupModal').classList.remove('show');
+  await submitCreate({ ...pendingCreateBody, confirmDuplicate: true });
+});
+
+// ---------- Manage ----------
+async function loadAccounts() {
+  const search = $('searchBox').value.trim();
+  try {
+    const { locations, count } = await api('/suite/api/locations?limit=200&search=' + encodeURIComponent(search));
+    accounts = locations || [];
+    renderRows();
+    $('acctCount').textContent = (count ?? accounts.length) + ' account' + ((count ?? accounts.length) === 1 ? '' : 's');
+  } catch (err) {
+    flash($('manageMsg'), 'err', err.message);
+  }
+}
+
+function renderRows() {
+  const tb = $('rows');
+  tb.innerHTML = '';
+  if (!accounts.length) { $('emptyState').classList.remove('hidden'); return; }
+  $('emptyState').classList.add('hidden');
+  accounts.forEach((a) => {
+    const id = a.id || a._id || '';
+    const email = a.email || a.prospectInfo?.email || '';
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td><strong>${esc(a.name || '(unnamed)')}</strong></td>` +
+      `<td><span class="id">${esc(id)}</span></td>` +
+      `<td>${esc(email)}</td>` +
+      `<td style="text-align:right"><button class="btn btn-danger btn-sm" data-id="${esc(id)}" data-name="${esc(a.name || '')}">Delete</button></td>`;
+    tb.appendChild(tr);
+  });
+  tb.querySelectorAll('button[data-id]').forEach((b) =>
+    b.addEventListener('click', () => openDelete(b.dataset.id, b.dataset.name)));
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+$('refreshBtn').addEventListener('click', loadAccounts);
+let searchTimer;
+$('searchBox').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadAccounts, 400); });
+
+// ---------- CSV ----------
+$('csvBtn').addEventListener('click', () => {
+  if (!accounts.length) { flash($('manageMsg'), 'warn', 'Nothing to export.'); return; }
+  const header = ['Name','LocationID','Email','Phone','City','State','Country'];
+  const rows = accounts.map((a) => [
+    a.name || '', a.id || a._id || '', a.email || a.prospectInfo?.email || '',
+    a.phone || '', a.city || '', a.state || '', a.country || '',
+  ].map(csvCell).join(','));
+  const csv = [header.join(','), ...rows].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = 'smart1-accounts.csv'; link.click();
+  URL.revokeObjectURL(url);
+});
+function csvCell(v) { v = String(v == null ? '' : v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+
+// ---------- Delete modal ----------
+function openDelete(id, name) {
+  pendingDelete = { id, name };
+  $('delName').textContent = name || id;
+  $('delConfirm').value = '';
+  $('delConfirmBtn').disabled = true;
+  $('delTwilio').checked = true;
+  $('modal').classList.add('show');
+  $('delConfirm').focus();
+}
+$('delConfirm').addEventListener('input', () => {
+  $('delConfirmBtn').disabled = ($('delConfirm').value.trim() !== (pendingDelete?.name || '').trim());
+});
+$('delCancel').addEventListener('click', () => $('modal').classList.remove('show'));
+$('delConfirmBtn').addEventListener('click', async () => {
+  const btn = $('delConfirmBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Deleting…';
+  try {
+    const q = `deleteTwilioAccount=${$('delTwilio').checked}&name=${encodeURIComponent(pendingDelete.name || '')}`;
+    await api(`/suite/api/locations/${encodeURIComponent(pendingDelete.id)}?${q}`, { method: 'DELETE' });
+    $('modal').classList.remove('show');
+    flash($('manageMsg'), 'ok', `Deleted "${pendingDelete.name}".`);
+    loadAccounts();
+  } catch (err) {
+    flash($('manageMsg'), 'err', err.message);
+    $('modal').classList.remove('show');
+  } finally {
+    btn.textContent = 'Delete permanently';
+  }
+});
+
+// ---------- Activity log ----------
+let activityEntries = [];
+const EVENT_LABELS = {
+  account_created: 'Account created', account_deleted: 'Account deleted',
+  login_success: 'Login', login_failed: 'Failed login attempt',
+};
+async function loadActivity() {
+  try {
+    const { entries } = await api('/suite/api/audit');
+    activityEntries = entries || [];
+    renderActivityRows();
+  } catch (err) {
+    flash($('activityMsg'), 'err', err.message);
+  }
+}
+function renderActivityRows() {
+  const tb = $('activityRows');
+  tb.innerHTML = '';
+  if (!activityEntries.length) { $('activityEmpty').classList.remove('hidden'); return; }
+  $('activityEmpty').classList.add('hidden');
+  activityEntries.forEach((e) => {
+    const when = e.time ? new Date(e.time).toLocaleString() : '';
+    const label = EVENT_LABELS[e.type] || e.type || 'Event';
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td>${esc(when)}</td>` +
+      `<td>${esc(label)}</td>` +
+      `<td>${esc(e.actor || '—')}</td>` +
+      `<td>${esc(e.name || '')}${e.locationId ? `<span class="id" style="display:block;">${esc(e.locationId)}</span>` : ''}</td>`;
+    tb.appendChild(tr);
+  });
+}
+$('activityRefreshBtn').addEventListener('click', loadActivity);
+$('activityCsvBtn').addEventListener('click', () => {
+  if (!activityEntries.length) { flash($('activityMsg'), 'warn', 'Nothing to export.'); return; }
+  const header = ['Time','Event','Actor','AccountName','LocationID','IP'];
+  const rows = activityEntries.map((e) => [
+    e.time || '', EVENT_LABELS[e.type] || e.type || '', e.actor || '', e.name || '', e.locationId || '', e.ip || '',
+  ].map(csvCell).join(','));
+  const csv = [header.join(','), ...rows].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = 'smart1-activity-log.csv'; link.click();
+  URL.revokeObjectURL(url);
+});
+
+// ---------- Diagnostics ----------
+$('diagRunBtn').addEventListener('click', runDiagnostics);
+async function runDiagnostics() {
+  const btn = $('diagRunBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Running…';
+  $('diagEmpty').classList.add('hidden');
+  try {
+    const { checks, checkedAt } = await api('/suite/api/diagnostics');
+    $('diagList').innerHTML = (checks || []).map((c) => `
+      <div class="diag-row ${esc(c.status)}">
+        <span class="dot"></span>
+        <div>
+          <div class="diag-name">${esc(c.name)}</div>
+          <div class="diag-msg">${esc(c.message)}</div>
+        </div>
+        <span class="diag-tag">${esc(c.status)}</span>
+      </div>`).join('');
+    $('diagCheckedAt').textContent = checkedAt ? 'Last checked ' + new Date(checkedAt).toLocaleTimeString() : '';
+  } catch (err) {
+    $('diagList').innerHTML = '';
+    $('diagEmpty').classList.remove('hidden');
+    $('diagEmpty').textContent = err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Run checks';
+  }
+}
+
+// ---------- Boot ----------
+(async function init() {
+  try {
+    const { authenticated, name } = await api('/suite/api/session');
+    if (authenticated) showApp(name); else showLogin();
+  } catch { showLogin(); }
+})();
+</script>
+</body>
+</html>

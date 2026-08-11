@@ -1,0 +1,56 @@
+services:
+  - type: web
+    name: smart1-hub
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: hub-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      # ---- Hub login ----
+      - key: PANEL_PASSWORD
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      # ---- Suite (GoHighLevel) ----
+      - key: GHL_PRIVATE_TOKEN
+        sync: false
+      - key: GHL_COMPANY_ID
+        sync: false
+      - key: BRANDFETCH_API_KEY
+        sync: false
+      # ---- Sites (Simvoly) ----
+      - key: SIMVOLY_API_KEY
+        sync: false
+      - key: SIMVOLY_API_BASE_URL
+        value: https://api.smart1sites.com
+      - key: DATABASE_URL
+        sync: false
+      - key: MOCK_MODE
+        value: "false"
+      - key: ENABLE_WRITE_ACTIONS
+        value: "false"
+      # ---- Google Finder ----
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: ALLOWED_EMAILS
+        value: adops@smart1marketing.com,smartadops@gmail.com,smart1sites@gmail.com
+      - key: CACHE_SECONDS
+        value: "900"
+      - key: TOKEN_DB_PATH
+        value: /var/data/google_tokens.db
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      # ---- shared ----
+      - key: AUDIT_LOG_PATH
+        value: /var/data/hub-audit.log.jsonl
+      - key: FLASK_ENV
+        value: production
+      - key: MAX_UPLOAD_MB
+        value: "100"
