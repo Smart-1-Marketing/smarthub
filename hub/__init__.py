@@ -140,7 +140,15 @@ def create_hub_app() -> Flask:
         gate = _require_page()
         if gate:
             return gate
-        return send_from_directory(CLIENTS_APP, "index.html")
+        from .sidebar import render_sidebar
+        with open(os.path.join(CLIENTS_APP, "index.html"), "rb") as fh:
+            body = fh.read()
+        snippet = b'<link rel="stylesheet" href="/assets/theme.css">'
+        if b"</head>" in body:
+            body = body.replace(b"</head>", snippet + b"</head>", 1)
+        bar = render_sidebar("clients")
+        body = body.replace(b"</body>", bar + b"</body>", 1) if b"</body>" in body else body + bar
+        return app.response_class(body, mimetype="text/html")
 
     @app.route("/static/<path:filename>")
     def clients_static(filename):

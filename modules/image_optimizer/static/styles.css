@@ -1,11 +1,11 @@
 
 :root{
-  --navy:#12264a;
-  --blue:#1687e8;
-  --light:#edf6ff;
-  --ink:#17233a;
-  --muted:#65748b;
-  --line:#d8e3ef;
+  --navy:#1a2e58;
+  --blue:#2563eb;
+  --light:#eff6ff;
+  --ink:#1e293b;
+  --muted:#64748b;
+  --line:#e2e8f0;
   --white:#fff;
   --danger:#b42318;
 }
@@ -13,8 +13,8 @@
 body{
   margin:0;
   min-height:100vh;
-  font-family:Inter,Arial,sans-serif;
-  background:linear-gradient(155deg,#f7fbff 0%,#e9f4ff 58%,#f7fbff 100%);
+  font-family:'Segoe UI',system-ui,Arial,sans-serif;
+  background:#f4f6fa;
   color:var(--ink)
 }
 .shell{width:min(940px,calc(100% - 32px));margin:0 auto;padding:54px 0 36px}
@@ -23,8 +23,8 @@ body{
 h1{font-size:clamp(2rem,5vw,3.6rem);line-height:1.04;margin:9px 0 12px;color:var(--navy)}
 h1 span{color:var(--blue)}
 .hero p{margin:0;color:var(--muted);font-size:1.05rem}
-.card{background:rgba(255,255,255,.95);border:1px solid rgba(216,227,239,.9);border-radius:24px;padding:30px;box-shadow:0 22px 70px rgba(18,38,74,.12)}
-.dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:210px;border:2px dashed #9ec9ef;border-radius:18px;background:#f8fcff;cursor:pointer;transition:.2s}
+.card{background:rgba(255,255,255,.95);border:1px solid rgba(216,227,239,.9);border-radius:12px;padding:30px;box-shadow:0 22px 70px rgba(18,38,74,.12)}
+.dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:210px;border:2px dashed #93b8f0;border-radius:18px;background:#f8fcff;cursor:pointer;transition:.2s}
 .dropzone:hover,.dropzone.drag{border-color:var(--blue);background:var(--light);transform:translateY(-1px)}
 .dropzone input{display:none}
 .drop-icon{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;background:var(--blue);color:white;font-size:1.8rem;margin-bottom:14px}

@@ -82,7 +82,70 @@ def _is_live(rec: dict) -> bool:
     return str(rec.get("status", "")).strip().lower() == "live"
 
 
+def _period_label(yyyymm) -> str:
+    s = str(yyyymm or "")
+    months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    if len(s) == 6 and s.isdigit():
+        return f"{months[int(s[4:6])]} {s[:4]}"
+    return s
+
+
+def _history_path() -> str:
+    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, "hub-metrics-history.json")
+
+
+def _website_movement(period, websites_active) -> int | None:
+    """Websites carry no month-over-month fields, so the Hub snapshots the
+    active count per Knack period and compares to the previous period."""
+    path = _history_path()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            hist = json.load(fh)
+    except (OSError, ValueError):
+        hist = {}
+    key = str(period or "")
+    if key:
+        entry = hist.get(key) or {}
+        entry["websites_active"] = websites_active
+        hist[key] = entry
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(hist, fh)
+        except OSError:
+            pass
+    prev_keys = sorted(k for k in hist if k.isdigit() and k < key)
+    if not prev_keys:
+        return None
+    prev = hist[prev_keys[-1]].get("websites_active")
+    return websites_active - prev if isinstance(prev, (int, float)) else None
+
+
+def month_over_month(prods: list[dict]) -> dict:
+    """Per-client budget totals for this month vs last month, from the
+    lastM/thisM active flags Knack exports on every IO row."""
+    this_by, last_by = {}, {}
+    for r in prods:
+        client = str(r.get("client", "")).strip()
+        if not client:
+            continue
+        m = _num(r.get("monthly"))
+        if r.get("thisM"):
+            this_by[client] = this_by.get(client, 0.0) + m
+        if r.get("lastM"):
+            last_by[client] = last_by.get(client, 0.0) + m
+    new = sum(1 for c in this_by if c not in last_by)
+    lost = sum(1 for c in last_by if c not in this_by)
+    increased = sum(1 for c, v in this_by.items() if c in last_by and v > last_by[c] + 0.5)
+    decreased = sum(1 for c, v in this_by.items() if c in last_by and v < last_by[c] - 0.5)
+    return {"new": new, "lost": lost, "increased": increased, "decreased": decreased}
+
+
 def summary() -> dict:
+    raw = _load("products.json")
     prods = products()
     webs = websites()
 
@@ -100,6 +163,14 @@ def summary() -> dict:
     active_sites = [w for w in webs if _active(w)]
     hm_monthly = sum(_num(w.get("hmMonthly")) for w in active_sites)
 
+    this_period = raw.get("thisMonth") if isinstance(raw, dict) else None
+    last_period = raw.get("lastMonth") if isinstance(raw, dict) else None
+    mom = month_over_month(prods)
+    try:
+        movement = _website_movement(this_period, len(active_sites))
+    except Exception:  # noqa: BLE001 — never break the dashboard on history I/O
+        movement = None
+
     return {
         "clients_total": len(all_clients),
         "clients_live": len(live_clients),
@@ -108,6 +179,14 @@ def summary() -> dict:
         "websites_total": len(webs),
         "websites_active": len(active_sites),
         "hm_monthly": round(hm_monthly),
+        "estimated_total_monthly": round(live_budget + hm_monthly),
+        "new_customers": mom["new"],
+        "lost_customers": mom["lost"],
+        "increased_customers": mom["increased"],
+        "decreased_customers": mom["decreased"],
+        "website_movement": movement,
+        "this_period": _period_label(this_period),
+        "last_period": _period_label(last_period),
         "data_age_hours": data_age_hours(),
     }
 

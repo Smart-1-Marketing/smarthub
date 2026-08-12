@@ -1,13 +1,13 @@
 * { box-sizing: border-box; }
-body { margin: 0; background: #f4f7fb; color: #17233c; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+body { margin: 0; background: #f4f6fa; color: #1e293b; font-family: 'Segoe UI', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .wrap { max-width: 1100px; margin: 0 auto; padding: 22px; }
-.card { background: #fff; border: 1px solid #dfe6f0; border-radius: 18px; box-shadow: 0 12px 32px rgba(20,40,80,.08); padding: 24px; }
+.card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 12px 32px rgba(20,40,80,.08); padding: 24px; }
 .topline { display: flex; gap: 20px; justify-content: space-between; align-items: flex-start; }
 .topline h1 { margin: 0 0 6px; font-size: 28px; color: #1a2e58; }
-.topline p { margin: 0; color: #69758a; }
+.topline p { margin: 0; color: #64748b; }
 .auth { display: flex; gap: 12px; align-items: center; font-size: 13px; }
-.auth a { color: #b5122b; text-decoration: none; }
-.btn, .open { background: #b5122b; color: #fff!important; padding: 10px 14px; border-radius: 9px; text-decoration: none; font-weight: 700; border: 0; cursor: pointer; display: inline-block; }
+.auth a { color: #2563eb; text-decoration: none; }
+.btn, .open { background: #2563eb; color: #fff!important; padding: 10px 14px; border-radius: 9px; text-decoration: none; font-weight: 700; border: 0; cursor: pointer; display: inline-block; }
 
 /* CLEAN TOP NAVIGATION BAR */
 .nav-anchor-bar {
@@ -71,7 +71,7 @@ body { margin: 0; background: #f4f7fb; color: #17233c; font-family: Inter, ui-sa
 .meta { font-size: 13px; color: #58677e; }
 .meta span { margin-left: 6px; color: #8a95a7; }
 .open { padding: 8px 12px; font-size: 13px; }
-.empty, .connect-panel { border: 1px dashed #cbd5e3; border-radius: 12px; padding: 24px; text-align: center; color: #69758a; }
+.empty, .connect-panel { border: 1px dashed #cbd5e3; border-radius: 12px; padding: 24px; text-align: center; color: #64748b; }
 .connect-panel { margin-top: 24px; }
 .connect-panel strong { color: #1a2e58; font-size: 18px; }
 .connect-panel p { margin-bottom: 0; }
@@ -91,14 +91,14 @@ body { margin: 0; background: #f4f7fb; color: #17233c; font-family: Inter, ui-sa
 .accounts-title { font-size: 13px; font-weight: 800; color: #1a2e58; margin-right: 4px; }
 .account-chip { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #d8e0eb; border-radius: 999px; padding: 7px 8px 7px 10px; font-size: 12px; }
 .check { color: #16824b; font-weight: 900; }
-.disconnect { border: 0; background: #edf1f6; color: #69758a; width: 21px; height: 21px; border-radius: 50%; cursor: pointer; line-height: 1; font-size: 16px; }
+.disconnect { border: 0; background: #edf1f6; color: #64748b; width: 21px; height: 21px; border-radius: 50%; cursor: pointer; line-height: 1; font-size: 16px; }
 .muted { font-size: 13px; color: #748096; }
 .login { font-size: 13px; color: #1a2e58; margin-bottom: 4px; }
 .connect { display: inline-block; margin-top: 10px; }
 
-.ai-comparator-card, .manual-lookup-card { margin-top: 20px; padding: 16px; background: #f8fafc; border: 1px solid #dfe6f0; border-radius: 12px; }
+.ai-comparator-card, .manual-lookup-card { margin-top: 20px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; }
 .ai-comparator-card h3, .manual-lookup-card h3 { margin: 0 0 4px; font-size: 16px; color: #1a2e58; }
-.ai-comparator-card p, .manual-lookup-card p { font-size: 13px; color: #69758a; margin: 0 0 12px; }
+.ai-comparator-card p, .manual-lookup-card p { font-size: 13px; color: #64748b; margin: 0 0 12px; }
 .comp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .comp-grid label, .comp-grid-secondary label { display: block; font-size: 12px; font-weight: 700; color: #1a2e58; margin-bottom: 4px; }
 .comp-grid input, .comp-grid select, .comp-grid-secondary input, .comp-grid-secondary select { width: 100%; font-size: 13px; padding: 8px 10px; border: 1px solid #ccd6e5; border-radius: 6px; background: #fff; }

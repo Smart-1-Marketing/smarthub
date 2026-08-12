@@ -1,9 +1,9 @@
 :root{
-  --navy:#0A2240; --blue:#009ED2; --green:#2DBB72; --gold:#F0B429;
-  --ink:#25364B; --muted:#68798C; --line:#DBE5ED; --bg:#F3F7FA; --danger:#D64550;
+  --navy:#1a2e58; --blue:#2563eb; --green:#2DBB72; --gold:#F0B429;
+  --ink:#1e293b; --muted:#64748b; --line:#e2e8f0; --bg:#f4f6fa; --danger:#D64550;
 }
 *{box-sizing:border-box}
-body{margin:0;font-family:'Montserrat',system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;color:var(--ink);background:var(--bg)}
 .hidden{display:none!important}
 .muted{color:var(--muted);font-size:13px}
 h1{color:var(--navy);margin:.4em 0}

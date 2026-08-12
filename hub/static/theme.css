@@ -1,0 +1,38 @@
+/* Smart 1 Hub — shared theme layer, injected into every module page.
+   Keeps typography, headings, links, and control colors consistent with the
+   Hub shell and Client 360. Module-specific layout is untouched. */
+
+:root {
+  --s1-navy: #1a2e58;
+  --s1-navy-deep: #12203f;
+  --s1-brand: #2563eb;
+  --s1-brand-dark: #1d4ed8;
+  --s1-bg: #f4f6fa;
+  --s1-ink: #1e293b;
+  --s1-muted: #64748b;
+  --s1-line: #e2e8f0;
+}
+
+html, body, button, input, select, textarea {
+  font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif !important;
+}
+
+body {
+  background-color: var(--s1-bg);
+}
+
+h1, h2 { color: var(--s1-navy); }
+
+a { color: var(--s1-brand); }
+
+::selection { background: #bfdbfe; }
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--s1-brand);
+  outline-offset: 0;
+}
+
+/* Consistent scrollbars (WebKit) */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #c3cbd9; border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }

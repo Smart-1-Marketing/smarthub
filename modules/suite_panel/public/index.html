@@ -6,7 +6,7 @@
 <title>Smart 1 Suite — Control Panel</title>
 <style>
   :root {
-    --bg: #0f172a; --panel: #ffffff; --ink: #1e293b; --muted: #64748b;
+    --bg: #1a2e58; --panel: #ffffff; --ink: #1e293b; --muted: #64748b;
     --brand: #2563eb; --brand-dark: #1d4ed8; --line: #e2e8f0;
     --danger: #dc2626; --danger-bg: #fef2f2; --ok: #059669; --ok-bg: #ecfdf5;
     --warn: #b45309; --warn-bg: #fffbeb;
@@ -14,7 +14,7 @@
   * { box-sizing: border-box; }
   body {
     margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: #f1f5f9; color: var(--ink); font-size: 15px; line-height: 1.5;
+    background: #f4f6fa; color: var(--ink); font-size: 15px; line-height: 1.5;
   }
   header {
     background: var(--bg); color: #fff; padding: 16px 24px;
@@ -108,7 +108,7 @@
   #modal .box, #dupModal .box { background: #fff; border-radius: 14px; padding: 26px; width: 460px; max-width: 92vw; }
   #modal h3, #dupModal h3 { margin: 0 0 8px; font-size: 17px; }
   #modal .modal-actions, #dupModal .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
-  code.inline { background: #f1f5f9; padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+  code.inline { background: #f4f6fa; padding: 1px 6px; border-radius: 5px; font-size: 13px; }
   .spinner { width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .hidden { display: none !important; }
@@ -136,7 +136,7 @@
   .diag-row.ok .diag-tag { background: var(--ok-bg); color: var(--ok); }
   .diag-row.warn .diag-tag { background: var(--warn-bg); color: var(--warn); }
   .diag-row.error .diag-tag { background: var(--danger-bg); color: var(--danger); }
-  .diag-row.skipped .diag-tag, .diag-row.info .diag-tag { background: #f1f5f9; color: #64748b; }
+  .diag-row.skipped .diag-tag, .diag-row.info .diag-tag { background: #f4f6fa; color: #64748b; }
 
   /* ============ Mobile ============ */
   @media (max-width: 720px) {
@@ -201,6 +201,15 @@
         <h2>Create a new sub-account</h2>
         <p class="sub">Only the account name is required. Everything else is optional.</p>
         <div id="createMsg" class="msg"></div>
+
+        <div class="brandlookup">
+          <label>Look up an existing client <span class="opt">(searches Smart 1 Team + website records)</span></label>
+          <div class="toolbar" style="margin-bottom:0;">
+            <input id="clientLookup" placeholder="Start typing a client name or domain…" />
+            <button type="button" class="btn btn-ghost btn-sm" id="clientLookupBtn">Find client</button>
+          </div>
+          <div id="clientLookupResults" style="margin-top:8px;"></div>
+        </div>
 
         <div class="brandlookup">
           <label>Auto-fill from client website <span class="opt">(optional — powered by Brandfetch)</span></label>
@@ -425,6 +434,40 @@ function showApp(name) {
   loadSnapshots(); loadAccounts();
   applyPrefill();
 }
+
+// ---------- Existing-client lookup (Smart 1 Team data via the Hub) ----------
+async function lookupClient() {
+  const q = $('clientLookup').value.trim();
+  const box = $('clientLookupResults');
+  if (!q) { box.innerHTML = ''; return; }
+  box.innerHTML = '<span class="opt">Searching…</span>';
+  try {
+    const r = await fetch('/api/c360?q=' + encodeURIComponent(q));
+    const d = await r.json();
+    const groups = (d.groups || []).slice(0, 6);
+    if (!groups.length) { box.innerHTML = '<span class="opt">No client matched — you can still fill the form manually.</span>'; return; }
+    box.innerHTML = groups.map((g, i) => {
+      const dom = (g.websites && g.websites[0] && g.websites[0].domain) || '';
+      return `<button type="button" class="btn btn-ghost btn-sm" style="margin:0 6px 6px 0" data-pick="${i}">${escapeHtml(g.client)}${dom ? ' · ' + escapeHtml(dom) : ''}</button>`;
+    }).join('');
+    box.querySelectorAll('[data-pick]').forEach(btn => btn.addEventListener('click', () => {
+      const g = groups[Number(btn.dataset.pick)];
+      const w = (g.websites || [])[0] || {};
+      $('name').value = g.client || '';
+      if (w.domain) {
+        $('website').value = 'https://' + w.domain;
+        $('brandDomain').value = w.domain;
+        // Pull logo, city/state, and socials automatically via Brandfetch.
+        $('brandBtn').click();
+      }
+      box.innerHTML = `<span class="opt">Filled from Smart 1 Team: <b>${escapeHtml(g.client)}</b>${w.domain ? ' (' + escapeHtml(w.domain) + ')' : ''}${w.domain ? ' — fetching brand info…' : ''}</span>`;
+      $('name').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+  } catch (e) { box.innerHTML = '<span class="opt">Lookup failed: ' + escapeHtml(e.message) + '</span>'; }
+}
+function escapeHtml(x){return String(x??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+$('clientLookupBtn').addEventListener('click', lookupClient);
+$('clientLookup').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); lookupClient(); } });
 
 // ---------- Prefill from Client 360 ("Add to Smart 1 Suite") ----------
 let prefillDone = false;

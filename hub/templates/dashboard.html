@@ -11,6 +11,14 @@
   <div class="kpi"><div class="k-label">H&amp;M Billing / mo</div><div class="k-value" id="k-hm">—</div><div class="k-sub">active sites</div></div>
 </div>
 
+<div class="kpi-row">
+  <div class="kpi"><div class="k-label">Est. Total Billing / mo</div><div class="k-value" id="k-total">—</div><div class="k-sub">live budget + H&amp;M</div></div>
+  <div class="kpi"><div class="k-label">New Customers</div><div class="k-value" id="k-new">—</div><div class="k-sub" id="k-new-sub">vs last month</div></div>
+  <div class="kpi"><div class="k-label">Increased Budgets</div><div class="k-value" id="k-up">—</div><div class="k-sub" id="k-up-sub">customers up vs last month</div></div>
+  <div class="kpi"><div class="k-label">Decreased Budgets</div><div class="k-value" id="k-down">—</div><div class="k-sub" id="k-down-sub">customers down vs last month</div></div>
+  <div class="kpi"><div class="k-label">Website Movement</div><div class="k-value" id="k-move">—</div><div class="k-sub" id="k-move-sub">active sites vs last month</div></div>
+</div>
+
 <div class="grid-2">
   <div class="card">
     <div class="card-h"><h3>System checks</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
@@ -38,6 +46,25 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
   $('k-webs').textContent=fmt(s.websites_active);
   $('k-webs-sub').textContent=fmt(s.websites_total)+' total';
   $('k-hm').textContent='$'+fmt(s.hm_monthly);
+
+  // ---- second row: billing rollup + month-over-month movement ----
+  const vs=s.last_period?('vs '+s.last_period):'vs last month';
+  $('k-total').textContent='$'+fmt(s.estimated_total_monthly);
+  $('k-new').textContent=fmt(s.new_customers);
+  $('k-new-sub').innerHTML=esc(vs)+(s.lost_customers?' · <span class="down" style="color:var(--danger);font-weight:600">'+fmt(s.lost_customers)+' lost</span>':'');
+  $('k-up').textContent=fmt(s.increased_customers);
+  $('k-up-sub').textContent='customers up '+vs;
+  $('k-down').textContent=fmt(s.decreased_customers);
+  $('k-down-sub').textContent='customers down '+vs;
+  if(s.website_movement===null||s.website_movement===undefined){
+    $('k-move').textContent='—';
+    $('k-move-sub').textContent='building history — check back next month';
+  }else{
+    const m=s.website_movement;
+    $('k-move').textContent=(m>0?'+':'')+fmt(m);
+    $('k-move').style.color=m>0?'var(--ok)':(m<0?'var(--danger)':'');
+    $('k-move-sub').textContent='active sites '+vs;
+  }
 }).catch(()=>{$('k-clients').textContent='—'});
 
 fetch('/api/status').then(r=>r.json()).then(d=>{

@@ -39,12 +39,13 @@ def _load(name: str, path: str):
 
 
 # ---------------------------------------------------------------- middleware
-_HUB_BAR = (
-    '<a href="/" style="position:fixed;bottom:14px;left:14px;z-index:99999;'
-    "background:#1a2e58;color:#fff;padding:8px 14px;border-radius:20px;"
-    "font:600 12.5px 'Segoe UI',system-ui,sans-serif;text-decoration:none;"
-    'box-shadow:0 6px 18px rgba(0,0,0,.3)">&#8962; Smart 1 Hub</a>'
-).encode()
+from hub.sidebar import render_sidebar
+
+_MOUNT_ACTIVE = {
+    "/google": "google", "/sites": "sites", "/suite": "suite",
+    "/sales/builder": "salesb", "/sales/proposals": "props",
+    "/tools/image": "tools", "/tools/pdf": "tools",
+}
 
 
 class AuthGuard:
@@ -75,10 +76,11 @@ class AuthGuard:
 
 
 class HubBar:
-    """Injects a small floating 'back to Hub' chip into module HTML pages."""
+    """Injects the shared Hub sidebar + theme into module HTML pages."""
 
-    def __init__(self, app):
+    def __init__(self, app, active=""):
         self.app = app
+        self.active = active
 
     def __call__(self, environ, start_response):
         captured = {}
@@ -103,8 +105,16 @@ class HubBar:
         finally:
             if hasattr(result, "close"):
                 result.close()
+        _THEME = b'<link rel="stylesheet" href="/assets/theme.css">'
+        if b"</head>" in body:
+            body = body.replace(b"</head>", _THEME + b"</head>", 1)
+        elif b"<body" in body:
+            body = _THEME + body
+        _bar = render_sidebar(self.active)
         if b"</body>" in body:
-            body = body.replace(b"</body>", _HUB_BAR + b"</body>", 1)
+            body = body.replace(b"</body>", _bar + b"</body>", 1)
+        else:
+            body += _bar
         headers = [(k, v) for k, v in headers if k.lower() != "content-length"]
         headers.append(("Content-Length", str(len(body))))
         start_response(status, headers, captured.get("exc_info"))
@@ -206,7 +216,7 @@ except Exception as _pb_exc:  # noqa: BLE001
 
 
 def _mount(flask_app, prefix):
-    return AuthGuard(HubBar(flask_app), prefix)
+    return AuthGuard(HubBar(flask_app, _MOUNT_ACTIVE.get(prefix, "")), prefix)
 
 
 application = DispatcherMiddleware(hub_app, {
