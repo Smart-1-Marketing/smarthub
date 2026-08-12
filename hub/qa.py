@@ -451,9 +451,11 @@ _ghl_cache: dict = {}
 
 def _ghl(path: str, params=None, method: str = "GET", body=None):
     import requests as _rq
-    token = os.environ.get("GHL_PRIVATE_TOKEN", "")
+    # Smart 1 Marketing lookups use their own sub-account token when provided.
+    token = (os.environ.get("SMART1SUITE_PRIVATE_TOKEN", "").strip()
+             or os.environ.get("GHL_PRIVATE_TOKEN", ""))
     if not token:
-        raise RuntimeError("GHL_PRIVATE_TOKEN is not configured.")
+        raise RuntimeError("SMART1SUITE_PRIVATE_TOKEN / GHL_PRIVATE_TOKEN is not configured.")
     headers = {"Authorization": f"Bearer {token}",
                "Version": os.environ.get("GHL_API_VERSION", "2021-07-28"),
                "Accept": "application/json", "Content-Type": "application/json"}
@@ -465,8 +467,11 @@ def _ghl(path: str, params=None, method: str = "GET", body=None):
 
 
 def _accounting_location() -> tuple[str, str]:
-    """(location_id, name) of the Smart 1 Marketing sub-account."""
-    override = os.environ.get("GHL_ACCOUNTING_LOCATION_ID", "").strip()
+    """(location_id, name) of the Smart 1 Marketing sub-account.
+    SUITE_COMPANY_ID pins it directly (preferred); falls back to
+    GHL_ACCOUNTING_LOCATION_ID, then a name search."""
+    override = (os.environ.get("SUITE_COMPANY_ID", "").strip()
+                or os.environ.get("GHL_ACCOUNTING_LOCATION_ID", "").strip())
     if override:
         return override, "Smart 1 Marketing"
     if "acct_loc" in _ghl_cache:

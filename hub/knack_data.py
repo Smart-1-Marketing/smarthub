@@ -291,6 +291,32 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
             "domainPurchased": w.get("domainPurchased"),
         })
 
+    # Hub-attached website records (attach-only, never written back to Knack)
+    try:
+        from . import seo as _seo
+        for g in groups.values():
+            att = _seo.get_links(str(g["client"])).get("website", [])
+            if not att:
+                continue
+            have = {str(w.get("domain") or "").lower() for w in g["websites"]}
+            for w in _seo._client_websites(str(g["client"])):
+                d = str(w.get("domain") or "").lower()
+                if d and d in have:
+                    continue
+                have.add(d)
+                g["websites"].append({
+                    "name": w.get("name"), "domain": w.get("domain"),
+                    "liveUrl": w.get("liveUrl"), "platform": w.get("platform"),
+                    "status": w.get("status"), "hmMonthly": w.get("hmMonthly"),
+                    "partner": w.get("partner"), "manager": w.get("manager"),
+                    "ga": w.get("ga"), "gtm": w.get("gtm"),
+                    "registrar": w.get("registrar"),
+                    "domainPurchased": w.get("domainPurchased"),
+                    "attached": True,
+                })
+    except Exception:  # noqa: BLE001 — attachments must never break search
+        pass
+
     out = list(groups.values())
     # clients with most live products first
     out.sort(key=lambda g: (-len(g["products"]), str(g["client"]).lower()))

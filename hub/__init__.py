@@ -167,8 +167,10 @@ def create_hub_app() -> Flask:
         from . import seo
         name = (request.args.get("name") or "").strip()
         try:
-            return jsonify(seo.client_detail(name))
+            return jsonify(seo.client_detail(name, full=bool(request.args.get("full"))))
         except Exception as exc:  # noqa: BLE001
+            errors.log_exception("seo-detail", exc, path=request.path,
+                                 actor=current_user() or "")
             return jsonify({"client": name, "error": str(exc)})
 
     @app.route("/api/seo/scan", methods=["POST"])
@@ -399,12 +401,182 @@ def create_hub_app() -> Flask:
         body = request.get_json(silent=True) or {}
         client = (body.get("client") or "").strip()
         kind = (body.get("kind") or "").strip()
-        if not client or kind not in ("analytics", "gtm", "gsc", "qb"):
-            return jsonify({"error": "client and kind (analytics|gtm|gsc|qb) are required."}), 400
-        att = seo.set_link(client, kind, body.get("data"))
+        if not client or kind not in seo.LINK_KINDS:
+            return jsonify({"error": f"client and kind ({'|'.join(seo.LINK_KINDS)}) are required."}), 400
+        att = seo.set_link(client, kind, body.get("data"),
+                           remove=(body.get("remove") or "").strip())
         audit.log("hub", "client_account_attached", actor=current_user(),
                   detail=f"{client}: {kind}")
         return jsonify({"ok": True, "attached": att})
+
+    @app.route("/api/client/profile")
+    def api_client_profile():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        name = (request.args.get("name") or "").strip()
+        return jsonify({"profile": seo.get_profile(name) if name else {}})
+
+    @app.route("/api/client/profile", methods=["POST"])
+    def api_client_profile_set():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        prof = seo.set_profile(client, body)
+        audit.log("hub", "client_profile_saved", actor=current_user(), detail=client)
+        return jsonify({"ok": True, "profile": prof})
+
+    @app.route("/api/client/notes", methods=["POST"])
+    def api_client_notes():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        text = (body.get("text") or "").strip()
+        if not client or not text:
+            return jsonify({"error": "client and text are required."}), 400
+        prof = seo.add_note(client, text, author=current_user() or "")
+        audit.log("hub", "client_note_added", actor=current_user(), detail=client)
+        return jsonify({"ok": True, "profile": prof})
+
+    @app.route("/api/client/tickets")
+    def api_client_tickets():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api
+        name = (request.args.get("name") or "").strip()
+        website = (request.args.get("website") or "").strip()
+        if not knack_api.configured():
+            return jsonify({"configured": False, "tickets": []})
+        try:
+            return jsonify({"configured": True,
+                            "tickets": knack_api.list_tickets(name, website)})
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-tickets", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"configured": True, "tickets": [], "error": str(exc)})
+
+    @app.route("/api/client/tickets", methods=["POST"])
+    def api_client_tickets_create():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        subject = (body.get("subject") or "").strip()
+        if not client or not subject:
+            return jsonify({"error": "client and subject are required."}), 400
+        if not knack_api.configured():
+            return jsonify({"error": "Knack isn't configured — set KNACK_APP_ID and "
+                                     "KNACK_API_KEY, then redeploy."}), 400
+        try:
+            rec = knack_api.create_ticket(
+                client, (body.get("website") or "").strip(), subject,
+                (body.get("description") or "").strip(),
+                author=current_user() or "")
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-tickets", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"error": str(exc)})
+        audit.log("hub", "web_ticket_created", actor=current_user(),
+                  detail=f"{client}: {subject[:60]}")
+        return jsonify({"ok": True, "id": rec.get("id")})
+
+    @app.route("/api/knack/campaign-fields")
+    def api_knack_campaign_fields():
+        """Live field mapping shown in the modal BEFORE anything is written."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api
+        kind = (request.args.get("kind") or "").strip()
+        if kind not in ("change", "support"):
+            return jsonify({"error": "kind must be change or support."}), 400
+        if not knack_api.configured():
+            return jsonify({"configured": False})
+        try:
+            info = knack_api.campaign_field_map(kind)
+            return jsonify({"configured": True, **info})
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-campaign", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"configured": True, "error": str(exc)})
+
+    @app.route("/api/knack/people")
+    def api_knack_people():
+        """Names from object_161 + object_109 for Requested By dropdowns."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api
+        if not knack_api.configured():
+            return jsonify({"configured": False, "names": []})
+        try:
+            return jsonify({"configured": True, "names": knack_api.people_names()})
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-people", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"configured": True, "names": [], "error": str(exc)})
+
+    @app.route("/api/client/campaign-request", methods=["POST"])
+    def api_client_campaign_request():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api
+        body = request.get_json(silent=True) or {}
+        kind = (body.get("kind") or "").strip()
+        client = (body.get("client") or "").strip()
+        subject = (body.get("subject") or "").strip()
+        if kind not in ("change", "support") or not client or not subject:
+            return jsonify({"error": "kind (change|support), client and subject are required."}), 400
+        if not knack_api.configured():
+            return jsonify({"error": "Knack isn't configured — set KNACK_APP_ID and "
+                                     "KNACK_API_KEY, then redeploy."}), 400
+        try:
+            rec = knack_api.create_campaign_request(
+                kind, client, (body.get("campaign") or "").strip(),
+                (body.get("io") or "").strip(), subject,
+                (body.get("description") or "").strip(),
+                author=current_user() or "",
+                requested_by=(body.get("requested_by") or "").strip())
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-campaign", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"error": str(exc)})
+        audit.log("hub", f"campaign_{kind}_request", actor=current_user(),
+                  detail=f"{client}: {subject[:60]}")
+        return jsonify({"ok": True, "id": rec.get("id")})
+
+    @app.route("/api/websites/search")
+    def api_websites_search():
+        """Search the websites inventory — used to attach extra website
+        records to a client (hub-only, never written back to Knack)."""
+        gate = _require_api()
+        if gate:
+            return gate
+        q = (request.args.get("q") or "").strip().lower()
+        if not q:
+            return jsonify({"results": []})
+        out = []
+        for w in knack_data.websites():
+            hay = " ".join(str(w.get(k) or "") for k in ("name", "domain")).lower()
+            if q in hay:
+                out.append({"name": w.get("name"), "domain": w.get("domain"),
+                            "platform": w.get("platform"), "status": w.get("status")})
+            if len(out) >= 8:
+                break
+        return jsonify({"results": out})
 
     # ---------------- SEO blogs ----------------
     @app.route("/api/seo/blogs")

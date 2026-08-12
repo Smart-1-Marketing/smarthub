@@ -344,7 +344,7 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
   function kv(k,v){return '<div class="seoc-kv"><b>'+k+'</b><span>'+v+'</span></div>';}
 
   // ---------------- load detail ----------------
-  fetch('/api/seo/detail?name='+encodeURIComponent(CLIENT)).then(function(r){return r.json();}).then(function(d){
+  fetch('/api/seo/detail?name='+encodeURIComponent(CLIENT)+'&full=1').then(function(r){return r.json();}).then(function(d){
     detail=d; slug=d.slug||''; siteUrl=d.url||'';
     $('seocSub').textContent=(d.products||[]).join(' · ')+(d.billing?'  —  $'+Number(d.billing).toLocaleString()+'/mo':'');
     if(siteUrl){var b=$('btnSite');b.href=siteUrl;b.style.display='inline-block';}
@@ -368,7 +368,14 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
     renderSocial(d.social);
     loadTraffic();
     showBlogsCard(d);
-    if(d.pages_generated>0){ $('cardBuilder').style.display='block'; refreshCompiled(); updateProgress(d.pages_generated, d.pages_approved, d.sitemap_total); }
+    if(d.schema_pages_list&&d.schema_pages_list.length){
+      $('cardBuilder').style.display='block';
+      $('genControls').style.display='none';
+      d.schema_pages_list.forEach(addPageCard);
+      updateProgress(d.schema_pages_list.length, approvedCount(), d.sitemap_total);
+      maybeNextPrompt(d.schema_remaining||0);
+      refreshCompiled();
+    }
     if(d.last_scan){ renderScan(d.last_scan,true); }
     if(!siteUrl){ $('btnScan').disabled=true; $('scanBody').innerHTML='<span class="seoc-warn">No website on file for this client — add one in Smart 1 Team, or set the access URL in Client Setup.</span>'; }
     applyBrandfetch(d);
@@ -376,56 +383,58 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
 
   // ---------------- accounts card + search/attach ----------------
   function attBadge(){return '<span class="seoc-attbadge">&#10003; attached</span>';}
+  function attList(kind){
+    var v=(detail&&detail.attached&&detail.attached[kind])||[];
+    return Array.isArray(v)?v:(v?[v]:[]);
+  }
+  function attKey(a){return a.resource_id||a.id||a.domain||a.name||'';}
   function renderAccounts(d){
     var w=(d.websites||[])[0]||{};
     var domain=(w.domain||siteUrl.replace(/^https?:\/\//,'').replace(/\/.*$/,''))||'';
-    var att=d.attached||{};
+    detail=d;
     var acc='';
-
-    if(att.analytics){
-      acc+=kv('Google Analytics', esc(att.analytics.name||att.analytics.resource_id)
-        +' <span class="seoc-muted">('+esc(att.analytics.google_login||'')+')</span>'+attBadge()
-        +' &nbsp;<a href="/google/ga-tools?id='+encodeURIComponent(att.analytics.resource_id)+'&login='+encodeURIComponent(att.analytics.google_login||'')+'">Open GA tools &rarr;</a>'
-        +' <a href="#" data-detach="analytics" style="color:#94a3b8">remove</a>');
-    } else if(w.ga_measurement){
-      acc+=kv('Google Analytics', esc(w.ga_measurement)
-        +' &nbsp;<a href="/google/?q='+encodeURIComponent(CLIENT)+'">Find in GA tools &rarr;</a>');
-    } else {
-      acc+=kv('Google Analytics', '<span class="seoc-warn">none found</span>'
-        +' <button class="seoc-blink" data-attach="analytics">Search &amp; attach&hellip;</button>'
-        +'<div class="attachHost" data-kind="analytics"></div>');
+    function attRows(kind, items, openLink){
+      return items.map(function(a){
+        return '<div>'+esc(a.name||attKey(a))
+          +' <span class="seoc-muted">('+esc(a.google_login||'')+')</span>'+attBadge()
+          +' &nbsp;'+openLink(a)
+          +' <a href="#" data-detach="'+kind+'" data-key="'+esc(attKey(a))+'" style="color:#94a3b8">remove</a></div>';
+      }).join('');
     }
+    var moreBtn=function(kind,label){
+      return '<button class="seoc-blink" data-attach="'+kind+'">'+label+'</button>'
+        +'<div class="attachHost" data-kind="'+kind+'"></div>';
+    };
+
+    var gaAtt=attList('analytics');
+    var gaHtml='';
+    if(gaAtt.length) gaHtml+=attRows('analytics',gaAtt,function(a){
+      return '<a href="/google/ga-tools?id='+encodeURIComponent(a.resource_id)+'&login='+encodeURIComponent(a.google_login||'')+'">Open GA tools &rarr;</a>';});
+    else if(w.ga_measurement) gaHtml+=esc(w.ga_measurement)+' &nbsp;<a href="/google/?q='+encodeURIComponent(CLIENT)+'">Find in GA tools &rarr;</a> ';
+    else gaHtml+='<span class="seoc-warn">none found</span> ';
+    gaHtml+=moreBtn('analytics', gaAtt.length?'+ attach another':'Search & attach…');
+    acc+=kv('Google Analytics', gaHtml);
     if(w.google_tag) acc+=kv('Google Tag', esc(w.google_tag));
 
-    if(att.gtm){
-      acc+=kv('GTM Container', esc(att.gtm.name||att.gtm.resource_id)
-        +' <span class="seoc-muted">('+esc(att.gtm.google_login||'')+')</span>'+attBadge()
-        +' &nbsp;<a href="/google/gtm-tools?acct='+encodeURIComponent(att.gtm.account_id||'')+'&container='+encodeURIComponent(att.gtm.container||att.gtm.resource_id||'')+'&login='+encodeURIComponent(att.gtm.google_login||'')+'">Open GTM tools &rarr;</a>'
-        +' <a href="#" data-detach="gtm" style="color:#94a3b8">remove</a>');
-    } else if(w.gtm_id){
-      acc+=kv('GTM Container', esc(w.gtm_id)+(w.gtm_login?' <span class="seoc-muted">('+esc(w.gtm_login)+')</span>':'')
-        +' &nbsp;<a href="/google/gtm-tools?q='+encodeURIComponent(w.gtm_id)+'">Open GTM tools &rarr;</a>');
-    } else {
-      acc+=kv('GTM Container', '<span class="seoc-warn">none found</span>'
-        +' <button class="seoc-blink" data-attach="gtm">Search &amp; attach&hellip;</button>'
-        +'<div class="attachHost" data-kind="gtm"></div>');
-    }
+    var gtmAtt=attList('gtm');
+    var gtmHtml='';
+    if(gtmAtt.length) gtmHtml+=attRows('gtm',gtmAtt,function(a){
+      return '<a href="/google/gtm-tools?acct='+encodeURIComponent(a.account_id||'')+'&container='+encodeURIComponent(a.container||a.resource_id||'')+'&login='+encodeURIComponent(a.google_login||'')+'">Open GTM tools &rarr;</a>';});
+    else if(w.gtm_id) gtmHtml+=esc(w.gtm_id)+(w.gtm_login?' <span class="seoc-muted">('+esc(w.gtm_login)+')</span>':'')
+      +' &nbsp;<a href="/google/gtm-tools?q='+encodeURIComponent(w.gtm_id)+'">Open GTM tools &rarr;</a> ';
+    else gtmHtml+='<span class="seoc-warn">none found</span> ';
+    gtmHtml+=moreBtn('gtm', gtmAtt.length?'+ attach another':'Search & attach…');
+    acc+=kv('GTM Container', gtmHtml);
 
-    if(att.gsc){
-      acc+=kv('Webmaster (Search Console)', esc(att.gsc.name||'')
-        +' <span class="seoc-muted">('+esc(att.gsc.google_login||'')+')</span>'+attBadge()
-        +' &nbsp;<a href="/google/webmaster-tools?url='+encodeURIComponent(att.gsc.name||'')+'&login='+encodeURIComponent(att.gsc.google_login||'')+'">Open Webmaster tools &rarr;</a>'
-        +' <a href="#" data-detach="gsc" style="color:#94a3b8">remove</a>');
-    } else if(domain){
-      acc+=kv('Webmaster (Search Console)',
-        '<a href="/google/webmaster-tools?q='+encodeURIComponent(domain)+'">Look up property for '+esc(domain)+' &rarr;</a>'
-        +' <button class="seoc-blink" data-attach="gsc">Search &amp; attach&hellip;</button>'
-        +'<div class="attachHost" data-kind="gsc"></div>');
-    } else {
-      acc+=kv('Webmaster (Search Console)', '<span class="seoc-warn">none found</span>'
-        +' <button class="seoc-blink" data-attach="gsc">Search &amp; attach&hellip;</button>'
-        +'<div class="attachHost" data-kind="gsc"></div>');
-    }
+    var gscAtt=attList('gsc');
+    var gscHtml='';
+    if(gscAtt.length) gscHtml+=attRows('gsc',gscAtt,function(a){
+      return '<a href="/google/webmaster-tools?url='+encodeURIComponent(a.name||'')+'&login='+encodeURIComponent(a.google_login||'')+'">Open Webmaster tools &rarr;</a>';});
+    else if(domain) gscHtml+='<a href="/google/webmaster-tools?q='+encodeURIComponent(domain)+'">Look up property for '+esc(domain)+' &rarr;</a> ';
+    else gscHtml+='<span class="seoc-warn">none found</span> ';
+    gscHtml+=moreBtn('gsc', gscAtt.length?'+ attach another':'Search & attach…');
+    acc+=kv('Webmaster (Search Console)', gscHtml);
+
     $('accBody').innerHTML=acc;
     $('accBody').querySelectorAll('[data-attach]').forEach(function(b){
       b.onclick=function(){openAttach(b.dataset.attach, $('accBody').querySelector('.attachHost[data-kind="'+b.dataset.attach+'"]'));};
@@ -433,8 +442,8 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
     $('accBody').querySelectorAll('[data-detach]').forEach(function(a){
       a.onclick=function(e){
         e.preventDefault();
-        post('/api/client/links',{client:CLIENT,kind:a.dataset.detach,data:null}).then(function(){
-          detail.attached=detail.attached||{}; delete detail.attached[a.dataset.detach];
+        post('/api/client/links',{client:CLIENT,kind:a.dataset.detach,remove:a.dataset.key}).then(function(r){
+          detail.attached=r.attached||{};
           renderAccounts(detail);
         });
       };
@@ -782,16 +791,7 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
     });
   };
 
-  // ---------------- existing generated pages on load ----------------
-  fetch('/api/seo/pages?name='+encodeURIComponent(CLIENT)).then(function(r){return r.json();}).then(function(d){
-    if(!d.pages||!d.pages.length) return;
-    $('cardBuilder').style.display='block';
-    $('genControls').style.display='none';
-    d.pages.forEach(addPageCard);
-    updateProgress(d.pages.length, approvedCount(), d.total);
-    maybeNextPrompt(d.remaining);
-    refreshCompiled();
-  });
+  // (existing generated pages now arrive with the combined detail call)
 
   // ---------------- Analytics: organic + AI engine traffic ----------------
   function fmtTime(sec){
@@ -802,8 +802,9 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
   function loadTraffic(){
     $('cardTraffic').style.display='block';
     $('cardAI').style.display='block';
-    // an attached property always wins
+    // an attached property always wins (first of the list)
     var att=(detail&&detail.attached&&detail.attached.analytics)||null;
+    if(Array.isArray(att)) att=att[0]||null;
     if(att&&att.resource_id){
       $('trafficMeta').textContent=(att.name||att.resource_id)+' · '+(att.google_login||'')+' · attached';
       renderSnapshot(att.resource_id, att.google_login);
@@ -875,6 +876,7 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
     return su.blogs_enabled==='yes' || (d&&d.blogs) || blogPosts.length>0;
   }
   function showBlogsCard(d){
+    if(d&&d.blog_posts&&d.blog_posts.length) blogPosts=d.blog_posts;   // combined call
     if(!blogsVisible(d)) return;
     $('cardBlogs').style.display='block';
     var su=(d&&d.setup)||{};
@@ -882,7 +884,10 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
     if(su.blogs_per_month) f.push(su.blogs_per_month+' / month');
     if(su.blogs_frequency) f.push(su.blogs_frequency);
     $('blogFreq').textContent=f.join(' · ');
-    loadBlogs();
+    if(d&&d.blog_posts!==undefined){
+      renderBlogQs(d.blog_questions||[]);
+      if(blogPosts.length)renderBlogTable(); else $('blogStartWrap').style.display='none';
+    } else loadBlogs();
   }
   function loadBlogs(){
     fetch('/api/seo/blogs?name='+encodeURIComponent(CLIENT)).then(function(r){return r.json();}).then(function(d){

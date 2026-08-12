@@ -56,22 +56,53 @@ def save_store(client: str, data: dict):
             json.dump(data, fh, indent=1)
 
 
-# -------------------------------------------------- attached Google accounts
+# -------------------------------------------------- attached accounts
+# A client can hold MULTIPLE attachments of each kind (two GA properties, two
+# QuickBooks customers, several website records…), and the same resource can
+# be attached to any number of clients. Hub-only — nothing is written to Knack.
+LINK_KINDS = ("analytics", "gtm", "gsc", "qb", "suite", "website")
+
+
+def _link_key(item) -> str:
+    if not isinstance(item, dict):
+        return str(item)
+    return str(item.get("resource_id") or item.get("id") or
+               item.get("domain") or item.get("name") or "")
+
+
 def get_links(client: str) -> dict:
-    """Manually attached Google resources for a client:
-    {"analytics": {...}, "gtm": {...}, "gsc": {...}}"""
-    return load_store(client).get("attached", {})
+    """{kind: [items]} — older single-dict saves are migrated to lists."""
+    raw = load_store(client).get("attached", {})
+    out = {}
+    for kind, val in raw.items():
+        if isinstance(val, list):
+            out[kind] = val
+        elif val:
+            out[kind] = [val]
+    return out
 
 
-def set_link(client: str, kind: str, data) -> dict:
+def set_link(client: str, kind: str, data, remove: str = "") -> dict:
+    """Add one attachment (data), remove one (remove=<key>), or clear the
+    kind (data=None, no remove)."""
     store = load_store(client)
     att = store.setdefault("attached", {})
-    if data:
-        att[kind] = data
+    cur = att.get(kind)
+    items = cur if isinstance(cur, list) else ([cur] if cur else [])
+    if remove:
+        items = [i for i in items if _link_key(i) != remove]
+    elif data:
+        key = _link_key(data)
+        if not any(_link_key(i) == key for i in items):
+            items.append(data)
+    else:
+        items = []
+    if items:
+        att[kind] = items
     else:
         att.pop(kind, None)
     save_store(client, store)
-    return att
+    return get_links(client)
 
 
 # ------------------------------------------------------- status + socials
@@ -143,6 +174,65 @@ def set_social(client: str, updates: dict) -> dict:
     return social
 
 
+# -------------------------------------------------- client profile & notes
+def get_profile(client: str) -> dict:
+    """Editable client profile shared across the whole Hub:
+    {contacts:[{name,email,phone,primary}], address, category, notes:[...]}
+    Seeded from Brandfetch / business info when empty."""
+    store = load_store(client)
+    prof = dict(store.get("profile") or {})
+    prof.setdefault("contacts", [])
+    prof.setdefault("address", "")
+    prof.setdefault("category", "")
+    prof.setdefault("notes", [])
+    if not prof["address"] or not prof["category"]:
+        bi = store.get("business_info", {})
+        b = store.get("brandfetch") or {}
+        loc = b.get("location") or {}
+        if not prof["address"]:
+            parts = [bi.get("address") or "", bi.get("city") or loc.get("city") or "",
+                     bi.get("state") or loc.get("state") or "", bi.get("zip") or ""]
+            prof["address"] = ", ".join(p for p in parts if p)
+        if not prof["category"]:
+            prof["category"] = bi.get("category") or ""
+    return prof
+
+
+def set_profile(client: str, updates: dict) -> dict:
+    store = load_store(client)
+    prof = store.setdefault("profile", {})
+    if isinstance(updates.get("contacts"), list):
+        clean = []
+        for c in updates["contacts"][:10]:
+            if not isinstance(c, dict):
+                continue
+            entry = {k: str(c.get(k) or "").strip()
+                     for k in ("name", "email", "phone")}
+            entry["primary"] = bool(c.get("primary"))
+            if any(entry[k] for k in ("name", "email", "phone")):
+                clean.append(entry)
+        if clean and not any(c["primary"] for c in clean):
+            clean[0]["primary"] = True
+        prof["contacts"] = clean
+    for k in ("address", "category"):
+        if k in updates:
+            prof[k] = str(updates[k] or "").strip()
+    save_store(client, store)
+    return get_profile(client)
+
+
+def add_note(client: str, text: str, author: str = "") -> dict:
+    import datetime as _dt
+    store = load_store(client)
+    prof = store.setdefault("profile", {})
+    notes = prof.setdefault("notes", [])
+    notes.insert(0, {"time": _dt.datetime.now().strftime("%m/%d/%Y %I:%M %p"),
+                     "author": author or "Team", "text": str(text or "").strip()[:2000]})
+    del notes[100:]                       # keep the latest 100
+    save_store(client, store)
+    return get_profile(client)
+
+
 # ------------------------------------------------------- brandfetch storage
 def _brand_cache_path() -> str:
     return os.path.join(_store_base(), "_brand_by_domain.json")
@@ -186,7 +276,8 @@ def brand_for(client: str, domain: str = "") -> dict | None:
 # ------------------------------------------------------------- client lists
 def _client_websites(client: str) -> list[dict]:
     """Websites whose name/domain aligns with the client name (same loose
-    match Client 360 uses)."""
+    match Client 360 uses), plus any website records manually attached to
+    the client in the Hub."""
     ck = str(client).strip().lower()
     out = []
     for w in knack_data.websites():
@@ -196,6 +287,24 @@ def _client_websites(client: str) -> list[dict]:
             out.append(w)
         elif dk and re.sub(r"[^a-z0-9]", "", ck)[:12] and re.sub(r"[^a-z0-9]", "", ck)[:12] in re.sub(r"[^a-z0-9]", "", dk):
             out.append(w)
+    # manually attached website records (matched by domain or name)
+    attached = get_links(client).get("website", [])
+    if attached:
+        have = {str(w.get("domain") or "").lower() for w in out}
+        by_dom = {}
+        for w in knack_data.websites():
+            d = str(w.get("domain") or "").lower().replace("https://", "").replace("http://", "").strip("/")
+            if d:
+                by_dom[d] = w
+        for a in attached:
+            d = str(a.get("domain") or "").lower().replace("https://", "").replace("http://", "").strip("/")
+            hit = by_dom.get(d)
+            if hit is None:
+                hit = next((w for w in knack_data.websites()
+                            if str(w.get("name") or "").strip().lower() == str(a.get("name") or "").strip().lower()), None)
+            if hit is not None and str(hit.get("domain") or "").lower() not in have:
+                out.append(hit)
+                have.add(str(hit.get("domain") or "").lower())
     return out
 
 
@@ -308,11 +417,49 @@ def seo_clients() -> list[dict]:
     return out
 
 
-def client_detail(client: str) -> dict:
-    rows = [c for c in seo_clients() if c["client"].lower() == client.lower()]
-    base = rows[0] if rows else {"client": client, "slug": slugify(client),
-                                 "url": "", "platform": "", "products": [],
-                                 "billing": 0, "blogs": False}
+def _client_base(client: str) -> dict:
+    """The seo_clients() row for ONE client without building the whole list —
+    keeps /api/seo/detail fast."""
+    import datetime as _dt
+    today = _dt.date.today()
+    rows = [r for r in knack_data.products()
+            if str(r.get("client", "")).strip().lower() == client.lower()
+            and "seo" in str(r.get("product", "")).lower()
+            and str(r.get("status", "")).strip().lower() == "live"]
+    products, billing, blogs = set(), 0.0, False
+
+    def _current(r):
+        s, e = _parse_mdY(r.get("start")), _parse_mdY(r.get("end"))
+        if s and s > today:
+            return False
+        if e and e < today:
+            return False
+        return True
+
+    by_product: dict[str, dict] = {}
+    for r in rows:
+        key = str(r.get("product"))
+        cur = by_product.get(key)
+        if cur is None or (_current(r) and not _current(cur)):
+            by_product[key] = r
+    for key, r in by_product.items():
+        products.add(key)
+        billing += knack_data._num(r.get("monthly"))
+        if "blog" in key.lower():
+            blogs = True
+    real = str(rows[0]["client"]).strip() if rows else client
+    webs = _client_websites(real)
+    primary = next((w for w in webs if _site_url(w)), None)
+    return {"client": real, "slug": slugify(real),
+            "url": _site_url(primary) if primary else "",
+            "platform": (primary or {}).get("platform", "") if primary else "",
+            "products": sorted(products), "billing": round(billing),
+            "blogs": blogs}
+
+
+def client_detail(client: str, full: bool = False) -> dict:
+    base = _client_base(client)
+    client = base["client"]
     webs = []
     for w in _client_websites(client):
         ga = _parse_ga(w.get("ga"))
@@ -337,13 +484,21 @@ def client_detail(client: str) -> dict:
         "sitemap_total": len(store.get("sitemap", [])),
         "pages_generated": len(pages),
         "pages_approved": sum(1 for p in pages.values() if p.get("approved")),
-        "attached": store.get("attached", {}),
+        "attached": get_links(client),
         "last_scan": store.get("last_scan"),
         "brandfetch": brand_for(client, (webs[0]["domain"] if webs else "")),
         "checks": store.get("checks", {}),
         "status": client_status(store),
         "social": get_social(client, (webs[0]["domain"] if webs else "")),
     })
+    if full:                      # one round-trip for the whole SEO page
+        remaining = [p for p in store.get("sitemap", [])
+                     if p not in store.get("pages", {})]
+        base["schema_pages_list"] = list(pages.values())
+        base["schema_remaining"] = len(remaining)
+        blogs = store.get("blogs", {})
+        base["blog_posts"] = blogs.get("posts", [])
+        base["blog_questions"] = blogs.get("questions", [])
     return base
 
 

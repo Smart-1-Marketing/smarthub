@@ -29,6 +29,7 @@
 {% block scripts %}
 <script>
 const $=id=>document.getElementById(id);
+const user_name={{ (user or '')|tojson }};
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money=v=>{const n=Number(String(v??'').replace(/[$,]/g,''));return isFinite(n)&&n?'$'+n.toLocaleString():esc(v??'—')};
 let groups=[];
@@ -88,15 +89,21 @@ function render(g,q){
   if(liveCount) head+=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px">${liveCount} live product${liveCount>1?'s':''}</span>`;
   if(g.dash_url) head+=`<a class="btn-primary" style="padding:8px 16px;font-size:13px;text-decoration:none" href="${esc(g.dash_url)}" target="_blank" rel="noopener">Smart 1 Dashboard →</a>`;
   head+='</div></div>';
+  head+='<div id="c-profile" style="margin:-6px 0 14px"></div>';
 
   let html=head+'<div class="grid-2">';
 
   // ---------- Smart 1 Team: products & IOs ----------
   const clientsLink='/clients?q='+encodeURIComponent(name);
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs</h3><a class="open-link" href="${clientsLink}">Open in Clients →</a></div><div class="card-b flush">`;
+  window.__c360prods=g.products||[];
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs</h3>
+    <div class="right" style="display:flex;gap:10px">
+      <a class="open-link" id="c-camp-change" style="cursor:pointer;color:#b45309">&#9998; Campaign change</a>
+      <a class="open-link" id="c-camp-support" style="cursor:pointer;color:#b45309">&#128736; Campaign support</a>
+      <a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
   const prodRow=p=>{
     const live=String(p.status||'').toLowerCase()==='live';
-    return `<tr><td><b>${esc(p.product||'—')}</b>${p.dash?' <span class="pill info">dash</span>':''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td><td class="muted">${esc(p.io||'')}</td></tr>`;
+    return `<tr><td><b>${esc(p.product||'—')}</b>${p.dash?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Open Smart 1 Dashboard">#${esc(p.io||'dash')}</a>`:''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td><td class="muted">${esc(p.io||'')}</td></tr>`;
   };
   const liveProds=g.products.filter(p=>String(p.status||'').toLowerCase()==='live');
   const doneProds=g.products.filter(p=>String(p.status||'').toLowerCase()!=='live');
@@ -169,11 +176,15 @@ function render(g,q){
     <div class="card-b"><div id="c-qb-attachbox" style="display:none;margin-bottom:10px"></div><div id="c-qb"><div class="empty">Searching… <span class="spin"></span></div></div></div></div>`;
 
   // ---------- Website record (moved to the bottom) ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="${clientsLink}">Open in Websites →</a></div><div class="card-b" style="display:flex;gap:36px;flex-wrap:wrap">`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
+    <div class="right" style="display:flex;gap:10px"><a class="open-link" id="c-web-attach" style="cursor:pointer">+ Attach website record</a>
+    <a class="open-link" href="${clientsLink}">Open in Websites →</a></div></div>
+    <div class="card-b"><div id="c-web-attachbox" style="display:none;margin-bottom:10px"></div>
+    <div style="display:flex;gap:36px;flex-wrap:wrap">`;
   if(g.websites&&g.websites.length){
-    g.websites.slice(0,3).forEach(w=>{
+    g.websites.slice(0,4).forEach(w=>{
       html+=`<div style="flex:1;min-width:280px"><dl class="kv">
-        <dt>Site</dt><dd>${esc(w.name||'—')}</dd>
+        <dt>Site</dt><dd>${esc(w.name||'—')}${w.attached?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</dd>
         <dt>Domain</dt><dd>${w.domain?`<a href="https://${esc(w.domain)}" target="_blank" rel="noopener">${esc(w.domain)}</a>`:'—'}${w.domainPurchased?' <span class="pill info">we purchased</span>':''}</dd>
         <dt>Platform</dt><dd>${esc((w.platform||'—').replace(/Smart1Sites/i,'Smart 1 Sites'))}</dd>
         <dt>Status</dt><dd><span class="pill ${String(w.status||'').toLowerCase()==='active'?'ok':'neutral'}">${esc(w.status||'—')}</span></dd>
@@ -187,10 +198,15 @@ function render(g,q){
       if(gaId)links.push(['GA4 Tools','/google/ga-tools?q='+encodeURIComponent(gaId)]);
       if(gtmId)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(gtmId)]);
       if(links.length)html+=gbtns(links);
+      html+=`<div style="margin-top:6px"><a class="gbtn web-ticket" data-site="${esc(w.name||'')}" data-domain="${esc(w.domain||'')}" style="cursor:pointer;color:#b45309">&#127915; + Web ticket</a></div>`;
       html+='</div>';
     });
-  } else html+='<div class="empty" style="flex:1">No website record matched.</div>';
-  html+='</div></div>';
+  } else html+='<div class="empty" style="flex:1">No website record matched — use <b>+ Attach website record</b> above to link one.</div>';
+  html+='</div></div></div>';
+
+  // ---------- Web Tickets (Smart 1 Team) + Notes ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Web Tickets</h3><a class="open-link" id="c-tickets-new" style="cursor:pointer">+ New web ticket</a></div><div class="card-b" id="c-tickets"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   html+='</div>';
   $('results').innerHTML=html;
@@ -238,13 +254,40 @@ function render(g,q){
       <a class="btn-primary" style="padding:9px 18px;font-size:13.5px;text-decoration:none" href="/suite/?${p.toString()}">+ Add to Smart 1 Suite</a>
       <div class="muted" style="font-size:12px;margin-top:8px">Opens the Suite create form pre-filled with this client's details${web0&&web0.domain?' — brand info auto-fetched from '+esc(web0.domain):''}.</div></div>`;
   };
-  fetch('/suite/api/locations?limit=6&search='+encodeURIComponent(term)).then(async r=>{
-    if(!r.ok){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
-    const d=await r.json();
-    const res=d.locations||[];
+  Promise.all([
+    fetch('/suite/api/locations?limit=6&search='+encodeURIComponent(term)).then(r=>r.ok?r.json():null).catch(()=>null),
+    fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).catch(()=>({attached:{}})),
+  ]).then(([d,la])=>{
+    let suiteAtt=((la||{}).attached||{}).suite||[];
+    if(!Array.isArray(suiteAtt)) suiteAtt=[suiteAtt];
+    if(d===null&&!suiteAtt.length){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
+    const res=(d&&d.locations)||[];
+    const attIds=new Set(suiteAtt.map(a=>a.id));
+    // attached accounts not in the search results still show
+    suiteAtt.forEach(a=>{ if(!res.some(l=>(l.id||l._id)===a.id)) res.push({id:a.id,name:a.name,_attachedOnly:true}); });
     if(!res.length){$('c-ghl').innerHTML=addBtn();return}
     $('c-ghl').innerHTML='<table><thead><tr><th>Account</th><th>City</th><th>Email</th><th></th></tr></thead><tbody>'+
-      res.map(l=>{const lid=l.id||l._id||'';return `<tr><td><b>${esc(l.name||'—')}</b></td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td><td><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a></td></tr>`;}).join('')+'</tbody></table>';
+      res.map((l,i)=>{const lid=l.id||l._id||'';
+        const isAtt=attIds.has(lid);
+        return `<tr><td><b>${esc(l.name||'—')}</b>${isAtt?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td>
+          <td style="white-space:nowrap"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>
+          ${isAtt?`<a class="gbtn suite-det" data-id="${esc(lid)}" style="cursor:pointer;color:#94a3b8">un-attach</a>`
+                 :`<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">Attach</a>`}</td></tr>`;}).join('')+'</tbody></table>';
+    document.querySelectorAll('.suite-att').forEach(btn=>{
+      btn.onclick=()=>{
+        const l=res[parseInt(btn.dataset.i,10)];
+        fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,kind:'suite',data:{id:l.id||l._id,name:l.name}})})
+          .then(r=>r.json()).then(()=>{btn.outerHTML='<span class="pill ok">attached ✓</span>';});
+      };
+    });
+    document.querySelectorAll('.suite-det').forEach(btn=>{
+      btn.onclick=()=>{
+        fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,kind:'suite',remove:btn.dataset.id})})
+          .then(r=>r.json()).then(()=>{btn.outerHTML='<span class="muted" style="font-size:11px">removed</span>';});
+      };
+    });
   }).catch(()=>{$('c-ghl').innerHTML='<div class="empty">Suite module unavailable.</div>'});
 
   // Proposals from the Proposal Builder — "+ New proposal" prefills this client
@@ -271,8 +314,8 @@ function render(g,q){
     // header badge: how long they've been in QuickBooks
     const first=custs[0];
     const badge=document.getElementById('qbSinceBadge');
-    if(badge&&first.customer_since_label){
-      badge.innerHTML=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px" title="First added to QuickBooks">QB customer since ${esc(first.customer_since_label)}${first.customer_years?' · '+first.customer_years+' yrs':''}</span>`;
+    if(badge&&first.customer_years){
+      badge.innerHTML=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px" title="In QuickBooks since ${esc(first.customer_since_label||'')}">Customer for ${first.customer_years} years</span>`;
     }
     $('c-qb').innerHTML=(attachedNote||'')+custs.map(cu=>{
       let h=`<div style="display:flex;align-items:center;gap:10px;margin:6px 0 8px;flex-wrap:wrap">
@@ -288,13 +331,16 @@ function render(g,q){
     }).join('');
   }
   fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).then(la=>{
-    const qbAtt=((la||{}).attached||{}).qb;
-    const url=qbAtt&&qbAtt.id?('/api/qb/invoices?customer_id='+encodeURIComponent(qbAtt.id)):('/api/qb/invoices?q='+encodeURIComponent(term));
-    const note=qbAtt?`<div class="muted" style="font-size:12px;margin-bottom:4px">Showing attached customer <b>${esc(qbAtt.name||qbAtt.id)}</b> · <a href="#" id="qbDetach">un-attach</a></div>`:'';
+    let qbAtt=((la||{}).attached||{}).qb||[];
+    if(!Array.isArray(qbAtt)) qbAtt=[qbAtt];
+    const url=qbAtt.length?('/api/qb/invoices?customer_id='+encodeURIComponent(qbAtt.map(a=>a.id).join(',')))
+                          :('/api/qb/invoices?q='+encodeURIComponent(term));
+    const note=qbAtt.length?`<div class="muted" style="font-size:12px;margin-bottom:4px">Showing ${qbAtt.length} attached customer${qbAtt.length>1?'s':''}: <b>${qbAtt.map(a=>esc(a.name||a.id)).join(', ')}</b> · <a href="#" id="qbDetach">un-attach all</a></div>`:'';
     return fetch(url).then(r=>r.json()).then(d=>{
       renderQb(d,note);
       const det=document.getElementById('qbDetach');
       if(det)det.onclick=e=>{e.preventDefault();
+        if(!confirm('Remove all attached QuickBooks customers from this client?'))return;
         fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({client:name,kind:'qb',data:null})}).then(()=>location.reload());};
     });
@@ -333,6 +379,304 @@ function render(g,q){
     document.getElementById('qbgo').onclick=go;
     document.getElementById('qbq').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
   };
+
+  // Website record: search & attach (hub-only — nothing written to Knack)
+  const webAttachLink=document.getElementById('c-web-attach');
+  if(webAttachLink)webAttachLink.onclick=()=>{
+    const box=document.getElementById('c-web-attachbox');
+    if(box.style.display!=='none'){box.style.display='none';return;}
+    box.style.display='block';
+    box.innerHTML=`<div style="display:flex;gap:8px;max-width:520px">
+      <input id="webq" placeholder="Search website records by name or domain…" style="flex:1;padding:8px 11px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+      <a class="gbtn" id="webgo" style="cursor:pointer">Search</a></div><div id="webres" style="margin-top:8px"></div>`;
+    const go=()=>{
+      const q=document.getElementById('webq').value.trim(); if(!q)return;
+      document.getElementById('webres').innerHTML='<div class="empty">Searching… <span class="spin"></span></div>';
+      fetch('/api/websites/search?q='+encodeURIComponent(q)).then(r=>r.json()).then(d=>{
+        const items=d.results||[];
+        if(!items.length){document.getElementById('webres').innerHTML='<div class="empty">No website records matched.</div>';return}
+        document.getElementById('webres').innerHTML=items.map((w,i)=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff">
+            <span><b>${esc(w.name||w.domain)}</b> <span class="muted" style="font-size:11.5px">${esc(w.domain||'')} · ${esc(w.platform||'')}</span></span>
+            <a class="gbtn web-att" data-i="${i}" style="cursor:pointer">Attach →</a></div>`).join('');
+        document.querySelectorAll('.web-att').forEach(btn=>{
+          btn.onclick=()=>{
+            const w=items[parseInt(btn.dataset.i,10)];
+            fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({client:name,kind:'website',data:{name:w.name,domain:w.domain}})})
+              .then(r=>r.json()).then(()=>location.reload());   // re-search shows the record
+          };
+        });
+      });
+    };
+    document.getElementById('webgo').onclick=go;
+    document.getElementById('webq').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+  };
+
+  // ---------- Client profile: contacts, address, category + notes ----------
+  let clientProfile=null;
+  function renderProfile(p){
+    clientProfile=p||{contacts:[],address:'',category:'',notes:[]};
+    const prim=(p.contacts||[]).find(c=>c.primary)||(p.contacts||[])[0]||{};
+    const others=(p.contacts||[]).filter(c=>c!==prim);
+    const bits=[];
+    if(prim.name)bits.push('<b>'+esc(prim.name)+'</b>');
+    if(prim.phone)bits.push('&#128222; '+esc(prim.phone));
+    if(prim.email)bits.push('<a href="mailto:'+esc(prim.email)+'">'+esc(prim.email)+'</a>');
+    if(p.address)bits.push('&#128205; '+esc(p.address));
+    if(p.category)bits.push('<span class="pill neutral">'+esc(p.category)+'</span>');
+    others.forEach(c=>{bits.push('<span class="muted">+ '+esc(c.name||c.email||c.phone)+'</span>');});
+    $('c-profile').innerHTML=`<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px">
+      ${bits.length?bits.join('<span class="muted" style="margin:0 2px">·</span>'):'<span class="muted">No contact info on file yet.</span>'}
+      <a class="gbtn" id="profEdit" style="cursor:pointer;margin-left:auto">&#9998; Edit info</a></div>`;
+    document.getElementById('profEdit').onclick=openProfileModal;
+    // notes card
+    const notes=p.notes||[];
+    $('c-notes').innerHTML=`<div style="display:flex;gap:8px;margin-bottom:12px">
+      <input id="noteInput" placeholder="Add a note about this client…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+      <a class="gbtn" id="noteAdd" style="cursor:pointer">Add note</a></div>`
+      +(notes.length?notes.slice(0,8).map(n=>`<div style="padding:8px 0;border-bottom:1px solid var(--line-soft)">
+        <span class="muted" style="font-size:11.5px">${esc(n.time)} · <b>${esc(n.author)}</b></span>
+        <div style="font-size:13px;margin-top:2px">${esc(n.text)}</div></div>`).join('')
+        +(notes.length>8?'<div class="muted" style="font-size:12px;padding-top:6px">'+(notes.length-8)+' older note(s)</div>':'')
+      :'<div class="empty">No notes yet.</div>');
+    document.getElementById('noteAdd').onclick=()=>{
+      const t=document.getElementById('noteInput').value.trim();
+      if(!t)return;
+      fetch('/api/client/notes',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,text:t})})
+        .then(r=>r.json()).then(d=>{if(d.profile)renderProfile(d.profile);});
+    };
+    document.getElementById('noteInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('noteAdd').click();});
+  }
+  fetch('/api/client/profile?name='+encodeURIComponent(name)).then(r=>r.json())
+    .then(d=>renderProfile(d.profile||{}))
+    .catch(()=>{$('c-profile').innerHTML='';$('c-notes').innerHTML='<div class="empty">Notes unavailable.</div>';});
+
+  function openProfileModal(){
+    const p=clientProfile||{contacts:[]};
+    let m=document.getElementById('profModal');
+    if(m)m.remove();
+    m=document.createElement('div');
+    m.id='profModal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+    const contacts=(p.contacts&&p.contacts.length?p.contacts:[{name:'',email:'',phone:'',primary:true}]);
+    const contactRow=(c,i)=>`<div class="prof-contact" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;margin-bottom:8px">
+      <input class="pc-name" placeholder="Name" value="${esc(c.name||'')}">
+      <input class="pc-email" placeholder="Email" value="${esc(c.email||'')}">
+      <input class="pc-phone" placeholder="Phone" value="${esc(c.phone||'')}">
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b"><input type="radio" name="pcPrimary" ${c.primary?'checked':''}> primary</label></div>`;
+    m.innerHTML=`<div style="background:#fff;border-radius:14px;width:640px;max-width:100%;max-height:90vh;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line)">
+        <b style="color:var(--navy)">Client Info — ${esc(name)}</b>
+        <button id="profClose" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
+      <div style="padding:16px 18px;overflow-y:auto">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:8px">Contacts</div>
+        <div id="profContacts">${contacts.map(contactRow).join('')}</div>
+        <a class="gbtn" id="profAddContact" style="cursor:pointer">+ Add contact</a>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-top:16px">
+          <div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:6px">Address</div>
+            <input id="profAddr" style="width:100%;box-sizing:border-box" value="${esc(p.address||'')}" placeholder="Street, city, state, zip"></div>
+          <div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:6px">Category</div>
+            <input id="profCat" style="width:100%;box-sizing:border-box" value="${esc(p.category||'')}" placeholder="HVAC, winery, retail…"></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding:12px 18px;border-top:1px solid var(--line)">
+        <span id="profMsg" class="muted" style="font-size:12px"></span>
+        <a class="btn-primary" id="profSave" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Save</a></div></div>`;
+    m.querySelectorAll('input').forEach(i=>{if(!i.style.padding)i.style.cssText+='padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit';});
+    document.body.appendChild(m);
+    m.onclick=e=>{if(e.target===m)m.remove();};
+    document.getElementById('profClose').onclick=()=>m.remove();
+    document.getElementById('profAddContact').onclick=()=>{
+      const div=document.createElement('div');
+      div.innerHTML=contactRow({name:'',email:'',phone:'',primary:false},99);
+      const row=div.firstChild;
+      row.querySelectorAll('input').forEach(i=>{i.style.cssText+='padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit';});
+      document.getElementById('profContacts').appendChild(row);
+    };
+    document.getElementById('profSave').onclick=()=>{
+      const contacts=[];
+      document.querySelectorAll('#profModal .prof-contact').forEach(row=>{
+        contacts.push({name:row.querySelector('.pc-name').value.trim(),
+          email:row.querySelector('.pc-email').value.trim(),
+          phone:row.querySelector('.pc-phone').value.trim(),
+          primary:row.querySelector('input[type=radio]').checked});
+      });
+      fetch('/api/client/profile',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,contacts:contacts,
+          address:document.getElementById('profAddr').value.trim(),
+          category:document.getElementById('profCat').value.trim()})})
+        .then(r=>r.json()).then(d=>{
+          if(d.error){document.getElementById('profMsg').textContent=d.error;return;}
+          renderProfile(d.profile);
+          m.remove();
+        });
+    };
+  }
+
+  // ---------- Web tickets: list + create ----------
+  function loadTickets(){
+    const dom=web0&&web0.domain?web0.domain:'';
+    fetch('/api/client/tickets?name='+encodeURIComponent(name)+'&website='+encodeURIComponent(dom))
+      .then(r=>r.json()).then(d=>{
+        if(!d.configured){$('c-tickets').innerHTML='<div class="empty">Knack API not connected — set KNACK_APP_ID and KNACK_API_KEY to see and create web tickets.</div>';return}
+        if(d.error){$('c-tickets').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+        const ts=d.tickets||[];
+        if(!ts.length){$('c-tickets').innerHTML='<div class="empty">No web tickets for this client yet — create one from any website record above or with "+ New web ticket".</div>';return}
+        $('c-tickets').innerHTML='<table><thead><tr><th>Ticket</th><th>Website</th><th>Status</th><th>Date</th></tr></thead><tbody>'+
+          ts.slice(0,5).map(t=>`<tr><td><b>${esc(t.title)}</b>${t.description?'<div class="muted" style="font-size:12px">'+esc(t.description.slice(0,110))+'</div>':''}</td>
+            <td class="muted">${esc(t.website)}</td>
+            <td>${t.status?'<span class="pill neutral">'+esc(t.status)+'</span>':''}</td>
+            <td class="muted">${esc(t.date)}</td></tr>`).join('')+'</tbody></table>'
+          +(ts.length>5?'<div class="muted" style="font-size:12px;padding-top:6px">'+(ts.length-5)+' more in Smart 1 Team</div>':'');
+      }).catch(()=>{$('c-tickets').innerHTML='<div class="empty">Web tickets unavailable.</div>'});
+  }
+  loadTickets();
+  function openTicketModal(site,domain){
+    let m=document.getElementById('tickModal');
+    if(m)m.remove();
+    m=document.createElement('div');
+    m.id='tickModal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+    m.innerHTML=`<div style="background:#fff;border-radius:14px;width:560px;max-width:100%;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line)">
+        <b style="color:var(--navy)">New Web Ticket — ${esc(site||name)}</b>
+        <button id="tickClose" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
+      <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+        <input id="tickSite" placeholder="Website" value="${esc(domain||'')}" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+        <input id="tickSubject" placeholder="Subject — what needs done?" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+        <textarea id="tickDesc" rows="5" placeholder="Details for the web team…" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit"></textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding:12px 18px;border-top:1px solid var(--line)">
+        <span id="tickMsg" class="muted" style="font-size:12px"></span>
+        <a class="btn-primary" id="tickSend" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Send to Smart 1 Team</a></div></div>`;
+    document.body.appendChild(m);
+    m.onclick=e=>{if(e.target===m)m.remove();};
+    document.getElementById('tickClose').onclick=()=>m.remove();
+    document.getElementById('tickSend').onclick=()=>{
+      const subject=document.getElementById('tickSubject').value.trim();
+      if(!subject){document.getElementById('tickMsg').textContent='Subject is required.';return;}
+      document.getElementById('tickMsg').textContent='Sending…';
+      fetch('/api/client/tickets',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,website:document.getElementById('tickSite').value.trim(),
+          subject:subject,description:document.getElementById('tickDesc').value.trim()})})
+        .then(r=>r.json()).then(d=>{
+          if(d.error){document.getElementById('tickMsg').textContent=d.error;return;}
+          m.remove();
+          loadTickets();          // the new ticket appears at the bottom
+        });
+    };
+  }
+  document.querySelectorAll('.web-ticket').forEach(btn=>{
+    btn.onclick=()=>openTicketModal(btn.dataset.site,btn.dataset.domain);
+  });
+  const newTick=document.getElementById('c-tickets-new');
+  if(newTick)newTick.onclick=()=>openTicketModal(name,web0&&web0.domain?web0.domain:'');
+
+  // ---------- Campaign Change / Support requests (Knack object_140 / 121) ----------
+  function openCampaignModal(kind){
+    const label=kind==='change'?'Campaign Change Request':'Campaign Support Request';
+    let m=document.getElementById('campModal');
+    if(m)m.remove();
+    m=document.createElement('div');
+    m.id='campModal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+    m.innerHTML=`<div style="background:#fff;border-radius:14px;width:620px;max-width:100%;max-height:92vh;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line)">
+        <b style="color:var(--navy)">${label} — ${esc(name)}</b>
+        <button id="campClose" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
+      <div id="campBody" style="padding:16px 18px;overflow-y:auto"><div class="empty">Reading Knack fields… <span class="spin"></span></div></div></div>`;
+    document.body.appendChild(m);
+    m.onclick=e=>{if(e.target===m)m.remove();};
+    document.getElementById('campClose').onclick=()=>m.remove();
+
+    Promise.all([
+      fetch('/api/knack/campaign-fields?kind='+kind).then(r=>r.json()),
+      fetch('/api/knack/people').then(r=>r.json()).catch(()=>({names:[]})),
+    ]).then(([d,people])=>{
+      const body=document.getElementById('campBody');
+      if(!d.configured){body.innerHTML='<div class="empty">Knack API not connected — set KNACK_APP_ID and KNACK_API_KEY, then redeploy.</div>';return}
+      if(d.error){body.innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+      const roleNames={title:'Subject',description:'Details',client:'Client name',campaign:'Campaign / product',io:'IO number',requested_by:'Requested by'};
+      const mapRows=Object.keys(roleNames).map(role=>{
+        const slot=(d.map||{})[role];
+        return `<tr><td style="padding:4px 10px 4px 0;color:#64748b;font-size:12px">${roleNames[role]}</td>
+          <td style="padding:4px 0;font-size:12px">${slot?'<b>'+esc(slot.label)+'</b> <span class="muted">('+esc(slot.field)+')</span>':'<span style="color:#b45309">no matching field — will be skipped</span>'}</td></tr>`;
+      }).join('');
+
+      // client: from the C360 screen — dropdown only when the search matched several
+      const allGroups=(typeof groups!=='undefined'&&groups&&groups.length)?groups:[{client:name,products:window.__c360prods||[]}];
+      const clientSel=allGroups.length>1
+        ?`<select id="campClient" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+            ${allGroups.map(g=>`<option value="${esc(g.client)}"${g.client===name?' selected':''}>${esc(g.client)}</option>`).join('')}</select>`
+        :`<input id="campClient" value="${esc(name)}" readonly style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit;background:#f8fafc;color:#475569">`;
+
+      // campaign/IO options: client + IO number, newest IO first
+      function prodOptions(clientName){
+        const grp=allGroups.find(g=>g.client===clientName)||allGroups[0];
+        const prods=(grp.products||[]).slice().sort((a,b)=>{
+          const ai=parseInt(a.io,10)||0, bi=parseInt(b.io,10)||0;
+          return bi-ai;                                  // newest (highest IO) first
+        });
+        return '<option value="">Which campaign / IO?</option>'+prods.map(p=>{
+          const label=esc(clientName)+(p.io?' — IO '+esc(p.io):'')+': '+esc(p.product||'')
+            +(String(p.status||'').toLowerCase()==='live'?' (live)':'');
+          return `<option value="${esc(p.product||'')}" data-io="${esc(p.io||'')}">${label}</option>`;
+        }).join('');
+      }
+
+      // requested by: names from Knack objects 161 + 109
+      const names=(people&&people.names)||[];
+      const meFirst=names.includes(user_name)?user_name:'';
+      const reqOpts=['<option value="">Requested by…</option>']
+        .concat(names.map(n=>`<option value="${esc(n)}"${n===meFirst?' selected':''}>${esc(n)}</option>`));
+      if(!names.length) reqOpts.push(`<option value="${esc(user_name)}" selected>${esc(user_name)}</option>`);
+
+      body.innerHTML=`
+        <div style="background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+          <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:6px">
+            Writing to Knack ${esc(d.object)} — these fields will be used</div>
+          <table>${mapRows}</table>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${clientSel}
+          <select id="campProd" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">${prodOptions(name)}</select>
+          <select id="campReq" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">${reqOpts.join('')}</select>
+          <input id="campSubject" placeholder="Subject — what do you need?" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+          <textarea id="campDesc" rows="5" placeholder="${kind==='change'?'Describe the change: budget, targeting, dates, creative…':'Describe the issue or question for the campaign team…'}" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit"></textarea>
+          <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center">
+            <span id="campMsg" class="muted" style="font-size:12px"></span>
+            <a class="btn-primary" id="campSend" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Send to Smart 1 Team</a>
+          </div>
+        </div>`;
+      const clientEl=document.getElementById('campClient');
+      if(clientEl.tagName==='SELECT') clientEl.onchange=()=>{
+        document.getElementById('campProd').innerHTML=prodOptions(clientEl.value);
+      };
+      document.getElementById('campSend').onclick=()=>{
+        const subject=document.getElementById('campSubject').value.trim();
+        if(!subject){document.getElementById('campMsg').textContent='Subject is required.';return;}
+        const sel=document.getElementById('campProd');
+        const opt=sel.options[sel.selectedIndex]||{};
+        document.getElementById('campMsg').textContent='Sending…';
+        fetch('/api/client/campaign-request',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({kind:kind,client:clientEl.value,campaign:sel.value,
+            io:(opt.dataset&&opt.dataset.io)||'',subject:subject,
+            requested_by:document.getElementById('campReq').value,
+            description:document.getElementById('campDesc').value.trim()})})
+          .then(r=>r.json()).then(res=>{
+            if(res.error){document.getElementById('campMsg').textContent=res.error;return;}
+            document.getElementById('campMsg').textContent='Sent ✓';
+            setTimeout(()=>m.remove(),900);
+          });
+      };
+    });
+  }
+  const campChange=document.getElementById('c-camp-change');
+  const campSupport=document.getElementById('c-camp-support');
+  if(campChange)campChange.onclick=()=>openCampaignModal('change');
+  if(campSupport)campSupport.onclick=()=>openCampaignModal('support');
 
   // Accounting issue form (GHL) in a modal
   const acctBtn=document.getElementById('c-qb-acct');
@@ -435,7 +779,8 @@ function maybeTraffic(clientName,googleResults){
   window.__trafficStarted=clientName;
   fetch('/api/client/links?name='+encodeURIComponent(clientName))
     .then(r=>r.json()).then(d=>{
-      const att=(d.attached||{}).analytics;
+      let att=(d.attached||{}).analytics;
+      if(Array.isArray(att)) att=att[0];
       if(att&&att.resource_id){
         $('c-traffic-meta').textContent=(att.name||att.resource_id)+' · '+(att.google_login||'')+' · attached';
         return c360Traffic(att.resource_id,att.google_login);

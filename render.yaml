@@ -47,6 +47,16 @@ services:
         sync: false
       - key: FLASK_SECRET_KEY
         generateValue: true
+      # ---- Smart 1 Marketing sub-account (GHL) ----
+      - key: SUITE_COMPANY_ID
+        sync: false
+      - key: SMART1SUITE_PRIVATE_TOKEN
+        sync: false
+      # ---- Knack API (web tickets) ----
+      - key: KNACK_APP_ID
+        sync: false
+      - key: KNACK_API_KEY
+        sync: false
       # ---- QuickBooks ----
       - key: QB_CLIENT_ID
         sync: false

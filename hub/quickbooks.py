@@ -329,8 +329,8 @@ def lookup(q: str, customer_id=None) -> dict:
     if not connected():
         return {"configured": True, "connected": False, "customers": []}
     if customer_id:
-        c = customer_by_id(customer_id)
-        customers = [c] if c else []
+        ids = [x.strip() for x in str(customer_id).split(",") if x.strip()]
+        customers = [c for c in (customer_by_id(i) for i in ids) if c]
     else:
         customers = find_customers(q, limit=3)
     for c in customers:
