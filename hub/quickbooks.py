@@ -236,6 +236,67 @@ def invoices_for_customer(customer_id, limit: int = 8) -> list[dict]:
     return out
 
 
+def _query_all(sql_base: str, page_size: int = 1000):
+    """Run a QBO query with pagination (STARTPOSITION loop)."""
+    rows, start = [], 1
+    while True:
+        resp = _query(f"{sql_base} STARTPOSITION {start} MAXRESULTS {page_size}")
+        batch = None
+        for v in resp.values():
+            if isinstance(v, list):
+                batch = v
+                break
+        if not batch:
+            break
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+        if start > 20000:  # safety cap
+            break
+    return rows
+
+
+def invoices_since(date_iso: str) -> list[dict]:
+    """All invoices on/after date_iso: customer name, date, total."""
+    rows = _query_all(
+        f"SELECT Id, TotalAmt, TxnDate, CustomerRef FROM Invoice "
+        f"WHERE TxnDate >= '{_esc(date_iso)}' ORDERBY TxnDate"
+    )
+    out = []
+    for inv in rows:
+        ref = inv.get("CustomerRef") or {}
+        out.append({
+            "id": inv.get("Id"),
+            "customer_id": ref.get("value"),
+            "customer": ref.get("name") or "",
+            "date": inv.get("TxnDate") or "",
+            "total": float(inv.get("TotalAmt") or 0),
+            "link": invoice_link(inv.get("Id")),
+        })
+    return out
+
+
+def monthly_totals_by_customer(months: int = 4) -> dict:
+    """{customer_name: {"id": qbid, "months": {"YYYY-MM": total}}} for the
+    current month and the (months-1) prior months."""
+    import datetime as _dt
+    today = _dt.date.today()
+    first = today.replace(day=1)
+    for _ in range(months - 1):
+        first = (first - _dt.timedelta(days=1)).replace(day=1)
+    invoices = invoices_since(first.isoformat())
+    out: dict = {}
+    for inv in invoices:
+        name = inv["customer"]
+        if not name:
+            continue
+        ym = inv["date"][:7]
+        rec = out.setdefault(name, {"id": inv.get("customer_id"), "months": {}})
+        rec["months"][ym] = round(rec["months"].get(ym, 0) + inv["total"], 2)
+    return out
+
+
 def lookup(q: str) -> dict:
     """Customer match(es) for a client name, each with recent invoices."""
     if not configured():

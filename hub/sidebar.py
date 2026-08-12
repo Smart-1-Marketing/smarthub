@@ -19,6 +19,7 @@ _ITEMS = [
     ("props", "/sales/proposals/", "&#9733;", "Proposal Builder"),
     ("_sec3", "", "", "Utilities"),
     ("tools", "/tools", "&#10022;", "Tools"),
+    ("qa", "/qa", "&#10003;", "QA Reports"),
     ("activity", "/activity", "&#8801;", "Activity Log"),
     ("status", "/status", "&#9825;", "System Status"),
 ]

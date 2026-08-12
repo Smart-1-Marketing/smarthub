@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}QA Reports — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head"><h2>QA Reports</h2><p>Data-quality and billing checks across Smart 1 Team &amp; QuickBooks</p></div>
+{% for group, items in groups %}
+<div class="qa-group-label">{{ group }}</div>
+<div class="tool-tiles">
+  {% for key, meta in items %}
+  <a class="tool-tile" href="/qa/{{ key }}">
+    <div class="t-ico">{{ meta.ico|safe }}</div>
+    <h3>{{ meta.title }}</h3>
+    <p>{{ meta.desc }}</p>
+  </a>
+  {% endfor %}
+</div>
+{% endfor %}
+<style>
+.qa-group-label{margin:22px 2px 10px;font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:1px;color:#64748b}
+.qa-group-label:first-of-type{margin-top:4px}
+</style>
+{% endblock %}

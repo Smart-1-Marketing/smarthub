@@ -117,6 +117,50 @@ def create_hub_app() -> Flask:
             return gate
         return render_template("tools.html", user=current_user(), modules=MODULES, active="tools")
 
+    @app.route("/qa")
+    def qa_home():
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import qa
+        seen, groups = [], {}
+        for key, meta in qa.REPORTS.items():
+            g = meta.get("group", "Reports")
+            if g not in groups:
+                groups[g] = []
+                seen.append(g)
+            groups[g].append((key, meta))
+        return render_template("qa.html", user=current_user(), modules=MODULES,
+                               active="qa", groups=[(g, groups[g]) for g in seen])
+
+    @app.route("/qa/<key>")
+    def qa_report(key):
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import qa
+        meta = qa.REPORTS.get(key)
+        if not meta:
+            return redirect("/qa")
+        return render_template("qa_report.html", user=current_user(), modules=MODULES,
+                               active="qa", key=key, title=meta["title"])
+
+    @app.route("/api/qa/<key>")
+    def api_qa(key):
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import qa
+        if key not in qa.REPORTS:
+            return jsonify({"error": f"Unknown report: {key}"}), 404
+        try:
+            out = qa.run(key)
+        except Exception as exc:  # noqa: BLE001 — reports must degrade gracefully
+            out = {"key": key, "title": qa.REPORTS[key]["title"],
+                   "columns": [], "rows": [], "error": str(exc)}
+        audit.log("hub", "qa_report", actor=current_user(), detail=key)
+        return jsonify(out)
+
     @app.route("/activity")
     def activity():
         gate = _require_page()
