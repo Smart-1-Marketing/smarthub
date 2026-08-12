@@ -72,7 +72,9 @@ function renderCard(x) {
       <div style="display:flex; flex-direction:column; gap:6px;">
         ${x.open_url ? `<a class="open" target="_blank" rel="noopener" href="${esc(x.open_url)}">Open</a>` : ''}
         ${x.platform === 'Google Analytics' ? `<button class="btn btn-auto-all" data-id="${esc(x.resource_id)}" data-login="${esc(x.google_login)}" style="font-size:12px; padding:6px 10px; background:#1a2e58!important;">⚡ Auto-Populate GA Tools</button>` : ''}
-        ${x.platform === 'Google Tag Manager' ? `<button class="btn btn-inspect-gtm" data-account="${esc(x.account_id)}" data-container="${esc(x.internal_container_id || x.resource_id)}" data-login="${esc(x.google_login)}" style="font-size:12px; padding:6px 10px; background:#24519c!important;">Inspect GTM Tags</button>` : ''}
+        ${x.platform === 'Google Tag Manager' ? `<button class="btn btn-inspect-gtm" data-account="${esc(x.account_id)}" data-container="${esc(x.internal_container_id || x.resource_id)}" data-login="${esc(x.google_login)}" style="font-size:12px; padding:6px 10px; background:#24519c!important;">Inspect GTM Tags</button>
+        <button class="btn btn-goto-gtm" data-acct="${esc(x.account_id)}" data-container="${esc(x.internal_container_id || x.resource_id)}" data-login="${esc(x.google_login)}" style="font-size:12px; padding:6px 10px; background:#1a2e58!important;">⚡ Auto-Populate GTM Tools</button>` : ''}
+        ${x.platform === 'Search Console' ? `<button class="btn btn-goto-gsc" data-url="${esc(x.name)}" data-login="${esc(x.google_login)}" style="font-size:12px; padding:6px 10px; background:#c5221f!important;">⚡ Auto-Populate Webmaster Tools</button>` : ''}
       </div>
     </article>
   `;
@@ -132,6 +134,18 @@ function draw(items) {
   document.querySelectorAll('.btn-auto-all').forEach(btn => {
     btn.addEventListener('click', () => {
       window.location.href = `/google/ga-tools?id=${encodeURIComponent(btn.dataset.id)}&login=${encodeURIComponent(btn.dataset.login)}`;
+    });
+  });
+
+  document.querySelectorAll('.btn-goto-gtm').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window.location.href = `/google/gtm-tools?acct=${encodeURIComponent(btn.dataset.acct)}&container=${encodeURIComponent(btn.dataset.container)}&login=${encodeURIComponent(btn.dataset.login)}`;
+    });
+  });
+
+  document.querySelectorAll('.btn-goto-gsc').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window.location.href = `/google/webmaster-tools?url=${encodeURIComponent(btn.dataset.url)}&login=${encodeURIComponent(btn.dataset.login)}`;
     });
   });
 
@@ -969,9 +983,45 @@ if (manualBtn && manualInput) {
 }
 
 
-/* ---------- Hub deep links: ?q= prefills + runs the search on this page ---------- */
+/* ---------- Auto-populate deep links: ?id/?acct/?container/?url/?login ---------- */
 window.addEventListener('DOMContentLoaded', () => {
-  const hubQ = new URLSearchParams(location.search).get('q');
+  const params = new URLSearchParams(location.search);
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (!el || !val) return false;
+    el.value = val;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  };
+  // GA tools: ?id=<property>&login=  (from "Auto-Populate GA Tools" on the search page)
+  if (params.get('id') && document.getElementById('comp-property-id')) {
+    const digits = (params.get('id').match(/\d{5,}/) || [params.get('id')])[0];
+    set('comp-property-id', digits);
+    set('comp-login', params.get('login'));
+    if (typeof showToast === 'function') showToast('GA property & login loaded into the tools below.', 'success');
+    document.getElementById('comp-property-id').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  // GTM tools: ?acct=&container=&login=
+  if (params.get('container') && document.getElementById('pixel-container-id')) {
+    set('pixel-login', params.get('login'));
+    set('pixel-account-id', params.get('acct'));
+    set('pixel-container-id', params.get('container'));
+    if (typeof currentGtmContext !== 'undefined') {
+      currentGtmContext = { account_id: params.get('acct'), container_id: params.get('container'), google_login: params.get('login') };
+    }
+    if (typeof showToast === 'function') showToast('GTM container loaded into the pixel form.', 'success');
+    document.getElementById('pixel-container-id').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  // Webmaster tools: ?url=&login=
+  if (params.get('url') && document.getElementById('gsc-bulk-text')) {
+    set('gsc-bulk-account', params.get('login'));
+    const cleanUrl = params.get('url');
+    set('gsc-bulk-text', `${cleanUrl} | ${cleanUrl.replace(/\/$/, '')}/sitemap.xml`);
+    if (typeof showToast === 'function') showToast('Property & sitemap loaded into the bulk deployer.', 'success');
+    document.getElementById('gsc-bulk-text').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  const hubQ = params.get('q');
   if (!hubQ) return;
   const fire = (el, val) => {
     if (!el) return false;

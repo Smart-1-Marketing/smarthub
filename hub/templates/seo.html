@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}SEO — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head"><h2>SEO Clients</h2><p>Every client with a live SEO product — click one to manage accounts, schema &amp; setup</p></div>
+<div class="card qa-card" style="padding:0;overflow:hidden">
+  <div style="overflow-x:auto" id="seoWrap"><div class="seo-loading">Loading SEO clients&hellip;</div></div>
+</div>
+<style>
+.seo-loading{padding:34px;text-align:center;color:#64748b}
+table.seo-t{width:100%;border-collapse:collapse;font-size:13.5px}
+table.seo-t th{background:#f8fafc;text-align:left;padding:10px 14px;font-size:11.5px;text-transform:uppercase;
+  letter-spacing:.6px;color:#64748b;border-bottom:1px solid #e2e8f0;white-space:nowrap}
+table.seo-t td{padding:11px 14px;border-bottom:1px solid #eef2f7;color:#1e293b;vertical-align:top}
+table.seo-t tr{cursor:pointer}
+table.seo-t tr:hover td{background:#f4f6fa}
+.seo-client{font-weight:700;color:#1a2e58}
+.seo-url{color:#2563eb;font-size:12.5px}
+.seo-pill{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:20px;padding:2px 10px;
+  font-size:11px;font-weight:600;margin:1px 3px 1px 0}
+.seo-pill.ok{background:#dcfce7;color:#166534}
+.seo-pill.warn{background:#fef9c3;color:#854d0e}
+.seo-billing{font-weight:700;white-space:nowrap}
+</style>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var wrap=document.getElementById('seoWrap');
+  function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+  fetch('/api/seo/clients').then(function(r){return r.json();}).then(function(d){
+    if(d.error){wrap.innerHTML='<div class="seo-loading">'+esc(d.error)+'</div>';return;}
+    var rows=d.clients||[];
+    if(!rows.length){wrap.innerHTML='<div class="seo-loading">No clients with a live SEO product.</div>';return;}
+    var h='<table class="seo-t"><thead><tr><th>Client</th><th>Website</th><th>Site type</th><th>SEO products</th><th>Billing / mo</th><th>Status</th></tr></thead><tbody>';
+    rows.forEach(function(c){
+      h+='<tr data-name="'+esc(c.client)+'">'
+        +'<td><div class="seo-client">'+esc(c.client)+'</div><div style="font-size:11.5px;color:#64748b">'+esc(c.partner||'')+'</div></td>'
+        +'<td>'+(c.url?'<span class="seo-url">'+esc(c.url.replace(/^https?:\/\//,''))+'</span>':'<span style="color:#94a3b8">no site on file</span>')+'</td>'
+        +'<td>'+esc(c.platform||'—')+'</td>'
+        +'<td>'+(c.products||[]).map(function(p){return '<span class="seo-pill">'+esc(p)+'</span>';}).join('')+'</td>'
+        +'<td class="seo-billing">$'+Number(c.billing||0).toLocaleString()+'</td>'
+        +'<td>'+(c.setup_done?'<span class="seo-pill ok">Setup done</span>':'<span class="seo-pill warn">Needs setup</span>')
+        +(c.schema_pages?'<span class="seo-pill ok">'+c.schema_pages+' schemas</span>':'')+'</td>'
+        +'</tr>';
+    });
+    h+='</tbody></table>';
+    wrap.innerHTML=h;
+    wrap.querySelectorAll('tr[data-name]').forEach(function(tr){
+      tr.onclick=function(){location.href='/seo/client?name='+encodeURIComponent(tr.dataset.name);};
+    });
+  });
+})();
+</script>
+{% endblock %}
