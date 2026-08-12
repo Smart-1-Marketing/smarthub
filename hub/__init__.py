@@ -166,13 +166,21 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from . import seo
-        url = ((request.get_json(silent=True) or {}).get("url") or "").strip()
+        body = request.get_json(silent=True) or {}
+        url = (body.get("url") or "").strip()
+        client = (body.get("client") or "").strip()
         if not url:
             return jsonify({"error": "No URL provided."}), 400
         try:
             out = seo.scan_schema(url)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": f"Could not scan the site: {exc}"})
+        if client:                      # cache the result on the client store
+            import datetime as _dt
+            out["at"] = _dt.datetime.now().strftime("%m/%d/%Y %I:%M %p")
+            store = seo.load_store(client)
+            store["last_scan"] = out
+            seo.save_store(client, store)
         audit.log("hub", "seo_scan", actor=current_user(), detail=url)
         return jsonify(out)
 
@@ -255,6 +263,8 @@ def create_hub_app() -> Flask:
             page["schema"] = sch
         if "approved" in body:
             page["approved"] = bool(body["approved"])
+        if "posted" in body:
+            page["posted"] = bool(body["posted"])
         seo.save_store(client, store)
         approved = sum(1 for p in store["pages"].values() if p.get("approved"))
         return jsonify({"ok": True, "approved_total": approved})
@@ -313,6 +323,215 @@ def create_hub_app() -> Flask:
         remaining = [p for p in store.get("sitemap", []) if p not in store.get("pages", {})]
         return jsonify({"pages": pages, "total": len(store.get("sitemap", [])),
                         "remaining": len(remaining)})
+
+    @app.route("/api/seo/checks", methods=["POST"])
+    def api_seo_checks():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        store = seo.load_store(client)
+        checks = store.setdefault("checks", {})
+        for k in ("schema", "listings"):
+            if k in body:
+                checks[k] = bool(body[k])
+        if "setup" in body:
+            store.setdefault("setup", {})["completed"] = bool(body["setup"])
+        seo.save_store(client, store)
+        audit.log("hub", "seo_checks", actor=current_user(), detail=client)
+        return jsonify({"ok": True, "status": seo.client_status(store)})
+
+    @app.route("/api/client/social")
+    def api_client_social():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        name = (request.args.get("name") or "").strip()
+        domain = (request.args.get("domain") or "").strip()
+        return jsonify({"social": seo.get_social(name, domain) if name else {}})
+
+    @app.route("/api/client/social", methods=["POST"])
+    def api_client_social_set():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        social = seo.set_social(client, body.get("social") or {})
+        audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
+        return jsonify({"ok": True, "social": social})
+
+    # ------------- attached Google accounts (shared: SEO page + Client 360)
+    @app.route("/api/client/links")
+    def api_client_links():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        name = (request.args.get("name") or "").strip()
+        return jsonify({"attached": seo.get_links(name) if name else {}})
+
+    @app.route("/api/client/links", methods=["POST"])
+    def api_client_links_set():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        kind = (body.get("kind") or "").strip()
+        if not client or kind not in ("analytics", "gtm", "gsc"):
+            return jsonify({"error": "client and kind (analytics|gtm|gsc) are required."}), 400
+        att = seo.set_link(client, kind, body.get("data"))
+        audit.log("hub", "client_account_attached", actor=current_user(),
+                  detail=f"{client}: {kind}")
+        return jsonify({"ok": True, "attached": att})
+
+    # ---------------- SEO blogs ----------------
+    @app.route("/api/seo/blogs")
+    def api_seo_blogs():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        name = (request.args.get("name") or "").strip()
+        store = seo.load_store(name)
+        blogs = store.get("blogs", {})
+        return jsonify({"posts": blogs.get("posts", []),
+                        "focus": blogs.get("focus", ""),
+                        "questions": blogs.get("questions", []),
+                        "frequency": store.get("setup", {}).get("blogs_frequency", ""),
+                        "per_month": store.get("setup", {}).get("blogs_per_month", "")})
+
+    @app.route("/api/seo/blogs/plan", methods=["POST"])
+    def api_seo_blogs_plan():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        try:
+            out = seo.blog_plan(client, (body.get("focus") or "").strip(),
+                                int(body.get("months") or 3),
+                                (body.get("start") or "").strip())
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": str(exc)})
+        audit.log("hub", "seo_blog_plan", actor=current_user(),
+                  detail=f"{client}: {len(out['posts'])} posts")
+        return jsonify(out)
+
+    @app.route("/api/seo/blogs/write", methods=["POST"])
+    def api_seo_blogs_write():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        ids = [int(i) for i in (body.get("ids") or []) if str(i).isdigit()]
+        if not client or not ids:
+            return jsonify({"error": "client and ids are required."}), 400
+        try:
+            out = seo.blog_write(client, ids)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": str(exc)})
+        audit.log("hub", "seo_blog_write", actor=current_user(),
+                  detail=f"{client}: {len(out['written'])} posts")
+        return jsonify(out)
+
+    @app.route("/api/seo/blogs/update", methods=["POST"])
+    def api_seo_blogs_update():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        pid = body.get("id")
+        store = seo.load_store(client)
+        post = next((p for p in store.get("blogs", {}).get("posts", [])
+                     if p["id"] == pid), None)
+        if not client or post is None:
+            return jsonify({"error": "Unknown client or post."}), 404
+        if isinstance(body.get("title"), str) and body["title"].strip():
+            post["title"] = body["title"].strip()
+        if isinstance(body.get("content"), str):
+            post["content"] = body["content"]
+            if body["content"].strip():
+                post["status"] = "written"
+        if "posted" in body:
+            post["posted"] = bool(body["posted"])
+        if isinstance(body.get("answers"), dict):
+            blogs = store.setdefault("blogs", {})
+            blogs.setdefault("answers", {}).update(
+                {k: v for k, v in body["answers"].items() if str(v).strip()})
+            blogs["questions"] = [q for q in blogs.get("questions", [])
+                                  if q not in blogs["answers"]]
+        seo.save_store(client, store)
+        return jsonify({"ok": True})
+
+    @app.route("/api/seo/blogs/answers", methods=["POST"])
+    def api_seo_blogs_answers():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        store = seo.load_store(client)
+        blogs = store.setdefault("blogs", {})
+        if isinstance(body.get("answers"), dict):
+            blogs.setdefault("answers", {}).update(
+                {k: v for k, v in body["answers"].items() if str(v).strip()})
+            blogs["questions"] = [q for q in blogs.get("questions", [])
+                                  if q not in blogs["answers"]]
+        seo.save_store(client, store)
+        return jsonify({"ok": True, "questions": blogs.get("questions", [])})
+
+    @app.route("/seo/blogs/<slug>.doc")
+    def seo_blogs_doc(slug):
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import seo
+        match = next((c for c in seo.seo_clients() if c["slug"] == slug), None)
+        name = match["client"] if match else slug.replace("-", " ")
+        raw = (request.args.get("ids") or "").strip()
+        ids = None
+        if raw and raw.lower() != "all":
+            ids = [int(x) for x in raw.split(",") if x.strip().isdigit()]
+        body = seo.blogs_doc(name, ids)
+        resp = make_response(body)
+        resp.headers["Content-Type"] = "application/msword"
+        resp.headers["Content-Disposition"] = f'attachment; filename="{slug}-blogs.doc"'
+        return resp
+
+    @app.route("/seo/blogs/<slug>/view")
+    def seo_blogs_view(slug):
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import seo
+        match = next((c for c in seo.seo_clients() if c["slug"] == slug), None)
+        name = match["client"] if match else slug.replace("-", " ")
+        raw = (request.args.get("ids") or "").strip()
+        ids = None
+        if raw and raw.lower() != "all":
+            ids = [int(x) for x in raw.split(",") if x.strip().isdigit()]
+        return app.response_class(seo.blogs_doc(name, ids), mimetype="text/html")
 
     @app.route("/api/seo/compiled")
     def api_seo_compiled():
@@ -378,12 +597,28 @@ def create_hub_app() -> Flask:
         if key not in qa.REPORTS:
             return jsonify({"error": f"Unknown report: {key}"}), 404
         try:
-            out = qa.run(key)
+            out = qa.run(key, month=(request.args.get("month") or "").strip())
         except Exception as exc:  # noqa: BLE001 — reports must degrade gracefully
             out = {"key": key, "title": qa.REPORTS[key]["title"],
                    "columns": [], "rows": [], "error": str(exc)}
         audit.log("hub", "qa_report", actor=current_user(), detail=key)
         return jsonify(out)
+
+    @app.route("/api/qa/invoice-off/assign", methods=["POST"])
+    def api_qa_invoice_assign():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import qa
+        body = request.get_json(silent=True) or {}
+        customer = (body.get("customer") or "").strip()
+        partner = (body.get("partner") or "").strip()
+        if not customer or not partner:
+            return jsonify({"error": "customer and partner are required."}), 400
+        qa.assign_invoice_partner(customer, partner)
+        audit.log("hub", "qa_invoice_assigned", actor=current_user(),
+                  detail=f"{customer} -> {partner}")
+        return jsonify({"ok": True})
 
     @app.route("/activity")
     def activity():
@@ -521,6 +756,14 @@ def create_hub_app() -> Flask:
             data = knack_data.summary()
         except Exception as exc:  # noqa: BLE001 — dashboard must never 500
             data = {"error": str(exc)}
+        try:
+            from . import seo
+            seo_rows = seo.seo_clients()
+            data["seo_clients"] = len(seo_rows)
+            data["seo_billing_monthly"] = round(sum(c["billing"] for c in seo_rows))
+        except Exception:  # noqa: BLE001 — SEO totals are additive, never break the dashboard
+            data.setdefault("seo_clients", None)
+            data.setdefault("seo_billing_monthly", None)
         return jsonify(data)
 
     @app.route("/api/c360")

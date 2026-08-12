@@ -588,7 +588,8 @@ $('brandBtn').addEventListener('click', async () => {
   const btn = $('brandBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Fetching…';
   try {
-    const b = await api('/suite/api/brand?domain=' + encodeURIComponent(domain));
+    const b = await api('/suite/api/brand?domain=' + encodeURIComponent(domain)
+      + '&client=' + encodeURIComponent(($('name') && $('name').value.trim()) || ''));
     // Auto-populate every field Brandfetch returns (overwrites existing values).
     const setVal = (id, val) => { if (val) $(id).value = val; };
     const filled = [];

@@ -8,6 +8,8 @@
     <p id="qaNote">Loading&hellip;</p>
   </div>
   <div class="qa-actions">
+    <select id="qaMonth" class="qa-btn qa-sec" style="display:none;padding:8px 10px"></select>
+    <button class="qa-btn qa-sec" id="qaCompare" style="display:none">&#8646; Compare invoices</button>
     <button class="qa-btn" id="qaCsv" disabled>&#8681; Export CSV</button>
     <button class="qa-btn qa-sec" id="qaReload">&#8635; Refresh</button>
   </div>
@@ -44,7 +46,37 @@ table.qa-t td a:hover{text-decoration:underline}
 .qa-qbcta{padding:30px;text-align:center;color:#475569}
 .qa-qbcta a{display:inline-block;margin-top:10px;background:#2563eb;color:#fff;padding:9px 18px;
   border-radius:8px;text-decoration:none;font-weight:600}
+tr.qa-row-green td{background:#f0fdf4 !important;border-left:3px solid #22c55e}
+tr.qa-row-green td:not(:first-child){border-left:none}
+tr.qa-row-yellow td{background:#fefce8 !important;border-left:3px solid #eab308}
+tr.qa-row-yellow td:not(:first-child){border-left:none}
+tr.qa-row-red td{background:#fef2f2 !important;border-left:3px solid #ef4444}
+tr.qa-row-red td:not(:first-child){border-left:none}
+tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;border-top:2px solid #cbd5e1}
+.qa-assign-btn{border:1px solid #e2e8f0;background:#fff;color:#2563eb;border-radius:8px;
+  padding:4px 10px;font:600 12px 'Segoe UI',system-ui,sans-serif;cursor:pointer;white-space:nowrap}
+.qa-assign-wrap{display:flex;gap:6px;align-items:center}
+.qa-assign-wrap input{padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;
+  font:12.5px 'Segoe UI',system-ui,sans-serif;width:190px}
+.qa-modal{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;
+  align-items:center;justify-content:center;padding:16px}
+.qa-modal.open{display:flex}
+.qa-modal-box{background:#fff;border-radius:14px;width:640px;max-width:100%;max-height:88vh;
+  display:flex;flex-direction:column}
+.qa-modal-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;
+  border-bottom:1px solid #e2e8f0;color:#1a2e58;font-weight:700}
+.qa-modal-body{padding:14px 18px;overflow-y:auto;font-size:13.5px;line-height:1.6}
+.qa-cmp{border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.qa-cmp b{color:#1a2e58}
+.qa-x{border:0;background:none;font-size:22px;cursor:pointer;color:#64748b}
 </style>
+<div class="qa-modal" id="qaCmpModal">
+  <div class="qa-modal-box">
+    <div class="qa-modal-head"><span>Invoice comparison — each month vs this month</span>
+      <button class="qa-x" id="qaCmpClose">&times;</button></div>
+    <div class="qa-modal-body" id="qaCmpBody"></div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -58,6 +90,11 @@ table.qa-t td a:hover{text-decoration:underline}
   function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
 
   function cellHtml(c){
+    if(c && typeof c==='object' && c.assign!==undefined)
+      return '<div class="qa-assign-host" data-cust="'+esc(c.assign)+'"><button class="qa-assign-btn">+ Add to partner</button></div>';
+    if(c && typeof c==='object' && c.search_attach!==undefined)
+      return '<div class="qa-sa-host" data-client="'+esc(c.search_attach)+'" data-kind="'+esc(c.kind)+'" data-q="'+esc(c.q||'')+'">'
+        +'<button class="qa-assign-btn">&#128269; Search &amp; attach</button></div>';
     if(c && typeof c==='object' && c.href)
       return '<a href="'+esc(c.href)+'" target="'+(c.href.charAt(0)==='/'?'_self':'_blank')+'">'+esc(c.text)+'</a>';
     var s = String(c==null?'':c);
@@ -69,6 +106,23 @@ table.qa-t td a:hover{text-decoration:underline}
   function render(d){
     data = d;
     note.textContent = d.note || '';
+    // month picker (scorecards)
+    var msel = document.getElementById('qaMonth');
+    if(d.month_options && d.month_options.length){
+      msel.style.display = 'inline-block';
+      msel.innerHTML = d.month_options.map(function(m){
+        return '<option value="'+esc(m.ym)+'"'+(m.ym===d.month?' selected':'')+'>'+esc(m.label)+'</option>';
+      }).join('');
+    }
+    // compare-invoices button (billing comparison)
+    var cmpBtn = document.getElementById('qaCompare');
+    if(d.invoice_comparison && d.invoice_comparison.length){
+      cmpBtn.style.display = 'inline-block';
+      document.getElementById('qaCmpBody').innerHTML = d.invoice_comparison.map(function(c){
+        return '<div class="qa-cmp"><b>'+esc(c.month)+' &rarr; '+esc(c.vs)+'</b><br>'+esc(c.text)+'</div>';
+      }).join('');
+    } else { cmpBtn.style.display='none'; }
+
     if(d.error){ wrap.innerHTML = '<div class="qa-err">'+esc(d.error)+'</div>'; return; }
     if(d.needs_qb){
       wrap.innerHTML = '<div class="qa-qbcta">'+esc(d.note)+'<br><a href="/status">Open System Status</a></div>';
@@ -78,25 +132,108 @@ table.qa-t td a:hover{text-decoration:underline}
       wrap.innerHTML = '<div class="qa-empty">Nothing to report — all clear. &#10003;</div>';
       return;
     }
+    var styles = d.row_styles || [];
     var h = '<table class="qa-t"><thead><tr>';
     d.columns.forEach(function(c){ h += '<th>'+esc(c)+'</th>'; });
     h += '</tr></thead><tbody>';
-    d.rows.forEach(function(row){
-      h += '<tr>';
+    d.rows.forEach(function(row, i){
+      var cls = styles[i] ? ' class="qa-row-'+styles[i]+'"' : '';
+      h += '<tr'+cls+'>';
       row.forEach(function(c){ h += '<td>'+cellHtml(c)+'</td>'; });
       h += '</tr>';
     });
     h += '</tbody></table>';
+    // searchable partner datalist for assign controls
+    if(d.partners && d.partners.length){
+      h += '<datalist id="qaPartners">'+d.partners.map(function(p){
+        return '<option value="'+esc(p)+'">';}).join('')+'</datalist>';
+    }
     wrap.innerHTML = h;
+    wrap.querySelectorAll('.qa-sa-host').forEach(function(host){
+      host.querySelector('.qa-assign-btn').onclick = function(){
+        host.innerHTML = '<div class="qa-assign-wrap">'
+          +'<input placeholder="Name or domain&hellip;" value="'+esc(host.dataset.q)+'">'
+          +'<button class="qa-assign-btn qa-go">Search</button></div><div class="qa-sa-res"></div>';
+        var inp = host.querySelector('input'), res = host.querySelector('.qa-sa-res');
+        var kind = host.dataset.kind;
+        var go = function(){
+          var q = inp.value.trim(); if(!q) return;
+          res.innerHTML = '<span class="qa-loading" style="padding:6px;display:block">Searching&hellip;</span>';
+          var plat = kind==='analytics' ? 'analytics' : 'gtm';
+          fetch('/google/api/search?q='+encodeURIComponent(q)+'&platform='+plat)
+            .then(function(r){return r.json();}).then(function(d){
+              var items = (d.results||[]);
+              if(kind==='analytics') items = items.filter(function(x){return x.platform==='Google Analytics';});
+              if(kind==='gtm') items = items.filter(function(x){return x.platform==='Google Tag Manager';});
+              if(!items.length){ res.innerHTML='<span class="qa-neg" style="font-size:12px">No matches — try a domain.</span>'; return; }
+              res.innerHTML='';
+              items.slice(0,5).forEach(function(x){
+                var div=document.createElement('div');
+                div.style.cssText='display:flex;justify-content:space-between;align-items:center;gap:6px;border:1px solid #e2e8f0;border-radius:8px;padding:5px 8px;margin-top:5px;font-size:12px;background:#fff';
+                div.innerHTML='<span><b>'+esc(x.name||x.resource_id)+'</b><br><span style="color:#64748b;font-size:10.5px">'+esc(x.google_login)+'</span></span>'
+                  +'<button class="qa-assign-btn">Attach</button>';
+                div.querySelector('button').onclick=function(){
+                  fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({client:host.dataset.client,kind:kind,
+                      data:{name:x.name,resource_id:x.resource_id,google_login:x.google_login,
+                            account_id:x.account_id,container:x.internal_container_id||x.resource_id}})})
+                    .then(function(r){return r.json();}).then(function(r2){
+                      if(r2.error){res.innerHTML='<span class="qa-neg">'+esc(r2.error)+'</span>';return;}
+                      var tr=host.closest('tr'); if(tr) tr.remove();   // attached — off the report
+                    });
+                };
+                res.appendChild(div);
+              });
+            });
+        };
+        host.querySelector('.qa-go').onclick=go;
+        inp.addEventListener('keydown',function(e){if(e.key==='Enter')go();});
+        inp.focus();
+      };
+    });
+    wrap.querySelectorAll('.qa-assign-host').forEach(function(host){
+      host.querySelector('.qa-assign-btn').onclick = function(){
+        host.innerHTML = '<div class="qa-assign-wrap">'
+          +'<input list="qaPartners" placeholder="Type to search partners&hellip;">'
+          +'<button class="qa-assign-btn qa-save">Save</button></div>';
+        var inp = host.querySelector('input');
+        inp.focus();
+        host.querySelector('.qa-save').onclick = function(){
+          var partner = inp.value.trim();
+          if(!partner) return;
+          fetch('/api/qa/invoice-off/assign', {method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({customer: host.dataset.cust, partner: partner})})
+            .then(function(r){return r.json();})
+            .then(function(res){
+              if(res.error){ host.innerHTML = '<span class="qa-neg">'+esc(res.error)+'</span>'; return; }
+              var tr = host.closest('tr');
+              if(tr) tr.remove();      // remembered — never shown again
+            });
+        };
+      };
+    });
     csvBtn.disabled = false;
   }
 
   function load(){
     wrap.innerHTML = '<div class="qa-loading">Running report&hellip;</div>';
     csvBtn.disabled = true;
-    fetch('/api/qa/'+KEY).then(function(r){return r.json();}).then(render)
+    var msel = document.getElementById('qaMonth');
+    var qs = (msel.style.display!=='none' && msel.value) ? '?month='+encodeURIComponent(msel.value) : '';
+    fetch('/api/qa/'+KEY+qs).then(function(r){return r.json();}).then(render)
       .catch(function(e){ wrap.innerHTML='<div class="qa-err">'+esc(e)+'</div>'; });
   }
+  document.getElementById('qaMonth').onchange = load;
+  document.getElementById('qaCompare').onclick = function(){
+    document.getElementById('qaCmpModal').classList.add('open');
+  };
+  document.getElementById('qaCmpClose').onclick = function(){
+    document.getElementById('qaCmpModal').classList.remove('open');
+  };
+  document.getElementById('qaCmpModal').onclick = function(e){
+    if(e.target===this) this.classList.remove('open');
+  };
 
   csvBtn.onclick = function(){
     if(!data || !data.rows) return;

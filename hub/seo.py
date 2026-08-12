@@ -56,6 +56,133 @@ def save_store(client: str, data: dict):
             json.dump(data, fh, indent=1)
 
 
+# -------------------------------------------------- attached Google accounts
+def get_links(client: str) -> dict:
+    """Manually attached Google resources for a client:
+    {"analytics": {...}, "gtm": {...}, "gsc": {...}}"""
+    return load_store(client).get("attached", {})
+
+
+def set_link(client: str, kind: str, data) -> dict:
+    store = load_store(client)
+    att = store.setdefault("attached", {})
+    if data:
+        att[kind] = data
+    else:
+        att.pop(kind, None)
+    save_store(client, store)
+    return att
+
+
+# ------------------------------------------------------- status + socials
+def _blogs_current(store: dict) -> bool:
+    """Green when a plan exists and every post due by today is checked as
+    posted on the site."""
+    posts = store.get("blogs", {}).get("posts", [])
+    if not posts:
+        return False
+    today = _dt_date_today_iso()
+    due = [p for p in posts if str(p.get("date", "")) <= today]
+    return all(p.get("posted") for p in due) if due else True
+
+
+def _dt_date_today_iso() -> str:
+    import datetime as _dt
+    return _dt.date.today().isoformat()
+
+
+def client_status(store: dict) -> dict:
+    checks = store.get("checks", {})
+    return {
+        "setup": bool(store.get("setup", {}).get("completed")),
+        "schema": bool(checks.get("schema")),
+        "listings": bool(checks.get("listings")),
+        "blogs": _blogs_current(store),
+    }
+
+
+_SOCIAL_KEYS = ("facebook", "instagram", "linkedin", "twitter", "youtube",
+                "tiktok", "pinterest", "yelp", "gbp")
+
+
+def get_social(client: str, domain: str = "") -> dict:
+    """Social URLs for a client — saved values, seeded from Brandfetch."""
+    store = load_store(client)
+    social = dict(store.get("social") or {})
+    if not social:
+        b = brand_for(client, domain) or {}
+        raw = b.get("social") or {}
+        keymap = {"facebookUrl": "facebook", "twitter": "twitter",
+                  "linkedIn": "linkedin", "instagram": "instagram",
+                  "youtube": "youtube", "pinterest": "pinterest"}
+        for k, v in raw.items():
+            nk = keymap.get(k, k.lower())
+            if v and nk in _SOCIAL_KEYS:
+                social[nk] = v
+    return social
+
+
+def set_social(client: str, updates: dict) -> dict:
+    store = load_store(client)
+    social = store.setdefault("social", {})
+    # seed first so a partial save doesn't wipe brandfetch-known urls
+    if not social:
+        webs = _client_websites(client)
+        domain = str(webs[0].get("domain") or "") if webs else ""
+        social.update(get_social(client, domain))
+    for k, v in (updates or {}).items():
+        k = str(k).lower().strip()
+        v = str(v or "").strip()
+        if not k:
+            continue
+        if v:
+            social[k] = v
+        else:
+            social.pop(k, None)
+    save_store(client, store)
+    return social
+
+
+# ------------------------------------------------------- brandfetch storage
+def _brand_cache_path() -> str:
+    return os.path.join(_store_base(), "_brand_by_domain.json")
+
+
+def save_brandfetch(domain: str, payload: dict, client: str = ""):
+    """Persist a Brandfetch result so every client form can autofill from it."""
+    domain = str(domain or "").lower().removeprefix("www.")
+    if domain:
+        try:
+            with open(_brand_cache_path(), encoding="utf-8") as fh:
+                cache = json.load(fh)
+        except (OSError, ValueError):
+            cache = {}
+        cache[domain] = payload
+        with _lock:
+            with open(_brand_cache_path(), "w", encoding="utf-8") as fh:
+                json.dump(cache, fh)
+    if client:
+        store = load_store(client)
+        store["brandfetch"] = payload
+        save_store(client, store)
+
+
+def brand_for(client: str, domain: str = "") -> dict | None:
+    """Stored Brandfetch data for a client (direct save or by domain)."""
+    store = load_store(client)
+    if store.get("brandfetch"):
+        return store["brandfetch"]
+    domain = re.sub(r"^https?://", "", str(domain or "").lower()).removeprefix("www.").split("/")[0]
+    if not domain:
+        return None
+    try:
+        with open(_brand_cache_path(), encoding="utf-8") as fh:
+            cache = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return cache.get(domain)
+
+
 # ------------------------------------------------------------- client lists
 def _client_websites(client: str) -> list[dict]:
     """Websites whose name/domain aligns with the client name (same loose
@@ -176,6 +303,7 @@ def seo_clients() -> list[dict]:
             "partner": ", ".join(sorted(g["partner"])),
             "setup_done": bool(store.get("setup", {}).get("completed")),
             "schema_pages": approved,
+            "status": client_status(store),
         })
     return out
 
@@ -209,6 +337,12 @@ def client_detail(client: str) -> dict:
         "sitemap_total": len(store.get("sitemap", [])),
         "pages_generated": len(pages),
         "pages_approved": sum(1 for p in pages.values() if p.get("approved")),
+        "attached": store.get("attached", {}),
+        "last_scan": store.get("last_scan"),
+        "brandfetch": brand_for(client, (webs[0]["domain"] if webs else "")),
+        "checks": store.get("checks", {}),
+        "status": client_status(store),
+        "social": get_social(client, (webs[0]["domain"] if webs else "")),
     })
     return base
 
@@ -486,6 +620,225 @@ def generate_for_pages(client: str, urls: list[str]) -> dict:
     return {"pages": results, "questions": store["questions"],
             "ai": bool(os.environ.get("OPENAI_API_KEY")) and not ai_error,
             "ai_error": ai_error}
+
+
+# ------------------------------------------------------------------ blogs
+def _freq_interval_days(setup: dict) -> float:
+    """Days between posts, from the setup answers."""
+    freq = str(setup.get("blogs_frequency") or "").strip().lower()
+    table = {"weekly": 7, "bi-weekly": 14, "biweekly": 14,
+             "twice a month": 15, "monthly": 30}
+    if freq in table:
+        return table[freq]
+    try:
+        per_month = float(setup.get("blogs_per_month") or 0)
+        if per_month > 0:
+            return max(3.0, 30.0 / per_month)
+    except (TypeError, ValueError):
+        pass
+    return 7.0  # sensible default: weekly
+
+
+def _blog_schedule(setup: dict, months: int = 3, start_date: str = "") -> list[dict]:
+    """[{date, week}] for the next N months, spaced by the blog frequency.
+    Starts next Monday, or at start_date when the client already has blogs
+    and you want to pick up from a specific point."""
+    import datetime as _dt
+    today = _dt.date.today()
+    start = today + _dt.timedelta(days=(7 - today.weekday()) % 7 or 7)  # next Monday
+    if start_date:
+        try:
+            requested = _dt.date.fromisoformat(str(start_date)[:10])
+            if requested > today:
+                start = requested
+        except ValueError:
+            pass
+    interval = _freq_interval_days(setup)
+    end = today + _dt.timedelta(days=months * 30 + 6)
+    out, d, i = [], start, 0
+    while d <= end:
+        monday = d - _dt.timedelta(days=d.weekday())
+        out.append({"date": d.isoformat(),
+                    "week": "Week of " + monday.strftime("%b %-d, %Y")})
+        i += 1
+        d = start + _dt.timedelta(days=round(interval * i))
+    return out
+
+
+_BLOG_PLAN_PROMPT = """You are an SEO content strategist for a local-business marketing agency.
+Given information about a client (their website facts, business info, and any focus areas the account
+manager provided), produce blog post topics for their upcoming schedule.
+Rules:
+- Output JSON only: {"posts": [{"title": str, "summary": str}], "questions": [str]}.
+- Produce EXACTLY the number of posts requested, in publish order.
+- Titles must be specific, locally relevant, search-intent driven (how-to, cost guides, seasonal,
+  comparisons, FAQs) — never generic filler like "Welcome to our blog".
+- Respect the requested focus areas first; spread remaining posts across the client's services.
+- Match topics to the season of the given publish dates when relevant.
+- If information that would make the topics stronger is missing (services offered, service area,
+  specials, target customers), add up to 4 short questions in "questions". Do not block on them."""
+
+_BLOG_WRITE_PROMPT = """You are an SEO content writer for a local-business marketing agency.
+Write ONE complete blog post for the client's website.
+Rules:
+- Output JSON only: {"html": str, "meta_description": str}.
+- "html" is the post BODY only (no <html>/<head>): an <h1> title, short intro, <h2> sections,
+  <ul> lists where useful, and a closing call-to-action paragraph mentioning the business name
+  and phone/city when known. 600-900 words.
+- Write naturally for humans first; work the topic's obvious search phrases into headings.
+- NEVER invent facts, prices, certifications, awards or service claims not present in the
+  provided information. Keep claims general when specifics are unknown."""
+
+
+def _openai_json(system: str, user_payload: dict, timeout: int = 120):
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    r = requests.post("https://api.openai.com/v1/chat/completions",
+                      headers={"Authorization": f"Bearer {api_key}",
+                               "Content-Type": "application/json"},
+                      json={"model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+                            "response_format": {"type": "json_object"},
+                            "temperature": 0.5,
+                            "messages": [{"role": "system", "content": system},
+                                         {"role": "user", "content": json.dumps(user_payload)}]},
+                      timeout=timeout)
+    r.raise_for_status()
+    return json.loads(r.json()["choices"][0]["message"]["content"])
+
+
+def _client_context(client: str, store: dict) -> dict:
+    """Everything the AI should know about the client."""
+    site = store.get("site_url") or ""
+    if not site:
+        rows = [c for c in seo_clients() if c["client"].lower() == client.lower()]
+        site = rows[0]["url"] if rows else ""
+    facts = {}
+    if site:
+        try:
+            facts = _page_facts(site)
+            facts["text"] = str(facts.get("text", ""))[:2500]
+        except Exception:  # noqa: BLE001
+            facts = {}
+    return {"client_name": client, "website": site,
+            "homepage_facts": {k: v for k, v in facts.items() if k != "error"},
+            "business_info": store.get("business_info", {}),
+            "answered_questions": store.get("answers", {}),
+            "blog_answers": store.get("blogs", {}).get("answers", {})}
+
+
+def blog_plan(client: str, focus: str, months: int = 3, start_date: str = "") -> dict:
+    """Create (or replace) the next-N-months blog schedule with AI titles."""
+    store = load_store(client)
+    setup = store.get("setup", {})
+    slots = _blog_schedule(setup, months, start_date)
+    ctx = _client_context(client, store)
+    ctx["focus_areas"] = focus
+    ctx["post_count"] = len(slots)
+    ctx["publish_dates"] = [s["date"] for s in slots]
+
+    posts_meta, questions, ai_error = [], [], ""
+    try:
+        out = _openai_json(_BLOG_PLAN_PROMPT, ctx) or {}
+        posts_meta = out.get("posts") or []
+        questions = [q for q in (out.get("questions") or []) if isinstance(q, str)][:6]
+    except Exception as exc:  # noqa: BLE001
+        ai_error = str(exc)
+
+    if len(posts_meta) < len(slots):        # fallback / top-up titles
+        base = ctx.get("business_info", {}).get("category") or "your services"
+        fillers = [
+            f"How to choose the right {base} provider",
+            f"5 questions to ask before hiring a {base} company",
+            f"Seasonal {base} checklist",
+            f"The real cost of {base}: what to expect",
+            f"Common {base} mistakes and how to avoid them",
+            f"{base.title()} FAQs answered by the pros",
+        ]
+        i = 0
+        while len(posts_meta) < len(slots):
+            posts_meta.append({"title": fillers[i % len(fillers)], "summary": ""})
+            i += 1
+
+    posts = []
+    for i, slot in enumerate(slots):
+        posts.append({"id": i + 1, "date": slot["date"], "week": slot["week"],
+                      "title": str(posts_meta[i].get("title") or f"Blog post {i+1}"),
+                      "summary": str(posts_meta[i].get("summary") or ""),
+                      "content": "", "status": "planned"})
+    blogs = store.setdefault("blogs", {})
+    blogs.update({"focus": focus, "months": months, "posts": posts,
+                  "questions": questions,
+                  "answers": blogs.get("answers", {})})
+    save_store(client, store)
+    return {"posts": posts, "questions": questions,
+            "ai": bool(os.environ.get("OPENAI_API_KEY")) and not ai_error,
+            "ai_error": ai_error}
+
+
+def blog_write(client: str, ids: list[int], limit: int = 3) -> dict:
+    """Write full content for up to `limit` posts; call repeatedly for more."""
+    store = load_store(client)
+    blogs = store.get("blogs", {})
+    posts = blogs.get("posts", [])
+    by_id = {p["id"]: p for p in posts}
+    todo = [i for i in ids if i in by_id and by_id[i].get("status") != "written"][:limit]
+    ctx = _client_context(client, store)
+    ctx["focus_areas"] = blogs.get("focus", "")
+    written, questions, ai_error = [], list(blogs.get("questions", [])), ""
+    for pid in todo:
+        p = by_id[pid]
+        payload = dict(ctx)
+        payload["post_title"] = p["title"]
+        payload["post_summary"] = p.get("summary", "")
+        payload["publish_date"] = p["date"]
+        out = None
+        try:
+            out = _openai_json(_BLOG_WRITE_PROMPT, payload)
+        except Exception as exc:  # noqa: BLE001
+            ai_error = str(exc)
+        if out and out.get("html"):
+            p["content"] = out["html"]
+            p["meta_description"] = out.get("meta_description", "")
+        else:                                   # fallback body
+            bi = ctx.get("business_info", {})
+            p["content"] = (
+                f"<h1>{_html.escape(p['title'])}</h1>"
+                f"<p>{_html.escape(p.get('summary') or 'Draft outline — add content here.')}</p>"
+                "<h2>What to know</h2><p>(Write section content…)</p>"
+                "<h2>Why it matters</h2><p>(Write section content…)</p>"
+                f"<p>Contact {_html.escape(bi.get('name') or client)}"
+                + (f" at {_html.escape(bi['phone'])}" if bi.get("phone") else "")
+                + " to learn more.</p>")
+        p["status"] = "written"
+        written.append(p)
+    save_store(client, store)
+    remaining = [i for i in ids if i in by_id and by_id[i].get("status") != "written"]
+    return {"written": written, "remaining": remaining, "questions": questions,
+            "ai": bool(os.environ.get("OPENAI_API_KEY")) and not ai_error,
+            "ai_error": ai_error}
+
+
+def blogs_doc(client: str, ids=None) -> str:
+    """Single Word-openable HTML document with the selected blog posts."""
+    store = load_store(client)
+    posts = store.get("blogs", {}).get("posts", [])
+    if ids:
+        posts = [p for p in posts if p["id"] in ids]
+    parts = ["""<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8">
+<title>Blog posts — """ + _html.escape(client) + """</title>
+<style>body{font-family:Calibri,Segoe UI,sans-serif;max-width:760px;margin:24px auto;color:#1e293b;line-height:1.55}
+h1{color:#1a2e58;font-size:22pt} h2{color:#1a2e58;font-size:14pt}
+.blogmeta{color:#64748b;font-size:10pt;margin-bottom:14px}
+.postbreak{page-break-before:always;border-top:2px solid #e2e8f0;margin-top:30px;padding-top:20px}</style></head><body>"""]
+    parts.append(f"<p class='blogmeta'>Blog posts for <b>{_html.escape(client)}</b> — "
+                 f"prepared by Smart 1 Marketing</p>")
+    for i, p in enumerate(posts):
+        wrap = "<div class='postbreak'>" if i else "<div>"
+        body = p.get("content") or f"<h1>{_html.escape(p['title'])}</h1><p><i>Not written yet.</i></p>"
+        parts.append(f"{wrap}<p class='blogmeta'>{_html.escape(p['week'])} · scheduled {_html.escape(p['date'])}</p>{body}</div>")
+    parts.append("</body></html>")
+    return "\n".join(parts)
 
 
 # ------------------------------------------------------------ compiled file

@@ -2,6 +2,11 @@
 {% block title %}SEO — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head"><h2>SEO Clients</h2><p>Every client with a live SEO product — click one to manage accounts, schema &amp; setup</p></div>
+<div class="seo-summary" id="seoSummary" style="display:none">
+  <div class="seo-sum-tile"><div class="v" id="sumClients">—</div><div class="l">SEO clients</div></div>
+  <div class="seo-sum-tile"><div class="v" id="sumBilling">—</div><div class="l">Total SEO billing / mo</div></div>
+  <div class="seo-sum-tile"><div class="v" id="sumBlogs">—</div><div class="l">With blogs</div></div>
+</div>
 <div class="card qa-card" style="padding:0;overflow:hidden">
   <div style="overflow-x:auto" id="seoWrap"><div class="seo-loading">Loading SEO clients&hellip;</div></div>
 </div>
@@ -19,7 +24,12 @@ table.seo-t tr:hover td{background:#f4f6fa}
   font-size:11px;font-weight:600;margin:1px 3px 1px 0}
 .seo-pill.ok{background:#dcfce7;color:#166534}
 .seo-pill.warn{background:#fef9c3;color:#854d0e}
+.seo-pill.bad{background:#fee2e2;color:#b91c1c}
 .seo-billing{font-weight:700;white-space:nowrap}
+.seo-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.seo-sum-tile{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 18px}
+.seo-sum-tile .v{font-size:24px;font-weight:800;color:#1a2e58}
+.seo-sum-tile .l{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#64748b;margin-top:2px}
 </style>
 {% endblock %}
 {% block scripts %}
@@ -27,10 +37,23 @@ table.seo-t tr:hover td{background:#f4f6fa}
 (function(){
   var wrap=document.getElementById('seoWrap');
   function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+  function statusDots(st){
+    var items=[['setup','Setup'],['schema','Schema'],['listings','Listings'],['blogs','Blogs']];
+    return items.map(function(it){
+      var on=!!st[it[0]];
+      return '<span class="seo-pill '+(on?'ok':'bad')+'" title="'+it[1]+': '+(on?'yes':'no')+'">'+it[1]+'</span>';
+    }).join('');
+  }
   fetch('/api/seo/clients').then(function(r){return r.json();}).then(function(d){
     if(d.error){wrap.innerHTML='<div class="seo-loading">'+esc(d.error)+'</div>';return;}
     var rows=d.clients||[];
     if(!rows.length){wrap.innerHTML='<div class="seo-loading">No clients with a live SEO product.</div>';return;}
+    var totBill=0, totBlogs=0;
+    rows.forEach(function(c){totBill+=Number(c.billing||0);if(c.blogs)totBlogs++;});
+    document.getElementById('seoSummary').style.display='grid';
+    document.getElementById('sumClients').textContent=rows.length;
+    document.getElementById('sumBilling').textContent='$'+totBill.toLocaleString();
+    document.getElementById('sumBlogs').textContent=totBlogs;
     var h='<table class="seo-t"><thead><tr><th>Client</th><th>Website</th><th>Site type</th><th>SEO products</th><th>Billing / mo</th><th>Status</th></tr></thead><tbody>';
     rows.forEach(function(c){
       h+='<tr data-name="'+esc(c.client)+'">'
@@ -39,8 +62,7 @@ table.seo-t tr:hover td{background:#f4f6fa}
         +'<td>'+esc(c.platform||'—')+'</td>'
         +'<td>'+(c.products||[]).map(function(p){return '<span class="seo-pill">'+esc(p)+'</span>';}).join('')+'</td>'
         +'<td class="seo-billing">$'+Number(c.billing||0).toLocaleString()+'</td>'
-        +'<td>'+(c.setup_done?'<span class="seo-pill ok">Setup done</span>':'<span class="seo-pill warn">Needs setup</span>')
-        +(c.schema_pages?'<span class="seo-pill ok">'+c.schema_pages+' schemas</span>':'')+'</td>'
+        +'<td style="white-space:nowrap">'+statusDots(c.status||{})+'</td>'
         +'</tr>';
     });
     h+='</tbody></table>';

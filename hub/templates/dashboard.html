@@ -17,6 +17,7 @@
   <div class="kpi"><div class="k-label">Increased Budgets</div><div class="k-value" id="k-up">—</div><div class="k-sub" id="k-up-sub">customers up vs last month</div></div>
   <div class="kpi"><div class="k-label">Decreased Budgets</div><div class="k-value" id="k-down">—</div><div class="k-sub" id="k-down-sub">customers down vs last month</div></div>
   <div class="kpi"><div class="k-label">Website Movement</div><div class="k-value" id="k-move">—</div><div class="k-sub" id="k-move-sub">active sites vs last month</div></div>
+  <div class="kpi" style="cursor:pointer" onclick="location.href='/seo'"><div class="k-label">SEO Clients</div><div class="k-value" id="k-seo">—</div><div class="k-sub" id="k-seo-sub">live SEO products</div></div>
 </div>
 
 <div class="grid-2">
@@ -65,14 +66,24 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
     $('k-move').style.color=m>0?'var(--ok)':(m<0?'var(--danger)':'');
     $('k-move-sub').textContent='active sites '+vs;
   }
+  if(s.seo_clients!==null&&s.seo_clients!==undefined){
+    $('k-seo').textContent=fmt(s.seo_clients);
+    $('k-seo-sub').textContent='$'+fmt(s.seo_billing_monthly)+'/mo SEO billing';
+  }
 }).catch(()=>{$('k-clients').textContent='—'});
 
 fetch('/api/status').then(r=>r.json()).then(d=>{
-  const rows=(d.checks||[]).map(c=>{
-    const cls=c.status==='ok'?'ok':(c.status==='warn'?'warn':(c.status==='skipped'?'neutral':'err'));
-    return `<tr><td style="width:40%"><b>${esc(c.name)}</b></td><td><span class="pill ${cls}">${esc(c.status)}</span> <span class="muted">${esc(c.message)}</span></td></tr>`;
-  }).join('');
-  $('mini-status').innerHTML='<tbody>'+(rows||'<tr><td class="empty">No checks.</td></tr>')+'</tbody>';
+  const checks=d.checks||[];
+  const ok=checks.filter(c=>c.status==='ok').length;
+  const warn=checks.filter(c=>c.status==='warn').length;
+  const errs=checks.filter(c=>c.status==='error');
+  let rows=`<tr><td colspan="2" style="padding:14px">
+    <span style="display:inline-block;background:#dcfce7;color:#166534;border-radius:20px;padding:5px 14px;font-weight:800;font-size:14px">&#10003; ${ok} checks OK</span>
+    ${warn?`<span class="muted" style="margin-left:10px;font-size:12.5px">${warn} warning${warn>1?'s':''} — <a href="/status">details</a></span>`:''}
+    ${!errs.length?'<span class="muted" style="margin-left:10px;font-size:12.5px">no issues</span>':''}
+  </td></tr>`;
+  rows+=errs.map(c=>`<tr><td style="width:40%"><b style="color:var(--danger)">${esc(c.name)}</b></td><td><span class="pill err">error</span> <span class="muted">${esc(c.message)}</span></td></tr>`).join('');
+  $('mini-status').innerHTML='<tbody>'+rows+'</tbody>';
 });
 
 fetch('/api/activity?limit=8').then(r=>r.json()).then(d=>{

@@ -234,7 +234,7 @@ def api_brand():
                 social[k] = link["url"]
 
         loc = (data.get("company") or {}).get("location") or {}
-        return jsonify({
+        payload = {
             "name": data.get("name"),
             "domain": data.get("domain") or domain,
             "description": data.get("description"),
@@ -249,7 +249,15 @@ def api_brand():
                 "countryName": loc.get("country") or "",
             },
             "website": f"https://{data.get('domain') or domain}",
-        })
+        }
+        # Persist for the whole hub: any client form can autofill from this.
+        try:
+            from hub import seo as _hub_seo
+            _hub_seo.save_brandfetch(payload["domain"], payload,
+                                     client=(request.args.get("client") or "").strip())
+        except Exception:  # noqa: BLE001 — persistence is best-effort
+            pass
+        return jsonify(payload)
     except requests.RequestException as exc:
         return jsonify({"error": f"Could not reach Brandfetch: {exc}"}), 502
 

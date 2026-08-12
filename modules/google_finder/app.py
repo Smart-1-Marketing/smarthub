@@ -1037,6 +1037,222 @@ def api_ga4_anomalies():
         return jsonify({"error": f"Anomaly detection failed: {exc}"}), 500
 
 
+@app.route("/api/ga4/seo-snapshot", methods=["POST"])
+def api_ga4_seo_snapshot():
+    """This-month organic metrics + AI-engine referral traffic for one
+    property. Used by the Hub's SEO client page."""
+    data = request.json or {}
+    property_id = str(data.get("property_id", "")).strip()
+    google_login = str(data.get("google_login", "")).strip().lower()
+    if not property_id or not google_login:
+        return jsonify({"error": "Missing Property ID or Login Email."}), 400
+    account = next((a for a in connected_accounts() if a["email"] == google_login), None)
+    if not account:
+        return jsonify({"error": f"Account {google_login} is not connected."}), 404
+
+    from datetime import date
+    start = date.today().replace(day=1).isoformat()
+    metrics = [{"name": "totalUsers"}, {"name": "sessions"},
+               {"name": "engagementRate"}, {"name": "eventCount"},
+               {"name": "averageSessionDuration"}]
+
+    def _vals(row):
+        v = row.get("metricValues", [])
+        def g(i, cast=float):
+            try:
+                return cast(v[i]["value"])
+            except (IndexError, KeyError, ValueError):
+                return 0
+        return {"users": int(g(0)), "sessions": int(g(1)),
+                "engagement_rate": round(g(2) * 100, 1),
+                "events": int(g(3)), "avg_session_seconds": round(g(4))}
+
+    try:
+        access_token = refresh_access_token(google_login, account["refresh_token"])
+        url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
+
+        organic_req = {
+            "dateRanges": [{"startDate": start, "endDate": "today"}],
+            "metrics": metrics,
+            "dimensionFilter": {"filter": {
+                "fieldName": "sessionDefaultChannelGroup",
+                "stringFilter": {"matchType": "EXACT", "value": "Organic Search"}}},
+        }
+        organic_rows = google_post(access_token, url, organic_req).get("rows", [])
+        organic = _vals(organic_rows[0]) if organic_rows else {
+            "users": 0, "sessions": 0, "engagement_rate": 0, "events": 0,
+            "avg_session_seconds": 0}
+
+        ai_req = {
+            "dateRanges": [{"startDate": start, "endDate": "today"}],
+            "dimensions": [{"name": "sessionSource"}],
+            "metrics": metrics,
+            "dimensionFilter": {"filter": {
+                "fieldName": "sessionSource",
+                "stringFilter": {
+                    "matchType": "PARTIAL_REGEXP",
+                    "value": (r"chatgpt|chat\.openai|openai\.com|perplexity|gemini\.google|"
+                              r"bard\.google|copilot|edgeservices|claude\.ai|anthropic|"
+                              r"deepseek|you\.com|poe\.com|meta\.ai|mistral|grok|x\.ai"),
+                    "caseSensitive": False}}},
+            "orderBys": [{"metric": {"metricName": "sessions"}, "desc": True}],
+            "limit": 25,
+        }
+        ai_rows = google_post(access_token, url, ai_req).get("rows", [])
+        ai_sources, ai_total = [], {"users": 0, "sessions": 0, "events": 0,
+                                    "engagement_rate": 0.0, "avg_session_seconds": 0.0}
+        for row in ai_rows:
+            src = (row.get("dimensionValues") or [{}])[0].get("value", "")
+            m = _vals(row)
+            m["source"] = src
+            ai_sources.append(m)
+            ai_total["users"] += m["users"]
+            ai_total["sessions"] += m["sessions"]
+            ai_total["events"] += m["events"]
+            ai_total["engagement_rate"] += m["engagement_rate"] * m["sessions"]
+            ai_total["avg_session_seconds"] += m["avg_session_seconds"] * m["sessions"]
+        if ai_total["sessions"]:
+            ai_total["engagement_rate"] = round(ai_total["engagement_rate"] / ai_total["sessions"], 1)
+            ai_total["avg_session_seconds"] = round(ai_total["avg_session_seconds"] / ai_total["sessions"])
+        else:
+            ai_total["engagement_rate"] = 0
+            ai_total["avg_session_seconds"] = 0
+
+        return jsonify({"month_start": start, "organic": organic,
+                        "ai_sources": ai_sources, "ai_total": ai_total})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"GA4 snapshot failed: {exc}"}), 500
+
+
+@app.route("/api/ga4/monthly-summary", methods=["POST"])
+def api_ga4_monthly_summary():
+    """Last full month vs the month before: totals + top source/mediums.
+    Powers the Client 360 traffic summary card."""
+    data = request.json or {}
+    property_id = str(data.get("property_id", "")).strip()
+    google_login = str(data.get("google_login", "")).strip().lower()
+    if not property_id or not google_login:
+        return jsonify({"error": "Missing Property ID or Login Email."}), 400
+    account = next((a for a in connected_accounts() if a["email"] == google_login), None)
+    if not account:
+        return jsonify({"error": f"Account {google_login} is not connected."}), 404
+
+    from datetime import date, timedelta
+    first_this = date.today().replace(day=1)
+    last_end = first_this - timedelta(days=1)          # end of last month
+    last_start = last_end.replace(day=1)
+    prev_end = last_start - timedelta(days=1)
+    prev_start = prev_end.replace(day=1)
+
+    METRICS = ["sessions", "engagedSessions", "activeUsers",
+               "userEngagementDuration", "eventCount", "keyEvents"]
+
+    def parse_metrics(row):
+        out = {}
+        for i, name in enumerate(METRICS):
+            try:
+                out[name] = float(row.get("metricValues", [])[i].get("value") or 0)
+            except (IndexError, ValueError, AttributeError):
+                out[name] = 0.0
+        return out
+
+    def derive(m):
+        """The five displayed metrics from the raw pull."""
+        users = m["activeUsers"] or 0
+        return {
+            "sessions": int(m["sessions"]),
+            "engaged_sessions": int(m["engagedSessions"]),
+            "avg_engagement_seconds": round(m["userEngagementDuration"] / users) if users else 0,
+            "events": int(m["eventCount"]),
+            "key_events": int(m["keyEvents"]),
+        }
+
+    def pct(cur, prev):
+        if not prev:
+            return None if not cur else 100.0
+        return round((cur - prev) / prev * 100, 1)
+
+    try:
+        access_token = refresh_access_token(google_login, account["refresh_token"])
+        url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
+        ranges = [{"startDate": last_start.isoformat(), "endDate": last_end.isoformat()},
+                  {"startDate": prev_start.isoformat(), "endDate": prev_end.isoformat()}]
+        mreq = [{"name": n} for n in METRICS]
+
+        # ---- totals (two date ranges -> implicit dateRange dimension) ----
+        totals_rows = google_post(access_token, url, {
+            "dateRanges": ranges, "metrics": mreq}).get("rows", [])
+        cur_raw = prev_raw = {n: 0.0 for n in METRICS}
+        for row in totals_rows:
+            tag = "".join(d.get("value", "") for d in row.get("dimensionValues", []))
+            if "date_range_1" in tag:
+                prev_raw = parse_metrics(row)
+            else:
+                cur_raw = parse_metrics(row)
+        cur, prev = derive(cur_raw), derive(prev_raw)
+        deltas = {k: pct(cur[k], prev[k]) for k in cur}
+
+        # ---- breakdown by source/medium, both ranges merged ----
+        br_rows = google_post(access_token, url, {
+            "dateRanges": ranges,
+            "dimensions": [{"name": "sessionSourceMedium"}],
+            "metrics": mreq,
+            "orderBys": [{"metric": {"metricName": "sessions"}, "desc": True}],
+            "limit": 60,
+        }).get("rows", [])
+        by_src = {}
+        for row in br_rows:
+            dims = row.get("dimensionValues", [])
+            src = dims[0].get("value", "") if dims else ""
+            tag = "".join(d.get("value", "") for d in dims[1:])
+            rec = by_src.setdefault(src, {"cur": None, "prev": None})
+            if "date_range_1" in tag:
+                rec["prev"] = parse_metrics(row)
+            else:
+                rec["cur"] = parse_metrics(row)
+        breakdown = []
+        for src, rec in by_src.items():
+            c = derive(rec["cur"] or {n: 0.0 for n in METRICS})
+            p = derive(rec["prev"] or {n: 0.0 for n in METRICS})
+            breakdown.append({"source_medium": src, "current": c, "previous": p,
+                              "delta_sessions": pct(c["sessions"], p["sessions"])})
+        breakdown.sort(key=lambda b: -b["current"]["sessions"])
+        breakdown = breakdown[:10]
+
+        # ---- positive executive summary ----
+        label_cur = last_start.strftime("%B %Y")
+        label_prev = prev_start.strftime("%B %Y")
+        names = {"sessions": "sessions", "engaged_sessions": "engaged sessions",
+                 "avg_engagement_seconds": "average engagement time",
+                 "events": "total events", "key_events": "key events"}
+        ups = [(k, deltas[k]) for k in names if deltas.get(k) is not None and deltas[k] > 0]
+        downs = [(k, deltas[k]) for k in names if deltas.get(k) is not None and deltas[k] < 0]
+        ups.sort(key=lambda t: -t[1])
+        parts = []
+        if ups:
+            lead = ", ".join(f"{names[k]} up {v:+.1f}%".replace("+", "") for k, v in ups[:3])
+            parts.append(f"{label_cur} showed solid momentum: {lead} versus {label_prev}.")
+        else:
+            parts.append(f"{label_cur} held steady against {label_prev}, keeping a consistent "
+                         "baseline of visitors engaging with the site.")
+        if cur["key_events"]:
+            parts.append(f"The site drove {cur['key_events']:,} key events from "
+                         f"{cur['sessions']:,} sessions.")
+        elif cur["sessions"]:
+            parts.append(f"The site welcomed {cur['sessions']:,} sessions with "
+                         f"{cur['engaged_sessions']:,} of them actively engaged.")
+        if downs:
+            soft = ", ".join(names[k] for k, _ in downs[:2])
+            parts.append(f"Continued optimization is focused on {soft} to build on this momentum.")
+        summary = " ".join(parts)
+
+        return jsonify({"period": {"current": label_cur, "previous": label_prev},
+                        "summary": summary, "current": cur, "previous": prev,
+                        "deltas": deltas, "breakdown": breakdown})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"GA4 monthly summary failed: {exc}"}), 500
+
+
 @app.route("/api/ga4/ask", methods=["POST"])
 def api_ga4_ask():
     data = request.json or {}

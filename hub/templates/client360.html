@@ -70,6 +70,7 @@ function pick(i){
 }
 
 function render(g,q){
+  window.__trafficStarted=null;
   const name=g.client||q;
   const liveCount=g.products.filter(p=>String(p.status||'').toLowerCase()==='live').length;
   const web0=(g.websites||[])[0]||null;
@@ -145,6 +146,12 @@ function render(g,q){
   } else html+='<div class="empty">No GTM container on record for this client.</div>';
   html+='</div></div>';
 
+  // ---------- Social Media ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Social</span><h3>Social Media</h3><a class="open-link" id="c-social-save" style="cursor:pointer">Save →</a></div><div class="card-b" id="c-social"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Traffic Summary (GA4: last month vs previous) ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span></div><div class="card-b" id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div>`;
+
   // ---------- Smart 1 Suite Account ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
@@ -199,13 +206,14 @@ function render(g,q){
       .then(r=>r.status===401?{noauth:true}:r.json()).then(d=>Object.assign({term:t},d)).catch(()=>null)
   )).then(all=>{
     all=all.filter(Boolean);
-    if(all.some(a=>a.noauth)){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';return}
+    if(all.some(a=>a.noauth)){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';maybeTraffic(name,[]);return}
     const seen=new Set(),res=[];
     all.forEach(a=>(a.results||[]).forEach(it=>{
       const k=(it.platform||'')+'|'+(it.resource_id||'')+'|'+(it.google_login||'');
       if(!seen.has(k)){seen.add(k);it._via=a.term;res.push(it);}
     }));
-    if(!res.length){$('c-google').innerHTML='<div class="empty">No GA4/GTM matches for '+gTerms.map(t=>'\u201c'+esc(t)+'\u201d').join(', ')+'.</div>';return}
+    maybeTraffic(name,res);
+    if(!res.length){$('c-google').innerHTML='<div class="empty">No GA4/GTM matches for '+gTerms.map(t=>'\u201c'+esc(t)+'\u201d').join(', ')+' \u2014 you can search &amp; attach one in the Traffic Summary card below.</div>';return}
     $('c-google').innerHTML=res.slice(0,10).map(it=>`
       <div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
         <b>${esc(it.name||'—')}</b> <span class="pill ${it.platform==='Google Analytics'?'info':'warn'}">${esc(it.platform||'')}</span>
@@ -213,7 +221,7 @@ function render(g,q){
         <div class="muted" style="font-size:12px;margin-top:2px">${esc(it.resource_id||'')} · ${esc(it.google_login||'')}</div>
         ${gbtns(googleTools(it.platform,it.name,it.resource_id))}
       </div>`).join('');
-  }).catch(()=>{$('c-google').innerHTML='<div class="empty">Google module unavailable.</div>'});
+  }).catch(()=>{$('c-google').innerHTML='<div class="empty">Google module unavailable.</div>';maybeTraffic(name,[]);});
 
   // Smart 1 Suite account — with prefilled "Add" when there's no match.
   const addBtn=()=>{
@@ -265,6 +273,32 @@ function render(g,q){
       return h;
     }).join('');
   }).catch(()=>{$('c-qb').innerHTML='<div class="empty">QuickBooks lookup unavailable.</div>'});
+
+  // Social Media — shared store with the SEO page
+  const SOCIAL_KEYS=['facebook','instagram','linkedin','twitter','youtube','tiktok','pinterest','yelp','gbp'];
+  fetch('/api/client/social?name='+encodeURIComponent(name)+(web0&&web0.domain?'&domain='+encodeURIComponent(web0.domain):''))
+    .then(r=>r.json()).then(d=>{
+      const social=d.social||{};
+      $('c-social').innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px">'
+        +SOCIAL_KEYS.map(k=>{
+          const v=social[k]||'';
+          return `<div style="display:flex;gap:6px;align-items:center">
+            <b style="width:74px;flex:none;font-size:12px;color:var(--muted);text-transform:capitalize">${k==='gbp'?'Google Biz':esc(k)}</b>
+            <input data-sk="${k}" value="${esc(v)}" placeholder="https://…" style="flex:1;min-width:0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit">
+            ${v?`<a href="${esc(v)}" target="_blank" rel="noopener" style="flex:none">↗</a>`:''}
+          </div>`;}).join('')+'</div>';
+      const saveBtn=document.getElementById('c-social-save');
+      if(saveBtn) saveBtn.onclick=()=>{
+        const soc={};
+        document.querySelectorAll('#c-social input').forEach(i=>{soc[i.dataset.sk]=i.value.trim();});
+        fetch('/api/client/social',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,social:soc})})
+          .then(r=>r.json()).then(res=>{
+            saveBtn.textContent=res.error?('Error: '+res.error):'Saved ✓';
+            setTimeout(()=>{saveBtn.textContent='Save →';},1600);
+          });
+      };
+    }).catch(()=>{$('c-social').innerHTML='<div class="empty">Social links unavailable.</div>'});
 }
 
 // ---------- Creative gallery ----------
@@ -309,6 +343,111 @@ function openAllFiles(){
     if(i<items.length)setTimeout(next,450);
   };
   next();
+}
+
+// ---------- Traffic Summary: last month vs previous, attach-aware ----------
+function fmtEng(sec){sec=Math.round(sec||0);return Math.floor(sec/60)+'m '+(sec%60)+'s';}
+function deltaPill(v){
+  if(v===null||v===undefined)return '<span class="muted" style="font-size:11px">new</span>';
+  const up=v>=0;
+  return `<span style="font-weight:700;color:${up?'#16a34a':'#dc2626'};white-space:nowrap">${up?'▲':'▼'} ${Math.abs(v).toFixed(1)}%</span>`;
+}
+function maybeTraffic(clientName,googleResults){
+  if(window.__trafficStarted===clientName)return;   // once per search
+  window.__trafficStarted=clientName;
+  fetch('/api/client/links?name='+encodeURIComponent(clientName))
+    .then(r=>r.json()).then(d=>{
+      const att=(d.attached||{}).analytics;
+      if(att&&att.resource_id){
+        $('c-traffic-meta').textContent=(att.name||att.resource_id)+' · '+(att.google_login||'')+' · attached';
+        return c360Traffic(att.resource_id,att.google_login);
+      }
+      const ga=(googleResults||[]).find(it=>it.platform==='Google Analytics');
+      if(ga){
+        $('c-traffic-meta').textContent=(ga.name||ga.resource_id)+' · '+ga.google_login;
+        return c360Traffic(ga.resource_id,ga.google_login);
+      }
+      showTrafficAttach(clientName);
+    }).catch(()=>showTrafficAttach(clientName));
+}
+function showTrafficAttach(clientName){
+  $('c-traffic').innerHTML=`<div class="empty">No Analytics property found for this client — search your connected Google accounts and attach one. It will be used everywhere this client appears going forward.<br><br>
+    <div style="display:flex;gap:8px;max-width:520px;margin:0 auto">
+      <input id="ta-q" placeholder="Search by client name or domain…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit" value="${esc(clientName)}">
+      <a class="gbtn" id="ta-go" style="cursor:pointer">Search</a>
+    </div><div id="ta-res" style="max-width:520px;margin:10px auto 0;text-align:left"></div></div>`;
+  const go=()=>{
+    const q=$('ta-q').value.trim(); if(!q)return;
+    $('ta-res').innerHTML='<div class="empty">Searching… <span class="spin"></span></div>';
+    fetch('/google/api/search?q='+encodeURIComponent(q)+'&platform=analytics').then(r=>r.json()).then(d=>{
+      const items=(d.results||[]).filter(x=>x.platform==='Google Analytics');
+      if(!items.length){$('ta-res').innerHTML='<div class="empty">No matches — try a domain, or connect the owning Google login in the <a href="/google/">Google module</a>.</div>';return}
+      $('ta-res').innerHTML=items.slice(0,6).map((x,i)=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff">
+          <div><b>${esc(x.name||x.resource_id)}</b> <span class="muted" style="font-size:11.5px">${esc(x.resource_id)}</span>
+          <div class="muted" style="font-size:11px">${esc(x.google_login)} · ${esc(x.account_name||'')}</div></div>
+          <a class="gbtn ta-attach" data-i="${i}" style="cursor:pointer">Attach →</a>
+        </div>`).join('');
+      document.querySelectorAll('.ta-attach').forEach(btn=>{
+        btn.onclick=()=>{
+          const x=items[parseInt(btn.dataset.i,10)];
+          fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({client:clientName,kind:'analytics',
+              data:{name:x.name,resource_id:x.resource_id,google_login:x.google_login,account_id:x.account_id}})})
+            .then(r=>r.json()).then(res=>{
+              if(res.error){$('ta-res').innerHTML='<div class="empty">'+esc(res.error)+'</div>';return}
+              $('c-traffic-meta').textContent=(x.name||x.resource_id)+' · '+x.google_login+' · attached';
+              c360Traffic(x.resource_id,x.google_login);   // attach auto-runs the report
+            });
+        };
+      });
+    });
+  };
+  $('ta-go').onclick=go;
+  $('ta-q').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+}
+function c360Traffic(propertyId,googleLogin){
+  $('c-traffic').innerHTML='<div class="empty">Pulling last month vs the previous period… <span class="spin"></span></div>';
+  fetch('/google/api/ga4/monthly-summary',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({property_id:propertyId,google_login:googleLogin})})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){$('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+      const cur=d.current||{},prev=d.previous||{},del=d.deltas||{};
+      const rows=[
+        ['Sessions',cur.sessions,prev.sessions,del.sessions,v=>Number(v||0).toLocaleString()],
+        ['Engaged sessions',cur.engaged_sessions,prev.engaged_sessions,del.engaged_sessions,v=>Number(v||0).toLocaleString()],
+        ['Avg engagement time',cur.avg_engagement_seconds,prev.avg_engagement_seconds,del.avg_engagement_seconds,fmtEng],
+        ['Total events',cur.events,prev.events,del.events,v=>Number(v||0).toLocaleString()],
+        ['Total key events',cur.key_events,prev.key_events,del.key_events,v=>Number(v||0).toLocaleString()],
+      ];
+      let h=`<div style="background:#eef6ff;border:1px solid #cfe3ff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13.5px;line-height:1.55">
+        <b>Executive summary — ${esc((d.period||{}).current||'last month')}:</b> ${esc(d.summary||'')}</div>`;
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px">';
+      rows.forEach(([label,c,p,dl,fmt])=>{
+        h+=`<div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 14px">
+          <div class="muted" style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">${label}</div>
+          <div style="font-size:20px;font-weight:800;color:var(--navy);margin-top:3px">${fmt(c)}</div>
+          <div style="font-size:11.5px;margin-top:2px">${deltaPill(dl)} <span class="muted">vs ${fmt(p)}</span></div>
+        </div>`;
+      });
+      h+='</div>';
+      const br=d.breakdown||[];
+      if(br.length){
+        h+=`<div class="muted" style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Top ${br.length} source / medium — ${esc((d.period||{}).current||'')}</div>`;
+        h+='<table><thead><tr><th>Source / Medium</th><th>Sessions</th><th>Engaged</th><th>Avg engagement</th><th>Events</th><th>Key events</th></tr></thead><tbody>';
+        br.forEach(b=>{
+          const c=b.current||{},p=b.previous||{};
+          h+=`<tr><td><b>${esc(b.source_medium||'—')}</b></td>
+            <td>${Number(c.sessions||0).toLocaleString()} ${deltaPill(b.delta_sessions)}</td>
+            <td>${Number(c.engaged_sessions||0).toLocaleString()}</td>
+            <td>${fmtEng(c.avg_engagement_seconds)}</td>
+            <td>${Number(c.events||0).toLocaleString()}</td>
+            <td>${Number(c.key_events||0).toLocaleString()}</td></tr>`;
+        });
+        h+='</tbody></table>';
+      }
+      $('c-traffic').innerHTML=h;
+    }).catch(e=>{$('c-traffic').innerHTML='<div class="empty">'+esc(String(e))+'</div>'});
 }
 
 {% if q %}run();{% endif %}
