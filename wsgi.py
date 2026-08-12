@@ -95,7 +95,7 @@ class HubBar:
         status = captured.get("status", "500 Internal Server Error")
         headers = captured.get("headers", [])
         ctype = next((v for k, v in headers if k.lower() == "content-type"), "")
-        is_html = "text/html" in ctype and status.startswith("200")
+        is_html = "text/html" in ctype
         if not is_html:
             start_response(status, headers, captured.get("exc_info"))
             return result

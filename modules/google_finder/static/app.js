@@ -967,3 +967,25 @@ if (manualBtn && manualInput) {
     `;
   });
 }
+
+
+/* ---------- Hub deep links: ?q= prefills + runs the search on this page ---------- */
+window.addEventListener('DOMContentLoaded', () => {
+  const hubQ = new URLSearchParams(location.search).get('q');
+  if (!hubQ) return;
+  const fire = (el, val) => {
+    if (!el) return false;
+    el.value = val;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('keyup', { bubbles: true }));
+    return true;
+  };
+  // page-appropriate target, in priority order
+  const digits = (hubQ.match(/\d{6,}/) || [])[0];
+  if (document.getElementById('q')) return void fire(document.getElementById('q'), hubQ);
+  if (document.getElementById('gtm-lookup-q')) return void fire(document.getElementById('gtm-lookup-q'), hubQ);
+  if (document.getElementById('gsc-lookup-q')) return void fire(document.getElementById('gsc-lookup-q'), hubQ);
+  if (document.getElementById('manual-q')) return void fire(document.getElementById('manual-q'), hubQ);
+  if (document.getElementById('search-saved-q')) return void fire(document.getElementById('search-saved-q'), hubQ);
+  if (digits && document.getElementById('comp-property-id')) fire(document.getElementById('comp-property-id'), digits);
+});

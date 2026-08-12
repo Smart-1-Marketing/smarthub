@@ -9,6 +9,21 @@
 </form>
 <div id="picker" class="c360-picker" style="display:none"></div>
 <div id="results"></div>
+
+<!-- Creative gallery modal -->
+<div id="galModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.78);z-index:100001;padding:24px" onclick="if(event.target===this)closeGallery()">
+  <div style="max-width:1000px;margin:0 auto;background:#fff;border-radius:14px;max-height:calc(100vh - 48px);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.4)">
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)">
+      <h3 style="color:var(--navy);font-size:15px" id="galTitle">Creative files</h3>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn-ghost" onclick="openAllFiles()" title="Opens each file in its own tab — allow pop-ups for this site">&#8681; Open / download all</button>
+        <button class="btn-ghost" onclick="closeGallery()">✕ Close</button>
+      </div>
+    </div>
+    <div id="galGrid" style="overflow:auto;padding:18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px"></div>
+    <div class="muted" style="padding:10px 18px;border-top:1px solid var(--line-soft);font-size:12px">Click a tile to open the file. Drive and image files show previews; other file types open at their source.</div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -21,8 +36,8 @@ let groups=[];
 const KIND_ICON={gdrive:'&#128193; Drive',pdf:'&#128462; PDF',dropbox:'&#128230; Dropbox',image:'&#128444; Image',file:'&#128206; File'};
 
 // Google Finder functions attached to each Google result.
-function googleTools(platform,name){
-  const q=encodeURIComponent(name||'');
+function googleTools(platform,name,rid){
+  const q=encodeURIComponent(rid||name||'');
   const P=String(platform||'');
   if(P==='Google Analytics') return [
     ['GA4 Tools','/google/ga-tools?q='+q],['Compare / AI analysis','/google/ga-tools?q='+q+'#compare'],['History & Logs','/google/history?q='+q]];
@@ -75,27 +90,38 @@ function render(g,q){
   let html=head+'<div class="grid-2">';
 
   // ---------- Smart 1 Team: products & IOs ----------
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs</h3><a class="open-link" href="/clients">Open in Clients →</a></div><div class="card-b flush">`;
+  const clientsLink='/clients?q='+encodeURIComponent(name);
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs</h3><a class="open-link" href="${clientsLink}">Open in Clients →</a></div><div class="card-b flush">`;
+  const prodRow=p=>{
+    const live=String(p.status||'').toLowerCase()==='live';
+    return `<tr><td><b>${esc(p.product||'—')}</b>${p.dash?' <span class="pill info">dash</span>':''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td><td class="muted">${esc(p.io||'')}</td></tr>`;
+  };
+  const liveProds=g.products.filter(p=>String(p.status||'').toLowerCase()==='live');
+  const doneProds=g.products.filter(p=>String(p.status||'').toLowerCase()!=='live');
   if(g.products.length){
     html+='<table><thead><tr><th>Product</th><th>Status</th><th>Monthly</th><th>IO</th></tr></thead><tbody>';
-    g.products.slice(0,10).forEach(p=>{
-      const live=String(p.status||'').toLowerCase()==='live';
-      html+=`<tr><td><b>${esc(p.product||'—')}</b>${p.dash?' <span class="pill info">dash</span>':''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td><td class="muted">${esc(p.io||'')}</td></tr>`;
-    });
+    html+=liveProds.slice(0,15).map(prodRow).join('');
+    if(!liveProds.length)html+='<tr><td colspan="4" class="empty">No live products right now.</td></tr>';
     html+='</tbody></table>';
-    if(g.products.length>10)html+=`<div class="empty">+${g.products.length-10} more in the Clients module</div>`;
+    if(doneProds.length){
+      html+=`<div style="padding:10px 14px;border-top:1px solid var(--line-soft)"><button class="btn-ghost" onclick="const el=document.getElementById('doneProds');const on=el.style.display==='none';el.style.display=on?'block':'none';this.textContent=on?'Hide completed / other (${doneProds.length})':'Show completed / other (${doneProds.length})'">Show completed / other (${doneProds.length})</button></div>`;
+      html+=`<div id="doneProds" style="display:none"><table><tbody>${doneProds.slice(0,25).map(prodRow).join('')}</tbody></table>`;
+      if(doneProds.length>25)html+=`<div class="empty">+${doneProds.length-25} more in the Clients module</div>`;
+      html+='</div>';
+    }
   } else html+='<div class="empty">No Smart 1 Team IOs matched.</div>';
   html+='</div></div>';
 
   // ---------- Creative Information (replaces the old website-record spot) ----------
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Creative Information</h3><a class="open-link" href="/clients">Open in Clients →</a></div><div class="card-b flush">`;
   const cre=g.creative||[];
+  window._galleryItems=cre;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Creative Information</h3><div class="right">${cre.length?`<a class="open-link" href="#" onclick="openGallery(0);return false">&#9635; View gallery (${cre.length})</a>`:''}<a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
   if(cre.length){
     html+='<table><thead><tr><th>Year</th><th>Product / Campaign</th><th>IO</th><th>Creative</th></tr></thead><tbody>';
     let lastYear='';
-    cre.slice(0,12).forEach(c=>{
+    cre.slice(0,12).forEach((c,i)=>{
       const y=c.year&&c.year!==lastYear?c.year:''; if(c.year)lastYear=c.year;
-      html+=`<tr><td><b>${esc(y)}</b></td><td>${esc(c.product||'—')}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="${esc(c.url)}" target="_blank" rel="noopener">${KIND_ICON[c.kind]||'&#128206; File'} →</a></td></tr>`;
+      html+=`<tr><td><b>${esc(y)}</b></td><td>${esc(c.product||'—')}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} view →</a></td></tr>`;
     });
     html+='</tbody></table>';
     if(cre.length>12)html+=`<div class="empty">+${cre.length-12} more creative files in the Clients module</div>`;
@@ -103,11 +129,11 @@ function render(g,q){
   html+='</div></div>';
 
   // ---------- Google card ----------
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="/google/">Open Google Finder →</a></div><div class="card-b" id="c-google"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="${'/google/?q='+encodeURIComponent(name)}">Open Google Finder →</a></div><div class="card-b" id="c-google"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
   // ---------- GTM Containers (replaces the old Simvoly box) ----------
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GTM Containers</h3><a class="open-link" href="/google/gtm-tools">Open GTM Tools →</a></div><div class="card-b">`;
   const gtms=g.gtm_containers||[];
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GTM Containers</h3><a class="open-link" href="${gtms.length?'/google/gtm-tools?q='+encodeURIComponent(gtms[0].id):'/google/gtm-tools'}">Open GTM Tools →</a></div><div class="card-b">`;
   if(gtms.length){
     gtms.forEach(t=>{
       html+=`<div style="padding:9px 0;border-bottom:1px solid var(--line-soft)">
@@ -123,13 +149,13 @@ function render(g,q){
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
   // ---------- Sales: proposals for this client ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals</h3><a class="open-link" href="/sales/proposals/">Open Proposal Builder →</a></div><div class="card-b" id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals</h3><a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a></div><div class="card-b" id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
   // ---------- QuickBooks: invoices for this client ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e8f5e9;color:#1b5e20">QuickBooks</span><h3>Invoices</h3><a class="open-link" href="https://app.qbo.intuit.com" target="_blank" rel="noopener">Open QuickBooks →</a></div><div class="card-b" id="c-qb"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
   // ---------- Website record (moved to the bottom) ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="/clients">Open in Websites →</a></div><div class="card-b" style="display:flex;gap:36px;flex-wrap:wrap">`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="${clientsLink}">Open in Websites →</a></div><div class="card-b" style="display:flex;gap:36px;flex-wrap:wrap">`;
   if(g.websites&&g.websites.length){
     g.websites.slice(0,3).forEach(w=>{
       html+=`<div style="flex:1;min-width:280px"><dl class="kv">
@@ -142,8 +168,10 @@ function render(g,q){
         ${w.gtm?`<dt>GTM</dt><dd>${esc(w.gtm)}</dd>`:''}
       </dl>`;
       const links=[];
-      if(w.ga)links.push(['GA4 Tools','/google/ga-tools?q='+encodeURIComponent(w.ga)]);
-      if(w.gtm)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(w.gtm)]);
+      const gaId=w.ga?(String(w.ga).match(/\d{6,}/)||[w.ga])[0]:null;
+      const gtmId=w.gtm?(String(w.gtm).match(/GTM-[A-Z0-9]+/i)||[w.gtm])[0]:null;
+      if(gaId)links.push(['GA4 Tools','/google/ga-tools?q='+encodeURIComponent(gaId)]);
+      if(gtmId)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(gtmId)]);
       if(links.length)html+=gbtns(links);
       html+='</div>';
     });
@@ -183,7 +211,7 @@ function render(g,q){
         <b>${esc(it.name||'—')}</b> <span class="pill ${it.platform==='Google Analytics'?'info':'warn'}">${esc(it.platform||'')}</span>
         ${it._via&&it._via!==term?'<span class="pill neutral" title="Matched by website URL">via '+esc(it._via)+'</span>':''}
         <div class="muted" style="font-size:12px;margin-top:2px">${esc(it.resource_id||'')} · ${esc(it.google_login||'')}</div>
-        ${gbtns(googleTools(it.platform,it.name))}
+        ${gbtns(googleTools(it.platform,it.name,it.resource_id))}
       </div>`).join('');
   }).catch(()=>{$('c-google').innerHTML='<div class="empty">Google module unavailable.</div>'});
 
@@ -201,16 +229,19 @@ function render(g,q){
     const res=d.locations||[];
     if(!res.length){$('c-ghl').innerHTML=addBtn();return}
     $('c-ghl').innerHTML='<table><thead><tr><th>Account</th><th>City</th><th>Email</th><th></th></tr></thead><tbody>'+
-      res.map(l=>`<tr><td><b>${esc(l.name||'—')}</b></td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td><td><a class="open-link" href="/suite/">Manage →</a></td></tr>`).join('')+'</tbody></table>';
+      res.map(l=>{const lid=l.id||l._id||'';return `<tr><td><b>${esc(l.name||'—')}</b></td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td><td><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a></td></tr>`;}).join('')+'</tbody></table>';
   }).catch(()=>{$('c-ghl').innerHTML='<div class="empty">Suite module unavailable.</div>'});
 
-  // Proposals from the Proposal Builder
+  // Proposals from the Proposal Builder — "+ New proposal" prefills this client
+  const propPrefill='/sales/proposals/?prefill=1&business_name='+encodeURIComponent(name)+
+    (web0&&web0.domain?'&website='+encodeURIComponent('https://'+web0.domain):'');
+  const propNew=document.getElementById('c-props-new'); if(propNew)propNew.href=propPrefill;
   fetch('/sales/proposals/api/proposals?q='+encodeURIComponent(term)+'&limit=6',
         {headers:{'Accept':'application/json'}}).then(async r=>{
     if(!r.ok){$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>';return}
     const d=await r.json();
     const res=d.results||[];
-    if(!res.length){$('c-props').innerHTML='<div class="empty">No proposals yet for this client. <a href="/sales/proposals/">Create one →</a></div>';return}
+    if(!res.length){$('c-props').innerHTML='<div class="empty">No proposals yet for this client. <a href="'+propPrefill+'">Create one (pre-filled) →</a></div>';return}
     $('c-props').innerHTML='<table><thead><tr><th>Business</th><th>Industry</th><th>Monthly</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>'+
       res.map(p=>`<tr><td><b>${esc(p.business||'—')}</b><div class="muted" style="font-size:12px">${esc(p.salesperson||'')}</div></td><td>${esc(p.industry_label||'')}</td><td>${p.monthly?money(p.monthly)+'/mo':'—'}</td><td><span class="pill ${p.status==='saved'?'ok':'neutral'}">${esc(p.status||'')} · v${p.versions||1}</span></td><td class="muted">${esc(String(p.updated_at||'').slice(0,10))}</td><td>${p.pdf_url?'<a class="gbtn" href="'+esc(p.pdf_url)+'" target="_blank" rel="noopener">PDF →</a> ':''}<a class="gbtn" href="/sales/proposals/">Open →</a></td></tr>`).join('')+'</tbody></table>';
   }).catch(()=>{$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>'});
@@ -234,6 +265,50 @@ function render(g,q){
       return h;
     }).join('');
   }).catch(()=>{$('c-qb').innerHTML='<div class="empty">QuickBooks lookup unavailable.</div>'});
+}
+
+// ---------- Creative gallery ----------
+function galleryThumb(item){
+  if(item.kind==='image') return `<img src="${esc(item.url)}" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('${esc(item.kind)}')">`;
+  if(item.kind==='gdrive'){
+    const m=String(item.url).match(/\/d\/([\w-]+)/);
+    if(m) return `<img src="https://drive.google.com/thumbnail?id=${m[1]}&sz=w400" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('gdrive')">`;
+  }
+  return galleryIconTile(item.kind);
+}
+function galleryIconTile(kind){
+  const icon={gdrive:'&#128193;',pdf:'&#128462;',dropbox:'&#128230;',image:'&#128444;',file:'&#128206;'}[kind]||'&#128206;';
+  return `<div style="width:100%;height:120px;display:flex;align-items:center;justify-content:center;font-size:40px;background:var(--bg);border-radius:8px 8px 0 0">${icon}</div>`;
+}
+function openGallery(startIdx){
+  const items=window._galleryItems||[];
+  if(!items.length)return;
+  $('galTitle').textContent='Creative files ('+items.length+')';
+  $('galGrid').innerHTML=items.map((c,i)=>`
+    <a href="${esc(c.url)}" target="_blank" rel="noopener" style="text-decoration:none;color:var(--ink);border:1px solid ${i===startIdx?'var(--brand)':'var(--line)'};border-radius:10px;overflow:hidden;background:#fff;display:block">
+      ${galleryThumb(c)}
+      <div style="padding:8px 10px">
+        <div style="font-weight:600;font-size:12.5px;line-height:1.3">${esc(c.product||'Creative')}</div>
+        <div class="muted" style="font-size:11px;margin-top:2px">${esc(c.year||'')}${c.campaign?' · '+esc(c.campaign):''}${c.io?' · IO '+esc(c.io):''}</div>
+        <div class="muted" style="font-size:10.5px;margin-top:3px">${KIND_ICON[c.kind]||'&#128206; File'}</div>
+      </div>
+    </a>`).join('');
+  $('galModal').style.display='block';
+  document.body.style.overflow='hidden';
+  if(startIdx>0){setTimeout(()=>{const el=$('galGrid').children[startIdx];if(el)el.scrollIntoView({block:'center'});},50);}
+}
+function closeGallery(){$('galModal').style.display='none';document.body.style.overflow='';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeGallery();});
+function openAllFiles(){
+  const items=window._galleryItems||[];
+  let i=0;
+  const next=()=>{
+    if(i>=items.length)return;
+    window.open(items[i].url,'_blank','noopener');
+    i++;
+    if(i<items.length)setTimeout(next,450);
+  };
+  next();
 }
 
 {% if q %}run();{% endif %}

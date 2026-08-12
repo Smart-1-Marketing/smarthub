@@ -147,7 +147,28 @@ def create_hub_app() -> Flask:
         if b"</head>" in body:
             body = body.replace(b"</head>", snippet + b"</head>", 1)
         bar = render_sidebar("clients")
-        body = body.replace(b"</body>", bar + b"</body>", 1) if b"</body>" in body else body + bar
+        # Deep links from Client 360: /clients?q=<client> auto-fills and runs
+        # the React app's search (native value setter so React sees the input).
+        autosearch = b"""<script>
+(function(){
+  var q=new URLSearchParams(location.search).get('q'); if(!q) return;
+  var tries=0;
+  var t=setInterval(function(){
+    tries++;
+    var input=document.querySelector('input[placeholder^="Client, IO"]')||
+              document.querySelector('input[type="search"]');
+    if(input){
+      clearInterval(t);
+      var setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
+      setter.call(input,q);
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      input.focus();
+    } else if(tries>60){clearInterval(t);}
+  },250);
+})();
+</script>"""
+        addition = autosearch + bar
+        body = body.replace(b"</body>", addition + b"</body>", 1) if b"</body>" in body else body + addition
         return app.response_class(body, mimetype="text/html")
 
     @app.route("/static/<path:filename>")

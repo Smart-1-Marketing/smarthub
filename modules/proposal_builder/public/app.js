@@ -335,4 +335,29 @@ function toast(msg, isErr) {
 }
 
 /* ---------- init ---------- */
-if (TOKEN) boot(); else showLogin();
+/* Hub login already gates access — fetch the app token silently, no password screen. */
+(async () => {
+  if (!TOKEN) {
+    try {
+      const d = await api("/sales/proposals/api/login", { method: "POST", body: JSON.stringify({ password: "" }) });
+      TOKEN = d.token; sessionStorage.setItem("s1pb_token", TOKEN);
+    } catch { /* boot() will surface any real problem */ }
+  }
+  await boot();
+  applyHubPrefill();
+})();
+
+/* Prefill from Client 360: /sales/proposals/?prefill=1&business_name=...&website=... */
+function applyHubPrefill() {
+  const p = new URLSearchParams(location.search);
+  if (!p.get("prefill")) return;
+  resetForm(); show("new");
+  const map = { business_name: "#c_business_name", website: "#c_website", contact_name: "#c_contact_name",
+                contact_email: "#c_contact_email", contact_phone: "#c_contact_phone",
+                city: "#c_city", state: "#c_state", zip: "#c_zip", salesperson: "#c_salesperson" };
+  for (const [k, sel] of Object.entries(map)) {
+    const v = p.get(k);
+    if (v && $(sel)) $(sel).value = v;
+  }
+  toast("Client details filled from Client 360 — pick an industry and generate.");
+}

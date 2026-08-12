@@ -433,6 +433,7 @@ function showApp(name) {
   $('whoName').textContent = name || 'Unknown';
   loadSnapshots(); loadAccounts();
   applyPrefill();
+  handleManageParam();
 }
 
 // ---------- Existing-client lookup (Smart 1 Team data via the Hub) ----------
@@ -469,6 +470,61 @@ function escapeHtml(x){return String(x??'').replace(/[&<>"]/g,c=>({'&':'&amp;','
 $('clientLookupBtn').addEventListener('click', lookupClient);
 $('clientLookup').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); lookupClient(); } });
 
+
+/* ---------- Manage-account modal with analytics + log-in-as ---------- */
+let MG = { id: "", name: "" };
+function closeManage() { document.getElementById('mgModal').style.display = 'none'; document.body.style.overflow = ''; }
+async function openManage(id, name) {
+  MG = { id, name };
+  const m = document.getElementById('mgModal');
+  document.getElementById('mgName').textContent = name || 'Account';
+  document.getElementById('mgId').textContent = id;
+  document.getElementById('mgBody').innerHTML = '<span class="opt">Loading account analytics…</span>';
+  document.getElementById('mgLogo').style.display = 'none';
+  m.style.display = 'block'; document.body.style.overflow = 'hidden';
+  document.getElementById('mgDelete').onclick = () => { closeManage(); openDelete(id, name); };
+  try {
+    const d = await api('/suite/api/locations/' + encodeURIComponent(id) + '/analytics');
+    const L = d.location || {};
+    document.getElementById('mgLogin').href = d.dashboard_url || '#';
+    if (L.logoUrl) { const lg = document.getElementById('mgLogo'); lg.src = L.logoUrl; lg.style.display = 'block'; }
+    const M = d.metrics || {};
+    const tile = (label, key) => {
+      const v = M[key] || {};
+      const val = ('value' in v) ? Number(v.value).toLocaleString() : '—';
+      const note = v.error ? `<div style="font-size:10px;color:#b45309;margin-top:3px">${escapeHtml(v.error)}</div>` : '';
+      return `<div style="background:#f4f6fa;border:1px solid var(--line);border-radius:10px;padding:12px 14px">
+        <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b">${label}</div>
+        <div style="font-size:22px;font-weight:800;color:#1a2e58;margin-top:4px">${val}</div>${note}</div>`;
+    };
+    const kv = (k, v) => v ? `<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #eef1f4;font-size:13px"><span style="width:110px;color:#64748b">${k}</span><b>${escapeHtml(v)}</b></div>` : '';
+    document.getElementById('mgBody').innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px">
+        ${tile('Contacts','contacts')}${tile('Opportunities','opportunities')}${tile('Pipelines','pipelines')}
+        ${tile('Conversations','conversations')}${tile('Calendars','calendars')}${tile('Users','users')}
+        ${tile('Tags','tags')}${tile('Custom fields','custom_fields')}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 30px">
+        ${kv('Email', L.email)}${kv('Phone', L.phone)}
+        ${kv('Website', L.website)}${kv('Timezone', L.timezone)}
+        ${kv('Address', [L.address, L.city, L.state, L.postalCode].filter(Boolean).join(', '))}
+        ${kv('Created', (L.dateAdded || '').slice(0, 10))}
+      </div>`;
+  } catch (e) {
+    document.getElementById('mgBody').innerHTML = '<span class="opt" style="color:#dc2626">' + escapeHtml(e.message) + '</span>';
+  }
+}
+/* Deep link from Client 360: /suite/?manage=<locationId>&name=<name> */
+function handleManageParam() {
+  const p = new URLSearchParams(location.search);
+  const id = p.get('manage');
+  if (!id) return;
+  const btn = document.querySelector('.tabs button[data-tab="manage"]');
+  if (btn) btn.click();
+  const nm = p.get('name') || '';
+  if (nm) { $('searchBox').value = nm; loadAccounts(); }
+  openManage(id, nm);
+}
 // ---------- Prefill from Client 360 ("Add to Smart 1 Suite") ----------
 let prefillDone = false;
 function applyPrefill() {
@@ -687,11 +743,13 @@ function renderRows() {
       `<td><strong>${esc(a.name || '(unnamed)')}</strong></td>` +
       `<td><span class="id">${esc(id)}</span></td>` +
       `<td>${esc(email)}</td>` +
-      `<td style="text-align:right"><button class="btn btn-danger btn-sm" data-id="${esc(id)}" data-name="${esc(a.name || '')}">Delete</button></td>`;
+      `<td style="text-align:right"><button class="btn btn-ghost btn-sm mg" data-id="${esc(id)}" data-name="${esc(a.name || '')}">Manage</button> <button class="btn btn-danger btn-sm del" data-id="${esc(id)}" data-name="${esc(a.name || '')}">Delete</button></td>`;
     tb.appendChild(tr);
   });
-  tb.querySelectorAll('button[data-id]').forEach((b) =>
+  tb.querySelectorAll('button.del[data-id]').forEach((b) =>
     b.addEventListener('click', () => openDelete(b.dataset.id, b.dataset.name)));
+  tb.querySelectorAll('button.mg[data-id]').forEach((b) =>
+    b.addEventListener('click', () => openManage(b.dataset.id, b.dataset.name)));
 }
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
@@ -831,5 +889,27 @@ async function runDiagnostics() {
   } catch { showLogin(); }
 })();
 </script>
+
+<!-- Account manage modal -->
+<div id="mgModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.78);z-index:100002;padding:24px" onclick="if(event.target===this)closeManage()">
+  <div style="max-width:860px;margin:0 auto;background:#fff;border-radius:14px;max-height:calc(100vh - 48px);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.4)">
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)">
+      <img id="mgLogo" src="" alt="" style="width:34px;height:34px;border-radius:8px;object-fit:contain;display:none;background:#f4f6fa">
+      <div><h2 id="mgName" style="margin:0;font-size:17px;color:#1a2e58">Account</h2>
+      <div id="mgId" style="font-size:11.5px;color:#64748b"></div></div>
+      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+        <a id="mgLogin" class="btn btn-primary btn-sm" href="#" target="_blank" rel="noopener">&#128274; Log in to this account &rarr;</a>
+        <button class="btn btn-ghost btn-sm" onclick="closeManage()">&#10005; Close</button>
+      </div>
+    </div>
+    <div style="overflow:auto;padding:18px">
+      <div id="mgBody"><span class="opt">Loading account analytics&hellip;</span></div>
+    </div>
+    <div style="padding:10px 18px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center">
+      <button class="btn btn-danger btn-sm" id="mgDelete">Delete this account&hellip;</button>
+      <span class="opt">Log-in opens the sub-account dashboard in Smart 1 Suite &mdash; you must be signed into your agency account in this browser.</span>
+    </div>
+  </div>
+</div>
 </body>
 </html>

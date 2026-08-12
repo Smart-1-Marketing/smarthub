@@ -167,6 +167,15 @@ def _query(sql: str):
         timeout=20,
     )
     if not r.ok:
+        if r.status_code == 403 and ("3100" in r.text or "ApplicationAuthorizationFailed" in r.text):
+            raise RuntimeError(
+                "QuickBooks rejected the app for this company (error 3100). This almost always "
+                "means the keys and environment don't match: you connected with the app's "
+                "DEVELOPMENT keys while QB_ENVIRONMENT=production (or vice versa). In "
+                "developer.intuit.com open your app -> Keys & credentials, copy the PRODUCTION "
+                "Client ID/Secret into QB_CLIENT_ID / QB_CLIENT_SECRET, redeploy, then "
+                "Disconnect and Connect QuickBooks again from System Status."
+            )
         raise RuntimeError(f"QuickBooks query failed (HTTP {r.status_code}): {r.text[:200]}")
     return (r.json() or {}).get("QueryResponse", {})
 

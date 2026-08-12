@@ -391,6 +391,70 @@ def api_create_location():
         return send_error(err)
 
 
+@app.route("/api/locations/<loc_id>/analytics")
+def api_location_analytics(loc_id):
+    """Everything we can read about a sub-account in one call. Each metric
+    degrades gracefully — a scope missing from the Private Integration token
+    shows as a note instead of failing the whole panel."""
+    try:
+        loc = ghl(f"/locations/{loc_id}")
+        loc = loc.get("location") or loc
+    except Exception as err:  # noqa: BLE001
+        return send_error(err)
+
+    metrics = {}
+
+    def metric(key, fn):
+        try:
+            metrics[key] = {"value": fn()}
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc)
+            if "401" in msg or "403" in msg or "scope" in msg.lower():
+                msg = "add this scope to your Private Integration token"
+            metrics[key] = {"error": msg[:140]}
+
+    metric("contacts", lambda: (
+        ghl("/contacts/", query={"locationId": loc_id, "limit": "1"})
+        .get("meta", {}).get("total", 0)))
+    metric("opportunities", lambda: (
+        ghl("/opportunities/search", query={"location_id": loc_id, "limit": "1"})
+        .get("meta", {}).get("total", 0)))
+    metric("pipelines", lambda: len(
+        ghl("/opportunities/pipelines", query={"locationId": loc_id}).get("pipelines") or []))
+    metric("conversations", lambda: (
+        ghl("/conversations/search", query={"locationId": loc_id, "limit": "1"})
+        .get("total", 0)))
+    metric("calendars", lambda: len(
+        ghl("/calendars/", query={"locationId": loc_id}).get("calendars") or []))
+    metric("users", lambda: len(
+        ghl("/users/", query={"locationId": loc_id}).get("users") or []))
+    metric("tags", lambda: len(
+        ghl(f"/locations/{loc_id}/tags").get("tags") or []))
+    metric("custom_fields", lambda: len(
+        ghl(f"/locations/{loc_id}/customFields").get("customFields") or []))
+
+    app_base = _env("GHL_APP_BASE", "https://app.gohighlevel.com").rstrip("/")
+    return jsonify({
+        "location": {
+            "id": loc.get("id") or loc_id,
+            "name": loc.get("name"),
+            "email": loc.get("email"),
+            "phone": loc.get("phone"),
+            "website": loc.get("website"),
+            "address": loc.get("address"),
+            "city": loc.get("city"),
+            "state": loc.get("state"),
+            "postalCode": loc.get("postalCode"),
+            "country": loc.get("country"),
+            "timezone": loc.get("timezone"),
+            "dateAdded": loc.get("dateAdded"),
+            "logoUrl": loc.get("logoUrl"),
+        },
+        "metrics": metrics,
+        "dashboard_url": f"{app_base}/v2/location/{loc_id}/dashboard",
+    })
+
+
 @app.route("/api/locations/<loc_id>", methods=["DELETE"])
 def api_delete_location(loc_id):
     try:
