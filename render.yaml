@@ -47,6 +47,13 @@ services:
         sync: false
       - key: FLASK_SECRET_KEY
         generateValue: true
+      # ---- QuickBooks ----
+      - key: QB_CLIENT_ID
+        sync: false
+      - key: QB_CLIENT_SECRET
+        sync: false
+      - key: QB_ENVIRONMENT
+        value: production
       # ---- shared ----
       - key: AUDIT_LOG_PATH
         value: /var/data/hub-audit.log.jsonl

@@ -160,6 +160,54 @@ def create_hub_app() -> Flask:
             return jsonify({"error": "Not authenticated."}), 401
         return send_from_directory(os.path.join(CLIENTS_APP, "data"), filename)
 
+    # ---------------- QuickBooks connect / lookup ----------------
+    @app.route("/qb/connect")
+    def qb_connect():
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import quickbooks as qb
+        if not qb.configured():
+            return ("QuickBooks is not configured — set QB_CLIENT_ID and QB_CLIENT_SECRET "
+                    "(from developer.intuit.com) and redeploy. <a href='/status'>Status</a>", 400)
+        return redirect(qb.authorize_url(request))
+
+    @app.route("/qb/callback")
+    def qb_callback():
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import quickbooks as qb
+        ok, msg = qb.handle_callback(request)
+        audit.log("hub", "quickbooks_connected" if ok else "quickbooks_connect_failed",
+                  actor=current_user(), detail=msg)
+        return redirect("/status?qb=" + ("connected" if ok else "error"))
+
+    @app.route("/qb/disconnect", methods=["POST", "GET"])
+    def qb_disconnect():
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import quickbooks as qb
+        qb.disconnect()
+        audit.log("hub", "quickbooks_disconnected", actor=current_user())
+        return redirect("/status")
+
+    @app.route("/api/qb/invoices")
+    def api_qb_invoices():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import quickbooks as qb
+        q = (request.args.get("q") or "").strip()
+        if not q:
+            return jsonify({"configured": qb.configured(), "connected": qb.connected(), "customers": []})
+        try:
+            return jsonify(qb.lookup(q))
+        except Exception as exc:  # noqa: BLE001 — Client 360 must degrade gracefully
+            return jsonify({"configured": qb.configured(), "connected": qb.connected(),
+                            "customers": [], "error": str(exc)})
+
     @app.route("/favicon.ico")
     def favicon():
         return ("", 204)
@@ -333,6 +381,17 @@ def create_hub_app() -> Flask:
         add("Google OAuth app", "ok" if gid and gsec else "warn",
             "Client ID + secret configured. Manage connected accounts in the Google module."
             if gid and gsec else "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set — Google module disabled.")
+
+        # --- QuickBooks ---
+        from . import quickbooks as qb
+        if not qb.configured():
+            add("QuickBooks", "skipped",
+                "QB_CLIENT_ID / QB_CLIENT_SECRET not set — invoice lookup disabled (optional).")
+        elif not qb.connected():
+            add("QuickBooks", "warn",
+                "App configured but no company connected yet — use the Connect QuickBooks button below.")
+        else:
+            add("QuickBooks", "ok", "Connected — client invoice lookup active on Client 360.")
 
         # --- Sales section (Proposal + Sales Builder) ---
         add("OpenAI API", "ok" if os.environ.get("OPENAI_API_KEY") else "skipped",

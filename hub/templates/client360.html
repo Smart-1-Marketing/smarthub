@@ -125,6 +125,9 @@ function render(g,q){
   // ---------- Sales: proposals for this client ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals</h3><a class="open-link" href="/sales/proposals/">Open Proposal Builder →</a></div><div class="card-b" id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
+  // ---------- QuickBooks: invoices for this client ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e8f5e9;color:#1b5e20">QuickBooks</span><h3>Invoices</h3><a class="open-link" href="https://app.qbo.intuit.com" target="_blank" rel="noopener">Open QuickBooks →</a></div><div class="card-b" id="c-qb"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+
   // ---------- Website record (moved to the bottom) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="/clients">Open in Websites →</a></div><div class="card-b" style="display:flex;gap:36px;flex-wrap:wrap">`;
   if(g.websites&&g.websites.length){
@@ -211,6 +214,26 @@ function render(g,q){
     $('c-props').innerHTML='<table><thead><tr><th>Business</th><th>Industry</th><th>Monthly</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>'+
       res.map(p=>`<tr><td><b>${esc(p.business||'—')}</b><div class="muted" style="font-size:12px">${esc(p.salesperson||'')}</div></td><td>${esc(p.industry_label||'')}</td><td>${p.monthly?money(p.monthly)+'/mo':'—'}</td><td><span class="pill ${p.status==='saved'?'ok':'neutral'}">${esc(p.status||'')} · v${p.versions||1}</span></td><td class="muted">${esc(String(p.updated_at||'').slice(0,10))}</td><td>${p.pdf_url?'<a class="gbtn" href="'+esc(p.pdf_url)+'" target="_blank" rel="noopener">PDF →</a> ':''}<a class="gbtn" href="/sales/proposals/">Open →</a></td></tr>`).join('')+'</tbody></table>';
   }).catch(()=>{$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>'});
+
+  // QuickBooks invoices
+  fetch('/api/qb/invoices?q='+encodeURIComponent(term)).then(r=>r.json()).then(d=>{
+    if(!d.configured){$('c-qb').innerHTML='<div class="empty">QuickBooks not configured — set QB_CLIENT_ID / QB_CLIENT_SECRET. <a href="/status">Status →</a></div>';return}
+    if(!d.connected){$('c-qb').innerHTML='<div class="empty">QuickBooks not connected yet. <a href="/qb/connect">Connect QuickBooks →</a></div>';return}
+    if(d.error){$('c-qb').innerHTML='<div class="empty">QuickBooks error: '+esc(d.error)+'</div>';return}
+    const custs=d.customers||[];
+    if(!custs.length){$('c-qb').innerHTML='<div class="empty">No QuickBooks customer matched “'+esc(term)+'”.</div>';return}
+    $('c-qb').innerHTML=custs.map(cu=>{
+      let h=`<div style="display:flex;align-items:center;gap:10px;margin:6px 0 8px">
+        <b>${esc(cu.name)}</b>
+        ${Number(cu.balance)>0?'<span class="pill warn">Balance '+money(cu.balance)+'</span>':'<span class="pill ok">No balance</span>'}
+        <a class="gbtn" href="${esc(cu.link)}" target="_blank" rel="noopener">Customer in QuickBooks →</a></div>`;
+      const inv=cu.invoices||[];
+      if(!inv.length){h+='<div class="empty" style="padding:8px">No invoices found'+(cu.error?' — '+esc(cu.error):'')+'.</div>';return h;}
+      h+='<table style="margin-bottom:12px"><thead><tr><th>Invoice #</th><th>Date</th><th>Due</th><th>Total</th><th>Balance</th><th>Status</th><th></th></tr></thead><tbody>'+
+        inv.map(i=>`<tr><td><b>${esc(i.doc_number||i.id)}</b></td><td>${esc(i.date||'')}</td><td class="muted">${esc(i.due_date||'')}</td><td>${money(i.total)}</td><td>${Number(i.balance)>0?money(i.balance):'—'}</td><td><span class="pill ${i.status==='Paid'?'ok':(i.status==='Overdue'?'err':'warn')}">${esc(i.status)}</span></td><td><a class="gbtn" href="${esc(i.link)}" target="_blank" rel="noopener">Open →</a></td></tr>`).join('')+'</tbody></table>';
+      return h;
+    }).join('');
+  }).catch(()=>{$('c-qb').innerHTML='<div class="empty">QuickBooks lookup unavailable.</div>'});
 }
 
 {% if q %}run();{% endif %}
