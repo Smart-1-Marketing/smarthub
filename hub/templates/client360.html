@@ -82,6 +82,7 @@ function render(g,q){
     <div><h3 style="font-size:19px;color:var(--navy)">${esc(name)}</h3>
     <div class="muted" style="font-size:13px">${g.products[0]?('Salesperson: '+esc(g.products[0].sales||'—')+' · Partner: '+esc(g.products[0].partner||'—')):''}</div></div>
     <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">`;
+  head+=`<span id="qbSinceBadge"></span>`;
   if(g.smart1_site) head+=`<span class="pill info" style="font-size:12.5px;padding:5px 12px">&#11041; Smart 1 Site</span>`;
   if(g.billing_monthly) head+=`<span class="pill ok" style="font-size:12.5px;padding:5px 12px">Active billing: ${money(g.billing_monthly)}/mo</span>`;
   if(liveCount) head+=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px">${liveCount} live product${liveCount>1?'s':''}</span>`;
@@ -159,7 +160,13 @@ function render(g,q){
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals</h3><a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a></div><div class="card-b" id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
   // ---------- QuickBooks: invoices for this client ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e8f5e9;color:#1b5e20">QuickBooks</span><h3>Invoices</h3><a class="open-link" href="https://app.qbo.intuit.com" target="_blank" rel="noopener">Open QuickBooks →</a></div><div class="card-b" id="c-qb"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e8f5e9;color:#1b5e20">QuickBooks</span><h3>Invoices</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center">
+      <a class="open-link" id="c-qb-acct" style="cursor:pointer;color:#b45309">⚑ Accounting issue</a>
+      <a class="open-link" id="c-qb-attach" style="cursor:pointer">Search &amp; attach customer</a>
+      <a class="open-link" href="https://app.qbo.intuit.com" target="_blank" rel="noopener">Open QuickBooks →</a>
+    </div></div>
+    <div class="card-b"><div id="c-qb-attachbox" style="display:none;margin-bottom:10px"></div><div id="c-qb"><div class="empty">Searching… <span class="spin"></span></div></div></div></div>`;
 
   // ---------- Website record (moved to the bottom) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="${clientsLink}">Open in Websites →</a></div><div class="card-b" style="display:flex;gap:36px;flex-wrap:wrap">`;
@@ -254,16 +261,23 @@ function render(g,q){
       res.map(p=>`<tr><td><b>${esc(p.business||'—')}</b><div class="muted" style="font-size:12px">${esc(p.salesperson||'')}</div></td><td>${esc(p.industry_label||'')}</td><td>${p.monthly?money(p.monthly)+'/mo':'—'}</td><td><span class="pill ${p.status==='saved'?'ok':'neutral'}">${esc(p.status||'')} · v${p.versions||1}</span></td><td class="muted">${esc(String(p.updated_at||'').slice(0,10))}</td><td>${p.pdf_url?'<a class="gbtn" href="'+esc(p.pdf_url)+'" target="_blank" rel="noopener">PDF →</a> ':''}<a class="gbtn" href="/sales/proposals/">Open →</a></td></tr>`).join('')+'</tbody></table>';
   }).catch(()=>{$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>'});
 
-  // QuickBooks invoices
-  fetch('/api/qb/invoices?q='+encodeURIComponent(term)).then(r=>r.json()).then(d=>{
+  // QuickBooks invoices — attached customer wins; shows customer-since in header
+  function renderQb(d,attachedNote){
     if(!d.configured){$('c-qb').innerHTML='<div class="empty">QuickBooks not configured — set QB_CLIENT_ID / QB_CLIENT_SECRET. <a href="/status">Status →</a></div>';return}
     if(!d.connected){$('c-qb').innerHTML='<div class="empty">QuickBooks not connected yet. <a href="/qb/connect">Connect QuickBooks →</a></div>';return}
     if(d.error){$('c-qb').innerHTML='<div class="empty">QuickBooks error: '+esc(d.error)+'</div>';return}
     const custs=d.customers||[];
-    if(!custs.length){$('c-qb').innerHTML='<div class="empty">No QuickBooks customer matched “'+esc(term)+'”.</div>';return}
-    $('c-qb').innerHTML=custs.map(cu=>{
-      let h=`<div style="display:flex;align-items:center;gap:10px;margin:6px 0 8px">
+    if(!custs.length){$('c-qb').innerHTML='<div class="empty">No QuickBooks customer matched “'+esc(term)+'” — use <b>Search &amp; attach customer</b> above to link the right one permanently.</div>';return}
+    // header badge: how long they've been in QuickBooks
+    const first=custs[0];
+    const badge=document.getElementById('qbSinceBadge');
+    if(badge&&first.customer_since_label){
+      badge.innerHTML=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px" title="First added to QuickBooks">QB customer since ${esc(first.customer_since_label)}${first.customer_years?' · '+first.customer_years+' yrs':''}</span>`;
+    }
+    $('c-qb').innerHTML=(attachedNote||'')+custs.map(cu=>{
+      let h=`<div style="display:flex;align-items:center;gap:10px;margin:6px 0 8px;flex-wrap:wrap">
         <b>${esc(cu.name)}</b>
+        ${cu.customer_since_label?'<span class="pill neutral">since '+esc(cu.customer_since_label)+(cu.customer_years?' ('+cu.customer_years+' yrs)':'')+'</span>':''}
         ${Number(cu.balance)>0?'<span class="pill warn">Balance '+money(cu.balance)+'</span>':'<span class="pill ok">No balance</span>'}
         <a class="gbtn" href="${esc(cu.link)}" target="_blank" rel="noopener">Customer in QuickBooks →</a></div>`;
       const inv=cu.invoices||[];
@@ -272,7 +286,71 @@ function render(g,q){
         inv.map(i=>`<tr><td><b>${esc(i.doc_number||i.id)}</b></td><td>${esc(i.date||'')}</td><td class="muted">${esc(i.due_date||'')}</td><td>${money(i.total)}</td><td>${Number(i.balance)>0?money(i.balance):'—'}</td><td><span class="pill ${i.status==='Paid'?'ok':(i.status==='Overdue'?'err':'warn')}">${esc(i.status)}</span></td><td><a class="gbtn" href="${esc(i.link)}" target="_blank" rel="noopener">Open →</a></td></tr>`).join('')+'</tbody></table>';
       return h;
     }).join('');
+  }
+  fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).then(la=>{
+    const qbAtt=((la||{}).attached||{}).qb;
+    const url=qbAtt&&qbAtt.id?('/api/qb/invoices?customer_id='+encodeURIComponent(qbAtt.id)):('/api/qb/invoices?q='+encodeURIComponent(term));
+    const note=qbAtt?`<div class="muted" style="font-size:12px;margin-bottom:4px">Showing attached customer <b>${esc(qbAtt.name||qbAtt.id)}</b> · <a href="#" id="qbDetach">un-attach</a></div>`:'';
+    return fetch(url).then(r=>r.json()).then(d=>{
+      renderQb(d,note);
+      const det=document.getElementById('qbDetach');
+      if(det)det.onclick=e=>{e.preventDefault();
+        fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,kind:'qb',data:null})}).then(()=>location.reload());};
+    });
   }).catch(()=>{$('c-qb').innerHTML='<div class="empty">QuickBooks lookup unavailable.</div>'});
+
+  // QB: search & attach customer
+  const qbAttachLink=document.getElementById('c-qb-attach');
+  if(qbAttachLink)qbAttachLink.onclick=()=>{
+    const box=document.getElementById('c-qb-attachbox');
+    if(box.style.display!=='none'){box.style.display='none';return;}
+    box.style.display='block';
+    box.innerHTML=`<div style="display:flex;gap:8px;max-width:520px">
+      <input id="qbq" placeholder="Search QuickBooks customers…" value="${esc(term)}" style="flex:1;padding:8px 11px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+      <a class="gbtn" id="qbgo" style="cursor:pointer">Search</a></div><div id="qbres" style="margin-top:8px"></div>`;
+    const go=()=>{
+      const q=document.getElementById('qbq').value.trim(); if(!q)return;
+      document.getElementById('qbres').innerHTML='<div class="empty">Searching… <span class="spin"></span></div>';
+      fetch('/api/qb/customers?q='+encodeURIComponent(q)).then(r=>r.json()).then(d=>{
+        const items=d.customers||[];
+        if(d.error){document.getElementById('qbres').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+        if(!items.length){document.getElementById('qbres').innerHTML='<div class="empty">No QuickBooks customers matched.</div>';return}
+        document.getElementById('qbres').innerHTML=items.map((c,i)=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff">
+            <span><b>${esc(c.name)}</b> <span class="muted" style="font-size:11.5px">${c.customer_since_label?'since '+esc(c.customer_since_label):''}</span></span>
+            <a class="gbtn qb-att" data-i="${i}" style="cursor:pointer">Attach →</a></div>`).join('');
+        document.querySelectorAll('.qb-att').forEach(btn=>{
+          btn.onclick=()=>{
+            const c=items[parseInt(btn.dataset.i,10)];
+            fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({client:name,kind:'qb',data:{id:c.id,name:c.name}})})
+              .then(r=>r.json()).then(()=>location.reload());   // attach re-runs the card
+          };
+        });
+      });
+    };
+    document.getElementById('qbgo').onclick=go;
+    document.getElementById('qbq').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+  };
+
+  // Accounting issue form (GHL) in a modal
+  const acctBtn=document.getElementById('c-qb-acct');
+  if(acctBtn)acctBtn.onclick=()=>{
+    let m=document.getElementById('acctModal');
+    if(!m){
+      m=document.createElement('div');
+      m.id='acctModal';
+      m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+      m.innerHTML=`<div style="background:#fff;border-radius:14px;width:640px;max-width:100%;height:86vh;display:flex;flex-direction:column;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)">
+          <b style="color:var(--navy)">Accounting Issue — ${esc(name)}</b>
+          <button onclick="document.getElementById('acctModal').remove()" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
+        <iframe src="https://api.leadconnectorhq.com/widget/form/oNilGBDoJrYdHl44KeLa" style="flex:1;border:0;width:100%"></iframe></div>`;
+      m.onclick=e=>{if(e.target===m)m.remove();};
+      document.body.appendChild(m);
+    }
+  };
 
   // Social Media — shared store with the SEO page
   const SOCIAL_KEYS=['facebook','instagram','linkedin','twitter','youtube','tiktok','pinterest','yelp','gbp'];

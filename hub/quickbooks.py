@@ -192,17 +192,41 @@ def invoice_link(iid) -> str:
     return f"https://app.qbo.intuit.com/app/invoice?txnId={iid}"
 
 
-def find_customers(q: str, limit: int = 5) -> list[dict]:
-    rows = _query(
-        f"SELECT Id, DisplayName, Balance FROM Customer "
-        f"WHERE DisplayName LIKE '%{_esc(q)}%' MAXRESULTS {int(limit)}"
-    ).get("Customer", [])
-    return [{
+def _customer_dict(c: dict) -> dict:
+    created = ((c.get("MetaData") or {}).get("CreateTime") or "")[:10]
+    since_label, years = "", None
+    if created:
+        import datetime as _dt
+        try:
+            d = _dt.date.fromisoformat(created)
+            years = round((_dt.date.today() - d).days / 365.25, 1)
+            since_label = d.strftime("%b %Y")
+        except ValueError:
+            pass
+    return {
         "id": c.get("Id"),
         "name": c.get("DisplayName"),
         "balance": c.get("Balance", 0),
         "link": customer_link(c.get("Id")),
-    } for c in rows]
+        "customer_since": created,
+        "customer_since_label": since_label,
+        "customer_years": years,
+    }
+
+
+def find_customers(q: str, limit: int = 5) -> list[dict]:
+    rows = _query(
+        f"SELECT * FROM Customer "
+        f"WHERE DisplayName LIKE '%{_esc(q)}%' MAXRESULTS {int(limit)}"
+    ).get("Customer", [])
+    return [_customer_dict(c) for c in rows]
+
+
+def customer_by_id(customer_id) -> dict | None:
+    rows = _query(
+        f"SELECT * FROM Customer WHERE Id = '{_esc(customer_id)}'"
+    ).get("Customer", [])
+    return _customer_dict(rows[0]) if rows else None
 
 
 def invoices_for_customer(customer_id, limit: int = 8) -> list[dict]:
@@ -297,13 +321,18 @@ def monthly_totals_by_customer(months: int = 4) -> dict:
     return out
 
 
-def lookup(q: str) -> dict:
-    """Customer match(es) for a client name, each with recent invoices."""
+def lookup(q: str, customer_id=None) -> dict:
+    """Customer match(es) for a client name — or one attached customer by id —
+    each with recent invoices."""
     if not configured():
         return {"configured": False, "connected": False, "customers": []}
     if not connected():
         return {"configured": True, "connected": False, "customers": []}
-    customers = find_customers(q, limit=3)
+    if customer_id:
+        c = customer_by_id(customer_id)
+        customers = [c] if c else []
+    else:
+        customers = find_customers(q, limit=3)
     for c in customers:
         try:
             c["invoices"] = invoices_for_customer(c["id"])

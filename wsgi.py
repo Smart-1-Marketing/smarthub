@@ -228,6 +228,8 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
 })
+from hub import errors as _errors
+application = _errors.ErrorMirror(application)
 application = ProxyFix(application, x_for=1, x_proto=1, x_host=1)
 
 

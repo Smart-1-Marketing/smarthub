@@ -444,6 +444,117 @@ def no_gtm() -> dict:
     }
 
 
+# ------------------------------------------- GHL: Accounting Requests
+GHL_BASE = "https://services.leadconnectorhq.com"
+_ghl_cache: dict = {}
+
+
+def _ghl(path: str, params=None, method: str = "GET", body=None):
+    import requests as _rq
+    token = os.environ.get("GHL_PRIVATE_TOKEN", "")
+    if not token:
+        raise RuntimeError("GHL_PRIVATE_TOKEN is not configured.")
+    headers = {"Authorization": f"Bearer {token}",
+               "Version": os.environ.get("GHL_API_VERSION", "2021-07-28"),
+               "Accept": "application/json", "Content-Type": "application/json"}
+    r = _rq.request(method, GHL_BASE + path, params=params, json=body,
+                    headers=headers, timeout=20)
+    if not r.ok:
+        raise RuntimeError(f"GHL {method} {path} failed (HTTP {r.status_code}): {r.text[:180]}")
+    return r.json() if r.text else {}
+
+
+def _accounting_location() -> tuple[str, str]:
+    """(location_id, name) of the Smart 1 Marketing sub-account."""
+    override = os.environ.get("GHL_ACCOUNTING_LOCATION_ID", "").strip()
+    if override:
+        return override, "Smart 1 Marketing"
+    if "acct_loc" in _ghl_cache:
+        return _ghl_cache["acct_loc"]
+    data = _ghl("/locations/search", {
+        "companyId": os.environ.get("GHL_COMPANY_ID", ""), "limit": "500"})
+    locs = data.get("locations") or []
+    hit = next((l for l in locs
+                if "smart 1 marketing" in str(l.get("name", "")).lower()), None)
+    if not hit:
+        raise RuntimeError('No GHL sub-account named "Smart 1 Marketing" found — '
+                           "set GHL_ACCOUNTING_LOCATION_ID to pin the location.")
+    _ghl_cache["acct_loc"] = (hit.get("id") or hit.get("_id"), hit.get("name"))
+    return _ghl_cache["acct_loc"]
+
+
+def _accounting_pipeline(location_id: str) -> dict:
+    key = "acct_pipe:" + location_id
+    if key in _ghl_cache:
+        return _ghl_cache[key]
+    data = _ghl("/opportunities/pipelines", {"locationId": location_id})
+    pipes = data.get("pipelines") or []
+    hit = next((p for p in pipes
+                if "accounting request" in str(p.get("name", "")).lower()), None)
+    if not hit:
+        names = ", ".join(str(p.get("name")) for p in pipes) or "none"
+        raise RuntimeError(f'No "Accounting Requests" pipeline in that location '
+                           f"(found: {names}).")
+    _ghl_cache[key] = hit
+    return hit
+
+
+def accounting_requests() -> dict:
+    columns = ["Request", "Contact", "Value", "Created", "GHL status", "Stage"]
+    try:
+        loc_id, loc_name = _accounting_location()
+        pipe = _accounting_pipeline(loc_id)
+    except RuntimeError as exc:
+        return {"columns": columns, "rows": [], "note": str(exc)}
+    stages = [{"id": s.get("id"), "name": s.get("name")}
+              for s in (pipe.get("stages") or [])]
+    stage_names = {s["id"]: s["name"] for s in stages}
+    try:
+        data = _ghl("/opportunities/search", {
+            "location_id": loc_id, "pipeline_id": pipe.get("id"),
+            "limit": 100})
+    except RuntimeError as exc:
+        return {"columns": columns, "rows": [], "note": str(exc)}
+    opps = data.get("opportunities") or []
+    rows = []
+    for o in opps:
+        contact = (o.get("contact") or {})
+        created = str(o.get("createdAt") or "")[:10]
+        val = knack_data._num(o.get("monetaryValue"))
+        rows.append([
+            {"text": o.get("name") or "(unnamed)",
+             "href": f"{os.environ.get('GHL_APP_BASE', 'https://app.gohighlevel.com')}"
+                     f"/v2/location/{loc_id}/opportunities/list"},
+            (contact.get("name") or contact.get("email") or "—"),
+            _money(val) if val else "—",
+            created,
+            str(o.get("status") or "open"),
+            {"stage_select": o.get("id"),
+             "current": o.get("pipelineStageId"),
+             "current_name": stage_names.get(o.get("pipelineStageId"), "")},
+        ])
+    return {
+        "columns": columns,
+        "rows": rows,
+        "stages": stages,
+        "pipeline_id": pipe.get("id"),
+        "note": (f"{len(rows)} requests in the \"{pipe.get('name')}\" pipeline "
+                 f"({loc_name}). Change the stage right here — it updates GHL "
+                 "immediately."),
+    }
+
+
+def set_accounting_stage(opp_id: str, stage_id: str) -> None:
+    loc_id, _ = _accounting_location()
+    pipe = _accounting_pipeline(loc_id)
+    try:
+        _ghl(f"/opportunities/{opp_id}/status", method="PUT",
+             body={"pipelineId": pipe.get("id"), "pipelineStageId": stage_id})
+    except RuntimeError:
+        _ghl(f"/opportunities/{opp_id}", method="PUT",
+             body={"pipelineId": pipe.get("id"), "pipelineStageId": stage_id})
+
+
 # ---------------------------------------- invoice-off partner assignments
 def _assign_path() -> str:
     base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
@@ -726,6 +837,13 @@ REPORTS = {
         "ico": "&#129309;",
         "fn": partner_scorecard,
         "group": "Scorecards",
+    },
+    "accounting-requests": {
+        "title": "Accounting Requests",
+        "desc": "Every request in the Accounting Requests pipeline (Smart 1 Marketing · GHL) — change stages right from the report.",
+        "ico": "&#128203;",
+        "fn": accounting_requests,
+        "group": "Accounting",
     },
     "billing-comparison": {
         "title": "Customer Billing Comparison",

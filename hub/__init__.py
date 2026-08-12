@@ -15,7 +15,7 @@ from flask import (
     send_from_directory,
 )
 
-from . import audit, auth, knack_data
+from . import audit, auth, errors, knack_data
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLIENTS_APP = os.path.join(ROOT, "clients_app")
@@ -41,6 +41,17 @@ def create_hub_app() -> Flask:
         static_url_path="/assets",
     )
     app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024
+
+    # every unhandled exception in the hub app lands in the error log
+    from flask import got_request_exception
+
+    def _log_exc(sender, exception, **extra):  # noqa: ARG001
+        try:
+            errors.log_exception("hub", exception, path=request.path,
+                                 actor=current_user() or "")
+        except Exception:  # noqa: BLE001 — logging must never break a response
+            pass
+    got_request_exception.connect(_log_exc, app)
 
     # ---------------- auth ----------------
     @app.route("/login", methods=["GET", "POST"])
@@ -388,8 +399,8 @@ def create_hub_app() -> Flask:
         body = request.get_json(silent=True) or {}
         client = (body.get("client") or "").strip()
         kind = (body.get("kind") or "").strip()
-        if not client or kind not in ("analytics", "gtm", "gsc"):
-            return jsonify({"error": "client and kind (analytics|gtm|gsc) are required."}), 400
+        if not client or kind not in ("analytics", "gtm", "gsc", "qb"):
+            return jsonify({"error": "client and kind (analytics|gtm|gsc|qb) are required."}), 400
         att = seo.set_link(client, kind, body.get("data"))
         audit.log("hub", "client_account_attached", actor=current_user(),
                   detail=f"{client}: {kind}")
@@ -604,6 +615,27 @@ def create_hub_app() -> Flask:
         audit.log("hub", "qa_report", actor=current_user(), detail=key)
         return jsonify(out)
 
+    @app.route("/api/qa/accounting/status", methods=["POST"])
+    def api_qa_accounting_status():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import qa
+        body = request.get_json(silent=True) or {}
+        opp_id = (body.get("id") or "").strip()
+        stage_id = (body.get("stage_id") or "").strip()
+        if not opp_id or not stage_id:
+            return jsonify({"error": "id and stage_id are required."}), 400
+        try:
+            qa.set_accounting_stage(opp_id, stage_id)
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("qa-accounting", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"error": str(exc)})
+        audit.log("hub", "accounting_stage_changed", actor=current_user(),
+                  detail=f"{opp_id} -> {stage_id}")
+        return jsonify({"ok": True})
+
     @app.route("/api/qa/invoice-off/assign", methods=["POST"])
     def api_qa_invoice_assign():
         gate = _require_api()
@@ -724,13 +756,29 @@ def create_hub_app() -> Flask:
             return gate
         from . import quickbooks as qb
         q = (request.args.get("q") or "").strip()
-        if not q:
+        cid = (request.args.get("customer_id") or "").strip()
+        if not q and not cid:
             return jsonify({"configured": qb.configured(), "connected": qb.connected(), "customers": []})
         try:
-            return jsonify(qb.lookup(q))
+            return jsonify(qb.lookup(q, customer_id=cid or None))
         except Exception as exc:  # noqa: BLE001 — Client 360 must degrade gracefully
             return jsonify({"configured": qb.configured(), "connected": qb.connected(),
                             "customers": [], "error": str(exc)})
+
+    @app.route("/api/qb/customers")
+    def api_qb_customers():
+        """Customer search for the C360 'attach QuickBooks customer' flow."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import quickbooks as qb
+        q = (request.args.get("q") or "").strip()
+        if not q:
+            return jsonify({"customers": []})
+        try:
+            return jsonify({"customers": qb.find_customers(q, limit=6)})
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"customers": [], "error": str(exc)})
 
     @app.route("/favicon.ico")
     def favicon():
@@ -815,6 +863,23 @@ def create_hub_app() -> Flask:
             return jsonify({"results": rows, "configured": True})
         except Exception as exc:  # noqa: BLE001
             return jsonify({"results": [], "configured": True, "error": str(exc)})
+
+    @app.route("/api/errors")
+    def api_errors():
+        gate = _require_api()
+        if gate:
+            return gate
+        limit = min(int(request.args.get("limit", 50) or 50), 300)
+        return jsonify({"errors": errors.read(limit=limit)})
+
+    @app.route("/api/errors/clear", methods=["POST"])
+    def api_errors_clear():
+        gate = _require_api()
+        if gate:
+            return gate
+        errors.clear()
+        audit.log("hub", "error_log_cleared", actor=current_user())
+        return jsonify({"ok": True})
 
     @app.route("/api/activity")
     def api_activity():

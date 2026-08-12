@@ -18,6 +18,13 @@
   <div class="card-h"><h3>Suite (GHL) deep diagnostics</h3><div class="right"><a class="open-link" href="/suite/">Open Suite →</a></div></div>
   <div class="card-b"><p class="muted" style="font-size:13px">The Suite module has its own Status tab that additionally live-checks snapshot scope and media-upload scope on your GHL token.</p></div>
 </div>
+<div class="card">
+  <div class="card-h"><h3>Error Log</h3><div class="right">
+    <button class="btn-ghost" onclick="loadErrors()">&#8635; Refresh</button>
+    <button class="btn-ghost" onclick="clearErrors()" style="color:#b91c1c">Clear log</button>
+  </div></div>
+  <div class="card-b flush"><table id="errlog"><tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody></table></div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -32,5 +39,29 @@ async function load(){
   document.getElementById('checks').innerHTML='<thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>'+rows+'</tbody>';
 }
 load();
+
+async function loadErrors(){
+  const el=document.getElementById('errlog');
+  el.innerHTML='<tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody>';
+  const d=await fetch('/api/errors?limit=50').then(r=>r.json()).catch(()=>({errors:[]}));
+  const errs=d.errors||[];
+  if(!errs.length){el.innerHTML='<tbody><tr><td class="empty">No errors logged. &#10003;</td></tr></tbody>';return}
+  const rows=errs.map((e,i)=>{
+    const t=(e.time||'').replace('T',' ');
+    const trace=e.trace?`<div id="tr-${i}" style="display:none"><pre style="background:#0f172a;color:#fca5a5;border-radius:8px;padding:10px;font-size:11px;overflow-x:auto;white-space:pre-wrap;margin-top:6px">${esc(e.trace)}</pre></div>
+      <a href="#" onclick="document.getElementById('tr-${i}').style.display=document.getElementById('tr-${i}').style.display==='none'?'block':'none';return false" style="font-size:11.5px">traceback</a>`:'';
+    return `<tr><td style="width:140px" class="muted">${esc(t)}</td>
+      <td style="width:70px"><span class="pill err">${esc(e.status||'ERR')}</span></td>
+      <td style="width:90px" class="muted">${esc(e.source||'')}</td>
+      <td><b style="font-size:12.5px">${esc(e.path||'')}</b><div class="muted" style="font-size:12px">${esc(e.message||'')}</div>${trace}</td></tr>`;
+  }).join('');
+  el.innerHTML='<thead><tr><th>Time</th><th>Status</th><th>Source</th><th>Detail</th></tr></thead><tbody>'+rows+'</tbody>';
+}
+async function clearErrors(){
+  if(!confirm('Clear the error log?'))return;
+  await fetch('/api/errors/clear',{method:'POST'});
+  loadErrors();
+}
+loadErrors();
 </script>
 {% endblock %}
