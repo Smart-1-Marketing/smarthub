@@ -56,6 +56,40 @@ _CSS = """
 """
 
 
+FEEDBACK_FORM_URL = "https://api.leadconnectorhq.com/widget/form/XOszuVj3bHvyOasIeGhw"
+
+FOOTER_HTML = """
+<style>
+.s1hub-feed{position:fixed;bottom:10px;right:14px;z-index:99991;
+  font:600 12px 'Segoe UI',system-ui,sans-serif;color:#64748b;background:rgba(255,255,255,.92);
+  border:1px solid #e2e8f0;border-radius:20px;padding:6px 14px;cursor:pointer;
+  box-shadow:0 4px 14px rgba(15,23,42,.10);text-decoration:none}
+.s1hub-feed:hover{color:#1a2e58;border-color:#cbd5e1}
+</style>
+<a class="s1hub-feed" onclick="s1hubFeedback();return false" href="#">Issues, Suggestions, Problems?</a>
+<script>
+function s1hubFeedback(){
+  var m=document.getElementById('s1hubFeedModal');
+  if(m){m.remove();return;}
+  m=document.createElement('div');
+  m.id='s1hubFeedModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML='<div style="background:#fff;border-radius:14px;width:640px;max-width:100%;height:86vh;display:flex;flex-direction:column;overflow:hidden">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e2e8f0">'
+    +'<b style="color:#1a2e58;font:600 14px \\'Segoe UI\\',system-ui,sans-serif">Issues, Suggestions, Problems?</b>'
+    +'<button onclick="document.getElementById(\\'s1hubFeedModal\\').remove()" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>'
+    +'<iframe src="__FORM_URL__" style="flex:1;border:0;width:100%"></iframe></div>';
+  m.onclick=function(e){if(e.target===m)m.remove();};
+  document.body.appendChild(m);
+}
+</script>
+""".replace("__FORM_URL__", FEEDBACK_FORM_URL)
+
+
+def render_footer() -> bytes:
+    return FOOTER_HTML.encode()
+
+
 def render_sidebar(active: str = "") -> bytes:
     rows = []
     rows.append('<div class="s1hub-logo"><div class="s1hub-mark">S1</div><span class="s1hub-name">Smart 1 Hub</span></div>')
@@ -70,5 +104,6 @@ def render_sidebar(active: str = "") -> bytes:
         _CSS
         + '<nav class="s1hub-sb">' + "".join(rows) + "</nav>"
         + '<a class="s1hub-chip" href="/">&#8962; Smart 1 Hub</a>'
+        + FOOTER_HTML
     )
     return html.encode()
