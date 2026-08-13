@@ -92,6 +92,12 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
   function cellHtml(c){
     if(c && typeof c==='object' && c.assign!==undefined)
       return '<div class="qa-assign-host" data-cust="'+esc(c.assign)+'"><button class="qa-assign-btn">+ Add to partner</button></div>';
+    if(c && typeof c==='object' && c.status_select!==undefined){
+      var sopts = (data&&data.statuses||['open','won','lost','abandoned']).map(function(s){
+        return '<option value="'+esc(s)+'"'+(s===c.current?' selected':'')+'>'+esc(s)+'</option>';
+      }).join('');
+      return '<select class="qa-ghlstatus" data-opp="'+esc(c.status_select)+'" style="padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;font:12.5px \'Segoe UI\',system-ui,sans-serif">'+sopts+'</select> <span class="qa-stage-msg" style="font-size:11px;color:#64748b"></span>';
+    }
     if(c && typeof c==='object' && c.stage_select!==undefined){
       var opts = (data&&data.stages||[]).map(function(s){
         return '<option value="'+esc(s.id)+'"'+(s.id===c.current?' selected':'')+'>'+esc(s.name)+'</option>';
@@ -155,6 +161,18 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
         return '<option value="'+esc(p)+'">';}).join('')+'</datalist>';
     }
     wrap.innerHTML = h;
+    wrap.querySelectorAll('.qa-ghlstatus').forEach(function(sel){
+      sel.onchange = function(){
+        var msg = sel.parentElement.querySelector('.qa-stage-msg');
+        if(msg) msg.textContent = 'Saving…';
+        fetch('/api/qa/accounting/status', {method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({id: sel.dataset.opp, status: sel.value})})
+          .then(function(r){return r.json();})
+          .then(function(res){ if(msg) msg.textContent = res.error ? res.error : 'Saved ✓'; })
+          .catch(function(e){ if(msg) msg.textContent = String(e); });
+      };
+    });
     wrap.querySelectorAll('.qa-stage').forEach(function(sel){
       sel.onchange = function(){
         var msg = sel.parentElement.querySelector('.qa-stage-msg');

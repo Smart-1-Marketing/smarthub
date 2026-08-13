@@ -1021,6 +1021,14 @@ window.addEventListener('DOMContentLoaded', () => {
     if (typeof showToast === 'function') showToast('Property & sitemap loaded into the bulk deployer.', 'success');
     document.getElementById('gsc-bulk-text').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
+  // GTM tools: ?url= also pre-loads the AI Site Analysis input and runs it
+  if (params.get('url') && document.getElementById('gtm-gen-url')) {
+    let siteUrl = params.get('url');
+    if (!/^https?:\/\//.test(siteUrl)) siteUrl = 'https://' + siteUrl;
+    set('gtm-gen-url', siteUrl);
+    const genBtn = document.getElementById('gtm-gen-btn');
+    if (genBtn) setTimeout(() => genBtn.click(), 400);
+  }
   const hubQ = params.get('q');
   if (!hubQ) return;
   const fire = (el, val) => {
@@ -1033,8 +1041,18 @@ window.addEventListener('DOMContentLoaded', () => {
   // page-appropriate target, in priority order
   const digits = (hubQ.match(/\d{6,}/) || [])[0];
   if (document.getElementById('q')) return void fire(document.getElementById('q'), hubQ);
-  if (document.getElementById('gtm-lookup-q')) return void fire(document.getElementById('gtm-lookup-q'), hubQ);
-  if (document.getElementById('gsc-lookup-q')) return void fire(document.getElementById('gsc-lookup-q'), hubQ);
+  if (document.getElementById('gtm-lookup-q')) {
+    fire(document.getElementById('gtm-lookup-q'), hubQ);
+    const b = document.getElementById('gtm-lookup-btn');   // actually run the search
+    if (b) setTimeout(() => b.click(), 200);
+    return;
+  }
+  if (document.getElementById('gsc-lookup-q')) {
+    fire(document.getElementById('gsc-lookup-q'), hubQ);
+    const b = document.getElementById('gsc-lookup-btn');
+    if (b) setTimeout(() => b.click(), 200);
+    return;
+  }
   if (document.getElementById('manual-q')) return void fire(document.getElementById('manual-q'), hubQ);
   if (document.getElementById('search-saved-q')) return void fire(document.getElementById('search-saved-q'), hubQ);
   if (digits && document.getElementById('comp-property-id')) fire(document.getElementById('comp-property-id'), digits);

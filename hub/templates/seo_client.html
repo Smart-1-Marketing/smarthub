@@ -435,6 +435,14 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
     gscHtml+=moreBtn('gsc', gscAtt.length?'+ attach another':'Search & attach…');
     acc+=kv('Webmaster (Search Console)', gscHtml);
 
+    var gmbAtt=attList('gmb');
+    var gmbHtml='';
+    if(gmbAtt.length) gmbHtml+=attRows('gmb',gmbAtt,function(a){
+      return '<a href="/google/gmb-tools?q='+encodeURIComponent(a.name||a.resource_id||'')+'">Open GMB tools &rarr;</a>';});
+    else gmbHtml+='<span class="seoc-warn">none attached</span> ';
+    gmbHtml+=moreBtn('gmb', gmbAtt.length?'+ attach another':'Search & attach…');
+    acc+=kv('Google Business Profile', gmbHtml);
+
     $('accBody').innerHTML=acc;
     $('accBody').querySelectorAll('[data-attach]').forEach(function(b){
       b.onclick=function(){openAttach(b.dataset.attach, $('accBody').querySelector('.attachHost[data-kind="'+b.dataset.attach+'"]'));};
@@ -450,7 +458,7 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
     });
   }
 
-  var KIND_LABEL={analytics:'Analytics property',gtm:'GTM container',gsc:'Search Console property'};
+  var KIND_LABEL={analytics:'Analytics property',gtm:'GTM container',gsc:'Search Console property',gmb:'Google Business Profile'};
   function openAttach(kind, host){
     if(!host) return;
     var domain=siteUrl.replace(/^https?:\/\/(www\.)?/,'').replace(/\/.*$/,'');
@@ -463,12 +471,13 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
       if(!q)return;
       var res=host.querySelector('.attRes');
       res.textContent='Searching…';
-      var plat=kind==='analytics'?'analytics':(kind==='gtm'?'gtm':'gsc');
+      var plat=kind==='analytics'?'analytics':(kind==='gtm'?'gtm':(kind==='gmb'?'gmb':'gsc'));
       fetch('/google/api/search?q='+encodeURIComponent(q)+'&platform='+plat)
         .then(function(r){return r.json();})
         .then(function(d){
           var items=(d.results||[]);
           if(kind==='analytics') items=items.filter(function(x){return x.platform==='Google Analytics';});
+          if(kind==='gmb') items=items.filter(function(x){return x.platform==='Google Business Profile';});
           if(!items.length){res.innerHTML='No matches. Try another name or domain — or connect the Google login that owns it in the <a href="/google/">Google module</a>.';return;}
           res.innerHTML='';
           items.slice(0,6).forEach(function(x){

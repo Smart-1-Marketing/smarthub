@@ -483,7 +483,8 @@ def create_hub_app() -> Flask:
             rec = knack_api.create_ticket(
                 client, (body.get("website") or "").strip(), subject,
                 (body.get("description") or "").strip(),
-                author=current_user() or "")
+                author=current_user() or "",
+                requested_by=(body.get("requested_by") or "").strip())
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
@@ -557,6 +558,27 @@ def create_hub_app() -> Flask:
         audit.log("hub", f"campaign_{kind}_request", actor=current_user(),
                   detail=f"{client}: {subject[:60]}")
         return jsonify({"ok": True, "id": rec.get("id")})
+
+    @app.route("/api/client/website-platform", methods=["POST"])
+    def api_client_website_platform():
+        """Hub-only correction of a website record's platform — Knack untouched."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        domain = (body.get("domain") or "").strip()
+        platform = (body.get("platform") or "").strip()
+        if not client or not domain or not platform:
+            return jsonify({"error": "client, domain and platform are required."}), 400
+        try:
+            seo.set_website_override(client, domain, {"platform": platform})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        audit.log("hub", "website_platform_corrected", actor=current_user(),
+                  detail=f"{client}: {domain} -> {platform}")
+        return jsonify({"ok": True})
 
     @app.route("/api/websites/search")
     def api_websites_search():
@@ -796,10 +818,13 @@ def create_hub_app() -> Flask:
         body = request.get_json(silent=True) or {}
         opp_id = (body.get("id") or "").strip()
         stage_id = (body.get("stage_id") or "").strip()
-        if not opp_id or not stage_id:
-            return jsonify({"error": "id and stage_id are required."}), 400
+        status = (body.get("status") or "").strip().lower()
+        if not opp_id or (not stage_id and not status):
+            return jsonify({"error": "id and stage_id or status are required."}), 400
+        if status and status not in qa.GHL_STATUSES:
+            return jsonify({"error": f"status must be one of {', '.join(qa.GHL_STATUSES)}."}), 400
         try:
-            qa.set_accounting_stage(opp_id, stage_id)
+            qa.set_accounting_stage(opp_id, stage_id, status)
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("qa-accounting", exc, path=request.path,
                                  actor=current_user() or "")

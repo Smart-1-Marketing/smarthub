@@ -79,7 +79,8 @@ def field_map() -> dict:
 
 
 def create_ticket(client: str, website: str, subject: str,
-                  description: str, author: str = "") -> dict:
+                  description: str, author: str = "",
+                  requested_by: str = "") -> dict:
     """Create a web ticket in Knack. Text is written into the best-matched
     fields; connection fields are skipped rather than guessed."""
     m = field_map()
@@ -102,6 +103,7 @@ def create_ticket(client: str, website: str, subject: str,
     put_text(m["description"], body)
     put_text(m["website"], website)
     put_text(m["client"], client)
+    put_text(m["requested_by"], requested_by or author)
     if not payload:
         raise RuntimeError(
             "Could not match any writable fields on "

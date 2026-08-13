@@ -42,8 +42,9 @@ function googleTools(platform,name,rid){
   const P=String(platform||'');
   if(P==='Google Analytics') return [
     ['GA4 Tools','/google/ga-tools?q='+q],['Compare / AI analysis','/google/ga-tools?q='+q+'#compare'],['History & Logs','/google/history?q='+q]];
+  const uParam=window.__c360domain?'&url='+encodeURIComponent(window.__c360domain):'';
   if(P==='Google Tag Manager') return [
-    ['GTM Tools','/google/gtm-tools?q='+q],['Inspect container','/google/gtm-tools?q='+q+'#inspect'],['History & Logs','/google/history?q='+q]];
+    ['GTM Tools','/google/gtm-tools?q='+q+uParam],['Inspect container','/google/gtm-tools?q='+q+uParam+'#inspect'],['History & Logs','/google/history?q='+q]];
   if(P==='Search Console') return [['Webmaster Tools','/google/webmaster-tools?q='+q]];
   if(P==='Google Business Profile') return [['GMB Tools','/google/gmb-tools?q='+q]];
   return [['Open Google Finder','/google/?q='+q]];
@@ -75,6 +76,7 @@ function render(g,q){
   const name=g.client||q;
   const liveCount=g.products.filter(p=>String(p.status||'').toLowerCase()==='live').length;
   const web0=(g.websites||[])[0]||null;
+  window.__c360domain=web0&&web0.domain?String(web0.domain).replace(/^https?:\/\//,'').replace(/\/.*$/,''):'';
 
   // ---------- header: Smart 1 Site badge · active billing · dashboard link ----------
   let head=`
@@ -103,14 +105,17 @@ function render(g,q){
       <a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
   const prodRow=p=>{
     const live=String(p.status||'').toLowerCase()==='live';
-    return `<tr><td><b>${esc(p.product||'—')}</b>${p.dash?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Open Smart 1 Dashboard">#${esc(p.io||'dash')}</a>`:''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td><td class="muted">${esc(p.io||'')}</td></tr>`;
+    const ioPill=p.io?(p.dash
+      ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Open Smart 1 Dashboard">#${esc(p.io)}</a>`
+      :` <span class="pill neutral">#${esc(p.io)}</span>`):'';
+    return `<tr><td><b>${esc(p.product||'—')}</b>${ioPill}${p.campaign?`<div class="muted" style="font-size:12px;margin-top:1px">${esc(p.campaign)}</div>`:''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td></tr>`;
   };
   const liveProds=g.products.filter(p=>String(p.status||'').toLowerCase()==='live');
   const doneProds=g.products.filter(p=>String(p.status||'').toLowerCase()!=='live');
   if(g.products.length){
-    html+='<table><thead><tr><th>Product</th><th>Status</th><th>Monthly</th><th>IO</th></tr></thead><tbody>';
+    html+='<table><thead><tr><th>Product</th><th>Status</th><th>Monthly</th></tr></thead><tbody>';
     html+=liveProds.slice(0,15).map(prodRow).join('');
-    if(!liveProds.length)html+='<tr><td colspan="4" class="empty">No live products right now.</td></tr>';
+    if(!liveProds.length)html+='<tr><td colspan="3" class="empty">No live products right now.</td></tr>';
     html+='</tbody></table>';
     if(doneProds.length){
       html+=`<div style="padding:10px 14px;border-top:1px solid var(--line-soft)"><button class="btn-ghost" onclick="const el=document.getElementById('doneProds');const on=el.style.display==='none';el.style.display=on?'block':'none';this.textContent=on?'Hide completed / other (${doneProds.length})':'Show completed / other (${doneProds.length})'">Show completed / other (${doneProds.length})</button></div>`;
@@ -126,11 +131,9 @@ function render(g,q){
   window._galleryItems=cre;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Creative Information</h3><div class="right">${cre.length?`<a class="open-link" href="#" onclick="openGallery(0);return false">&#9635; View gallery (${cre.length})</a>`:''}<a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
   if(cre.length){
-    html+='<table><thead><tr><th>Year</th><th>Product / Campaign</th><th>IO</th><th>Creative</th></tr></thead><tbody>';
-    let lastYear='';
+    html+='<table><thead><tr><th>Product / Campaign</th><th>IO</th><th>Creative</th></tr></thead><tbody>';
     cre.slice(0,12).forEach((c,i)=>{
-      const y=c.year&&c.year!==lastYear?c.year:''; if(c.year)lastYear=c.year;
-      html+=`<tr><td><b>${esc(y)}</b></td><td>${esc(c.product||'—')}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} view →</a></td></tr>`;
+      html+=`<tr><td>${esc(c.product||'—')}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} view →</a></td></tr>`;
     });
     html+='</tbody></table>';
     if(cre.length>12)html+=`<div class="empty">+${cre.length-12} more creative files in the Clients module</div>`;
@@ -148,23 +151,22 @@ function render(g,q){
       html+=`<div style="padding:9px 0;border-bottom:1px solid var(--line-soft)">
         <b>${esc(t.id)}</b>${t.login?' <span class="pill warn">'+esc(t.login)+'</span>':''}
         <div class="muted" style="font-size:12px;margin-top:2px">${esc(t.site||'')}</div>
-        ${gbtns([['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(t.id)],['Inspect','/google/gtm-tools?q='+encodeURIComponent(t.id)+'#inspect'],['History & Logs','/google/history?q='+encodeURIComponent(t.id)]])}
+        ${gbtns([['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(t.id)+(window.__c360domain?'&url='+encodeURIComponent(window.__c360domain):'')],['Inspect','/google/gtm-tools?q='+encodeURIComponent(t.id)+(window.__c360domain?'&url='+encodeURIComponent(window.__c360domain):'')+'#inspect'],['History & Logs','/google/history?q='+encodeURIComponent(t.id)]])}
       </div>`;
     });
   } else html+='<div class="empty">No GTM container on record for this client.</div>';
   html+='</div></div>';
 
-  // ---------- Social Media ----------
+  // ---------- Social Media + Client Notes (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Social</span><h3>Social Media</h3><a class="open-link" id="c-social-save" style="cursor:pointer">Save →</a></div><div class="card-b" id="c-social"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span></div><div class="card-b" id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div>`;
 
-  // ---------- Smart 1 Suite Account ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
-
-  // ---------- Sales: proposals for this client ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals</h3><a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a></div><div class="card-b" id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals</h3><a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a></div><div class="card-b" id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
   // ---------- QuickBooks: invoices for this client ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e8f5e9;color:#1b5e20">QuickBooks</span><h3>Invoices</h3>
@@ -183,13 +185,19 @@ function render(g,q){
     <div style="display:flex;gap:36px;flex-wrap:wrap">`;
   if(g.websites&&g.websites.length){
     g.websites.slice(0,4).forEach(w=>{
+      const PLATFORMS=['Smart1Sites','WordPress','Wix','Squarespace','Shopify','Other'];
+      const curPlat=w.platform||'';
+      const platOpts=['<option value="">Set platform…</option>'].concat(
+        PLATFORMS.map(p=>`<option value="${esc(p)}"${p.toLowerCase()===String(curPlat).toLowerCase()?' selected':''}>${esc(p.replace(/Smart1Sites/i,'Smart 1 Sites'))}</option>`));
+      if(curPlat&&!PLATFORMS.some(p=>p.toLowerCase()===String(curPlat).toLowerCase()))
+        platOpts.push(`<option value="${esc(curPlat)}" selected>${esc(curPlat)}</option>`);
       html+=`<div style="flex:1;min-width:280px"><dl class="kv">
         <dt>Site</dt><dd>${esc(w.name||'—')}${w.attached?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</dd>
         <dt>Domain</dt><dd>${w.domain?`<a href="https://${esc(w.domain)}" target="_blank" rel="noopener">${esc(w.domain)}</a>`:'—'}${w.domainPurchased?' <span class="pill info">we purchased</span>':''}</dd>
-        <dt>Platform</dt><dd>${esc((w.platform||'—').replace(/Smart1Sites/i,'Smart 1 Sites'))}</dd>
+        <dt>Platform</dt><dd><select class="web-plat" data-domain="${esc(w.domain||'')}" style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit">${platOpts.join('')}</select> <span class="web-plat-msg muted" style="font-size:11px">${w.platform_overridden?'corrected':''}</span></dd>
         <dt>Status</dt><dd><span class="pill ${String(w.status||'').toLowerCase()==='active'?'ok':'neutral'}">${esc(w.status||'—')}</span></dd>
         <dt>H&amp;M</dt><dd>${w.hmMonthly?money(w.hmMonthly)+' / mo':'—'}</dd>
-        ${w.ga?`<dt>GA4</dt><dd>${esc(w.ga)}</dd>`:''}
+        <dt>GA4</dt><dd>${w.ga?esc(w.ga):'<span class="muted">none</span> <a class="gbtn ga-lookup" style="cursor:pointer;font-size:11.5px">Search &amp; attach →</a>'}</dd>
         ${w.gtm?`<dt>GTM</dt><dd>${esc(w.gtm)}</dd>`:''}
       </dl>`;
       const links=[];
@@ -206,7 +214,6 @@ function render(g,q){
 
   // ---------- Web Tickets (Smart 1 Team) + Notes ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Web Tickets</h3><a class="open-link" id="c-tickets-new" style="cursor:pointer">+ New web ticket</a></div><div class="card-b" id="c-tickets"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   html+='</div>';
   $('results').innerHTML=html;
@@ -218,16 +225,36 @@ function render(g,q){
   // finder functions.
   const gTerms=[term];
   (g.websites||[]).slice(0,3).forEach(w=>{
-    if(!w.domain)return;
-    const dom=String(w.domain).replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0];
-    if(dom&&!gTerms.includes(dom))gTerms.push(dom);
-    const root=dom.split('.')[0];
-    if(root&&root.length>3&&!gTerms.includes(root))gTerms.push(root);
+    if(w.domain){
+      const dom=String(w.domain).replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0];
+      if(dom&&!gTerms.includes(dom))gTerms.push(dom);
+      const root=dom.split('.')[0];
+      if(root&&root.length>3&&!gTerms.includes(root))gTerms.push(root);
+    }
+    // GA measurement id + GTM id from the website record find GA4 by id
+    const gaM=w.ga?(String(w.ga).match(/G-[A-Z0-9]+/)||[])[0]:null;
+    if(gaM&&!gTerms.includes(gaM))gTerms.push(gaM);
+    const gtmM=w.gtm?(String(w.gtm).match(/GTM-[A-Z0-9]+/i)||[])[0]:null;
+    if(gtmM&&!gTerms.includes(gtmM))gTerms.push(gtmM);
   });
-  Promise.all(gTerms.slice(0,5).map(t=>
+  Promise.all(gTerms.slice(0,7).map(t=>
     fetch('/google/api/search?q='+encodeURIComponent(t))
       .then(r=>r.status===401?{noauth:true}:r.json()).then(d=>Object.assign({term:t},d)).catch(()=>null)
-  )).then(all=>{
+  ).concat([
+    // manually attached accounts always show, even when no search term matches
+    fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).then(la=>{
+      const att=(la||{}).attached||{};
+      const items=[];
+      const push=(list,platform)=>{ (Array.isArray(list)?list:(list?[list]:[])).forEach(a=>{
+        items.push({platform:platform,name:a.name,resource_id:a.resource_id,
+          google_login:a.google_login,account_id:a.account_id,
+          internal_container_id:a.container,_attached:true}); }); };
+      push(att.analytics,'Google Analytics');
+      push(att.gtm,'Google Tag Manager');
+      push(att.gsc,'Search Console');
+      return {term:'(attached)',results:items};
+    }).catch(()=>null),
+  ])).then(all=>{
     all=all.filter(Boolean);
     if(all.some(a=>a.noauth)){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';maybeTraffic(name,[]);return}
     const seen=new Set(),res=[];
@@ -237,10 +264,12 @@ function render(g,q){
     }));
     maybeTraffic(name,res);
     if(!res.length){$('c-google').innerHTML='<div class="empty">No GA4/GTM matches for '+gTerms.map(t=>'\u201c'+esc(t)+'\u201d').join(', ')+' \u2014 you can search &amp; attach one in the Traffic Summary card below.</div>';return}
+    res.sort((a,b)=>(b._attached?1:0)-(a._attached?1:0));
     $('c-google').innerHTML=res.slice(0,10).map(it=>`
       <div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
         <b>${esc(it.name||'—')}</b> <span class="pill ${it.platform==='Google Analytics'?'info':'warn'}">${esc(it.platform||'')}</span>
-        ${it._via&&it._via!==term?'<span class="pill neutral" title="Matched by website URL">via '+esc(it._via)+'</span>':''}
+        ${it._attached?'<span class="pill ok" title="Manually attached to this client">attached</span>':''}
+        ${it._via&&it._via!==term&&it._via!=='(attached)'?'<span class="pill neutral" title="Matched by website URL">via '+esc(it._via)+'</span>':''}
         <div class="muted" style="font-size:12px;margin-top:2px">${esc(it.resource_id||'')} · ${esc(it.google_login||'')}</div>
         ${gbtns(googleTools(it.platform,it.name,it.resource_id))}
       </div>`).join('');
@@ -379,6 +408,25 @@ function render(g,q){
     document.getElementById('qbgo').onclick=go;
     document.getElementById('qbq').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
   };
+
+  // Website record: platform corrections (hub-only) + GA4 lookup shortcuts
+  document.querySelectorAll('.web-plat').forEach(sel=>{
+    sel.onchange=()=>{
+      const msg=sel.parentElement.querySelector('.web-plat-msg');
+      if(!sel.value)return;
+      if(msg)msg.textContent='Saving…';
+      fetch('/api/client/website-platform',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,domain:sel.dataset.domain,platform:sel.value})})
+        .then(r=>r.json()).then(res=>{if(msg)msg.textContent=res.error||'corrected ✓';});
+    };
+  });
+  document.querySelectorAll('.ga-lookup').forEach(a=>{
+    a.onclick=()=>{
+      showTrafficAttach(name);
+      const card=document.getElementById('c-traffic');
+      if(card)card.scrollIntoView({behavior:'smooth',block:'center'});
+    };
+  });
 
   // Website record: search & attach (hub-only — nothing written to Knack)
   const webAttachLink=document.getElementById('c-web-attach');
@@ -545,6 +593,7 @@ function render(g,q){
         <button id="tickClose" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
       <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">
         <input id="tickSite" placeholder="Website" value="${esc(domain||'')}" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+        <select id="tickReq" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit"><option value="">Requested by…</option></select>
         <input id="tickSubject" placeholder="Subject — what needs done?" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
         <textarea id="tickDesc" rows="5" placeholder="Details for the web team…" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit"></textarea>
       </div>
@@ -554,13 +603,23 @@ function render(g,q){
     document.body.appendChild(m);
     m.onclick=e=>{if(e.target===m)m.remove();};
     document.getElementById('tickClose').onclick=()=>m.remove();
+    // requested-by names from Knack (objects 161 + 109), same as campaign requests
+    fetch('/api/knack/people').then(r=>r.json()).then(p=>{
+      const sel=document.getElementById('tickReq');
+      if(!sel)return;
+      const names=(p&&p.names)||[];
+      sel.innerHTML='<option value="">Requested by…</option>'
+        +names.map(n=>`<option value="${esc(n)}"${n===user_name?' selected':''}>${esc(n)}</option>`).join('');
+      if(!names.length) sel.innerHTML+=`<option value="${esc(user_name)}" selected>${esc(user_name)}</option>`;
+    }).catch(()=>{});
     document.getElementById('tickSend').onclick=()=>{
       const subject=document.getElementById('tickSubject').value.trim();
       if(!subject){document.getElementById('tickMsg').textContent='Subject is required.';return;}
       document.getElementById('tickMsg').textContent='Sending…';
       fetch('/api/client/tickets',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({client:name,website:document.getElementById('tickSite').value.trim(),
-          subject:subject,description:document.getElementById('tickDesc').value.trim()})})
+          subject:subject,description:document.getElementById('tickDesc').value.trim(),
+          requested_by:document.getElementById('tickReq').value})})
         .then(r=>r.json()).then(d=>{
           if(d.error){document.getElementById('tickMsg').textContent=d.error;return;}
           m.remove();

@@ -253,6 +253,7 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
         raw_by_group.setdefault(client.lower(), []).append(r)
         g["products"].append({
             "product": r.get("product"),
+            "campaign": r.get("campaign"),
             "io": r.get("io"),
             "status": r.get("status"),
             "monthly": r.get("monthly"),
@@ -315,6 +316,14 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
                     "attached": True,
                 })
     except Exception:  # noqa: BLE001 — attachments must never break search
+        pass
+
+    # hub-side website corrections (platform etc.) — display only
+    try:
+        from . import seo as _seo2
+        for g in groups.values():
+            _seo2.apply_website_overrides(str(g["client"]), g["websites"])
+    except Exception:  # noqa: BLE001
         pass
 
     out = list(groups.values())

@@ -60,7 +60,7 @@ def save_store(client: str, data: dict):
 # A client can hold MULTIPLE attachments of each kind (two GA properties, two
 # QuickBooks customers, several website records…), and the same resource can
 # be attached to any number of clients. Hub-only — nothing is written to Knack.
-LINK_KINDS = ("analytics", "gtm", "gsc", "qb", "suite", "website")
+LINK_KINDS = ("analytics", "gtm", "gsc", "gmb", "qb", "suite", "website")
 
 
 def _link_key(item) -> str:
@@ -172,6 +172,76 @@ def set_social(client: str, updates: dict) -> dict:
             social.pop(k, None)
     save_store(client, store)
     return social
+
+
+# -------------------------------------- master business info (one source)
+def master_business_info(client: str, store: dict | None = None) -> dict:
+    """Every fact the Hub knows about a client, merged into one dict so no
+    form ever starts empty: saved business info, wins; then the client
+    profile (contacts/address/category); then Brandfetch."""
+    store = store if store is not None else load_store(client)
+    bi = dict(store.get("business_info") or {})
+    prof = store.get("profile") or {}
+    contacts = prof.get("contacts") or []
+    prim = next((c for c in contacts if c.get("primary")),
+                contacts[0] if contacts else {})
+    b = store.get("brandfetch") or {}
+    if not b:
+        webs = _client_websites(client)
+        b = brand_for(client, str(webs[0].get("domain") or "") if webs else "") or {}
+    loc = b.get("location") or {}
+
+    def put(k, v):
+        if v and not str(bi.get(k) or "").strip():
+            bi[k] = str(v)
+
+    put("name", b.get("name"))
+    put("phone", prim.get("phone"))
+    put("email", prim.get("email"))
+    put("logo", b.get("logo"))
+    put("city", loc.get("city"))
+    put("state", loc.get("state"))
+    put("category", prof.get("category"))
+    put("address", prof.get("address"))
+    return bi
+
+
+# ---------------------------------------- website record overrides (hub-only)
+def _norm_domain(d: str) -> str:
+    return re.sub(r"^https?://", "", str(d or "").lower()).removeprefix("www.").split("/")[0]
+
+
+def website_overrides(client: str) -> dict:
+    return load_store(client).get("website_overrides", {})
+
+
+def set_website_override(client: str, domain: str, updates: dict) -> dict:
+    store = load_store(client)
+    ov = store.setdefault("website_overrides", {})
+    d = _norm_domain(domain)
+    if not d:
+        raise ValueError("A domain is required.")
+    entry = ov.setdefault(d, {})
+    for k in ("platform",):
+        if k in updates and str(updates[k]).strip():
+            entry[k] = str(updates[k]).strip()
+    save_store(client, store)
+    return ov
+
+
+def apply_website_overrides(client: str, websites: list[dict]) -> list[dict]:
+    """Overlay hub-side corrections (e.g. platform) onto website dicts.
+    Mutates the given display dicts — never Knack data."""
+    ov = website_overrides(client)
+    if not ov:
+        return websites
+    for w in websites:
+        d = _norm_domain(w.get("domain"))
+        hit = ov.get(d)
+        if hit:
+            w.update({k: v for k, v in hit.items() if v})
+            w["platform_overridden"] = "platform" in hit
+    return websites
 
 
 # -------------------------------------------------- client profile & notes
@@ -472,13 +542,14 @@ def client_detail(client: str, full: bool = False) -> dict:
             "google_tag": ga.get("google_tag", ""),
             "gtm_id": gtm.get("id", ""), "gtm_login": gtm.get("login", ""),
         })
+    apply_website_overrides(client, webs)
     store = load_store(client)
     pages = store.get("pages", {})
     base.update({
         "websites": webs,
         "setup": {k: v for k, v in store.get("setup", {}).items() if k != "password"},
         "setup_has_password": bool(store.get("setup", {}).get("password")),
-        "business_info": store.get("business_info", {}),
+        "business_info": master_business_info(client, store),
         "questions": store.get("questions", []),
         "answers": store.get("answers", {}),
         "sitemap_total": len(store.get("sitemap", [])),
@@ -747,7 +818,7 @@ def _template_schema(facts: dict, business: dict, client: str) -> dict:
 def generate_for_pages(client: str, urls: list[str]) -> dict:
     """Generate (or regenerate) schema for the given page urls."""
     store = load_store(client)
-    business = store.get("business_info", {})
+    business = master_business_info(client, store)
     answers = store.get("answers", {})
     results, questions = [], list(store.get("questions", []))
     ai_error = ""
@@ -877,7 +948,7 @@ def _client_context(client: str, store: dict) -> dict:
             facts = {}
     return {"client_name": client, "website": site,
             "homepage_facts": {k: v for k, v in facts.items() if k != "error"},
-            "business_info": store.get("business_info", {}),
+            "business_info": master_business_info(client, store),
             "answered_questions": store.get("answers", {}),
             "blog_answers": store.get("blogs", {}).get("answers", {})}
 

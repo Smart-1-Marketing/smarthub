@@ -504,8 +504,47 @@ def _accounting_pipeline(location_id: str) -> dict:
     return hit
 
 
+def _ghl_custom_value(o: dict, *needles) -> str:
+    """Pull a custom-field value off an opportunity (or its contact) whose
+    id / key / name contains one of the needles."""
+    sources = [o.get("customFields"), (o.get("contact") or {}).get("customFields"),
+               o.get("customField")]
+    for needle in needles:
+        for src in sources:
+            if not isinstance(src, list):
+                continue
+            for f in src:
+                if not isinstance(f, dict):
+                    continue
+                key = " ".join(str(f.get(k) or "") for k in
+                               ("id", "key", "fieldKey", "name", "fieldName")).lower()
+                if needle in key:
+                    v = (f.get("fieldValue") if f.get("fieldValue") is not None
+                         else f.get("value") if f.get("value") is not None
+                         else f.get("field_value"))
+                    if isinstance(v, list):
+                        return ", ".join(str(x) for x in v)
+                    if isinstance(v, dict):
+                        return ", ".join(str(x) for x in v.values())
+                    if v is not None and str(v).strip():
+                        return str(v)
+    return ""
+
+
+def _mmddyy(iso: str) -> str:
+    s = str(iso or "")[:10]
+    try:
+        d = _dt.date.fromisoformat(s)
+        return d.strftime("%m/%d/%y")
+    except ValueError:
+        return s
+
+
+GHL_STATUSES = ("open", "won", "lost", "abandoned")
+
+
 def accounting_requests() -> dict:
-    columns = ["Request", "Contact", "Value", "Created", "GHL status", "Stage"]
+    columns = ["Request", "Issue", "Created", "Status", "Stage"]
     try:
         loc_id, loc_name = _accounting_location()
         pipe = _accounting_pipeline(loc_id)
@@ -524,16 +563,17 @@ def accounting_requests() -> dict:
     rows = []
     for o in opps:
         contact = (o.get("contact") or {})
-        created = str(o.get("createdAt") or "")[:10]
-        val = knack_data._num(o.get("monetaryValue"))
+        organization = (_ghl_custom_value(o, "organization")
+                        or contact.get("companyName") or o.get("name") or "(unnamed)")
+        issue = _ghl_custom_value(o, "29zlj", "checkbox")
         rows.append([
-            {"text": o.get("name") or "(unnamed)",
+            {"text": organization,
              "href": f"{os.environ.get('GHL_APP_BASE', 'https://app.gohighlevel.com')}"
                      f"/v2/location/{loc_id}/opportunities/list"},
-            (contact.get("name") or contact.get("email") or "—"),
-            _money(val) if val else "—",
-            created,
-            str(o.get("status") or "open"),
+            issue or "—",
+            _mmddyy(o.get("createdAt")),
+            {"status_select": o.get("id"),
+             "current": str(o.get("status") or "open").lower()},
             {"stage_select": o.get("id"),
              "current": o.get("pipelineStageId"),
              "current_name": stage_names.get(o.get("pipelineStageId"), "")},
@@ -542,22 +582,26 @@ def accounting_requests() -> dict:
         "columns": columns,
         "rows": rows,
         "stages": stages,
+        "statuses": list(GHL_STATUSES),
         "pipeline_id": pipe.get("id"),
         "note": (f"{len(rows)} requests in the \"{pipe.get('name')}\" pipeline "
-                 f"({loc_name}). Change the stage right here — it updates GHL "
-                 "immediately."),
+                 f"({loc_name}). Status and stage are both editable right here — "
+                 "changes update GHL immediately."),
     }
 
 
-def set_accounting_stage(opp_id: str, stage_id: str) -> None:
+def set_accounting_stage(opp_id: str, stage_id: str = "", status: str = "") -> None:
     loc_id, _ = _accounting_location()
     pipe = _accounting_pipeline(loc_id)
+    body = {}
+    if stage_id:
+        body = {"pipelineId": pipe.get("id"), "pipelineStageId": stage_id}
+    elif status:
+        body = {"status": status}
     try:
-        _ghl(f"/opportunities/{opp_id}/status", method="PUT",
-             body={"pipelineId": pipe.get("id"), "pipelineStageId": stage_id})
+        _ghl(f"/opportunities/{opp_id}/status", method="PUT", body=body)
     except RuntimeError:
-        _ghl(f"/opportunities/{opp_id}", method="PUT",
-             body={"pipelineId": pipe.get("id"), "pipelineStageId": stage_id})
+        _ghl(f"/opportunities/{opp_id}", method="PUT", body=body)
 
 
 # ---------------------------------------- invoice-off partner assignments
