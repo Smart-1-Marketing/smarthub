@@ -23,6 +23,42 @@ billing), live GA4/GTM matches from the Google Finder — each with one-click
 jumps into its GA4 / GTM / Search Console / GMB tools — the Simvoly project,
 and the GHL sub-account.
 
+### Proposals in Client 360
+
+The Proposals card lists proposals from the Proposal Builder **and** the ones
+you send outside it. **⇧ Upload proposal** takes a PDF or Word file plus the
+date it was sent to the client; the file goes to Cloudinary
+(`smart1-proposals/uploads/<client>/`) and the record stays attached to the
+client permanently. The date sent stays editable in the table. Without
+`CLOUDINARY_URL` set, uploads fall back to the persistent disk.
+
+### SEO: Schema Builder & FAQ Builder
+
+**Schema Builder** completes the client's business information *before* it
+generates anything — first from what the Hub already holds (saved business
+info, client profile, contacts, Brandfetch), then, only for the fields still
+blank, by finding the company's Google Business Profile and reading the
+address, phone, hours and category off it. Nothing already on file is ever
+overwritten, and the panel shows exactly which fields are known and which are
+still missing. Saved pages appear in a table — date created, editable date
+added to site, page URL, schema types — with per-page view/edit, per-page
+download, delete, and select-all bulk downloads.
+
+**FAQ Builder** takes one page URL, reads that page plus the rest of the site,
+and drafts 5-8 questions with answers. Each one is approved, edited, skipped,
+or swapped for a fresh question; once nothing is pending it offers to save the
+page to the client. The saved-pages table mirrors the schema table, and each
+row downloads two ways:
+
+- `</>` **site code** — a self-contained accordion (native `<details>`, no
+  JavaScript) styled with the fonts and colours read from the page it came
+  from, with its FAQPage JSON-LD inline. Drops straight into a code block on
+  any site builder.
+- `⇩` **review doc** — a Word document formatted for the customer to mark up.
+
+Both builders need `OPENAI_API_KEY`; without it they fall back to templates so
+the workflow still runs.
+
 ## Deploy on Render (Blueprint)
 
 1. Push this folder to a GitHub repo.
