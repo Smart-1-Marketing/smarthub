@@ -14,6 +14,8 @@ _ITEMS = [
     ("google", "/google/", "G", "Google"),
     ("sites", "/sites/", "&#11041;", "Sites"),
     ("suite", "/suite/", "&#9635;", "Suite"),
+    ("_secscans", "", "", "Scans"),
+    ("scans", "/scans/", "&#128200;", "Scans"),
     ("_secseo", "", "", "SEO"),
     ("seo", "/seo", "&#128269;", "SEO Clients"),
     ("_sec2", "", "", "Sales"),
