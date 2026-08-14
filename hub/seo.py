@@ -206,6 +206,195 @@ def master_business_info(client: str, store: dict | None = None) -> dict:
     return bi
 
 
+# ------------------------------- fill the gaps: hub first, then the web
+# Order matters. Everything the Hub already knows about the client is used
+# BEFORE anything is looked up, so we never go hunting for a phone number we
+# already have on file. Only the fields still blank after that trigger a
+# lookup of the company's Google Business Profile.
+SCHEMA_FIELDS = ("name", "phone", "email", "category", "address", "city",
+                 "state", "zip", "hours", "logo")
+# The fields worth going out to the web for — email and logo are cosmetic.
+LOOKUP_FIELDS = ("name", "phone", "category", "address", "city", "state",
+                 "zip", "hours")
+
+
+def missing_business_fields(client: str, store: dict | None = None) -> list[str]:
+    """Which schema fields are still blank after merging everything the Hub
+    already holds for this client."""
+    bi = master_business_info(client, store)
+    return [f for f in LOOKUP_FIELDS if not str(bi.get(f) or "").strip()]
+
+
+def _web_search(query: str, limit: int = 6) -> list[dict]:
+    """Plain search results (title, url, snippet) without an API key."""
+    out, seen = [], set()
+    try:
+        r = requests.post("https://html.duckduckgo.com/html/",
+                          data={"q": query}, headers=UA, timeout=15)
+        r.raise_for_status()
+        html_text = r.text
+    except Exception:                                # noqa: BLE001
+        return out
+    blocks = re.findall(
+        r'<a[^>]+class="result__a"[^>]+href="(.*?)".*?>(.*?)</a>(.*?)(?=<a[^>]+class="result__a"|$)',
+        html_text, re.S | re.I)
+    strip = lambda s: _html.unescape(re.sub(r"<[^>]+>", " ", s or "")).strip()  # noqa: E731
+    for href, title, tail in blocks:
+        url = _html.unescape(href)
+        m = re.search(r"uddg=([^&]+)", url)
+        if m:
+            from urllib.parse import unquote
+            url = unquote(m.group(1))
+        if not url.startswith("http") or url in seen:
+            continue
+        seen.add(url)
+        snip = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', tail, re.S | re.I)
+        out.append({"url": url, "title": strip(title),
+                    "snippet": strip(snip.group(1) if snip else "")[:400]})
+        if len(out) >= limit:
+            break
+    return out
+
+
+_GMB_EXTRACT_PROMPT = """You are researching one specific local business to complete its record.
+
+You are given: the fields we already know (do NOT change these), the fields that are
+still missing, text scraped from the company's own website, and search-engine results
+for the company's Google Business Profile / business listings.
+
+Return JSON only: {"fields": {<field>: <value>}, "source": str, "confidence": "high"|"medium"|"low", "notes": str}
+
+Rules:
+- Fill ONLY the fields listed as missing. Never return a field we already know.
+- Use ONLY facts visible in the supplied website text or search results. If a field
+  cannot be confirmed, OMIT it entirely. An omitted field is always better than a guess.
+- "phone": digits formatted like (555) 555-5555. "address": street line only.
+  "city"/"state"/"zip": separate. "state": 2-letter code.
+- "hours": schema.org openingHours style, e.g. "Mo-Fr 08:00-17:00, Sa 09:00-13:00".
+- "category": the specific business type, e.g. "HVAC contractor", "personal injury
+  attorney", "insurance agency" — not a generic word like "company" or "service".
+- The business must MATCH the name and website given. If the results are clearly about
+  a different company, return {"fields": {}} and say so in "notes".
+- "source": where the facts came from, e.g. "Google Business Profile listing" or
+  "company website contact page"."""
+
+
+def _contact_pages(site_url: str, sitemap: list[str]) -> list[str]:
+    """The pages most likely to carry address, phone and hours."""
+    origin = _origin(site_url)
+    picks, seen = [], set()
+    for u in list(sitemap or []) + [origin + "/contact", origin + "/contact-us",
+                                    origin + "/about", origin + "/locations"]:
+        low = str(u).lower()
+        if any(k in low for k in ("contact", "about", "location", "hours", "find-us")):
+            key = low.rstrip("/")
+            if key not in seen:
+                seen.add(key)
+                picks.append(u)
+        if len(picks) >= 3:
+            break
+    return picks
+
+
+def enrich_business_info(client: str, force: bool = False) -> dict:
+    """Complete a client's business info.
+
+    1. Use everything the Hub already has (saved info, client profile,
+       Brandfetch, website record) — that alone often finishes the job.
+    2. Only if fields are still blank, read the client's own site (homepage +
+       contact/about pages) and search the web for their Google Business
+       Profile, then let the AI pull the missing values out of what it finds.
+
+    Nothing already on file is ever overwritten.
+    """
+    store = load_store(client)
+    known = master_business_info(client, store)
+    missing = [f for f in LOOKUP_FIELDS if not str(known.get(f) or "").strip()]
+
+    result = {"known": known, "missing": missing, "filled": {},
+              "source": "Hub records", "searched": False, "notes": "", "ai_error": ""}
+    if not missing and not force:
+        result["notes"] = "Everything the schema needs was already on file for this client."
+        return result
+
+    webs = _client_websites(client)
+    site_url = _site_url(webs[0]) if webs else ""
+    if not site_url:
+        result["notes"] = ("No website on file for this client, so there was nothing to "
+                           "read. Add the website record, or fill the fields by hand.")
+        return result
+
+    # --- the client's own site first: it is the most trustworthy source ---
+    pages = []
+    home = _page_facts(site_url)
+    if not home.get("error"):
+        pages.append({"url": site_url, "title": home.get("title", ""),
+                      "text": str(home.get("text", ""))[:2500],
+                      "phone": home.get("phone", ""), "email": home.get("email", ""),
+                      "socials": home.get("socials", [])})
+    for u in _contact_pages(site_url, store.get("sitemap") or []):
+        f = _page_facts(u)
+        if not f.get("error"):
+            pages.append({"url": u, "title": f.get("title", ""),
+                          "text": str(f.get("text", ""))[:2000],
+                          "phone": f.get("phone", ""), "email": f.get("email", "")})
+
+    # --- then the Google Business Profile via search ---
+    biz_name = known.get("name") or client
+    domain = _norm_domain(site_url)
+    city = known.get("city") or ""
+    searches = []
+    for query in (f'"{biz_name}" {city} google business profile address phone hours'.strip(),
+                  f'{biz_name} {domain} address phone hours'.strip()):
+        hits = _web_search(query, limit=5)
+        if hits:
+            searches.append({"query": query, "results": hits})
+        if len(searches) >= 2:
+            break
+    result["searched"] = bool(searches)
+
+    payload = {"business_name": biz_name, "website": site_url, "domain": domain,
+               "known_fields": {k: v for k, v in known.items() if v},
+               "missing_fields": missing,
+               "website_pages": pages, "search_results": searches}
+
+    fields = {}
+    try:
+        out = _openai_json(_GMB_EXTRACT_PROMPT, payload, timeout=90) or {}
+        raw = out.get("fields") if isinstance(out.get("fields"), dict) else {}
+        for k, v in (raw or {}).items():
+            k = str(k).strip().lower()
+            v = str(v or "").strip()
+            if k in missing and v and v.lower() not in ("unknown", "n/a", "none"):
+                fields[k] = v[:300]
+        result["source"] = str(out.get("source") or "web lookup")[:120]
+        result["notes"] = str(out.get("notes") or "")[:400]
+        result["confidence"] = str(out.get("confidence") or "")
+    except Exception as exc:                         # noqa: BLE001
+        result["ai_error"] = str(exc)
+
+    # A phone number scraped straight off the client's own site beats anything
+    # a search result claims, so use it when the AI came back empty.
+    if "phone" in missing and "phone" not in fields:
+        scraped = next((p.get("phone") for p in pages if p.get("phone")), "")
+        if scraped:
+            fields["phone"] = re.sub(r"^tel:", "", scraped).strip()[:40]
+            result["source"] = result["source"] or "company website"
+
+    if fields:
+        bi = store.setdefault("business_info", {})
+        for k, v in fields.items():
+            if not str(bi.get(k) or "").strip():     # never overwrite the team
+                bi[k] = v
+        save_store(client, store)
+
+    result["filled"] = fields
+    result["known"] = master_business_info(client, store)
+    result["missing"] = [f for f in LOOKUP_FIELDS
+                         if not str(result["known"].get(f) or "").strip()]
+    return result
+
+
 # ---------------------------------------- website record overrides (hub-only)
 def _norm_domain(d: str) -> str:
     return re.sub(r"^https?://", "", str(d or "").lower()).removeprefix("www.").split("/")[0]
@@ -567,6 +756,12 @@ def client_detail(client: str, full: bool = False) -> dict:
                      if p not in store.get("pages", {})]
         base["schema_pages_list"] = list(pages.values())
         base["schema_remaining"] = len(remaining)
+        base["schema_table"] = schema_pages_table(client)
+        base["missing_business_fields"] = [
+            f for f in LOOKUP_FIELDS
+            if not str(base["business_info"].get(f) or "").strip()]
+        from . import faq as _faq
+        base["faq_pages"] = _faq.list_pages(client)
         blogs = store.get("blogs", {})
         base["blog_posts"] = blogs.get("posts", [])
         base["blog_questions"] = blogs.get("questions", [])
@@ -815,8 +1010,20 @@ def _template_schema(facts: dict, business: dict, client: str) -> dict:
             "questions": questions}
 
 
-def generate_for_pages(client: str, urls: list[str]) -> dict:
-    """Generate (or regenerate) schema for the given page urls."""
+def generate_for_pages(client: str, urls: list[str], enrich: bool = True) -> dict:
+    """Generate (or regenerate) schema for the given page urls.
+
+    Before anything is generated we make sure the business info is as complete
+    as we can get it — first from what the Hub already holds, then from the
+    company's Google Business Profile — so the generator asks the team for far
+    less than it used to."""
+    enriched = None
+    if enrich:
+        try:
+            enriched = enrich_business_info(client)
+        except Exception as exc:                     # noqa: BLE001 — never block
+            enriched = {"filled": {}, "ai_error": str(exc)}
+
     store = load_store(client)
     business = master_business_info(client, store)
     answers = store.get("answers", {})
@@ -837,15 +1044,167 @@ def generate_for_pages(client: str, urls: list[str]) -> dict:
         for q in out.get("questions", []):
             if q and q not in questions and q not in answers:
                 questions.append(q)
+        prior = store.get("pages", {}).get(url) or {}
         page = {"url": url, "title": facts.get("title", ""),
-                "schema": out["schema"], "approved": False}
+                "schema": out["schema"], "approved": False,
+                "created": prior.get("created") or _dt_date_today_iso(),
+                "added_to_site": prior.get("added_to_site", ""),
+                "updated": _dt_now_stamp()}
         store.setdefault("pages", {})[url] = page
         results.append(page)
     store["questions"] = questions[:20]
     save_store(client, store)
-    return {"pages": results, "questions": store["questions"],
-            "ai": bool(os.environ.get("OPENAI_API_KEY")) and not ai_error,
-            "ai_error": ai_error}
+    out = {"pages": results, "questions": store["questions"],
+           "ai": bool(os.environ.get("OPENAI_API_KEY")) and not ai_error,
+           "ai_error": ai_error}
+    if enriched:
+        out["enriched"] = {"filled": enriched.get("filled", {}),
+                           "source": enriched.get("source", ""),
+                           "missing": enriched.get("missing", []),
+                           "notes": enriched.get("notes", "")}
+        out["business_info"] = master_business_info(client, store)
+    return out
+
+
+def _dt_now_stamp() -> str:
+    import datetime as _dt
+    return _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+# ------------------------------------------------- saved schema page table
+def _schema_types(schema) -> list[str]:
+    """Every @type in a generated graph, for the table's Types column."""
+    types = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            t = node.get("@type")
+            if isinstance(t, list):
+                types.extend(str(x) for x in t)
+            elif t:
+                types.append(str(t))
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(schema)
+    seen, out = set(), []
+    for t in types:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def schema_pages_table(client: str) -> list[dict]:
+    """Rows for the Schema Builder's saved-pages table."""
+    store = load_store(client)
+    rows = []
+    for url, page in store.get("pages", {}).items():
+        types = _schema_types(page.get("schema"))
+        rows.append({
+            "url": url,
+            "title": page.get("title", ""),
+            "created": page.get("created", ""),
+            "added_to_site": page.get("added_to_site", ""),
+            "updated": page.get("updated", ""),
+            "approved": bool(page.get("approved")),
+            "types": types,
+            "type_count": len(types),
+        })
+    rows.sort(key=lambda r: (str(r.get("created") or ""), r["url"]), reverse=True)
+    return rows
+
+
+def update_page_meta(client: str, url: str, updates: dict) -> dict | None:
+    """Edit a saved schema page — the added-to-site date, the approval flag,
+    or the JSON-LD itself after a customer asks for a change."""
+    store = load_store(client)
+    page = store.get("pages", {}).get(url)
+    if page is None:
+        return None
+    if "added_to_site" in updates:
+        page["added_to_site"] = _iso_date(updates["added_to_site"])
+    if "approved" in updates:
+        page["approved"] = bool(updates["approved"])
+    if isinstance(updates.get("schema"), (dict, list)):
+        page["schema"] = updates["schema"]
+    page.setdefault("created", _dt_date_today_iso())
+    page["updated"] = _dt_now_stamp()
+    save_store(client, store)
+    return page
+
+
+def delete_page(client: str, url: str) -> bool:
+    store = load_store(client)
+    pages = store.get("pages", {})
+    if url not in pages:
+        return False
+    pages.pop(url)
+    save_store(client, store)
+    return True
+
+
+def _iso_date(value) -> str:
+    """Normalise a typed date to YYYY-MM-DD; blank clears it."""
+    import datetime as _dt
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return _dt.datetime.strptime(s[:10], fmt).date().isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
+def schema_doc(client: str, urls: list[str] | None = None) -> str:
+    """Word-openable document of the selected schema pages, laid out for a
+    customer (or a developer) to review before it goes on the site."""
+    import datetime as _dt
+    store = load_store(client)
+    pages = store.get("pages", {})
+    if urls:
+        wanted = {str(u).rstrip("/") for u in urls}
+        items = [(u, p) for u, p in pages.items() if str(u).rstrip("/") in wanted]
+    else:
+        items = list(pages.items())
+    esc = _html.escape
+    parts = ["""<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8">
+<title>Schema markup &mdash; """ + esc(client) + """</title>
+<style>
+body{font-family:Calibri,Segoe UI,sans-serif;max-width:820px;margin:24px auto;color:#1e293b;line-height:1.5}
+h1{color:#1a2e58;font-size:22pt;margin-bottom:2px}
+.meta{color:#64748b;font-size:10pt}
+.pagehead{background:#f4f6fa;border-left:4px solid #1a2e58;padding:10px 14px;margin:26px 0 10px}
+.pagehead .u{font-size:10.5pt;color:#2563eb;word-break:break-all}
+pre{background:#f8fafc;border:1px solid #e2e8f0;padding:12px;font:9pt Consolas,monospace;
+white-space:pre-wrap;word-break:break-word}
+.pagebreak{page-break-before:always}
+</style></head><body>"""]
+    parts.append(f"<h1>Schema markup</h1><p class='meta'><b>{esc(client)}</b> &middot; "
+                 f"prepared by Smart 1 Marketing &middot; "
+                 f"{esc(_dt.date.today().strftime('%B %-d, %Y'))}</p>"
+                 f"<p class='meta'>Each block below is the JSON-LD for one page. "
+                 f"Paste it into that page's &lt;head&gt; exactly as shown.</p>")
+    if not items:
+        parts.append("<p><i>No schema pages saved yet.</i></p>")
+    for i, (url, page) in enumerate(items):
+        cls = " pagebreak" if i else ""
+        types = ", ".join(_schema_types(page.get("schema"))) or "—"
+        parts.append(f"<div class='pagehead{cls}'><b>{esc(page.get('title') or url)}</b>"
+                     f"<div class='u'>{esc(url)}</div>"
+                     f"<div class='meta'>{esc(types)}"
+                     + (f" &middot; added to site {esc(page.get('added_to_site'))}"
+                        if page.get("added_to_site") else "") + "</div></div>")
+        parts.append('<pre>&lt;script type="application/ld+json"&gt;\n'
+                     + esc(json.dumps(page.get("schema"), indent=1))
+                     + "\n&lt;/script&gt;</pre>")
+    parts.append("</body></html>")
+    return "\n".join(parts)
 
 
 # ------------------------------------------------------------------ blogs
@@ -1077,7 +1436,8 @@ def compiled_json(client: str) -> dict:
 
 
 def compiled_html(client: str) -> str:
-    """Copy-paste ready: one <script type="application/ld+json"> block per page."""
+    """Copy-paste ready: one <script type="application/ld+json"> block per page,
+    including the FAQPage markup from every saved FAQ page."""
     store = load_store(client)
     out = [f"<!-- JSON-LD schema for {client} — generated by Smart 1 Hub -->"]
     for url, p in store.get("pages", {}).items():
@@ -1087,4 +1447,17 @@ def compiled_html(client: str) -> str:
         out.append('<script type="application/ld+json">')
         out.append(json.dumps(p["schema"], indent=1))
         out.append("</script>")
+    try:
+        from . import faq as _faq
+        faq_pages = _faq.list_pages(client)
+    except Exception:                             # noqa: BLE001
+        faq_pages = []
+    if faq_pages:
+        out.append("\n<!-- ===== FAQ pages ===== -->")
+        for p in faq_pages:
+            full = _faq.get_page(client, p["url"]) or p
+            out.append(f"\n<!-- ===== {p['url']} (FAQ) ===== -->")
+            out.append('<script type="application/ld+json">')
+            out.append(json.dumps(full.get("schema") or _faq.faq_schema(full), indent=1))
+            out.append("</script>")
     return "\n".join(out)

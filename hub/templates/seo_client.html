@@ -101,6 +101,120 @@
     </div>
   </div>
   <pre id="compiledView" style="display:none"></pre>
+
+  <!-- saved schema pages -->
+  <div id="schemaTableWrap" style="display:none;margin-top:18px">
+    <div class="seoc-tablehead">
+      <b>Saved schema pages</b>
+      <span class="seoc-muted" id="schemaTableCount"></span>
+      <div class="seoc-tableacts">
+        <button class="seoc-btn seoc-sec seoc-small" id="btnSchemaDlSel">&#8681; Download selected</button>
+        <button class="seoc-btn seoc-sec seoc-small" id="btnSchemaDlAll">&#8681; Download all</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="seoc-t"><thead><tr>
+        <th style="width:28px"><input type="checkbox" id="schemaSelAll" title="Select all"></th>
+        <th>Date created</th><th>Date added to site</th><th>Page URL</th>
+        <th style="text-align:center">Schema types</th><th style="text-align:right">Actions</th>
+      </tr></thead><tbody id="schemaRows"></tbody></table>
+    </div>
+    <div class="seoc-muted" style="margin-top:6px">The date added to site is editable — schema rarely goes live the same day it&rsquo;s built.</div>
+  </div>
+</div>
+
+<!-- ---------------------------- FAQ Builder ---------------------------- -->
+<div class="card seoc-card" id="cardFAQ">
+  <div class="seoc-cardhead"><h3>FAQ Builder</h3>
+    <div class="seoc-muted" id="faqProgress"></div></div>
+
+  <div id="faqStart">
+    <p style="margin:2px 0 10px;font-size:13.5px">Enter a page URL. The AI reads that page and the rest of the
+      site, then drafts the questions real customers ask &mdash; with answers written to earn FAQ rich results.</p>
+    <div class="seoc-faqbar">
+      <input id="faqUrl" placeholder="https://clientsite.com/services/ac-repair">
+      <select id="faqCount">
+        <option value="5">5 questions</option>
+        <option value="6" selected>6 questions</option>
+        <option value="7">7 questions</option>
+        <option value="8">8 questions</option>
+      </select>
+      <button class="seoc-btn" id="btnFaqGen">Build FAQs</button>
+      <span id="faqMsg" class="seoc-muted"></span>
+    </div>
+  </div>
+
+  <div id="faqReview" style="display:none">
+    <div class="seoc-faqhead">
+      <div><b id="faqPageTitle"></b><div class="seoc-muted" id="faqPageUrl"></div></div>
+      <button class="seoc-btn seoc-sec seoc-small" id="btnFaqCancel">Start over</button>
+    </div>
+    <div id="faqList"></div>
+    <div id="faqSavePrompt" class="seoc-next" style="display:none">
+      <b>Every question has been handled. Save this page to this account?</b>
+      <div class="seoc-saverow">
+        <label class="seoc-muted">Date added to site
+          <input type="date" id="faqAddedDate">
+          <span class="seoc-muted">(leave blank until it goes live)</span></label>
+      </div>
+      <button class="seoc-btn seoc-small" id="btnFaqSave">Save this page</button>
+      <button class="seoc-btn seoc-sec seoc-small" id="btnFaqSaveLater">Not yet</button>
+      <span id="faqSaveMsg" class="seoc-muted"></span>
+    </div>
+  </div>
+
+  <div id="faqTableWrap" style="display:none;margin-top:18px">
+    <div class="seoc-tablehead">
+      <b>Saved FAQ pages</b>
+      <span class="seoc-muted" id="faqTableCount"></span>
+      <div class="seoc-tableacts">
+        <button class="seoc-btn seoc-sec seoc-small" id="btnFaqDlSelHtml">&#8681; Selected &mdash; site code</button>
+        <button class="seoc-btn seoc-sec seoc-small" id="btnFaqDlSelDoc">&#8681; Selected &mdash; review doc</button>
+        <button class="seoc-btn seoc-sec seoc-small" id="btnFaqDlAllDoc">&#8681; All &mdash; review doc</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="seoc-t"><thead><tr>
+        <th style="width:28px"><input type="checkbox" id="faqSelAll" title="Select all"></th>
+        <th>Date created</th><th>Date added to site</th><th>Site URL</th>
+        <th style="text-align:center">Questions</th><th style="text-align:right">Actions</th>
+      </tr></thead><tbody id="faqRows"></tbody></table>
+    </div>
+    <div class="seoc-muted" style="margin-top:6px">
+      &#128065; view &amp; edit the questions &middot; &#60;/&#62; download the accordion code block for the site
+      &middot; &#8681; customer review document &middot; &#128465; delete
+    </div>
+  </div>
+</div>
+
+<!-- FAQ view / edit modal -->
+<div class="seoc-modal" id="faqModal">
+  <div class="seoc-modal-box" style="width:820px">
+    <div class="seoc-modal-head"><b id="faqModalTitle">FAQ page</b><button class="seoc-x" id="faqModalClose">&times;</button></div>
+    <div class="seoc-modal-body"><div id="faqModalBody"></div></div>
+    <div class="seoc-modal-foot">
+      <span id="faqModalMsg" class="seoc-muted"></span>
+      <a class="seoc-btn seoc-sec seoc-small" id="faqModalCode">&#60;/&#62; Site code</a>
+      <a class="seoc-btn seoc-sec seoc-small" id="faqModalDoc">&#8681; Review doc</a>
+      <button class="seoc-btn seoc-small" id="faqModalSave">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Schema view / edit modal -->
+<div class="seoc-modal" id="schemaModal">
+  <div class="seoc-modal-box" style="width:860px">
+    <div class="seoc-modal-head"><b id="schemaModalTitle">Schema</b><button class="seoc-x" id="schemaModalClose">&times;</button></div>
+    <div class="seoc-modal-body">
+      <div class="seoc-muted" id="schemaModalUrl" style="margin-bottom:8px"></div>
+      <textarea id="schemaModalEdit" rows="20" style="width:100%;box-sizing:border-box;font:12px ui-monospace,Consolas,monospace;padding:10px;border:1px solid #e2e8f0;border-radius:8px"></textarea>
+    </div>
+    <div class="seoc-modal-foot">
+      <span id="schemaModalMsg" class="seoc-muted"></span>
+      <a class="seoc-btn seoc-sec seoc-small" id="schemaModalDl">&#8681; Download this page</a>
+      <button class="seoc-btn seoc-small" id="schemaModalSave">Save changes</button>
+    </div>
+  </div>
 </div>
 
 <div class="card seoc-card" id="cardBlogs" style="display:none">
@@ -331,6 +445,51 @@ table.seoc-ait th{background:#f8fafc;text-align:left;padding:8px 12px;font-size:
   letter-spacing:.6px;color:#64748b;border-bottom:1px solid #e2e8f0}
 table.seoc-ait td{padding:8px 12px;border-bottom:1px solid #eef2f7}
 table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
+
+/* ---------------- saved-page tables (schema + FAQ) ---------------- */
+.seoc-tablehead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px;
+  padding-top:14px;border-top:1px solid #eef2f7}
+.seoc-tablehead b{color:#1a2e58;font-size:13.5px}
+.seoc-tableacts{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+table.seoc-t{width:100%;border-collapse:collapse;font-size:13px}
+table.seoc-t th{background:#f8fafc;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;
+  letter-spacing:.6px;color:#64748b;border-bottom:1px solid #e2e8f0;white-space:nowrap}
+table.seoc-t td{padding:8px 10px;border-bottom:1px solid #eef2f7;vertical-align:middle}
+table.seoc-t tr:hover td{background:#fbfdff}
+table.seoc-t td a.u{color:#2563eb;text-decoration:none;overflow-wrap:anywhere}
+table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-radius:6px;
+  font:12px 'Segoe UI',system-ui,sans-serif}
+.seoc-icon{background:none;border:0;cursor:pointer;font-size:15px;padding:3px 5px;border-radius:6px;
+  text-decoration:none;color:#475569;line-height:1}
+.seoc-icon:hover{background:#eef2ff;color:#1a2e58}
+.seoc-icon.danger:hover{background:#fee2e2;color:#b91c1c}
+.seoc-pill{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:20px;
+  padding:1px 9px;font-size:11.5px;font-weight:700}
+
+/* ---------------- FAQ builder ---------------- */
+.seoc-faqbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.seoc-faqbar input{flex:1;min-width:260px;padding:9px 11px;border:1px solid #e2e8f0;border-radius:8px;
+  font:13px 'Segoe UI',system-ui,sans-serif}
+.seoc-faqbar select{padding:9px 10px;border:1px solid #e2e8f0;border-radius:8px;
+  font:13px 'Segoe UI',system-ui,sans-serif}
+.seoc-faqhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
+  margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #eef2f7}
+.seoc-faqq{border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fff}
+.seoc-faqq.approved{border-color:#86efac;background:#f0fdf4}
+.seoc-faqq.skipped{border-color:#e2e8f0;background:#f8fafc;opacity:.6}
+.seoc-faqq .qn{font-weight:700;color:#1a2e58;font-size:13.5px;margin-bottom:5px}
+.seoc-faqq .an{font-size:13px;line-height:1.55;color:#334155;white-space:pre-wrap}
+.seoc-faqq textarea,.seoc-faqq input.qedit{width:100%;box-sizing:border-box;padding:8px 10px;
+  border:1px solid #cbd5e1;border-radius:8px;font:13px 'Segoe UI',system-ui,sans-serif}
+.seoc-faqq input.qedit{font-weight:700;color:#1a2e58;margin-bottom:6px}
+.seoc-faqacts{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;align-items:center}
+.seoc-faqstate{margin-left:auto;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.seoc-faqstate.ok{color:#16a34a}
+.seoc-faqstate.skip{color:#94a3b8}
+.seoc-saverow{margin:8px 0}
+.seoc-saverow input[type=date]{padding:6px 8px;border:1px solid #e2e8f0;border-radius:7px;
+  font:12.5px 'Segoe UI',system-ui,sans-serif;margin:0 6px}
+.seoc-faqview .q{font-weight:700;color:#1a2e58;font-size:13.5px;margin:14px 0 4px}
 </style>
 {% endblock %}
 {% block scripts %}
@@ -344,13 +503,21 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
   function kv(k,v){return '<div class="seoc-kv"><b>'+k+'</b><span>'+v+'</span></div>';}
 
   // ---------------- load detail ----------------
+  // Each card renders inside safe() so one bad section can never leave the
+  // rest of the page stuck on "Loading…".
+  function safe(label, fn){
+    try{ fn(); }
+    catch(err){ console.error('[seo_client] '+label+' failed:', err); }
+  }
   fetch('/api/seo/detail?name='+encodeURIComponent(CLIENT)+'&full=1').then(function(r){return r.json();}).then(function(d){
     detail=d; slug=d.slug||''; siteUrl=d.url||'';
     $('seocSub').textContent=(d.products||[]).join(' · ')+(d.billing?'  —  $'+Number(d.billing).toLocaleString()+'/mo':'');
     if(siteUrl){var b=$('btnSite');b.href=siteUrl;b.style.display='inline-block';}
 
-    renderAccounts(d);
+    safe('accounts', function(){ renderAccounts(d); });
 
+    safe('website', function(){
+    var w=(d.websites||[])[0]||{};
     var s='';
     s+=kv('Website', siteUrl?'<a href="'+esc(siteUrl)+'" target="_blank">'+esc(siteUrl)+'</a>':'<span class="seoc-warn">no site on file</span>');
     s+=kv('Site type', esc(w.platform||d.platform||'Unknown'));
@@ -359,26 +526,40 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
     if(d.setup && d.setup.blogs_enabled==='yes')
       s+=kv('Blogs', esc((d.setup.blogs_per_month||'?')+' / month, '+(d.setup.blogs_frequency||'')));
     $('siteBody').innerHTML=s;
+    });
 
-    $('dlJson').href='/seo/download/'+slug+'.json';
-    $('dlHtml').href='/seo/download/'+slug+'.html';
-    prefillSetup(d);
-    renderBiz(d);
-    renderChecks(d.status);
-    renderSocial(d.social);
-    loadTraffic();
-    showBlogsCard(d);
-    if(d.schema_pages_list&&d.schema_pages_list.length){
-      $('cardBuilder').style.display='block';
-      $('genControls').style.display='none';
-      d.schema_pages_list.forEach(addPageCard);
-      updateProgress(d.schema_pages_list.length, approvedCount(), d.sitemap_total);
-      maybeNextPrompt(d.schema_remaining||0);
-      refreshCompiled();
-    }
-    if(d.last_scan){ renderScan(d.last_scan,true); }
-    if(!siteUrl){ $('btnScan').disabled=true; $('scanBody').innerHTML='<span class="seoc-warn">No website on file for this client — add one in Smart 1 Team, or set the access URL in Client Setup.</span>'; }
-    applyBrandfetch(d);
+    safe('downloads', function(){
+      $('dlJson').href='/seo/download/'+slug+'.json';
+      $('dlHtml').href='/seo/download/'+slug+'.html';
+    });
+    safe('setup',   function(){ prefillSetup(d); });
+    safe('biz',     function(){ renderBiz(d); });
+    safe('checks',  function(){ renderChecks(d.status); });
+    safe('social',  function(){ renderSocial(d.social); });
+    safe('traffic', function(){ loadTraffic(); });
+    safe('blogs',   function(){ showBlogsCard(d); });
+    safe('schema', function(){
+      if(d.schema_pages_list&&d.schema_pages_list.length){
+        $('cardBuilder').style.display='block';
+        $('genControls').style.display='none';
+        d.schema_pages_list.forEach(addPageCard);
+        updateProgress(d.schema_pages_list.length, approvedCount(), d.sitemap_total);
+        maybeNextPrompt(d.schema_remaining||0);
+        refreshCompiled();
+      }
+    });
+    safe('scan', function(){
+      if(d.last_scan){ renderScan(d.last_scan,true); }
+      if(!siteUrl){ $('btnScan').disabled=true; $('scanBody').innerHTML='<span class="seoc-warn">No website on file for this client — add one in Smart 1 Team, or set the access URL in Client Setup.</span>'; }
+    });
+    safe('brandfetch', function(){ applyBrandfetch(d); });
+    safe('schematable', function(){ renderSchemaTable(d.schema_table||[]); });
+    safe('faq', function(){ initFaq(d); });
+  }).catch(function(err){
+    console.error('[seo_client] detail load failed:', err);
+    var msg='<span class="seoc-bad">Could not load this client — '+esc(err&&err.message||err)+'</span>';
+    ['accBody','siteBody','socialBody'].forEach(function(id){ if($(id)) $(id).innerHTML=msg; });
+    $('seocSub').textContent='Load failed.';
   });
 
   // ---------------- accounts card + search/attach ----------------
@@ -575,25 +756,62 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
     });
   };
 
-  // ------- Brandfetch: search-on-demand + autofill with keep/change -------
+  // ------- Find client info: what we know first, then their GMB -------
+  // 1. Brandfetch fills the brand-level basics.
+  // 2. /api/seo/enrich re-checks everything the Hub already holds and only
+  //    goes looking for the fields that are STILL blank, pulling them from
+  //    the company's Google Business Profile.
   $('btnBrandSearch').onclick=function(){
+    var btn=this;
     var domain=(detail&&detail.websites&&detail.websites[0]&&detail.websites[0].domain)||siteUrl;
     domain=String(domain||'').replace(/^https?:\/\/(www\.)?/,'').replace(/\/.*$/,'');
-    if(!domain){ alert('No domain on file for this client — add the website first.'); return; }
-    var btn=this; btn.disabled=true; btn.textContent='Searching…';
-    fetch('/suite/api/brand?domain='+encodeURIComponent(domain)+'&client='+encodeURIComponent(CLIENT))
-      .then(function(r){return r.json();})
-      .then(function(b){
-        btn.disabled=false; btn.innerHTML='&#128269; Search client info';
-        if(b.error){ alert(b.error); return; }
-        detail.brandfetch=b;
-        applyBrandfetch(detail);           // autofill + conflict prompts
-        if(b.social) renderSocial(Object.assign({}, b.social.facebookUrl?{facebook:b.social.facebookUrl}:{},
-          b.social.instagram?{instagram:b.social.instagram}:{}, b.social.linkedIn?{linkedin:b.social.linkedIn}:{},
-          b.social.twitter?{twitter:b.social.twitter}:{}, b.social.youtube?{youtube:b.social.youtube}:{},
-          b.social.pinterest?{pinterest:b.social.pinterest}:{}, currentSocial()));
-      })
-      .catch(function(){ btn.disabled=false; btn.innerHTML='&#128269; Search client info'; });
+    var reset=function(){ btn.disabled=false; btn.innerHTML='&#128269; Search client info'; };
+    btn.disabled=true; btn.textContent='Checking what we know…';
+
+    var brandStep = domain
+      ? fetch('/suite/api/brand?domain='+encodeURIComponent(domain)+'&client='+encodeURIComponent(CLIENT))
+          .then(function(r){return r.json();})
+          .then(function(b){
+            if(b&&!b.error){
+              detail.brandfetch=b;
+              applyBrandfetch(detail);       // autofill + conflict prompts
+              if(b.social) renderSocial(Object.assign({}, b.social.facebookUrl?{facebook:b.social.facebookUrl}:{},
+                b.social.instagram?{instagram:b.social.instagram}:{}, b.social.linkedIn?{linkedin:b.social.linkedIn}:{},
+                b.social.twitter?{twitter:b.social.twitter}:{}, b.social.youtube?{youtube:b.social.youtube}:{},
+                b.social.pinterest?{pinterest:b.social.pinterest}:{}, currentSocial()));
+            }
+          }).catch(function(){})
+      : Promise.resolve();
+
+    brandStep.then(function(){
+      // save whatever is on the form so the lookup never re-finds it
+      var bi={}; BI.forEach(function(k){ var v=$('bi_'+k).value.trim(); if(v) bi[k]=v; });
+      return post('/api/seo/business',{client:CLIENT,business_info:bi});
+    }).then(function(){
+      var missing=currentMissing();
+      if(!missing.length){
+        reset();
+        $('bizMsg').textContent='Everything the schema needs was already on file — nothing to look up.';
+        renderKnown([]);
+        return null;
+      }
+      btn.textContent='Finding their Google Business Profile…';
+      return post('/api/seo/enrich',{client:CLIENT});
+    }).then(function(d){
+      reset();
+      if(!d) return;
+      if(d.error){ $('bizMsg').textContent=d.error; return; }
+      var filled=d.filled||{}, keys=Object.keys(filled);
+      keys.forEach(function(k){ if($('bi_'+k)) $('bi_'+k).value=filled[k]; });
+      renderKnown(d.missing||currentMissing());
+      if(keys.length){
+        $('bizMsg').innerHTML='<span class="seoc-ok">&#10003; Found '+keys.length+' field'+(keys.length>1?'s':'')
+          +'</span> ('+keys.map(esc).join(', ')+')'+(d.source?' from '+esc(d.source):'')+'.';
+      } else {
+        $('bizMsg').textContent=d.notes||('Nothing new found'+(d.ai_error?' — '+d.ai_error:'')
+          +'. Fill the remaining fields by hand.');
+      }
+    }).catch(function(err){ reset(); $('bizMsg').textContent='Lookup failed: '+err; });
   };
   function currentSocial(){
     var s={};
@@ -648,10 +866,38 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
 
   // ---------------- business info + questions ----------------
   var BI=['name','phone','email','category','address','city','state','zip','hours','logo'];
+  // The generator uses what the Hub already knows about the client FIRST.
+  // Only the fields still blank after that are worth going and looking up.
+  var LOOKUP=['name','phone','category','address','city','state','zip','hours'];
   function renderBiz(d){
     var bi=d.business_info||{};
     BI.forEach(function(k){ if(bi[k]) $('bi_'+k).value=bi[k]; });
     renderQuestions(d.questions||[]);
+    renderKnown(d.missing_business_fields);
+  }
+  function currentMissing(){
+    return LOOKUP.filter(function(k){ var e=$('bi_'+k); return !e||!e.value.trim(); });
+  }
+  function renderKnown(missing){
+    missing = missing || currentMissing();
+    var host=$('bizKnown');
+    if(!host){
+      host=document.createElement('div');
+      host.id='bizKnown';
+      host.style.cssText='font-size:12.5px;margin:8px 0 2px';
+      var head=$('bizPanel').querySelector('.seoc-biz-head');
+      head.parentNode.insertBefore(host, head.nextSibling);
+    }
+    var have=LOOKUP.length-missing.length;
+    if(!missing.length){
+      host.innerHTML='<span class="seoc-ok">&#10003; Everything the schema needs is already on file for this client.</span>';
+    } else {
+      host.innerHTML='<span class="seoc-muted">Already on file: <b>'+have+' of '+LOOKUP.length+'</b> fields. '
+        +'Still missing: <b>'+missing.join(', ')+'</b> — '
+        +'<a href="#" id="bizFindLink" style="color:#2563eb">look these up from their Google Business Profile &rarr;</a></span>';
+      var link=$('bizFindLink');
+      if(link) link.onclick=function(e){ e.preventDefault(); $('btnBrandSearch').click(); };
+    }
   }
   function renderQuestions(qs){
     if(!qs.length){$('qPanel').style.display='none';return;}
@@ -702,7 +948,26 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
       updateProgress(Object.keys(pageCards).length, approvedCount(), d.total);
       maybeNextPrompt(d.remaining);
       refreshCompiled();
+      refreshSchemaTable();
+      // the generator now completes the business info before it runs — show
+      // the team what it found rather than asking them for it again
+      if(d.business_info){
+        BI.forEach(function(k){ if(d.business_info[k] && !$('bi_'+k).value.trim()) $('bi_'+k).value=d.business_info[k]; });
+      }
+      if(d.enriched){
+        var f=Object.keys(d.enriched.filled||{});
+        if(f.length) $('bizMsg').innerHTML='<span class="seoc-ok">&#10003; Filled '+f.length
+          +' missing field'+(f.length>1?'s':'')+'</span> ('+f.map(esc).join(', ')+')'
+          +(d.enriched.source?' from '+esc(d.enriched.source):'')+' before generating.';
+        renderKnown(d.enriched.missing);
+      }
     });
+  }
+  function refreshSchemaTable(){
+    fetch('/api/seo/schema/pages?name='+encodeURIComponent(CLIENT))
+      .then(function(r){return r.json();})
+      .then(function(d){ renderSchemaTable(d.pages||[]); })
+      .catch(function(){});
   }
   function maybeNextPrompt(remaining){
     if(remaining>0){
@@ -1099,6 +1364,7 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
       skipped_steps:skipped,
       completed: skipped.length===0 && !!($('su_method').value && $('su_wm').value && $('su_blogs').value)};
     if($('su_pass').value.trim()) body.password=$('su_pass').value.trim();
+    /* setup body assembled above */
     post('/api/seo/setup',body).then(function(d){
       $('setupMsg').textContent=d.error?d.error:(body.completed?'Saved — setup complete.':'Saved — skipped steps can be finished later.');
       if(!d.error){
@@ -1111,6 +1377,350 @@ table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
         }
         setTimeout(function(){$('setupModal').classList.remove('open');},900);
       }
+    });
+  };
+
+  // =====================================================================
+  //  Saved schema pages table
+  // =====================================================================
+  function fmtDate(s){
+    if(!s) return '<span class="seoc-muted">—</span>';
+    var p=String(s).slice(0,10).split('-');
+    return p.length===3 ? esc(p[1]+'/'+p[2]+'/'+p[0]) : esc(s);
+  }
+  function shortUrl(u){
+    return String(u||'').replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'');
+  }
+  function selectedUrls(tbody){
+    var out=[];
+    document.querySelectorAll('#'+tbody+' input.rowsel:checked').forEach(function(c){out.push(c.dataset.url);});
+    return out;
+  }
+  function urlsParam(list){
+    return list.length ? '?urls='+encodeURIComponent(list.join('\n')) : '';
+  }
+
+  function renderSchemaTable(rows){
+    rows=rows||[];
+    if(!rows.length){ $('schemaTableWrap').style.display='none'; return; }
+    $('cardBuilder').style.display='block';
+    $('schemaTableWrap').style.display='block';
+    var approved=rows.filter(function(r){return r.approved;}).length;
+    $('schemaTableCount').textContent=rows.length+' page'+(rows.length>1?'s':'')+' · '+approved+' approved';
+    $('schemaRows').innerHTML=rows.map(function(r){
+      var types=(r.types||[]).slice(0,4).join(', ')+((r.types||[]).length>4?' +'+(r.types.length-4):'');
+      return '<tr>'
+        +'<td><input type="checkbox" class="rowsel" data-url="'+esc(r.url)+'"></td>'
+        +'<td>'+fmtDate(r.created)+'</td>'
+        +'<td><input type="date" class="addeddate" data-url="'+esc(r.url)+'" value="'+esc(r.added_to_site||'')+'"></td>'
+        +'<td><a class="u" href="'+esc(r.url)+'" target="_blank" rel="noopener">'+esc(shortUrl(r.url))+'</a>'
+        +(r.title?'<div class="seoc-muted">'+esc(r.title)+'</div>':'')+'</td>'
+        +'<td style="text-align:center"><span class="seoc-pill" title="'+esc((r.types||[]).join(', '))+'">'
+        +(r.type_count||0)+'</span><div class="seoc-muted" style="font-size:11px">'+esc(types)+'</div></td>'
+        +'<td style="text-align:right;white-space:nowrap">'
+        +'<button class="seoc-icon sview" data-url="'+esc(r.url)+'" title="View &amp; edit the schema">&#128065;</button>'
+        +'<a class="seoc-icon" href="/seo/schema/'+esc(slug)+'/download.html?urls='+encodeURIComponent(r.url)+'" title="Download the schema for this page">&#8681;</a>'
+        +'<button class="seoc-icon danger sdel" data-url="'+esc(r.url)+'" title="Delete this page&rsquo;s schema">&#128465;</button>'
+        +'</td></tr>';
+    }).join('');
+
+    $('schemaRows').querySelectorAll('.addeddate').forEach(function(inp){
+      inp.onchange=function(){
+        post('/api/seo/schema/page',{client:CLIENT,url:inp.dataset.url,added_to_site:inp.value})
+          .then(function(d){ if(d.error) alert(d.error); });
+      };
+    });
+    $('schemaRows').querySelectorAll('.sview').forEach(function(b){
+      b.onclick=function(){ openSchemaModal(b.dataset.url); };
+    });
+    $('schemaRows').querySelectorAll('.sdel').forEach(function(b){
+      b.onclick=function(){
+        if(!confirm('Delete the saved schema for this page?\n\n'+b.dataset.url)) return;
+        post('/api/seo/schema/page',{client:CLIENT,url:b.dataset.url,delete:true})
+          .then(function(d){ renderSchemaTable(d.pages||[]); });
+      };
+    });
+    $('schemaSelAll').checked=false;
+  }
+  $('schemaSelAll').onchange=function(){
+    var on=this.checked;
+    document.querySelectorAll('#schemaRows input.rowsel').forEach(function(c){c.checked=on;});
+  };
+  $('btnSchemaDlSel').onclick=function(){
+    var urls=selectedUrls('schemaRows');
+    if(!urls.length){ alert('Tick the pages you want to download first.'); return; }
+    window.location='/seo/schema/'+slug+'/download.html'+urlsParam(urls);
+  };
+  $('btnSchemaDlAll').onclick=function(){
+    window.location='/seo/schema/'+slug+'/download.html';
+  };
+
+  // ---- schema view / edit modal ----
+  var schemaModalUrl='';
+  function openSchemaModal(url){
+    schemaModalUrl=url;
+    $('schemaModalTitle').textContent='Schema — '+shortUrl(url);
+    $('schemaModalUrl').innerHTML='<a href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a>';
+    $('schemaModalEdit').value='Loading…';
+    $('schemaModalMsg').textContent='';
+    $('schemaModalDl').href='/seo/schema/'+slug+'/download.html?urls='+encodeURIComponent(url);
+    $('schemaModal').classList.add('open');
+    fetch('/api/seo/schema/detail?name='+encodeURIComponent(CLIENT)+'&url='+encodeURIComponent(url))
+      .then(function(r){return r.json();}).then(function(d){
+        if(d.error){ $('schemaModalEdit').value=''; $('schemaModalMsg').textContent=d.error; return; }
+        $('schemaModalEdit').value=JSON.stringify(d.page.schema,null,1);
+      });
+  }
+  $('schemaModalClose').onclick=function(){$('schemaModal').classList.remove('open');};
+  $('schemaModal').onclick=function(e){if(e.target===this)this.classList.remove('open');};
+  $('schemaModalSave').onclick=function(){
+    var parsed;
+    try{ parsed=JSON.parse($('schemaModalEdit').value); }
+    catch(err){ $('schemaModalMsg').textContent='That is not valid JSON — '+err.message; return; }
+    post('/api/seo/schema/page',{client:CLIENT,url:schemaModalUrl,schema:parsed}).then(function(d){
+      if(d.error){ $('schemaModalMsg').textContent=d.error; return; }
+      $('schemaModalMsg').textContent='Saved ✓';
+      renderSchemaTable(d.pages||[]);
+      refreshCompiled();
+    });
+  };
+
+  // =====================================================================
+  //  FAQ Builder
+  // =====================================================================
+  // draft = the questions currently under review for one page.
+  // Each item carries a state: pending, approved or skipped. Saving is only
+  // offered once nothing is left pending.
+  var draft={url:'',title:'',style:null,items:[]};
+
+  function initFaq(d){
+    renderFaqTable(d.faq_pages||[]);
+    if(siteUrl && !$('faqUrl').value) $('faqUrl').value=siteUrl;
+  }
+
+  function faqCounts(){
+    var pending=draft.items.filter(function(i){return i.state==='pending';}).length;
+    var ok=draft.items.filter(function(i){return i.state==='approved';}).length;
+    var sk=draft.items.filter(function(i){return i.state==='skipped';}).length;
+    return {pending:pending,approved:ok,skipped:sk};
+  }
+
+  function renderDraft(){
+    var c=faqCounts();
+    $('faqProgress').textContent=draft.items.length
+      ? c.approved+' approved · '+c.skipped+' skipped · '+c.pending+' left to review' : '';
+    $('faqList').innerHTML=draft.items.map(function(it,i){
+      var cls=it.state==='approved'?' approved':(it.state==='skipped'?' skipped':'');
+      var state=it.state==='approved'?'<span class="seoc-faqstate ok">&#10003; Approved</span>'
+        :(it.state==='skipped'?'<span class="seoc-faqstate skip">Skipped</span>':'');
+      var body = it.editing
+        ? '<input class="qedit" data-i="'+i+'" value="'+esc(it.question)+'">'
+          +'<textarea data-i="'+i+'" rows="4">'+esc(it.answer)+'</textarea>'
+        : '<div class="qn">'+esc(it.question)+'</div><div class="an">'+esc(it.answer)+'</div>';
+      var acts = it.editing
+        ? '<button class="seoc-btn seoc-small" data-act="savedit" data-i="'+i+'">Save answer</button>'
+          +'<button class="seoc-btn seoc-sec seoc-small" data-act="canceledit" data-i="'+i+'">Cancel</button>'
+        : '<button class="seoc-btn seoc-small" data-act="approve" data-i="'+i+'">&#10003; Approve</button>'
+          +'<button class="seoc-btn seoc-sec seoc-small" data-act="edit" data-i="'+i+'">Edit answer</button>'
+          +'<button class="seoc-btn seoc-sec seoc-small" data-act="skip" data-i="'+i+'">Skip</button>'
+          +'<button class="seoc-btn seoc-sec seoc-small" data-act="another" data-i="'+i+'">&#8635; Another question</button>';
+      return '<div class="seoc-faqq'+cls+'">'+body+'<div class="seoc-faqacts">'+acts+state+'</div></div>';
+    }).join('');
+
+    $('faqList').querySelectorAll('[data-act]').forEach(function(b){
+      b.onclick=function(){ faqAction(b.dataset.act, Number(b.dataset.i), b); };
+    });
+    $('faqSavePrompt').style.display=(draft.items.length && !c.pending) ? 'block' : 'none';
+    if(draft.items.length && !c.pending && !c.approved){
+      $('faqSavePrompt').style.display='none';
+      $('faqMsg').textContent='Every question was skipped — nothing to save. Build a new set or try a different page.';
+    }
+  }
+
+  function faqAction(act,i,btn){
+    var it=draft.items[i];
+    if(!it) return;
+    if(act==='approve'){ it.state='approved'; it.editing=false; renderDraft(); return; }
+    if(act==='skip'){ it.state='skipped'; it.editing=false; renderDraft(); return; }
+    if(act==='edit'){ it.editing=true; renderDraft(); return; }
+    if(act==='canceledit'){ it.editing=false; renderDraft(); return; }
+    if(act==='savedit'){
+      var box=$('faqList').querySelector('.seoc-faqq:nth-of-type('+(i+1)+')');
+      var qi=$('faqList').querySelector('input.qedit[data-i="'+i+'"]');
+      var ai=$('faqList').querySelector('textarea[data-i="'+i+'"]');
+      if(qi) it.question=qi.value.trim()||it.question;
+      if(ai) it.answer=ai.value.trim()||it.answer;
+      it.editing=false; it.state='approved';       // an edited answer is an approved answer
+      renderDraft(); return;
+    }
+    if(act==='another'){
+      btn.disabled=true; btn.textContent='Thinking…';
+      post('/api/seo/faq/generate',{client:CLIENT,url:draft.url,count:1,
+        avoid:draft.items.map(function(x){return x.question;})}).then(function(d){
+        if(d.error){ btn.disabled=false; btn.textContent='↻ Another question'; $('faqMsg').textContent=d.error; return; }
+        var fresh=(d.faqs||[])[0];
+        if(!fresh){ btn.disabled=false; btn.textContent='↻ Another question';
+          $('faqMsg').textContent='No new question came back — try again.'; return; }
+        draft.items[i]={question:fresh.question,answer:fresh.answer,state:'pending',editing:false};
+        renderDraft();
+      });
+    }
+  }
+
+  $('btnFaqGen').onclick=function(){
+    var url=$('faqUrl').value.trim();
+    if(!url){ $('faqMsg').textContent='Enter the page URL you want FAQs for.'; return; }
+    var btn=this; btn.disabled=true;
+    $('faqMsg').textContent='Reading that page and the rest of the site… (this takes a moment)';
+    post('/api/seo/faq/generate',{client:CLIENT,url:url,count:Number($('faqCount').value||6)})
+      .then(function(d){
+        btn.disabled=false;
+        if(d.error){ $('faqMsg').textContent=d.error; return; }
+        draft={url:d.url,title:d.title||'',style:d.style||null,
+               items:(d.faqs||[]).map(function(f){
+                 return {question:f.question,answer:f.answer,state:'pending',editing:false};
+               })};
+        $('faqMsg').textContent=d.ai?'':'Drafted without AI'+(d.ai_error?' ('+d.ai_error+')':' — set OPENAI_API_KEY for written answers')+'.';
+        $('faqPageTitle').textContent=draft.title||shortUrl(draft.url);
+        $('faqPageUrl').textContent=draft.url;
+        $('faqStart').style.display='none';
+        $('faqReview').style.display='block';
+        $('faqSaveMsg').textContent='';
+        renderDraft();
+      }).catch(function(e){ btn.disabled=false; $('faqMsg').textContent='Failed: '+e; });
+  };
+
+  $('btnFaqCancel').onclick=function(){
+    if(faqCounts().approved && !confirm('Discard these questions and start over?')) return;
+    draft={url:'',title:'',style:null,items:[]};
+    $('faqReview').style.display='none';
+    $('faqStart').style.display='block';
+    $('faqProgress').textContent='';
+    $('faqMsg').textContent='';
+  };
+  $('btnFaqSaveLater').onclick=function(){ $('faqSavePrompt').style.display='none'; };
+
+  $('btnFaqSave').onclick=function(){
+    var keep=draft.items.filter(function(i){return i.state==='approved';})
+      .map(function(i){return {question:i.question,answer:i.answer};});
+    if(!keep.length){ $('faqSaveMsg').textContent='Nothing approved to save.'; return; }
+    var btn=this; btn.disabled=true; $('faqSaveMsg').textContent='Saving…';
+    post('/api/seo/faq/save',{client:CLIENT,url:draft.url,questions:keep,
+      title:draft.title,style:draft.style,added_to_site:$('faqAddedDate').value})
+      .then(function(d){
+        btn.disabled=false;
+        if(d.error){ $('faqSaveMsg').textContent=d.error; return; }
+        $('faqSaveMsg').textContent='Saved to '+CLIENT+' ✓';
+        renderFaqTable(d.pages||[]);
+        setTimeout(function(){ $('btnFaqCancel').onclick=null; draft={url:'',title:'',style:null,items:[]};
+          $('faqReview').style.display='none'; $('faqStart').style.display='block';
+          $('faqProgress').textContent=''; $('faqMsg').textContent='';
+          $('btnFaqCancel').onclick=function(){ location.reload(); };
+        },1200);
+      });
+  };
+
+  // ---- saved FAQ pages table ----
+  function renderFaqTable(rows){
+    rows=rows||[];
+    if(!rows.length){ $('faqTableWrap').style.display='none'; return; }
+    $('faqTableWrap').style.display='block';
+    var total=rows.reduce(function(n,r){return n+(r.count||0);},0);
+    $('faqTableCount').textContent=rows.length+' page'+(rows.length>1?'s':'')+' · '+total+' questions';
+    $('faqRows').innerHTML=rows.map(function(r){
+      var u=encodeURIComponent(r.url);
+      return '<tr>'
+        +'<td><input type="checkbox" class="rowsel" data-url="'+esc(r.url)+'"></td>'
+        +'<td>'+fmtDate(r.created)+'</td>'
+        +'<td><input type="date" class="faqadded" data-url="'+esc(r.url)+'" value="'+esc(r.added_to_site||'')+'"></td>'
+        +'<td><a class="u" href="'+esc(r.url)+'" target="_blank" rel="noopener">'+esc(shortUrl(r.url))+'</a>'
+        +(r.title?'<div class="seoc-muted">'+esc(r.title)+'</div>':'')+'</td>'
+        +'<td style="text-align:center"><span class="seoc-pill">'+(r.count||0)+'</span></td>'
+        +'<td style="text-align:right;white-space:nowrap">'
+        +'<button class="seoc-icon fview" data-url="'+esc(r.url)+'" title="Display, edit and re-save the questions">&#128065;</button>'
+        +'<a class="seoc-icon" href="/seo/faq/'+esc(slug)+'/download.html?urls='+u+'" title="Download the accordion code block for the site">&#60;/&#62;</a>'
+        +'<a class="seoc-icon" href="/seo/faq/'+esc(slug)+'/download.doc?urls='+u+'" title="Download the customer review document">&#8681;</a>'
+        +'<button class="seoc-icon danger fdel" data-url="'+esc(r.url)+'" title="Delete this FAQ page">&#128465;</button>'
+        +'</td></tr>';
+    }).join('');
+
+    $('faqRows').querySelectorAll('.faqadded').forEach(function(inp){
+      inp.onchange=function(){
+        post('/api/seo/faq/page',{client:CLIENT,url:inp.dataset.url,added_to_site:inp.value})
+          .then(function(d){ if(d.error) alert(d.error); });
+      };
+    });
+    $('faqRows').querySelectorAll('.fview').forEach(function(b){
+      b.onclick=function(){ openFaqModal(b.dataset.url); };
+    });
+    $('faqRows').querySelectorAll('.fdel').forEach(function(b){
+      b.onclick=function(){
+        if(!confirm('Delete the saved FAQs for this page?\n\n'+b.dataset.url)) return;
+        post('/api/seo/faq/page',{client:CLIENT,url:b.dataset.url,delete:true})
+          .then(function(d){ renderFaqTable(d.pages||[]); });
+      };
+    });
+    $('faqSelAll').checked=false;
+  }
+  $('faqSelAll').onchange=function(){
+    var on=this.checked;
+    document.querySelectorAll('#faqRows input.rowsel').forEach(function(c){c.checked=on;});
+  };
+  function faqSelectedOr(msg){
+    var urls=selectedUrls('faqRows');
+    if(!urls.length){ alert(msg); return null; }
+    return urls;
+  }
+  $('btnFaqDlSelHtml').onclick=function(){
+    var u=faqSelectedOr('Tick the pages you want the site code for first.');
+    if(u) window.location='/seo/faq/'+slug+'/download.html'+urlsParam(u);
+  };
+  $('btnFaqDlSelDoc').onclick=function(){
+    var u=faqSelectedOr('Tick the pages you want in the review document first.');
+    if(u) window.location='/seo/faq/'+slug+'/download.doc'+urlsParam(u);
+  };
+  $('btnFaqDlAllDoc').onclick=function(){
+    window.location='/seo/faq/'+slug+'/download.doc';
+  };
+
+  // ---- FAQ view / edit modal ----
+  var faqModalUrl='', faqModalItems=[];
+  function openFaqModal(url){
+    faqModalUrl=url;
+    $('faqModalTitle').textContent='FAQs — '+shortUrl(url);
+    $('faqModalMsg').textContent='';
+    $('faqModalCode').href='/seo/faq/'+slug+'/download.html?urls='+encodeURIComponent(url);
+    $('faqModalDoc').href='/seo/faq/'+slug+'/download.doc?urls='+encodeURIComponent(url);
+    $('faqModalBody').innerHTML='<div class="seoc-muted">Loading…</div>';
+    $('faqModal').classList.add('open');
+    fetch('/api/seo/faq/pages?name='+encodeURIComponent(CLIENT)).then(function(r){return r.json();})
+      .then(function(d){
+        var page=(d.pages||[]).filter(function(p){return p.url===url;})[0];
+        if(!page){ $('faqModalBody').innerHTML='<div class="seoc-bad">Not found.</div>'; return; }
+        faqModalItems=page.questions.map(function(q){return {question:q.question,answer:q.answer};});
+        $('faqModalBody').innerHTML='<div class="seoc-muted" style="margin-bottom:10px">'
+          +'Edit anything a customer wants changed, then save. The schema and the site code block update with it.</div>'
+          +faqModalItems.map(function(q,i){
+            return '<div class="seoc-faqq"><input class="qedit" data-mi="'+i+'" value="'+esc(q.question)+'">'
+              +'<textarea data-mi="'+i+'" rows="4">'+esc(q.answer)+'</textarea></div>';
+          }).join('');
+      });
+  }
+  $('faqModalClose').onclick=function(){$('faqModal').classList.remove('open');};
+  $('faqModal').onclick=function(e){if(e.target===this)this.classList.remove('open');};
+  $('faqModalSave').onclick=function(){
+    var items=[];
+    faqModalItems.forEach(function(q,i){
+      var qi=$('faqModalBody').querySelector('input.qedit[data-mi="'+i+'"]');
+      var ai=$('faqModalBody').querySelector('textarea[data-mi="'+i+'"]');
+      var question=qi?qi.value.trim():q.question, answer=ai?ai.value.trim():q.answer;
+      if(question&&answer) items.push({question:question,answer:answer});
+    });
+    if(!items.length){ $('faqModalMsg').textContent='Nothing to save.'; return; }
+    post('/api/seo/faq/page',{client:CLIENT,url:faqModalUrl,questions:items}).then(function(d){
+      if(d.error){ $('faqModalMsg').textContent=d.error; return; }
+      $('faqModalMsg').textContent='Saved ✓';
+      renderFaqTable(d.pages||[]);
     });
   };
 })();

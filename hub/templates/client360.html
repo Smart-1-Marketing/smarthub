@@ -166,7 +166,16 @@ function render(g,q){
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals</h3><a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a></div><div class="card-b" id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center">
+      <a class="open-link" id="c-props-upload" style="cursor:pointer">&#8679; Upload proposal</a>
+      <a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a>
+    </div></div>
+    <div class="card-b">
+      <div id="c-props-uploadbox" style="display:none;margin-bottom:10px"></div>
+      <div id="c-props-saved"></div>
+      <div id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div>
+    </div></div>`;
 
   // ---------- QuickBooks: invoices for this client ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e8f5e9;color:#1b5e20">QuickBooks</span><h3>Invoices</h3>
@@ -332,6 +341,78 @@ function render(g,q){
     $('c-props').innerHTML='<table><thead><tr><th>Business</th><th>Industry</th><th>Monthly</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>'+
       res.map(p=>`<tr><td><b>${esc(p.business||'—')}</b><div class="muted" style="font-size:12px">${esc(p.salesperson||'')}</div></td><td>${esc(p.industry_label||'')}</td><td>${p.monthly?money(p.monthly)+'/mo':'—'}</td><td><span class="pill ${p.status==='saved'?'ok':'neutral'}">${esc(p.status||'')} · v${p.versions||1}</span></td><td class="muted">${esc(String(p.updated_at||'').slice(0,10))}</td><td>${p.pdf_url?'<a class="gbtn" href="'+esc(p.pdf_url)+'" target="_blank" rel="noopener">PDF →</a> ':''}<a class="gbtn" href="/sales/proposals/">Open →</a></td></tr>`).join('')+'</tbody></table>';
   }).catch(()=>{$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>'});
+
+  // ---------- Uploaded proposals: the PDFs and Word docs we sent ----------
+  // Stored in Cloudinary and attached to the client for good, with the date
+  // the proposal went to them.
+  const todayISO=()=>new Date().toISOString().slice(0,10);
+  function renderUploaded(list){
+    const host=$('c-props-saved'); if(!host)return;
+    if(!list||!list.length){host.innerHTML='';return}
+    host.innerHTML='<div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;margin:2px 0 6px">Sent to client</div>'
+      +'<table><thead><tr><th>Proposal</th><th>Date sent</th><th>Uploaded by</th><th></th></tr></thead><tbody>'
+      +list.map(p=>`<tr data-pid="${esc(p.id)}">
+        <td><b>${esc(p.title||p.filename)}</b>
+          <div class="muted" style="font-size:11.5px">${esc(p.filename)}${p.note?' · '+esc(p.note):''}</div></td>
+        <td><input type="date" class="up-date" value="${esc(p.date_sent||'')}"
+             style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;font:12px inherit"></td>
+        <td class="muted">${esc(p.uploaded_by||'—')}<div style="font-size:11px">${esc(p.uploaded_at||'')}</div></td>
+        <td style="white-space:nowrap">
+          <a class="gbtn" href="${esc(p.url)}" target="_blank" rel="noopener">${p.kind==='pdf'?'PDF':'DOC'} →</a>
+          <a class="gbtn up-del" style="cursor:pointer;color:#b91c1c" title="Remove this proposal">✕</a>
+        </td></tr>`).join('')+'</tbody></table>';
+    host.querySelectorAll('tr[data-pid]').forEach(tr=>{
+      const pid=tr.dataset.pid;
+      tr.querySelector('.up-date').onchange=function(){
+        fetch('/api/client/proposals/update',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,id:pid,date_sent:this.value})})
+          .then(r=>r.json()).then(d=>{if(d.error)alert(d.error);else renderUploaded(d.proposals)});
+      };
+      tr.querySelector('.up-del').onclick=()=>{
+        if(!confirm('Remove this proposal from the client record?'))return;
+        fetch('/api/client/proposals/update',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,id:pid,delete:true})})
+          .then(r=>r.json()).then(d=>renderUploaded(d.proposals||[]));
+      };
+    });
+  }
+  fetch('/api/client/proposals?client='+encodeURIComponent(name)).then(r=>r.json())
+    .then(d=>renderUploaded(d.proposals||[])).catch(()=>{});
+
+  const upBtn=$('c-props-upload');
+  if(upBtn) upBtn.onclick=()=>{
+    const box=$('c-props-uploadbox');
+    if(box.style.display==='block'){box.style.display='none';return}
+    box.style.display='block';
+    box.innerHTML=`<div style="background:var(--bg-soft,#f8fafc);border:1px dashed var(--line);border-radius:10px;padding:12px">
+      <div style="display:grid;grid-template-columns:1fr 150px;gap:8px;margin-bottom:8px">
+        <input id="up-title" placeholder="Proposal name (optional)"
+          style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+        <div><label class="muted" style="font-size:11px;display:block;margin-bottom:2px">Date sent to client</label>
+        <input id="up-date" type="date" value="${todayISO()}"
+          style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit;width:100%;box-sizing:border-box"></div>
+      </div>
+      <input id="up-file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        style="font:12.5px inherit;margin-bottom:8px">
+      <div><button class="btn-primary" id="up-go" style="padding:7px 14px">Save to client</button>
+        <span id="up-msg" class="muted" style="margin-left:8px;font-size:12px">PDF or Word, up to 25 MB. Stored in Cloudinary and kept with this client.</span></div>
+    </div>`;
+    $('up-go').onclick=()=>{
+      const f=$('up-file').files[0];
+      if(!f){$('up-msg').textContent='Choose a file first.';return}
+      const fd=new FormData();
+      fd.append('client',name); fd.append('file',f);
+      fd.append('date_sent',$('up-date').value); fd.append('title',$('up-title').value);
+      $('up-go').disabled=true; $('up-msg').textContent='Uploading…';
+      fetch('/api/client/proposals/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+        $('up-go').disabled=false;
+        if(d.error){$('up-msg').textContent=d.error;return}
+        $('up-msg').textContent='Saved ✓';
+        renderUploaded(d.proposals||[]);
+        setTimeout(()=>{box.style.display='none'},900);
+      }).catch(e=>{$('up-go').disabled=false;$('up-msg').textContent='Upload failed: '+e});
+    };
+  };
 
   // QuickBooks invoices — attached customer wins; shows customer-since in header
   function renderQb(d,attachedNote){
