@@ -52,6 +52,17 @@ services:
         sync: false
       - key: SMART1SUITE_PRIVATE_TOKEN
         sync: false
+      # ---- Scans (Insites Audit API) ----
+      - key: INSITES_API_KEY
+        sync: false
+      # Public URL of this Hub service, so Insites can POST finished audits
+      # back to /scans/api/callback. Set to your Render service URL.
+      - key: PUBLIC_BASE_URL
+        sync: false
+      # Shared secret guarding the Insites completion callback. Generate any
+      # long random string; it's appended to the callback URL and verified.
+      - key: SCANS_CALLBACK_TOKEN
+        generateValue: true
       # ---- Knack API (web tickets) ----
       - key: KNACK_APP_ID
         sync: false

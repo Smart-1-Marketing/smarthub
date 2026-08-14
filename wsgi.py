@@ -43,19 +43,30 @@ from hub.sidebar import render_sidebar
 
 _MOUNT_ACTIVE = {
     "/google": "google", "/sites": "sites", "/suite": "suite",
+    "/scans": "scans",
     "/sales/builder": "salesb", "/sales/proposals": "props",
     "/tools/image": "tools", "/tools/pdf": "tools",
 }
 
 
 class AuthGuard:
-    """Blocks every request to a mounted module unless the hub cookie is valid."""
+    """Blocks every request to a mounted module unless the hub cookie is valid.
 
-    def __init__(self, app, mount: str):
+    ``public_prefixes`` lists mount-relative path prefixes that skip the Hub
+    cookie check — used for server-to-server callbacks (e.g. Insites POSTing a
+    finished audit) and public embed endpoints, which authenticate with their
+    own shared-secret token inside the module instead.
+    """
+
+    def __init__(self, app, mount: str, public_prefixes=None):
         self.app = app
         self.mount = mount
+        self.public_prefixes = tuple(public_prefixes or ())
 
     def __call__(self, environ, start_response):
+        path = environ.get("PATH_INFO", "") or "/"
+        if self.public_prefixes and path.startswith(self.public_prefixes):
+            return self.app(environ, start_response)
         user = auth.user_from_environ(environ)
         if user is None:
             path = environ.get("PATH_INFO", "") or "/"
@@ -214,15 +225,26 @@ except Exception as _pb_exc:  # noqa: BLE001
     traceback.print_exc()
     propb, propb_fb = None, _fallback_app("Proposal Builder", str(_pb_exc))
 
+try:
+    import importlib as _il2
+    scans = _il2.import_module("modules.scans.app")
+    scans_fb = None
+except Exception as _sc_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    scans, scans_fb = None, _fallback_app("Scans", str(_sc_exc))
 
-def _mount(flask_app, prefix):
-    return AuthGuard(HubBar(flask_app, _MOUNT_ACTIVE.get(prefix, "")), prefix)
+
+def _mount(flask_app, prefix, public_prefixes=None):
+    return AuthGuard(HubBar(flask_app, _MOUNT_ACTIVE.get(prefix, "")), prefix,
+                     public_prefixes=public_prefixes)
 
 
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
     "/suite": _mount(suite.app, "/suite") if suite else suite_fb,
+    "/scans": _mount(scans.app, "/scans", public_prefixes=("/api/callback",)) if scans else scans_fb,
     "/sales/builder": _mount(salesb.app, "/sales/builder") if salesb else salesb_fb,
     "/sales/proposals": _mount(propb.app, "/sales/proposals") if propb else propb_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
