@@ -95,16 +95,31 @@ class Settings:
     insites_key: str = field(default_factory=lambda: _first("INSITES_API", "INSITES_API_KEY"))
     knack_app_id: str = field(default_factory=lambda: _s("KNACK_APP_ID"))
     knack_api_key: str = field(default_factory=lambda: _s("KNACK_API_KEY"))
-    ghl_token: str = field(default_factory=lambda: _s("GHL_PRIVATE_TOKEN"))
-    ghl_company_id: str = field(default_factory=lambda: _s("GHL_COMPANY_ID"))
-    simvoly_key: str = field(default_factory=lambda: _s("SIMVOLY_API_KEY"))
+    ghl_token: str = field(default_factory=lambda: _first("GHL_PRIVATE_TOKEN", "SMART1SUITE_PRIVATE_TOKEN"))
+    ghl_company_id: str = field(default_factory=lambda: _first("GHL_COMPANY_ID", "SUITE_COMPANY_ID"))
+    simvoly_key: str = field(default_factory=lambda: _first("SIMVOLY_API_KEY", "SIMVOLY_KEY"))
 
     # ---- behaviour ----
     ai_usage_log: bool = field(default_factory=lambda: _b("HUB_AI_USAGE_LOG", True))
 
     # ---- readiness ----
+    # Values copied straight out of env.example. These are the dangerous kind
+    # of misconfiguration: the variable IS set, so nothing reports it missing,
+    # and the failure surfaces later as an auth error from the provider.
+    PLACEHOLDERS = (
+        "cloudinary://API_KEY:API_SECRET@CLOUD_NAME",
+        "change-me-to-something-strong",
+        "pit-...", "sk-...", "API_KEY", "CHANGEME", "your-key-here",
+    )
+
+    def is_placeholder(self, value: str) -> bool:
+        v = (value or "").strip().strip('"').strip("'")
+        return bool(v) and v in self.PLACEHOLDERS
+
     @property
     def cloudinary_ready(self) -> bool:
+        if self.is_placeholder(self.cloudinary_url):
+            return False
         return self.cloudinary_url.startswith("cloudinary://")
 
     @property
@@ -138,6 +153,33 @@ class Settings:
         }
         return defaults.get(kind, f"smart1-{kind}")
 
+    def placeholder_warnings(self) -> list[dict]:
+        """Variables left at their env.example placeholder value.
+
+        Worse than unset, because every "is it configured?" check says yes.
+        """
+        import os as _os
+        out = []
+        for name in ("CLOUDINARY_URL", "PANEL_PASSWORD", "GHL_PRIVATE_TOKEN",
+                     "OPENAI_API_KEY", "SECRET_KEY", "SIMVOLY_API_KEY"):
+            raw = _os.environ.get(name, "")
+            if self.is_placeholder(raw):
+                out.append({"name": name,
+                            "detail": f"{name} is still the example value from "
+                                      f"env.example. It looks configured and "
+                                      f"will fail at the provider."})
+        # A quoted value in Render keeps the quotes as literal characters.
+        for name in ("SECRET_KEY", "SCANS_CALLBACK_TOKEN", "PANEL_PASSWORD",
+                     "FLASK_SECRET_KEY", "GHL_PRIVATE_TOKEN"):
+            raw = _os.environ.get(name, "")
+            if len(raw) > 1 and raw[0] in "\"'" and raw[-1] == raw[0]:
+                out.append({"name": name,
+                            "detail": f"{name} is wrapped in quotes. Render "
+                                      f"stores them literally, so the real "
+                                      f"value includes the quote characters. "
+                                      f"Remove them."})
+        return out
+
     def status(self) -> list[dict]:
         """Provider readiness, for /health and the status page.
 
@@ -163,7 +205,7 @@ class Settings:
             row("Google Fonts", bool(self.google_fonts_key), False, "GOOGLE_FONTS_API_KEY — optional; curated list used without it."),
             row("Insites", bool(self.insites_key), False, "INSITES_API_KEY — Site Scans disabled without it."),
             row("Knack", bool(self.knack_app_id and self.knack_api_key), False, "KNACK_APP_ID / KNACK_API_KEY — client registry."),
-            row("GoHighLevel", bool(self.ghl_token and self.ghl_company_id), False, "GHL_PRIVATE_TOKEN / GHL_COMPANY_ID — Suite panel and billing audits."),
+            row("GoHighLevel", bool(self.ghl_token and self.ghl_company_id), False, "GHL_PRIVATE_TOKEN (or SMART1SUITE_PRIVATE_TOKEN) + GHL_COMPANY_ID (or SUITE_COMPANY_ID)."),
             row("Simvoly", bool(self.simvoly_key), False, "SIMVOLY_API_KEY — Sites admin."),
         ]
 

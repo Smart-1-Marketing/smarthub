@@ -1531,6 +1531,82 @@ def create_hub_app() -> Flask:
     def health():
         return jsonify({"status": "ok"})
 
+    @app.route("/login/health")
+    def login_health():
+        """Why sign-in isn't working — readable WITHOUT signing in.
+
+        That is the whole point: every other diagnostic in the Hub sits behind
+        the login, which is useless when the login is the thing that's broken.
+        Boot failures were being stored in app.config and never surfaced, so a
+        users table that failed to create looked identical to a wrong password.
+
+        Reports booleans and error *types* only. No secrets, no password, no
+        token, no email addresses.
+        """
+        import traceback
+        out = {"version": None, "panel_password_set": bool(auth.panel_password()),
+               "google_button_enabled": (os.environ.get("HUB_GOOGLE_LOGIN", "").lower()
+                                         in {"1", "true", "yes", "on"})}
+        try:
+            from . import version as _v
+            out["version"] = _v.label()
+        except Exception:  # noqa: BLE001
+            pass
+
+        out["db_boot_error"] = app.config.get("HUB_DB_BOOT_ERROR") or None
+        out["users_boot_error"] = app.config.get("HUB_USERS_BOOT_ERROR") or None
+
+        # Can we actually reach the users table? This is the failure that makes
+        # /signup return a 500 with nothing to go on.
+        try:
+            from .users import User
+            out["users_table"] = "ok"
+            out["user_count"] = User.query.count()
+            out["super_admins_seeded"] = User.query.filter_by(
+                role="super_admin").count()
+            out["super_admins_with_password"] = User.query.filter(
+                User.role == "super_admin", User.password_hash != "").count()
+        except Exception as exc:  # noqa: BLE001
+            out["users_table"] = f"{type(exc).__name__}"
+            out["users_table_detail"] = str(exc)[:200]
+            out["user_count"] = None
+
+        try:
+            from .extensions import database_url
+            url = database_url()
+            out["database"] = ("postgres" if url.startswith("postgres")
+                               else "sqlite" if url.startswith("sqlite") else "other")
+            if url.startswith("sqlite"):
+                path = url.replace("sqlite:///", "")
+                out["sqlite_path"] = path
+                out["sqlite_dir_writable"] = os.access(os.path.dirname(path) or ".", os.W_OK)
+        except Exception as exc:  # noqa: BLE001
+            out["database"] = f"error: {type(exc).__name__}"
+
+        # Plain-English verdict, so nobody has to interpret the booleans.
+        problems = []
+        try:
+            from .config import settings as _cfg
+            for w in _cfg.placeholder_warnings():
+                problems.append(w["detail"])
+        except Exception:  # noqa: BLE001
+            pass
+        if out.get("users_table") != "ok":
+            problems.append("The user accounts table isn't reachable, so /signup "
+                            "will fail. Usually DATABASE_URL is unset and the "
+                            "disk fallback isn't writable.")
+        if not out["panel_password_set"]:
+            problems.append("PANEL_PASSWORD is not set, so the shared-password "
+                            "fallback can't work either.")
+        if out.get("db_boot_error"):
+            problems.append("The database failed at boot: " + str(out["db_boot_error"])[:160])
+        if not problems and out.get("super_admins_with_password", 0) == 0:
+            problems.append("No super admin has set a password yet — go to "
+                            "/signup and register todd@smart1marketing.com.")
+        out["problems"] = problems
+        out["ok"] = not problems
+        return jsonify(out)
+
     # ---------------- JSON APIs (hub-side) ----------------
     def _require_api():
         if not current_user():

@@ -23,6 +23,8 @@ button:hover{background:#145a92}
   background:#eef5fb;color:#1769AA;font-weight:600;text-decoration:none}
 .signup a:hover{background:#e2eef8}
 .alt{text-align:center;margin-top:16px;font-size:12.5px;color:#94a3b8}
+.ver{margin:-10px 0 18px;font:600 11px ui-monospace,monospace;color:#94a3b8;
+  letter-spacing:.3px}
 .alt a{color:#1769AA;text-decoration:none}
 .gbtn{display:block;text-align:center;margin-top:12px;padding:10px;border:1px solid #d7dfe8;
   border-radius:8px;background:#fff;color:#1b2733;font-weight:600;text-decoration:none}
@@ -34,6 +36,11 @@ button:hover{background:#145a92}
   <div class="card">
     <h1>Sign in</h1>
     <p class="sub">Use your own Smart 1 Marketing account.</p>
+
+    {# Version on the sign-in page, not just the footer. Every page behind the
+       login is unreachable when the login is what's broken -- which is exactly
+       when you most need to know whether the deploy actually took. #}
+    <p class="ver">{{ hub_version }}</p>
 
     {% if error %}
       <div class="err">
@@ -66,6 +73,7 @@ button:hover{background:#145a92}
       <a href="/signup">Sign up</a>
     </div>
   </div>
-  <p class="alt"><a href="/reset">Forgotten your password?</a></p>
+  <p class="alt"><a href="/reset">Forgotten your password?</a>
+     &nbsp;·&nbsp; <a href="/login/health">Sign-in diagnostics</a></p>
 </div>
 </body></html>
