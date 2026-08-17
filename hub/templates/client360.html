@@ -186,6 +186,12 @@ function render(g,q){
     </div></div>
     <div class="card-b"><div id="c-qb-attachbox" style="display:none;margin-bottom:10px"></div><div id="c-qb"><div class="empty">Searching… <span class="spin"></span></div></div></div></div>`;
 
+  // ---------- Client images (from the SEO Image Pipeline) ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Images</span><h3>Client Images</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-img-acts"></div></div>
+    <div class="card-b" id="c-images"><div class="empty">Looking for saved images… <span class="spin"></span></div></div></div>`;
+
   // ---------- Website record (moved to the bottom) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
     <div class="right" style="display:flex;gap:10px"><a class="open-link" id="c-web-attach" style="cursor:pointer">+ Attach website record</a>
@@ -378,6 +384,43 @@ function render(g,q){
   }
   fetch('/api/client/proposals?client='+encodeURIComponent(name)).then(r=>r.json())
     .then(d=>renderUploaded(d.proposals||[])).catch(()=>{});
+
+  // ---------- Client images: what the SEO Image Pipeline has saved ----------
+  const imgBase = '/tools/seo-images/';
+  const galleryHref  = imgBase+'gallery?company='+encodeURIComponent(name);
+  const optimizeHref = imgBase+'?company='+encodeURIComponent(name)
+    + (web0&&web0.domain ? '&url='+encodeURIComponent('https://'+web0.domain) : '');
+  const actsHost = document.getElementById('c-img-acts');
+  if(actsHost) actsHost.innerHTML =
+      '<a class="open-link" href="'+galleryHref+'">See client image gallery →</a>'
+    + '<a class="open-link" href="'+optimizeHref+'">Optimize client images →</a>';
+
+  fetch(imgBase+'api/gallery?company='+encodeURIComponent(name)+'&limit=12')
+    .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+      const rows=d.gallery||[];
+      if(!rows.length){
+        $('c-images').innerHTML='<div class="empty">No images saved for this client yet. '
+          +'<a href="'+optimizeHref+'">Optimize their first batch →</a></div>';
+        return;
+      }
+      const total=d.total||rows.length;
+      $('c-images').innerHTML=
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">'
+        + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff">
+            <a href="${esc(r.url)}" target="_blank" rel="noopener" style="display:block;aspect-ratio:4/3;background:#f1f5f9">
+              <img src="${esc(r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
+                   style="width:100%;height:100%;object-fit:cover;display:block"></a>
+            <div style="padding:7px 9px">
+              <div style="font:600 10.5px ui-monospace,Consolas,monospace;color:var(--navy);overflow-wrap:anywhere">${esc(r.filename)}</div>
+              <div class="muted" style="font-size:11px;margin-top:2px">${esc(r.project||'')}${r.page?' · '+esc(r.page):''}</div>
+            </div></div>`).join('')
+        + '</div>'
+        + '<div class="muted" style="font-size:12px;margin-top:10px">Showing '+rows.length+' of '+total
+        + ' saved image'+(total===1?'':'s')+' · <a href="'+galleryHref+'">see the full gallery →</a></div>';
+    }).catch(()=>{
+      $('c-images').innerHTML='<div class="empty">Image pipeline unavailable. '
+        +'<a href="'+optimizeHref+'">Open the tool →</a></div>';
+    });
 
   const upBtn=$('c-props-upload');
   if(upBtn) upBtn.onclick=()=>{

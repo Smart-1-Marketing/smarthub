@@ -42,9 +42,15 @@
     </div>
     <div class="page">
       {% block content %}{% endblock %}
+      <div class="s1hub-ver">Smart 1 Hub &middot; <b>{{ hub_version }}</b></div>
     </div>
   </div>
 </div>
+<style>
+.s1hub-ver{text-align:center;color:#94a3b8;font:11.5px 'Segoe UI',system-ui,sans-serif;
+  padding:22px 0 30px;margin-top:26px;border-top:1px solid #e2e8f0}
+.s1hub-ver b{color:#64748b;font-weight:700}
+</style>
 {% block scripts %}{% endblock %}
 <style>
 .s1hub-feed{position:fixed;bottom:10px;right:14px;z-index:99991;

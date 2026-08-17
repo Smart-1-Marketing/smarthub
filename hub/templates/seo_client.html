@@ -187,6 +187,19 @@
   </div>
 </div>
 
+<!-- ---------------------- Client images ---------------------- -->
+<div class="card seoc-card" id="cardImages">
+  <div class="seoc-cardhead"><h3>Client Images</h3>
+    <div class="seoc-muted" id="imgCount"></div></div>
+  <p class="seoc-muted" style="margin:0 0 12px">Images optimised and named for this client &mdash; saved to
+    Cloudinary as WebP with SEO filenames and alt text.</p>
+  <div id="imgStrip"></div>
+  <div class="seoc-imgacts">
+    <a class="seoc-btn" id="btnImgGallery">&#128444; See client image gallery</a>
+    <a class="seoc-btn seoc-sec" id="btnImgOptimize">&#9881; Optimize client images</a>
+  </div>
+</div>
+
 <!-- FAQ view / edit modal -->
 <div class="seoc-modal" id="faqModal">
   <div class="seoc-modal-box" style="width:820px">
@@ -490,6 +503,17 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
 .seoc-saverow input[type=date]{padding:6px 8px;border:1px solid #e2e8f0;border-radius:7px;
   font:12.5px 'Segoe UI',system-ui,sans-serif;margin:0 6px}
 .seoc-faqview .q{font-weight:700;color:#1a2e58;font-size:13.5px;margin:14px 0 4px}
+
+/* ---------------- client images ---------------- */
+.seoc-imgacts{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px;padding-top:14px;
+  border-top:1px solid #eef2f7}
+.seoc-imgstrip{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:11px}
+.seoc-imgstrip .it{border:1px solid #e2e8f0;border-radius:9px;overflow:hidden;background:#fff}
+.seoc-imgstrip .it a{display:block;aspect-ratio:4/3;background:#f1f5f9}
+.seoc-imgstrip .it img{width:100%;height:100%;object-fit:cover;display:block}
+.seoc-imgstrip .it .n{padding:6px 8px;font:600 10.5px ui-monospace,Consolas,monospace;
+  color:#1a2e58;overflow-wrap:anywhere}
+.seoc-imgstrip .it .p{padding:0 8px 7px;font-size:10.5px;color:#64748b}
 </style>
 {% endblock %}
 {% block scripts %}
@@ -555,6 +579,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     safe('brandfetch', function(){ applyBrandfetch(d); });
     safe('schematable', function(){ renderSchemaTable(d.schema_table||[]); });
     safe('faq', function(){ initFaq(d); });
+    safe('images', function(){ initImages(d); });
   }).catch(function(err){
     console.error('[seo_client] detail load failed:', err);
     var msg='<span class="seoc-bad">Could not load this client — '+esc(err&&err.message||err)+'</span>';
@@ -1682,6 +1707,42 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   $('btnFaqDlAllDoc').onclick=function(){
     window.location='/seo/faq/'+slug+'/download.doc';
   };
+
+  // =====================================================================
+  //  Client images — the SEO Image Pipeline, scoped to this client
+  // =====================================================================
+  function initImages(d){
+    var base='/tools/seo-images/';
+    var gallery=base+'gallery?company='+encodeURIComponent(CLIENT);
+    var optimize=base+'?company='+encodeURIComponent(CLIENT)
+      +(siteUrl?'&url='+encodeURIComponent(siteUrl):'');
+    $('btnImgGallery').href=gallery;
+    $('btnImgOptimize').href=optimize;
+
+    fetch(base+'api/gallery?company='+encodeURIComponent(CLIENT)+'&limit=8')
+      .then(function(r){ return r.ok?r.json():Promise.reject(); })
+      .then(function(g){
+        var rows=g.gallery||[];
+        if(!rows.length){
+          $('imgCount').textContent='';
+          $('imgStrip').innerHTML='<div class="seoc-muted">No images saved for this client yet.</div>';
+          return;
+        }
+        var total=g.total||rows.length;
+        $('imgCount').textContent=total+' image'+(total===1?'':'s')+' saved';
+        $('imgStrip').innerHTML='<div class="seoc-imgstrip">'+rows.map(function(r){
+          return '<div class="it"><a href="'+esc(r.url)+'" target="_blank" rel="noopener">'
+            +'<img src="'+esc(r.url)+'" alt="'+esc(r.alt_text)+'" loading="lazy"></a>'
+            +'<div class="n">'+esc(r.filename)+'</div>'
+            +'<div class="p">'+esc(r.project||'')+(r.page?' · '+esc(r.page):'')+'</div></div>';
+        }).join('')+'</div>'
+        +(total>rows.length?'<div class="seoc-muted" style="margin-top:8px">Showing '+rows.length
+          +' of '+total+' — <a href="'+gallery+'" style="color:#2563eb">see them all &rarr;</a></div>':'');
+      })
+      .catch(function(){
+        $('imgStrip').innerHTML='<div class="seoc-muted">Image pipeline unavailable right now.</div>';
+      });
+  }
 
   // ---- FAQ view / edit modal ----
   var faqModalUrl='', faqModalItems=[];
