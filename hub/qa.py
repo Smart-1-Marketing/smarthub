@@ -604,6 +604,191 @@ def set_accounting_stage(opp_id: str, stage_id: str = "", status: str = "") -> N
         _ghl(f"/opportunities/{opp_id}", method="PUT", body=body)
 
 
+# ------------------------------------------- GHL: Smart 1 Suite SaaS billing
+#
+# Agency-level "SaaS Configurator" endpoints — distinct from the /opportunities
+# calls above. Needs GHL_PRIVATE_TOKEN to be an Agency-level Private
+# Integration Token with the SaaS Configurator (Agency-Access) scope enabled,
+# plus GHL_COMPANY_ID. Reuses the same two env vars the Suite control panel
+# already requires for /locations/search — no new config if that already
+# works. Source: GoHighLevel's public OpenAPI spec (saas-v3.json / Agency-
+# Access security), current as of Aug 2026. NOT YET RUN AGAINST LIVE DATA —
+# the raw shapes below (subscriptionInfo, plan prices) are documented but the
+# actual account has never called them from this app. Verify the first live
+# run: open System Status, or run one report and read the note if it errors.
+GHL_SAAS_VERSION = "v3"
+
+
+def _ghl_saas(path: str, params=None):
+    import requests as _rq
+    token = os.environ.get("GHL_PRIVATE_TOKEN", "")
+    if not token:
+        raise RuntimeError("GHL_PRIVATE_TOKEN is not configured.")
+    headers = {"Authorization": f"Bearer {token}", "Version": GHL_SAAS_VERSION,
+               "Accept": "application/json"}
+    r = _rq.get(GHL_BASE + path, params=params, headers=headers, timeout=20)
+    if not r.ok:
+        raise RuntimeError(
+            f"GHL SaaS {path} failed (HTTP {r.status_code}): {r.text[:200]}. "
+            "If this is a 401/403, the Private Integration Token most likely "
+            "needs the SaaS Configurator scope added — it's a separate scope "
+            "from the one that powers Locations/Opportunities.")
+    return r.json() if r.text else {}
+
+
+def _ghl_saas_locations() -> list:
+    """Every sub-account GHL has ever put into Smart 1 Suite's SaaS mode,
+    each with its subscriptionInfo (status, plan, Stripe ids), paginated."""
+    company = os.environ.get("GHL_COMPANY_ID", "")
+    if not company:
+        raise RuntimeError("GHL_COMPANY_ID is not configured.")
+    out, page = [], 1
+    while True:
+        data = _ghl_saas(f"/saas/saas-locations/{company}", {"page": page})
+        locs = data.get("locations") if isinstance(data, dict) else data
+        locs = locs or []
+        out.extend(locs)
+        pg = (data.get("pagination") or {}) if isinstance(data, dict) else {}
+        if not locs or not pg.get("hasNext"):
+            break
+        page += 1
+        if page > 50:            # sane ceiling — a real runaway would mean a bug
+            break
+    return out
+
+
+def _ghl_agency_plans() -> dict:
+    """{saasPlanId: plan dict} — turns a location's saasPlanId into a plan
+    title and its active monthly price."""
+    company = os.environ.get("GHL_COMPANY_ID", "")
+    data = _ghl_saas(f"/saas/agency-plans/{company}")
+    plans = data if isinstance(data, list) else (data.get("plans") or [])
+    return {p.get("planId"): p for p in plans if isinstance(p, dict) and p.get("planId")}
+
+
+def _plan_monthly_price(plan: dict) -> float:
+    for pr in (plan or {}).get("prices") or []:
+        if pr.get("billingInterval") == "month" and pr.get("active", True):
+            return _num(pr.get("amount"))
+    return 0.0
+
+
+# Subscription statuses that count as "billing" for these two reports.
+# GHL/Stripe statuses seen in the wild: active, trialing, past_due, paused,
+# canceled, incomplete, incomplete_expired, unpaid. "past_due" is included —
+# they're still an active subscription that hasn't failed yet; "paused" and
+# "canceled" are not.
+_ACTIVE_SUB_STATUSES = {"active", "trialing", "past_due"}
+
+
+def _ghl_billing_rows() -> list:
+    """One row per GHL sub-account that has ever been in SaaS mode, resolved
+    to a plan name/price and matched to its Smart 1 client record in Knack
+    (by normalized business name — same fuzzy match used in invoice_off())."""
+    locations = _ghl_saas_locations()
+    try:
+        plans = _ghl_agency_plans()
+    except RuntimeError:
+        plans = {}
+
+    groups = _client_groups()
+    knack_by_norm = {}
+    for name, g in groups.items():
+        n = _norm_name(name)
+        if n:
+            knack_by_norm.setdefault(n, (name, g))
+
+    rows = []
+    for loc in locations:
+        info = loc.get("subscriptionInfo") or {}
+        status = str(info.get("subscriptionStatus")
+                     or loc.get("subscriptionStatus") or "").strip().lower()
+        plan_id = info.get("saasPlanId") or loc.get("saasPlanId")
+        plan = plans.get(plan_id) or {}
+        raw_name = str(loc.get("name") or loc.get("locationId") or "").strip()
+        n = _norm_name(raw_name)
+        hit = knack_by_norm.get(n)
+        if not hit:
+            hit = next(((kn, kg) for norm, (kn, kg) in knack_by_norm.items()
+                        if norm and n and (norm in n or n in norm)), None)
+        rows.append({
+            "location_id": loc.get("locationId"),
+            "raw_name": raw_name or "(unnamed sub-account)",
+            "status": status,
+            "plan_title": plan.get("title") or plan_id or "—",
+            "monthly": _plan_monthly_price(plan),
+            "knack_name": hit[0] if hit else None,
+            "knack_group": hit[1] if hit else None,
+        })
+    return rows
+
+
+def ghl_billing_no_products() -> dict:
+    """Report: Smart 1 Suite sub-accounts with active billing but nothing
+    live on the marketing side — a pure-software client, or a mismatch
+    between what GHL is charging and what Knack has on file."""
+    columns = ["Client", "GHL sub-account", "Plan", "Monthly", "Billing status",
+               "Matched in Knack"]
+    try:
+        rows_raw = _ghl_billing_rows()
+    except RuntimeError as exc:
+        return {"columns": columns, "rows": [], "note": str(exc)}
+    rows = []
+    total = 0.0
+    for r in rows_raw:
+        if r["status"] not in _ACTIVE_SUB_STATUSES:
+            continue
+        if r["knack_group"] and _is_active(r["knack_group"]):
+            continue          # has a live Smart 1 marketing product — not this report
+        client_cell = _c360_link(r["knack_name"]) if r["knack_name"] else r["raw_name"]
+        rows.append((str(r["raw_name"]).lower(), [
+            client_cell, r["raw_name"], r["plan_title"], _money(r["monthly"]),
+            r["status"].replace("_", " ").title(),
+            "Yes" if r["knack_name"] else "No match in Knack",
+        ]))
+        total += r["monthly"]
+    rows.sort(key=lambda t: t[0])
+    return {
+        "columns": columns,
+        "rows": [r for _, r in rows],
+        "note": (f"{len(rows)} Smart 1 Suite sub-accounts billing (active, trialing "
+                 f"or past-due) with no live Smart 1 marketing product on file in "
+                 f"Knack — {_money(total)}/mo of Suite-only billing. \"No match in "
+                 "Knack\" means the sub-account name couldn't be matched to any "
+                 "Smart 1 client record at all, so double-check those by hand."),
+    }
+
+
+def ghl_billing_this_month() -> dict:
+    """Report: every Smart 1 Suite sub-account with active billing right now,
+    simplified to client / plan / monthly price / status — no Stripe or
+    customer IDs, biggest bill first."""
+    columns = ["Client", "GHL sub-account", "Plan", "Monthly", "Billing status"]
+    try:
+        rows_raw = _ghl_billing_rows()
+    except RuntimeError as exc:
+        return {"columns": columns, "rows": [], "note": str(exc)}
+    rows = []
+    total = 0.0
+    for r in rows_raw:
+        if r["status"] not in _ACTIVE_SUB_STATUSES:
+            continue
+        client_cell = _c360_link(r["knack_name"]) if r["knack_name"] else r["raw_name"]
+        rows.append((r["monthly"], [
+            client_cell, r["raw_name"], r["plan_title"], _money(r["monthly"]),
+            r["status"].replace("_", " ").title(),
+        ]))
+        total += r["monthly"]
+    rows.sort(key=lambda t: -t[0])
+    return {
+        "columns": columns,
+        "rows": [r for _, r in rows],
+        "note": (f"{len(rows)} Smart 1 Suite sub-accounts with active, trialing or "
+                 f"past-due billing this month — {_money(total)}/mo total. Plan and "
+                 "price come from the agency's SaaS Configurator plans."),
+    }
+
+
 # ---------------------------------------- invoice-off partner assignments
 def _assign_path() -> str:
     base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
@@ -893,6 +1078,20 @@ REPORTS = {
         "ico": "&#128203;",
         "fn": accounting_requests,
         "group": "Accounting",
+    },
+    "ghl-billing-no-products": {
+        "title": "Suite Billing, No Active Product",
+        "desc": "Smart 1 Suite sub-accounts with active GHL billing but no live Smart 1 marketing product on file in Knack.",
+        "ico": "&#128681;",
+        "fn": ghl_billing_no_products,
+        "group": "Suite (GoHighLevel)",
+    },
+    "ghl-billing-this-month": {
+        "title": "Suite Billing This Month",
+        "desc": "Every Smart 1 Suite sub-account with active GHL billing this month — client, plan and monthly price, simplified.",
+        "ico": "&#128179;",
+        "fn": ghl_billing_this_month,
+        "group": "Suite (GoHighLevel)",
     },
     "billing-comparison": {
         "title": "Customer Billing Comparison",
