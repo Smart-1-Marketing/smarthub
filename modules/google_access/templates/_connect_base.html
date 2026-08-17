@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}Connect your Google accounts{% endblock %} &middot; {{ cfg.AGENCY_NAME }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0E1B2B;
+    --ink-soft:#46586E;
+    --ink-faint:#7C8B9C;
+    --paper:#F4F6F8;
+    --card:#FFFFFF;
+    --line:#DCE3EA;
+    --line-strong:#C3CEDA;
+    --cyan:#0A6E8C;
+    --cyan-deep:#075469;
+    --granted:#1B6E52;
+    --granted-bg:#E8F3EE;
+    --waiting:#8F5D0E;
+    --waiting-bg:#FBF1DF;
+    --fail:#A33327;
+    --fail-bg:#FBEBE9;
+    --radius:10px;
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .wrap{max-width:660px;margin:0 auto;padding:40px 20px 72px}
+
+  /* ---- masthead ---- */
+  .eyebrow{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    margin:0 0 18px;
+  }
+  h1{
+    font-family:"Archivo",system-ui,sans-serif;
+    font-weight:700;
+    font-size:clamp(28px,5.5vw,38px);
+    line-height:1.12;
+    letter-spacing:-.02em;
+    margin:0 0 14px;
+  }
+  .lede{
+    color:var(--ink-soft);
+    font-size:17px;
+    margin:0 0 34px;
+    max-width:52ch;
+  }
+  .lede strong{color:var(--ink);font-weight:600}
+
+  /* ---- the ledger: the one thing this page is remembered by ---- */
+  .ledger{
+    background:var(--card);
+    border:1px solid var(--line-strong);
+    border-radius:var(--radius);
+    overflow:hidden;
+  }
+  .ledger-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:12px;
+    padding:14px 18px;
+    border-bottom:1px solid var(--line);
+    background:#FAFBFC;
+  }
+  .ledger-head span{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:11px;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+  }
+
+  .row{
+    display:grid;
+    grid-template-columns:26px 1fr auto;
+    gap:14px;
+    padding:18px;
+    border-bottom:1px solid var(--line);
+    align-items:start;
+  }
+  .row:last-child{border-bottom:0}
+
+  .row input[type=checkbox]{
+    appearance:none;
+    -webkit-appearance:none;
+    width:20px;height:20px;
+    margin:2px 0 0;
+    border:1.5px solid var(--line-strong);
+    border-radius:5px;
+    background:#fff;
+    cursor:pointer;
+    display:grid;
+    place-content:center;
+    transition:border-color .12s,background .12s;
+  }
+  .row input[type=checkbox]:checked{
+    background:var(--cyan);
+    border-color:var(--cyan);
+  }
+  .row input[type=checkbox]:checked::after{
+    content:"";
+    width:10px;height:6px;
+    border-left:2px solid #fff;
+    border-bottom:2px solid #fff;
+    transform:rotate(-45deg) translate(1px,-1px);
+  }
+  .row input[type=checkbox]:focus-visible{
+    outline:2px solid var(--cyan);
+    outline-offset:2px;
+  }
+
+  .row-name{
+    font-family:"Archivo",system-ui,sans-serif;
+    font-weight:600;
+    font-size:16.5px;
+    letter-spacing:-.01em;
+    margin:0 0 3px;
+    display:block;
+  }
+  .row-detail{
+    color:var(--ink-soft);
+    font-size:14.5px;
+    margin:0 0 8px;
+  }
+  .row-role{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:12.5px;
+    color:var(--ink-faint);
+    margin:0;
+  }
+  .row-role b{color:var(--ink-soft);font-weight:500}
+  .row-note{
+    font-size:13.5px;
+    color:var(--waiting);
+    margin:8px 0 0;
+  }
+  .row-assets{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:12.5px;
+    color:var(--ink-soft);
+    margin:8px 0 0;
+    padding-left:12px;
+    border-left:2px solid var(--line);
+    word-break:break-word;
+  }
+
+  .chip{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:11px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    padding:4px 9px;
+    border-radius:999px;
+    white-space:nowrap;
+    align-self:center;
+  }
+  .chip.granted{background:var(--granted-bg);color:var(--granted)}
+  .chip.waiting{background:var(--waiting-bg);color:var(--waiting)}
+  .chip.failed{background:var(--fail-bg);color:var(--fail)}
+  .chip.skipped{background:#EEF1F4;color:var(--ink-faint)}
+
+  /* ---- action ---- */
+  .action{margin:26px 0 0}
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    width:100%;
+    padding:15px 22px;
+    background:var(--cyan);
+    color:#fff;
+    border:0;
+    border-radius:var(--radius);
+    font-family:"Archivo",system-ui,sans-serif;
+    font-weight:600;
+    font-size:16px;
+    letter-spacing:-.01em;
+    cursor:pointer;
+    transition:background .14s;
+  }
+  .btn:hover{background:var(--cyan-deep)}
+  .btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  .btn[disabled]{background:var(--line-strong);cursor:not-allowed}
+  .btn svg{flex:none}
+
+  .btn-quiet{
+    display:inline-block;
+    padding:13px 22px;
+    background:#fff;
+    color:var(--ink);
+    border:1px solid var(--line-strong);
+    border-radius:var(--radius);
+    font-family:"Archivo",system-ui,sans-serif;
+    font-weight:600;
+    font-size:15px;
+    text-decoration:none;
+  }
+  .btn-quiet:hover{border-color:var(--ink-faint)}
+
+  .under-action{
+    margin:14px 0 0;
+    font-size:13.5px;
+    color:var(--ink-faint);
+    text-align:center;
+  }
+
+  /* ---- assurances ---- */
+  .assure{
+    margin:38px 0 0;
+    padding:20px 22px;
+    background:#EDF1F4;
+    border-radius:var(--radius);
+  }
+  .assure h2{
+    font-family:"Archivo",system-ui,sans-serif;
+    font-size:14px;
+    font-weight:600;
+    letter-spacing:-.005em;
+    margin:0 0 10px;
+  }
+  .assure ul{margin:0;padding:0 0 0 18px;color:var(--ink-soft);font-size:14.5px}
+  .assure li{margin:0 0 6px}
+  .assure li:last-child{margin:0}
+
+  .steps{
+    margin:30px 0 0;
+    padding:22px;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+  }
+  .steps h2{
+    font-family:"Archivo",system-ui,sans-serif;
+    font-size:15px;
+    font-weight:600;
+    margin:0 0 4px;
+  }
+  .steps p{color:var(--ink-soft);font-size:14.5px;margin:0 0 14px}
+  .steps ol{margin:0;padding-left:20px;color:var(--ink-soft);font-size:14.5px}
+  .steps li{margin:0 0 8px}
+  .steps code{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:13px;
+    background:#EDF1F4;
+    padding:2px 6px;
+    border-radius:4px;
+    color:var(--ink);
+    word-break:break-all;
+  }
+
+  footer{
+    margin:44px 0 0;
+    padding:20px 0 0;
+    border-top:1px solid var(--line);
+    font-size:13.5px;
+    color:var(--ink-faint);
+  }
+  footer a{color:var(--cyan);text-decoration:none}
+  footer a:hover{text-decoration:underline}
+
+  /* ---- entrance: rows settle in like a document printing ---- */
+  @media (prefers-reduced-motion:no-preference){
+    .row{animation:settle .34s cubic-bezier(.2,.7,.3,1) backwards}
+    .row:nth-child(2){animation-delay:.04s}
+    .row:nth-child(3){animation-delay:.08s}
+    .row:nth-child(4){animation-delay:.12s}
+    .row:nth-child(5){animation-delay:.16s}
+    .row:nth-child(6){animation-delay:.20s}
+    @keyframes settle{
+      from{opacity:0;transform:translateY(6px)}
+      to{opacity:1;transform:none}
+    }
+  }
+
+  @media (max-width:480px){
+    .wrap{padding:28px 16px 56px}
+    .row{grid-template-columns:24px 1fr;row-gap:10px}
+    .chip{grid-column:2;justify-self:start}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">{{ cfg.AGENCY_NAME }}</p>
+  {% block body %}{% endblock %}
+  <footer>
+    {% if cfg.AGENCY_SUPPORT_EMAIL or cfg.AGENCY_SUPPORT_PHONE %}
+      Questions about this page?
+      {% if cfg.AGENCY_SUPPORT_PHONE %}Call <a href="tel:{{ cfg.AGENCY_SUPPORT_PHONE }}">{{ cfg.AGENCY_SUPPORT_PHONE }}</a>{% endif %}
+      {%- if cfg.AGENCY_SUPPORT_PHONE and cfg.AGENCY_SUPPORT_EMAIL %} or {% endif -%}
+      {% if cfg.AGENCY_SUPPORT_EMAIL %}email <a href="mailto:{{ cfg.AGENCY_SUPPORT_EMAIL }}">{{ cfg.AGENCY_SUPPORT_EMAIL }}</a>{% endif %}.
+    {% else %}
+      {{ cfg.AGENCY_NAME }}
+    {% endif %}
+  </footer>
+</div>
+</body>
+</html>

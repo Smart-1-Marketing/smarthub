@@ -1,0 +1,73 @@
+{# MERGE NOTE: swap this for `{% extends "base.html" %}` (the Hub shell with
+   HubBar + version footer) and delete this file. Kept standalone so the
+   module boots and can be reviewed before it is merged. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Google Access{% endblock %} &middot; Smart 1 Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0E1B2B;--ink-soft:#46586E;--ink-faint:#7C8B9C;
+    --paper:#F4F6F8;--card:#fff;--line:#DCE3EA;--line-strong:#C3CEDA;
+    --cyan:#0A6E8C;--granted:#1B6E52;--granted-bg:#E8F3EE;
+    --waiting:#8F5D0E;--waiting-bg:#FBF1DF;--fail:#A33327;--fail-bg:#FBEBE9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.5}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 22px 72px}
+  h1{font-family:"Archivo",sans-serif;font-weight:700;font-size:27px;
+    letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-family:"Archivo",sans-serif;font-weight:600;font-size:16px;margin:0 0 12px}
+  .sub{color:var(--ink-soft);margin:0 0 26px}
+  a{color:var(--cyan)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:20px;margin:0 0 20px}
+  .banner{padding:13px 16px;border-radius:8px;margin:0 0 20px;font-size:14px}
+  .banner.warn{background:var(--waiting-bg);color:var(--waiting)}
+  .banner.bad{background:var(--fail-bg);color:var(--fail)}
+  table{width:100%;border-collapse:collapse;font-size:14.5px}
+  th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:11px;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);
+    font-weight:400;padding:0 12px 10px 0;border-bottom:1px solid var(--line)}
+  td{padding:13px 12px 13px 0;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  .chip{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.07em;
+    text-transform:uppercase;padding:3px 8px;border-radius:999px;white-space:nowrap}
+  .chip.granted{background:var(--granted-bg);color:var(--granted)}
+  .chip.waiting{background:var(--waiting-bg);color:var(--waiting)}
+  .chip.failed{background:var(--fail-bg);color:var(--fail)}
+  .chip.pending,.chip.skipped,.chip.expired{background:#EEF1F4;color:var(--ink-faint)}
+  input[type=text],input[type=email],input[type=url]{
+    width:100%;padding:10px 12px;border:1px solid var(--line-strong);
+    border-radius:8px;font:inherit;background:#fff}
+  input:focus{outline:2px solid var(--cyan);outline-offset:-1px;border-color:var(--cyan)}
+  label.field{display:block;margin:0 0 14px}
+  label.field span{display:block;font-size:13px;color:var(--ink-soft);margin:0 0 5px}
+  .svc-grid{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+  .svc-grid label{display:inline-flex;align-items:center;gap:7px;padding:8px 13px;
+    border:1px solid var(--line-strong);border-radius:999px;font-size:14px;cursor:pointer;background:#fff}
+  .svc-grid label:has(input:checked){border-color:var(--cyan);background:#EAF3F6;color:var(--cyan)}
+  button{padding:11px 18px;background:var(--cyan);color:#fff;border:0;border-radius:8px;
+    font-family:"Archivo",sans-serif;font-weight:600;font-size:14.5px;cursor:pointer}
+  button:hover{background:#075469}
+  button.quiet{background:#fff;color:var(--ink);border:1px solid var(--line-strong)}
+  button.quiet:hover{background:#F4F6F8}
+  .mono{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--ink-soft);
+    word-break:break-all}
+  .linkbox{display:flex;gap:8px;align-items:center;background:#EDF1F4;padding:11px 13px;
+    border-radius:8px;margin:12px 0 0}
+  .linkbox input{flex:1;border:0;background:transparent;font-family:"IBM Plex Mono",monospace;
+    font-size:12.5px;color:var(--ink)}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0 20px}
+  .muted{color:var(--ink-faint);font-size:13.5px}
+  @media(max-width:640px){th:nth-child(n+4),td:nth-child(n+4){display:none}}
+</style>
+</head>
+<body data-module="google_access">
+<div class="wrap">{% block body %}{% endblock %}</div>
+</body>
+</html>

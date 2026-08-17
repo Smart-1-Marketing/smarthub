@@ -83,27 +83,31 @@ def icon_svg(prefix: str, name: str, color: str = "", size: int = 256) -> str | 
 def brand_lookup(query: str) -> dict:
     """Logos and brand colours for a company or domain, via Brandfetch.
 
-    Falls back to whatever the Hub already cached for that domain, so a
-    client whose brand was fetched during SEO setup works even without the
-    key present.
+    Accepts either a domain ("nike.com") or a plain company name ("Nike") —
+    the UI invites both. A plain name is resolved to a domain first via
+    Brandfetch's Brand Search API (`/v2/search/:name`), then looked up the
+    same way a domain would be. Falls back to whatever the Hub already
+    cached for that domain, so a client whose brand was fetched during SEO
+    setup works even without the key present.
     """
     query = (query or "").strip()
     if not query:
         return {"error": "Enter a company name or domain."}
-    domain = re.sub(r"^https?://", "", query.lower()).removeprefix("www.").split("/")[0]
-    if "." not in domain:                             # a name, not a domain
-        domain = ""
 
     key = (os.environ.get("BRANDFETCH_API_KEY") or "").strip()
+    domain = re.sub(r"^https?://", "", query.lower()).removeprefix("www.").split("/")[0]
+    if "." not in domain:                             # a name, not a domain
+        domain = _resolve_domain_by_name(query, key)
+
     payload = None
 
     if domain and key:
         try:
             r = requests.get(f"https://api.brandfetch.io/v2/brands/{domain}",
                              headers={"Authorization": f"Bearer {key}"}, timeout=TIMEOUT)
-            # Counted against the monthly Brandfetch allowance. Only a real
-            # HTTP call is billable — the Hub cache below is free, and is
-            # recorded separately so you can see what the cache is saving.
+            # Counted against the monthly Brandfetch allowance (warns at 80).
+            # Only a real HTTP call is billable; the Hub cache path below is
+            # recorded separately so the saving is visible.
             try:
                 from hub import quotas as _q
                 _q.record("brandfetch", module="image_creator", detail=domain)
@@ -133,10 +137,35 @@ def brand_lookup(query: str) -> dict:
         if not key:
             return {"error": "Brandfetch isn't configured (BRANDFETCH_API_KEY), "
                              "and nothing is cached for that domain."}
+        if not domain:
+            return {"error": f"Couldn't find a company matching “{query}”. "
+                             "Try entering their website instead, e.g. nike.com."}
         return {"error": f"No brand found for “{query}”."}
 
     return {"name": payload.get("name") or domain, "domain": domain,
             "logos": _brand_logos(payload), "colors": _brand_colors(payload)}
+
+
+def _resolve_domain_by_name(name: str, key: str) -> str:
+    """Turn a plain company name into a domain via Brandfetch's Brand Search
+    API, so "Nike" works the same as "nike.com" the way the Logos panel's
+    placeholder text promises. Best-effort: returns the top match's domain,
+    or '' on any failure (no key, no matches, network error) — the caller
+    then reports a clear "couldn't find that company" error rather than the
+    old generic one."""
+    if not key:
+        return ""
+    try:
+        r = requests.get(f"https://api.brandfetch.io/v2/search/{name}",
+                         params={"c": key}, timeout=TIMEOUT)
+        if not r.ok:
+            return ""
+        hits = r.json()
+        if isinstance(hits, list) and hits:
+            return (hits[0].get("domain") or "").strip().lower()
+    except Exception:                                 # noqa: BLE001
+        pass
+    return ""
 
 
 def _brand_logos(payload: dict) -> list[dict]:

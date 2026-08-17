@@ -1,0 +1,119 @@
+{% extends "_admin_base.html" %}
+{% block title %}Google Access{% endblock %}
+
+{% block body %}
+<h1>Google Access</h1>
+<p class="sub">Send a client one link. They sign in with Google once and we are added to their accounts.</p>
+
+{% if missing %}
+  <div class="banner bad">
+    Client links will not work yet. Set on Render:
+    <span class="mono">{{ missing|join(', ') }}</span>
+  </div>
+{% endif %}
+{% if ads_missing %}
+  <div class="banner warn">
+    Google Ads invitations are off. Missing: <span class="mono">{{ ads_missing|join(', ') }}</span>.
+    Everything else still works &mdash; leave Ads unticked until this is set.
+  </div>
+{% endif %}
+{% if not cfg.GBP_ENABLED %}
+  <div class="banner warn">
+    Business Profile is in manual mode. Google requires an allowlist application before
+    it can be automated; until then the client gets written instructions instead.
+  </div>
+{% endif %}
+
+<div class="card">
+  <h2>New access request</h2>
+  <form id="newForm">
+    <div class="grid2">
+      <label class="field"><span>Client name</span>
+        <input type="text" name="client_name" required placeholder="Riverside HVAC"></label>
+      <label class="field"><span>Their email (optional)</span>
+        <input type="email" name="client_email" placeholder="owner@riversidehvac.com"></label>
+      <label class="field"><span>Website (optional)</span>
+        <input type="url" name="website" placeholder="https://riversidehvac.com"></label>
+      <label class="field"><span>Hub client ID (optional)</span>
+        <input type="text" name="hub_client_id" placeholder="Links this to Client 360"></label>
+    </div>
+
+    <p class="muted" style="margin:4px 0 10px">Accounts to ask for</p>
+    <div class="svc-grid">
+      {% for key in SERVICE_ORDER %}
+        <label><input type="checkbox" name="service" value="{{ key }}" checked>
+          {{ SERVICES[key].label }}</label>
+      {% endfor %}
+    </div>
+
+    <button type="submit">Create link</button>
+    <div id="result" style="display:none">
+      <div class="linkbox">
+        <input id="linkOut" readonly>
+        <button type="button" class="quiet" id="copyBtn">Copy</button>
+      </div>
+      <p class="muted" style="margin:8px 0 0">
+        Live for {{ cfg.INVITE_TTL_DAYS }} days. Send it however you normally reach them.
+      </p>
+    </div>
+    <p id="err" class="muted" style="color:#A33327;display:none"></p>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Requests</h2>
+  {% if not requests %}
+    <p class="muted">Nothing yet. Create a link above and it will show here.</p>
+  {% else %}
+  <table>
+    <thead><tr>
+      <th>Client</th><th>Asked for</th><th>Status</th><th>Signed in as</th><th>Created</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for r in requests %}
+      <tr>
+        <td><strong>{{ r.client_name }}</strong>
+          {% if r.website %}<div class="mono">{{ r.website }}</div>{% endif %}</td>
+        <td class="muted">
+          {%- for k in r.services -%}{{ SERVICES[k].label if k in SERVICES else k }}{{ ", " if not loop.last }}{%- endfor -%}
+        </td>
+        <td><span class="chip {{ r.status }}">{{ r.status }}</span></td>
+        <td class="mono">{{ r.consent_email or '—' }}</td>
+        <td class="muted">{{ r.created_at.strftime('%d %b %Y') }}</td>
+        <td><a href="{{ url_for('google_access.detail', request_id=r.id) }}">Open</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+<script>
+document.getElementById('newForm').addEventListener('submit', async function(e){
+  e.preventDefault();
+  var form = e.target, err = document.getElementById('err');
+  err.style.display = 'none';
+  var body = new URLSearchParams();
+  ['client_name','client_email','website','hub_client_id'].forEach(function(n){
+    if (form[n].value) body.append(n, form[n].value);
+  });
+  form.querySelectorAll('input[name=service]:checked').forEach(function(b){
+    body.append('service', b.value);
+  });
+  var res = await fetch('{{ url_for("google_access.create_request") }}',
+    {method:'POST', body:body, headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+  var data = await res.json();
+  if (!data.ok) { err.textContent = data.error || 'Could not create that link.';
+                  err.style.display = 'block'; return; }
+  document.getElementById('linkOut').value = data.link;
+  document.getElementById('result').style.display = 'block';
+});
+
+document.getElementById('copyBtn').addEventListener('click', function(){
+  var f = document.getElementById('linkOut');
+  f.select(); document.execCommand('copy');
+  this.textContent = 'Copied';
+  setTimeout(function(){ document.getElementById('copyBtn').textContent = 'Copy'; }, 1600);
+});
+</script>
+{% endblock %}

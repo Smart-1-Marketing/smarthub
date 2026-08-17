@@ -32,6 +32,7 @@ _cache_lock = threading.Lock()
 CACHE_SECONDS = int(os.environ.get("PHOTO_CACHE_SECONDS", "900"))
 
 ORIENTATIONS = ("any", "landscape", "portrait", "square")
+SORTS = ("relevant", "popular", "new")
 
 
 # ------------------------------------------------------------------ helpers
@@ -73,7 +74,7 @@ def _norm(provider: str, pid, thumbnail: str, preview: str, full: str,
 
 # ---------------------------------------------------------------- providers
 def search_pexels(q: str, page: int, per_page: int, orientation: str,
-                  color: str) -> list[dict]:
+                  color: str, sort: str = "relevant") -> list[dict]:
     key = _key("PEXELS_API_KEY")
     if not key:
         return []
@@ -82,6 +83,9 @@ def search_pexels(q: str, page: int, per_page: int, orientation: str,
         params["orientation"] = orientation          # landscape|portrait|square
     if color:
         params["color"] = color
+    # Pexels' search endpoint has no sort/order parameter — relevance only.
+    # Nothing to translate `sort` to here; it's silently ignored per §41's
+    # "translate to the closest supported parameter, ignore the rest."
     r = requests.get("https://api.pexels.com/v1/search",
                      headers={"Authorization": key}, params=params, timeout=TIMEOUT)
     r.raise_for_status()
@@ -99,7 +103,7 @@ def search_pexels(q: str, page: int, per_page: int, orientation: str,
 
 
 def search_pixabay(q: str, page: int, per_page: int, orientation: str,
-                   color: str) -> list[dict]:
+                   color: str, sort: str = "relevant") -> list[dict]:
     key = _key("PIXABAY_API_KEY")
     if not key:
         return []
@@ -114,6 +118,10 @@ def search_pixabay(q: str, page: int, per_page: int, orientation: str,
     # Pixabay has no square filter — handled after the fact in _post_filter
     if color:
         params["colors"] = color
+    if sort == "new":
+        params["order"] = "latest"
+    elif sort == "popular":
+        params["order"] = "popular"               # Pixabay's own default
     r = requests.get("https://pixabay.com/api/", params=params, timeout=TIMEOUT)
     r.raise_for_status()
     out = []
@@ -129,7 +137,7 @@ def search_pixabay(q: str, page: int, per_page: int, orientation: str,
 
 
 def search_unsplash(q: str, page: int, per_page: int, orientation: str,
-                    color: str) -> list[dict]:
+                    color: str, sort: str = "relevant") -> list[dict]:
     key = _key("UNSPLASH_ACCESS_KEY")
     if not key:
         return []
@@ -142,6 +150,10 @@ def search_unsplash(q: str, page: int, per_page: int, orientation: str,
         params["orientation"] = "squarish"
     if color:
         params["color"] = color
+    # Unsplash's search endpoint only distinguishes relevant vs latest —
+    # there's no true "popular" order, so that request maps to the default.
+    if sort == "new":
+        params["order_by"] = "latest"
     r = requests.get("https://api.unsplash.com/search/photos",
                      headers={"Authorization": f"Client-ID {key}"},
                      params=params, timeout=TIMEOUT)
@@ -223,20 +235,22 @@ def _post_filter(items: list[dict], orientation: str) -> list[dict]:
 
 
 def search(q: str, page: int = 1, per_page: int = 24, orientation: str = "any",
-           color: str = "", providers: list[str] | None = None) -> dict:
+           color: str = "", sort: str = "relevant",
+           providers: list[str] | None = None) -> dict:
     """One query, every provider, one merged result set."""
     q = (q or "").strip()
     if not q:
         return {"results": [], "errors": [], "providers": configured(), "cached": False}
 
     orientation = orientation if orientation in ORIENTATIONS else "any"
+    sort = sort if sort in SORTS else "relevant"
     wanted = [p for p in (providers or list(PROVIDERS)) if configured().get(p)]
     if not wanted:
         return {"results": [], "errors": ["No stock photo providers are configured."],
                 "providers": configured(), "cached": False}
 
     ck = hashlib.md5(
-        f"{q}|{page}|{per_page}|{orientation}|{color}|{','.join(sorted(wanted))}"
+        f"{q}|{page}|{per_page}|{orientation}|{color}|{sort}|{','.join(sorted(wanted))}"
         .encode()).hexdigest()
     with _cache_lock:
         hit = _cache.get(ck)
@@ -249,7 +263,7 @@ def search(q: str, page: int = 1, per_page: int = 24, orientation: str = "any",
 
     def run(name: str):
         try:
-            return name, PROVIDERS[name](q, page, per_provider, orientation, color), None
+            return name, PROVIDERS[name](q, page, per_provider, orientation, color, sort), None
         except Exception as exc:                     # noqa: BLE001 — never fatal
             return name, [], f"{name}: {exc}"
 

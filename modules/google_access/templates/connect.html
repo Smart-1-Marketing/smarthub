@@ -1,0 +1,73 @@
+{% extends "_connect_base.html" %}
+{% block title %}Connect your Google accounts{% endblock %}
+
+{% block body %}
+<h1>Give {{ cfg.AGENCY_NAME }} access to your Google accounts</h1>
+<p class="lede">
+  You are signing in as <strong>{{ req.client_name }}</strong>. Google will ask you to
+  confirm, then add <strong>{{ cfg.AGENCY_EMAIL }}</strong> to the accounts you tick
+  below &mdash; the same as adding us by hand, done in one step.
+</p>
+
+<form method="post" action="{{ url_for('google_access_public.start', token=req.token) }}" id="grantForm">
+  <div class="ledger">
+    <div class="ledger-head">
+      <span>What we will be added to</span>
+    </div>
+
+    {% for key in services %}
+      {% set svc = SERVICES[key] %}
+      <label class="row" for="svc-{{ key }}">
+        <input type="checkbox" name="service" value="{{ key }}" id="svc-{{ key }}" checked>
+        <div>
+          <span class="row-name">{{ svc.label }}</span>
+          <p class="row-detail">{{ svc.detail }}</p>
+          <p class="row-role">Added as <b>{{ svc.role_text }}</b></p>
+          {% if svc.note %}<p class="row-note">{{ svc.note }}</p>{% endif %}
+        </div>
+      </label>
+    {% endfor %}
+  </div>
+
+  <div class="action">
+    <button type="submit" class="btn" id="submitBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="#fff" d="M12 11v2.4h5.7c-.25 1.5-1.75 4.4-5.7 4.4-3.43 0-6.23-2.84-6.23-6.34S8.57 5.12 12 5.12c1.95 0 3.26.83 4.01 1.55l2.73-2.63C16.99 2.4 14.71 1.5 12 1.5 6.6 1.5 2.24 5.86 2.24 11.26S6.6 21 12 21c5.63 0 9.36-3.96 9.36-9.53 0-.64-.07-1.13-.16-1.62H12z"/>
+      </svg>
+      Continue with Google
+    </button>
+    <p class="under-action">You will land on Google's own sign-in screen. We never see your password.</p>
+  </div>
+</form>
+
+<div class="assure">
+  <h2>What this does not do</h2>
+  <ul>
+    <li>It does not give us your password, and it does not change it.</li>
+    <li>It does not store a Google login for you anywhere on our systems.</li>
+    <li>It does not touch your email, your files, or anything outside the accounts listed above.</li>
+    <li>You can remove us at any time from your own Google settings, without asking us first.</li>
+  </ul>
+</div>
+
+<script>
+(function(){
+  var form = document.getElementById('grantForm');
+  var btn  = document.getElementById('submitBtn');
+  var boxes = form.querySelectorAll('input[type=checkbox]');
+
+  function sync(){
+    var any = Array.prototype.some.call(boxes, function(b){ return b.checked; });
+    btn.disabled = !any;
+    btn.lastChild.nodeValue = any ? ' Continue with Google' : ' Pick at least one account';
+  }
+  Array.prototype.forEach.call(boxes, function(b){ b.addEventListener('change', sync); });
+  sync();
+
+  form.addEventListener('submit', function(){
+    btn.disabled = true;
+    btn.lastChild.nodeValue = ' Taking you to Google\u2026';
+  });
+})();
+</script>
+{% endblock %}

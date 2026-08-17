@@ -68,6 +68,14 @@ def ai_ready() -> bool:
     return bool((os.environ.get("OPENAI_API_KEY") or "").strip())
 
 
+def bg_remove_ready() -> bool:
+    try:
+        from modules.bg_remover import app as bg_remover
+        return bg_remover.configured()
+    except Exception:                                 # noqa: BLE001
+        return False
+
+
 # =====================================================================
 # Pages
 # =====================================================================
@@ -78,6 +86,7 @@ def index():
         providers=photo_search.configured(), ai=ai_ready(),
         cloud=projects.cloud_ready(),
         brandfetch=bool((os.environ.get("BRANDFETCH_API_KEY") or "").strip()),
+        bg_remove=bg_remove_ready(),
         prefill_client=request.args.get("client", ""),
         open_project=request.args.get("project", ""),
         fonts=assets.POPULAR_FONTS)
@@ -109,7 +118,8 @@ def api_photo_search():
     out = photo_search.search(
         request.args.get("q", ""), page=page, per_page=per_page,
         orientation=request.args.get("orientation", "any"),
-        color=request.args.get("color", ""))
+        color=request.args.get("color", ""),
+        sort=request.args.get("sort", "relevant"))
     status = 502 if out.get("all_failed") else 200
     return jsonify(out), status
 
@@ -228,6 +238,11 @@ def _openai_json(system: str, user: str, timeout: int = 60):
                  timeout=timeout)
     if not r.ok:
         raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:160]}")
+    try:  # record spend so /diagnostics doesn't under-report
+        from hub import ai as _hub_ai
+        _hub_ai.note_usage("image_creator", r.json(), purpose="copy")
+    except Exception:  # noqa: BLE001
+        pass
     return _json.loads(r.json()["choices"][0]["message"]["content"])
 
 
@@ -331,6 +346,100 @@ def api_ai_image():
     if item.get("url"):
         return jsonify({"image": item["url"], "needs_proxy": True})
     return jsonify({"error": "No image came back."}), 502
+
+
+# =====================================================================
+# Logo background removal — reuses the Hub's existing Background Remover
+# tool (remove.bg) instead of duplicating it, so a logo upload doesn't need
+# a separate trip out of the editor. §19 of the dev outline.
+# =====================================================================
+@app.route("/api/logos/remove-background", methods=["POST"])
+def api_logo_remove_background():
+    import base64 as _b64
+    body = request.get_json(silent=True) or {}
+    data_url = (body.get("image") or "").strip()
+    if not data_url.startswith("data:image"):
+        return jsonify({"error": "No image to process."}), 400
+    try:
+        from modules.bg_remover import app as bg_remover
+    except Exception as exc:                          # noqa: BLE001
+        return jsonify({"error": f"Background Remover isn't available: {exc}"}), 503
+    if not bg_remover.configured():
+        return jsonify({"error": "REMOVE_BG_API_KEY isn't set, so background removal is off."}), 503
+    try:
+        _, b64 = data_url.split(",", 1)
+        raw = _b64.b64decode(b64)
+    except (ValueError, TypeError):
+        return jsonify({"error": "That image couldn't be read."}), 400
+    if len(raw) > bg_remover.MAX_BYTES:
+        return jsonify({"error": "That logo is too large for background removal."}), 400
+    try:
+        png = bg_remover.call_remove_bg(raw)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 502
+    except Exception as exc:                          # noqa: BLE001
+        return jsonify({"error": f"Background removal failed: {exc}"}), 502
+    _log("logo_bg_removed")
+    return jsonify({"image": "data:image/png;base64," + _b64.b64encode(png).decode()})
+
+
+# =====================================================================
+# Export optimization — a real compress/strip-metadata pass before a
+# finished export leaves the browser, the gap noted against the spec's
+# Sharp-based description (§37: Sharp isn't used anywhere in this build,
+# Pillow only ever touches small preview thumbnails). The client calls this
+# after rendering the canvas locally and falls back to the untouched
+# client-rendered export if this fails for any reason — same "one piece
+# failing doesn't break the whole feature" pattern the photo search uses.
+# =====================================================================
+@app.route("/api/export/optimize", methods=["POST"])
+def api_export_optimize():
+    import base64 as _b64
+    import io as _io
+
+    body = request.get_json(silent=True) or {}
+    data_url = (body.get("image") or "").strip()
+    if not data_url.startswith("data:image"):
+        return jsonify({"error": "Nothing to optimize."}), 400
+    fmt = (body.get("format") or "png").strip().lower()
+    if fmt not in ("png", "jpeg", "webp"):
+        fmt = "png"
+    try:
+        quality = max(40, min(int(body.get("quality", 92)), 100))
+    except (TypeError, ValueError):
+        quality = 92
+    try:
+        _, b64 = data_url.split(",", 1)
+        raw = _b64.b64decode(b64)
+    except (ValueError, TypeError):
+        return jsonify({"error": "That image couldn't be read."}), 400
+    if len(raw) > 40 * 1024 * 1024:
+        return jsonify({"error": "That export is too large to optimize."}), 400
+    try:
+        from PIL import Image
+        with Image.open(_io.BytesIO(raw)) as im:
+            buf = _io.BytesIO()
+            if fmt == "jpeg":
+                im.convert("RGB").save(buf, "JPEG", quality=quality,
+                                       optimize=True, progressive=True)
+                mime = "image/jpeg"
+            elif fmt == "webp":
+                im.save(buf, "WEBP", quality=quality, method=6)
+                mime = "image/webp"
+            else:
+                # Re-saving through Pillow with optimize=True applies a real
+                # deflate pass — canvas.toDataURL's own PNG output is
+                # otherwise noticeably larger than it needs to be.
+                im.save(buf, "PNG", optimize=True)
+                mime = "image/png"
+        out = buf.getvalue()
+    except Exception as exc:                          # noqa: BLE001
+        return jsonify({"error": f"Optimization failed: {exc}"}), 502
+    # Re-saving through Pillow never carries EXIF/XMP forward unless it's
+    # explicitly passed through, so this also satisfies "strip metadata
+    # before export" — for free, as a side effect of the compression pass.
+    return jsonify({"image": f"data:{mime};base64," + _b64.b64encode(out).decode(),
+                    "bytes": len(out), "original_bytes": len(raw)})
 
 
 # =====================================================================

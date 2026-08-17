@@ -1,0 +1,123 @@
+{% extends "_connect_base.html" %}
+{% block title %}Access confirmed{% endblock %}
+
+{% set all_done = req.status == 'granted' %}
+{% set needs_ads = grants.get('ads') and grants['ads'].status == 'waiting' %}
+{% set needs_sc = grants.get('search_console') and grants['search_console'].status == 'waiting' %}
+
+{% block body %}
+{% if all_done %}
+  <h1>You're connected</h1>
+  <p class="lede">
+    <strong>{{ cfg.AGENCY_EMAIL }}</strong> now has access to everything below.
+    Nothing else is needed from you.
+  </p>
+{% else %}
+  <h1>Almost there</h1>
+  <p class="lede">
+    Most of it went through. There {{ 'is one thing' if (needs_ads and not needs_sc) or (needs_sc and not needs_ads) else 'are a couple of things' }}
+    only you can do, and both take about a minute.
+  </p>
+{% endif %}
+
+<div class="ledger">
+  <div class="ledger-head">
+    <span>Account</span>
+    <span>Status</span>
+  </div>
+
+  {% for key in services %}
+    {% set svc = SERVICES[key] %}
+    {% set g = grants.get(key) %}
+    {% set st = g.status if g else 'skipped' %}
+    <div class="row">
+      <div aria-hidden="true" style="padding-top:2px">
+        {% if st == 'granted' %}
+          <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#E8F3EE"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="#1B6E52" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        {% elif st == 'waiting' %}
+          <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#FBF1DF"/><path d="M10 5.6V10l2.8 2" stroke="#8F5D0E" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        {% elif st == 'failed' %}
+          <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#FBEBE9"/><path d="M10 5.8v5M10 13.6v.2" stroke="#A33327" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+        {% else %}
+          <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#EEF1F4"/><path d="M6.6 10h6.8" stroke="#7C8B9C" stroke-width="2" stroke-linecap="round"/></svg>
+        {% endif %}
+      </div>
+      <div>
+        <span class="row-name">{{ svc.label }}</span>
+        {% if st == 'granted' %}
+          <p class="row-detail">Added as {{ g.role_granted or svc.role_text }}.</p>
+          {% if g.resource_name %}<p class="row-assets">{{ g.resource_name }}</p>{% endif %}
+        {% elif st == 'waiting' and key == 'ads' %}
+          <p class="row-detail">Invitation sent. Accept it in Google Ads to finish.</p>
+          {% if g.resource_name %}<p class="row-assets">{{ g.resource_name }}</p>{% endif %}
+        {% elif st == 'waiting' and key == 'search_console' %}
+          <p class="row-detail">Needs one manual step. Instructions below.</p>
+        {% elif st == 'waiting' %}
+          <p class="row-detail">Waiting on one more step.</p>
+        {% elif st == 'failed' %}
+          <p class="row-detail">We could not complete this one. We will call you about it.</p>
+        {% else %}
+          <p class="row-detail">Not included.</p>
+        {% endif %}
+      </div>
+      <span class="chip {{ st }}">
+        {%- if st == 'granted' -%}Connected
+        {%- elif st == 'waiting' -%}Your turn
+        {%- elif st == 'failed' -%}Needs us
+        {%- else -%}Skipped{%- endif -%}
+      </span>
+    </div>
+  {% endfor %}
+</div>
+
+{% if needs_ads %}
+<div class="steps">
+  <h2>Finish Google Ads</h2>
+  <p>Google requires you to accept a manager link from inside your own account.</p>
+  <ol>
+    <li>Open <a href="https://ads.google.com" target="_blank" rel="noopener">ads.google.com</a> and sign in.</li>
+    <li>Go to <strong>Admin</strong>, then <strong>Access and security</strong>, then the <strong>Managers</strong> tab.</li>
+    <li>Find the pending request from {{ cfg.AGENCY_NAME }} and choose <strong>Accept</strong>.</li>
+  </ol>
+</div>
+{% endif %}
+
+{% if grants.get('gbp') and grants['gbp'].status == 'waiting' %}
+<div class="steps">
+  <h2>Finish Business Profile</h2>
+  <p>A short manual invite while we wait on Google to approve automated access.</p>
+  <ol>
+    <li>Open <a href="https://business.google.com" target="_blank" rel="noopener">business.google.com</a> and pick your business.</li>
+    <li>Go to <strong>Settings</strong>, then <strong>People and access</strong>.</li>
+    <li>Choose <strong>Add</strong>, enter <code>{{ cfg.AGENCY_EMAIL }}</code>, set the role to <strong>Manager</strong>, and invite.</li>
+  </ol>
+</div>
+{% endif %}
+
+{% if needs_sc %}
+<div class="steps">
+  <h2>Finish Search Console</h2>
+  <p>Google has no way to automate this one, so it is a short manual add.</p>
+  <ol>
+    <li>Open <a href="https://search.google.com/search-console" target="_blank" rel="noopener">Search Console</a> and pick your site.</li>
+    <li>Go to <strong>Settings</strong>, then <strong>Users and permissions</strong>.</li>
+    <li>Choose <strong>Add user</strong>, enter <code>{{ cfg.AGENCY_EMAIL }}</code>, set permission to <strong>Full</strong>, and save.</li>
+  </ol>
+</div>
+{% endif %}
+
+{% if needs_ads %}
+<div class="action" style="text-align:center">
+  <a class="btn-quiet" href="{{ url_for('google_access_public.done', token=req.token) }}">I've accepted it &mdash; recheck</a>
+</div>
+{% endif %}
+
+<div class="assure">
+  <h2>Keep this for your records</h2>
+  <ul>
+    <li>The account we were added under is <strong>{{ cfg.AGENCY_EMAIL }}</strong>.</li>
+    <li>You signed in as {{ req.consent_email or 'your Google account' }}.</li>
+    <li>Remove us any time from the same settings screens listed above &mdash; you do not need to ask us.</li>
+  </ul>
+</div>
+{% endblock %}

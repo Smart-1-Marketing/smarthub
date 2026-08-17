@@ -1,0 +1,13 @@
+{% extends "_connect_base.html" %}
+{% block title %}{{ headline }}{% endblock %}
+
+{% block body %}
+<h1>{{ headline }}</h1>
+<p class="lede">{{ body }}</p>
+
+{% if back %}
+<div class="action">
+  <a class="btn-quiet" href="{{ back }}">Back to the start</a>
+</div>
+{% endif %}
+{% endblock %}

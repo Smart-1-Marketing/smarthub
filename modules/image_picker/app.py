@@ -1,0 +1,748 @@
+"""
+Image Picker -- Flask blueprint, mounted at /tools/image-picker.
+
+Two audiences, one picker UI:
+
+  staff   /tools/image-picker/            behind the Hub login
+          /tools/image-picker/c/<id>      pick on behalf of a client
+  client  /tools/image-picker/pick/<tok>  share link, no login
+
+Security posture, informed by the suite QA audit:
+
+* **Search results are HMAC-signed.** The browser sends chosen images back at
+  save time; if we trusted the URLs it posted, this endpoint would be an SSRF
+  hole exactly like the one found in smart1restaurant. Every result is signed on
+  the way out and verified on the way in, and the host is checked against a
+  provider allow-list on top of that. A tampered item is refused, not fetched.
+* **Rate limiting reads the LAST X-Forwarded-For hop**, not the first. The audit
+  found three apps trusting the client-supplied first hop, which meant a forged
+  header bypassed the limiter entirely.
+* **No raw exception text reaches the browser.** Errors are logged with detail
+  and returned as plain sentences. The audit caught an OpenAI 401 printing an
+  API key prefix onto a public lead page.
+* **Share tokens are `secrets.token_urlsafe(32)`**, not a slug plus a timestamp.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import logging
+import os
+import time
+from collections import defaultdict, deque
+from functools import wraps
+from urllib.parse import urlparse
+
+from flask import (
+    Blueprint, abort, current_app, g, jsonify, redirect,
+    render_template, request, url_for,
+)
+from sqlalchemy import select
+
+from . import cloudinary_sink, ghl, providers, taxonomy
+from .models import (
+    DB_BOOT_ERROR, PickerClient, SavedImage, already_saved, get_client,
+    get_client_by_token, init_db, new_token, session, unique_slug,
+)
+
+log = logging.getLogger(__name__)
+
+bp = Blueprint(
+    "image_picker",
+    __name__,
+    url_prefix="/tools/image-picker",
+    template_folder="templates",
+    static_folder="static",
+)
+
+MAX_SAVE_BATCH = 24
+
+# Hosts we will let Cloudinary fetch from. Belt and braces alongside the HMAC.
+ALLOWED_IMAGE_HOSTS = {
+    "images.pexels.com", "www.pexels.com", "pexels.com",
+    "pixabay.com", "cdn.pixabay.com", "www.pixabay.com",
+    "images.unsplash.com", "unsplash.com", "plus.unsplash.com",
+}
+
+
+# --------------------------------------------------------------------------- #
+# Signing
+# --------------------------------------------------------------------------- #
+
+def _secret() -> bytes:
+    key = (
+        os.environ.get("IMAGE_PICKER_SIGNING_KEY")
+        or os.environ.get("SECRET_KEY")
+        or current_app.config.get("SECRET_KEY")
+        or ""
+    )
+    if not key:
+        # Deliberately loud. An unsigned build would accept arbitrary URLs.
+        raise RuntimeError("SECRET_KEY or IMAGE_PICKER_SIGNING_KEY must be set")
+    return str(key).encode()
+
+
+def _signable(item: dict) -> bytes:
+    return json.dumps(
+        {
+            "id": item.get("id"),
+            "provider": item.get("provider"),
+            "provider_image_id": item.get("provider_image_id"),
+            "full": item.get("full"),
+            "preview": item.get("preview"),
+            "download_location": item.get("download_location", ""),
+        },
+        sort_keys=True, separators=(",", ":"),
+    ).encode()
+
+
+def sign_item(item: dict) -> str:
+    return hmac.new(_secret(), _signable(item), hashlib.sha256).hexdigest()[:32]
+
+
+def verify_item(item: dict) -> bool:
+    given = str(item.get("sig") or "")
+    if not given:
+        return False
+    return hmac.compare_digest(given, sign_item(item))
+
+
+def host_allowed(url: str) -> bool:
+    try:
+        parsed = urlparse(url or "")
+    except Exception:  # noqa: BLE001
+        return False
+    return parsed.scheme == "https" and parsed.hostname in ALLOWED_IMAGE_HOSTS
+
+
+# --------------------------------------------------------------------------- #
+# Auth + rate limiting
+# --------------------------------------------------------------------------- #
+
+def client_ip() -> str:
+    """Last X-Forwarded-For hop -- the one the proxy actually wrote.
+
+    MERGE NOTE: if the Hub already applies `ProxyFix(x_for=1)`, delete this and
+    use `request.remote_addr`. Do not take XFF[0]; it is client-supplied.
+    """
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[-1].strip()
+    return request.remote_addr or "unknown"
+
+
+_BUCKETS: dict[str, deque] = defaultdict(deque)
+
+
+def rate_limit(limit: int, window: int):
+    def deco(fn):
+        @wraps(fn)
+        def inner(*a, **kw):
+            key = f"{fn.__name__}:{client_ip()}"
+            now = time.time()
+            q = _BUCKETS[key]
+            while q and now - q[0] > window:
+                q.popleft()
+            if len(q) >= limit:
+                return jsonify({
+                    "ok": False,
+                    "error": "That's a lot of requests in a short time. Give it a minute and try again.",
+                }), 429
+            q.append(now)
+            return fn(*a, **kw)
+        return inner
+    return deco
+
+
+def hub_login_ok() -> bool:
+    """MERGE NOTE: replace this body with the Hub's AuthGuard check.
+
+    Standalone it honours a session flag set by the Hub, or IMAGE_PICKER_DEV_OPEN
+    for local work. It fails closed -- an unrecognised deployment gets a locked
+    door, not an open one.
+    """
+    try:
+        from flask import session as flask_session
+        if flask_session.get("hub_user") or flask_session.get("logged_in"):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return os.environ.get("IMAGE_PICKER_DEV_OPEN") == "1"
+
+
+def hub_user() -> str:
+    try:
+        from flask import session as flask_session
+        return str(flask_session.get("hub_user") or flask_session.get("user") or "hub")
+    except Exception:  # noqa: BLE001
+        return "hub"
+
+
+def staff_only(fn):
+    @wraps(fn)
+    def inner(*a, **kw):
+        if not hub_login_ok():
+            if request.path.startswith(f"{bp.url_prefix}/api/"):
+                return jsonify({"ok": False, "error": "Sign in to continue."}), 401
+            return redirect("/login?next=" + request.path)
+        return fn(*a, **kw)
+    return inner
+
+
+def db_guard(fn):
+    """Surface a slow/absent database per request rather than at import."""
+    @wraps(fn)
+    def inner(*a, **kw):
+        if DB_BOOT_ERROR:
+            log.error("image_picker db unavailable: %s", DB_BOOT_ERROR)
+            msg = "The image library is temporarily unavailable. Try again in a moment."
+            if request.path.startswith(f"{bp.url_prefix}/api/"):
+                return jsonify({"ok": False, "error": msg}), 503
+            return render_template("picker_error.html", message=msg), 503
+        return fn(*a, **kw)
+    return inner
+
+
+def resolve_scope():
+    """Work out which client this request is for, and whether it is staff.
+
+    Share token wins when present, so a client link never depends on a Hub
+    session, and a staff session never leaks into someone else's client.
+    """
+    token = request.values.get("t") or getattr(g, "share_token", None)
+    db = session()
+    if token:
+        client = get_client_by_token(db, token)
+        if not client or not client.share_enabled:
+            abort(404)
+        return db, client, False
+    if not hub_login_ok():
+        abort(401)
+    raw_id = request.values.get("client_id")
+    if not raw_id:
+        abort(400)
+    try:
+        client = get_client(db, int(raw_id))
+    except (TypeError, ValueError):
+        abort(400)
+    if not client:
+        abort(404)
+    return db, client, True
+
+
+# --------------------------------------------------------------------------- #
+# Pages
+# --------------------------------------------------------------------------- #
+
+@bp.route("/")
+@staff_only
+@db_guard
+def admin():
+    db = session()
+    clients = db.execute(select(PickerClient).order_by(PickerClient.name)).scalars().all()
+    counts = {}
+    for c in clients:
+        counts[c.id] = db.execute(
+            select(SavedImage).where(SavedImage.client_id == c.id)
+        ).scalars().all().__len__()
+    return render_template(
+        "picker_admin.html",
+        clients=[c.to_dict(include_secrets=True) for c in clients],
+        counts=counts,
+        industries=taxonomy.public_industries(),
+        industry_labels={i["key"]: f"{i['icon']} {i['label']}" for i in taxonomy.INDUSTRIES},
+        providers_on=providers.configured_providers(),
+        cloudinary_on=cloudinary_sink.configured(),
+        ghl_on=ghl.configured(),
+        version=os.environ.get("HUB_VERSION", ""),
+    )
+
+
+@bp.route("/c/<int:client_id>")
+@staff_only
+@db_guard
+def staff_picker(client_id: int):
+    db = session()
+    client = get_client(db, client_id)
+    if not client:
+        abort(404)
+    return render_template(
+        "picker.html",
+        client=client.to_dict(include_secrets=True),
+        industries=taxonomy.public_industries(),
+        is_staff=True,
+        share_token="",
+        providers_on=providers.configured_providers(),
+    )
+
+
+@bp.route("/pick/<token>")
+@db_guard
+def client_picker(token: str):
+    db = session()
+    client = get_client_by_token(db, token)
+    if not client or not client.share_enabled:
+        return render_template(
+            "picker_error.html",
+            message="This image link is no longer active. Ask your Smart 1 contact for a new one.",
+        ), 404
+    return render_template(
+        "picker.html",
+        client=client.to_dict(),
+        industries=taxonomy.public_industries(),
+        is_staff=False,
+        share_token=token,
+        providers_on=providers.configured_providers(),
+    )
+
+
+@bp.route("/gallery/<int:client_id>")
+@staff_only
+@db_guard
+def staff_gallery(client_id: int):
+    db = session()
+    client = get_client(db, client_id)
+    if not client:
+        abort(404)
+    return render_template(
+        "picker_gallery.html",
+        client=client.to_dict(include_secrets=True),
+        is_staff=True,
+        share_token="",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# API
+# --------------------------------------------------------------------------- #
+
+@bp.route("/api/health")
+def api_health():
+    return jsonify({
+        "ok": not DB_BOOT_ERROR,
+        "database": "error" if DB_BOOT_ERROR else "ok",
+        "providers": providers.configured_providers(),
+        "cloudinary": cloudinary_sink.configured(),
+        "ghl": ghl.configured(),
+    })
+
+
+@bp.route("/api/taxonomy")
+def api_taxonomy():
+    return jsonify({"ok": True, "industries": taxonomy.public_industries()})
+
+
+@bp.route("/api/search", methods=["POST"])
+@rate_limit(limit=40, window=60)
+@db_guard
+def api_search():
+    db, client, is_staff = resolve_scope()
+    body = request.get_json(silent=True) or {}
+
+    industry_key = str(body.get("industry") or client.industry_key or "general")
+    kind = str(body.get("kind") or "").strip()      # topic | service | search
+    key = str(body.get("collection") or "").strip()
+    free_text = str(body.get("q") or "").strip()[:120]
+    orientation = str(body.get("orientation") or "").strip() or None
+    if orientation not in (None, "landscape", "portrait", "square"):
+        orientation = None
+    try:
+        page = max(1, min(12, int(body.get("page") or 1)))
+    except (TypeError, ValueError):
+        page = 1
+
+    queries: list[str] = []
+    negatives = list(taxonomy.GLOBAL_NEGATIVE)
+    label = ""
+
+    if kind in ("topic", "service") and key:
+        coll = taxonomy.collection(industry_key, "topics" if kind == "topic" else "services", key)
+        if not coll:
+            return jsonify({"ok": False, "error": "That category isn't available for this industry."}), 400
+        queries = list(coll["queries"])
+        negatives += coll.get("negative", [])
+        label = coll["label"]
+    elif free_text:
+        ind = taxonomy.industry(industry_key)
+        # Blend the client's industry into a bare search so "team photo" for an
+        # HVAC client does not return generic office stock.
+        queries = [free_text]
+        if ind and ind["key"] != "general":
+            queries.append(f"{free_text} {ind['label'].lower()}")
+        kind, label = "search", free_text
+    else:
+        return jsonify({"ok": False, "error": "Pick a category or type what you're looking for."}), 400
+
+    if not providers.any_provider_configured():
+        return jsonify({
+            "ok": False,
+            "error": "Photo search isn't switched on yet. Your Smart 1 contact can enable it.",
+            "results": [],
+        }), 503
+
+    found = providers.search(
+        queries, per_page=14, page=page, orientation=orientation,
+        negatives=negatives, limit=36, seed=client.id,
+    )
+
+    results = []
+    for item in found["results"]:
+        item = dict(item)
+        item["sig"] = sign_item(item)
+        item.pop("tags", None)          # internal filtering aid only
+        results.append(item)
+
+    if not results and all(v != "ok" for v in found["providers"].values()):
+        return jsonify({
+            "ok": False,
+            "error": "Photo search is having trouble right now. Try again in a minute.",
+            "results": [],
+        }), 502
+
+    return jsonify({
+        "ok": True,
+        "results": results,
+        "label": label,
+        "kind": kind,
+        "page": page,
+        "providers": found["providers"],
+    })
+
+
+@bp.route("/api/save", methods=["POST"])
+@rate_limit(limit=12, window=60)
+@db_guard
+def api_save():
+    db, client, is_staff = resolve_scope()
+    body = request.get_json(silent=True) or {}
+    items = body.get("items") or []
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "error": "Nothing selected to save."}), 400
+    if len(items) > MAX_SAVE_BATCH:
+        return jsonify({
+            "ok": False,
+            "error": f"You can save up to {MAX_SAVE_BATCH} images at a time.",
+        }), 400
+
+    if not cloudinary_sink.configured():
+        return jsonify({
+            "ok": False,
+            "error": "Image saving isn't switched on yet. Your Smart 1 contact can enable it.",
+        }), 503
+
+    collection_kind = str(body.get("kind") or "")[:20]
+    collection_key = str(body.get("collection") or "")[:80]
+    collection_label = str(body.get("label") or "")[:200]
+    actor = hub_user() if is_staff else "client"
+
+    saved, skipped, failed = [], [], []
+
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+
+        if not verify_item(raw):
+            failed.append({"id": raw.get("id"), "error": "This image couldn't be verified. Search again and reselect it."})
+            continue
+
+        source = raw.get("full") or raw.get("preview") or ""
+        if not host_allowed(source):
+            failed.append({"id": raw.get("id"), "error": "That image source isn't allowed."})
+            continue
+
+        provider = str(raw.get("provider") or "")[:40]
+        pid = str(raw.get("provider_image_id") or "")[:120]
+
+        existing = already_saved(db, client.id, provider, pid)
+        if existing:
+            skipped.append(existing.to_dict())
+            continue
+
+        alt = str(raw.get("alt_text") or raw.get("alt") or "")[:300]
+        filename = cloudinary_sink.seo_filename(
+            alt=alt,
+            collection_label=collection_label,
+            client_name=client.name,
+            fallback=f"{client.slug}-{collection_key or 'image'}",
+        )
+
+        row = SavedImage(
+            client_id=client.id,
+            provider=provider,
+            provider_image_id=pid,
+            source_url=str(raw.get("source_url") or "")[:900],
+            author=str(raw.get("author") or "")[:200],
+            author_url=str(raw.get("author_url") or "")[:900],
+            alt_text=alt,
+            filename=filename,
+            industry_key=client.industry_key,
+            collection_kind=collection_kind,
+            collection_key=collection_key,
+            collection_label=collection_label,
+            saved_by=actor,
+        )
+
+        try:
+            up = cloudinary_sink.upload_from_url(
+                image_url=source,
+                folder=client.folder(),
+                public_id=filename,
+                context={
+                    "alt": alt,
+                    "client": client.name,
+                    "industry": client.industry_key,
+                    "collection": collection_label,
+                    "provider": provider,
+                    "author": row.author or "",
+                    "source": row.source_url or "",
+                },
+                tags=["smart1-image-picker", client.slug, client.industry_key],
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("cloudinary upload failed for client %s", client.id)
+            failed.append({"id": raw.get("id"),
+                           "error": "That image couldn't be saved. Try another one."})
+            continue
+
+        row.cloudinary_public_id = up["public_id"]
+        # Cloudinary de-collides public_ids (unique_filename=True), so the name
+        # it created is not always the name we asked for -- several stock photos
+        # for one query often carry near-identical alt text. Record what really
+        # exists, or the gallery shows a filename nobody can find.
+        if up.get("public_id"):
+            row.filename = str(up["public_id"]).rsplit("/", 1)[-1]
+        row.cloudinary_url = up["delivery_url"]
+        row.width, row.height, row.bytes = up["width"], up["height"], up["bytes"]
+
+        # Unsplash API terms: ping download_location when a photo is actually
+        # used. Browsing does not count; this does.
+        if provider == "unsplash" and raw.get("download_location"):
+            providers.trigger_unsplash_download(str(raw["download_location"]))
+
+        # Persist BEFORE the outbound push. The QA audit found nine apps whose
+        # only record of a lead was a fire-and-forget webhook.
+        db.add(row)
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            log.exception("could not persist saved image for client %s", client.id)
+            failed.append({"id": raw.get("id"),
+                           "error": "That image couldn't be saved. Try again."})
+            continue
+
+        pushed = ghl.push_image(
+            client,
+            file_url=row.cloudinary_url,
+            name=f"{filename}.webp",
+        )
+        row.ghl_status = pushed["status"]
+        row.ghl_file_id = pushed["file_id"] or None
+        row.ghl_url = pushed["url"] or None
+        row.ghl_error = pushed["error"] or None
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
+        saved.append(row.to_dict())
+
+    return jsonify({
+        "ok": True,
+        "saved": saved,
+        "skipped": skipped,
+        "failed": failed,
+        "summary": _save_summary(len(saved), len(skipped), len(failed), saved),
+    })
+
+
+def _save_summary(n_saved: int, n_skipped: int, n_failed: int, saved: list[dict]) -> str:
+    """Plain-English result. Never claims a Suite delivery that didn't happen."""
+    if not n_saved and n_skipped and not n_failed:
+        return "Already in your gallery — nothing new to add."
+    if not n_saved:
+        return "Nothing was saved this time."
+
+    noun = "image" if n_saved == 1 else "images"
+    sent = sum(1 for s in saved if s.get("ghl_status") == "sent")
+    parts = [f"Saved {n_saved} {noun} to your gallery."]
+    if sent == n_saved:
+        parts.append("All of them are in your Smart 1 Suite media library too.")
+    elif sent:
+        parts.append(f"{sent} of them reached your Smart 1 Suite media library.")
+    else:
+        parts.append("They're in your gallery; the Suite copy is still pending.")
+    if n_skipped:
+        parts.append(f"{n_skipped} were already saved.")
+    if n_failed:
+        parts.append(f"{n_failed} couldn't be saved.")
+    return " ".join(parts)
+
+
+@bp.route("/api/saved")
+@db_guard
+def api_saved():
+    db, client, is_staff = resolve_scope()
+    try:
+        limit = int(request.args.get("limit") or 60)
+    except (TypeError, ValueError):
+        limit = 60
+    limit = max(1, min(200, limit))     # clamp BOTH ends -- ?limit=-1 was a 500 in Scans
+
+    rows = db.execute(
+        select(SavedImage)
+        .where(SavedImage.client_id == client.id)
+        .order_by(SavedImage.created_at.desc())
+        .limit(limit)
+    ).scalars().all()
+    return jsonify({
+        "ok": True,
+        "client": client.to_dict(include_secrets=is_staff),
+        "images": [r.to_dict() for r in rows],
+    })
+
+
+@bp.route("/api/saved/<int:image_id>/delete", methods=["POST"])
+@db_guard
+def api_delete(image_id: int):
+    db, client, is_staff = resolve_scope()
+    row = db.get(SavedImage, image_id)
+    if not row or row.client_id != client.id:
+        return jsonify({"ok": False, "error": "That image isn't in this gallery."}), 404
+    if row.cloudinary_public_id:
+        cloudinary_sink.destroy(row.cloudinary_public_id)
+    db.delete(row)
+    db.commit()
+    # The Suite copy is intentionally left alone: once it is in the client's
+    # media library it may already be used in a funnel or an email.
+    return jsonify({"ok": True, "removed": image_id,
+                    "note": "Removed from the gallery. Any copy already in Smart 1 Suite stays there."})
+
+
+@bp.route("/api/saved/<int:image_id>/retry-suite", methods=["POST"])
+@staff_only
+@db_guard
+def api_retry_suite(image_id: int):
+    db = session()
+    row = db.get(SavedImage, image_id)
+    if not row:
+        return jsonify({"ok": False, "error": "Image not found."}), 404
+    client = get_client(db, row.client_id)
+    if not client or not row.cloudinary_url:
+        return jsonify({"ok": False, "error": "Nothing to send."}), 400
+
+    pushed = ghl.push_image(client, file_url=row.cloudinary_url,
+                            name=f"{row.filename or 'image'}.webp")
+    row.ghl_status = pushed["status"]
+    row.ghl_file_id = pushed["file_id"] or None
+    row.ghl_url = pushed["url"] or None
+    row.ghl_error = pushed["error"] or None
+    db.commit()
+    return jsonify({"ok": True, "image": row.to_dict()})
+
+
+# --------------------------------------------------------------------------- #
+# Client admin API (staff)
+# --------------------------------------------------------------------------- #
+
+@bp.route("/api/clients", methods=["POST"])
+@staff_only
+@db_guard
+def api_create_client():
+    db = session()
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("name") or "").strip()[:200]
+    if not name:
+        return jsonify({"ok": False, "error": "Give the client a name."}), 400
+
+    industry_key = str(body.get("industry_key") or "").strip()
+    if not taxonomy.industry(industry_key):
+        industry_key = taxonomy.guess_industry(body.get("industry_text") or name)
+
+    client = PickerClient(
+        name=name,
+        slug=unique_slug(db, name),
+        industry_key=industry_key,
+        hub_client_id=str(body.get("hub_client_id") or "").strip() or None,
+        ghl_location_id=str(body.get("ghl_location_id") or "").strip() or None,
+        ghl_location_token=str(body.get("ghl_location_token") or "").strip() or None,
+        share_token=new_token(),
+    )
+    db.add(client)
+    db.commit()
+    return jsonify({"ok": True, "client": client.to_dict(include_secrets=True)})
+
+
+@bp.route("/api/clients/<int:client_id>", methods=["POST"])
+@staff_only
+@db_guard
+def api_update_client(client_id: int):
+    db = session()
+    client = get_client(db, client_id)
+    if not client:
+        return jsonify({"ok": False, "error": "Client not found."}), 404
+    body = request.get_json(silent=True) or {}
+
+    if "name" in body and str(body["name"]).strip():
+        client.name = str(body["name"]).strip()[:200]
+    if "industry_key" in body and taxonomy.industry(str(body["industry_key"])):
+        client.industry_key = str(body["industry_key"])
+    if "ghl_location_id" in body:
+        client.ghl_location_id = str(body["ghl_location_id"]).strip()[:120] or None
+    if "ghl_location_token" in body:
+        tok = str(body["ghl_location_token"]).strip()
+        # Empty string means "leave it"; the UI sends a literal "-" to clear.
+        if tok == "-":
+            client.ghl_location_token = None
+        elif tok:
+            client.ghl_location_token = tok
+    if "ghl_enabled" in body:
+        client.ghl_enabled = bool(body["ghl_enabled"])
+    if "share_enabled" in body:
+        client.share_enabled = bool(body["share_enabled"])
+    if "share_note" in body:
+        client.share_note = str(body["share_note"])[:600]
+    if "cloudinary_folder" in body:
+        client.cloudinary_folder = str(body["cloudinary_folder"]).strip()[:300] or None
+
+    db.commit()
+    return jsonify({"ok": True, "client": client.to_dict(include_secrets=True)})
+
+
+@bp.route("/api/clients/<int:client_id>/rotate-link", methods=["POST"])
+@staff_only
+@db_guard
+def api_rotate_link(client_id: int):
+    db = session()
+    client = get_client(db, client_id)
+    if not client:
+        return jsonify({"ok": False, "error": "Client not found."}), 404
+    client.share_token = new_token()
+    db.commit()
+    return jsonify({"ok": True, "client": client.to_dict(include_secrets=True)})
+
+
+@bp.route("/api/clients/<int:client_id>/probe-suite", methods=["POST"])
+@staff_only
+@db_guard
+def api_probe_suite(client_id: int):
+    db = session()
+    client = get_client(db, client_id)
+    if not client:
+        return jsonify({"ok": False, "error": "Client not found."}), 404
+    result = ghl.probe(client.ghl_location_id or "", client.ghl_location_token)
+    return jsonify({"ok": True, "probe": result})
+
+
+# --------------------------------------------------------------------------- #
+# Registration
+# --------------------------------------------------------------------------- #
+
+def register_image_picker(app) -> None:
+    """Mount the module. Call from the Hub's app factory."""
+    init_db(app)
+    app.register_blueprint(bp)
+    if DB_BOOT_ERROR:
+        app.logger.error("image_picker started with a database error: %s", DB_BOOT_ERROR)

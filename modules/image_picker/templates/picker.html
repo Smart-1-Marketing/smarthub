@@ -1,0 +1,447 @@
+{% extends "picker_base.html" %}
+{% block title %}Pick images · {{ client.name }}{% endblock %}
+
+{% block body %}
+<header class="top">
+  <div class="wrap">
+    <div class="mark">S1</div>
+    <div>
+      <h1>{{ client.name }}</h1>
+      <div class="sub">Image library{% if is_staff %} · staff view{% endif %}</div>
+    </div>
+    <div class="top-actions">
+      {% if is_staff %}
+        <a class="ghost" href="{{ url_for('image_picker.staff_gallery', client_id=client.id) }}">Gallery</a>
+        <a class="ghost" href="{{ url_for('image_picker.admin') }}">All clients</a>
+      {% else %}
+        <button class="ghost" id="viewSaved" type="button">My saved images</button>
+      {% endif %}
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="intro">
+    <h2>Pick photos for your marketing</h2>
+    <p>
+      Choose a topic or a service below and tap the photos you like. When you save,
+      they go straight into your image gallery and your Smart 1 Suite media library,
+      ready to drop into a page or an email.
+    </p>
+  </section>
+
+  {% if not providers_on.pexels and not providers_on.pixabay and not providers_on.unsplash %}
+  <div class="note warn">
+    <h3>Photo search isn't switched on yet</h3>
+    <p>No stock photo provider is configured. Your Smart 1 contact can turn this on.</p>
+  </div>
+  {% endif %}
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Browse</h2>
+      <span class="hint" id="industryHint"></span>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="How to browse">
+      <button role="tab" id="tabTopics"   aria-selected="true"  data-mode="topic">Topics</button>
+      <button role="tab" id="tabServices" aria-selected="false" data-mode="service">Services</button>
+      <button role="tab" id="tabSearch"   aria-selected="false" data-mode="search">Search</button>
+    </div>
+
+    <div id="chipWrap">
+      <div class="chips" id="chips"></div>
+    </div>
+
+    <div class="searchrow" id="searchRow" hidden>
+      <input id="q" type="search" placeholder="Describe what you want to show" autocomplete="off"
+             aria-label="Describe the photo you want">
+      <button class="btn" id="goSearch" type="button">Search</button>
+    </div>
+
+    <div class="filters">
+      <span class="lbl">Shape</span>
+      <button class="mini" data-o=""          aria-pressed="true">Any</button>
+      <button class="mini" data-o="landscape" aria-pressed="false">Wide</button>
+      <button class="mini" data-o="square"    aria-pressed="false">Square</button>
+      <button class="mini" data-o="portrait"  aria-pressed="false">Tall</button>
+      {% if is_staff %}
+      <span class="lbl" style="margin-left:auto">Industry</span>
+      <select id="industrySel" class="mini" style="padding:6px 10px">
+        {% for ind in industries %}
+        <option value="{{ ind.key }}" {% if ind.key == client.industry_key %}selected{% endif %}>{{ ind.icon }} {{ ind.label }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+    </div>
+  </section>
+
+  <div id="messages" aria-live="polite"></div>
+
+  <div class="grid" id="grid" aria-live="polite" aria-busy="false"></div>
+
+  <div id="more" style="text-align:center;margin-top:20px" hidden>
+    <button class="btn quiet" id="loadMore" type="button">Show more photos</button>
+  </div>
+
+  <div class="foot">
+    Photos from Pexels, Pixabay and Unsplash — free to use for your business.
+  </div>
+</main>
+
+<div class="tray" id="tray" role="region" aria-label="Selected images">
+  <div class="wrap">
+    <span class="count" id="trayCount">0 selected</span>
+    <div class="tray-thumbs" id="trayThumbs"></div>
+    <button class="btn" id="saveBtn" type="button">Save to my gallery</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var TOKEN     = {{ share_token|tojson }};
+  var CLIENT_ID = {{ client.id|tojson }};
+  var IS_STAFF  = {{ is_staff|tojson }};
+  var TAXONOMY  = {{ industries|tojson }};
+  var BASE      = {{ (url_for('image_picker.admin'))|tojson }};
+
+  var state = {
+    industry: {{ client.industry_key|tojson }},
+    mode: "topic",
+    collection: "",
+    label: "",
+    query: "",
+    orientation: "",
+    page: 1,
+    picks: [],          // {id, provider, provider_image_id, full, preview, thumbnail, alt, sig, ...}
+    savedIds: {},       // provider:id -> true
+    busy: false
+  };
+
+  var $ = function(id){ return document.getElementById(id); };
+  var grid = $("grid"), tray = $("tray"), messages = $("messages");
+
+  function esc(s){
+    return String(s == null ? "" : s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
+
+  function industry(){
+    for (var i=0;i<TAXONOMY.length;i++) if (TAXONOMY[i].key === state.industry) return TAXONOMY[i];
+    return TAXONOMY[TAXONOMY.length-1];
+  }
+
+  function api(path, opts){
+    opts = opts || {};
+    var url = BASE.replace(/\/$/, "") + path;
+    var sep = url.indexOf("?") === -1 ? "?" : "&";
+    if (TOKEN) url += sep + "t=" + encodeURIComponent(TOKEN);
+    else       url += sep + "client_id=" + encodeURIComponent(CLIENT_ID);
+    return fetch(url, {
+      method: opts.method || "GET",
+      headers: {"Content-Type":"application/json"},
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      credentials: "same-origin"
+    }).then(function(r){
+      return r.json().catch(function(){
+        return {ok:false, error:"Something went wrong. Try again in a moment."};
+      }).then(function(d){ d._status = r.status; return d; });
+    });
+  }
+
+  // ---- messages -----------------------------------------------------------
+  function say(kind, title, detail){
+    messages.innerHTML =
+      '<div class="note ' + kind + '"><h3>' + esc(title) + '</h3>' +
+      (detail ? '<p>' + esc(detail) + '</p>' : '') + '</div>';
+    messages.scrollIntoView({block:"nearest", behavior:"smooth"});
+  }
+  function clearSay(){ messages.innerHTML = ""; }
+
+  // ---- chips --------------------------------------------------------------
+  function renderChips(){
+    var ind = industry();
+    var list = state.mode === "service" ? ind.services : ind.topics;
+    $("industryHint").textContent = ind.icon + " " + ind.label;
+    $("chipWrap").hidden  = (state.mode === "search");
+    $("searchRow").hidden = (state.mode !== "search");
+    if (state.mode === "search") return;
+
+    $("chips").innerHTML = list.map(function(c){
+      return '<button class="chip" type="button" data-key="' + esc(c.key) + '" aria-pressed="' +
+             (c.key === state.collection ? "true" : "false") + '">' + esc(c.label) + '</button>';
+    }).join("");
+  }
+
+  // ---- grid ---------------------------------------------------------------
+  function skeletons(){
+    var s = "";
+    for (var i=0;i<12;i++) s += '<div class="skeleton"></div>';
+    grid.innerHTML = s;
+    grid.setAttribute("aria-busy","true");
+  }
+
+  function tileHTML(p){
+    var picked = state.picks.some(function(x){ return x.id === p.id; });
+    var saved  = !!state.savedIds[p.id];
+    var credit = p.author ? "Photo: " + p.author + " / " + p.provider : p.provider;
+    return '<button class="tile" type="button" data-id="' + esc(p.id) + '"' +
+      ' aria-pressed="' + (picked ? "true" : "false") + '"' +
+      (saved ? ' data-saved="1"' : '') +
+      ' aria-label="' + esc(p.alt || "Stock photo") + (saved ? ' (already saved)' : '') + '">' +
+      '<img src="' + esc(p.thumbnail) + '" alt="" loading="lazy" decoding="async">' +
+      (saved ? '<span class="flag">Saved</span>' : '') +
+      '<span class="pick" aria-hidden="true">✓</span>' +
+      '<span class="credit">' + esc(credit) + '</span>' +
+    '</button>';
+  }
+
+  var lastResults = [];
+
+  function renderGrid(results, append){
+    grid.setAttribute("aria-busy","false");
+    if (!append) lastResults = [];
+    lastResults = lastResults.concat(results);
+    var html = results.map(tileHTML).join("");
+    if (append) grid.insertAdjacentHTML("beforeend", html);
+    else grid.innerHTML = html;
+
+    $("more").hidden = results.length < 12;
+
+    if (!lastResults.length){
+      grid.innerHTML = "";
+      grid.insertAdjacentHTML("afterend", "");
+      grid.innerHTML = '<div class="empty" style="grid-column:1/-1">' +
+        '<strong>No photos for that one</strong>Try a different topic, or use Search to describe what you want.</div>';
+    }
+  }
+
+  function search(append){
+    if (state.busy) return;
+    if (state.mode !== "search" && !state.collection) return;
+    if (state.mode === "search" && !state.query) return;
+
+    state.busy = true;
+    clearSay();
+    if (!append) { state.page = 1; skeletons(); }
+    $("loadMore").disabled = true;
+
+    api("/api/search", {method:"POST", body:{
+      industry: state.industry,
+      kind: state.mode,
+      collection: state.collection,
+      q: state.query,
+      orientation: state.orientation,
+      page: state.page
+    }}).then(function(d){
+      state.busy = false;
+      $("loadMore").disabled = false;
+      if (!d.ok){
+        grid.setAttribute("aria-busy","false");
+        if (!append) grid.innerHTML = "";
+        say("bad", "Couldn't load photos", d.error || "Try again in a moment.");
+        return;
+      }
+      state.label = d.label || state.label;
+      renderGrid(d.results || [], append);
+    }).catch(function(){
+      state.busy = false;
+      $("loadMore").disabled = false;
+      grid.setAttribute("aria-busy","false");
+      say("bad", "Couldn't load photos", "Check your connection and try again.");
+    });
+  }
+
+  // ---- tray ---------------------------------------------------------------
+  function syncTray(){
+    var n = state.picks.length;
+    $("trayCount").textContent = n + " selected";
+    $("saveBtn").textContent = n === 1 ? "Save 1 image" : "Save " + n + " images";
+    $("trayThumbs").innerHTML = state.picks.map(function(p){
+      return '<button type="button" data-id="' + esc(p.id) + '" aria-label="Remove ' +
+        esc(p.alt || "photo") + ' from selection"><img src="' + esc(p.thumbnail) + '" alt=""></button>';
+    }).join("");
+    tray.classList.toggle("up", n > 0);
+    document.documentElement.style.setProperty("--tray-h", n > 0 ? "84px" : "0px");
+  }
+
+  function toggle(id){
+    var i = -1, k;
+    for (k=0;k<state.picks.length;k++) if (state.picks[k].id === id) { i = k; break; }
+    if (i >= 0) state.picks.splice(i,1);
+    else {
+      var found = null;
+      for (k=0;k<lastResults.length;k++) if (lastResults[k].id === id) { found = lastResults[k]; break; }
+      if (!found) return;
+      if (state.savedIds[id]){
+        say("", "You've already saved that one", "It's in your gallery — pick a different photo.");
+        return;
+      }
+      if (state.picks.length >= 24){
+        say("warn","That's the maximum for one save","Save these 24 first, then keep picking.");
+        return;
+      }
+      state.picks.push(found);
+    }
+    var tile = grid.querySelector('.tile[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    if (tile) tile.setAttribute("aria-pressed", i >= 0 ? "false" : "true");
+    syncTray();
+  }
+
+  // ---- save ---------------------------------------------------------------
+  function save(){
+    if (!state.picks.length || state.busy) return;
+    state.busy = true;
+    $("saveBtn").disabled = true;
+    $("saveBtn").textContent = "Saving…";
+    clearSay();
+
+    api("/api/save", {method:"POST", body:{
+      items: state.picks,
+      kind: state.mode,
+      collection: state.collection,
+      label: state.label || state.query
+    }}).then(function(d){
+      state.busy = false;
+      $("saveBtn").disabled = false;
+
+      if (!d.ok){
+        syncTray();
+        say("bad","Couldn't save", d.error || "Try again in a moment.");
+        return;
+      }
+
+      (d.saved || []).forEach(function(s){ state.savedIds[s.provider + ":" + s.provider_image_id] = true; });
+      (d.skipped || []).forEach(function(s){ state.savedIds[s.provider + ":" + s.provider_image_id] = true; });
+
+      var pending = (d.saved || []).filter(function(s){ return s.ghl_status !== "sent"; }).length;
+      var kind = (d.failed && d.failed.length) ? "warn" : "good";
+      say(kind, d.summary,
+          pending ? "We'll keep trying the Smart 1 Suite copy — nothing is lost." : "");
+
+      state.picks = [];
+      syncTray();
+      // Repaint so saved tiles dim and flag.
+      renderGridRepaint();
+    }).catch(function(){
+      state.busy = false;
+      $("saveBtn").disabled = false;
+      syncTray();
+      say("bad","Couldn't save","Check your connection and try again.");
+    });
+  }
+
+  function renderGridRepaint(){
+    grid.innerHTML = lastResults.map(tileHTML).join("");
+  }
+
+  function loadSaved(){
+    api("/api/saved?limit=200").then(function(d){
+      if (!d.ok) return;
+      (d.images || []).forEach(function(im){
+        state.savedIds[im.provider + ":" + im.provider_image_id] = true;
+      });
+      if (lastResults.length) renderGridRepaint();
+    }).catch(function(){});
+  }
+
+  // ---- wiring -------------------------------------------------------------
+  ["tabTopics","tabServices","tabSearch"].forEach(function(id){
+    $(id).addEventListener("click", function(){
+      ["tabTopics","tabServices","tabSearch"].forEach(function(o){
+        $(o).setAttribute("aria-selected", o === id ? "true" : "false");
+      });
+      state.mode = this.dataset.mode;
+      state.collection = "";
+      renderChips();
+      if (state.mode === "search"){ grid.innerHTML = ""; $("more").hidden = true; $("q").focus(); }
+      else { grid.innerHTML = ""; $("more").hidden = true; }
+    });
+  });
+
+  $("chips").addEventListener("click", function(e){
+    var b = e.target.closest(".chip");
+    if (!b) return;
+    state.collection = b.dataset.key;
+    renderChips();
+    search(false);
+  });
+
+  $("goSearch").addEventListener("click", function(){
+    state.query = $("q").value.trim();
+    if (state.query) search(false);
+  });
+  $("q").addEventListener("keydown", function(e){
+    if (e.key === "Enter"){ e.preventDefault(); $("goSearch").click(); }
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".mini[data-o]"), function(b){
+    b.addEventListener("click", function(){
+      Array.prototype.forEach.call(document.querySelectorAll(".mini[data-o]"), function(o){
+        o.setAttribute("aria-pressed","false");
+      });
+      b.setAttribute("aria-pressed","true");
+      state.orientation = b.dataset.o;
+      search(false);
+    });
+  });
+
+  if ($("industrySel")){
+    $("industrySel").addEventListener("change", function(){
+      state.industry = this.value;
+      state.collection = "";
+      renderChips();
+      grid.innerHTML = "";
+    });
+  }
+
+  grid.addEventListener("click", function(e){
+    var t = e.target.closest(".tile");
+    if (t) toggle(t.dataset.id);
+  });
+
+  $("trayThumbs").addEventListener("click", function(e){
+    var b = e.target.closest("button");
+    if (b) toggle(b.dataset.id);
+  });
+
+  $("saveBtn").addEventListener("click", save);
+  $("loadMore").addEventListener("click", function(){ state.page += 1; search(true); });
+
+  if ($("viewSaved")){
+    $("viewSaved").addEventListener("click", function(){
+      window.location.href = BASE.replace(/\/$/,"") + "/pick/" + encodeURIComponent(TOKEN) + "#saved";
+      showSavedPanel();
+    });
+  }
+
+  function showSavedPanel(){
+    api("/api/saved?limit=200").then(function(d){
+      if (!d.ok || !(d.images || []).length){
+        say("", "Nothing saved yet", "Pick a few photos below and they'll appear here.");
+        return;
+      }
+      clearSay();
+      state.mode = "saved";
+      lastResults = [];
+      grid.innerHTML = d.images.map(function(im){
+        return '<a class="tile" href="' + esc(im.url) + '" target="_blank" rel="noopener" ' +
+          'aria-label="' + esc(im.alt_text || im.filename) + '">' +
+          '<img src="' + esc(im.url) + '" alt="" loading="lazy">' +
+          '<span class="credit">' + esc(im.filename) + '</span></a>';
+      }).join("");
+      $("more").hidden = true;
+    });
+  }
+
+  // ---- go -----------------------------------------------------------------
+  renderChips();
+  loadSaved();
+  var first = industry().topics[0];
+  if (first){ state.collection = first.key; renderChips(); search(false); }
+})();
+</script>
+{% endblock %}

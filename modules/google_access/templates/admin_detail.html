@@ -1,0 +1,99 @@
+{% extends "_admin_base.html" %}
+{% block title %}{{ req.client_name }}{% endblock %}
+
+{% block body %}
+<p class="muted"><a href="{{ url_for('google_access.index') }}">&larr; All requests</a></p>
+<h1>{{ req.client_name }}</h1>
+<p class="sub">
+  <span class="chip {{ req.status }}">{{ req.status }}</span>
+  &nbsp;Created {{ req.created_at.strftime('%d %b %Y') }}
+  {%- if req.expires_at %} &middot; link expires {{ req.expires_at.strftime('%d %b %Y') }}{% endif %}
+  {%- if req.consent_email %} &middot; signed in as <span class="mono">{{ req.consent_email }}</span>{% endif %}
+</p>
+
+<div class="card">
+  <h2>Client link</h2>
+  <div class="linkbox">
+    <input id="linkOut" readonly value="{{ link }}">
+    <button type="button" class="quiet" id="copyBtn">Copy</button>
+  </div>
+  <p class="muted" style="margin:10px 0 0">
+    {% if req.opened_at %}Opened {{ req.opened_at.strftime('%d %b %Y, %H:%M') }} UTC.
+    {% else %}Not opened yet.{% endif %}
+    <button type="button" class="quiet" id="extendBtn" style="margin-left:8px">Extend 14 days</button>
+  </p>
+</div>
+
+<div class="card">
+  <h2>Access</h2>
+  <table>
+    <thead><tr><th>Service</th><th>Status</th><th>Role</th><th>What we're on</th><th></th></tr></thead>
+    <tbody>
+    {% for key in SERVICE_ORDER %}
+      {% if key in req.services %}
+        {% set g = grants.get(key) %}
+        {% set st = g.status if g else 'pending' %}
+        <tr>
+          <td><strong>{{ SERVICES[key].label }}</strong></td>
+          <td><span class="chip {{ st }}">{{ st }}</span>
+            {% if g and g.error_detail %}
+              <div class="mono" style="color:#A33327;margin-top:6px">{{ g.error_detail }}</div>
+            {% endif %}</td>
+          <td class="muted">{{ (g.role_granted if g else None) or SERVICES[key].role_text }}</td>
+          <td class="mono">{{ (g.resource_name if g else None) or '—' }}</td>
+          <td>
+            {% if st != 'granted' %}
+              <button type="button" class="quiet mark" data-service="{{ key }}"
+                      data-status="granted">Mark done</button>
+            {% endif %}
+          </td>
+        </tr>
+      {% endif %}
+    {% endfor %}
+    </tbody>
+  </table>
+
+  {% if grants.get('ads') and grants['ads'].status == 'waiting' %}
+    <p style="margin:16px 0 0">
+      <button type="button" class="quiet" id="refreshBtn">Check if Ads link was accepted</button>
+      <span class="muted" style="margin-left:8px">Queries our manager account directly.</span>
+    </p>
+  {% endif %}
+</div>
+
+<script>
+var RID = {{ req.id }};
+
+document.getElementById('copyBtn').addEventListener('click', function(){
+  var f = document.getElementById('linkOut');
+  f.select(); document.execCommand('copy');
+  this.textContent = 'Copied';
+  var self = this; setTimeout(function(){ self.textContent = 'Copy'; }, 1600);
+});
+
+document.getElementById('extendBtn').addEventListener('click', async function(){
+  this.disabled = true;
+  await fetch('/tools/google-access/api/requests/' + RID + '/extend', {method:'POST'});
+  location.reload();
+});
+
+var refreshBtn = document.getElementById('refreshBtn');
+if (refreshBtn) refreshBtn.addEventListener('click', async function(){
+  this.disabled = true; this.textContent = 'Checking\u2026';
+  var res = await fetch('/tools/google-access/api/requests/' + RID + '/refresh', {method:'POST'});
+  var data = await res.json();
+  if (!data.ok) { this.textContent = data.error || 'Check failed'; this.disabled = false; return; }
+  location.reload();
+});
+
+document.querySelectorAll('button.mark').forEach(function(btn){
+  btn.addEventListener('click', async function(){
+    btn.disabled = true;
+    var body = new URLSearchParams({service: btn.dataset.service, status: btn.dataset.status});
+    await fetch('/tools/google-access/api/requests/' + RID + '/mark',
+      {method:'POST', body:body, headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+    location.reload();
+  });
+});
+</script>
+{% endblock %}
