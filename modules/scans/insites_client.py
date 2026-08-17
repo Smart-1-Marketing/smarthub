@@ -103,6 +103,15 @@ def start_audit(url: str, *, on_completion: Optional[str] = None,
 
     # 202 = started; 303 = recent results already exist (reuse, not an error)
     if resp.status_code in (200, 202, 303):
+        # A 303 reuses an existing report and does NOT spend a credit, so it is
+        # recorded as cached. Counting it as billable would overstate usage and
+        # trip the monthly warning early.
+        try:
+            from hub import quotas as _q
+            _q.record("insites", module="scans", detail=url,
+                      cached=(resp.status_code == 303))
+        except Exception:                             # noqa: BLE001
+            pass
         try:
             return resp.json()
         except ValueError:

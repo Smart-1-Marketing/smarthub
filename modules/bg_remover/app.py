@@ -178,6 +178,13 @@ def call_remove_bg(data: bytes, size: str = "auto") -> bytes:
         raise RuntimeError(f"remove.bg {r.status_code}: {detail}")
     if not r.content.startswith(b"\x89PNG"):
         raise RuntimeError("remove.bg returned something that isn't a PNG.")
+    # Only a successful call spends a credit. Failures above raise before this,
+    # so a rejected key or an out-of-credits response is never counted as usage.
+    try:
+        from hub import quotas as _q
+        _q.record("removebg", module="bg_remover")
+    except Exception:                                 # noqa: BLE001
+        pass
     return r.content
 
 

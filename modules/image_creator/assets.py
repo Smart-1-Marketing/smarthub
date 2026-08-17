@@ -101,6 +101,14 @@ def brand_lookup(query: str) -> dict:
         try:
             r = requests.get(f"https://api.brandfetch.io/v2/brands/{domain}",
                              headers={"Authorization": f"Bearer {key}"}, timeout=TIMEOUT)
+            # Counted against the monthly Brandfetch allowance. Only a real
+            # HTTP call is billable — the Hub cache below is free, and is
+            # recorded separately so you can see what the cache is saving.
+            try:
+                from hub import quotas as _q
+                _q.record("brandfetch", module="image_creator", detail=domain)
+            except Exception:                         # noqa: BLE001
+                pass
             if r.ok:
                 payload = r.json()
         except Exception:                             # noqa: BLE001
@@ -112,6 +120,12 @@ def brand_lookup(query: str) -> dict:
             cached = seo.brand_for("", domain)
             if cached:
                 payload = cached
+                try:
+                    from hub import quotas as _q
+                    _q.record("brandfetch", module="image_creator",
+                              detail=domain, cached=True)
+                except Exception:                     # noqa: BLE001
+                    pass
         except Exception:                             # noqa: BLE001
             pass
 

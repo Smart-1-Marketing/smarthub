@@ -202,6 +202,11 @@ def api_brand():
             headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
             timeout=15,
         )
+        try:  # counts against the monthly Brandfetch allowance
+            from hub import quotas as _q
+            _q.record('brandfetch', module='suite_panel', detail=domain)
+        except Exception:  # noqa: BLE001
+            pass
         try:
             data = r.json() if r.text else {}
         except ValueError:
