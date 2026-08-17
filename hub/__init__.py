@@ -25,6 +25,7 @@ MODULES = [
     {"key": "google", "label": "Google", "href": "/google/", "tag": "GA4 · GTM"},
     {"key": "sites", "label": "Sites", "href": "/sites/", "tag": "Simvoly"},
     {"key": "suite", "label": "Suite", "href": "/suite/", "tag": "GHL"},
+    {"key": "scans", "label": "Site Scans", "href": "/scans/", "tag": "Insites"},
     {"key": "tools", "label": "Tools", "href": "/tools", "tag": ""},
 ]
 
@@ -54,6 +55,54 @@ def create_hub_app() -> Flask:
     got_request_exception.connect(_log_exc, app)
 
     # ---------------- auth ----------------
+    @app.context_processor
+    def _inject_version():
+        """Every page footer shows the running build, so you can open the
+        deployed site and confirm it matches what you pushed."""
+        from . import version as _v
+        return {"hub_version": _v.label(), "hub_version_info": _v.info()}
+
+    @app.route("/api/version")
+    def api_version():
+        from . import version as _v
+        return jsonify(_v.info())
+
+    # ---------------- clients: one list from every source ----------------
+    @app.route("/api/clients/search")
+    def api_clients_search():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import clients_registry
+        rows = clients_registry.search_clients(request.args.get("q", ""),
+                                               limit=int(request.args.get("limit", 12)))
+        return jsonify({"clients": rows})
+
+    @app.route("/api/clients/house", methods=["GET", "POST"])
+    def api_house_clients_hub():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import clients_registry
+        if request.method == "GET":
+            return jsonify({"clients": clients_registry.house_clients()})
+        body = request.get_json(silent=True) or {}
+        if body.get("delete"):
+            ok = clients_registry.delete_house_client(str(body.get("slug") or ""))
+            clients_registry.all_clients(refresh=True)
+            return jsonify({"ok": ok, "clients": clients_registry.house_clients()})
+        try:
+            row = clients_registry.add_house_client(
+                body.get("name", ""), body.get("url", ""), body.get("notes", ""),
+                actor=current_user() or "")
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        clients_registry.all_clients(refresh=True)
+        audit.log("hub", "house_client_added", actor=current_user(),
+                  detail=row["name"])
+        return jsonify({"ok": True, "client": row,
+                        "clients": clients_registry.house_clients()})
+
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if request.method == "GET":
