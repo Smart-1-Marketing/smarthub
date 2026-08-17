@@ -49,12 +49,44 @@
       </div>
     {% elif scan.status == "running" %}
       <span class="badge running">running</span>
-      <p class="sub" style="margin-top:10px">This audit is still processing on Insites. It completes
-        automatically; reload in a minute.</p>
+      <p class="sub" style="margin-top:10px" id="runmsg">This audit is still processing on Insites
+        (usually 1&ndash;4 minutes). This page checks for you &mdash; leave it open.</p>
+      <p style="margin-top:8px"><a href="#" id="checkNow">Check now</a></p>
     {% else %}
       <span class="badge error">error</span>
+      <p class="sub" style="margin-top:10px" id="runmsg">{{ scan.error_message or "This scan didn't complete." }}
+        The audit often exists on Insites&rsquo; side anyway.</p>
+      <p style="margin-top:8px"><a href="#" id="checkNow">Try again</a></p>
     {% endif %}
   </div>
+
+  {% if scan.status != "complete" %}
+  <script>
+  // Pull the result straight from Insites rather than waiting on a callback
+  // that may never arrive. Gives up after ~10 minutes of checking.
+  (function(){
+    var PID = {{ scan.public_id|tojson }};
+    var tries = 0, MAX = 20;
+    var msg = document.getElementById("runmsg");
+    function check(manual){
+      if(!manual && tries++ >= MAX){
+        if(msg) msg.textContent = "Still nothing back from Insites. Use Check now, or re-run the scan.";
+        return;
+      }
+      fetch("../api/scans/" + encodeURIComponent(PID) + "/refresh", {method:"POST"})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(d && d.status === "complete"){ location.reload(); return; }
+          if(!manual) setTimeout(check, 30000);
+        })
+        .catch(function(){ if(!manual) setTimeout(check, 30000); });
+    }
+    var btn = document.getElementById("checkNow");
+    if(btn) btn.onclick = function(e){ e.preventDefault(); check(true); };
+    setTimeout(check, 20000);
+  })();
+  </script>
+  {% endif %}
 
   <div class="card">
     <h2>Detected Business</h2>

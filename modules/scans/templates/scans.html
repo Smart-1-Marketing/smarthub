@@ -77,6 +77,13 @@
   </div>
   {% endif %}
 
+  {% for w in warnings %}
+  <div class="card" style="border-color:#f5d9a8;background:#fdf9f0">
+    <b style="color:#8a5a12">Heads up</b>
+    <div class="hint">{{ w }}</div>
+  </div>
+  {% endfor %}
+
   <div class="card">
     <h2>Do a New Scan</h2>
     <div class="row">
@@ -186,12 +193,15 @@ async function startScan(force){
 let _t;
 function debouncedLoad(){ clearTimeout(_t); _t = setTimeout(loadScans, 250); }
 
+let lastRows = [];          // the rows currently on screen, for the poller
+
 async function loadScans(){
   const q = $("search").value.trim();
   try {
     const r = await fetch("api/scans?limit=200" + (q?("&q="+encodeURIComponent(q)):""));
     const data = await r.json();
-    renderTable(data.scans || []);
+    lastRows = data.scans || [];
+    renderTable(lastRows);
   } catch(e){
     $("tableWrap").innerHTML = '<div class="empty">Couldn\'t load scans.</div>';
   }
@@ -216,6 +226,9 @@ function renderTable(rows){
       acts += `<a href="api/scans/${esc(s.public_id)}/download">Download</a>`;
     } else if(s.status==="running"){
       acts += `<a href="#" onclick="refreshScan('${esc(s.public_id)}');return false">Check status</a>`;
+    } else if(s.status==="error"){
+      // an errored row is recoverable: the audit usually exists on Insites' side
+      acts += `<a href="#" onclick="refreshScan('${esc(s.public_id)}');return false">Try again</a>`;
     }
     html += `<tr>
       <td>${esc(s.domain)}</td>
@@ -239,10 +252,46 @@ async function refreshScan(pid){
   }catch(e){ loadScans(); }
 }
 
+// Finish running scans without anyone watching the page.
+//
+// The completion callback only works once PUBLIC_BASE_URL and the callback
+// token are set, and even then a callback can be missed. So while this page
+// is open we pull each running scan straight from Insites. Audits take 1-4
+// minutes, so a scan is only polled once it is 45s old, and each one is
+// checked at most every 45s — enough to finish on its own without hammering
+// the API. Nothing here is required for correctness; it is the safety net.
+const POLL_AFTER_MS = 45000, POLL_EVERY_MS = 45000, MAX_POLL_MS = 15*60*1000;
+let lastPoll = {};
+
+async function pollRunning(rows){
+  const now = Date.now();
+  const due = (rows||[]).filter(s => {
+    if(s.status !== "running" || !s.created_at) return false;
+    const age = now - new Date(s.created_at).getTime();
+    if(age < POLL_AFTER_MS || age > MAX_POLL_MS) return false;   // give up after 15 min
+    return now - (lastPoll[s.public_id] || 0) >= POLL_EVERY_MS;
+  });
+  if(!due.length) return false;
+  let changed = false;
+  for(const s of due){
+    lastPoll[s.public_id] = now;
+    try{
+      const r = await fetch("api/scans/"+s.public_id+"/refresh", {method:"POST"});
+      const d = await r.json();
+      if(d && d.status && d.status !== "running") changed = true;
+    }catch(e){ /* try again on the next tick */ }
+  }
+  return changed;
+}
+
 $("url").addEventListener("keydown", e => { if(e.key==="Enter") startScan(); });
 loadScans();
-// Auto-refresh the table periodically so "running" scans flip to "complete".
-setInterval(() => { if(!document.hidden) loadScans(); }, 15000);
+// Keep the table current, and nudge running scans along while we're here.
+setInterval(async () => {
+  if(document.hidden) return;
+  const changed = await pollRunning(lastRows);
+  loadScans();
+}, 15000);
 </script>
 </body>
 </html>
