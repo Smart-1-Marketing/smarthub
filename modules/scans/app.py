@@ -47,13 +47,32 @@ BASE_DIR = Path(__file__).parent
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
 
 # A shared secret so Insites' server-to-server callback can't be forged by a
-# random POST. Set SCANS_CALLBACK_TOKEN in the environment; if unset we still
-# work (the token is simply required-if-configured).
+# random POST. The callback is the ONE endpoint outside the Hub login, so it
+# fails CLOSED: with no token configured every callback is refused rather than
+# accepting anonymous writes. render.yaml generates the value automatically.
 CALLBACK_TOKEN = (os.environ.get("SCANS_CALLBACK_TOKEN") or "").strip()
 
 # The externally-reachable base URL of the Hub, so we can tell Insites where to
 # POST the finished audit. On Render set PUBLIC_BASE_URL to the service URL.
 PUBLIC_BASE_URL = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+
+
+def config_warnings() -> list[str]:
+    """Shown on the Scans page so a half-configured deploy explains itself
+    instead of silently leaving every scan stuck on 'running'."""
+    out = []
+    if not PUBLIC_BASE_URL:
+        out.append(
+            "PUBLIC_BASE_URL is not set, so Insites has nowhere to deliver "
+            "finished audits. Scans will keep checking themselves from this "
+            "page, but set it to this service's public URL and redeploy so "
+            "results arrive on their own.")
+    elif not CALLBACK_TOKEN:
+        out.append(
+            "SCANS_CALLBACK_TOKEN is not set, so the completion callback is "
+            "refused for safety. Scans still finish via the status check on "
+            "this page. Set the token (any long random string) and redeploy.")
+    return out
 
 
 # =====================================================================
@@ -65,7 +84,7 @@ if _db_url.startswith("postgres://"):
 if not _db_url:
     _db_url = "sqlite:///" + str(BASE_DIR / "smart1_scans.db")
 engine = create_engine(
-    _db_url, future=True,
+    _db_url, future=True, pool_pre_ping=True,
     connect_args={"check_same_thread": False} if _db_url.startswith("sqlite") else {},
 )
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
@@ -103,7 +122,17 @@ class Scan(Base):
     completed_at = Column(DateTime, nullable=True)
 
 
-Base.metadata.create_all(engine)
+# A database that isn't up yet must not take the module offline for the life
+# of the worker \u2014 capture the problem and let every request explain it, the
+# same way the Sites admin does.
+DB_BOOT_ERROR = ""
+try:
+    Base.metadata.create_all(engine)
+except Exception as _db_exc:  # noqa: BLE001
+    DB_BOOT_ERROR = f"{type(_db_exc).__name__}: {_db_exc}"
+
+# Serialises the duplicate-check-then-insert in api_new_scan so a double-click
+# can't spend two Insites credits on the same domain.
 _LOCK = threading.Lock()
 
 
@@ -112,31 +141,77 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+def _iso(dt) -> str | None:
+    """UTC timestamps rendered with an explicit offset.
+
+    The column is naive, so a bare .isoformat() reads as *local* time in the
+    browser and shows scans hours in the future. Stamp the zone we stored in.
+    """
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+def _text(value, limit: int) -> str:
+    """Coerce anything the API (or a caller) hands us to a trimmed string.
+
+    Insites returning a number where we expect a name used to raise
+    TypeError mid-callback and strand the scan on 'running' forever.
+    """
+    if value is None or isinstance(value, (dict, list)):
+        return ""
+    return str(value).strip()[:limit]
+
+
 def actor_name() -> str:
     return request.environ.get("s1hub.user") or "Unknown"
 
 
 def domain_key(url_or_host: str) -> str:
     """Normalise any URL/host to a bare dedupe key: lowercased, no scheme,
-    no leading www., no path."""
+    no leading www., no path, no user:pass@ prefix."""
     s = (url_or_host or "").strip().lower()
     if "//" not in s:
         s = "//" + s
     host = urlparse(s if "://" in s else "http:" + s).netloc or s.strip("/")
-    host = host.split("/")[0].split(":")[0]
+    host = host.split("/")[0]
+    if "@" in host:                       # strip userinfo (user:pass@host)
+        host = host.rsplit("@", 1)[1]
+    host = host.split(":")[0]
     if host.startswith("www."):
         host = host[4:]
     return host
+
+
+def looks_like_domain(value: str) -> bool:
+    """Guard the credit spend: reject email addresses and other non-hosts
+    before we pay Insites to audit them."""
+    raw = (value or "").strip()
+    if "@" in raw and "//" not in raw:    # a bare email, not a URL
+        return False
+    key = domain_key(raw)
+    if not key or "." not in key or key.startswith(".") or key.endswith("."):
+        return False
+    if " " in key or "_" in key.split(".")[-1]:
+        return False
+    return len(key.rsplit(".", 1)[-1]) >= 2
 
 
 def _new_public_id() -> str:
     return "scan_" + secrets.token_hex(6)
 
 
-def _log(text: str, icon: str = "\u25c9"):
+def _log(event: str, **extra):
+    """Write to the Hub-wide activity log.
+
+    hub.audit exposes log(module, type_, actor=..., **extra) \u2014 an earlier
+    call to a non-existent record() meant scans never appeared on /activity.
+    """
     if hub_audit is not None:
         try:
-            hub_audit.record(actor_name(), text)  # type: ignore[attr-defined]
+            hub_audit.log("scans", event, actor=actor_name(), **extra)
         except Exception:  # noqa: BLE001 - never let logging break a request
             pass
 
@@ -153,40 +228,84 @@ def scan_to_row(s: Scan) -> dict:
         "tier": s.tier,
         "source": s.source,
         "requested_by": s.requested_by,
-        "created_at": s.created_at.isoformat() if s.created_at else None,
-        "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+        "error_message": s.error_message or "",
+        "created_at": _iso(s.created_at),
+        "completed_at": _iso(s.completed_at),
     }
 
 
+def looks_like_report(report) -> bool:
+    """Does this payload actually resemble an Insites audit?
+
+    The callback is server-to-server, so a malformed or unrelated POST must
+    not be written over a real scan and marked complete.
+    """
+    if not isinstance(report, dict) or not report:
+        return False
+    summ = audit_fields.summarise(report)
+    if summ["overall_score"] is not None or summ["report_id"]:
+        return True
+    # no score yet, but recognisably an audit body
+    known = ("meta", "domain", "checkpoints", "overall_score", "sections",
+             "local_presence", "amount_of_content", "analysed_page_count")
+    return any(k in report for k in known)
+
+
 def _apply_report(s: Scan, report: dict):
-    """Fill a Scan row from a completed raw audit payload."""
+    """Fill a Scan row from a completed raw audit payload.
+
+    Every value is coerced through _text: the API occasionally returns a
+    number or an object where a string is expected, and slicing that raised
+    TypeError mid-callback, leaving the scan stranded on 'running'.
+    """
     summ = audit_fields.summarise(report)
     s.status = "complete"
     s.overall_score = summ["overall_score"]
     s.tier = audit_fields.tier_for_score(summ["overall_score"])
-    s.detected_name = (summ["detected_name"] or "")[:300]
-    s.detected_phone = (summ["detected_phone"] or "")[:80]
-    s.detected_address = (summ["detected_address"] or "")[:500]
-    s.primary_industry = (summ["primary_industry"] or "")[:200]
-    s.analysis_country = (summ["analysis_country"] or "")[:8]
+    s.detected_name = _text(summ["detected_name"], 300)
+    s.detected_phone = _text(summ["detected_phone"], 80)
+    s.detected_address = _text(summ["detected_address"], 500)
+    s.primary_industry = _text(summ["primary_industry"], 200)
+    s.analysis_country = _text(summ["analysis_country"], 8)
     try:
         s.pages_analysed = int(summ["pages_analysed"]) if summ["pages_analysed"] else None
     except (TypeError, ValueError):
         s.pages_analysed = None
     if summ["report_id"]:
-        s.insites_report_id = str(summ["report_id"])[:80]
+        s.insites_report_id = _text(summ["report_id"], 80)
     if not s.business_name and s.detected_name:
         s.business_name = s.detected_name
-    s.raw_report = json.dumps(report)
+    s.error_message = ""
+    try:
+        s.raw_report = json.dumps(report)
+    except (TypeError, ValueError):
+        s.raw_report = json.dumps({"unserialisable": True})
     s.completed_at = _now()
 
 
 # =====================================================================
 # Pages
 # =====================================================================
+@app.before_request
+def _db_guard():
+    """A database that wasn't reachable at boot shouldn't produce tracebacks
+    on every route — say so once, plainly."""
+    if DB_BOOT_ERROR and request.path not in ("/health",):
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "Scans database not ready. " + DB_BOOT_ERROR}), 503
+        return (
+            "<html><body style='font-family:system-ui;padding:40px'>"
+            "<h2 style='color:#1a2e58'>Scans database not ready</h2>"
+            f"<p>{DB_BOOT_ERROR}</p>"
+            "<p>Check <code>DATABASE_URL</code> and redeploy. "
+            "<a href='/status'>System Status</a></p></body></html>", 503)
+    return None
+
+
 @app.route("/")
 def index():
-    return render_template("scans.html", configured=is_configured())
+    return render_template("scans.html", configured=is_configured(),
+                           warnings=config_warnings())
 
 
 @app.route("/scan/<public_id>")
@@ -227,7 +346,7 @@ def api_list():
     q = (request.args.get("q") or "").strip()
     status = (request.args.get("status") or "").strip()
     try:
-        limit = min(int(request.args.get("limit", 100)), 500)
+        limit = max(1, min(int(request.args.get("limit", 100)), 500))
     except (TypeError, ValueError):
         limit = 100
 
@@ -288,40 +407,47 @@ def api_new_scan():
     if not url:
         return jsonify({"error": "A website URL is required."}), 400
 
-    key = domain_key(url)
-    if not key or "." not in key:
+    if not looks_like_domain(url):
+        if "@" in url and "//" not in url:
+            return jsonify({"error": "That looks like an email address, not a "
+                                     "website. Enter the site you want audited."}), 422
         return jsonify({"error": "That doesn't look like a valid domain."}), 422
+    key = domain_key(url)
 
     force = bool(body.get("force"))
     db = SessionLocal()
     try:
-        if not force:
-            existing = (db.query(Scan)
-                        .filter(Scan.domain_key == key,
-                                Scan.status.in_(("running", "complete")))
-                        .order_by(Scan.created_at.desc())
-                        .first())
-            if existing:
-                return jsonify({
-                    "duplicate": True,
-                    "message": f"{key} has already been scanned.",
-                    "scan": scan_to_row(existing),
-                }), 200
+        # Check-then-insert under a lock: without it a double-click or two
+        # staff submitting the same domain both pass the check and spend two
+        # Insites credits on one audit.
+        with _LOCK:
+            if not force:
+                existing = (db.query(Scan)
+                            .filter(Scan.domain_key == key,
+                                    Scan.status.in_(("running", "complete")))
+                            .order_by(Scan.created_at.desc())
+                            .first())
+                if existing:
+                    return jsonify({
+                        "duplicate": True,
+                        "message": f"{key} has already been scanned.",
+                        "scan": scan_to_row(existing),
+                    }), 200
 
-        public_id = _new_public_id()
-        s = Scan(
-            public_id=public_id,
-            domain_key=key,
-            input_url=url,
-            business_name=(body.get("business_name") or "")[:300],
-            source=(body.get("source") or "hub")[:30],
-            source_url=(body.get("source_url") or "")[:600],
-            requested_by=(body.get("requested_by") or actor_name())[:160],
-            status="running",
-            created_at=_now(),
-        )
-        db.add(s)
-        db.commit()
+            public_id = _new_public_id()
+            s = Scan(
+                public_id=public_id,
+                domain_key=key,
+                input_url=_text(url, 600),
+                business_name=_text(body.get("business_name"), 300),
+                source=_text(body.get("source"), 30) or "hub",
+                source_url=_text(body.get("source_url"), 600),
+                requested_by=_text(body.get("requested_by"), 160) or actor_name()[:160],
+                status="running",
+                created_at=_now(),
+            )
+            db.add(s)
+            db.commit()
 
         # Build the callback URL Insites will POST to on completion.
         on_completion = None
@@ -353,10 +479,10 @@ def api_new_scan():
 
         rid = resp.get("reportId") or resp.get("report_id")
         if rid:
-            s.insites_report_id = str(rid)[:80]
+            s.insites_report_id = _text(rid, 80)
         # 303 => recent results already exist; try an immediate fetch below.
         db.commit()
-        _log(f"Started scan for {key}")
+        _log("scan_started", detail=key, scan=s.public_id)
 
         # If we have no public callback URL (e.g. local dev), or Insites said
         # results already exist, attempt an immediate fetch so the row can
@@ -380,7 +506,8 @@ def _try_immediate_fetch(db, s: Scan):
         if status == "complete" and report:
             _apply_report(s, report)
             db.commit()
-            _log(f"Scan complete for {s.domain_key} (score {s.overall_score})")
+            _log("scan_completed", detail=s.domain_key, scan=s.public_id,
+                 score=s.overall_score, via="immediate")
     except InsitesError:
         pass  # stays 'running'; a later refresh or callback will finish it
 
@@ -389,29 +516,46 @@ def _try_immediate_fetch(db, s: Scan):
 def api_callback(public_id):
     """Insites posts the finished audit here (server-to-server).
 
-    Not behind the Hub login — Insites can't log in — so it's protected by the
-    shared token instead when one is configured.
+    This is the only endpoint outside the Hub login, so it is deliberately
+    strict:
+
+    * **Fails closed.** No token configured means no callback accepted —
+      an open endpoint would let anyone overwrite a scan with junk.
+    * **Constant-time token compare**, since the token rides in the query
+      string and lands in proxy logs.
+    * **Validates the payload.** A body that doesn't look like an audit is
+      rejected without touching the stored scan.
+    * **Never marks a scan errored.** A bad callback leaves the row running
+      so the status check can still finish it — an audit we already paid for
+      must not be written off because one POST arrived malformed.
     """
-    if CALLBACK_TOKEN and request.args.get("token") != CALLBACK_TOKEN:
+    if not CALLBACK_TOKEN:
+        return jsonify({"error": "Callbacks are disabled: SCANS_CALLBACK_TOKEN "
+                                 "is not configured."}), 503
+    if not secrets.compare_digest(str(request.args.get("token") or ""), CALLBACK_TOKEN):
         return jsonify({"error": "Invalid callback token."}), 403
 
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if body is None:                       # wrong/missing content-type
+        try:
+            body = json.loads(request.get_data(as_text=True) or "{}")
+        except ValueError:
+            body = {}
     report = body.get("report") if isinstance(body, dict) else None
-    report = report or body  # some callbacks post the report at top level
+    report = report or body                # some callbacks post it at top level
 
     db = SessionLocal()
     try:
         s = db.query(Scan).filter(Scan.public_id == public_id).first()
         if not s:
             return jsonify({"error": "Unknown scan."}), 404
-        if not isinstance(report, dict) or not report:
-            s.status = "error"
-            s.error_message = "Callback contained no report data."
-            db.commit()
-            return jsonify({"error": "No report data."}), 400
+        if not looks_like_report(report):
+            # leave the row alone — 'running' is recoverable, 'error' is not
+            return jsonify({"error": "Callback did not contain an audit report."}), 400
         _apply_report(s, report)
         db.commit()
-        _log(f"Scan complete (callback) for {s.domain_key} — score {s.overall_score}")
+        _log("scan_completed", detail=s.domain_key, scan=s.public_id,
+             score=s.overall_score, via="callback")
         return jsonify({"ok": True})
     finally:
         db.close()
@@ -425,10 +569,13 @@ def api_refresh(public_id):
         s = db.query(Scan).filter(Scan.public_id == public_id).first()
         if not s:
             return jsonify({"error": "Unknown scan."}), 404
-        if s.status == "complete":
-            return jsonify({"ok": True, "scan": scan_to_row(s)})
+        # A completed scan can still be re-pulled with ?force=1 — the way back
+        # from a report that landed wrong.
+        if s.status == "complete" and not request.args.get("force"):
+            return jsonify({"ok": True, "status": s.status, "scan": scan_to_row(s)})
         if not s.insites_report_id:
-            return jsonify({"error": "No Insites report id on this scan yet."}), 400
+            return jsonify({"error": "This scan has no Insites report id yet, so "
+                                     "there is nothing to fetch. Re-run it."}), 400
         from . import insites_client
         try:
             status, report = insites_client.fetch_report(s.insites_report_id)
@@ -437,7 +584,13 @@ def api_refresh(public_id):
         if status == "complete" and report:
             _apply_report(s, report)
             db.commit()
-            _log(f"Scan completed on refresh for {s.domain_key}")
+            _log("scan_completed", detail=s.domain_key, scan=s.public_id,
+                 score=s.overall_score, via="refresh")
+        elif s.status == "error":
+            # it's alive on Insites' side after all — put it back in play
+            s.status = "running"
+            s.error_message = ""
+            db.commit()
         return jsonify({"ok": True, "status": s.status, "scan": scan_to_row(s)})
     finally:
         db.close()
