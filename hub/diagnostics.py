@@ -172,8 +172,9 @@ def check_removebg() -> Check:
     return Check("removebg", "remove.bg", state, detail, ms)
 
 
-def _simple(key, label, env, url, headers=None, params=None, what="") -> Check:
-    val = os.environ.get(env, "").strip()
+def _simple(key, label, env, url, headers=None, params=None, what="",
+            value: str = "") -> Check:
+    val = (value or os.environ.get(env, "")).strip()
     if not val:
         return _off(key, label, env, what)
     def go():
@@ -191,34 +192,34 @@ def _simple(key, label, env, url, headers=None, params=None, what="") -> Check:
 
 
 def check_pexels() -> Check:
-    return _simple("pexels", "Pexels", "PEXELS_API_KEY",
+    return _simple("pexels", "Pexels", "PEXELS_API", value=settings.pexels_key, url=
                    "https://api.pexels.com/v1/search",
-                   headers={"Authorization": os.environ.get("PEXELS_API_KEY", "")},
+                   headers={"Authorization": settings.pexels_key},
                    params={"query": "test", "per_page": 1},
                    what="one of three stock providers is unavailable.")
 
 
 def check_pixabay() -> Check:
-    return _simple("pixabay", "Pixabay", "PIXABAY_API_KEY",
+    return _simple("pixabay", "Pixabay", "PIXABAY_API", value=settings.pixabay_key, url=
                    "https://pixabay.com/api/",
-                   params={"key": os.environ.get("PIXABAY_API_KEY", ""),
+                   params={"key": settings.pixabay_key,
                            "q": "test", "per_page": 3},
                    what="one of three stock providers is unavailable.")
 
 
 def check_unsplash() -> Check:
-    return _simple("unsplash", "Unsplash", "UNSPLASH_ACCESS_KEY",
+    return _simple("unsplash", "Unsplash", "UNSPLASH_ACCESS_KEY", value=settings.unsplash_key, url=
                    "https://api.unsplash.com/search/photos",
                    headers={"Authorization":
-                            f"Client-ID {os.environ.get('UNSPLASH_ACCESS_KEY','')}"},
+                            f"Client-ID {settings.unsplash_key}"},
                    params={"query": "test", "per_page": 1},
                    what="one of three stock providers is unavailable.")
 
 
 def check_google_fonts() -> Check:
-    return _simple("google_fonts", "Google Fonts", "GOOGLE_FONTS_API_KEY",
+    return _simple("google_fonts", "Google Fonts", "GOOGLE_FONTS_API", value=settings.google_fonts_key, url=
                    "https://www.googleapis.com/webfonts/v1/webfonts",
-                   params={"key": os.environ.get("GOOGLE_FONTS_API_KEY", ""),
+                   params={"key": settings.google_fonts_key,
                            "sort": "popularity"},
                    what="a curated font list is used instead. Optional.")
 

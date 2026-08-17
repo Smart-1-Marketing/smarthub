@@ -44,6 +44,22 @@ def _b(name: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _first(*names: str, default: str = "") -> str:
+    """First of several env names that is actually set.
+
+    Naming drifted across modules and across Render: the stock keys are set as
+    PEXELS_API / PIXABAY_API on this deployment, while some code was written
+    against PEXELS_API_KEY / PIXABAY_API_KEY. Reading only one spelling means a
+    key that IS configured reports as missing, and the tool silently degrades.
+    Accept every spelling in use rather than forcing a rename in the dashboard.
+    """
+    for n in names:
+        v = _s(n)
+        if v:
+            return v
+    return default
+
+
 @dataclass(frozen=True)
 class Settings:
     # ---- core ----
@@ -70,13 +86,13 @@ class Settings:
     preview_edge: int = field(default_factory=lambda: _i("HUB_PREVIEW_EDGE", 640))
 
     # ---- providers ----
-    pexels_key: str = field(default_factory=lambda: _s("PEXELS_API_KEY"))
-    pixabay_key: str = field(default_factory=lambda: _s("PIXABAY_API_KEY"))
-    unsplash_key: str = field(default_factory=lambda: _s("UNSPLASH_ACCESS_KEY"))
-    remove_bg_key: str = field(default_factory=lambda: _s("REMOVE_BG_API_KEY"))
-    brandfetch_key: str = field(default_factory=lambda: _s("BRANDFETCH_API_KEY"))
-    google_fonts_key: str = field(default_factory=lambda: _s("GOOGLE_FONTS_API_KEY"))
-    insites_key: str = field(default_factory=lambda: _s("INSITES_API_KEY"))
+    pexels_key: str = field(default_factory=lambda: _first("PEXELS_API", "PEXELS_API_KEY", "PEXELS_KEY"))
+    pixabay_key: str = field(default_factory=lambda: _first("PIXABAY_API", "PIXABAY_API_KEY", "PIXABAY_KEY"))
+    unsplash_key: str = field(default_factory=lambda: _first("UNSPLASH_API", "UNSPLASH_ACCESS_KEY", "UNSPLASH_API_KEY", "UNSPLASH_KEY"))
+    remove_bg_key: str = field(default_factory=lambda: _first("REMOVE_BG_API", "REMOVE_BG_API_KEY", "REMOVEBG_API_KEY"))
+    brandfetch_key: str = field(default_factory=lambda: _first("BRANDFETCH_API", "BRANDFETCH_API_KEY"))
+    google_fonts_key: str = field(default_factory=lambda: _first("GOOGLE_FONTS_API", "GOOGLE_FONTS_API_KEY"))
+    insites_key: str = field(default_factory=lambda: _first("INSITES_API", "INSITES_API_KEY"))
     knack_app_id: str = field(default_factory=lambda: _s("KNACK_APP_ID"))
     knack_api_key: str = field(default_factory=lambda: _s("KNACK_API_KEY"))
     ghl_token: str = field(default_factory=lambda: _s("GHL_PRIVATE_TOKEN"))
@@ -139,8 +155,8 @@ class Settings:
                 "PUBLIC_BASE_URL — blank means Insites never posts scan completions back, so scans hang on 'running'."),
             row("Cloudinary", self.cloudinary_ready, False, "CLOUDINARY_URL — assets persist to local disk only."),
             row("OpenAI", self.openai_ready, False, "OPENAI_API_KEY — AI naming, FAQ, schema and copy fall back to templates."),
-            row("Pexels", bool(self.pexels_key), False, "PEXELS_API_KEY — stock search provider."),
-            row("Pixabay", bool(self.pixabay_key), False, "PIXABAY_API_KEY — stock search provider."),
+            row("Pexels", bool(self.pexels_key), False, "PEXELS_API / PEXELS_API_KEY — stock search provider."),
+            row("Pixabay", bool(self.pixabay_key), False, "PIXABAY_API / PIXABAY_API_KEY — stock search provider."),
             row("Unsplash", bool(self.unsplash_key), False, "UNSPLASH_ACCESS_KEY — stock search provider."),
             row("remove.bg", bool(self.remove_bg_key), False, "REMOVE_BG_API_KEY — Background Remover is disabled without it."),
             row("Brandfetch", bool(self.brandfetch_key), False, "BRANDFETCH_API_KEY — logo and brand-colour lookup."),

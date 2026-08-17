@@ -98,9 +98,11 @@ services:
         value: "2"
       # ---- Stock photo providers (Image Creator universal search) ----
       # Any subset works; search degrades to whichever answer.
-      - key: PEXELS_API_KEY
+      # Both spellings are read; PEXELS_API / PIXABAY_API are the ones set
+      # on this service. Either works -- no need to rename in the dashboard.
+      - key: PEXELS_API
         sync: false
-      - key: PIXABAY_API_KEY
+      - key: PIXABAY_API
         sync: false
       - key: UNSPLASH_ACCESS_KEY
         sync: false

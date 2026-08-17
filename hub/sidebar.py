@@ -35,18 +35,35 @@ _CSS = """
   .s1hub-chip { display: none !important; }
 }
 @media (max-width: 949.98px) { .s1hub-sb { display: none !important; } }
-.s1hub-sb { position: fixed; top: 0; bottom: 0; left: 0; width: 224px; z-index: 99990;
-  background: #1a2e58; color: #c9d4ea; overflow-y: auto;
-  font: 13.5px 'Segoe UI', system-ui, sans-serif; }
-.s1hub-sb .s1hub-logo { display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px;
+/* This markup is injected into 13 modules whose CSS we do not control, so it
+   has to assert its own layout rather than inherit whatever the host page
+   happens to set. sites_admin ships `header>div,nav{display:flex;align-items:
+   center}` -- a bare element selector -- which turned this sidebar into a
+   horizontal, vertically-centred row with every item overflowing off-screen.
+   Hence the explicit display/flex resets and the !important on the few
+   properties a host stylesheet can plausibly clobber. */
+.s1hub-sb { position: fixed !important; top: 0 !important; bottom: 0 !important;
+  left: 0 !important; width: 224px !important; height: auto !important;
+  z-index: 99990;
+  display: block !important; flex-direction: initial !important;
+  align-items: stretch !important; justify-content: flex-start !important;
+  gap: 0 !important; margin: 0 !important; padding: 0 !important;
+  background: #1a2e58 !important; color: #c9d4ea; overflow-y: auto;
+  font: 13.5px 'Segoe UI', system-ui, sans-serif; text-align: left; }
+.s1hub-sb * { box-sizing: border-box; }
+.s1hub-sb .s1hub-logo { display: flex !important; align-items: center; gap: 10px;
+  padding: 18px 18px 14px; width: auto !important;
   border-bottom: 1px solid rgba(255,255,255,.08); }
 .s1hub-sb .s1hub-mark { width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,.12);
   color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; }
 .s1hub-sb .s1hub-name { font-weight: 700; font-size: 16px; color: #fff; }
-.s1hub-sb .s1hub-sec { padding: 14px 18px 4px; font-size: 10.5px; font-weight: 700;
+.s1hub-sb .s1hub-sec { display: block !important; padding: 14px 18px 4px;
+  font-size: 10.5px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 1px; color: #7d8db2; }
-.s1hub-sb a.s1hub-item { display: flex; align-items: center; gap: 10px; padding: 9px 18px;
-  color: #c9d4ea; text-decoration: none; border-left: 3px solid transparent; }
+.s1hub-sb a.s1hub-item { display: flex !important; align-items: center; gap: 10px;
+  padding: 9px 18px; width: auto !important; float: none !important;
+  color: #c9d4ea; text-decoration: none; border-left: 3px solid transparent;
+  font: inherit; text-transform: none; letter-spacing: normal; }
 .s1hub-sb a.s1hub-item:hover { background: rgba(255,255,255,.06); color: #fff; }
 .s1hub-sb a.s1hub-item.s1hub-on { background: rgba(255,255,255,.1); color: #fff;
   border-left-color: #5b8bff; font-weight: 600; }

@@ -549,7 +549,11 @@ def accounting_requests() -> dict:
         loc_id, loc_name = _accounting_location()
         pipe = _accounting_pipeline(loc_id)
     except RuntimeError as exc:
-        return {"columns": columns, "rows": [], "note": str(exc)}
+        # "error", not "note": a failed API call must never render as the
+        # green "Nothing to report — all clear" empty state. An audit that
+        # cannot reach its data source has found nothing BECAUSE it failed,
+        # which is the opposite of a clean bill of health.
+        return {"columns": columns, "rows": [], "error": str(exc)}
     stages = [{"id": s.get("id"), "name": s.get("name")}
               for s in (pipe.get("stages") or [])]
     stage_names = {s["id"]: s["name"] for s in stages}
@@ -558,7 +562,11 @@ def accounting_requests() -> dict:
             "location_id": loc_id, "pipeline_id": pipe.get("id"),
             "limit": 100})
     except RuntimeError as exc:
-        return {"columns": columns, "rows": [], "note": str(exc)}
+        # "error", not "note": a failed API call must never render as the
+        # green "Nothing to report — all clear" empty state. An audit that
+        # cannot reach its data source has found nothing BECAUSE it failed,
+        # which is the opposite of a clean bill of health.
+        return {"columns": columns, "rows": [], "error": str(exc)}
     opps = data.get("opportunities") or []
     rows = []
     for o in opps:
@@ -732,7 +740,11 @@ def ghl_billing_no_products() -> dict:
     try:
         rows_raw = _ghl_billing_rows()
     except RuntimeError as exc:
-        return {"columns": columns, "rows": [], "note": str(exc)}
+        # "error", not "note": a failed API call must never render as the
+        # green "Nothing to report — all clear" empty state. An audit that
+        # cannot reach its data source has found nothing BECAUSE it failed,
+        # which is the opposite of a clean bill of health.
+        return {"columns": columns, "rows": [], "error": str(exc)}
     rows = []
     total = 0.0
     for r in rows_raw:
@@ -767,7 +779,11 @@ def ghl_billing_this_month() -> dict:
     try:
         rows_raw = _ghl_billing_rows()
     except RuntimeError as exc:
-        return {"columns": columns, "rows": [], "note": str(exc)}
+        # "error", not "note": a failed API call must never render as the
+        # green "Nothing to report — all clear" empty state. An audit that
+        # cannot reach its data source has found nothing BECAUSE it failed,
+        # which is the opposite of a clean bill of health.
+        return {"columns": columns, "rows": [], "error": str(exc)}
     rows = []
     total = 0.0
     for r in rows_raw:
