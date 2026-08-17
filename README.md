@@ -9,6 +9,11 @@ All six Smart 1 internal tools combined into **one app, one Render service, one 
 | `/google/` | Google Finder (GA4 · GTM · GSC · GMB) | smart1-google-finder |
 | `/sites/` | Smart 1 Sites admin (Simvoly) | smart1-simvoly-admin |
 | `/suite/` | Suite control panel (GoHighLevel) | smart1-suite-control-panel *(ported Node → Python)* |
+| `/scans/` | Site Scans (Insites audits) | *(new)* |
+| `/tools/seo-images/` | SEO Image Pipeline | *(ported Node → Python)* |
+| `/tools/image-creator/` | Image Creator (Fabric.js editor) | *(new)* |
+| `/tools/bg-remover/` | Background Remover (remove.bg) | *(new)* |
+| `/tools/utm/` | UTM Builder | *(new)* |
 | `/tools/image/` | Image Optimizer & Resizer | smart1-image-optimizer |
 | `/tools/pdf/` | PDF Optimizer | smart1-pdf-optimizer *(ported FastAPI → Flask)* |
 
@@ -58,6 +63,121 @@ row downloads two ways:
 
 Both builders need `OPENAI_API_KEY`; without it they fall back to templates so
 the workflow still runs.
+
+### Version stamp
+
+Every page footer shows the running build (`v1.5.0 · 2026-08-17 · a1b2c3d`),
+also served at `/api/version`. Open the deployed site and confirm it matches
+what you pushed. Bump `VERSION` in `hub/version.py` on each deploy.
+
+### House URLs (`/tools/seo-images/house`)
+
+Sites we run in house: no products on the books today, but they need the same
+tooling as any client. Adding one makes it selectable everywhere the Hub asks
+which client something belongs to, badged **house** so nobody mistakes it for
+billable work. A name that already belongs to a real client is refused, so a
+paying account can't be mislabelled.
+
+### SEO Image Pipeline (`/tools/seo-images`)
+
+**Resizing happens first.** WebP + `quality:auto` alone does not fix an
+oversized image — a 6000px camera photo stays 6000px and still lands as a
+multi-megabyte asset. The longest edge is capped before anything else (EXIF
+rotation applied first, so portrait photos cap on the right edge), then the
+image is converted to WebP. On a 9.1 MB 6000×4000 photo:
+
+| Preset | Result | Saving |
+|---|---|---|
+| Full-width hero — max 2400px *(default)* | 1.1 MB | 88% |
+| Large content — max 1600px | 381 KB | 96% |
+| Content image — max 1200px | 170 KB | 98% |
+| Keep original size | 9.1 MB | — |
+
+Doing it server-side rather than leaving it to Cloudinary makes the upload
+itself faster, stores and bills for less, and means the saved asset is
+genuinely small rather than merely served small. Images already under the cap
+are left alone, and a resize that doesn't actually shrink the file is discarded.
+
+**Company is a client picker**, searching Knack clients, website records and
+house URLs in one list — with product counts and SEO/house badges. Anything
+genuinely new can be added as a house site on the spot. **Project** offers the
+projects already used for that client, so a second batch joins the first.
+
+Batch up to 5 images (10 MB each). The AI is given the client context — not
+just the pixels — so it writes a filename and alt text for *that client's
+page*, then every one is shown for review and editing before anything is
+uploaded. Approved images are saved to Cloudinary under
+`smart1-seo-images/<company>/<project>/`, with the company, URL, project, page
+and alt text written into each asset's Cloudinary context.
+
+Images saved against a client surface in two places: a **Client Images** card
+at the bottom of that client's Client 360 record, and on the SEO client detail
+page with **See client image gallery** and **Optimize client images** buttons.
+The gallery (`/tools/seo-images/gallery?company=…`) groups by project.
+
+Each save is recorded in a searchable archive (`/var/data/seo-images/`) with
+copy-URL, copy-`<img>`-tag, edit-alt-later, delete, and CSV export. Filenames
+are de-collided within a batch, and the image bytes never round-trip through
+the browser — they stay server-side between the analyse and save steps.
+
+Needs `OPENAI_API_KEY` (vision model, `OPENAI_VISION_MODEL`, default `gpt-4o`)
+and Cloudinary. Without the key you still get an editable starting name rather
+than a dead end.
+
+### Image Creator (`/tools/image-creator`)
+
+A graphics editor with **Fabric.js as the editing engine** — the design stays a
+set of editable objects rather than one flattened image, which is what lets a
+saved project be reopened and changed months later.
+
+Built into the Hub rather than as a separate React service so it shares one
+login and, more usefully, reaches assets the Hub already owns: the SEO image
+gallery filtered by client, the Brandfetch logo and colour cache, and imagery
+captured by Insites audits.
+
+- **Universal photo search** — Pexels, Pixabay and Unsplash queried in
+  parallel, normalised into one shape, deduplicated and interleaved so the grid
+  mixes sources instead of grouping them. One provider failing never breaks the
+  search; results are cached so paging doesn't burn rate limit. Optionally
+  describe what you need in plain English and let AI derive the search terms.
+- **Assets** — logos and brand colours via Brandfetch (SVG stays vector),
+  Iconify icons added as vectors, Google Fonts loaded on demand.
+- **Backgrounds** — photos, solid colours, gradients, and nine SVG patterns
+  generated locally with colour and scale controls.
+- **AI** — image and background generation, plus rewrite / shorten / headline /
+  CTA on any selected text.
+- **Editing** — layers with drag-reorder, lock and hide; undo/redo; alignment;
+  image filters; keyboard shortcuts; PNG / JPG / WebP export at 1–3× with
+  optional transparency.
+- **Projects** save the Fabric JSON plus a preview, attach to a client, and are
+  searchable by name, client or tag.
+
+Fabric.js is **vendored** at `modules/image_creator/static/fabric.min.js`
+rather than pulled from a CDN, so the editor works behind restrictive networks
+and can't be taken down by a CDN outage.
+
+### Background Remover (`/tools/bg-remover`)
+
+Transparent PNG cut-outs via remove.bg, built to be careful with a paid API:
+the credit balance is shown before you spend, images are validated and
+pre-resized locally so a credit is never wasted on a failure, and results are
+cached by content hash so a retry is free. Resize before the cut to control
+cost and after it to control the file you keep. Save straight to Cloudinary
+against a client.
+
+### UTM Builder (`/tools/utm`)
+
+Tagged campaign URLs filed against the client **and the product** they belong
+to, so a link is still explicable six months later. Products come from the
+client's live Knack records.
+
+Source, medium and campaign options live in **one editable list** — add,
+rename, remove or reset per parameter. That consistency is the point:
+`facebook`, `Facebook` and `fb` split one campaign into three in Analytics, so
+every value is lowercased and hyphenated centrally. Pick several sources and
+mediums to build every combination at once; existing non-UTM query parameters
+on the landing page are preserved and existing UTM tags replaced. Saved links
+are searchable and export to CSV.
 
 ## Deploy on Render (Blueprint)
 

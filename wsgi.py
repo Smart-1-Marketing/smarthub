@@ -45,7 +45,9 @@ _MOUNT_ACTIVE = {
     "/google": "google", "/sites": "sites", "/suite": "suite",
     "/scans": "scans",
     "/sales/builder": "salesb", "/sales/proposals": "props",
-    "/tools/image": "tools", "/tools/pdf": "tools",
+    "/tools/image": "tools", "/tools/pdf": "tools", "/tools/seo-images": "tools",
+    "/tools/image-creator": "tools", "/tools/bg-remover": "tools",
+    "/tools/utm": "tools",
 }
 
 
@@ -234,6 +236,42 @@ except Exception as _sc_exc:  # noqa: BLE001
     traceback.print_exc()
     scans, scans_fb = None, _fallback_app("Scans", str(_sc_exc))
 
+try:
+    import importlib as _il3
+    seoimg = _il3.import_module("modules.seo_images.app")
+    seoimg_fb = None
+except Exception as _si_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    seoimg, seoimg_fb = None, _fallback_app("SEO Image Pipeline", str(_si_exc))
+
+try:
+    import importlib as _il4
+    imgcreator = _il4.import_module("modules.image_creator.app")
+    imgcreator_fb = None
+except Exception as _ic_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    imgcreator, imgcreator_fb = None, _fallback_app("Image Creator", str(_ic_exc))
+
+try:
+    import importlib as _il5
+    bgrem = _il5.import_module("modules.bg_remover.app")
+    bgrem_fb = None
+except Exception as _bg_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    bgrem, bgrem_fb = None, _fallback_app("Background Remover", str(_bg_exc))
+
+try:
+    import importlib as _il6
+    utm = _il6.import_module("modules.utm_builder.app")
+    utm_fb = None
+except Exception as _utm_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    utm, utm_fb = None, _fallback_app("UTM Builder", str(_utm_exc))
+
 
 def _mount(flask_app, prefix, public_prefixes=None):
     return AuthGuard(HubBar(flask_app, _MOUNT_ACTIVE.get(prefix, "")), prefix,
@@ -247,6 +285,10 @@ application = DispatcherMiddleware(hub_app, {
     "/scans": _mount(scans.app, "/scans", public_prefixes=("/api/callback",)) if scans else scans_fb,
     "/sales/builder": _mount(salesb.app, "/sales/builder") if salesb else salesb_fb,
     "/sales/proposals": _mount(propb.app, "/sales/proposals") if propb else propb_fb,
+    "/tools/seo-images": _mount(seoimg.app, "/tools/seo-images") if seoimg else seoimg_fb,
+    "/tools/image-creator": _mount(imgcreator.app, "/tools/image-creator") if imgcreator else imgcreator_fb,
+    "/tools/bg-remover": _mount(bgrem.app, "/tools/bg-remover") if bgrem else bgrem_fb,
+    "/tools/utm": _mount(utm.app, "/tools/utm") if utm else utm_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
 })

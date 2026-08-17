@@ -1,0 +1,14 @@
+# Runtime data written by the app — never belongs in the repo
+data/
+modules/*/data/
+modules/scans/smart1_scans.db
+*.db-journal
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local env
+.env
