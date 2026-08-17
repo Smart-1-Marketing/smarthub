@@ -1,0 +1,81 @@
+{% extends "_layout.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+
+<div class="cb-page-head">
+  <div>
+    <h1>Commercial Builder</h1>
+    <p>Plan, storyboard, and render :05–:60 video commercials for your clients.</p>
+  </div>
+  <a class="cb-btn cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}">+ Start a Commercial</a>
+</div>
+
+<div class="cb-card" style="margin-bottom:20px;">
+  <div class="cb-flex-between" style="margin-bottom:10px;">
+    <h3>Connected production engines</h3>
+    <span class="cb-muted" style="font-size:12px;">V1 stack — see .env.example to go live on any of these</span>
+  </div>
+  <div class="cb-provider-row">
+    {% for p in v1_providers %}
+      <span class="cb-provider-chip">
+        <span class="cb-provider-dot {{ 'on' if provider_status.get(p) else 'off' }}"></span>
+        {{ p|capitalize }} <span class="cb-muted">{{ 'live' if provider_status.get(p) else 'mock mode' }}</span>
+      </span>
+    {% endfor %}
+    {% for p in v1_5_providers %}
+      <span class="cb-provider-chip" style="opacity:.55;"><span class="cb-provider-dot off"></span>{{ p|capitalize }} <span class="cb-muted">V1.5</span></span>
+    {% endfor %}
+    {% for p in v2_providers %}
+      <span class="cb-provider-chip" style="opacity:.55;"><span class="cb-provider-dot off"></span>{{ p|capitalize }} <span class="cb-muted">V2</span></span>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="cb-grid cb-grid-2" style="align-items:start;">
+  <div class="cb-card">
+    <h3>Clients ({{ clients|length }})</h3>
+    {% if clients %}
+      <table class="cb-table">
+        <thead><tr><th>Client</th><th>Industry</th><th>Website</th><th></th></tr></thead>
+        <tbody>
+        {% for c in clients %}
+          <tr>
+            <td><strong>{{ c.name }}</strong></td>
+            <td class="cb-muted">{{ c.industry or "—" }}</td>
+            <td>{% if c.website %}<a href="{{ c.website }}" target="_blank" rel="noopener">{{ c.website }}</a>{% else %}<span class="cb-muted">—</span>{% endif %}</td>
+            <td><a class="cb-btn cb-btn-sm" href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}?client_id={{ c.id }}">New commercial</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="cb-empty">No clients yet. <a href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}">Create your first commercial</a> to add one.</div>
+    {% endif %}
+  </div>
+
+  <div class="cb-card">
+    <h3>Recent commercials</h3>
+    {% if projects %}
+      <table class="cb-table">
+        <thead><tr><th>Project</th><th>Length</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for p in projects %}
+          <tr>
+            <td><strong>{{ p.title }}</strong><br><span class="cb-muted" style="font-size:11.5px;">{{ p.client.name if p.client else '' }}</span></td>
+            <td>:{{ '%02d'|format(p.length_seconds) }}</td>
+            <td><span class="cb-status-pill">{{ p.status }}</span></td>
+            <td>
+              {% set step = {'draft':'brief','brief':'brief','concepts':'concepts','scripted':'storyboard','storyboard':'storyboard','qc':'preview','rendering':'preview','complete':'preview'} %}
+              <a class="cb-btn cb-btn-sm cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.' + (step.get(p.status,'brief')), project_id=p.id) }}">Open</a>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="cb-empty">No commercials yet.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

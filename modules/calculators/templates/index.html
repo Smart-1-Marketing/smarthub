@@ -1,0 +1,110 @@
+<!doctype html>
+{# When merging into the Hub, swap this for the shared layout so the HubBar and
+   version footer come through:
+     {% extends "base.html" %}{% block content %} ... {% endblock %}
+   Everything below the <body data-module="calculators"> tag moves inside that block unchanged. #}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Media Calculators | Smart 1 Hub</title>
+<style>
+:root{--navy:#0f2747;--blue:#1f6feb;--sky:#eaf3ff;--text:#172033;--muted:#667085;--line:#d9e2ef;--bg:#f7f9fc}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,-apple-system,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}
+.wrap{max-width:1080px;margin:0 auto;padding:28px 18px 60px}
+h1{margin:0 0 6px;color:var(--navy);font-size:30px}
+.sub{color:var(--muted);margin:0 0 24px}
+.bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px}
+.btn{display:inline-block;border:0;border-radius:10px;padding:11px 16px;font-weight:700;font-size:14px;
+     cursor:pointer;background:var(--blue);color:#fff;text-decoration:none}
+.btn.ghost{background:#eaf1fb;color:var(--navy)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;
+      box-shadow:0 8px 22px rgba(15,39,71,.06)}
+.card h2{margin:0 0 4px;font-size:18px;color:var(--navy)}
+.card p{margin:0 0 14px;color:var(--muted);font-size:14px}
+.stat{display:flex;gap:18px;margin:0 0 14px;font-size:13px;color:var(--muted)}
+.stat b{display:block;font-size:20px;color:var(--navy)}
+.links{display:flex;gap:8px;flex-wrap:wrap}
+.links a,.links button{font-size:13px;padding:8px 12px}
+code{display:block;background:#0f2747;color:#dbe8ff;padding:12px;border-radius:9px;font-size:12px;
+     margin-top:12px;white-space:pre-wrap;word-break:break-all;line-height:1.5}
+.banner{border-radius:12px;padding:14px 16px;margin-bottom:20px;font-size:14px}
+.warn{background:#fff7e8;border:1px solid #f4d49c;color:#7a4a00}
+.bad{background:#fdf1f0;border:1px solid #f0bdb6;color:#a12f1e}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;
+       padding:12px 18px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Media Calculators</h1>
+  <p class="sub">Five lead-driving calculators. Share the hosted link or embed one on a page — every
+    unlocked estimate lands as a lead in Smart 1 Suite.</p>
+
+  {% if db_error %}
+    <div class="banner bad"><b>Storage is unavailable.</b> Calculators will refuse to run until this
+      clears: {{ db_error }}</div>
+  {% elif not webhook_set %}
+    <div class="banner warn"><b>No Suite webhook set.</b> Leads are being stored here, but nothing is
+      reaching Smart 1 Suite yet. Set <code style="display:inline;padding:2px 6px">CALCULATORS_LEAD_WEBHOOK_URL</code>
+      on Render, then use “Retry failed sends” to push everything captured so far.</div>
+  {% endif %}
+
+  <div class="bar">
+    <a class="btn" href="{{ mount }}/leads">View leads</a>
+    <a class="btn ghost" href="{{ mount }}/leads.csv">Download CSV</a>
+    <button class="btn ghost" onclick="retry()">Retry failed sends</button>
+  </div>
+
+  <div class="cards">
+    {% for c in calcs %}
+      {% set s = stats.get(c.slug, {}) %}
+      <div class="card">
+        <h2>{{ c.short_title }}</h2>
+        <p>{{ c.tagline }}</p>
+        <div class="stat">
+          <div><b>{{ s.get('estimates', 0) }}</b>estimates run</div>
+          <div><b>{{ s.get('leads', 0) }}</b>leads captured</div>
+        </div>
+        <div class="links">
+          <a class="btn ghost" href="{{ mount }}/c/{{ c.slug }}" target="_blank" rel="noopener">Open</a>
+          <a class="btn ghost" href="{{ mount }}/leads?slug={{ c.slug }}">Leads</a>
+          <button class="btn ghost" onclick="copyEmbed('{{ c.slug }}')">Copy embed code</button>
+        </div>
+        <code id="embed-{{ c.slug }}">&lt;iframe data-s1calc src="{{ base_url }}{{ mount }}/embed/{{ c.slug }}?src=YOUR-PAGE"
+  style="width:100%;border:0;height:900px" title="{{ c.title }}"&gt;&lt;/iframe&gt;
+&lt;script src="{{ base_url }}{{ mount }}/embed.js"&gt;&lt;/script&gt;</code>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+function toast(msg){
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('on');
+  setTimeout(function(){ t.classList.remove('on'); }, 2600);
+}
+function copyEmbed(slug){
+  var text = document.getElementById('embed-' + slug).innerText;
+  navigator.clipboard.writeText(text).then(function(){
+    toast('Embed code copied. Paste it into the page where you want the calculator.');
+  }, function(){
+    toast('Copy failed — select the code block and copy it manually.');
+  });
+}
+function retry(){
+  fetch('{{ mount }}/leads/retry', {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      toast(d.sent + ' of ' + d.attempted + ' pending lead(s) sent to Smart 1 Suite.');
+    })
+    .catch(function(){ toast("Couldn't reach the server. Try again."); });
+}
+</script>
+</body>
+</html>

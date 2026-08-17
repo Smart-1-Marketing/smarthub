@@ -1,0 +1,94 @@
+<!doctype html>
+{# Swap for {% extends "base.html" %} when merging into the Hub. #}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Calculator leads | Smart 1 Hub</title>
+<style>
+:root{--navy:#0f2747;--blue:#1f6feb;--text:#172033;--muted:#667085;--line:#d9e2ef;--bg:#f7f9fc}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,-apple-system,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 18px 60px}
+h1{margin:0 0 6px;color:var(--navy);font-size:28px}
+.sub{color:var(--muted);margin:0 0 20px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.chip{padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:#fff;
+      color:var(--navy);text-decoration:none;font-size:13px;font-weight:700}
+.chip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.panel{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:auto}
+table{width:100%;border-collapse:collapse;min-width:900px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);font-size:14px;white-space:nowrap}
+th{background:#f5f8fc;color:var(--navy);position:sticky;top:0}
+td.wrap-cell{white-space:normal;max-width:260px;color:var(--muted);font-size:13px}
+.tag{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700}
+.sent{background:#eefaf5;color:#0f6847}
+.failed{background:#fdf1f0;color:#a12f1e}
+.pending{background:#fff7e8;color:#7a4a00}
+.empty{padding:44px 20px;text-align:center;color:var(--muted)}
+.empty b{display:block;color:var(--navy);font-size:16px;margin-bottom:6px}
+a{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Calculator leads</h1>
+  <p class="sub">Everyone who entered contact details to unlock a plan.
+    <a href="{{ mount }}/">Back to calculators</a> ·
+    <a href="{{ mount }}/leads.csv{{ '?slug=' + active if active else '' }}">Download CSV</a></p>
+
+  <div class="bar">
+    <a class="chip {{ 'on' if not active }}" href="{{ mount }}/leads">All</a>
+    {% for c in calcs %}
+      <a class="chip {{ 'on' if active == c.slug }}" href="{{ mount }}/leads?slug={{ c.slug }}">{{ c.short_title }}</a>
+    {% endfor %}
+  </div>
+
+  {% if db_error %}
+    <div class="panel"><div class="empty"><b>Storage is unavailable</b>{{ db_error }}</div></div>
+  {% elif not rows %}
+    <div class="panel"><div class="empty">
+      <b>No leads yet</b>
+      Share a calculator link or drop the embed on a page, and unlocked estimates show up here.
+    </div></div>
+  {% else %}
+  <div class="panel">
+    <table>
+      <thead><tr>
+        <th>Captured</th><th>Calculator</th><th>Name</th><th>Phone</th><th>Email</th>
+        <th>Company</th><th>Est. value</th><th>Sent to Suite</th><th>Source page</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="ts" data-iso="{{ r.unlocked_at or r.created_at }}">—</td>
+          <td>{{ r.slug }}</td>
+          <td>{{ r.name }}</td>
+          <td><a href="tel:{{ r.phone }}">{{ r.phone }}</a></td>
+          <td><a href="mailto:{{ r.email }}">{{ r.email }}</a></td>
+          <td>{{ r.company }}</td>
+          <td>${{ '{:,.0f}'.format(r.lead_value or 0) }}</td>
+          <td>
+            {% if r.webhook_status == 'sent' %}<span class="tag sent">Sent</span>
+            {% elif r.webhook_status in ('failed','no_url') %}<span class="tag failed">Not sent</span>
+            {% else %}<span class="tag pending">Pending</span>{% endif %}
+          </td>
+          <td class="wrap-cell">{{ r.source or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+<script>
+// Timestamps arrive with a UTC offset; render them in the viewer's own zone.
+document.querySelectorAll('.ts').forEach(function(td){
+  var iso = td.getAttribute('data-iso');
+  if (!iso) return;
+  var d = new Date(iso);
+  td.textContent = isNaN(d) ? iso : d.toLocaleString();
+});
+</script>
+</body>
+</html>

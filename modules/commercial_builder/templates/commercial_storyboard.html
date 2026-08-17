@@ -1,0 +1,174 @@
+{% extends "_layout.html" %}
+{% block title %}Storyboard — {{ project.title }}{% endblock %}
+{% block content %}
+
+<div class="cb-stepper">
+  <div class="cb-step done">1. Start</div><span class="cb-step-arrow">›</span>
+  <div class="cb-step done">2. Brief</div><span class="cb-step-arrow">›</span>
+  <div class="cb-step done">3. Concepts</div><span class="cb-step-arrow">›</span>
+  <div class="cb-step active">4. Storyboard</div><span class="cb-step-arrow">›</span>
+  <div class="cb-step">5. Preview &amp; Render</div>
+</div>
+
+<div class="cb-page-head">
+  <div><h1>Storyboard — {{ client.name }}</h1>
+    <p>Target :{{ '%02d'|format(project.length_seconds) }} · <span class="cb-status-pill">{{ project.platform|capitalize }}</span> · <span id="wc-summary">checking narration length…</span></p>
+  </div>
+  <a class="cb-btn cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.preview', project_id=project.id) }}">Continue to Preview &amp; QC →</a>
+</div>
+
+<div class="cb-card" style="margin-bottom:16px;">
+  <h3 style="margin-bottom:10px;">Structural blueprint for :{{ '%02d'|format(project.length_seconds) }}</h3>
+  <div class="cb-grid {{ 'cb-grid-3' if structure_beats|length == 3 else ('cb-grid-4' if structure_beats|length >= 4 else '') }}">
+    {% for beat in structure_beats %}
+      <div>
+        <div class="cb-badge cb-badge-mock" style="margin-bottom:6px;">{{ beat.start_pct }}%–{{ beat.end_pct }}%</div>
+        <div style="font-weight:650;font-size:13px;margin-bottom:2px;">{{ beat.label }}</div>
+        <p style="margin:0;font-size:12.5px;">{{ beat.guidance }}</p>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div id="scenes-wrap" data-project-id="{{ project.id }}" data-client-id="{{ client.id }}" data-client-slug="{{ client.slug }}"></div>
+
+<div class="cb-card" style="margin-top:8px;">
+  <h3>Voice Studio</h3>
+  <div class="cb-grid cb-grid-2">
+    <div class="cb-field">
+      <label class="cb-label">Voice</label>
+      <select id="voice-select"><option value="">Loading voices…</option></select>
+    </div>
+    <div class="cb-field">
+      <label class="cb-label">Style filter</label>
+      <select id="voice-style-filter">
+        <option value="">Any style</option>
+        {% for s in voice_styles %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="cb-grid cb-grid-3">
+    <div class="cb-field"><label class="cb-label">Speed <span id="speed-val">1.0×</span></label><input type="range" id="voice-speed" min="0.7" max="1.3" step="0.05" value="1.0"></div>
+    <div class="cb-field"><label class="cb-label">Stability <span id="stability-val">50%</span></label><input type="range" id="voice-stability" min="0" max="1" step="0.05" value="0.5"></div>
+    <div class="cb-field"><label class="cb-label">Style <span id="style-val">50%</span></label><input type="range" id="voice-style" min="0" max="1" step="0.05" value="0.5"></div>
+  </div>
+  <div class="cb-field">
+    <label class="cb-label">Pronunciation dictionary <span class="cb-muted" style="font-weight:400;">(word → how ElevenLabs should say it)</span></label>
+    <div id="pron-rows"></div>
+    <button class="cb-btn cb-btn-sm" id="pron-add">+ Add word</button>
+  </div>
+  <button class="cb-btn" id="voice-preview-btn">Generate full voiceover preview</button>
+  <span id="voice-status" class="cb-hint"></span>
+</div>
+
+<div class="cb-card">
+  <h3>Music</h3>
+  <div class="cb-grid cb-grid-2">
+    <div class="cb-field">
+      <label class="cb-label">Mood</label>
+      <select id="music-mood">
+        <option value="">— Select mood —</option>
+        {% for m in music_moods %}<option value="{{ m }}" {{ 'selected' if project.music and project.music.mood == m else '' }}>{{ m }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="cb-field">
+      <label class="cb-label">Music level (auto-ducks under voiceover)</label>
+      <select id="music-level">
+        {% for l in music_levels %}<option value="{{ l }}" {{ 'selected' if project.music and project.music.level == l else '' }}>{{ l }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <button class="cb-btn" id="save-music-btn">Save music selection</button>
+</div>
+
+<div class="cb-card">
+  <h3>CTA Builder <span class="cb-muted" style="font-weight:400;">— last scene, styled differently from regular footage</span></h3>
+  <div class="cb-field">
+    <label class="cb-label">CTA style</label>
+    <div class="cb-choice-grid" id="cta-style-choices">
+      {% for s in cta_styles %}
+        <div class="cb-choice {{ 'selected' if project.cta and project.cta.style == s.id else '' }}" data-value="{{ s.id }}"><div class="cb-choice-title">{{ s.label }}</div></div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="cb-grid cb-grid-2">
+    <div class="cb-field"><label class="cb-label">Headline / offer</label><input type="text" id="cta-offer" value="{{ project.cta.offer if project.cta else '' }}"></div>
+    <div class="cb-field"><label class="cb-label">CTA line</label><input type="text" id="cta-headline" value="{{ project.cta.headline if project.cta else (client.cta or '') }}"></div>
+    <div class="cb-field"><label class="cb-label">Website <span class="cb-muted" style="font-weight:400;">(shown as a clean domain, e.g. BrandName.com)</span></label><input type="text" id="cta-website" value="{{ project.cta.website if project.cta else (client.website or '') }}"></div>
+    {% if project.length_seconds != 5 %}
+    <div class="cb-field"><label class="cb-label">Phone <span class="cb-muted" style="font-weight:400;">(memorable/toll-free, ideally)</span></label><input type="text" id="cta-phone" value="{{ project.cta.phone if project.cta else (client.phone or '') }}"></div>
+    {% endif %}
+  </div>
+
+  {% if qr_eligible %}
+  <div class="cb-field" style="border-top:1px solid var(--cb-border);padding-top:14px;margin-top:4px;">
+    <label class="cb-label">
+      <input type="checkbox" id="cta-qr-enabled" {{ 'checked' if project.cta and project.cta.qr_enabled else 'checked' if project.platform in ('ctv','both') else '' }}>
+      QR code — essential for CTV (no clicks on a remote)
+    </label>
+    <p class="cb-hint">High-contrast, at least {{ qr_rules.min_screen_pct }}% of the screen, held for at least {{ qr_rules.min_duration_seconds }}s so someone can scan it.</p>
+    <div id="qr-controls" style="display:flex;align-items:center;gap:16px;margin-top:8px;">
+      <div class="cb-field" style="flex:1;margin-bottom:0;">
+        <label class="cb-label">Corner</label>
+        <select id="cta-qr-corner">
+          {% for c in qr_rules.corners %}<option value="{{ c }}" {{ 'selected' if project.cta and project.cta.qr_corner == c else ('selected' if c == qr_rules.default_corner and not (project.cta and project.cta.qr_corner) else '') }}>{{ c|replace('-', ' ')|title }}</option>{% endfor %}
+        </select>
+      </div>
+      <img id="qr-preview" src="{{ project.cta.qr_data_url if project.cta else '' }}" style="width:64px;height:64px;border:1px solid var(--cb-border);border-radius:6px;{{ '' if (project.cta and project.cta.qr_data_url) else 'display:none;' }}">
+    </div>
+  </div>
+
+  <div class="cb-field">
+    <label class="cb-label">
+      <input type="checkbox" id="cta-logo-persistent" {{ 'checked' if (not project.cta) or project.cta.logo_persistent else '' }}>
+      Persistent logo bug — keeps the brand visible the whole spot, not just the end card
+    </label>
+    <div id="logo-corner-controls" class="cb-field" style="max-width:220px;margin-top:6px;">
+      <label class="cb-label">Corner</label>
+      <select id="cta-logo-corner">
+        {% for c in logo_rules.corners %}<option value="{{ c }}" {{ 'selected' if project.cta and project.cta.logo_corner == c else ('selected' if c == logo_rules.default_corner and not (project.cta and project.cta.logo_corner) else '') }}>{{ c|replace('-', ' ')|title }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  {% else %}
+  <p class="cb-hint" style="border-top:1px solid var(--cb-border);padding-top:12px;">:05 bumpers skip the QR code and persistent logo bug by design — it's pure brand recall (logo + URL), no response mechanism.</p>
+  {% endif %}
+
+  <button class="cb-btn" id="save-cta-btn">Save CTA</button>
+</div>
+
+<template id="scene-card-tpl">
+  <div class="cb-scene-card">
+    <div>
+      <div class="cb-scene-thumb"></div>
+      <div class="cb-scene-time" style="margin-top:6px;"></div>
+    </div>
+    <div>
+      <div class="cb-scene-meta">
+        <span class="cb-scene-drag" title="Drag to reorder">⠿ Scene <span class="scene-num"></span></span>
+        <span class="cb-badge cb-badge-mock asset-type-badge"></span>
+      </div>
+      <div class="cb-field"><label class="cb-label">Visual</label><input type="text" class="visual-input"></div>
+      <div class="cb-field"><label class="cb-label">Narration</label><textarea class="narration-input" rows="2"></textarea></div>
+      <div class="asset-picker"></div>
+    </div>
+    <div class="cb-scene-controls">
+      <div class="cb-field" style="width:100%;"><label class="cb-label">Duration (sec)</label><input type="number" step="0.5" min="0.5" class="duration-input"></div>
+      <div class="cb-scene-actions">
+        <button class="cb-btn find-stock-btn">Find Stock</button>
+        <button class="cb-btn generate-ai-btn">Generate AI</button>
+        <button class="cb-btn spokesperson-btn">Use Spokesperson</button>
+        <button class="cb-btn upload-btn">Upload</button>
+        <button class="cb-btn client-asset-btn">Use Client Asset</button>
+      </div>
+      <div class="cb-scene-actions">
+        <button class="cb-btn regen-btn">↻ Regenerate</button>
+        <button class="cb-btn duplicate-btn">⧉ Duplicate</button>
+        <button class="cb-btn cb-btn-danger delete-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/storyboard.js') }}"></script>{% endblock %}

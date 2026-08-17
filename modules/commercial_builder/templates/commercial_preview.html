@@ -1,0 +1,63 @@
+{% extends "_layout.html" %}
+{% block title %}Preview &amp; Render — {{ project.title }}{% endblock %}
+{% block content %}
+
+<div class="cb-stepper">
+  <div class="cb-step done">1. Start</div><span class="cb-step-arrow">›</span>
+  <div class="cb-step done">2. Brief</div><span class="cb-step-arrow">›</span>
+  <div class="cb-step done">3. Concepts</div><span class="cb-step-arrow">›</span>
+  <div class="cb-step done">4. Storyboard</div><span class="cb-step-arrow">›</span>
+  <div class="cb-step active">5. Preview &amp; Render</div>
+</div>
+
+<div class="cb-page-head">
+  <div><h1>Preview &amp; Render — {{ client.name }}</h1><p>Run the automatic quality checks, then render each output format.</p></div>
+  <a class="cb-btn" href="{{ url_for('commercial_builder.cb_pages.storyboard', project_id=project.id) }}">← Back to Storyboard</a>
+</div>
+
+<div class="cb-grid cb-grid-2" style="align-items:start;" id="preview-root" data-project-id="{{ project.id }}">
+  <div class="cb-card">
+    <div class="cb-flex-between"><h3>Automatic quality checks</h3><button class="cb-btn cb-btn-sm" id="run-qc-btn">Run checks</button></div>
+    <div id="qc-list"><div class="cb-empty">Run checks to see results.</div></div>
+  </div>
+
+  <div class="cb-card">
+    <h3>Render</h3>
+    <div class="cb-field">
+      <label class="cb-label">Formats</label>
+      <div class="cb-choice-grid" id="render-format-choices">
+        {% for f in formats %}
+          <div class="cb-choice {{ 'selected' if f.id in project.formats else '' }}" data-value="{{ f.id }}"><div class="cb-choice-title">{{ f.id }}</div></div>
+        {% endfor %}
+      </div>
+    </div>
+    <button class="cb-btn cb-btn-primary" id="render-btn">Render selected formats</button>
+    <div id="render-jobs" style="margin-top:14px;"></div>
+  </div>
+</div>
+
+<div class="cb-card">
+  <h3>Create Variation <span class="cb-muted" style="font-weight:400;">— regenerate only what changed, keep everything else</span></h3>
+  <div class="cb-grid cb-grid-3">
+    <div class="cb-field">
+      <label class="cb-label">Variation type</label>
+      <select id="var-type">
+        <option value="offer">New Offer</option>
+        <option value="location">New Location</option>
+        <option value="weather">New Weather Condition</option>
+        <option value="cta">New CTA</option>
+        <option value="voice">New Voice</option>
+        <option value="footage">New Footage</option>
+        <option value="duration">New Duration</option>
+      </select>
+    </div>
+    <div class="cb-field" style="grid-column:span 2;">
+      <label class="cb-label" id="var-input-label">New value</label>
+      <input type="text" id="var-input" placeholder="e.g. $49 instead of $79">
+    </div>
+  </div>
+  <button class="cb-btn" id="create-var-btn">Create Variation</button>
+</div>
+
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/preview.js') }}"></script>{% endblock %}

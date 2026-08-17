@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fan Radio — Smart 1 Hub</title>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
+        --bad:#dc2626;--ok:#16a34a;--warn:#b45309;--turf:#0f5132}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 90px}
+  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px;max-width:80ch;line-height:1.55}
+  .back{color:var(--blue);text-decoration:none;font-size:13px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+  h2{color:var(--navy);font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:9px}
+  h2 .n{background:var(--navy);color:#fff;width:22px;height:22px;border-radius:50%;
+        display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+  label.f{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+  label.f .opt{font-weight:400;color:var(--muted)}
+  input[type=text],input[type=url],input[type=search],select,textarea{
+    width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+    font:13.5px inherit;background:#fff}
+  textarea{resize:vertical;line-height:1.6}
+  input:focus,select:focus,textarea:focus{outline:2px solid #bfdbfe;outline-offset:-1px;border-color:var(--blue)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:13px}
+  @media(max-width:860px){.grid,.grid3{grid-template-columns:1fr}}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13.5px inherit;padding:10px 18px;
+       border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.sm{padding:6px 12px;font-size:12.5px}
+  .btn.danger{background:#fff;color:var(--bad);border:1px solid #fecaca}
+  .row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  .msg{font-size:13px;color:var(--muted)}
+  .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)} .msg.warn{color:var(--warn)}
+  .hint{color:var(--muted);font-size:12px;margin-top:5px;line-height:1.5}
+  .picks{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+  .pick{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 11px;
+        font-size:12px;cursor:pointer;user-select:none}
+  .pick.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .tag{display:inline-block;border-radius:20px;padding:2px 9px;font-size:11px;
+       font-weight:700;margin-right:5px}
+  .tag.ok{background:#eaf7ee;color:var(--ok)}
+  .tag.bad{background:#fdecec;color:var(--bad)}
+  .tag.warn{background:#fdf4e3;color:var(--warn)}
+  .tag.info{background:#eef2ff;color:#3730a3}
+  .spot{border:1px solid var(--line);border-radius:10px;padding:14px 15px;margin-bottom:12px}
+  .spot.flag{border-color:#fbcaca}
+  .shead{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:9px}
+  .len{background:var(--navy);color:#fff;font-weight:700;font-size:12px;border-radius:5px;padding:2px 8px}
+  .spot textarea{min-height:94px;font-size:14px}
+  .sfoot{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;align-items:center}
+  .why{background:#fdecec;border-left:3px solid var(--bad);padding:8px 11px;
+       border-radius:0 7px 7px 0;font-size:12.5px;margin:8px 0;color:#7f1d1d}
+  .why.warn{background:#fdf4e3;border-color:var(--warn);color:#78350f}
+  .empty{text-align:center;color:var(--muted);padding:26px}
+  .link{color:var(--blue);cursor:pointer;text-decoration:none;font-size:12.5px}
+  .link:hover{text-decoration:underline}
+  .sug{position:absolute;background:#fff;border:1px solid var(--line);border-radius:9px;
+       box-shadow:0 6px 20px rgba(15,23,42,.12);z-index:30;max-height:250px;overflow:auto;width:340px}
+  .sug div{padding:8px 11px;cursor:pointer;font-size:13px}
+  .sug div:hover{background:var(--soft)}
+  .bank{background:var(--soft);border-radius:8px;padding:10px 12px;font-size:12.5px;
+        color:#475569;line-height:1.9}
+  .bank b{color:var(--turf)}
+  .kv{font-size:12.5px;color:#475569;margin-bottom:5px}
+  .kv b{color:#1e293b}
+  .shareurl{background:#0f172a;color:#e2e8f0;border-radius:8px;padding:11px 13px;
+            font:12px ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
+  .fb{border-bottom:1px solid #eef2f7;padding:8px 0;font-size:13px}
+  .fb .when{color:var(--muted);font-size:11.5px}
+  .ver{color:var(--muted);font-size:11.5px}
+  footer{color:var(--muted);font-size:11.5px;text-align:center;padding:22px}
+</style>
+</head>
+<body data-module="fan_radio">
+<div class="wrap">
+  <a class="back" href="/tools">← Tools</a>
+  <h1>Fan Radio</h1>
+  <p class="sub">Football-flavoured :15 and :30 spots in three dayparts — pre-game
+    prep, game day and post-game — written to the clock, scanned so no league,
+    club, bowl or fan trademark makes it to air, then sent to the client on one
+    link where they listen, approve, or tell you what to change.
+    <a class="link" href="/tools/fan-radio/library">Open the library →</a></p>
+
+  <!-- 1 ------------------------------------------------------------- -->
+  <div class="card" id="setup">
+    <h2><span class="n">1</span> Who this is for</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label class="f" style="margin:0">
+        <input type="radio" name="scope" value="client" checked> Client
+      </label>
+      <label class="f" style="margin:0">
+        <input type="radio" name="scope" value="spec"> Spec spot (nobody asked for it yet)
+      </label>
+    </div>
+    <div class="grid">
+      <div style="position:relative">
+        <label class="f" for="client">Client</label>
+        <input id="client" type="search" autocomplete="off"
+               placeholder="Start typing a Hub client…" value="{{ client }}">
+        <div class="hint" id="clienthint">Spec spots are never pushed to the Suite.</div>
+      </div>
+      <div>
+        <label class="f" for="company">Business name <span class="opt">— as it should be said on air</span></label>
+        <input id="company" type="text" placeholder="Boehm Heating &amp; Cooling">
+      </div>
+      <div>
+        <label class="f" for="url">Website <span class="opt">— read once for the brief</span></label>
+        <input id="url" type="url" placeholder="https://…">
+      </div>
+      <div>
+        <label class="f" for="promo">The offer <span class="opt">— optional</span></label>
+        <input id="promo" type="text" placeholder="$99 fall tune-up, ends Sunday">
+      </div>
+      <div>
+        <label class="f" for="team">Local team, for context only</label>
+        <input id="team" type="text" placeholder="e.g. Cincinnati Bengals">
+        <div class="hint"><b>This never appears in the copy.</b> It tells the writer
+          which market and schedule it's writing around, and every word of it is
+          added to the block list so it can't slip in.</div>
+      </div>
+      <div>
+        <label class="f" for="tone">Tone</label>
+        <select id="tone">
+          {% for t in tones %}<option value="{{ t.id }}">{{ t.label }} — {{ t.hint }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <label class="f" style="margin-top:12px" for="notes">Anything the writer should know</label>
+    <textarea id="notes" style="min-height:60px"
+      placeholder="Family owned since 1974. Don't say 'cheap'. Phone must be said twice."></textarea>
+    <div class="row" style="margin-top:13px">
+      <button class="btn" id="start">Read the site &amp; start</button>
+      <span class="msg" id="startmsg"></span>
+    </div>
+  </div>
+
+  <!-- 2 ------------------------------------------------------------- -->
+  <div class="card" id="briefcard" style="display:none">
+    <h2><span class="n">2</span> The brief</h2>
+    <div id="briefwarn"></div>
+    <div class="grid">
+      <div><label class="f">What they do</label><textarea id="b_summary" style="min-height:56px"></textarea></div>
+      <div><label class="f">Who buys</label><textarea id="b_audience" style="min-height:56px"></textarea></div>
+      <div><label class="f">The offer</label><textarea id="b_offer" style="min-height:56px"></textarea></div>
+      <div><label class="f">Call to action</label><textarea id="b_cta" style="min-height:56px"></textarea></div>
+      <div><label class="f">Must be said, word for word <span class="opt">— one per line</span></label>
+        <textarea id="b_must" style="min-height:70px"></textarea></div>
+      <div><label class="f">Keep out <span class="opt">— one per line</span></label>
+        <textarea id="b_avoid" style="min-height:70px"></textarea></div>
+    </div>
+    <div class="hint" id="blocklist" style="margin-top:11px"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn sec sm" id="savebrief">Save the brief</button>
+      <span class="msg" id="briefmsg"></span>
+    </div>
+  </div>
+
+  <!-- 3 ------------------------------------------------------------- -->
+  <div class="card" id="writecard" style="display:none">
+    <h2><span class="n">3</span> Write the spots</h2>
+    <div id="slots" class="grid3"></div>
+    <div style="margin-top:13px">
+      <label class="f" for="steer">Steer this batch <span class="opt">— optional</span></label>
+      <input id="steer" type="text" placeholder="Lean on the tailgate angle. Mention the drive-thru.">
+    </div>
+    <div class="bank" id="bank" style="margin-top:12px"></div>
+    <div class="row" style="margin-top:13px">
+      <button class="btn" id="write">Write the selected spots</button>
+      <button class="btn sec" id="rewriteall" style="display:none">Start over</button>
+      <span class="msg" id="writemsg"></span>
+    </div>
+  </div>
+
+  <!-- 4 ------------------------------------------------------------- -->
+  <div class="card" id="spotscard" style="display:none">
+    <h2><span class="n">4</span> The spots</h2>
+    <div id="spots"></div>
+  </div>
+
+  <!-- 5 ------------------------------------------------------------- -->
+  <div class="card" id="voicecard" style="display:none">
+    <h2><span class="n">5</span> The voice</h2>
+    <div class="row">
+      <button class="btn sec sm" id="cast">Suggest voices</button>
+      <span class="msg" id="castmsg"></span>
+    </div>
+    <div id="voices" style="margin-top:12px"></div>
+  </div>
+
+  <!-- 6 ------------------------------------------------------------- -->
+  <div class="card" id="sharecard" style="display:none">
+    <h2><span class="n">6</span> Send it to the client</h2>
+    <div class="grid">
+      <div><label class="f">Page headline <span class="opt">— optional</span></label>
+        <input id="s_head" type="text" placeholder="Your fall radio spots"></div>
+      <div><label class="f">Button label &amp; link <span class="opt">— optional</span></label>
+        <div class="row" style="flex-wrap:nowrap">
+          <input id="s_ctal" type="text" placeholder="Book a call">
+          <input id="s_ctau" type="url" placeholder="https://…">
+        </div></div>
+    </div>
+    <label class="f" style="margin-top:12px">Intro <span class="opt">— optional</span></label>
+    <textarea id="s_intro" style="min-height:56px"
+      placeholder="Here are the six spots we talked about…"></textarea>
+    <div class="row" style="margin-top:13px">
+      <button class="btn" id="sharego">Turn the link on</button>
+      <button class="btn sec sm" id="shareoff" style="display:none">Turn it off</button>
+      <button class="btn sec sm" id="sharenew" style="display:none">New link</button>
+      <span class="msg" id="sharemsg"></span>
+    </div>
+    <div id="shareurl" style="margin-top:12px;display:none">
+      <div class="shareurl" id="urltext"></div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn sec sm" id="copyurl">Copy link</button>
+        <a class="link" id="openurl" target="_blank" rel="noopener">Open it as the client sees it →</a>
+      </div>
+    </div>
+    <div id="feedback" style="margin-top:16px"></div>
+  </div>
+
+  <footer>{{ version }}</footer>
+</div>
+
+<script>
+(function(){
+  var BASE = "/tools/fan-radio";
+  var P = null, CAT = null, banned = [];
+
+  function $(id){ return document.getElementById(id); }
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; });
+  }
+  function say(id, text, kind){
+    var n = $(id); if(!n) return;
+    n.className = "msg" + (kind ? " " + kind : ""); n.textContent = text || "";
+  }
+  function lines(v){ return String(v||"").split("\n").map(function(s){return s.trim();})
+                       .filter(Boolean); }
+  function api(path, opts){
+    opts = opts || {};
+    if(opts.body){ opts.headers = {"Content-Type":"application/json"};
+                   opts.body = JSON.stringify(opts.body); }
+    return fetch(BASE + path, opts).then(function(r){
+      return r.json().then(function(j){
+        if(!r.ok || j.ok === false) throw new Error(j.error || "That didn't work.");
+        return j; });
+    });
+  }
+
+  /* ---------------------------------------------------- client picker */
+  var sug = null;
+  $("client").addEventListener("input", function(){
+    var q = this.value.trim();
+    if(sug){ sug.remove(); sug = null; }
+    if(q.length < 2) return;
+    api("/api/clients?q=" + encodeURIComponent(q)).then(function(j){
+      if(!j.clients.length) return;
+      sug = document.createElement("div");
+      sug.className = "sug";
+      sug.innerHTML = j.clients.map(function(c){
+        return '<div data-n="' + esc(c.name) + '" data-u="' + esc(c.url) + '">'
+          + esc(c.name) + ' <span style="color:#64748b">· ' + (c.products||0)
+          + ' product(s)</span></div>'; }).join("");
+      $("client").parentNode.appendChild(sug);
+      sug.querySelectorAll("div").forEach(function(row){
+        row.onclick = function(){
+          $("client").value = row.getAttribute("data-n");
+          if(!$("company").value) $("company").value = row.getAttribute("data-n");
+          if(!$("url").value && row.getAttribute("data-u"))
+            $("url").value = row.getAttribute("data-u");
+          sug.remove(); sug = null;
+        };
+      });
+    }).catch(function(){});
+  });
+
+  /* ------------------------------------------------------------ slots */
+  function drawSlots(){
+    var html = "";
+    CAT.dayparts.forEach(function(d){
+      html += '<div><label class="f">' + esc(d.label) + '</label>'
+        + '<div class="hint" style="margin:0 0 6px">' + esc(d.when) + '</div>'
+        + '<div class="picks">';
+      CAT.lengths.forEach(function(L){
+        html += '<span class="pick on" data-d="' + d.id + '" data-s="' + L.seconds
+             + '" data-o="neutral">' + esc(L.label) + '</span>';
+      });
+      if(d.id === "postgame"){
+        html += '<span class="pick" data-d="postgame" data-s="30" data-o="win">'
+             +  ':30 if it went well</span>'
+             +  '<span class="pick" data-d="postgame" data-s="30" data-o="loss">'
+             +  ":30 if it didn't</span>";
+      }
+      html += '</div></div>';
+    });
+    $("slots").innerHTML = html;
+    $("slots").querySelectorAll(".pick").forEach(function(p){
+      p.onclick = function(){ p.classList.toggle("on"); };
+    });
+    $("bank").innerHTML = "<b>Safe football language the writer picks from:</b> "
+      + Object.keys(CAT.safe_phrases).map(function(k){
+          return CAT.safe_phrases[k].slice(0,6).map(esc).join(" · ");
+        }).join(" · ")
+      + "<br><b>Blocked:</b> " + CAT.blocked_count + " league, club, bowl, school "
+      + "and fan marks, plus anything you add above.";
+  }
+  function chosenSlots(){
+    return Array.prototype.map.call(
+      $("slots").querySelectorAll(".pick.on"), function(p){
+        return {daypart:p.getAttribute("data-d"),
+                seconds:parseInt(p.getAttribute("data-s"),10),
+                outcome:p.getAttribute("data-o")}; });
+  }
+
+  /* ------------------------------------------------------------ start */
+  $("start").onclick = function(){
+    var scope = document.querySelector('input[name=scope]:checked').value;
+    var body = {
+      scope: scope, client: $("client").value.trim(),
+      company: $("company").value.trim(), home_url: $("url").value.trim(),
+      promotion: $("promo").value.trim(), notes: $("notes").value.trim(),
+      team_context: $("team").value.trim(), tone: $("tone").value
+    };
+    if(!body.company){ say("startmsg","Enter the business name.","err"); return; }
+    this.disabled = true; say("startmsg","Reading the site…");
+    api("/api/projects", {method:"POST", body:body}).then(function(j){
+      $("start").disabled = false;
+      P = j.project; banned = j.banned || [];
+      say("startmsg","Ready.","ok");
+      location.hash = P.id;
+      fillBrief(); show();
+    }).catch(function(e){
+      $("start").disabled = false; say("startmsg", e.message, "err"); });
+  };
+
+  function show(){
+    ["briefcard","writecard","spotscard","voicecard","sharecard"]
+      .forEach(function(id){ $(id).style.display = "block"; });
+    drawSpots(); drawShare();
+  }
+
+  function fillBrief(){
+    var b = P.brief || {};
+    $("b_summary").value = b.summary || "";
+    $("b_audience").value = b.audience || "";
+    $("b_offer").value = b.offer || "";
+    $("b_cta").value = b.callToAction || "";
+    $("b_must").value = (b.mustSay || []).join("\n");
+    $("b_avoid").value = (b.avoid || []).join("\n");
+    var w = "";
+    if(b.ai === false)
+      w = '<div class="why">The brief was <b>not</b> written by the AI — '
+        + esc(b.ai_reason || "the call didn\'t run")
+        + ' Fill it in by hand before you write anything.</div>';
+    else if(b.site_note)
+      w = '<div class="why warn">' + esc(b.site_note) + '</div>';
+    $("briefwarn").innerHTML = w;
+    $("blocklist").innerHTML = banned.length
+      ? "<b>Blocked for this project</b> (on top of the built-in marks): "
+        + banned.map(esc).join(", ")
+      : "No project-specific block terms — add a local team above and its "
+        + "name goes on the list automatically.";
+  }
+
+  $("savebrief").onclick = function(){
+    api("/api/projects/" + P.id, {method:"POST", body:{brief:{
+      summary:$("b_summary").value, audience:$("b_audience").value,
+      offer:$("b_offer").value, callToAction:$("b_cta").value,
+      mustSay:lines($("b_must").value), avoid:lines($("b_avoid").value)
+    }}}).then(function(j){ P = j.project; banned = j.banned || [];
+      say("briefmsg","Saved.","ok"); })
+      .catch(function(e){ say("briefmsg", e.message, "err"); });
+  };
+
+  /* ------------------------------------------------------------ write */
+  $("write").onclick = function(){
+    var slots = chosenSlots();
+    if(!slots.length){ say("writemsg","Pick at least one spot.","err"); return; }
+    this.disabled = true;
+    say("writemsg","Writing " + slots.length + " spot(s)… this takes a moment.");
+    api("/api/projects/" + P.id + "/write", {method:"POST",
+      body:{slots:slots, tone:$("tone").value, steer:$("steer").value.trim(),
+            replace:true}}).then(function(j){
+      $("write").disabled = false; P = j.project;
+      say("writemsg", j.warning || ("Wrote " + j.written + " spot(s)."),
+          j.warning ? "warn" : "ok");
+      $("rewriteall").style.display = "inline-block";
+      drawSpots();
+    }).catch(function(e){
+      $("write").disabled = false; say("writemsg", e.message, "err"); });
+  };
+  $("rewriteall").onclick = function(){ $("write").click(); };
+
+  /* ------------------------------------------------------------ spots */
+  function drawSpots(){
+    var spots = (P && P.spots) || [];
+    if(!spots.length){
+      $("spots").innerHTML = '<p class="empty">Nothing written yet.</p>'; return; }
+    $("spots").innerHTML = spots.map(function(s){
+      var g = s.grade || {}, sc = s.scan || {};
+      var tags = '<span class="tag ' + (g.state === "ok" ? "ok" :
+                  (g.state === "long" ? "bad" : "warn")) + '">'
+               + esc(g.words) + ' words · ' + esc(g.note) + '</span>';
+      if(!s.ai) tags += '<span class="tag bad">template, not AI</span>';
+      if(s.hand_edited) tags += '<span class="tag info">hand edited</span>';
+      if(sc.clean) tags += '<span class="tag ok">trademark clear</span>';
+      if((sc.football||[]).length)
+        tags += '<span class="tag info">' + esc(sc.football.slice(0,3).join(", "))
+             + '</span>';
+      if(s.status === "approved") tags += '<span class="tag ok">client approved</span>';
+      if(s.status === "changes") tags += '<span class="tag warn">changes asked</span>';
+
+      var why = "";
+      (sc.blocked||[]).forEach(function(h){
+        why += '<div class="why"><b>' + esc(h.term) + '</b> — ' + esc(h.why)
+             + ' This spot cannot be recorded or sent until it\'s gone.</div>'; });
+      (sc.outcome||[]).forEach(function(h){
+        why += '<div class="why warn"><b>' + esc(h.term) + '</b> — ' + esc(h.why)
+             + '</div>'; });
+      (sc.advisory||[]).forEach(function(h){
+        why += '<div class="why warn"><b>' + esc(h.term) + '</b> — ' + esc(h.why)
+             + '</div>'; });
+
+      var out = s.outcome && s.outcome !== "neutral"
+        ? ' · ' + (s.outcome === "win" ? "if it went well" : "if it didn't") : "";
+      var audio = s.audio_url
+        ? '<div style="margin-top:9px"><audio controls preload="none" src="'
+          + esc(/^https?:/i.test(s.audio_url) ? s.audio_url : BASE + "/" + s.audio_url)
+          + '"></audio><div class="ver">' + esc(s.runtime_note || "")
+          + (s.audio_measured ? " Measured." : " Estimated runtime.") + '</div></div>'
+        : "";
+
+      return '<div class="spot' + ((sc.blocked||[]).length ? ' flag' : '')
+        + '" data-id="' + esc(s.id) + '">'
+        + '<div class="shead"><span class="len">'
+        + esc(({15:":15",30:":30"})[s.seconds] || s.seconds) + '</span>'
+        + '<b>' + esc((CAT.dayparts.filter(function(d){return d.id===s.daypart;})[0]
+                       || {}).label || s.daypart) + '</b>'
+        + '<span class="ver">' + esc(out) + '</span></div>'
+        + '<div style="margin-bottom:7px">' + tags + '</div>'
+        + why
+        + '<textarea class="sc">' + esc(s.script) + '</textarea>'
+        + '<div class="sfoot">'
+        +   '<button class="btn sec sm" data-a="save">Save edit</button>'
+        +   '<button class="btn sec sm" data-a="rewrite">Rewrite</button>'
+        +   (g.state === "long"
+              ? '<button class="btn sec sm" data-a="tighten">Tighten by '
+                + esc(g.delta) + '</button>' : '')
+        +   '<button class="btn sec sm" data-a="record">Record</button>'
+        +   '<button class="btn danger sm" data-a="delete">Delete</button>'
+        +   '<span class="ver">' + ((s.versions||[]).length) + ' version(s)'
+        +   (s.notes ? ' · ' + esc(s.notes) : '') + '</span>'
+        +   '<span class="msg" data-m="1"></span>'
+        + '</div>' + audio + '</div>';
+    }).join("");
+
+    $("spots").querySelectorAll(".spot").forEach(function(card){
+      var id = card.getAttribute("data-id");
+      var msg = card.querySelector('[data-m]');
+      var ta = card.querySelector("textarea.sc");
+      function done(j){ P.spots = P.spots.map(function(x){
+          return x.id === (j.spot||{}).id ? j.spot : x; });
+        drawSpots(); }
+      card.querySelectorAll("button").forEach(function(b){
+        b.onclick = function(){
+          var a = b.getAttribute("data-a");
+          b.disabled = true; msg.className = "msg"; msg.textContent = "Working…";
+          var p;
+          if(a === "save")
+            p = api("/api/projects/"+P.id+"/spots/"+id,
+                    {method:"POST", body:{script:ta.value, hand_edited:true}});
+          else if(a === "rewrite")
+            p = api("/api/projects/"+P.id+"/spots/"+id+"/rewrite",
+                    {method:"POST", body:{steer:$("steer").value.trim()}});
+          else if(a === "tighten")
+            p = api("/api/projects/"+P.id+"/spots/"+id+"/tighten", {method:"POST", body:{}});
+          else if(a === "record")
+            p = api("/api/projects/"+P.id+"/spots/"+id+"/record", {method:"POST", body:{}});
+          else if(a === "delete"){
+            if(!confirm("Delete this spot?")){ b.disabled = false;
+              msg.textContent = ""; return; }
+            p = api("/api/projects/"+P.id+"/spots/"+id, {method:"DELETE"})
+                 .then(function(){ P.spots = P.spots.filter(function(x){
+                    return x.id !== id; }); drawSpots(); return null; });
+          }
+          p.then(function(j){ if(j && j.spot) done(j); })
+           .catch(function(e){ b.disabled = false;
+             msg.className = "msg err"; msg.textContent = e.message; });
+        };
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------ voice */
+  $("cast").onclick = function(){
+    this.disabled = true; say("castmsg","Asking…");
+    api("/api/projects/"+P.id+"/cast", {method:"POST", body:{tone:$("tone").value}})
+      .then(function(j){
+        $("cast").disabled = false; say("castmsg", (j.profile||{}).why || "", "ok");
+        $("voices").innerHTML = j.voices.map(function(v){
+          return '<div class="spot"><div class="shead"><b>' + esc(v.name) + '</b>'
+            + '<span class="ver">' + esc([v.gender,v.age,v.accent].filter(Boolean).join(" · "))
+            + '</span><span class="tag info">score ' + esc(v.score) + '</span></div>'
+            + (v.preview_url ? '<audio controls preload="none" src="'
+                + esc(v.preview_url) + '"></audio>' : '')
+            + '<div class="sfoot"><button class="btn sec sm" data-v="' + esc(v.voice_id)
+            + '" data-n="' + esc(v.name) + '">Use this voice</button>'
+            + '<span class="ver">' + esc((v.match_reasons||[]).join(", ")) + '</span>'
+            + '</div></div>'; }).join("");
+        $("voices").querySelectorAll("button[data-v]").forEach(function(b){
+          b.onclick = function(){
+            api("/api/projects/"+P.id+"/voice", {method:"POST",
+              body:{voice_id:b.getAttribute("data-v"), name:b.getAttribute("data-n")}})
+              .then(function(){ say("castmsg","Cast: " + b.getAttribute("data-n")
+                + ". Record each spot from section 4.","ok"); })
+              .catch(function(e){ say("castmsg", e.message, "err"); });
+          };
+        });
+      }).catch(function(e){ $("cast").disabled = false;
+        say("castmsg", e.message, "err"); });
+  };
+
+  /* ------------------------------------------------------------ share */
+  function drawShare(){
+    var s = (P && P.share) || {};
+    $("s_head").value = s.headline || "";
+    $("s_intro").value = s.intro || "";
+    $("s_ctal").value = s.cta_label || "";
+    $("s_ctau").value = s.cta_url || "";
+    var on = !!s.enabled;
+    $("shareoff").style.display = on ? "inline-block" : "none";
+    $("sharenew").style.display = on ? "inline-block" : "none";
+    $("sharego").textContent = on ? "Save page settings" : "Turn the link on";
+    if(on){
+      var url = location.origin + BASE + "/r/" + s.token;
+      $("shareurl").style.display = "block";
+      $("urltext").textContent = url;
+      $("openurl").href = BASE + "/r/" + s.token;
+    } else { $("shareurl").style.display = "none"; }
+
+    var fb = (P.feedback || []).slice().reverse();
+    $("feedback").innerHTML = fb.length
+      ? '<label class="f">What the client said</label>' + fb.map(function(f){
+          var spot = (P.spots||[]).filter(function(x){return x.id===f.spot_id;})[0];
+          return '<div class="fb"><b>' + esc(f.name) + '</b> '
+            + esc(f.action === "approve" ? "approved" :
+                  (f.action === "changes" ? "asked for changes on" : "commented"))
+            + (spot ? " the " + esc(spot.daypart) + " " + esc(spot.seconds) + "s" : "")
+            + (f.comment ? ': ' + esc(f.comment) : '')
+            + ' <span class="when">' + esc(f.at) + '</span></div>'; }).join("")
+      : '<p class="hint">No feedback yet. It shows up here the moment they click.</p>';
+  }
+
+  $("sharego").onclick = function(){
+    api("/api/projects/"+P.id+"/share", {method:"POST", body:{
+      enabled:true, headline:$("s_head").value, intro:$("s_intro").value,
+      cta_label:$("s_ctal").value, cta_url:$("s_ctau").value }})
+      .then(function(j){ P.share = j.share;
+        say("sharemsg", j.warning || "Link is live.", j.warning ? "warn" : "ok");
+        drawShare(); })
+      .catch(function(e){ say("sharemsg", e.message, "err"); });
+  };
+  $("shareoff").onclick = function(){
+    api("/api/projects/"+P.id+"/share", {method:"POST", body:{enabled:false}})
+      .then(function(j){ P.share = j.share; say("sharemsg","Link is off.","ok");
+        drawShare(); }); };
+  $("sharenew").onclick = function(){
+    if(!confirm("The old link stops working immediately. Continue?")) return;
+    api("/api/projects/"+P.id+"/share", {method:"POST", body:{regenerate:true}})
+      .then(function(j){ P.share = j.share; say("sharemsg","New link issued.","ok");
+        drawShare(); }); };
+  $("copyurl").onclick = function(){
+    navigator.clipboard.writeText($("urltext").textContent)
+      .then(function(){ say("sharemsg","Copied.","ok"); })
+      .catch(function(){ say("sharemsg","Copy it by hand — the browser said no.","warn"); });
+  };
+
+  /* ------------------------------------------------------------- boot */
+  api("/api/catalog").then(function(j){
+    CAT = j; drawSlots();
+    if(!j.ai) say("startmsg","OPENAI_API_KEY isn't set — you'll get templates, "
+      + "clearly marked, not written copy.","warn");
+    var id = (location.hash || "").replace("#","");
+    if(id) return api("/api/projects/" + id).then(function(r){
+      P = r.project; banned = r.banned || [];
+      $("company").value = P.company || ""; $("url").value = P.home_url || "";
+      $("client").value = P.client || ""; $("team").value = P.team_context || "";
+      $("promo").value = P.promotion || ""; $("notes").value = P.notes || "";
+      if(P.tone) $("tone").value = P.tone;
+      fillBrief(); show();
+    }).catch(function(){});
+  });
+})();
+</script>
+</body>
+</html>

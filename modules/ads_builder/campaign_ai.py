@@ -184,6 +184,12 @@ Remember: 20 to 50 keywords in EVERY ad group, with match types tagged."""
             detail = resp.text[:400]
         raise GenerationError(f"OpenAI rejected the request: {detail}")
 
+    try:  # record spend so /diagnostics doesn't under-report
+        from hub import ai as _hub_ai
+        _hub_ai.note_usage("ads_builder", resp.json(), purpose="campaign")
+    except Exception:  # noqa: BLE001
+        pass
+
     try:
         content = resp.json()["choices"][0]["message"]["content"]
     except (KeyError, IndexError):

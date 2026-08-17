@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ calc.title }} | Smart 1 Marketing</title>
+<meta name="description" content="{{ calc.tagline }}">
+<style>
+:root{
+  --navy:#0f2747; --blue:#1f6feb; --sky:#eaf3ff; --text:#172033;
+  --muted:#667085; --line:#d9e2ef; --bg:#f7f9fc; --white:#fff;
+  --green:#138a5b; --amber:#d97706;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,-apple-system,Segoe UI,Arial,sans-serif;background:{{ 'transparent' if embedded else 'var(--bg)' }};color:var(--text)}
+.s1-wrap{max-width:980px;margin:0 auto;padding:{{ '0' if embedded else '28px 18px' }}}
+.s1-card{background:var(--white);border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 35px rgba(15,39,71,.08);overflow:hidden}
+.s1-head{padding:28px;background:linear-gradient(135deg,var(--navy),#183f73);color:#fff}
+.s1-head h1{margin:0 0 8px;font-size:clamp(24px,4vw,36px);line-height:1.08}
+.s1-head p{margin:0;opacity:.92;max-width:760px}
+.s1-body{padding:24px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.full{grid-column:1/-1}
+label{display:block;font-weight:700;font-size:14px;margin-bottom:7px}
+input,select{width:100%;padding:12px 13px;border:1px solid #c9d5e5;border-radius:10px;background:#fff;font:inherit;color:var(--text)}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid rgba(31,111,235,.35);outline-offset:2px}
+input[type=range]{padding:0}
+input[aria-invalid=true]{border-color:#c0392b;background:#fff6f5}
+.field-error{color:#c0392b;font-size:12px;margin-top:6px;font-weight:600}
+.prefixed{position:relative}
+.prefixed span.pfx{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);font-weight:700}
+.prefixed input{padding-left:26px}
+.range-line{display:flex;gap:12px;align-items:center}
+.small{font-size:12px;color:var(--muted)}
+.help{font-size:12px;color:var(--muted);margin:-2px 0 8px}
+.checks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.check{border:1px solid var(--line);border-radius:10px;padding:11px;background:#fff;font-weight:600;font-size:14px;display:flex;gap:8px;align-items:center;cursor:pointer}
+.check:hover{border-color:var(--blue)}
+.check input{width:auto;margin:0;flex:none}
+.btn{appearance:none;border:0;border-radius:11px;padding:13px 18px;font-weight:800;cursor:pointer;background:var(--blue);color:#fff;font-size:15px}
+.btn:hover{background:#1a5fd0}
+.btn[disabled]{opacity:.6;cursor:progress}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;align-items:center}
+.results{margin-top:24px;border-top:1px solid var(--line);padding-top:22px}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.metric{background:var(--sky);border-radius:13px;padding:16px}
+.metric b{display:block;font-size:clamp(19px,2.6vw,25px);color:var(--navy);margin-top:4px;line-height:1.15}
+.metric span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.note{margin-top:14px;padding:12px 14px;background:#fff7e8;border:1px solid #f4d49c;border-radius:10px;color:#7a4a00;font-size:13px}
+.note.good{background:#eefaf5;border-color:#b8e4d0;color:#0f6847}
+.note.bad{background:#fdf1f0;border-color:#f0bdb6;color:#a12f1e}
+.gate{border:1px solid var(--line);border-radius:14px;padding:20px;background:#fff;margin-top:20px}
+.gate h3{margin:0 0 6px;color:var(--navy)}
+.gate>p{margin:0 0 14px;color:var(--muted);font-size:14px}
+.hidden{display:none!important}
+table{width:100%;border-collapse:collapse;margin-top:12px}
+th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px;font-size:14px}
+th{background:#f5f8fc;color:var(--navy)}
+tbody tr.total td{font-weight:800;background:#f8fbff;color:var(--navy)}
+.steps{margin:14px 0 0;padding-left:20px;font-size:14px;color:var(--text)}
+.steps li{margin-bottom:6px}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.loader{display:flex;gap:12px;align-items:center;color:var(--navy);font-weight:700;font-size:14px}
+.loader svg{flex:none}
+.sweep{transform-origin:22px 22px;animation:spin 1.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.sweep{animation:none}}
+@media(max-width:760px){
+  .grid,.metrics,.checks{grid-template-columns:1fr}
+  .s1-body{padding:18px}
+  .s1-head{padding:22px}
+}
+</style>
+</head>
+<body>
+<div class="s1-wrap">
+  <div class="s1-card">
+    <div class="s1-head">
+      <h1>{{ calc.title }}</h1>
+      <p>{{ calc.tagline }}</p>
+    </div>
+    <div class="s1-body">
+
+      <form id="calcForm" novalidate>
+      <div class="grid">
+        {% for f in calc.fields %}
+          {% set wide = f.width == 'full' or f.type in ('checkgroup','range') %}
+          <div class="{{ 'full' if wide else '' }}">
+            {% if f.type == 'checkbox' %}
+              <label class="check" for="{{ f.id }}">
+                <input type="checkbox" id="{{ f.id }}" name="{{ f.id }}"> {{ f.label }}
+              </label>
+            {% elif f.type == 'checkgroup' %}
+              <label id="lbl-{{ f.id }}">{{ f.label }}</label>
+              {% if f.help %}<p class="help">{{ f.help }}</p>{% endif %}
+              <div class="checks" role="group" aria-labelledby="lbl-{{ f.id }}" data-group="{{ f.id }}">
+                {% for opt in f.options %}
+                  <label class="check">
+                    <input type="checkbox" name="{{ f.id }}" value="{{ opt.value }}"> {{ opt.label }}
+                  </label>
+                {% endfor %}
+              </div>
+            {% elif f.type == 'select' %}
+              <label for="{{ f.id }}">{{ f.label }}</label>
+              <select id="{{ f.id }}" name="{{ f.id }}">
+                {% for opt in f.options %}
+                  <option value="{{ opt.value }}" {{ 'selected' if opt.value|string == f.default|string else '' }}>{{ opt.label }}</option>
+                {% endfor %}
+              </select>
+            {% elif f.type == 'range' %}
+              <label for="{{ f.id }}">{{ f.label }}: <span id="{{ f.id }}Out">{{ f.default }}</span>{{ f.suffix or 'x' }}</label>
+              <div class="range-line">
+                <input type="range" id="{{ f.id }}" name="{{ f.id }}" min="{{ f.min }}" max="{{ f.max }}"
+                       step="{{ f.step or 1 }}" value="{{ f.default }}"
+                       oninput="document.getElementById('{{ f.id }}Out').textContent=this.value">
+              </div>
+            {% elif f.type == 'number' %}
+              <label for="{{ f.id }}">{{ f.label }}</label>
+              <div class="{{ 'prefixed' if f.prefix else '' }}">
+                {% if f.prefix %}<span class="pfx">{{ f.prefix }}</span>{% endif %}
+                <input type="number" id="{{ f.id }}" name="{{ f.id }}" value="{{ f.default }}"
+                       {% if f.min is not none %}min="{{ f.min }}"{% endif %}
+                       {% if f.max %}max="{{ f.max }}"{% endif %} step="{{ f.step or 1 }}" inputmode="numeric">
+              </div>
+              {% if f.suffix %}<p class="help">{{ f.suffix }}</p>{% endif %}
+            {% else %}
+              <label for="{{ f.id }}">{{ f.label }}</label>
+              <input type="text" id="{{ f.id }}" name="{{ f.id }}" placeholder="{{ f.placeholder or '' }}">
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn" id="runBtn">Calculate</button>
+        <div id="busy" class="loader hidden" role="status" aria-live="polite">
+          <svg width="30" height="30" viewBox="0 0 44 44" aria-hidden="true">
+            <circle cx="22" cy="22" r="18" fill="none" stroke="#d9e2ef" stroke-width="4"/>
+            <path class="sweep" d="M22 4a18 18 0 0 1 18 18" fill="none" stroke="#1f6feb"
+                  stroke-width="4" stroke-linecap="round"/>
+          </svg>
+          <span>Building your estimate…</span>
+        </div>
+      </div>
+      </form>
+
+      <div id="calcError" class="note bad hidden" role="alert"></div>
+
+      <div id="results" class="results hidden">
+        <div class="metrics" id="metrics"></div>
+        <div class="note good" id="teaserNote"></div>
+
+        <div class="gate" id="gate">
+          <h3>{{ calc.gate_heading }}</h3>
+          <p>{{ calc.gate_blurb }}</p>
+          <form id="gateForm" novalidate>
+            <div class="grid">
+              <div><label for="name">Name</label><input id="name" name="name" autocomplete="name">
+                   <div class="field-error hidden" data-for="name"></div></div>
+              <div><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email">
+                   <div class="field-error hidden" data-for="email"></div></div>
+              <div><label for="phone">Phone</label><input id="phone" name="phone" type="tel" autocomplete="tel">
+                   <div class="field-error hidden" data-for="phone"></div></div>
+              <div><label for="company">Company</label><input id="company" name="company" autocomplete="organization"></div>
+            </div>
+            <div class="hp" aria-hidden="true">
+              <label for="website">Website</label>
+              <input id="website" name="website" tabindex="-1" autocomplete="off">
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn" id="unlockBtn">{{ calc.cta }}</button>
+              <span class="small">We'll call or email you the written plan.</span>
+            </div>
+          </form>
+          <div id="gateError" class="note bad hidden" role="alert"></div>
+        </div>
+
+        <div class="gate hidden" id="detail">
+          <h3>Your plan</h3>
+          <p id="detailSummary"></p>
+          <div id="detailTable"></div>
+          <div id="detailSteps"></div>
+          <div class="note good" id="detailThanks"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var MOUNT   = {{ mount|tojson }};
+  var SLUG    = {{ calc.slug|tojson }};
+  var FIELDS  = {{ calc.fields|map(attribute='id')|list|tojson }};
+  var TYPES   = {{ calc.fields|map(attribute='type')|list|tojson }};
+  var SOURCE  = {{ source|tojson }} || (document.referrer || '');
+  var token   = null;
+
+  var $ = function(id){ return document.getElementById(id); };
+
+  function readInputs(){
+    var out = {};
+    for (var i = 0; i < FIELDS.length; i++){
+      var id = FIELDS[i], type = TYPES[i];
+      if (type === 'checkgroup'){
+        var picked = [];
+        var boxes = document.querySelectorAll('input[name="' + id + '"]:checked');
+        for (var j = 0; j < boxes.length; j++) picked.push(boxes[j].value);
+        out[id] = picked;
+      } else if (type === 'checkbox'){
+        out[id] = !!$(id).checked;
+      } else {
+        out[id] = $(id).value;
+      }
+    }
+    return out;
+  }
+
+  function post(url, body){
+    return fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    }).then(function(r){
+      return r.json().catch(function(){ return {ok:false, error:'Something went wrong. Try again.'}; })
+              .then(function(d){ return {status: r.status, data: d}; });
+    });
+  }
+
+  function showError(el, msg){ el.textContent = msg; el.classList.remove('hidden'); }
+  function hide(el){ el.classList.add('hidden'); }
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function measure(){
+    if (window.parent === window) return;
+    var h = document.documentElement.scrollHeight;
+    window.parent.postMessage({type:'s1calc:height', height:h, slug:SLUG}, '*');
+  }
+
+  $('calcForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    hide($('calcError'));
+    $('runBtn').disabled = true;
+    $('busy').classList.remove('hidden');
+
+    post(MOUNT + '/api/' + SLUG + '/estimate', {inputs: readInputs(), source: SOURCE})
+      .then(function(res){
+        if (!res.data.ok){ showError($('calcError'), res.data.error); return; }
+        token = res.data.token;
+        $('metrics').innerHTML = res.data.metrics.map(function(m){
+          return '<div class="metric"><span>' + esc(m.label) + '</span><b>' + esc(m.value) + '</b></div>';
+        }).join('');
+        $('teaserNote').textContent = res.data.teaser_note || '';
+        $('results').classList.remove('hidden');
+        $('gate').classList.remove('hidden');
+        hide($('detail'));
+        $('results').scrollIntoView({behavior:'smooth', block:'nearest'});
+      })
+      .catch(function(){
+        showError($('calcError'), "We couldn't reach the calculator. Check your connection and try again.");
+      })
+      .then(function(){
+        // Always tear the loader down. A spinner left running reads as a frozen page.
+        $('runBtn').disabled = false;
+        hide($('busy'));
+        measure();
+      });
+  });
+
+  $('gateForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    hide($('gateError'));
+    var errs = document.querySelectorAll('.field-error');
+    for (var i = 0; i < errs.length; i++){ hide(errs[i]); }
+    ['name','email','phone'].forEach(function(f){ $(f).removeAttribute('aria-invalid'); });
+
+    if (!token){ showError($('gateError'), 'Run the calculator once more, then unlock the plan.'); return; }
+    $('unlockBtn').disabled = true;
+
+    post(MOUNT + '/api/' + SLUG + '/unlock', {
+      token: token,
+      name: $('name').value, email: $('email').value,
+      phone: $('phone').value, company: $('company').value,
+      website: $('website').value
+    }).then(function(res){
+      if (!res.data.ok){
+        var fieldErrors = res.data.errors || {};
+        Object.keys(fieldErrors).forEach(function(f){
+          var box = document.querySelector('.field-error[data-for="' + f + '"]');
+          if (box){ box.textContent = fieldErrors[f]; box.classList.remove('hidden'); }
+          if ($(f)) $(f).setAttribute('aria-invalid', 'true');
+        });
+        showError($('gateError'), res.data.error || 'Check the highlighted fields.');
+        return;
+      }
+      var d = res.data.detail || {};
+      $('detailSummary').textContent = d.summary || '';
+      if (d.table && d.table.rows && d.table.rows.length){
+        $('detailTable').innerHTML =
+          '<table><thead><tr>' +
+          d.table.headers.map(function(h){ return '<th>' + esc(h) + '</th>'; }).join('') +
+          '</tr></thead><tbody>' +
+          d.table.rows.map(function(r){
+            var isTotal = String(r[0]).toLowerCase() === 'total';
+            return '<tr' + (isTotal ? ' class="total"' : '') + '>' +
+                   r.map(function(c){ return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>';
+          }).join('') + '</tbody></table>';
+      } else { $('detailTable').innerHTML = ''; }
+      if (d.next_steps && d.next_steps.length){
+        $('detailSteps').innerHTML = '<ul class="steps">' +
+          d.next_steps.map(function(s){ return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>';
+      } else { $('detailSteps').innerHTML = ''; }
+      $('detailThanks').textContent = 'Thanks ' + ($('name').value.split(' ')[0] || '') +
+        " — a Smart 1 strategist will follow up with the written version of this plan.";
+      hide($('gate'));
+      $('detail').classList.remove('hidden');
+      $('detail').scrollIntoView({behavior:'smooth', block:'nearest'});
+    }).catch(function(){
+      showError($('gateError'), "We couldn't send that. Check your connection and try again.");
+    }).then(function(){
+      $('unlockBtn').disabled = false;
+      measure();
+    });
+  });
+
+  window.addEventListener('load', measure);
+  window.addEventListener('resize', measure);
+})();
+</script>
+</body>
+</html>

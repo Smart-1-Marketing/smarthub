@@ -1,0 +1,248 @@
+"""
+Commercial Builder data model.
+
+Table names are prefixed `cb_` so they can't collide with existing Hub
+tables when this module is merged into the main app's shared database.
+
+Notes on integration:
+- `Client` here is a *brand profile* purpose-built for commercial
+  production (fonts, voice/spokesperson preferences, pronunciation
+  dictionary, etc.). If/when this module is merged into Smart 1 Hub proper,
+  prefer adding a `hub_client_id` foreign key to the Hub's existing client
+  record (see `hub/clients_registry.py` per the v1.6.0 handoff) rather than
+  duplicating name/website/logo — that data already lives there. It's kept
+  as a standalone table here so this module runs on its own.
+- All "blob" fields (formats, brief, script, changes, qc_results) are
+  stored as JSON text via a small helper property so this works identically
+  on SQLite (dev) and Postgres (prod) without needing native JSON columns.
+"""
+
+import json
+from datetime import datetime
+
+from .db import db
+
+
+class JSONField:
+    """Descriptor that (de)serializes a Text column as JSON on access."""
+
+    def __init__(self, column_name):
+        self.column_name = column_name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        raw = getattr(obj, self.column_name)
+        if not raw:
+            return {} if self.column_name.endswith(("_json",)) else None
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def __set__(self, obj, value):
+        setattr(obj, self.column_name, json.dumps(value) if value is not None else None)
+
+
+class Client(db.Model):
+    __tablename__ = "cb_clients"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    slug = db.Column(db.String(220), unique=True, nullable=False)
+    website = db.Column(db.String(400))
+    logo_url = db.Column(db.String(500))
+    primary_color = db.Column(db.String(20))
+    secondary_color = db.Column(db.String(20))
+    fonts_json = db.Column(db.Text)
+    phone = db.Column(db.String(40))
+    address = db.Column(db.String(400))
+    cta = db.Column(db.String(200))
+    tagline = db.Column(db.String(300))
+    industry = db.Column(db.String(120))
+    service_area = db.Column(db.String(300))
+    brand_voice = db.Column(db.Text)
+    preferred_voiceover_id = db.Column(db.String(120))
+    preferred_music_style = db.Column(db.String(60))
+    preferred_spokesperson_id = db.Column(db.String(60))
+    pronunciation_dict_json = db.Column(db.Text)  # {"Gahanna": "guh-HAN-uh", ...}
+    cloudinary_folder = db.Column(db.String(300))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    fonts = JSONField("fonts_json")
+    pronunciation_dict = JSONField("pronunciation_dict_json")
+
+    projects = db.relationship("CommercialProject", backref="client", lazy="dynamic",
+                                cascade="all, delete-orphan")
+
+    def to_dict(self):
+        return {
+            "id": self.id, "name": self.name, "slug": self.slug, "website": self.website,
+            "logo_url": self.logo_url, "primary_color": self.primary_color,
+            "secondary_color": self.secondary_color, "fonts": self.fonts or [],
+            "phone": self.phone, "address": self.address, "cta": self.cta,
+            "tagline": self.tagline, "industry": self.industry,
+            "service_area": self.service_area, "brand_voice": self.brand_voice,
+            "preferred_voiceover_id": self.preferred_voiceover_id,
+            "preferred_music_style": self.preferred_music_style,
+            "preferred_spokesperson_id": self.preferred_spokesperson_id,
+            "pronunciation_dict": self.pronunciation_dict or {},
+            "cloudinary_folder": self.cloudinary_folder or f"clients/{self.slug}",
+        }
+
+
+class CommercialProject(db.Model):
+    __tablename__ = "cb_projects"
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("cb_clients.id"), nullable=False)
+    title = db.Column(db.String(300))
+    campaign_id = db.Column(db.Integer, db.ForeignKey("cb_campaigns.id"), nullable=True)
+
+    length_seconds = db.Column(db.Integer, nullable=False, default=30)
+    formats_json = db.Column(db.Text, default="[]")          # ["16:9", "9:16"]
+    commercial_type = db.Column(db.String(60))
+    # "ctv" | "youtube" | "both" — drives script structure, QC rules (QR
+    # required for CTV, skippable-hook check for YouTube), and safe-area
+    # sizing guidance. See config.PLATFORMS / config.STRUCTURE_TEMPLATES.
+    platform = db.Column(db.String(20), default="both")
+
+    brief_json = db.Column(db.Text)          # what_advertising, cta, landing_page, phone, audience, tone
+    concepts_json = db.Column(db.Text)       # list of {id,title,angle,summary}
+    selected_concept_id = db.Column(db.String(20))
+    script_json = db.Column(db.Text)         # {duration, scenes:[{start,end,visual,voiceover}], word_count}
+    music_json = db.Column(db.Text)          # {mood, level}
+    cta_json = db.Column(db.Text)            # {style, headline, offer, website, phone}
+    qc_results_json = db.Column(db.Text)
+
+    status = db.Column(db.String(30), default="draft")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    formats = JSONField("formats_json")
+    brief = JSONField("brief_json")
+    concepts = JSONField("concepts_json")
+    script = JSONField("script_json")
+    music = JSONField("music_json")
+    cta = JSONField("cta_json")
+    qc_results = JSONField("qc_results_json")
+
+    scenes = db.relationship("Scene", backref="project", lazy="dynamic",
+                              order_by="Scene.order_index", cascade="all, delete-orphan")
+    render_jobs = db.relationship("RenderJob", backref="project", lazy="dynamic",
+                                   cascade="all, delete-orphan")
+
+    def to_dict(self, include_scenes=True):
+        d = {
+            "id": self.id, "client_id": self.client_id, "title": self.title,
+            "campaign_id": self.campaign_id,
+            "length_seconds": self.length_seconds, "formats": self.formats or [],
+            "commercial_type": self.commercial_type, "platform": self.platform or "both",
+            "brief": self.brief or {},
+            "concepts": self.concepts or [], "selected_concept_id": self.selected_concept_id,
+            "script": self.script or {}, "music": self.music or {}, "cta": self.cta or {},
+            "qc_results": self.qc_results or {}, "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_scenes:
+            d["scenes"] = [s.to_dict() for s in self.scenes.all()]
+        return d
+
+
+class Scene(db.Model):
+    __tablename__ = "cb_scenes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id"), nullable=False)
+    order_index = db.Column(db.Integer, nullable=False, default=0)
+
+    start = db.Column(db.Float, default=0)
+    end = db.Column(db.Float, default=0)
+    narration = db.Column(db.Text)
+    visual_description = db.Column(db.Text)
+
+    asset_type = db.Column(db.String(30))     # stock | ai_generated | spokesperson | upload | client_asset | cta
+    asset_source = db.Column(db.String(30))   # pexels | pixabay | runway | heygen | upload | cloudinary
+    asset_url = db.Column(db.String(600))
+    asset_thumb_url = db.Column(db.String(600))
+    asset_meta_json = db.Column(db.Text)      # provider id, author, license, generation prompt, options offered
+    is_cta = db.Column(db.Boolean, default=False)
+    locked = db.Column(db.Boolean, default=False)  # true once user approves — variations should skip locked scenes
+
+    asset_meta = JSONField("asset_meta_json")
+
+    def to_dict(self):
+        return {
+            "id": self.id, "project_id": self.project_id, "order_index": self.order_index,
+            "start": self.start, "end": self.end, "duration": round((self.end or 0) - (self.start or 0), 2),
+            "narration": self.narration, "visual_description": self.visual_description,
+            "asset_type": self.asset_type, "asset_source": self.asset_source,
+            "asset_url": self.asset_url, "asset_thumb_url": self.asset_thumb_url,
+            "asset_meta": self.asset_meta or {}, "is_cta": self.is_cta, "locked": self.locked,
+        }
+
+
+class RenderJob(db.Model):
+    __tablename__ = "cb_render_jobs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id"), nullable=False)
+    format = db.Column(db.String(10))          # 16:9 | 9:16 | 1:1
+    provider_render_id = db.Column(db.String(120))
+    status = db.Column(db.String(30), default="queued")  # queued|rendering|succeeded|failed
+    output_url = db.Column(db.String(600))
+    error = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "project_id": self.project_id, "format": self.format,
+            "provider_render_id": self.provider_render_id, "status": self.status,
+            "output_url": self.output_url, "error": self.error,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Campaign(db.Model):
+    """Groups multiple length/aspect-ratio commercials under one master concept (spec section 15)."""
+    __tablename__ = "cb_campaigns"
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("cb_clients.id"), nullable=False)
+    name = db.Column(db.String(300))
+    master_concept = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    projects = db.relationship("CommercialProject", backref="campaign", lazy="dynamic")
+
+    def to_dict(self):
+        return {
+            "id": self.id, "client_id": self.client_id, "name": self.name,
+            "master_concept": self.master_concept,
+            "project_ids": [p.id for p in self.projects.all()],
+        }
+
+
+class Variation(db.Model):
+    """Tracks a project spun off from another via 'Create Variation' (spec section 14)."""
+    __tablename__ = "cb_variations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    parent_project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id"), nullable=False)
+    child_project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id"), nullable=False)
+    variation_type = db.Column(db.String(40))   # offer|location|weather|cta|voice|footage|duration
+    changes_json = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    changes = JSONField("changes_json")
+
+    def to_dict(self):
+        return {
+            "id": self.id, "parent_project_id": self.parent_project_id,
+            "child_project_id": self.child_project_id, "variation_type": self.variation_type,
+            "changes": self.changes or {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

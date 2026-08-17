@@ -1,0 +1,69 @@
+{% extends "_layout.html" %}
+{% block title %}Start a Commercial{% endblock %}
+{% block content %}
+
+<div class="cb-page-head"><div><h1>Start a Commercial</h1><p>Pick a client, the format, and the type of spot — you'll write the brief next.</p></div></div>
+
+<div class="cb-card" style="max-width:720px;">
+  <div class="cb-field">
+    <label class="cb-label">Client</label>
+    <select id="client-select">
+      <option value="">— Select existing client —</option>
+      {% for c in clients %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+      <option value="__new__">+ Create new client…</option>
+    </select>
+  </div>
+
+  <div id="new-client-fields" style="display:none;border:1px dashed var(--cb-border);border-radius:8px;padding:14px;margin-bottom:16px;">
+    <div class="cb-grid cb-grid-2">
+      <div class="cb-field"><label class="cb-label">Business name</label><input type="text" id="nc-name" placeholder="ABC Heating &amp; Cooling"></div>
+      <div class="cb-field"><label class="cb-label">Website</label><input type="url" id="nc-website" placeholder="abcheating.com"></div>
+    </div>
+    <button type="button" class="cb-btn cb-btn-sm" id="analyze-btn">Analyze website with AI to pre-fill brand profile</button>
+    <p class="cb-hint" id="analyze-status"></p>
+  </div>
+
+  <div class="cb-field">
+    <label class="cb-label">Platform</label>
+    <div class="cb-choice-grid" id="platform-choices">
+      {% for p in platforms %}
+        <div class="cb-choice {{ 'selected' if p.id == 'both' else '' }}" data-value="{{ p.id }}"><div class="cb-choice-title">{{ p.label }}</div></div>
+      {% endfor %}
+    </div>
+    <p class="cb-hint">CTV requires a QR code (no clicks on a remote) and bigger, bolder end-card text for 8-10ft "living room" viewing. YouTube gets a skippable-ad hook check on the first 5 seconds. This only affects QC guidance — you can still render both.</p>
+  </div>
+
+  <div class="cb-field">
+    <label class="cb-label">Commercial length</label>
+    <div class="cb-choice-grid" id="length-choices">
+      {% for l in lengths %}
+        <div class="cb-choice" data-value="{{ l }}"><div class="cb-choice-title">:{{ '%02d'|format(l) }}</div></div>
+      {% endfor %}
+    </div>
+    <p class="cb-hint" id="length-hint"></p>
+  </div>
+
+  <div class="cb-field">
+    <label class="cb-label">Output format (select one or more)</label>
+    <div class="cb-choice-grid" id="format-choices">
+      {% for f in formats %}
+        <div class="cb-choice" data-value="{{ f.id }}"><div class="cb-choice-title">{{ f.id }}</div><div class="cb-choice-sub">{{ f.label.split('—')[1] if '—' in f.label else '' }}</div></div>
+      {% endfor %}
+    </div>
+    <p class="cb-hint">Tip: you can generate the other formats from the same storyboard later — no need to redo the creative.</p>
+  </div>
+
+  <div class="cb-field">
+    <label class="cb-label">Commercial type</label>
+    <div class="cb-choice-grid" id="type-choices">
+      {% for t in types %}
+        <div class="cb-choice" data-value="{{ t.id }}"><div class="cb-choice-title">{{ t.label }}</div></div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <button class="cb-btn cb-btn-primary" id="start-btn">Continue to Brief →</button>
+</div>
+
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/new.js') }}"></script>{% endblock %}
