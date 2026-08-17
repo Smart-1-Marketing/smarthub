@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Image projects — Smart 1 Hub</title>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--bad:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:26px 22px 60px}
+  h1{color:var(--navy);font-size:23px;margin:0 0 3px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 18px}
+  .back{color:var(--blue);text-decoration:none;font-size:13px}
+  .bar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  .bar input{flex:1;min-width:220px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13px inherit;padding:9px 15px;
+       border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:15px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:11px;overflow:hidden;
+        display:flex;flex-direction:column}
+  .card .ph{aspect-ratio:4/3;background:var(--soft);display:flex;align-items:center;
+            justify-content:center;overflow:hidden}
+  .card .ph img{width:100%;height:100%;object-fit:contain;background:
+    linear-gradient(45deg,#eceff4 25%,transparent 25%),linear-gradient(-45deg,#eceff4 25%,transparent 25%),
+    linear-gradient(45deg,transparent 75%,#eceff4 75%),linear-gradient(-45deg,transparent 75%,#eceff4 75%);
+    background-size:16px 16px;background-position:0 0,0 8px,8px -8px,-8px 0}
+  .card .ph .none{color:#cbd5e1;font-size:12px}
+  .card .b{padding:11px 13px;flex:1;display:flex;flex-direction:column;gap:3px}
+  .card .nm{font-weight:700;color:var(--navy);font-size:13.5px;overflow-wrap:anywhere}
+  .card .meta{font-size:11.5px;color:var(--muted)}
+  .card .tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+  .tag{background:#eef2ff;color:#3730a3;border-radius:20px;padding:1px 8px;font-size:10.5px;font-weight:700}
+  .card .acts{display:flex;gap:6px;padding:0 13px 12px}
+  .lnk{color:var(--blue);text-decoration:none;cursor:pointer;font-size:12.5px}
+  .lnk:hover{text-decoration:underline}
+  .empty{text-align:center;color:var(--muted);padding:44px;background:#fff;
+         border:1px solid var(--line);border-radius:11px}
+  .verfoot{text-align:center;color:#94a3b8;font-size:11.5px;padding:16px 0 4px;
+           border-top:1px solid var(--line);margin-top:24px}
+  .cbadge{display:inline-block;background:#dcfce7;color:#166534;border-radius:20px;
+          padding:1px 8px;font-size:10.5px;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="./">&larr; Image Creator</a>
+  <h1>Image projects</h1>
+  <p class="sub" id="sub">Saved as editable canvases — reopen one and every layer is still there.</p>
+
+  <div class="bar">
+    <input type="search" id="q" placeholder="Search by project name, client or tag…">
+    <a class="btn" href="./">+ New image</a>
+  </div>
+  <div id="body"><div class="empty">Loading…</div></div>
+  <div class="verfoot">Smart 1 Hub &middot; Image projects &middot; <b>{{ version }}</b></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const CLIENT = {{ client|tojson }};
+if(CLIENT){ $('q').value = CLIENT; }
+
+async function load(){
+  const q = $('q').value.trim();
+  try{
+    const d = await fetch('api/projects?q='+encodeURIComponent(q)).then(r=>r.json());
+    render(d.projects||[]);
+  }catch(e){ $('body').innerHTML = '<div class="empty">Couldn\'t load projects.</div>'; }
+}
+
+function render(rows){
+  if(!rows.length){
+    $('body').innerHTML = '<div class="empty">No saved projects'+(($('q').value.trim())?' match that search':' yet')
+      +'.<br><br><a class="btn" href="./">Create your first image</a></div>';
+    return;
+  }
+  $('sub').textContent = rows.length + ' project' + (rows.length>1?'s':'')
+    + ' — reopen one and every layer is still editable.';
+  $('body').innerHTML = '<div class="grid">' + rows.map(p => `
+    <div class="card">
+      <a class="ph" href="./?project=${encodeURIComponent(p.id)}">
+        ${p.preview_url ? `<img src="${esc(p.preview_url)}" alt="" loading="lazy">`
+                        : '<span class="none">No preview</span>'}</a>
+      <div class="b">
+        <div class="nm">${esc(p.name)}</div>
+        <div class="meta">${p.width}&times;${p.height} · ${p.objects||0} layer${p.objects===1?'':'s'}</div>
+        <div class="meta">${p.client ? '<span class="cbadge">'+esc(p.client)+'</span>' : '<span style="color:#cbd5e1">no client</span>'}</div>
+        <div class="meta">Updated ${esc(p.updated||'')}${p.updated_by?' · '+esc(p.updated_by):''}</div>
+        ${(p.tags&&p.tags.length)?'<div class="tags">'+p.tags.map(t=>'<span class="tag">'+esc(t)+'</span>').join('')+'</div>':''}
+      </div>
+      <div class="acts">
+        <a class="lnk" href="./?project=${encodeURIComponent(p.id)}">Open</a>
+        ${p.preview_url?`<a class="lnk" href="${esc(p.preview_url)}" target="_blank" rel="noopener">Preview</a>`:''}
+        <a class="lnk" style="color:#b91c1c;margin-left:auto" data-del="${esc(p.id)}">Delete</a>
+      </div>
+    </div>`).join('') + '</div>';
+
+  $('body').querySelectorAll('[data-del]').forEach(a => a.onclick = async () => {
+    const p = rows.find(x => x.id === a.dataset.del);
+    if(!p || !confirm('Delete “'+p.name+'”?\n\nThe editable canvas and its preview are removed.')) return;
+    await fetch('api/projects/'+encodeURIComponent(p.id)+'/delete', {method:'POST'});
+    load();
+  });
+}
+let t; $('q').oninput = () => { clearTimeout(t); t = setTimeout(load, 250); };
+load();
+</script>
+</body>
+</html>
