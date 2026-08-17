@@ -155,6 +155,9 @@ services:
       # Optional: adds extra super admins beyond the three named in code.
       - key: HUB_SUPER_ADMINS
         sync: false
+      # Google sign-in button. Off until the OAuth consent screen is approved.
+      - key: HUB_GOOGLE_LOGIN
+        value: "false"
       # ---- shared ----
       - key: AUDIT_LOG_PATH
         value: /var/data/hub-audit.log.jsonl

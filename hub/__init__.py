@@ -255,50 +255,101 @@ def create_hub_app() -> Flask:
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
+        """The single sign-in page.
+
+        Tries a real user account first, then falls back to the legacy shared
+        PANEL_PASSWORD. The fallback stays until every account is migrated —
+        removing it while somebody still depends on it locks them out of their
+        own tool with no way back in.
+
+        Unlike /signin, this deliberately tells you when an email has no
+        account and points at sign-up. That does leak which addresses are
+        registered, which is normally worth avoiding — but sign-up is already
+        restricted to @smart1marketing.com, so the only thing an attacker
+        learns is which colleagues have signed up yet. For an internal tool
+        that trade is worth making; being told "wrong email or password" when
+        you simply haven't registered is how people give up.
+        """
         from . import identity
+        google_on = (os.environ.get("HUB_GOOGLE_LOGIN", "").lower()
+                     in {"1", "true", "yes", "on"}) and identity.google_configured()
+
+        def page(error=None, offer_signup=False, last_email="", code=200):
+            return render_template(
+                "login.html", next=request.form.get("next") or request.args.get("next", "/"),
+                error=error, offer_signup=offer_signup, last_email=last_email,
+                google_enabled=google_on), code
+
         if request.method == "GET":
             if current_user():
                 return redirect(request.args.get("next") or "/")
-            return render_template(
-                "login.html", next=request.args.get("next", "/"),
-                google_enabled=identity.google_configured(),
-                demo_enabled=identity.demo_enabled(),
-                login_domains=sorted(identity.allowed_domains()),
-                error=("Google sign-in isn't configured on this Hub yet."
-                       if request.args.get("error") == "google_not_configured" else None))
+            return page()[0]
 
-        ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+        # Last hop, not the first: the client-supplied first entry in
+        # X-Forwarded-For is spoofable, and this exact mistake was flagged in
+        # three separate apps during the suite audit.
+        fwd = request.headers.get("X-Forwarded-For", "")
+        ip = (fwd.split(",")[-1].strip() if fwd else (request.remote_addr or "?"))
         wait = auth.throttle_check(ip)
         if wait:
-            return render_template(
-                "login.html", next=request.form.get("next", "/"),
-                error=f"Too many attempts. Try again in {max(1, wait // 60)} minute(s).",
-            ), 429
+            return page(f"Too many attempts. Try again in "
+                        f"{max(1, wait // 60)} minute(s).", code=429)
 
-        name = (request.form.get("name") or "").strip()
+        email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
-        if not auth.panel_password():
-            return render_template("login.html", next=request.form.get("next", "/"),
-                                   error="PANEL_PASSWORD is not configured on the server."), 500
-        if not auth.check_password(password):
-            auth.throttle_fail(ip)
-            audit.log("hub", "login_failed", ip=ip)
-            return render_template("login.html", next=request.form.get("next", "/"),
-                                   error="Incorrect password."), 401
-
-        auth.throttle_reset(ip)
-        actor = name or "Unknown"
-        audit.log("hub", "login_success", actor=actor, ip=ip)
         nxt = request.form.get("next") or "/"
         if not nxt.startswith("/"):
             nxt = "/"
-        resp = make_response(redirect(nxt))
-        resp.set_cookie(
-            auth.COOKIE_NAME, auth.issue_cookie_value(actor),
-            max_age=auth.SESSION_TTL_SECONDS, httponly=True, samesite="Lax",
-            secure=os.environ.get("NODE_ENV") == "production" or os.environ.get("FLASK_ENV") == "production",
-        )
-        return resp
+
+        # ---- 1. the shared password always works, checked FIRST ----
+        #
+        # Order matters and this is the bug that locked Todd out of his own
+        # Hub: the three founding super admins are SEEDED as rows before
+        # anyone sets a password, so by_email() finds them, the account branch
+        # takes over, and the shared password is never reached. Checking the
+        # shared password first means it is a genuine way back in rather than
+        # one that silently stops working the moment accounts are seeded.
+        shared_ok = bool(auth.panel_password()) and auth.check_password(password)
+
+        # ---- 2. real user account ----
+        account = None
+        if not shared_ok:
+            try:
+                from . import users as _users
+                from .users_routes import _login_response
+                account = _users.by_email(email) if email else None
+                if account is not None and account.password_hash:
+                    try:
+                        user = _users.authenticate(email, password)
+                        auth.throttle_reset(ip)
+                        return _login_response(user, nxt)
+                    except _users.UserError as exc:
+                        auth.throttle_fail(ip)
+                        return page(str(exc), last_email=email, code=401)
+            except ImportError:
+                account = None
+
+        # ---- 3. legacy shared password (emergency access) ----
+        if shared_ok:
+            auth.throttle_reset(ip)
+            actor = email or "Shared login"
+            audit.log("hub", "login_shared_password", actor=actor, ip=ip)
+            resp = make_response(redirect(nxt))
+            resp.set_cookie(
+                auth.COOKIE_NAME, auth.issue_cookie_value(actor),
+                max_age=auth.SESSION_TTL_SECONDS, httponly=True, samesite="Lax",
+                secure=os.environ.get("NODE_ENV") == "production"
+                or os.environ.get("FLASK_ENV") == "production")
+            return resp
+
+        # ---- 3. no account, and not the shared password ----
+        auth.throttle_fail(ip)
+        audit.log("hub", "login_failed", actor=email or "?", ip=ip)
+        if email and account is None:
+            return page(f"There's no account for {email} yet.",
+                        offer_signup=True, last_email=email, code=401)
+        return page("That email and password don't match.",
+                    last_email=email, code=401)
 
     @app.route("/logout")
     def logout():

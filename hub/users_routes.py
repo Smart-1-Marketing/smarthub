@@ -126,6 +126,11 @@ def signup():
 
 @bp.route("/signin", methods=["GET", "POST"])
 def signin():
+    """Kept as an alias only. Two sign-in pages is one too many to explain, so
+    GET redirects to /login, which handles both accounts and the shared
+    password. POST still works for anything already pointing here."""
+    if request.method == "GET":
+        return redirect("/login?next=" + request.args.get("next", "/"))
     nxt = request.args.get("next", "/")
     if request.method == "GET":
         if current_account():
