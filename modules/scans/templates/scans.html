@@ -285,6 +285,12 @@ async function pollRunning(rows){
 }
 
 $("url").addEventListener("keydown", e => { if(e.key==="Enter") startScan(); });
+// ?q=domain — so Client 360 and anything else can link straight to one
+// client's scans instead of dropping you in the full list.
+try {
+  const preset = new URLSearchParams(location.search).get("q");
+  if(preset) $("search").value = preset;
+} catch(e){}
 loadScans();
 // Keep the table current, and nudge running scans along while we're here.
 setInterval(async () => {

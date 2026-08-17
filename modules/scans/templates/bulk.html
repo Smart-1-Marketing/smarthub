@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scan all clients · Smart 1 Hub</title>
+<style>
+:root{--nav:#1a2e58;--blue:#2563eb;--bg:#f4f6fa;--text:#1e293b;--muted:#64748b;
+  --border:#e2e8f0;--good:#147d52;--warn:#a06a00;--bad:#b42318}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text)}
+main{max-width:1200px;margin:0 auto;padding:26px}
+h1{margin:0 0 4px;font-size:27px}
+.sub{color:var(--muted);margin:0 0 20px}
+.card{background:#fff;border:1px solid var(--border);border-radius:11px;padding:18px;margin-bottom:16px}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;align-items:end}
+label{display:block;font-weight:600;margin-bottom:5px;font-size:13px}
+input[type=number]{width:100%;padding:9px;border:1px solid #cfd7df;border-radius:7px;font:inherit}
+.chk{display:flex;align-items:center;gap:8px;font-weight:500}
+.chk input{width:auto}
+button{border:1px solid #c9d2dc;border-radius:7px;padding:10px 15px;background:#fff;
+  cursor:pointer;font:inherit;font-weight:600}
+button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+button.go{background:var(--good);border-color:var(--good);color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+.hint{color:var(--muted);font-size:12px;margin-top:6px}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:16px 0}
+.metric{background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px}
+.metric b{font-size:24px;display:block}
+.metric span{color:var(--muted);font-size:12px}
+.metric.spend b{color:var(--bad)}
+.q{padding:12px 14px;border-radius:9px;margin:14px 0;font-size:13.5px}
+.q.ok{background:#e8f7ef;color:#11633f}
+.q.warn{background:#fff4d7;color:var(--warn)}
+.q.over{background:#fff0ee;color:var(--bad);font-weight:600}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{text-align:left;padding:9px 11px;border-bottom:1px solid #edf0f3;font-size:13px}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:#fafbfc}
+.pill{display:inline-block;border-radius:20px;padding:3px 9px;font-size:11px;font-weight:700;white-space:nowrap}
+.pill.scan{background:#e7f6ef;color:var(--good)}
+.pill.skip_recent{background:#eef1f4;color:var(--muted)}
+.pill.skip_over_cap{background:#fff4d7;color:var(--warn)}
+.pill.skip_no_domain{background:#feeceb;color:var(--bad)}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.muted{color:var(--muted)}
+.filters{display:flex;gap:6px;margin:14px 0 0;flex-wrap:wrap}
+.filters button{padding:5px 11px;font-size:12px;font-weight:600}
+.filters button.on{background:var(--nav);border-color:var(--nav);color:#fff}
+#result{display:none}
+</style>
+</head>
+<body data-module="scans">
+<main>
+  <p class="muted" style="margin:0 0 6px"><a href="/scans/">Site Scans</a> / Scan all clients</p>
+  <h1>Scan all clients</h1>
+  <p class="sub">Audits every client with a website on file. Each scan spends one
+    Insites credit, so nothing starts until you've seen the list and the cost.</p>
+
+  <div class="card">
+    <div class="opts">
+      <div>
+        <label for="cap">Maximum this run</label>
+        <input type="number" id="cap" value="50" min="1" max="500">
+        <div class="hint">Everything beyond this is queued for the next run.</div>
+      </div>
+      <div>
+        <label for="fresh">Skip if scanned in the last</label>
+        <input type="number" id="fresh" value="30" min="0" max="365">
+        <div class="hint">Days. Re-auditing an untouched site tells you nothing.</div>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <div class="chk"><input type="checkbox" id="live"><label for="live" style="margin:0">Live clients only</label></div>
+        <div class="chk" style="margin-top:8px"><input type="checkbox" id="house"><label for="house" style="margin:0">Include house URLs</label></div>
+      </div>
+      <div><button class="primary" id="planBtn" onclick="doPlan()">Preview this run</button></div>
+    </div>
+  </div>
+
+  <div id="plan" style="display:none">
+    <div class="metrics">
+      <div class="metric"><b id="mTotal">0</b><span>Clients on file</span></div>
+      <div class="metric spend"><b id="mScan">0</b><span>Will be scanned</span></div>
+      <div class="metric"><b id="mRecent">0</b><span>Skipped &mdash; recent</span></div>
+      <div class="metric"><b id="mCap">0</b><span>Queued &mdash; over cap</span></div>
+      <div class="metric"><b id="mNo">0</b><span>No usable domain</span></div>
+    </div>
+    <div id="quota" class="q ok"></div>
+    <div class="card">
+      <div class="bar">
+        <button class="go" id="runBtn" onclick="doRun()">Start <span id="runN">0</span> scans</button>
+        <span class="muted" id="spendNote"></span>
+      </div>
+      <div class="filters" id="filters"></div>
+      <div style="overflow:auto"><table id="tbl"></table></div>
+    </div>
+  </div>
+
+  <div id="result" class="card"></div>
+</main>
+
+<script>
+var PLAN=null, FILTER='all';
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+function doPlan(){
+  var b=document.getElementById('planBtn'); b.disabled=true; b.textContent='Working out the cost…';
+  fetch('/scans/api/bulk/plan',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({cap:+document.getElementById('cap').value,
+      fresh_days:+document.getElementById('fresh').value,
+      only_live:document.getElementById('live').checked,
+      include_house:document.getElementById('house').checked})})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    b.disabled=false; b.textContent='Preview this run';
+    if(d.error){alert(d.error);return;}
+    PLAN=d; render();
+  }).catch(function(){b.disabled=false;b.textContent='Preview this run';
+    alert('Could not build the plan.');});
+}
+
+function render(){
+  var t=PLAN.totals;
+  document.getElementById('plan').style.display='block';
+  document.getElementById('mTotal').textContent=t.clients;
+  document.getElementById('mScan').textContent=t.will_scan;
+  document.getElementById('mRecent').textContent=t.skip_recent;
+  document.getElementById('mCap').textContent=t.skip_over_cap;
+  document.getElementById('mNo').textContent=t.skip_no_domain;
+  document.getElementById('runN').textContent=t.will_scan;
+  document.getElementById('runBtn').disabled = t.will_scan===0 || PLAN.quota.state==='over';
+  document.getElementById('spendNote').textContent =
+    t.will_scan ? 'Spends '+t.will_scan+' Insites credit'+(t.will_scan===1?'':'s')+'. This cannot be undone.' : '';
+  var q=document.getElementById('quota');
+  q.className='q '+(PLAN.quota.state||'ok');
+  q.textContent=PLAN.quota.message||'';
+
+  var counts={all:PLAN.candidates.length};
+  PLAN.candidates.forEach(function(c){counts[c.state]=(counts[c.state]||0)+1;});
+  var labels={all:'All',scan:'Will scan',skip_recent:'Recent',
+              skip_over_cap:'Queued',skip_no_domain:'No domain'};
+  document.getElementById('filters').innerHTML=Object.keys(labels)
+    .filter(function(k){return counts[k];})
+    .map(function(k){return '<button class="'+(FILTER===k?'on':'')+'" onclick="setF(\''+k+'\')">'+
+      labels[k]+' ('+counts[k]+')</button>';}).join('');
+
+  var rows=PLAN.candidates.filter(function(c){return FILTER==='all'||c.state===FILTER;});
+  document.getElementById('tbl').innerHTML=
+    '<thead><tr><th>Client</th><th>Domain</th><th>Products</th><th></th><th>Why</th></tr></thead><tbody>'+
+    rows.map(function(c){
+      return '<tr><td><b>'+esc(c.name)+'</b></td><td>'+esc(c.domain||'—')+'</td>'+
+        '<td class="muted">'+esc((c.products||[]).join(', ')||'—')+'</td>'+
+        '<td><span class="pill '+c.state+'">'+
+          (c.state==='scan'?'Scan':c.state==='skip_recent'?'Recent':
+           c.state==='skip_over_cap'?'Queued':'No domain')+'</span></td>'+
+        '<td class="muted">'+esc(c.reason||'')+
+          (c.last_scanned?' ('+esc(c.last_scanned.slice(0,10))+
+            (c.last_score!=null?', scored '+c.last_score:'')+')':'')+'</td></tr>';
+    }).join('')+'</tbody>';
+}
+function setF(k){FILTER=k;render();}
+
+function doRun(){
+  var n=PLAN.totals.will_scan;
+  if(!confirm('Start '+n+' scans?\n\nThis spends '+n+' Insites credit'+(n===1?'':'s')+
+              ' and cannot be undone.')) return;
+  var b=document.getElementById('runBtn'); b.disabled=true; b.textContent='Starting…';
+  fetch('/scans/api/bulk/run',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({plan_id:PLAN.plan_id})})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    var el=document.getElementById('result'); el.style.display='block';
+    if(d.error){el.innerHTML='<b style="color:#b42318">'+esc(d.error)+'</b>';
+      b.disabled=false;b.textContent='Start '+n+' scans';return;}
+    document.getElementById('plan').style.display='none';
+    el.innerHTML='<h2 style="margin-top:0">'+esc(d.message)+'</h2>'+
+      '<p class="muted">'+d.counts.started+' started · '+d.counts.skipped+
+      ' skipped · '+d.counts.failed+' failed</p>'+
+      (d.failed.length?'<p style="color:#b42318">Failed: '+
+        d.failed.map(function(f){return esc(f.domain)+' ('+esc(f.error)+')';}).join(', ')+'</p>':'')+
+      '<p><a href="/scans/">Open Site Scans to watch the results arrive &rarr;</a></p>';
+  }).catch(function(){b.disabled=false;b.textContent='Start '+n+' scans';
+    alert('The run could not be started.');});
+}
+</script>
+</body>
+</html>

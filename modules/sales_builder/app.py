@@ -795,6 +795,11 @@ def _openai_response(prompt, max_output_tokens=6000):
                       json=payload, timeout=120)
     r.raise_for_status()
     parts = []
+    try:  # record spend so /diagnostics doesn't under-report
+        from hub import ai as _hub_ai
+        _hub_ai.note_usage("sales_builder", r.json(), purpose="quote")
+    except Exception:  # noqa: BLE001
+        pass
     for item in r.json().get("output") or []:
         for content in item.get("content") or []:
             if content.get("type") in ("output_text", "text") and content.get("text"):

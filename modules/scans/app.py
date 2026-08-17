@@ -35,7 +35,7 @@ from sqlalchemy import (Column, DateTime, Integer, String, Text, create_engine,
                         func, or_)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from . import audit_fields
+from . import audit_fields, linkcheck, site_health
 from .insites_client import InsitesError, is_configured
 
 try:                                   # Hub activity log (present in the Hub)
@@ -120,6 +120,29 @@ class Scan(Base):
     raw_report = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     completed_at = Column(DateTime, nullable=True)
+
+
+class LinkCheck(Base):
+    """One run of the on-demand broken-link crawl for a scan.
+
+    Kept in its own table rather than as columns on Scan so it can be re-run
+    without touching the audit, and so an existing deployment picks it up
+    from create_all() without a column migration.
+    """
+    __tablename__ = "scan_link_checks"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scan_public_id = Column(String(40), index=True, nullable=False)
+    domain_key = Column(String(255), index=True, default="")
+    status = Column(String(20), default="running", index=True)  # running|complete|error
+    broken_count = Column(Integer, nullable=True)
+    pages_checked = Column(Integer, nullable=True)
+    links_checked = Column(Integer, nullable=True)
+    truncated = Column(Integer, default=0)
+    error_message = Column(String(600), default="")
+    result_json = Column(Text, nullable=True)
+    requested_by = Column(String(160), default="")
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    finished_at = Column(DateTime, nullable=True)
 
 
 # A database that isn't up yet must not take the module offline for the life
@@ -318,7 +341,14 @@ def scan_detail(public_id):
         if not s:
             return "Scan not found.", 404
         raw = json.loads(s.raw_report) if s.raw_report else None
+        health = site_health.summary(raw or {})
+        last_check = (db.query(LinkCheck)
+                        .filter(LinkCheck.scan_public_id == s.public_id)
+                        .order_by(LinkCheck.id.desc()).first())
         return render_template("scan_detail.html", scan=scan_to_row(s),
+                               fixes=health["fixes"], speed=health["speed"],
+                               linkcheck_state=(last_check.status
+                                                if last_check else ""),
                                detected={
                                    "name": s.detected_name, "phone": s.detected_phone,
                                    "address": s.detected_address,
@@ -389,6 +419,37 @@ def api_check():
         return jsonify({"exists": True, "domain": key, "scan": scan_to_row(existing)})
     finally:
         db.close()
+
+
+@app.route("/bulk")
+def page_bulk():
+    return render_template("bulk.html")
+
+
+@app.route("/api/bulk/plan", methods=["POST"])
+def api_bulk_plan():
+    """Read-only. Works out what a bulk run would cost before anything spends."""
+    from . import bulk
+    b = request.get_json(silent=True) or {}
+    try:
+        return jsonify(bulk.plan(
+            cap=max(1, min(500, int(b.get("cap") or bulk.DEFAULT_CAP))),
+            fresh_days=max(0, min(365, int(b.get("fresh_days") or bulk.DEFAULT_FRESH_DAYS))),
+            include_house=bool(b.get("include_house")),
+            only_live=bool(b.get("only_live"))))
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Could not build the plan ({type(exc).__name__})."}), 500
+
+
+@app.route("/api/bulk/run", methods=["POST"])
+def api_bulk_run():
+    """Starts the scans in a reviewed plan. THIS SPENDS CREDITS."""
+    from . import bulk
+    b = request.get_json(silent=True) or {}
+    payload, code = bulk.run(str(b.get("plan_id") or ""),
+                             requested_by=actor_name(),
+                             allow_over_quota=bool(b.get("allow_over_quota")))
+    return jsonify(payload), code
 
 
 @app.route("/api/scans", methods=["POST"])
@@ -628,6 +689,223 @@ def api_download(public_id):
         fname = f"{s.domain_key}-{s.public_id}.json"
         return Response(
             s.raw_report, mimetype="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+    finally:
+        db.close()
+
+
+# =====================================================================
+# Site health — the fix list and the speed summary
+# =====================================================================
+def _report_of(s: Scan) -> dict:
+    """The stored audit as a dict, or {} — never raises on bad JSON."""
+    if not s.raw_report:
+        return {}
+    try:
+        report = json.loads(s.raw_report)
+    except (TypeError, ValueError):
+        return {}
+    return report if isinstance(report, dict) else {}
+
+
+def _linkcheck_row(lc: "LinkCheck | None") -> dict:
+    if lc is None:
+        return {"status": "none"}
+    out = {
+        "status": lc.status,
+        "broken_count": lc.broken_count,
+        "pages_checked": lc.pages_checked,
+        "links_checked": lc.links_checked,
+        "truncated": bool(lc.truncated),
+        "error": lc.error_message or "",
+        "started_at": _iso(lc.started_at),
+        "finished_at": _iso(lc.finished_at),
+    }
+    if lc.result_json:
+        try:
+            out["result"] = json.loads(lc.result_json)
+        except (TypeError, ValueError):
+            out["result"] = None
+    return out
+
+
+@app.route("/api/scans/<public_id>/health")
+def api_health(public_id):
+    """Broken links / images to fix, plus the speed summary and detail.
+
+    One endpoint feeds the scan page, Client 360 and anything else that wants
+    the actionable half of an audit without parsing 440 raw fields.
+    """
+    db = SessionLocal()
+    try:
+        s = db.query(Scan).filter(Scan.public_id == public_id).first()
+        if not s:
+            return jsonify({"error": "Not found."}), 404
+        lc = (db.query(LinkCheck)
+                .filter(LinkCheck.scan_public_id == s.public_id)
+                .order_by(LinkCheck.id.desc()).first())
+        health = site_health.summary(_report_of(s))
+        return jsonify({
+            "scan": scan_to_row(s),
+            "fixes": health["fixes"],
+            "speed": health["speed"],
+            "linkcheck": _linkcheck_row(lc),
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/health/by-domain")
+def api_health_by_domain():
+    """Latest completed scan for a domain, summarised — for Client 360.
+
+    Returns ``{"found": false}`` rather than a 404 when a client has never
+    been scanned: the card wants to offer a scan, not show an error.
+    """
+    key = domain_key(request.args.get("domain", ""))
+    if not key:
+        return jsonify({"found": False, "error": "No domain given."})
+    db = SessionLocal()
+    try:
+        s = (db.query(Scan)
+               .filter(Scan.domain_key == key, Scan.status == "complete")
+               .order_by(Scan.id.desc()).first())
+        if not s:
+            return jsonify({"found": False, "domain": key})
+        lc = (db.query(LinkCheck)
+                .filter(LinkCheck.scan_public_id == s.public_id)
+                .order_by(LinkCheck.id.desc()).first())
+        health = site_health.summary(_report_of(s))
+        return jsonify({
+            "found": True,
+            "domain": key,
+            "public_id": s.public_id,
+            "url": f"/scans/scan/{s.public_id}",
+            "score": s.overall_score,
+            "tier": s.tier,
+            "scanned_at": _iso(s.completed_at or s.created_at),
+            "fixes": health["fixes"],
+            "speed": health["speed"],
+            "linkcheck": _linkcheck_row(lc),
+        })
+    finally:
+        db.close()
+
+
+def _run_linkcheck(check_id: int, domain: str, pages: list):
+    """Background worker: crawl, then write the result back.
+
+    Runs in a thread with its own session — the request that started it has
+    already returned by the time this finishes.
+    """
+    result, error = None, ""
+    try:
+        result = linkcheck.run(domain, pages)
+        error = result.get("error") or ""
+    except Exception as exc:                   # noqa: BLE001 - never lose the row
+        error = f"{type(exc).__name__}: {exc}"
+    db = SessionLocal()
+    try:
+        lc = db.query(LinkCheck).filter(LinkCheck.id == check_id).first()
+        if lc is None:
+            return
+        if error or result is None:
+            lc.status = "error"
+            lc.error_message = _text(error or "The check produced no result.", 600)
+        else:
+            lc.status = "complete"
+            lc.broken_count = result.get("broken_count")
+            lc.pages_checked = result.get("pages_checked")
+            lc.links_checked = result.get("links_checked")
+            lc.truncated = 1 if result.get("truncated") else 0
+            try:
+                lc.result_json = json.dumps(result)
+            except (TypeError, ValueError):
+                lc.result_json = None
+        lc.finished_at = _now()
+        db.commit()
+        _log("linkcheck_finished", detail=domain, scan=lc.scan_public_id,
+             broken=lc.broken_count, status=lc.status)
+    except Exception:                          # noqa: BLE001
+        db.rollback()
+    finally:
+        db.close()
+
+
+@app.route("/api/scans/<public_id>/linkcheck", methods=["GET", "POST"])
+def api_linkcheck(public_id):
+    """GET the last broken-link crawl; POST to run a fresh one.
+
+    The audit gives counts only, so this is the step that produces the
+    addresses. It hits the customer's live site, so it never runs on its own
+    — someone has to ask for it.
+    """
+    db = SessionLocal()
+    try:
+        s = db.query(Scan).filter(Scan.public_id == public_id).first()
+        if not s:
+            return jsonify({"error": "Unknown scan."}), 404
+        lc = (db.query(LinkCheck)
+                .filter(LinkCheck.scan_public_id == s.public_id)
+                .order_by(LinkCheck.id.desc()).first())
+
+        if request.method == "GET":
+            return jsonify(_linkcheck_row(lc))
+
+        # Don't start a second crawl over the top of one already walking the
+        # site — that doubles the load on the customer's server for nothing.
+        if lc is not None and lc.status == "running":
+            # The column comes back naive from the database (same reason _iso
+            # exists); subtracting it from an aware "now" raises.
+            started = lc.started_at or _now()
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            age = (_now() - started).total_seconds()
+            if age < linkcheck.DEADLINE * 2:
+                return jsonify(_linkcheck_row(lc))
+            lc.status = "error"
+            lc.error_message = "The previous check stopped without finishing."
+            lc.finished_at = _now()
+            db.commit()
+
+        pages = site_health.fixes(_report_of(s)).get("pages_discovered") or []
+        pages = [str(p) for p in pages if p][:linkcheck.MAX_PAGES]
+        row = LinkCheck(scan_public_id=s.public_id, domain_key=s.domain_key,
+                        status="running", requested_by=actor_name())
+        db.add(row)
+        db.commit()
+        _log("linkcheck_started", detail=s.domain_key, scan=s.public_id,
+             pages=len(pages))
+        threading.Thread(target=_run_linkcheck,
+                         args=(row.id, s.domain_key, pages),
+                         daemon=True).start()
+        return jsonify(_linkcheck_row(row))
+    finally:
+        db.close()
+
+
+@app.route("/api/scans/<public_id>/linkcheck.csv")
+def api_linkcheck_csv(public_id):
+    """The broken list as CSV — the form it gets handed over in."""
+    db = SessionLocal()
+    try:
+        s = db.query(Scan).filter(Scan.public_id == public_id).first()
+        if not s:
+            return jsonify({"error": "Unknown scan."}), 404
+        lc = (db.query(LinkCheck)
+                .filter(LinkCheck.scan_public_id == s.public_id,
+                        LinkCheck.status == "complete")
+                .order_by(LinkCheck.id.desc()).first())
+        if not lc or not lc.result_json:
+            return jsonify({"error": "No completed check to export yet."}), 404
+        try:
+            result = json.loads(lc.result_json)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Stored result is unreadable."}), 500
+        fname = linkcheck.csv_filename(s.domain_key)
+        return Response(
+            linkcheck.to_csv(result), mimetype="text/csv",
             headers={"Content-Disposition": f'attachment; filename="{fname}"'},
         )
     finally:

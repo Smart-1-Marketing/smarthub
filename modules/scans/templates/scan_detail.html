@@ -30,6 +30,47 @@
   .menu span { background:#eef2fb; color:#64748b; border:1px dashed #c7d2e8; border-radius:8px;
     padding:8px 14px; font-size:13px; }
   .soon { font-size:11px; color:#94a3b8; }
+  .muted { color:var(--muted); font-size:12.5px; margin-top:2px; }
+  .hcount { float:right; text-transform:none; letter-spacing:0; font-size:12px;
+    font-weight:700; padding:3px 10px; border-radius:999px; background:#f1f5f9; color:var(--muted); }
+  .hcount.bad { background:#fdecec; color:var(--bad); }
+  .hcount.warn { background:#fef9ec; color:var(--warn); }
+  .hcount.ok { background:#ecfdf3; color:var(--ok); }
+  table.fixtbl { width:100%; border-collapse:collapse; }
+  table.fixtbl td { padding:10px 0; border-top:1px solid var(--line); vertical-align:top; }
+  table.fixtbl tr:first-child td { border-top:0; }
+  td.num { width:96px; font-weight:800; font-size:17px; color:var(--navy); white-space:nowrap; }
+  table.spd td.num { font-size:15px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%;
+    margin-right:8px; vertical-align:middle; background:#cbd5e1; }
+  .dot.bad { background:var(--bad); } .dot.warn { background:var(--warn); }
+  .dot.ok { background:var(--ok); }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 4px; }
+  .chip { background:#f1f5f9; color:var(--muted); border-radius:999px;
+    padding:5px 12px; font-size:12.5px; font-weight:600; }
+  .chip.bad { background:#fdecec; color:var(--bad); }
+  .chip.warn { background:#fef9ec; color:var(--warn); }
+  .chip.ok { background:#ecfdf3; color:var(--ok); }
+  details.more { margin-top:14px; }
+  details.more > summary { cursor:pointer; color:var(--blue); font-weight:600;
+    font-size:13px; list-style:none; padding:8px 0; }
+  details.more > summary::-webkit-details-marker { display:none; }
+  details.more > summary:before { content:"▸ "; }
+  details.more[open] > summary:before { content:"▾ "; }
+  .lc { margin-top:18px; border-top:1px solid var(--line); padding-top:14px; }
+  .lc-head { display:flex; gap:16px; align-items:flex-start; justify-content:space-between; }
+  .lc button { background:var(--navy); color:#fff; border:0; border-radius:8px;
+    padding:9px 16px; font:600 13px inherit; cursor:pointer; white-space:nowrap; }
+  .lc button[disabled] { background:#94a3b8; cursor:default; }
+  .lc a.csv { color:var(--blue); font-weight:600; font-size:13px; text-decoration:none; }
+  .lcrow { border-top:1px solid var(--line); padding:9px 0; font-size:13px; }
+  .lcrow .u { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px;
+    word-break:break-all; }
+  .tag { display:inline-block; font-size:10.5px; font-weight:700; border-radius:5px;
+    padding:2px 6px; margin-right:6px; text-transform:uppercase; letter-spacing:.03em; }
+  .tag.image { background:#ede9fe; color:#5b21b6; }
+  .tag.link { background:#e0edff; color:#1e40af; }
+  .tag.ext { background:#f1f5f9; color:#64748b; }
 </style>
 </head>
 <body>
@@ -88,6 +129,98 @@
   </script>
   {% endif %}
 
+  {% if scan.status == "complete" %}
+  {# ---------------- Fix list: broken links and images ----------------- #}
+  <div class="card">
+    <h2>Fix These
+      {% if fixes.measured %}
+        <span class="hcount {{ fixes.worst }}">{{ fixes.total }} to fix</span>
+      {% endif %}
+    </h2>
+    {% if not fixes.measured %}
+      <p class="sub" style="margin:0">This audit didn't return link or image
+        checks. Re-run the scan, or check the plan covers them.</p>
+    {% elif fixes.total == 0 %}
+      <p class="sub" style="margin:0"><b style="color:var(--ok)">Nothing broken.</b>
+        No broken links and no image problems found
+        {% if detected.pages %}across {{ detected.pages }} pages{% endif %}.</p>
+    {% else %}
+      <table class="fixtbl">
+        <tbody>
+        {% for it in fixes["items"] %}
+          {% if it.severity != "ok" %}
+          <tr>
+            <td class="num"><span class="dot {{ it.severity }}"></span>{{ it.count if it.measured else "—" }}</td>
+            <td><b>{{ it.label }}</b><div class="muted">{{ it.action }}</div></td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+        </tbody>
+      </table>
+      {% set clean = fixes["items"]|selectattr("severity","equalto","ok")|list %}
+      {% if clean %}
+        <p class="muted" style="margin:12px 0 0">Clean:
+          {% for it in clean %}{{ it.label|lower }}{% if not loop.last %} · {% endif %}{% endfor %}.</p>
+      {% endif %}
+    {% endif %}
+
+    {# The audit counts problems but doesn't name the URLs behind them, so
+       the addresses come from checking the site directly, on request. #}
+    <div class="lc" id="lcbox" data-state="{{ linkcheck_state }}">
+      <div class="lc-head">
+        <div>
+          <b>Which links exactly?</b>
+          <div class="muted">The audit counts broken links but doesn't list
+            them. This checks the site itself and gives you the addresses.</div>
+        </div>
+        <button id="lcRun">Find the URLs</button>
+      </div>
+      <div id="lcOut"></div>
+    </div>
+  </div>
+
+  {# ---------------- Speed: summary, detail behind a click ------------- #}
+  <div class="card">
+    <h2>Speed
+      {% if speed.score is not none %}
+        <span class="hcount {{ speed.severity }}">{{ speed.score }}/100</span>
+      {% endif %}
+    </h2>
+    <p style="margin:0 0 4px;font-size:15px">{{ speed.headline }}</p>
+    {% if speed.available %}
+      <div class="chips">
+        <span class="chip {{ speed.severity }}">Score {{ speed.score if speed.score is not none else "—" }}</span>
+        <span class="chip">Main content in {{ speed.lcp }}</span>
+        {% if speed.vitals_pass is not none %}
+          <span class="chip {{ 'ok' if speed.vitals_pass else 'bad' }}">
+            Core Web Vitals {{ "pass" if speed.vitals_pass else "fail" }}</span>
+        {% endif %}
+        {% if speed.device %}<span class="chip">{{ speed.device }}</span>{% endif %}
+      </div>
+
+      <details class="more">
+        <summary>See the full speed detail</summary>
+        <table class="fixtbl spd">
+          <tbody>
+          {% for m in speed["metrics"] %}
+            <tr>
+              <td class="num"><span class="dot {{ m.band or 'none' }}"></span>{{ m.value }}</td>
+              <td><b>{{ m.label }}</b><div class="muted">{{ m.note }}</div></td>
+            </tr>
+          {% endfor %}
+          {% for n in speed["notes"] %}
+            <tr>
+              <td class="num"><span class="dot {{ n.band or 'none' }}"></span>{{ n.value }}</td>
+              <td><b>{{ n.label }}</b><div class="muted">{{ n.note }}</div></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </details>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="card">
     <h2>Detected Business</h2>
     <dl>
@@ -109,6 +242,103 @@
       <span>Compliance</span><span>Complete Audit</span>
     </div>
   </div>
+
+  {% if scan.status == "complete" %}
+  <script>
+  // Broken-link check: run on request only (it hits the customer's live
+  // site), then poll until the background crawl finishes.
+  (function(){
+    var PID = {{ scan.public_id|tojson }};
+    var box = document.getElementById("lcbox");
+    if(!box) return;
+    var btn = document.getElementById("lcRun");
+    var out = document.getElementById("lcOut");
+    var timer = null;
+
+    function esc(s){ return String(s == null ? "" : s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;"); }
+
+    function row(r){
+      var scope = r.external ? '<span class="tag ext">external</span>' : '';
+      var where = (r.found_on || []).length
+        ? '<div class="muted">on ' + r.found_on.map(esc).join('<br>on ') +
+          (r.occurrences > 1 ? ' · used ' + r.occurrences + '×' : '') + '</div>'
+        : '';
+      return '<div class="lcrow"><span class="tag ' + esc(r.kind) + '">' +
+        esc(r.kind) + '</span>' + scope +
+        '<b>' + esc(r.reason || "Broken") + '</b>' +
+        '<div class="u"><a href="' + esc(r.url) + '" target="_blank" rel="noopener">' +
+        esc(r.url) + '</a></div>' + where + '</div>';
+    }
+
+    function render(d){
+      if(d.status === "running"){
+        btn.disabled = true; btn.textContent = "Checking…";
+        out.innerHTML = '<p class="muted">Walking the site — this takes a ' +
+          'minute or two on a big one. You can leave the page open.</p>';
+        return;
+      }
+      btn.disabled = false;
+      btn.textContent = d.status === "none" ? "Find the URLs" : "Check again";
+      if(d.status === "error"){
+        out.innerHTML = '<p class="muted" style="color:#dc2626">' +
+          esc(d.error || "The check didn't finish.") + '</p>';
+        return;
+      }
+      if(d.status !== "complete"){ out.innerHTML = ""; return; }
+      var r = d.result || {};
+      var broken = r.broken || [];
+      var head = '<p style="margin:12px 0 2px"><b>' +
+        (broken.length ? broken.length + ' broken — ' + (r.broken_links||0) +
+          ' link' + ((r.broken_links||0)===1?'':'s') + ', ' +
+          (r.broken_images||0) + ' image' + ((r.broken_images||0)===1?'':'s')
+        : 'Nothing broken') + '</b>' +
+        ' <span class="muted">· checked ' + (r.links_checked||0) +
+        ' across ' + (r.pages_checked||0) + ' pages' +
+        (r.truncated ? ', stopped at the limit — larger sites need a crawler'
+                     : '') + '</span>';
+      if(broken.length) head += ' &nbsp;<a class="csv" href="../api/scans/' +
+        encodeURIComponent(PID) + '/linkcheck.csv">Download CSV</a>';
+      head += '</p>';
+      var list = broken.slice(0, 50).map(row).join("");
+      if(broken.length > 50) list += '<p class="muted">Showing 50 of ' +
+        broken.length + ' — the CSV has them all.</p>';
+      var blocked = (r.blocked || []).length;
+      if(blocked) list += '<p class="muted" style="margin-top:10px">' + blocked +
+        ' external link' + (blocked===1?'':'s') + ' refused an automated check ' +
+        '(403/429). Those usually work fine in a browser — not counted as broken.</p>';
+      out.innerHTML = head + list;
+    }
+
+    function poll(){
+      fetch("../api/scans/" + encodeURIComponent(PID) + "/linkcheck")
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          render(d);
+          if(d.status === "running"){ timer = setTimeout(poll, 8000); }
+        })
+        .catch(function(){ if(timer) clearTimeout(timer); });
+    }
+
+    btn.onclick = function(){
+      btn.disabled = true; btn.textContent = "Checking…";
+      out.innerHTML = '<p class="muted">Starting…</p>';
+      fetch("../api/scans/" + encodeURIComponent(PID) + "/linkcheck",
+            {method:"POST"})
+        .then(function(r){ return r.json(); })
+        .then(function(d){ render(d); if(d.status === "running") timer = setTimeout(poll, 6000); })
+        .catch(function(){
+          btn.disabled = false; btn.textContent = "Find the URLs";
+          out.innerHTML = '<p class="muted" style="color:#dc2626">' +
+            'Could not start the check.</p>';
+        });
+    };
+
+    if(box.getAttribute("data-state")) poll();
+  })();
+  </script>
+  {% endif %}
 
   {% if raw_json %}
   <div class="card">

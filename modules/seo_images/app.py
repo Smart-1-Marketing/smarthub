@@ -320,6 +320,11 @@ def generate_seo_data(image_bytes: bytes, mime: str, meta: dict) -> dict:
                       json=payload, timeout=90)
     if not r.ok:
         raise RuntimeError(f"OpenAI returned {r.status_code}: {r.text[:200]}")
+    try:  # record spend so /diagnostics doesn't under-report
+        from hub import ai as _hub_ai
+        _hub_ai.note_usage("seo_images", r.json(), purpose="alt_text")
+    except Exception:  # noqa: BLE001
+        pass
     out = json.loads(r.json()["choices"][0]["message"]["content"])
     return {"seoFilename": slugify(out.get("seoFilename"), "web-image"),
             "altText": _clean_alt(out.get("altText"))}

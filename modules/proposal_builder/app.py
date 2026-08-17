@@ -119,6 +119,11 @@ def _ai_blocks(industry_key, customer):
     if not r.ok:
         raise RuntimeError(f"OpenAI {r.status_code}")
     import json as _json2
+    try:  # record spend so /diagnostics doesn't under-report
+        from hub import ai as _hub_ai
+        _hub_ai.note_usage("proposal_builder", r.json(), purpose="proposal")
+    except Exception:  # noqa: BLE001
+        pass
     content = (r.json().get("choices") or [{}])[0].get("message", {}).get("content") or "{}"
     blocks = _json2.loads(content).get("blocks")
     return blocks if isinstance(blocks, list) and len(blocks) >= 4 else None
