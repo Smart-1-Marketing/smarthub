@@ -1,23 +1,79 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sign in — Smart 1 Hub</title>
-<link rel="stylesheet" href="/assets/hub.css">
-</head>
-<body>
-<div class="login-wrap">
-  <form class="login-card" method="post" action="/login">
-    <div class="login-logo"><div class="logo-mark">S1</div><h1>Smart 1 Hub</h1></div>
-    <div class="login-sub">One login for all Smart 1 internal tools</div>
-    {% if error %}<div class="login-err">{{ error }}</div>{% endif %}
-    <input type="hidden" name="next" value="{{ next }}">
-    <div class="field"><label>Your name</label><input name="name" required maxlength="60" placeholder="e.g. Todd" autofocus></div>
-    <div class="field"><label>Team password</label><input name="password" type="password" required></div>
-    <button class="btn-primary full" type="submit">Sign in &rarr;</button>
-    <div class="login-note">Actions are logged under your name &middot; Sessions last 12 hours</div>
-  </form>
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in · Smart 1 Hub</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.55 'Segoe UI',system-ui,sans-serif;background:#f4f6fa;color:#1e293b}
+.wrap{max-width:400px;margin:8vh auto;padding:0 18px}
+.brand{text-align:center;margin-bottom:18px;font-weight:800;color:#1a2e58;letter-spacing:.6px}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:13px;padding:26px}
+h1{margin:0 0 4px;font-size:22px;color:#0d2340}
+.sub{color:#64748b;margin:0 0 18px;font-size:13.5px}
+label{display:block;font-weight:600;font-size:13px;margin:14px 0 5px}
+input{width:100%;padding:10px;border:1px solid #cfd7df;border-radius:8px;font:inherit}
+button{width:100%;margin-top:18px;padding:11px;border:0;border-radius:8px;
+  background:#1769AA;color:#fff;font:600 14px 'Segoe UI',system-ui;cursor:pointer}
+button:hover{background:#145a92}
+.err{background:#fff0ee;border:1px solid #fca5a5;color:#8e2018;padding:11px 13px;
+  border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5}
+.err a{color:#8e2018;font-weight:700}
+.signup{margin-top:20px;padding-top:18px;border-top:1px solid #eef2f6;text-align:center}
+.signup p{margin:0 0 10px;color:#64748b;font-size:13px}
+.signup a{display:block;padding:10px;border:1px solid #cfe2f2;border-radius:8px;
+  background:#eef5fb;color:#1769AA;font-weight:600;text-decoration:none}
+.signup a:hover{background:#e2eef8}
+.alt{text-align:center;margin-top:16px;font-size:12.5px;color:#94a3b8}
+.ver{margin:-10px 0 18px;font:600 11px ui-monospace,monospace;color:#94a3b8;
+  letter-spacing:.3px}
+.alt a{color:#1769AA;text-decoration:none}
+.gbtn{display:block;text-align:center;margin-top:12px;padding:10px;border:1px solid #d7dfe8;
+  border-radius:8px;background:#fff;color:#1b2733;font-weight:600;text-decoration:none}
+.or{display:flex;align-items:center;gap:10px;margin:16px 0 0;color:#94a3b8;font-size:12px}
+.or::before,.or::after{content:"";flex:1;height:1px;background:#e2e8f0}
+</style></head><body>
+<div class="wrap">
+  <div class="brand">SMART 1 HUB</div>
+  <div class="card">
+    <h1>Sign in</h1>
+    <p class="sub">Use your own Smart 1 Marketing account.</p>
+
+    {# Version on the sign-in page, not just the footer. Every page behind the
+       login is unreachable when the login is what's broken -- which is exactly
+       when you most need to know whether the deploy actually took. #}
+    <p class="ver">{{ hub_version }}</p>
+
+    {% if error %}
+      <div class="err">
+        {{ error }}
+        {% if offer_signup %}<br><a href="/signup">Create an account &rarr;</a>{% endif %}
+      </div>
+    {% endif %}
+
+    <form method="post">
+      <input type="hidden" name="next" value="{{ next }}">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username"
+             value="{{ last_email or '' }}" required autofocus>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password"
+             autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+    </form>
+
+    {# Google sign-in is hidden unless HUB_GOOGLE_LOGIN=true. The OAuth consent
+       screen for the sensitive scopes is still in review, so showing the button
+       would offer people a route that cannot work yet. #}
+    {% if google_enabled %}
+      <div class="or"><span>or</span></div>
+      <a class="gbtn" href="/auth/google?next={{ next|urlencode }}">Sign in with Google</a>
+    {% endif %}
+
+    <div class="signup">
+      <p>Don't have an account yet?</p>
+      <a href="/signup">Sign up</a>
+    </div>
+  </div>
+  <p class="alt"><a href="/reset">Forgotten your password?</a>
+     &nbsp;·&nbsp; <a href="/login/health">Sign-in diagnostics</a></p>
 </div>
-</body>
-</html>
+</body></html>
