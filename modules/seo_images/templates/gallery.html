@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Client image gallery — Smart 1 Hub</title>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--bad:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:26px 22px 60px}
+  h1{color:var(--navy);font-size:22px;margin:0 0 3px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 18px}
+  .back{color:var(--blue);text-decoration:none;font-size:13px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+  .bar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .bar input{flex:1;min-width:220px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13px inherit;padding:8px 14px;border-radius:8px;
+    cursor:pointer;text-decoration:none;display:inline-block}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+  .tile{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+  .tile .ph{aspect-ratio:4/3;background:#f1f5f9;display:block}
+  .tile .ph img{width:100%;height:100%;object-fit:cover;display:block}
+  .tile .b{padding:9px 11px;flex:1;display:flex;flex-direction:column;gap:4px}
+  .tile .fn{font:600 11.5px ui-monospace,Consolas,monospace;color:var(--navy);overflow-wrap:anywhere}
+  .tile .alt{font-size:12px;color:#334155;line-height:1.4}
+  .tile .m{font-size:11px;color:var(--muted);margin-top:auto;padding-top:5px}
+  .tile .acts{display:flex;gap:6px;padding:0 11px 10px}
+  .lnk{color:var(--blue);text-decoration:none;cursor:pointer;font-size:12px}
+  .lnk:hover{text-decoration:underline}
+  .empty{text-align:center;color:var(--muted);padding:34px}
+  .grp{font:700 12px inherit;color:var(--navy);text-transform:uppercase;letter-spacing:.6px;
+    margin:20px 0 9px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+  .grp span{color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0}
+  .verfoot{text-align:center;color:#94a3b8;font-size:11.5px;padding:16px 0 4px;
+    border-top:1px solid var(--line);margin-top:20px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="./">&larr; SEO Image Pipeline</a>
+  <h1 id="title">Client image gallery</h1>
+  <p class="sub" id="sub">Every image saved for this client, newest first.</p>
+
+  <div class="card">
+    <div class="bar">
+      <input type="search" id="search" placeholder="Search filename, alt text, project or page…">
+      <a class="btn sec" id="btnCsv" href="api/gallery/export">&#8681; CSV</a>
+      <a class="btn" id="btnAdd" href="./">+ Optimise more images</a>
+    </div>
+    <div id="body"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="verfoot">Smart 1 Hub &middot; Client image gallery &middot; <b>{{ version }}</b></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const COMPANY = {{ company|tojson }};
+const CLIENT_SLUG = {{ client_slug|tojson }};
+const kb = n => n ? Math.round(n/1024).toLocaleString()+' KB' : '';
+
+if(COMPANY){
+  $('title').textContent = COMPANY + ' — image gallery';
+  $('btnAdd').href = './?company=' + encodeURIComponent(COMPANY);
+}
+
+function scopeQS(extra){
+  const p = new URLSearchParams();
+  if(COMPANY) p.set('company', COMPANY);
+  if(CLIENT_SLUG) p.set('client_slug', CLIENT_SLUG);
+  const q = $('search').value.trim();
+  if(q) p.set('q', q);
+  Object.entries(extra||{}).forEach(([k,v]) => p.set(k,v));
+  return p.toString();
+}
+
+async function load(){
+  $('btnCsv').href = 'api/gallery/export?' + scopeQS();
+  try{
+    const d = await fetch('api/gallery?' + scopeQS()).then(r=>r.json());
+    render(d.gallery || []);
+  }catch(e){ $('body').innerHTML = '<div class="empty">Couldn\'t load the gallery.</div>'; }
+}
+
+function render(rows){
+  if(!rows.length){
+    $('body').innerHTML = '<div class="empty">No images saved'
+      + (COMPANY ? ' for ' + esc(COMPANY) : '') + ' yet.</div>';
+    $('sub').textContent = '';
+    return;
+  }
+  $('sub').textContent = rows.length + ' image' + (rows.length>1?'s':'')
+    + (COMPANY ? '' : ' across all clients') + ', newest first.';
+
+  // grouped by project, because that is how the work was actually done
+  const groups = {};
+  rows.forEach(r => { (groups[r.project || 'Unfiled'] ||= []).push(r); });
+
+  $('body').innerHTML = Object.entries(groups).map(([proj, list]) => `
+    <div class="grp">${esc(proj)} <span>· ${list.length} image${list.length>1?'s':''}${
+      COMPANY ? '' : ' · ' + esc(list[0].company || '')}</span></div>
+    <div class="tiles">${list.map(r => `
+      <div class="tile">
+        <a class="ph" href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.url)}" alt="${esc(r.alt_text)}" loading="lazy"></a>
+        <div class="b">
+          <div class="fn">${esc(r.filename)}</div>
+          <div class="alt">${esc(r.alt_text)}</div>
+          <div class="m">${r.page ? esc(r.page) + ' · ' : ''}${r.width?r.width+'×'+r.height+' · ':''}${kb(r.bytes)}<br>${esc(r.saved_at||'')} · ${esc(r.saved_by||'')}</div>
+        </div>
+        <div class="acts">
+          <a class="lnk" data-copy="${esc(r.id)}">Copy URL</a>
+          <a class="lnk" data-tag="${esc(r.id)}">Copy &lt;img&gt;</a>
+        </div>
+      </div>`).join('')}</div>`).join('');
+
+  const find = id => rows.find(x => x.id === id);
+  $('body').querySelectorAll('[data-copy]').forEach(a => {
+    a.onclick = () => { const r = find(a.dataset.copy); if(r) copy(r.url, a); };
+  });
+  $('body').querySelectorAll('[data-tag]').forEach(a => {
+    a.onclick = () => {
+      const r = find(a.dataset.tag); if(!r) return;
+      copy('<img src="'+r.url+'" alt="'+String(r.alt_text||'').replace(/"/g,"'")+'"'
+        + (r.width?' width="'+r.width+'" height="'+r.height+'"':'') + ' loading="lazy">', a);
+    };
+  });
+}
+function copy(text, el){
+  navigator.clipboard.writeText(text).then(() => {
+    const old = el.textContent; el.textContent = 'Copied ✓';
+    setTimeout(() => el.textContent = old, 1300);
+  });
+}
+let t; $('search').oninput = () => { clearTimeout(t); t = setTimeout(load, 250); };
+load();
+</script>
+</body>
+</html>

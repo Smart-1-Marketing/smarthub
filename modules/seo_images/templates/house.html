@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>House URLs — Smart 1 Hub</title>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--bad:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:26px 22px 60px}
+  h1{color:var(--navy);font-size:23px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px;max-width:70ch;line-height:1.55}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+  h2{color:var(--navy);font-size:15px;margin:0 0 12px}
+  label{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+  input,textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:700px){.grid{grid-template-columns:1fr}}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13.5px inherit;padding:9px 17px;border-radius:8px;
+    cursor:pointer;text-decoration:none;display:inline-block}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.small{padding:5px 11px;font-size:12.5px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:var(--soft);text-align:left;padding:8px 10px;font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--line)}
+  td{padding:9px 10px;border-bottom:1px solid #eef2f7;vertical-align:top}
+  .lnk{color:var(--blue);text-decoration:none;cursor:pointer}
+  .lnk:hover{text-decoration:underline}
+  .empty{text-align:center;color:var(--muted);padding:26px}
+  .msg{font-size:13px;margin-left:9px;color:var(--muted)}
+  .msg.err{color:var(--bad)}
+  .badge{display:inline-block;background:#fef3c7;color:#92400e;border-radius:20px;padding:1px 8px;
+    font-size:10.5px;font-weight:700}
+  .back{color:var(--blue);text-decoration:none;font-size:13px}
+  .verfoot{text-align:center;color:#94a3b8;font-size:11.5px;padding:16px 0 4px;
+    border-top:1px solid var(--line);margin-top:20px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/tools">&larr; Tools</a>
+  <h1>House URLs</h1>
+  <p class="sub">Sites we run in house. They have no products on the books today &mdash; that may change &mdash;
+    but they need the same tooling as any client. Adding one here makes it selectable everywhere the Hub asks
+    which client something belongs to, marked <span class="badge">house</span> so nobody mistakes it for billable work.</p>
+
+  <div class="card">
+    <h2>Add a house site</h2>
+    <div class="grid">
+      <div><label>Name</label><input type="text" id="name" placeholder="Smart 1 Marketing"></div>
+      <div><label>URL</label><input type="url" id="url" placeholder="smart1marketing.com"></div>
+    </div>
+    <div style="margin-top:11px"><label>Notes <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+      <input type="text" id="notes" placeholder="Main company site — SEO handled in house"></div>
+    <div style="margin-top:13px">
+      <button class="btn" id="btnAdd">Add house site</button>
+      <span class="msg" id="msg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>House sites <span class="msg" id="count"></span></h2>
+    <div id="body"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="verfoot">Smart 1 Hub &middot; House URLs &middot; <b>{{ version }}</b></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function load(){
+  try{
+    const d = await fetch('api/clients/house').then(r=>r.json());
+    render(d.clients || []);
+  }catch(e){ $('body').innerHTML = '<div class="empty">Couldn\'t load the list.</div>'; }
+}
+
+function render(rows){
+  $('count').textContent = rows.length ? rows.length + ' site' + (rows.length>1?'s':'') : '';
+  if(!rows.length){
+    $('body').innerHTML = '<div class="empty">No house sites yet. Add the first one above.</div>';
+    return;
+  }
+  $('body').innerHTML = '<table><thead><tr><th>Name</th><th>URL</th><th>Notes</th><th>Added</th><th></th></tr></thead><tbody>'
+    + rows.map(r => `<tr data-slug="${esc(r.slug)}">
+        <td><b>${esc(r.name)}</b> <span class="badge">house</span></td>
+        <td>${r.url ? '<a class="lnk" href="'+esc(r.url)+'" target="_blank" rel="noopener">'+esc(r.domain||r.url)+'</a>' : '<span style="color:var(--muted)">—</span>'}</td>
+        <td style="color:#475569">${esc(r.notes||'')}</td>
+        <td style="color:var(--muted);font-size:12px">${esc(r.added_at||'')}<div>${esc(r.added_by||'')}</div></td>
+        <td style="white-space:nowrap;text-align:right">
+          <a class="lnk" href="./?company=${encodeURIComponent(r.name)}&url=${encodeURIComponent(r.url||'')}">Optimise images</a><br>
+          <a class="lnk" href="gallery?company=${encodeURIComponent(r.name)}">Gallery</a><br>
+          <a class="lnk" style="color:#b91c1c" data-del="${esc(r.slug)}">Remove</a>
+        </td></tr>`).join('')
+    + '</tbody></table>';
+
+  $('body').querySelectorAll('[data-del]').forEach(a => {
+    a.onclick = async () => {
+      const r = rows.find(x => x.slug === a.dataset.del);
+      if(!r || !confirm('Remove “'+r.name+'” from the house list?\n\nImages already saved for it are kept.')) return;
+      await fetch('api/clients/house/delete', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({slug: r.slug})});
+      load();
+    };
+  });
+}
+
+$('btnAdd').onclick = async () => {
+  const name = $('name').value.trim();
+  if(!name){ $('msg').className='msg err'; $('msg').textContent='A name is required.'; return; }
+  $('btnAdd').disabled = true; $('msg').className='msg'; $('msg').textContent='Adding…';
+  try{
+    const d = await fetch('api/clients/house', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, url: $('url').value.trim(), notes: $('notes').value.trim()})}).then(r=>r.json());
+    $('btnAdd').disabled = false;
+    if(d.error){ $('msg').className='msg err'; $('msg').textContent=d.error; return; }
+    $('msg').textContent='Added ✓';
+    ['name','url','notes'].forEach(id => $(id).value='');
+    load();
+    setTimeout(() => $('msg').textContent='', 1600);
+  }catch(e){ $('btnAdd').disabled=false; $('msg').className='msg err'; $('msg').textContent='Failed: '+e; }
+};
+$('name').addEventListener('keydown', e => { if(e.key==='Enter') $('btnAdd').click(); });
+load();
+</script>
+</body>
+</html>
