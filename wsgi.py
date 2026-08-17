@@ -48,6 +48,11 @@ _MOUNT_ACTIVE = {
     "/tools/image": "tools", "/tools/pdf": "tools", "/tools/seo-images": "tools",
     "/tools/image-creator": "tools", "/tools/bg-remover": "tools",
     "/tools/utm": "tools",
+    "/tools/calculators": "calculators",
+    "/tools/fan-radio": "fan_radio",
+    "/tools/google-access": "google_access",
+    "/tools/image-picker": "image_picker",
+    "/tools/page-images": "page_image_optimizer",
 }
 
 
@@ -278,6 +283,14 @@ def _mount(flask_app, prefix, public_prefixes=None):
                      public_prefixes=public_prefixes)
 
 
+
+try:
+    import importlib as _il_fanrad
+    fanrad = _il_fanrad.import_module("modules.fan_radio.app")
+    fanrad_fb = None
+except Exception as _exc_fanrad:  # noqa: BLE001
+    fanrad, fanrad_fb = None, _fallback_app("Fan Radio", str(_exc_fanrad))
+
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
@@ -291,6 +304,7 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/utm": _mount(utm.app, "/tools/utm") if utm else utm_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
+    "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio") if fanrad else fanrad_fb,
 })
 from hub import errors as _errors
 application = _errors.ErrorMirror(application)

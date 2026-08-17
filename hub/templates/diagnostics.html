@@ -8,7 +8,11 @@
       <p class="diag-sub">Live checks against every external API, monthly usage
         against your allowances, and an estimate of the OpenAI bill.</p>
     </div>
-    <button type="button" class="diag-refresh" onclick="loadAll(true)">Re-run checks</button>
+    <a class="diag-refresh" href="/diagnostics/users"
+         style="text-decoration:none;background:#fff;color:#1769AA;border:1px solid #cfe2f2;
+                display:inline-block;margin-left:auto">Users</a>
+      <button type="button" class="diag-refresh" style="margin-left:8px"
+              onclick="loadAll(true)">Re-run checks</button>
   </div>
 
   <!-- ---------------- warnings ---------------- -->
@@ -34,6 +38,19 @@
       under the line.
     </p>
     <div id="diag-quotas" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+  </section>
+
+  <!-- ---------------- integrity ---------------- -->
+  <section class="diag-card">
+    <h2>Integration hygiene</h2>
+    <p class="diag-help">
+      A static read of the source for defect patterns that have each shipped
+      here before — a PDF uploaded as an image type (the link 403s), a WebP
+      conversion with no resize (the file never shrinks), OpenAI spend that
+      bypasses the cost estimate, modules that never write to the activity log.
+      The check exists so these cannot return unnoticed in a module written later.
+    </p>
+    <div id="diag-integrity" class="diag-rows"><p class="diag-loading">Loading…</p></div>
   </section>
 
   <!-- ---------------- OpenAI cost ---------------- -->
@@ -184,6 +201,21 @@ function renderOpenAI(o){
     '<p class="diag-caveat">'+esc(o.caveat)+'</p>';
 }
 
+function renderIntegrity(d){
+  document.getElementById("diag-integrity").innerHTML = d.groups.map(function(g){
+    var state = g.count===0 ? "ok" : (g.severity==="high"?"error":g.severity==="medium"?"warn":"off");
+    var body = g.count===0 ? "None found."
+      : g.findings.slice(0,8).map(function(f){
+          return "<b>"+esc(f.module)+"</b> &mdash; "+esc(f.detail)+
+                 (f.fix?' <em class="diag-fix">'+esc(f.fix)+"</em>":"");
+        }).join("<br><br>") + (g.count>8?"<br><br>…and "+(g.count-8)+" more.":"");
+    return '<div class="diag-row">'+
+      '<span class="diag-pill p-'+state+'">'+(g.count||"ok")+'</span>'+
+      '<span class="diag-name">'+esc(g.label)+'</span>'+
+      '<span class="diag-detail">'+body+'</span></div>';
+  }).join("");
+}
+
 function loadAll(force){
   if(force){
     document.getElementById("diag-checks").innerHTML='<p class="diag-loading">Running checks…</p>';
@@ -192,6 +224,10 @@ function loadAll(force){
     .then(r=>r.json()).then(renderChecks)
     .catch(()=>{document.getElementById("diag-checks").innerHTML=
       '<p class="diag-loading">Checks could not be run.</p>';});
+  fetch("/api/integrity",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderIntegrity)
+    .catch(function(){document.getElementById("diag-integrity").innerHTML=
+      '<p class="diag-loading">Could not run the audit.</p>';});
   fetch("/api/quotas",{credentials:"same-origin"})
     .then(r=>r.json()).then(d=>{renderQuotas(d);renderOpenAI(d.openai);})
     .catch(()=>{});

@@ -1,0 +1,27 @@
+{% extends "_users_base.html" %}{% block title %}Create an account{% endblock %}
+{% block body %}
+{% if submitted %}
+  <h1>Request sent</h1>
+  <div class="ok">Your account has been created and is waiting for approval.
+  An admin will let you know when it's ready — you won't be able to sign in
+  until then.</div>
+{% else %}
+  <h1>Create an account</h1>
+  <p class="sub">For {{ domains|join(' and ') }} addresses. A super admin
+    approves each account before it can sign in.</p>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <form method="post">
+    <label for="name">Your name</label>
+    <input id="name" name="name" autocomplete="name" required>
+    <label for="email">Work email</label>
+    <input id="email" name="email" type="email" autocomplete="email" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password"
+           autocomplete="new-password" minlength="{{ min_len }}" required>
+    <div class="hint">At least {{ min_len }} characters. A short phrase you'll
+      remember is stronger than a short jumble.</div>
+    <button type="submit">Create account</button>
+  </form>
+{% endif %}
+{% endblock %}
+{% block alt %}<p class="alt">Already have one? <a href="/signin">Sign in</a></p>{% endblock %}

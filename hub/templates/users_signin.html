@@ -1,0 +1,16 @@
+{% extends "_users_base.html" %}{% block title %}Sign in{% endblock %}
+{% block body %}
+<h1>Sign in</h1>
+<p class="sub">Your own account — not the shared password.</p>
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+<form method="post">
+  <input type="hidden" name="next" value="{{ next }}">
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" autocomplete="username" required autofocus>
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  <button type="submit">Sign in</button>
+</form>
+{% endblock %}
+{% block alt %}<p class="alt"><a href="/reset">Forgotten your password?</a>
+&nbsp;·&nbsp; <a href="/signup">Create an account</a></p>{% endblock %}

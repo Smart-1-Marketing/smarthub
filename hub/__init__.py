@@ -98,6 +98,15 @@ def create_hub_app() -> Flask:
         from . import quotas
         return jsonify(quotas.summary(request.args.get("month")))
 
+    @app.route("/api/integrity")
+    def api_integrity():
+        """Static audit for defect patterns that have each shipped before."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import integrity
+        return jsonify(integrity.run())
+
     @app.route("/api/quotas/warnings")
     def api_quota_warnings():
         """Just the providers needing attention — for a banner or a cron job."""
@@ -1698,6 +1707,90 @@ def create_hub_app() -> Flask:
             else "/var/data not mounted — audit log and Google tokens are ephemeral.")
 
         return jsonify({"checks": checks})
+
+    # Shared SQLAlchemy instance. Must run BEFORE any module blueprint is
+    # registered, because their models bind to it at import time and their
+    # create_all() runs during registration.
+    try:
+        from .extensions import init_db
+        init_db(app)
+    except Exception as _db_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _db_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- v7.9 blueprint tools ----------------
+    # These ship as Flask blueprints rather than standalone apps, so they
+    # register on the hub app directly. Each is wrapped: a tool that fails to
+    # load must degrade to "that tool is missing", never to a dead Hub.
+    for _label, _mod, _fn, _prefix in (
+        ("Calculators", "modules.calculators", "register_calculators", "/tools/calculators"),
+        ("Google Access", "modules.google_access", "register_google_access", "/tools/google-access"),
+        ("Image Picker", "modules.image_picker", "register_image_picker", "/tools/image-picker"),
+        ("Page Image Optimizer", "modules.page_image_optimizer", "register", "/tools/page-images"),
+    ):
+        try:
+            _m = __import__(_mod, fromlist=[_fn])
+            _register = getattr(_m, _fn)
+            import inspect
+            if "url_prefix" in inspect.signature(_register).parameters:
+                _register(app, url_prefix=_prefix)
+            else:
+                _register(app)
+        except Exception as _tool_exc:  # noqa: BLE001
+            try:
+                errors.log_exception("hub", _tool_exc)
+            except Exception:  # noqa: BLE001
+                pass
+
+    # ---------------- Commercial Builder ----------------
+    # A blueprint, not a standalone Flask app, so it registers here rather
+    # than mounting through DispatcherMiddleware in wsgi.py.
+    try:
+        from modules.commercial_builder import register_commercial_builder
+        register_commercial_builder(app)
+    except Exception as _cb_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cb_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- User accounts ----------------
+    # Registered after init_db (models bind to the shared instance) and before
+    # the help layer, so /diagnostics/users exists by the time the sidebar
+    # renders. Seeds the founding super admins on first boot.
+    try:
+        from .users_routes import register_users
+        register_users(app)
+    except Exception as _users_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _users_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Stale Creative audit ----------------
+    # Same defensive registration as the help layer below: an audit that fails
+    # to load must not take the Hub with it.
+    try:
+        from .stale_creative import register_stale_creative
+        register_stale_creative(app)
+    except Exception as _sc_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _sc_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Create any tables the newly registered blueprints declared. Runs AFTER
+    # all of them, so a module registered later still gets its tables. Guarded:
+    # a sleeping database must not take the Hub down at boot.
+    try:
+        from .extensions import create_all as _create_all
+        _tbl_err = _create_all(app)
+        if _tbl_err:
+            app.config["HUB_DB_BOOT_ERROR"] = _tbl_err
+    except Exception:  # noqa: BLE001
+        pass
 
     # ---------------- v7: help bubbles, tool walkthroughs, demo mode -------
     # Registered last, because it needs _hub_user (defined with the login

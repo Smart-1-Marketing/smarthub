@@ -1,0 +1,37 @@
+{% extends "_users_base.html" %}{% block title %}Reset password{% endblock %}
+{% block body %}
+{% if requested %}
+  <h1>Request noted</h1>
+  <div class="ok">If that address has an account, an admin has been flagged to
+    issue you a reset link. They'll pass it to you directly — the Hub doesn't
+    send email.</div>
+{% elif done_pending %}
+  <h1>Password set</h1>
+  <div class="ok">Your password is set. Your account still needs approval
+    before you can sign in.</div>
+{% elif token %}
+  <h1>Choose a new password</h1>
+  <p class="sub">This link is single-use and expires shortly after it was issued.</p>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <form method="post">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label for="password">New password</label>
+    <input id="password" name="password" type="password"
+           autocomplete="new-password" minlength="{{ min_len }}" required autofocus>
+    <div class="hint">At least {{ min_len }} characters. Setting a new password
+      signs out every other session on your account.</div>
+    <button type="submit">Set password</button>
+  </form>
+{% else %}
+  <h1>Forgotten your password?</h1>
+  <p class="sub">Tell us your address and an admin will issue you a reset link.</p>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <form method="post">
+    <input type="hidden" name="mode" value="request">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" required autofocus>
+    <button type="submit">Request a reset</button>
+  </form>
+{% endif %}
+{% endblock %}
+{% block alt %}<p class="alt"><a href="/signin">Back to sign in</a></p>{% endblock %}

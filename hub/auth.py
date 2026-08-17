@@ -102,3 +102,34 @@ def throttle_fail(ip: str) -> None:
 def throttle_reset(ip: str) -> None:
     with _attempts_lock:
         _attempts.pop(ip, None)
+
+
+def login_required(fn):
+    """Page-level guard for blueprints registered on the hub app.
+
+    Modules written outside this repo import this by name and fall back to a
+    no-op when it's missing — which silently serves an admin page to anyone.
+    Defining it here closes that hole rather than leaving each module to guess.
+    """
+    import functools
+    from flask import redirect, request
+
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        if not user_from_environ(request.environ):
+            return redirect("/login?next=" + request.path)
+        return fn(*a, **kw)
+    return wrapper
+
+
+def api_login_required(fn):
+    """Same, for JSON endpoints — 401 instead of a redirect."""
+    import functools
+    from flask import jsonify, request
+
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        if not user_from_environ(request.environ):
+            return jsonify({"error": "Not authenticated."}), 401
+        return fn(*a, **kw)
+    return wrapper

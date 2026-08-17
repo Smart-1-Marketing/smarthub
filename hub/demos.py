@@ -948,6 +948,342 @@ SCENARIOS: list[Scenario] = [
                  "client-facing proposal, look at it once before it goes out.",
                  action="click", selector="[data-demo='pdf-download']"),
         ]),
+
+    # ------------------------------------------------------------------
+    Scenario(
+        key="calculators.publish", module="calculators",
+        title="Put a lead-capture calculator on a client page",
+        goal="A live calculator embedded on a page, capturing name, email and "
+             "phone before it releases the full estimate — and you know where "
+             "the leads land.",
+        minutes=6, path="/tools/calculators/",
+        steps=[
+            Step("Pick the calculator that matches the pitch",
+                 "Digital Audio, Connected TV, DOOH, IMS Trade, or Female 18–34.",
+                 "Choose by what you're actually selling that client. A CTV "
+                 "calculator on a page selling radio just teaches the prospect "
+                 "you weren't listening.",
+                 action="look", selector="[data-demo='calc-list']"),
+            Step("Run it yourself first",
+                 "Fill in the inputs the way a prospect would and press Run.",
+                 "Never publish one you haven't run. You want to know what "
+                 "number a realistic input produces before a prospect sees it "
+                 "and asks you to defend it.",
+                 action="click", selector="#runBtn"),
+            Step("Notice what comes back before the gate",
+                 "Headline metrics only.",
+                 "This is the important bit. The withheld detail is never sent "
+                 "to the browser — it's stored server-side under a token. It "
+                 "isn't a CSS blur someone can delete in devtools, which is how "
+                 "every calculator in the old suite leaked its full report.",
+                 action="look", selector="#metrics"),
+            Step("Now fill the gate",
+                 "Name, email and phone.",
+                 "All three are validated server-side. Phone is required — it "
+                 "was required in none of the eleven apps in the original "
+                 "suite, which is why so many leads were uncontactable.",
+                 action="fill", selector="#name", value="Dana Whitfield"),
+            Step("See the full detail unlock",
+                 "The step table and full breakdown appear.",
+                 "The unlock trades the token for the rest. Same result the "
+                 "prospect gets — worth seeing once so you can talk them "
+                 "through it on a call.",
+                 action="look", selector="#detailTable"),
+            Step("Check the leads page",
+                 "Everything captured, exportable as CSV.",
+                 "This is behind the Hub login; the calculator itself is "
+                 "public. Check it after any campaign that sends traffic — a "
+                 "calculator quietly capturing nothing looks identical to one "
+                 "nobody used.",
+                 action="click", selector="[data-demo='calc-leads']"),
+        ]),
+
+    # ------------------------------------------------------------------
+    Scenario(
+        key="image_picker.client_shoot", module="image_picker",
+        title="Build a client's image library by industry",
+        goal="A set of on-brand stock images saved to one client's library, "
+             "sized for the web and ready to push to their site.",
+        minutes=5, path="/tools/image-picker/",
+        spends=["cloudinary.write"],
+        steps=[
+            Step("Add the client first",
+                 "Name, industry and location.",
+                 "Industry drives the suggested search chips, and location is "
+                 "what stops a Columbus HVAC company getting palm trees in "
+                 "every photo.",
+                 action="fill", selector="#newName", value="Riverside HVAC"),
+            Step("Set the industry",
+                 "Pick from the list rather than typing something new.",
+                 "The taxonomy is what makes the chips useful. A one-off "
+                 "industry string gets no suggestions at all.",
+                 action="choose", selector="#industrySel", value="Home Services"),
+            Step("Use the suggested chips before searching",
+                 "They're built from the industry you just set.",
+                 "Faster than inventing search terms, and more consistent "
+                 "across clients in the same vertical — which matters when "
+                 "someone else picks up the account.",
+                 action="look", selector="#chips"),
+            Step("Search across every provider at once",
+                 "One box, all three stock libraries.",
+                 "Same fan-out as Image Creator. If one provider is "
+                 "unconfigured the others still return, so a missing key "
+                 "degrades rather than breaks.",
+                 action="fill", selector="#q", value="hvac technician service van"),
+            Step("Add what fits, then check the count",
+                 "Selected images show a running count.",
+                 "Aim for a usable set rather than everything that looks nice. "
+                 "Ten strong images beat forty you'll never place.",
+                 action="look", selector="#count"),
+            Step("Save to the client library",
+                 "Resized to the max edge, uploaded to their folder.",
+                 "Simulated here. In live use these land in the client's own "
+                 "Cloudinary folder and show up in Client 360 alongside "
+                 "anything the SEO pipeline optimised.",
+                 action="click", selector="#addBtn", simulated=True),
+        ]),
+
+    # ------------------------------------------------------------------
+    Scenario(
+        key="page_image_optimizer.fix_page", module="page_image_optimizer",
+        title="Fix the heavy images on a client's live page",
+        goal="The heaviest images on one real page found, optimised five at a "
+             "time, and the replacement tags ready to paste.",
+        minutes=6, path="/tools/page-images",
+        spends=["openai.text"],
+        steps=[
+            Step("Start from a real page, not the homepage",
+                 "Paste the URL of the page that's actually slow.",
+                 "A site audit will have told you which one. Fixing the "
+                 "homepage when the service page is the problem is a common "
+                 "waste of an afternoon.",
+                 action="fill", selector="#pageUrl",
+                 value="https://riverside-hvac.example/furnace-repair"),
+            Step("Name the client",
+                 "Used for the filenames and the archive.",
+                 "Same naming rules as the SEO pipeline — the client's name "
+                 "belongs in the filename.",
+                 action="fill", selector="#company", value="Riverside HVAC"),
+            Step("Read the scan result",
+                 "How many images found, and their combined weight.",
+                 "The weight number is the one to quote back to the client. "
+                 "'Your service page ships 14 MB of images' lands; 'your "
+                 "images aren't optimised' doesn't.",
+                 action="look", selector="#nWeight"),
+            Step("Pick the heavy ones",
+                 "You don't have to do all of them.",
+                 "Sort by size and take the worst offenders. The top three "
+                 "images are usually most of the page weight.",
+                 action="look", selector="#choose"),
+            Step("Optimise in batches of five",
+                 "Deliberately small.",
+                 "Five at a time keeps the review honest — you actually look "
+                 "at each filename and alt text instead of rubber-stamping "
+                 "forty. The scan stays resumable, so you can stop and return.",
+                 action="click", selector="#optimizeBtn", simulated=True),
+            Step("Copy all the tags",
+                 "Complete <img> tags for the whole batch.",
+                 "These replace the originals on the client's page. Hand them "
+                 "over with the weight-saved figure — that's the proof the "
+                 "work happened.",
+                 action="click", selector="#copyAll"),
+        ]),
+
+    # ------------------------------------------------------------------
+    Scenario(
+        key="google_access.request", module="google_access",
+        title="Get access to a client's Google properties with one link",
+        goal="One link sent to the client that puts Smart 1 on their Analytics, "
+             "Tag Manager, Ads and Business Profile — without ever handling "
+             "their password.",
+        minutes=5, path="/tools/google-access/",
+        steps=[
+            Step("Understand what this replaces",
+                 "No more 'can you add us as a user' email threads.",
+                 "The client signs in with Google once and grants access "
+                 "themselves. We never see or store a credential — which is "
+                 "both safer and much easier to explain to a nervous client.",
+                 action="look"),
+            Step("Create the request",
+                 "Client name and the email that owns their Google properties.",
+                 "It must be the address that actually owns the accounts. The "
+                 "office manager's login usually isn't it, and the link will "
+                 "fail confusingly if you guess.",
+                 action="fill", selector="[name='client_name']", value="Riverside HVAC"),
+            Step("Their Google account email",
+                 "The one with admin on Analytics and Ads.",
+                 "",
+                 action="fill", selector="[name='client_email']",
+                 value="dana@riverside-hvac.example"),
+            Step("Choose which services to request",
+                 "Only tick what you actually need.",
+                 "Asking for everything makes the consent screen longer and "
+                 "scarier. Request what the engagement needs; you can send a "
+                 "second link later.",
+                 action="look", selector="[name='service']"),
+            Step("Send the link",
+                 "Copy it and paste it into your own email to them.",
+                 "The link expires — 14 days by default. That's deliberate: an "
+                 "access link that lives forever in an inbox is a liability. "
+                 "Use Extend if a client goes quiet rather than issuing a new "
+                 "one.",
+                 action="click", selector="#copyBtn"),
+            Step("Watch the status",
+                 "Pending until they complete it, then granted per service.",
+                 "If one service fails and the others succeed, that's usually "
+                 "the client not being an admin on that one property. Check "
+                 "the per-service detail before re-sending.",
+                 action="click", selector="#refreshBtn"),
+        ]),
+
+    # ------------------------------------------------------------------
+    Scenario(
+        key="fan_radio.spot", module="fan_radio",
+        title="Produce a football radio spot for a client",
+        goal="A :30 spot written to a daypart, voiced, and on a share page the "
+             "client can listen to and approve.",
+        minutes=7, path="/tools/fan-radio/",
+        spends=["openai.text"],
+        steps=[
+            Step("Pick the client and the daypart",
+                 "Pre-Game Prep, Game Day, or Post-Game.",
+                 "The daypart isn't decoration — it changes the whole read. "
+                 "Pre-game is anticipation, game day is urgency, post-game is "
+                 "the wind-down. A generic spot in a football pod sounds like "
+                 "an ad; a daypart-matched one sounds like part of the show.",
+                 action="fill", selector="#client", value="Riverside HVAC"),
+            Step("Write the brief, not the script",
+                 "Offer, audience, must-say, and what to avoid.",
+                 "The must-say and avoid fields do the most work. 'Must say "
+                 "$89 tune-up' and 'never say emergency callout' produce a "
+                 "usable first draft; a vague brief produces vague copy.",
+                 action="fill", selector="#b_offer", value="$89 spring tune-up"),
+            Step("Fill the avoid list properly",
+                 "Anything the client has told you not to say.",
+                 "This is the field that saves the re-record. Claims they "
+                 "can't substantiate, competitor names, a service they've "
+                 "stopped offering.",
+                 action="fill", selector="#b_avoid",
+                 value="No emergency callout. No price guarantees."),
+            Step("Generate and read it aloud",
+                 "Actually read it out at pace.",
+                 "Radio copy that scans fine on screen often doesn't fit :30 "
+                 "when spoken. If you're rushing the last line, it's too long "
+                 "— cut before you record, not after.",
+                 action="click", selector="[data-demo='fr-generate']", simulated=True),
+            Step("Pick the voice and cast it",
+                 "Match the voice to the client, not to your own taste.",
+                 "A contractor's spot and a law firm's spot want different "
+                 "reads. Listen to a line before committing the whole spot.",
+                 action="look", selector="#cast"),
+            Step("Send the share page",
+                 "A clean page where the client listens and approves.",
+                 "Don't email an MP3 — the share page keeps the daypart and "
+                 "brief context alongside the audio, so their feedback is "
+                 "about the right thing.",
+                 action="click", selector="#copyurl"),
+        ]),
+
+    # ------------------------------------------------------------------
+    Scenario(
+        key="qa.stale_creative", module="qa",
+        title="Find clients whose creative has gone stale",
+        goal="A list of paying clients who haven't had new creative in months "
+             "— sorted so the ones at real risk surface first.",
+        minutes=4, path="/qa/stale-creative",
+        steps=[
+            Step("Read the buckets, not the total",
+                 "30 / 60 / 90 days, plus never.",
+                 "The 'never' group is the one that matters. A client paying "
+                 "for creative who has received none is the clearest churn "
+                 "signal in the Hub.",
+                 action="look", selector="[data-demo='sc-buckets']"),
+            Step("Check which sources are reporting",
+                 "The footer names them.",
+                 "If a tool you use is listed under 'no records', the audit "
+                 "isn't seeing it and the report is understating the problem. "
+                 "An audit that silently finds nothing is worse than no audit.",
+                 action="look", selector="[data-demo='sc-sources']"),
+            Step("Look at 'unmatched' before you panic",
+                 "Creative that didn't match any client.",
+                 "Usually a name mismatch between a Cloudinary folder and the "
+                 "client registry, not missing work. Fix the name and the row "
+                 "moves to the right client.",
+                 action="look", selector="[data-demo='sc-unmatched']"),
+            Step("Turn it into this week's list",
+                 "Cross-reference against who's paying for creative.",
+                 "A house URL with no creative is fine. A paying SEO client at "
+                 "90+ days is a conversation you want to start before they do.",
+                 action="look"),
+        ]),
+
+    # ------------------------------------------------------------------
+    Scenario(
+        key="commercial_builder.first_spot", module="commercial_builder",
+        title="Produce a :30 CTV commercial end to end",
+        goal="A finished :30 spot — concept, timed script, storyboard, voice, "
+             "QC-passed and rendered — for one client.",
+        minutes=10, path="/tools/commercial-builder/",
+        spends=["openai.text"],
+        steps=[
+            Step("Set the brand profile before the brief",
+                 "Logo, colours, fonts, phone, CTA, tagline.",
+                 "Everything downstream reads from here — the end card, the "
+                 "persistent logo, the QC check for brand logo. Filling it "
+                 "once saves re-doing the CTA on every spot.",
+                 action="look", selector="[data-demo='cb-brand']"),
+            Step("Choose length and platform together",
+                 ":05 / :15 / :30 / :60, and CTV / YouTube / Both.",
+                 "These change the rules, not just the runtime. CTV requires a "
+                 "QR code and gets bigger end-card text for living-room "
+                 "viewing; YouTube gets checked for a hook inside the first "
+                 "five seconds because that's when it becomes skippable.",
+                 action="choose", selector="[data-demo='cb-length']", value="30"),
+            Step("Write the brief, get three concepts",
+                 "Materially different angles, not three phrasings of one.",
+                 "Pick the one you'd defend to the client, not the safest. You "
+                 "can regenerate — it costs a call, not a re-shoot.",
+                 action="click", selector="[data-demo='cb-concepts']", simulated=True),
+            Step("Generate the timed script",
+                 "Word count is enforced against the length.",
+                 "65–75 words for a :30. It follows a Hook/Value/Close beat "
+                 "structure rather than splitting time evenly, and flags "
+                 "itself in QC if it lands outside the range. Read it aloud "
+                 "anyway.",
+                 action="click", selector="[data-demo='cb-script']", simulated=True),
+            Step("Build the storyboard",
+                 "Per scene: find stock, generate, use a spokesperson, upload, "
+                 "or pull a client asset.",
+                 "This is the centrepiece. Scene durations must sum exactly to "
+                 "your length — the tool enforces it, so shortening one scene "
+                 "means lengthening another.",
+                 action="look", selector="[data-demo='cb-storyboard']"),
+            Step("Set the voice and the music level",
+                 "Music level maps to real dB ducking.",
+                 "Voice always dominates. A music bed that competes with the "
+                 "read is the most common reason a spot gets rejected.",
+                 action="look", selector="[data-demo='cb-voice']"),
+            Step("Build the CTA — and enable the QR on CTV",
+                 "QR code plus a persistent logo.",
+                 "On CTV there's nothing to click, so the QR is how the spot "
+                 "converts at all. It must hold at least 8 seconds on the end "
+                 "card; QC hard-fails without it on a CTV spot.",
+                 action="click", selector="[data-demo='cb-qr']"),
+            Step("Run QC before you render",
+                 "Eleven checks: timing, voice fit, CTA, logo, resolution, "
+                 "aspect, safe area, spelling, QR, persistent logo, hook.",
+                 "The render is blocked by default if QC fails. That's a hard "
+                 "gate on purpose — catching an incomplete commercial here is "
+                 "the entire point of automatic QC.",
+                 action="click", selector="[data-demo='cb-qc']"),
+            Step("Render, then reuse it",
+                 "Create Variation clones the storyboard and re-runs only "
+                 "what changed.",
+                 "Offer, location, weather, CTA, voice, duration. Locked "
+                 "scenes and footage choices survive — so the second spot for "
+                 "a client costs a fraction of the first.",
+                 action="look", selector="[data-demo='cb-variations']"),
+        ]),
 ]
 
 _BY_KEY = {s.key: s for s in SCENARIOS}

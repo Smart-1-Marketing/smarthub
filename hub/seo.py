@@ -956,6 +956,11 @@ def _ai_schema(facts: dict, business: dict, answers: dict, client: str):
                                "Content-Type": "application/json"},
                       json=payload, timeout=90)
     r.raise_for_status()
+    try:  # record spend so /diagnostics doesn't under-report
+        from hub import ai as _hub_ai
+        _hub_ai.note_usage("seo", r.json(), purpose="schema")
+    except Exception:  # noqa: BLE001
+        pass
     out = json.loads(r.json()["choices"][0]["message"]["content"])
     if isinstance(out, dict) and "schema" in out:
         return out
@@ -1289,6 +1294,11 @@ def _openai_json(system: str, user_payload: dict, timeout: int = 120):
                                          {"role": "user", "content": json.dumps(user_payload)}]},
                       timeout=timeout)
     r.raise_for_status()
+    try:  # record spend so /diagnostics doesn't under-report
+        from hub import ai as _hub_ai
+        _hub_ai.note_usage("seo", r.json(), purpose="content")
+    except Exception:  # noqa: BLE001
+        pass
     return json.loads(r.json()["choices"][0]["message"]["content"])
 
 

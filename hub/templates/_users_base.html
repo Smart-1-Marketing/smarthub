@@ -1,0 +1,27 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Smart 1 Hub{% endblock %}</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.55 'Segoe UI',system-ui,sans-serif;background:#f4f6fa;color:#1e293b}
+.wrap{max-width:420px;margin:7vh auto;padding:0 18px}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:13px;padding:26px}
+h1{margin:0 0 4px;font-size:22px;color:#0d2340}
+.sub{color:#64748b;margin:0 0 20px;font-size:13.5px}
+label{display:block;font-weight:600;font-size:13px;margin:14px 0 5px}
+input{width:100%;padding:10px;border:1px solid #cfd7df;border-radius:8px;font:inherit}
+button{width:100%;margin-top:18px;padding:11px;border:0;border-radius:8px;
+  background:#1769AA;color:#fff;font:600 14px 'Segoe UI',system-ui;cursor:pointer}
+button:hover{background:#145a92}
+.err{background:#fff0ee;border:1px solid #fca5a5;color:#8e2018;padding:10px 12px;
+  border-radius:8px;font-size:13px;margin-bottom:14px}
+.ok{background:#e8f7ef;border:1px solid #86efac;color:#11633f;padding:12px 14px;
+  border-radius:8px;font-size:13.5px}
+.hint{color:#94a3b8;font-size:12px;margin-top:6px;line-height:1.5}
+.alt{text-align:center;margin-top:18px;font-size:13px;color:#64748b}
+.alt a{color:#1769AA;font-weight:600;text-decoration:none}
+.brand{text-align:center;margin-bottom:18px;font-weight:800;color:#1a2e58;letter-spacing:.5px}
+</style></head><body>
+<div class="wrap"><div class="brand">SMART 1 HUB</div>
+<div class="card">{% block body %}{% endblock %}</div>
+{% block alt %}{% endblock %}</div></body></html>

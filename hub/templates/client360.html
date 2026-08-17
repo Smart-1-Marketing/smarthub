@@ -192,6 +192,12 @@ function render(g,q){
     <div class="right" style="display:flex;gap:10px;align-items:center" id="c-img-acts"></div></div>
     <div class="card-b" id="c-images"><div class="empty">Looking for saved images… <span class="spin"></span></div></div></div>`;
 
+  // ---------- Site health (latest Insites scan: what's broken + speed) ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e0edff;color:#1e40af">Insites</span><h3>Site Health</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-health-acts"></div></div>
+    <div class="card-b" id="c-health"><div class="empty">Checking for a recent scan… <span class="spin"></span></div></div></div>`;
+
   // ---------- Website record (moved to the bottom) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
     <div class="right" style="display:flex;gap:10px"><a class="open-link" id="c-web-attach" style="cursor:pointer">+ Attach website record</a>
@@ -421,6 +427,62 @@ function render(g,q){
       $('c-images').innerHTML='<div class="empty">Image pipeline unavailable. '
         +'<a href="'+optimizeHref+'">Open the tool →</a></div>';
     });
+
+  // ---------- Site health: broken links / images + speed, from the last scan ----------
+  // Matched on the website record's domain, since scans are keyed by domain
+  // rather than by client. No scan yet is a normal state, not an error — the
+  // card offers to run one.
+  (function(){
+    const host=$('c-health'), acts=document.getElementById('c-health-acts');
+    if(!host) return;
+    const dom=(web0&&web0.domain)?String(web0.domain):'';
+    const scansHref='/scans/'+(dom?'?q='+encodeURIComponent(dom):'');
+    if(acts) acts.innerHTML='<a class="open-link" href="'+scansHref+'">Open Site Scans →</a>';
+    if(!dom){
+      host.innerHTML='<div class="empty">No website record attached, so there\'s '
+        +'nothing to match a scan against. Attach one below.</div>';
+      return;
+    }
+    const pill=(sev,txt)=>{
+      const cls={bad:'err',warn:'warn',ok:'ok'}[sev]||'neutral';
+      return '<span class="pill '+cls+'">'+esc(txt)+'</span>';
+    };
+    fetch('/scans/api/health/by-domain?domain='+encodeURIComponent(dom))
+      .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+        if(!d.found){
+          host.innerHTML='<div class="empty">No completed scan for '+esc(dom)+' yet. '
+            +'<a href="'+scansHref+'">Run one →</a></div>';
+          return;
+        }
+        const f=d.fixes||{}, s=d.speed||{};
+        const scanHref=esc(d.url);
+        let fixLine;
+        if(!f.measured) fixLine='<span class="muted">Link and image checks weren\'t returned by this scan.</span>';
+        else if(!f.total) fixLine=pill('ok','Nothing broken');
+        else {
+          const parts=(f.items||[]).filter(i=>i.severity!=='ok'&&i.measured)
+            .slice(0,4).map(i=>esc(i.count+' '+i.label.toLowerCase()));
+          fixLine=pill(f.worst,f.total+' to fix')+' <span class="muted">'+parts.join(' · ')+'</span>';
+        }
+        const speedLine=s.available
+          ? pill(s.severity,(s.score!=null?s.score+'/100':'measured'))
+            +' <span class="muted">'+esc(s.headline)+'</span>'
+          : '<span class="muted">'+esc(s.headline||'Speed not measured.')+'</span>';
+        host.innerHTML=
+          '<dl class="kv" style="margin-bottom:10px">'
+          +'<dt>Broken</dt><dd>'+fixLine+'</dd>'
+          +'<dt>Speed</dt><dd>'+speedLine+'</dd>'
+          +'<dt>Overall</dt><dd>'+(d.score!=null?esc(d.score)+'/100':'—')
+            +(d.tier?' <span class="pill neutral">'+esc(d.tier)+'</span>':'')+'</dd>'
+          +'</dl>'
+          +'<div class="muted" style="font-size:12px">Scanned '
+          +(d.scanned_at?esc(String(d.scanned_at).slice(0,10)):'—')
+          +' · <a href="'+scanHref+'">see the full scan, the URLs to fix and the speed detail →</a></div>';
+      }).catch(()=>{
+        host.innerHTML='<div class="empty">Site Scans unavailable. '
+          +'<a href="'+scansHref+'">Open the module →</a></div>';
+      });
+  })();
 
   const upBtn=$('c-props-upload');
   if(upBtn) upBtn.onclick=()=>{

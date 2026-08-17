@@ -125,7 +125,9 @@ def api_demo_coverage():
     expected = ["seo_images", "image_creator", "bg_remover", "utm_builder",
                 "scans", "seo", "hub", "qa", "ads_builder", "sales_builder",
                 "sites_admin", "suite_panel", "proposal_builder",
-                "image_optimizer", "pdf_optimizer", "google_finder"]
+                "image_optimizer", "pdf_optimizer", "google_finder",
+                "calculators", "image_picker", "page_image_optimizer",
+                "google_access", "fan_radio", "commercial_builder"]
     return jsonify({"covered": demos.modules_covered(),
                     "missing": demos.missing_for(expected),
                     "catalogue": demos.catalogue()})

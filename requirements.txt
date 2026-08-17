@@ -14,3 +14,4 @@ flask-cors==5.0.0
 reportlab==4.2.5
 python-docx==1.1.2
 cloudinary==1.41.0
+qrcode[pil]==8.0

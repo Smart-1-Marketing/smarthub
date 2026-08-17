@@ -1,0 +1,84 @@
+{# Stale Creative scorecard — drop {% include "_scorecard_stale_creative.html" %}
+   into the dashboard template where the other tiles live.
+
+   Loads its own data over fetch and fails quietly. The dashboard must never go
+   blank because one card threw, which is exactly what happened when `w` was
+   referenced before declaration in seo_client.html. #}
+
+<section class="s1-stale-card" id="s1StaleCreative" hidden>
+  <style>
+    .s1-stale-card{background:#fff;border:1px solid #dfe6f0;border-radius:11px;
+      padding:14px 16px;font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+      color:#0a2240}
+    .s1-stale-card[hidden]{display:none !important}
+    .s1-stale-head{display:flex;align-items:baseline;gap:8px;margin-bottom:12px}
+    .s1-stale-head h3{font-size:15px;margin:0}
+    .s1-stale-head a{margin-left:auto;font-size:13px;color:#2f80ed;text-decoration:none}
+    .s1-stale-grid{display:grid;gap:8px;grid-template-columns:repeat(4,1fr)}
+    .s1-stale-n{font-size:22px;font-weight:650;line-height:1.1}
+    .s1-stale-l{font-size:11px;color:#6b7d99;margin-top:1px}
+    .s1-stale-b{border-left:3px solid #dfe6f0;padding-left:8px}
+    .s1-b-never,.s1-b-hi{border-left-color:#c0392b}
+    .s1-b-mid{border-left-color:#d18b1f}
+    .s1-b-lo{border-left-color:#2f80ed}
+    .s1-stale-worst{margin:12px 0 0;font-size:12px;color:#6b7d99}
+    .s1-stale-worst span{color:#0a2240}
+  </style>
+
+  <div class="s1-stale-head">
+    <h3>Stale creative</h3>
+    <a href="/qa/stale-creative">View audit</a>
+  </div>
+
+  <div class="s1-stale-grid">
+    <div class="s1-stale-b s1-b-never">
+      <div class="s1-stale-n" data-k="never">–</div>
+      <div class="s1-stale-l">None on file</div></div>
+    <div class="s1-stale-b s1-b-hi">
+      <div class="s1-stale-n" data-k="over_hi">–</div>
+      <div class="s1-stale-l" data-l="hi">90+ days</div></div>
+    <div class="s1-stale-b s1-b-mid">
+      <div class="s1-stale-n" data-k="mid_hi">–</div>
+      <div class="s1-stale-l" data-l="mid">60–90 days</div></div>
+    <div class="s1-stale-b s1-b-lo">
+      <div class="s1-stale-n" data-k="lo_mid">–</div>
+      <div class="s1-stale-l" data-l="lo">30–60 days</div></div>
+  </div>
+
+  <p class="s1-stale-worst" data-worst></p>
+</section>
+
+<script>
+(function () {
+  var card = document.getElementById('s1StaleCreative');
+  if (!card) return;
+  fetch('/api/qa/stale-creative/scorecard', { credentials: 'same-origin' })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (d) {
+      var e = d.edges || [30, 60, 90];
+      var labels = { hi: e[2] + '+ days',
+                     mid: e[1] + '–' + e[2] + ' days',
+                     lo: e[0] + '–' + e[1] + ' days' };
+      card.querySelectorAll('[data-l]').forEach(function (n) {
+        n.textContent = labels[n.dataset.l] || n.textContent;
+      });
+      card.querySelectorAll('[data-k]').forEach(function (n) {
+        var v = d[n.dataset.k];
+        n.textContent = (v === undefined || v === null) ? '–' : v;
+      });
+      var w = card.querySelector('[data-worst]');
+      if (w && d.worst && d.worst.length) {
+        w.innerHTML = 'Longest overdue: ' + d.worst.map(function (c) {
+          var days = (c.days_since === null) ? 'never' : c.days_since + 'd';
+          var name = String(c.client).replace(/[<>&]/g, '');
+          return '<span>' + name + '</span> (' + days + ')';
+        }).join(', ');
+      }
+      card.hidden = false;
+    })
+    .catch(function (err) {
+      console.warn('stale creative scorecard unavailable', err);
+      card.hidden = true;   // stay hidden rather than show a broken tile
+    });
+})();
+</script>

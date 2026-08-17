@@ -189,3 +189,44 @@ def usage_summary(days: int = 30) -> dict:
         acc["cost"] = round(acc["cost"], 4)
     return {"days": days, "by_module": by_module,
             "total_cost": round(sum(a["cost"] for a in by_module.values()), 4)}
+
+
+def note_usage(module: str, response_json: dict, *, model: str = "",
+               purpose: str = "", ok: bool = True, ms: int = 0) -> None:
+    """Record spend for a call made outside this module's own client.
+
+    Eight modules call api.openai.com directly. Rewriting all of them at once
+    is a large, risky change; recording what they spend is one line each and
+    carries no behavioural risk. Until they migrate onto chat()/vision(), this
+    is what stops the cost estimate silently under-reporting.
+
+    Safe to call with a partial or malformed response — a failure to record
+    spend must never break the feature that spent it.
+    """
+    try:
+        usage = (response_json or {}).get("usage") or {}
+        mdl = model or (response_json or {}).get("model") or settings.openai_model
+        _record(module, purpose or "external", str(mdl), usage, ms, ok)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
+def note_sdk_usage(module: str, response, *, purpose: str = "",
+                   ok: bool = True, ms: int = 0) -> None:
+    """Same as note_usage(), for the official OpenAI SDK.
+
+    The SDK returns a pydantic object rather than a dict, so `.usage` is an
+    attribute chain instead of a key lookup. Two modules use the SDK and two
+    use raw HTTP; supporting both is what closes the last of the untracked
+    spend without rewriting either.
+    """
+    try:
+        usage = getattr(response, "usage", None)
+        payload = {
+            "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+        }
+        model = str(getattr(response, "model", "") or settings.openai_model)
+        _record(module, purpose or "external", model, payload, ms, ok)
+    except Exception:                                   # noqa: BLE001
+        pass

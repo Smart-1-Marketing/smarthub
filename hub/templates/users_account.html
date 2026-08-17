@@ -1,0 +1,22 @@
+{% extends "_users_base.html" %}{% block title %}Your account{% endblock %}
+{% block body %}
+<h1>Your account</h1>
+<p class="sub">{{ account.email }} · {{ account.role.replace('_',' ') }}</p>
+{% if request.args.get('changed') %}<div class="ok">Password updated. Every
+  other session on your account has been signed out.</div>{% endif %}
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+{% if account.must_change_password %}
+  <div class="err">An admin has asked you to change your password.</div>
+{% endif %}
+<form method="post">
+  <label for="current">Current password</label>
+  <input id="current" name="current" type="password" autocomplete="current-password" required>
+  <label for="password">New password</label>
+  <input id="password" name="password" type="password"
+         autocomplete="new-password" minlength="{{ min_len }}" required>
+  <div class="hint">At least {{ min_len }} characters.</div>
+  <button type="submit">Change password</button>
+</form>
+{% endblock %}
+{% block alt %}<p class="alt"><a href="/">Back to the Hub</a> ·
+  <a href="/signout">Sign out</a></p>{% endblock %}

@@ -151,6 +151,10 @@ services:
         value: "40"
       - key: REMOVEBG_MONTHLY_LIMIT
         value: "50"
+      # ---- user accounts (self sign-up + admin approval) ----
+      # Optional: adds extra super admins beyond the three named in code.
+      - key: HUB_SUPER_ADMINS
+        sync: false
       # ---- shared ----
       - key: AUDIT_LOG_PATH
         value: /var/data/hub-audit.log.jsonl

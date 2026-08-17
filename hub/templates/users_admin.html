@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="um">
+  <p class="um-crumb"><a href="/diagnostics">Diagnostics</a> / Users</p>
+  <div class="um-head">
+    <div>
+      <h1>Users</h1>
+      <p class="um-sub">Approve new accounts, change roles, and issue reset
+        links. Signed in as {{ account.email }} ({{ account.role.replace('_',' ') }}).</p>
+    </div>
+    <button class="um-btn" onclick="load()">Refresh</button>
+  </div>
+
+  <div id="umPending"></div>
+
+  <div class="um-metrics" id="umMetrics"></div>
+
+  <div class="um-card">
+    <table class="um-t" id="umTable"><tbody><tr><td>Loading…</td></tr></tbody></table>
+  </div>
+
+  <div class="um-note">
+    <b>How resets work here.</b> This Hub has no email sender, so a reset link
+    is shown to you once when you issue it and you pass it to the person
+    directly. Nothing stores the link — if you lose it, issue a new one. Links
+    are single-use and expire in <span id="umTtl">30</span> minutes.
+  </div>
+</div>
+
+<div id="umModal" class="um-modal" hidden>
+  <div class="um-modal-box">
+    <h3 id="umModalTitle">Reset link</h3>
+    <p class="um-sub" id="umModalSub"></p>
+    <input id="umLink" readonly onclick="this.select()">
+    <div class="um-modal-actions">
+      <button class="um-btn primary" onclick="copyLink()">Copy link</button>
+      <button class="um-btn" onclick="closeModal()">Done</button>
+    </div>
+    <p class="um-warn">Shown once. Close this and it's gone.</p>
+  </div>
+</div>
+
+<style>
+.um{max-width:1080px;margin:0 auto;font-family:system-ui,sans-serif;color:#1b2733}
+.um-crumb{color:#94a3b8;font-size:12.5px;margin:0 0 8px}
+.um-crumb a{color:#1769AA;text-decoration:none}
+.um-head{display:flex;align-items:flex-start;gap:14px;margin-bottom:16px}
+.um-head h1{margin:0 0 3px;font-size:26px;color:#0d2340}
+.um-sub{margin:0;color:#64748b;font-size:13px;line-height:1.5}
+.um-btn{margin-left:auto;background:#fff;border:1px solid #d7dfe8;border-radius:8px;
+  padding:8px 14px;font:600 13px system-ui;cursor:pointer;white-space:nowrap}
+.um-btn.primary{background:#1769AA;border-color:#1769AA;color:#fff}
+.um-btn.good{background:#147d52;border-color:#147d52;color:#fff}
+.um-btn.bad{background:#fff;border-color:#f3b8b3;color:#b42318}
+.um-btn.sm{padding:4px 9px;font-size:12px;margin-left:0}
+.um-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
+  gap:11px;margin-bottom:14px}
+.um-metric{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:13px}
+.um-metric b{display:block;font-size:22px}
+.um-metric span{color:#64748b;font-size:12px}
+.um-card{background:#fff;border:1px solid #e2e8f0;border-radius:11px;overflow:auto}
+.um-t{width:100%;border-collapse:collapse;font-size:13px;min-width:820px}
+.um-t th{text-align:left;padding:10px 12px;border-bottom:1px solid #eef2f6;
+  font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#94a3b8;background:#fafbfc}
+.um-t td{padding:10px 12px;border-bottom:1px solid #f4f7fa;vertical-align:middle}
+.um-t tr.pending{background:#fffdf5}
+.pill{display:inline-block;border-radius:20px;padding:3px 9px;font-size:11px;font-weight:700}
+.pill.active{background:#e7f6ef;color:#147d52}
+.pill.pending{background:#fff4d7;color:#a06a00}
+.pill.suspended{background:#feeceb;color:#b42318}
+.pill.super_admin{background:#e0e7ff;color:#3730a3}
+.pill.admin{background:#e0f2fe;color:#075985}
+.pill.member{background:#eef1f4;color:#475569}
+.um-acts{display:flex;gap:5px;flex-wrap:wrap}
+.um-banner{background:#fff4d7;border:1px solid #f0d99a;color:#78350f;
+  padding:11px 14px;border-radius:9px;margin-bottom:14px;font-size:13.5px}
+.um-note{background:#eef5fb;border-left:3px solid #1769AA;border-radius:0 9px 9px 0;
+  padding:12px 14px;margin-top:16px;font-size:12.8px;line-height:1.6;color:#2b4a63}
+.um-modal{position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:1000;
+  display:flex;align-items:center;justify-content:center;padding:16px}
+.um-modal[hidden]{display:none}
+.um-modal-box{background:#fff;border-radius:13px;padding:22px;width:min(34rem,100%)}
+.um-modal-box h3{margin:0 0 4px;color:#0d2340}
+.um-modal-box input{width:100%;margin-top:14px;padding:10px;border:1px solid #cfd7df;
+  border-radius:8px;font:12.5px ui-monospace,monospace}
+.um-modal-actions{display:flex;gap:8px;margin-top:14px}
+.um-modal-actions .um-btn{margin-left:0;flex:1}
+.um-warn{color:#b42318;font-size:12px;margin:12px 0 0;text-align:center}
+.um-muted{color:#94a3b8;font-size:12px}
+</style>
+
+<script>
+var ME = {{ account.id }}, MESUPER = {{ 'true' if account.is_super else 'false' }};
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+function load(){
+  fetch('/api/users',{credentials:'same-origin'}).then(function(r){return r.json();})
+  .then(render).catch(function(){
+    document.getElementById('umTable').innerHTML='<tbody><tr><td>Could not load users.</td></tr></tbody>';});
+}
+
+function render(d){
+  document.getElementById('umTtl').textContent=d.reset_ttl_minutes;
+  var c=d.counts;
+  document.getElementById('umMetrics').innerHTML=
+    [['Total',c.total],['Awaiting approval',c.pending],['Active',c.active],
+     ['Suspended',c.suspended],['Super admins',c.super_admins]]
+    .map(function(x){return '<div class="um-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
+
+  document.getElementById('umPending').innerHTML = c.pending
+    ? '<div class="um-banner"><b>'+c.pending+' account'+(c.pending===1?'':'s')+
+      ' waiting for approval.</b> Nobody can sign in until you approve them.</div>' : '';
+
+  document.getElementById('umTable').innerHTML =
+    '<thead><tr><th>Person</th><th>Role</th><th>Status</th><th>Last sign-in</th>'+
+    '<th>Actions</th></tr></thead><tbody>'+
+    d.users.map(function(u){
+      var acts=[];
+      if(u.status==='pending') acts.push(btn('good','Approve',u.id,'approve'));
+      if(u.status==='active')  acts.push(btn('bad','Suspend',u.id,'status',{status:'suspended'}));
+      if(u.status==='suspended') acts.push(btn('good','Reactivate',u.id,'status',{status:'active'}));
+      acts.push(btn('','Reset password',u.id,'reset'));
+      if(MESUPER){
+        if(u.role!=='super_admin') acts.push(btn('','Make admin',u.id,'role',{role:'admin'}));
+        if(u.role==='admin') acts.push(btn('','Make member',u.id,'role',{role:'member'}));
+        if(u.id!==ME) acts.push(btn('bad','Delete',u.id,'delete'));
+      }
+      return '<tr class="'+(u.status==='pending'?'pending':'')+'">'+
+        '<td><b>'+esc(u.name||'—')+'</b><br><span class="um-muted">'+esc(u.email)+'</span>'+
+          (u.locked?'<br><span class="pill suspended">locked out</span>':'')+
+          (u.has_open_reset?'<br><span class="pill pending">reset pending</span>':'')+'</td>'+
+        '<td><span class="pill '+u.role+'">'+esc(u.role.replace('_',' '))+'</span></td>'+
+        '<td><span class="pill '+u.status+'">'+esc(u.status)+'</span></td>'+
+        '<td class="um-muted">'+(u.last_login_at?esc(u.last_login_at.slice(0,16).replace('T',' ')):'never')+'</td>'+
+        '<td><div class="um-acts">'+acts.join('')+'</div></td></tr>';
+    }).join('')+'</tbody>';
+}
+
+function btn(kind,label,id,action,body){
+  return '<button class="um-btn sm '+kind+'" onclick=\'act('+id+',"'+action+'",'+
+    JSON.stringify(body||{})+',"'+label+'")\'>'+label+'</button>';
+}
+
+function act(id,action,body,label){
+  if(action==='delete'&&!confirm('Delete this account permanently?')) return;
+  if(action==='status'&&body.status==='suspended'&&
+     !confirm('Suspend this account? They will be signed out immediately.')) return;
+  fetch('/api/users/'+id+'/'+action,{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.error){alert(d.error);return;}
+    if(d.link) showLink(d.link,d.expires_minutes,d.user);
+    load();
+  }).catch(function(){alert('That did not go through.');});
+}
+
+function showLink(link,mins,user){
+  document.getElementById('umModalSub').textContent =
+    'Send this to '+(user?user.email:'them')+' directly — Slack, text, in person. '+
+    'It works once and expires in '+mins+' minutes.';
+  document.getElementById('umLink').value=link;
+  document.getElementById('umModal').hidden=false;
+  document.getElementById('umLink').select();
+}
+function copyLink(){
+  var el=document.getElementById('umLink'); el.select();
+  navigator.clipboard.writeText(el.value).catch(function(){document.execCommand('copy');});
+}
+function closeModal(){
+  document.getElementById('umModal').hidden=true;
+  document.getElementById('umLink').value='';
+}
+load();
+</script>
+{% endblock %}

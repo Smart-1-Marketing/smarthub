@@ -1,0 +1,7 @@
+{% extends "_users_base.html" %}{% block title %}Admins only{% endblock %}
+{% block body %}
+<h1>Admins only</h1>
+<p class="sub">You're signed in as {{ account.email }}, which isn't an admin
+account. Ask a super admin if you need access to user management.</p>
+{% endblock %}
+{% block alt %}<p class="alt"><a href="/">Back to the Hub</a></p>{% endblock %}

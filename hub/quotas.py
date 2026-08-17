@@ -271,12 +271,26 @@ def untracked_openai_modules() -> list[str]:
             src = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if "api.openai.com" in src or "OpenAI(" in src or "openai." in src:
-            if "hub.ai" in src or "from hub import ai" in src:
-                continue
-            parts = p.relative_to(root).parts
-            found.add(parts[1] if parts[0] == "modules" and len(parts) > 1
-                      else parts[0].replace(".py", ""))
+        # Must be an actual *call*, not a mention. demo.py names the guarded
+        # capability "openai.text", diagnostics.py pings /v1/models to check
+        # the key, and ai.py documents the URL in a docstring -- none of them
+        # spend tokens. A detector that flags those trains you to ignore it.
+        calls = (
+            "/v1/chat/completions" in src
+            or "/v1/responses" in src
+            or "/v1/images/generations" in src
+            or "chat.completions.create" in src
+            or "responses.create" in src
+        )
+        if not calls:
+            continue
+        if ("hub.ai" in src or "from hub import ai" in src
+                or "from . import ai" in src):
+            continue
+        parts = p.relative_to(root).parts
+        found.add("/".join(parts) if parts[0] == "hub"
+                  else (parts[1] if parts[0] == "modules" and len(parts) > 1
+                        else parts[0].replace(".py", "")))
     return sorted(found)
 
 
