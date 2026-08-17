@@ -1,0 +1,271 @@
+{% extends "ads_base.html" %}
+{% set active = 'approvals' %}
+{% set c = p.campaign %}
+{% set est = c.costEstimation or {} %}
+{% block title %}{{ p.client_name }}{% endblock %}
+{% block strap %}{{ c.websiteUrl or '' }}{% endblock %}
+
+{% macro chips(items, cls='') %}
+  <div class="chips">
+  {% for k in items %}
+    {% set t = k|string %}
+    {% if cls %}
+      <span class="chip {{ cls }}">{{ t }}</span>
+    {% elif t.startswith('[') and t.endswith(']') %}
+      <span class="chip exact">{{ t[1:-1] }}<span class="mt">exact</span></span>
+    {% elif t.startswith('"') and t.endswith('"') %}
+      <span class="chip phrase">{{ t[1:-1] }}<span class="mt">phrase</span></span>
+    {% else %}
+      <span class="chip broad">{{ t }}<span class="mt">broad</span></span>
+    {% endif %}
+  {% endfor %}
+  </div>
+{% endmacro %}
+
+{% block content %}
+<div id="toast" style="display:none"></div>
+
+{% set tone = {'APPROVED':'t-good','DEPLOYED':'t-info','CHANGES_REQUESTED':'t-warn',
+               'IN_REVIEW':'t-info','ARCHIVED':'t-mute','DRAFT':'t-mute'}.get(p.status,'t-mute') %}
+<div class="row" style="margin-bottom:14px">
+  <a class="btn" href="{{ mount }}/approvals">← All proposals</a>
+  <span class="tag {{ tone }}">{{ p.status.replace('_',' ').title() }}</span>
+  <span style="color:#64748b">${{ '{:,.0f}'.format(c.monthlyBudget or 0) }}/mo · {{ c.sector or '' }}</span>
+  <div class="spacer"></div>
+  <a class="btn" href="{{ mount }}/proposal/{{ p.id }}/client">Client proposal</a>
+</div>
+
+<div class="grid g4" style="margin-bottom:16px">
+  <div class="stat"><div class="l">Ad groups</div><div class="v">{{ p.ad_group_count }}</div></div>
+  <div class="stat"><div class="l">Keywords</div><div class="v">{{ p.keyword_count }}</div>
+    <div class="f">{{ p.negative_count }} negatives</div></div>
+  <div class="stat"><div class="l">Est. clicks / mo</div><div class="v">{{ '{:,.0f}'.format(est.estimatedMonthlyClicks or 0) }}</div>
+    <div class="f">${{ '%.2f'|format(est.avgCPC or 0) }} avg CPC</div></div>
+  <div class="stat"><div class="l">Est. CPA</div>
+    <div class="v">{% if est.estimatedCPA %}${{ '%.2f'|format(est.estimatedCPA) }}{% else %}—{% endif %}</div>
+    <div class="f">{{ '{:,.0f}'.format(est.estimatedConversions or 0) }} conversions/mo</div></div>
+</div>
+
+{% if est.budgetViability %}
+  {% set vt = {'HEALTHY':'good','WARN':'warn','CRITICAL':'bad'}.get(est.budgetViability.status,'info') %}
+  <div class="note n-{{ vt }}">
+    <b>Budget viability: {{ est.budgetViability.status.title() }}</b>{{ est.budgetViability.advice }}
+  </div>
+{% endif %}
+
+{% if c.strategySummary %}
+  <div class="card"><h3>Strategy</h3>{{ c.strategySummary }}</div>
+{% endif %}
+
+<!-- ------------------------------------------------------------ deploy -->
+<div class="card">
+  <h3>Deploy to Google Ads <span class="sub">everything is created paused</span></h3>
+
+  {% if p.status == 'DEPLOYED' and p.deployment %}
+    <div class="note n-good">
+      <b>Deployed</b>
+      Campaign <b>{{ p.deployment.campaign_name }}</b> was created in account
+      {{ p.deployment.customer_id }} on {{ (p.deployment.deployed_at or '')[:16].replace('T',' ') }}
+      by {{ p.deployment.deployed_by }}. It is <b>paused</b> — enable it from Live campaigns, or in
+      Google Ads, when you are ready.
+      {% if p.deployment.manage_url %}
+        <div style="margin-top:6px"><a href="{{ p.deployment.manage_url }}" target="_blank" rel="noopener">Open in Google Ads →</a></div>
+      {% endif %}
+    </div>
+  {% elif not status.connected %}
+    <div class="note n-warn">Connect Google Ads in <a href="{{ mount }}/settings">Settings</a> before deploying.</div>
+  {% else %}
+    <div class="row" style="align-items:flex-end">
+      <div style="flex:1;min-width:280px">
+        <label>Destination account</label>
+        <select id="acct"><option value="">Loading accounts…</option></select>
+      </div>
+      <button id="dry" onclick="deploy(true)">Dry run</button>
+      <button class="b-primary" id="go" onclick="deploy(false)"
+              {{ 'disabled' if p.status != 'APPROVED' }}>Deploy</button>
+    </div>
+    {% if p.status != 'APPROVED' %}
+      <div class="hint">Approve the proposal below before it can be deployed. The dry run works at any status —
+        it sends the whole batch to Google's validator and writes nothing.</div>
+    {% endif %}
+    <div id="deployResult" style="margin-top:12px"></div>
+  {% endif %}
+</div>
+
+<!-- --------------------------------------------------------- ad groups -->
+{% for g in c.adGroups or [] %}
+<div class="card">
+  <h3>{{ g.name }}<span class="sub">{{ g.keywords|length }} keywords · ${{ '%.2f'|format(g.avgCPC or 0) }} bid</span></h3>
+  {% if g.theme %}<p style="margin-top:0;color:#64748b">{{ g.theme }}</p>{% endif %}
+  {{ chips(g.keywords) }}
+  {% if g.ads and g.ads.headlines %}
+    <div class="grid g2" style="margin-top:14px">
+      <div>
+        <label>Headlines (max 30 chars)</label>
+        <div class="chips">{% for h in g.ads.headlines %}<span class="chip">{{ h }}<span class="mt">{{ h|length }}</span></span>{% endfor %}</div>
+      </div>
+      <div>
+        <label>Descriptions (max 90 chars)</label>
+        <div class="chips">{% for d in g.ads.descriptions or [] %}<span class="chip">{{ d }}<span class="mt">{{ d|length }}</span></span>{% endfor %}</div>
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+<!-- ------------------------------------------------------------ assets -->
+<div class="card">
+  <h3>Ad assets</h3>
+  <div class="grid g2">
+    <div>
+      <label>Sitelinks</label>
+      {% for s in (c.adAssets or {}).get('sitelinks') or [] %}
+        <div style="margin-bottom:9px">
+          <div style="font-weight:600">{{ s.title }}</div>
+          <div style="color:#64748b;font-size:12.5px">{{ s.desc1 }}{% if s.desc2 %}<br>{{ s.desc2 }}{% endif %}</div>
+          <div class="mono brk" style="color:#94a3b8">{{ s.url }}</div>
+        </div>
+      {% endfor %}
+    </div>
+    <div>
+      <label>Callouts</label>
+      {{ chips((c.adAssets or {}).get('callouts') or [], 'plain') }}
+      <label style="margin-top:14px">Structured snippets — {{ ((c.adAssets or {}).get('structuredSnippets') or {}).get('header','') }}</label>
+      {{ chips(((c.adAssets or {}).get('structuredSnippets') or {}).get('values') or [], 'plain') }}
+    </div>
+  </div>
+</div>
+
+<!-- --------------------------------------------------------- negatives -->
+<div class="card">
+  <h3>Negative keyword vault <span class="sub">{{ p.negative_count }} terms</span></h3>
+  <div class="grid g2">
+    {% for bucket, terms in (c.negativeKeywordVault or {}).items() %}
+      <div>
+        <label>{{ bucket|replace('freeCheap','Free / cheap')|replace('jobsCareers','Jobs / careers')
+                        |replace('educational','Educational')|replace('irrelevant','Irrelevant') }}
+               ({{ terms|length }})</label>
+        {{ chips(terms, 'neg') }}
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ----------------------------------------------------- landing page -->
+{% if c.landingPageAnalysis %}
+<div class="card">
+  <h3>Landing page review</h3>
+  {% set cta = c.landingPageAnalysis.ctaReadiness %}
+  <span class="tag {{ 't-good' if cta=='High' else 't-bad' if cta=='Low' else 't-warn' }}">CTA readiness: {{ cta }}</span>
+  {% if c.landingPageAnalysis.messageMatch %}<p>{{ c.landingPageAnalysis.messageMatch }}</p>{% endif %}
+  <ul style="color:#475569;margin:6px 0 0;padding-left:18px">
+    {% for r in c.landingPageAnalysis.recommendations or [] %}<li>{{ r }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<!-- ---------------------------------------------------------- approval -->
+<div class="card">
+  <h3>Review and approval</h3>
+  <div class="row" style="margin-bottom:14px">
+    {% for s in ['IN_REVIEW','CHANGES_REQUESTED','APPROVED','ARCHIVED'] %}
+      <button class="{{ 'b-good' if s=='APPROVED' }}"
+              {{ 'disabled' if p.status == s or p.status == 'DEPLOYED' }}
+              onclick="setStatus('{{ s }}')">Mark {{ s.replace('_',' ').title() }}</button>
+    {% endfor %}
+  </div>
+
+  {% for cm in p.comments %}
+    <div class="comment">
+      <div class="meta">{{ cm.author }} · {{ (cm.created_at or '')[:16].replace('T',' ') }}</div>
+      <div>{{ cm.text }}</div>
+    </div>
+  {% else %}
+    <div style="color:#94a3b8;margin-bottom:12px">No discussion yet.</div>
+  {% endfor %}
+
+  <div class="field">
+    <label>Add a comment</label>
+    <textarea id="comment" placeholder="Tighten ad group 2 to exact match only…"></textarea>
+  </div>
+  <div class="row end"><button class="b-primary" onclick="addComment()">Post comment</button></div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+const MOUNT = {{ mount|tojson }};
+const PID = {{ p.id|tojson }};
+const SAVED_CID = {{ (p.google_customer_id or '')|tojson }};
+
+{% if status.connected and p.status != 'DEPLOYED' %}
+(async function loadAccounts() {
+  try {
+    const d = await api('GET', MOUNT + '/api/accounts');
+    const sel = document.getElementById('acct');
+    const list = d.accounts || [];
+    sel.innerHTML = '<option value="">— choose an account —</option>' + list.map(a =>
+      `<option value="${esc(a.id)}" ${a.is_manager ? 'disabled' : ''}>` +
+      `${a.is_manager ? '— manager — ' : ''}${esc(a.name)} (${esc(a.formatted_id)})</option>`).join('');
+    const pick = SAVED_CID || localStorage.getItem('s1ads_cid') || '';
+    if (pick && list.some(a => a.id === pick)) sel.value = pick;
+  } catch (err) {
+    document.getElementById('deployResult').innerHTML =
+      `<div class="note n-bad"><b>Could not list accounts</b>${esc(err.message)}</div>`;
+  }
+})();
+
+async function deploy(dryRun) {
+  const customerId = document.getElementById('acct').value;
+  if (!customerId) { toast('warn', 'Choose a destination account first.'); return; }
+  if (!dryRun && !confirm(
+      'Create this campaign in Google Ads?\n\nIt will be created PAUSED and will not spend until you enable it.')) return;
+
+  const btn = document.getElementById(dryRun ? 'dry' : 'go');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> ' + (dryRun ? 'Validating…' : 'Deploying…');
+  document.getElementById('deployResult').innerHTML = '';
+
+  try {
+    const d = await api('POST', MOUNT + '/api/deploy',
+      {proposal_id: PID, customer_id: customerId, validate_only: dryRun});
+    const r = d.result;
+    if (dryRun) {
+      document.getElementById('deployResult').innerHTML =
+        `<div class="note n-good"><b>Dry run passed</b>Google validated all ${r.operation_count} ` +
+        `operations — ${r.ad_group_count} ad groups, ${r.keyword_count} keywords, ` +
+        `${r.negative_count} negatives. Nothing was written.</div>`;
+      btn.disabled = false;
+      btn.textContent = label;
+    } else {
+      window.location.reload();
+    }
+  } catch (err) {
+    document.getElementById('deployResult').innerHTML =
+      `<div class="note n-bad"><b>Google rejected the deployment</b>${esc(err.message)}` +
+      (err.code ? `<div class="mono" style="margin-top:6px">${esc(err.code)}${err.field ? ' · ' + esc(err.field) : ''}</div>` : '') +
+      `</div>`;
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+{% endif %}
+
+async function setStatus(status) {
+  try {
+    await api('POST', `${MOUNT}/api/proposals/${PID}/status`, {status});
+    window.location.reload();
+  } catch (err) { toast('bad', err.message); }
+}
+
+async function addComment() {
+  const text = document.getElementById('comment').value.trim();
+  if (!text) return;
+  try {
+    await api('POST', `${MOUNT}/api/proposals/${PID}/comments`, {text});
+    window.location.reload();
+  } catch (err) { toast('bad', err.message); }
+}
+</script>
+{% endblock %}

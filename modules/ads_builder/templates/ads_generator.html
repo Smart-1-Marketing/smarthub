@@ -1,0 +1,137 @@
+{% extends "ads_base.html" %}
+{% set active = 'generator' %}
+{% block title %}Campaign generator{% endblock %}
+{% block strap %}Build a full Google Ads search campaign from a landing page and a budget{% endblock %}
+
+{% block content %}
+<div id="toast" style="display:none"></div>
+
+{% if not openai_configured %}
+  <div class="note n-warn">
+    <b>No server-side OpenAI key</b>
+    <span class="mono">OPENAI_API_KEY</span> is not set in the Hub environment. You can still generate by
+    pasting a key below, but it will not be remembered.
+  </div>
+{% endif %}
+
+<form id="gen" onsubmit="return false">
+  <div class="card">
+    <h3>Client and objective</h3>
+    <div class="grid g2">
+      <div class="field"><label>Client / business name</label>
+        <input id="businessName" placeholder="Northside Roofing Co" required></div>
+      <div class="field"><label>Landing page URL</label>
+        <input id="websiteUrl" placeholder="https://northsideroofing.com/roof-repair" required></div>
+      <div class="field"><label>Primary objective</label>
+        <select id="objective">{% for o in objectives %}<option>{{ o }}</option>{% endfor %}</select></div>
+      <div class="field"><label>Sector</label>
+        <select id="sector" onchange="checkBudget()">
+          {% for s in sectors %}
+            <option value="{{ s.key }}" {{ 'selected' if s.key=='general' }}>{{ s.label }} (${{ s.low }}–${{ s.high }} CPC)</option>
+          {% endfor %}
+        </select></div>
+      <div class="field"><label>Target audience</label>
+        <input id="targetAudience" placeholder="Homeowners 35–65, storm damage"></div>
+      <div class="field"><label>Geography</label>
+        <input id="geography" placeholder="Indianapolis metro, 25 mile radius"></div>
+    </div>
+    <div class="field"><label>Anything else the strategist should know</label>
+      <textarea id="notes" placeholder="Competitors, seasonality, services to exclude…"></textarea></div>
+  </div>
+
+  <div class="card">
+    <h3>Budget <span class="sub">drag to see what the money actually buys</span></h3>
+    <div class="row" style="justify-content:space-between">
+      <label style="margin:0">Monthly budget</label>
+      <strong style="font-size:20px;color:var(--navy)" id="budgetLabel">$3,000</strong>
+    </div>
+    <input type="range" id="budget" min="300" max="30000" step="100" value="3000" oninput="checkBudget()">
+    <div class="row" style="justify-content:space-between;color:#94a3b8;font-size:11.5px">
+      <span>$300</span><span>$30,000+</span>
+    </div>
+    <div id="viability" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h3>Generate</h3>
+    <div class="field">
+      <label>OpenAI key override (optional)</label>
+      <input type="password" id="customApiKey" placeholder="Leave blank to use the Hub's OPENAI_API_KEY">
+    </div>
+    <div id="genError"></div>
+    <div class="row end">
+      <button class="b-primary" id="go" onclick="generate()">Generate campaign</button>
+    </div>
+    <div class="hint" id="genHint" style="display:none">
+      Building 2–3 ad groups with 20–50 keywords each. This usually takes 20–45 seconds.
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block script %}
+<script>
+const MOUNT = {{ mount|tojson }};
+let debounce;
+
+function checkBudget() {
+  const budget = document.getElementById('budget').value;
+  document.getElementById('budgetLabel').textContent = money(budget);
+  clearTimeout(debounce);
+  debounce = setTimeout(async () => {
+    try {
+      const a = await api('GET', `${MOUNT}/api/budget-check?budget=${budget}&sector=${document.getElementById('sector').value}`);
+      const tone = a.status === 'HEALTHY' ? 'good' : a.status === 'WARN' ? 'warn' : 'bad';
+      document.getElementById('viability').innerHTML = `
+        <div class="note n-${tone}"><b>${esc(titleise(a.status))} · ${esc(a.sector)}</b>${esc(a.advice)}</div>
+        <div class="grid g3">
+          <div class="stat"><div class="l">Est. clicks / month</div><div class="v">${numf(a.estimated_clicks)}</div>
+            <div class="f">${numf(a.worst_case_clicks)} at the high end of CPC</div></div>
+          <div class="stat"><div class="l">Sector CPC range</div><div class="v">$${a.cpc_low}–$${a.cpc_high}</div>
+            <div class="f">${esc(a.sector)}</div></div>
+          <div class="stat"><div class="l">Suggested floor</div><div class="v">${money(a.recommended_minimum)}</div>
+            <div class="f">~100 clicks/mo to learn from</div></div>
+        </div>`;
+    } catch (e) { /* transient */ }
+  }, 200);
+}
+
+async function generate() {
+  const body = {
+    businessName: document.getElementById('businessName').value.trim(),
+    websiteUrl: document.getElementById('websiteUrl').value.trim(),
+    objective: document.getElementById('objective').value,
+    sector: document.getElementById('sector').value,
+    budget: Number(document.getElementById('budget').value),
+    targetAudience: document.getElementById('targetAudience').value.trim(),
+    geography: document.getElementById('geography').value.trim(),
+    notes: document.getElementById('notes').value.trim(),
+    customApiKey: document.getElementById('customApiKey').value.trim()
+  };
+  if (!body.businessName || !body.websiteUrl) {
+    document.getElementById('genError').innerHTML =
+      '<div class="note n-bad">A client name and landing page URL are both required.</div>';
+    return;
+  }
+
+  const btn = document.getElementById('go');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> Generating…';
+  document.getElementById('genHint').style.display = 'block';
+  document.getElementById('genError').innerHTML = '';
+
+  try {
+    const d = await api('POST', MOUNT + '/api/generate', body);
+    window.location = d.url;
+  } catch (err) {
+    document.getElementById('genError').innerHTML =
+      `<div class="note n-bad"><b>Generation failed</b>${esc(err.message)}</div>`;
+    btn.disabled = false;
+    btn.textContent = 'Generate campaign';
+    document.getElementById('genHint').style.display = 'none';
+  }
+}
+
+checkBudget();
+</script>
+{% endblock %}

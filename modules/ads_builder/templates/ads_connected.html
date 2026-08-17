@@ -1,0 +1,43 @@
+{% extends "ads_base.html" %}
+{% block title %}Google Ads connected{% endblock %}
+{% block shell %}{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:46rem;margin:40px auto">
+  {% if refresh_token %}
+    <h3 style="color:var(--good)">Google Ads is connected</h3>
+    <p>Smart 1 Ads can now read and manage campaigns in the accounts this Google login can reach.</p>
+
+    {% if pinned %}
+      <div class="note n-info">
+        <b>Note</b>
+        <span class="mono">GOOGLE_ADS_REFRESH_TOKEN</span> is already set in the environment, and the
+        environment always wins. If you want this new token to take effect, replace that variable with
+        the value below and redeploy.
+      </div>
+    {% else %}
+      <div class="note n-warn">
+        <b>Pin this so it survives a redeploy</b>
+        The token is saved in the Hub database and works right now. Copy it into
+        <span class="mono">GOOGLE_ADS_REFRESH_TOKEN</span> on the Hub service to make it permanent —
+        this is the only time it is shown.
+      </div>
+    {% endif %}
+
+    <textarea readonly onclick="this.select()" class="mono"
+              style="height:5rem;background:#f8fafc">{{ refresh_token }}</textarea>
+  {% else %}
+    <h3 style="color:var(--warn)">Connected, but Google did not return a refresh token</h3>
+    <p>
+      That happens when this Google account has already granted access to the app. Revoke it at
+      <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>,
+      then connect again — Google only issues a refresh token on a first, fully-consented authorisation.
+    </p>
+  {% endif %}
+
+  <div class="row" style="margin-top:18px">
+    <a class="btn b-primary" href="{{ mount }}/">Go to live campaigns</a>
+    <a class="btn" href="{{ mount }}/settings">Back to settings</a>
+  </div>
+</div>
+{% endblock %}

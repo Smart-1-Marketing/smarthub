@@ -1,0 +1,189 @@
+{% extends "ads_base.html" %}
+{% set active = 'campaigns' %}
+{% block title %}Live campaigns{% endblock %}
+{% block strap %}Google Ads — read, pause, enable and delete live campaigns{% endblock %}
+
+{% block content %}
+<div id="toast" style="display:none"></div>
+
+{% if not status.connected %}
+  <div class="note n-warn">
+    <b>Google Ads is not connected yet</b>
+    Open <a href="{{ mount }}/settings">Settings</a> and click <b>Connect Google Ads</b> to authorise the account.
+    {% if status.missing %}These environment variables are still missing:
+      <span class="mono">{{ status.missing|join(', ') }}</span>.{% endif %}
+  </div>
+{% else %}
+  <div class="card">
+    <div class="row">
+      <div style="min-width:280px;flex:1">
+        <label for="acct">Account</label>
+        <select id="acct"><option>Loading accounts…</option></select>
+      </div>
+      <div style="min-width:170px">
+        <label for="range">Date range</label>
+        <select id="range">
+          <option value="LAST_7_DAYS">Last 7 days</option>
+          <option value="LAST_14_DAYS">Last 14 days</option>
+          <option value="LAST_30_DAYS" selected>Last 30 days</option>
+          <option value="THIS_MONTH">This month</option>
+          <option value="LAST_MONTH">Last month</option>
+          <option value="LAST_90_DAYS">Last 90 days</option>
+        </select>
+      </div>
+      <div style="align-self:flex-end"><button id="reload" onclick="load()">Refresh</button></div>
+    </div>
+  </div>
+
+  <div class="grid g4" style="margin-bottom:16px" id="stats"></div>
+
+  <div class="card">
+    <div id="campaigns"><span class="spin"></span> Loading campaigns…</div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block script %}
+{% if status.connected %}
+<script>
+const MOUNT = {{ mount|tojson }};
+const KEY = 's1ads_cid';
+let accounts = [];
+
+function cid()   { return document.getElementById('acct').value; }
+function range() { return document.getElementById('range').value; }
+
+async function boot() {
+  try {
+    const d = await api('GET', MOUNT + '/api/accounts');
+    accounts = d.accounts || [];
+    const saved = localStorage.getItem(KEY);
+    const sel = document.getElementById('acct');
+    sel.innerHTML = accounts.map(a =>
+      `<option value="${esc(a.id)}" ${a.is_manager ? 'disabled' : ''}>` +
+      `${a.is_manager ? '— manager — ' : ''}${esc(a.name)} (${esc(a.formatted_id)})</option>`).join('');
+    const usable = accounts.filter(a => !a.is_manager);
+    sel.value = (saved && accounts.some(a => a.id === saved)) ? saved
+              : (usable[0] ? usable[0].id : '');
+    sel.onchange = () => { localStorage.setItem(KEY, sel.value); load(); };
+    document.getElementById('range').onchange = load;
+    load();
+  } catch (err) {
+    document.getElementById('campaigns').innerHTML =
+      `<div class="note n-bad"><b>Could not list your Google Ads accounts</b>${esc(err.message)}</div>`;
+  }
+}
+
+async function load() {
+  if (!cid()) return;
+  const box = document.getElementById('campaigns');
+  box.innerHTML = '<span class="spin"></span> Loading campaigns…';
+  document.getElementById('reload').disabled = true;
+  try {
+    const d = await api('GET', `${MOUNT}/api/campaigns?customer_id=${encodeURIComponent(cid())}&date_range=${range()}`);
+    render(d.campaigns || []);
+  } catch (err) {
+    box.innerHTML = `<div class="note n-bad"><b>Google Ads returned an error</b>${esc(err.message)}` +
+      (err.code ? `<div class="mono" style="margin-top:6px">${esc(err.code)}</div>` : '') + `</div>`;
+    document.getElementById('stats').innerHTML = '';
+  } finally {
+    document.getElementById('reload').disabled = false;
+  }
+}
+
+function statTile(l, v, f) {
+  return `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div><div class="f">${f || ''}</div></div>`;
+}
+
+function render(list) {
+  const t = list.reduce((a, c) => ({
+    cost: a.cost + c.cost, clicks: a.clicks + c.clicks,
+    impr: a.impr + c.impressions, conv: a.conv + c.conversions
+  }), {cost:0, clicks:0, impr:0, conv:0});
+
+  document.getElementById('stats').innerHTML =
+    statTile('Spend', money2(t.cost), titleise(range())) +
+    statTile('Clicks', numf(t.clicks), numf(t.impr) + ' impressions') +
+    statTile('Conversions', numf(t.conv), t.conv ? money2(t.cost / t.conv) + ' CPA' : 'no conversions yet') +
+    statTile('Campaigns', list.length, list.filter(c => c.status === 'ENABLED').length + ' enabled');
+
+  if (!list.length) {
+    document.getElementById('campaigns').innerHTML =
+      '<div class="empty"><h4>No campaigns in this account</h4>' +
+      'Build one in the campaign generator, or choose a different account.</div>';
+    return;
+  }
+
+  const tone = s => s === 'ENABLED' ? 't-good' : s === 'PAUSED' ? 't-warn' : 't-mute';
+  document.getElementById('campaigns').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Campaign</th><th>Status</th><th class="num">Daily budget</th><th class="num">Spend</th>
+        <th class="num">Clicks</th><th class="num">CTR</th><th class="num">Avg CPC</th>
+        <th class="num">Conv.</th><th class="num">CPA</th><th></th>
+      </tr></thead>
+      <tbody>${list.map(c => `
+        <tr>
+          <td>
+            <div style="font-weight:600"><a href="#" onclick="detail('${esc(c.id)}');return false">${esc(c.name)}</a></div>
+            <div style="color:#94a3b8;font-size:11.5px">${esc(titleise(c.channel))} · ${esc(titleise(c.bidding_strategy))}</div>
+            <div id="d-${esc(c.id)}"></div>
+          </td>
+          <td><span class="tag ${tone(c.status)}">${esc(titleise(c.status))}</span></td>
+          <td class="num">${money2(c.daily_budget)}</td>
+          <td class="num">${money2(c.cost)}</td>
+          <td class="num">${numf(c.clicks)}</td>
+          <td class="num">${pctf(c.ctr)}</td>
+          <td class="num">${money2(c.avg_cpc)}</td>
+          <td class="num">${numf(c.conversions)}</td>
+          <td class="num">${c.conversions ? money2(c.cost_per_conversion) : '—'}</td>
+          <td>
+            <div class="row" style="gap:5px;justify-content:flex-end">
+              ${c.status === 'ENABLED'
+                ? `<button class="b-sm" onclick="act('${esc(c.id)}','PAUSED',${JSON.stringify(c.name)},${c.daily_budget})">Pause</button>`
+                : `<button class="b-sm b-good" onclick="act('${esc(c.id)}','ENABLED',${JSON.stringify(c.name)},${c.daily_budget})">Enable</button>`}
+              <button class="b-sm b-bad" onclick="act('${esc(c.id)}','REMOVED',${JSON.stringify(c.name)},${c.daily_budget})">Delete</button>
+            </div>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+async function act(id, status, name, dailyBudget) {
+  if (status === 'REMOVED' &&
+      !confirm(`Delete "${name}"?\n\nRemoved campaigns cannot be restored in Google Ads.`)) return;
+  if (status === 'ENABLED' &&
+      !confirm(`Enable "${name}"?\n\nIt will start spending against its daily budget of ${money2(dailyBudget)}.`)) return;
+  try {
+    await api('POST', `${MOUNT}/api/campaigns/${id}/status`, {customer_id: cid(), status});
+    toast('good', `"${name}" set to ${titleise(status)}.`);
+    load();
+  } catch (err) {
+    toast('bad', `Could not update "${name}": ${err.message}`);
+  }
+}
+
+async function detail(id) {
+  const box = document.getElementById('d-' + id);
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  box.innerHTML = '<span class="spin"></span>';
+  try {
+    const d = await api('GET', `${MOUNT}/api/campaigns/${id}?customer_id=${encodeURIComponent(cid())}`);
+    box.innerHTML = (d.ad_groups || []).map(g => `
+      <div style="margin:10px 0 4px">
+        <div style="font-weight:600;font-size:12.5px">${esc(g.name)}
+          <span style="color:#94a3b8;font-weight:400">· ${money2(g.cpc_bid)} bid · ${g.keywords.length} keywords</span></div>
+        <div class="chips" style="margin-top:4px">${g.keywords.filter(k => !k.negative).slice(0, 40).map(k =>
+          `<span class="chip ${(k.match_type || '').toLowerCase()}">${esc(k.text)}<span class="mt">${esc((k.match_type || '').toLowerCase())}</span></span>`
+        ).join('')}</div>
+      </div>`).join('') || '<div style="color:#94a3b8;font-size:12.5px">No ad groups.</div>';
+  } catch (err) {
+    box.innerHTML = `<div class="note n-bad">${esc(err.message)}</div>`;
+  }
+}
+
+boot();
+</script>
+{% endif %}
+{% endblock %}

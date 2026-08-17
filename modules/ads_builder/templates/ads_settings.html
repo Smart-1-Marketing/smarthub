@@ -1,0 +1,120 @@
+{% extends "ads_base.html" %}
+{% set active = 'settings' %}
+{% block title %}Settings{% endblock %}
+{% block strap %}Connections and configuration for the Smart 1 Ads module{% endblock %}
+
+{% block content %}
+<div id="toast" style="display:none"></div>
+
+<div class="card">
+  <div class="row" style="margin-bottom:12px">
+    <h3 style="margin:0">Google Ads</h3>
+    <div class="spacer"></div>
+    {% if status.connected %}
+      <button class="b-bad b-sm" onclick="disconnect()">Disconnect</button>
+    {% else %}
+      <a class="btn b-primary" href="{{ mount }}/connect">Connect Google Ads</a>
+    {% endif %}
+  </div>
+
+  <div class="grid g3" style="margin-bottom:12px">
+    <div class="stat">
+      <div class="l">Credentials</div>
+      <div class="v" style="font-size:17px">{{ 'Configured' if status.configured else 'Incomplete' }}</div>
+      <div class="f">{{ ('Missing: ' + status.missing|join(', ')) if status.missing else 'All keys present' }}</div>
+    </div>
+    <div class="stat">
+      <div class="l">Authorisation</div>
+      <div class="v" style="font-size:17px">{{ 'Connected' if status.connected else 'Not connected' }}</div>
+      <div class="f">{{ status.refresh_token_source }}</div>
+    </div>
+    <div class="stat">
+      <div class="l">API version</div>
+      <div class="v" style="font-size:17px">{{ status.api_version }}</div>
+      <div class="f">{{ ('MCC ' + status.login_customer_id) if status.login_customer_id else 'No login-customer-id set' }}</div>
+    </div>
+  </div>
+
+  {% if status.missing %}
+    <div class="note n-bad">
+      <b>Missing environment variables</b>
+      Set these on the Hub service, then redeploy: <span class="mono">{{ status.missing|join(', ') }}</span>
+    </div>
+  {% endif %}
+
+  {% if status.connected and status.refresh_token_source.startswith('hub database') %}
+    <div class="note n-warn">
+      <b>This connection is not pinned</b>
+      The refresh token lives in the Hub database. That is fine, but setting
+      <span class="mono">GOOGLE_ADS_REFRESH_TOKEN</span> in the environment makes it immune to a database reset.
+      Reconnect to see the value again.
+    </div>
+  {% endif %}
+
+  <div class="hint">
+    Redirect URI in use: <span class="mono brk">{{ status.redirect_uri or 'not set' }}</span><br>
+    {% if expected_redirect and expected_redirect != '/tools/ads/oauth/callback' %}
+      Based on <span class="mono">PUBLIC_BASE_URL</span> it should be
+      <span class="mono brk">{{ expected_redirect }}</span>.
+    {% endif %}
+    This must match the Authorised redirect URI in Google Cloud Console character for character.
+  </div>
+</div>
+
+<div class="card">
+  <h3>OpenAI <span class="sub">powers the campaign generator</span></h3>
+  {% if openai_configured %}
+    <span class="tag t-good">Configured</span>
+    <span style="color:#64748b;margin-left:8px">{{ openai_model }}</span>
+  {% else %}
+    <span class="tag t-warn">Not set</span>
+    <span style="color:#64748b;margin-left:8px">
+      Set <span class="mono">OPENAI_API_KEY</span>, or paste a key per generation in the wizard.</span>
+  {% endif %}
+  <div class="hint">Shared with the Hub's SEO, FAQ Builder and proposal tools — no separate key needed.</div>
+</div>
+
+<div class="card">
+  <h3>Microsoft Advertising (Bing)</h3>
+  <span class="tag t-mute">Phase 2</span>
+  <p style="color:#64748b;margin-bottom:0">
+    Google Ads is live end to end. The proposal format is platform neutral, so Bing arrives as a sibling
+    client module — the generator, approval hub, client proposal and activity log need no changes.
+  </p>
+</div>
+
+<div class="card">
+  <h3>Environment reference</h3>
+  <table>
+    <thead><tr><th>Variable</th><th>Where it comes from</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">GOOGLE_ADS_CLIENT_ID</td><td>Google Cloud Console → Credentials → OAuth client</td></tr>
+      <tr><td class="mono">GOOGLE_ADS_CLIENT_SECRET</td><td>Same screen</td></tr>
+      <tr><td class="mono">GOOGLE_ADS_DEVELOPER_TOKEN</td><td>Google Ads manager account → Tools → API Center</td></tr>
+      <tr><td class="mono">GOOGLE_ADS_LOGIN_CUSTOMER_ID</td><td>Your MCC id, digits only, no dashes</td></tr>
+      <tr><td class="mono">GOOGLE_ADS_REDIRECT_URI</td><td>Hub URL + <span class="mono">{{ mount }}/oauth/callback</span></td></tr>
+      <tr><td class="mono">GOOGLE_ADS_REFRESH_TOKEN</td><td>Shown once after you connect — paste it back to pin it</td></tr>
+      <tr><td class="mono">GOOGLE_ADS_API_VERSION</td><td>Optional. Defaults to <span class="mono">{{ status.api_version }}</span></td></tr>
+    </tbody>
+  </table>
+  <div class="hint">
+    The module deliberately uses <span class="mono">GOOGLE_ADS_*</span> names so it never collides with the
+    Google Finder module's <span class="mono">GOOGLE_CLIENT_ID</span> / <span class="mono">GOOGLE_CLIENT_SECRET</span>.
+    If <span class="mono">GOOGLE_ADS_CLIENT_ID</span> is unset it falls back to the Finder's values.
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+const MOUNT = {{ mount|tojson }};
+async function disconnect() {
+  if (!confirm('Disconnect Google Ads from the Hub?')) return;
+  try {
+    const d = await api('POST', MOUNT + '/api/disconnect');
+    toast('good', d.note || 'Disconnected.');
+    setTimeout(() => window.location.reload(), 1200);
+  } catch (err) { toast('bad', err.message); }
+}
+</script>
+{% endblock %}

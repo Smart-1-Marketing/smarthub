@@ -1,0 +1,28 @@
+{% extends "ads_base.html" %}
+{% block title %}Smart 1 Ads — problem{% endblock %}
+{% block shell %}{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:44rem;margin:40px auto">
+  <h3 style="color:var(--bad)">Smart 1 Ads hit a problem</h3>
+  <p style="font-weight:600">{{ error }}</p>
+
+  {% if code or field or trigger %}
+    <div class="note n-bad">
+      {% if code %}<div class="mono">Error code: {{ code }}</div>{% endif %}
+      {% if field %}<div class="mono">Field: {{ field }}</div>{% endif %}
+      {% if trigger %}<div class="mono">Trigger: {{ trigger }}</div>{% endif %}
+    </div>
+    <p style="color:#64748b;font-size:13px">
+      Google's error codes are searchable — paste the code above into the Google Ads API documentation
+      to see the exact cause and fix.
+    </p>
+  {% endif %}
+
+  <div class="row" style="margin-top:16px">
+    <a class="btn b-primary" href="{{ mount }}/">Back to Smart 1 Ads</a>
+    <a class="btn" href="{{ mount }}/settings">Settings</a>
+    <a class="btn" href="/status">Hub system status</a>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "ads_base.html" %}
+{% set active = 'approvals' %}
+{% block title %}Approval hub{% endblock %}
+{% block strap %}Review, discuss, approve — then deploy to Google Ads{% endblock %}
+
+{% block content %}
+<div id="toast" style="display:none"></div>
+
+<div class="row" style="margin-bottom:14px">
+  <div class="spacer"></div>
+  <a class="btn b-primary" href="{{ mount }}/generator">New campaign</a>
+</div>
+
+<div class="card">
+  {% if not proposals %}
+    <div class="empty">
+      <h4>No proposals yet</h4>
+      Build one in the <a href="{{ mount }}/generator">campaign generator</a>.
+    </div>
+  {% else %}
+  <table>
+    <thead><tr>
+      <th>Client</th><th>Status</th><th class="num">Budget</th><th class="num">Ad groups</th>
+      <th class="num">Keywords</th><th class="num">Comments</th><th>Updated</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for p in proposals %}
+      {% set tone = {'APPROVED':'t-good','DEPLOYED':'t-info','CHANGES_REQUESTED':'t-warn',
+                     'IN_REVIEW':'t-info','ARCHIVED':'t-mute','DRAFT':'t-mute'}.get(p.status,'t-mute') %}
+      <tr>
+        <td>
+          <div style="font-weight:600"><a href="{{ mount }}/proposal/{{ p.id }}">{{ p.client_name }}</a></div>
+          <div style="color:#94a3b8;font-size:11.5px">{{ p.campaign.websiteUrl or '' }}</div>
+        </td>
+        <td><span class="tag {{ tone }}">{{ p.status.replace('_',' ').title() }}</span></td>
+        <td class="num">${{ '{:,.0f}'.format(p.campaign.monthlyBudget or 0) }}</td>
+        <td class="num">{{ p.ad_group_count }}</td>
+        <td class="num">{{ p.keyword_count }}</td>
+        <td class="num">{{ p.comments|length or '—' }}</td>
+        <td style="color:#64748b;white-space:nowrap">{{ (p.updated_at or '')[:16].replace('T',' ') }}</td>
+        <td>
+          <div class="row" style="gap:5px;justify-content:flex-end">
+            <a class="btn b-sm" href="{{ mount }}/proposal/{{ p.id }}/client">Client proposal</a>
+            <button class="b-sm b-bad" onclick="del('{{ p.id }}', {{ p.client_name|tojson }})">Delete</button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+const MOUNT = {{ mount|tojson }};
+async function del(id, name) {
+  if (!confirm(`Delete the proposal for ${name}?\n\nThis only removes it from the Hub — it does not touch Google Ads.`)) return;
+  try {
+    await api('DELETE', `${MOUNT}/api/proposals/${id}`);
+    window.location.reload();
+  } catch (err) { toast('bad', err.message); }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Smart 1 Ads{% endblock %} — Smart 1 Hub</title>
+<style>
+  :root {
+    --navy:#1a2e58; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0;
+    --bg:#f4f6fa; --card:#fff; --blue:#2563eb; --blue-soft:#eff6ff;
+    --good:#059669; --good-soft:#ecfdf5; --warn:#b45309; --warn-soft:#fffbeb;
+    --bad:#dc2626; --bad-soft:#fef2f2;
+  }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:14px/1.55 'Segoe UI', system-ui, -apple-system, sans-serif }
+  a { color:var(--blue) }
+  .wrap { max-width:1360px; margin:0 auto; padding:22px 26px 70px }
+
+  .modhead { display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:16px }
+  .modhead h1 { margin:0 0 2px; font-size:21px; color:var(--navy); letter-spacing:-.2px }
+  .modhead p { margin:0; color:var(--muted); font-size:13px }
+  .modhead .spacer { flex:1 }
+  .vtag { font:600 11px 'Segoe UI',system-ui,sans-serif; color:var(--muted);
+          background:#fff; border:1px solid var(--line); border-radius:20px; padding:3px 10px }
+
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); margin-bottom:20px }
+  .tabs a { padding:9px 14px; text-decoration:none; color:var(--muted); font-weight:600; font-size:13px;
+            border-bottom:2px solid transparent; margin-bottom:-1px }
+  .tabs a:hover { color:var(--navy) }
+  .tabs a.on { color:var(--navy); border-bottom-color:var(--blue) }
+  .tabs .pill { background:var(--blue-soft); color:var(--blue); border-radius:20px;
+                padding:0 6px; font-size:11px; margin-left:5px }
+
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:18px 20px; margin-bottom:16px; box-shadow:0 1px 2px rgba(15,23,42,.04) }
+  .card h3 { margin:0 0 12px; font-size:15px; color:var(--navy) }
+  .card h3 .sub { font-weight:400; color:var(--muted); font-size:12.5px; margin-left:6px }
+
+  .grid { display:grid; gap:14px }
+  .g2 { grid-template-columns:repeat(auto-fit,minmax(300px,1fr)) }
+  .g3 { grid-template-columns:repeat(auto-fit,minmax(220px,1fr)) }
+  .g4 { grid-template-columns:repeat(auto-fit,minmax(170px,1fr)) }
+
+  .stat { background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:13px 15px }
+  .stat .l { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); font-weight:700 }
+  .stat .v { font-size:22px; font-weight:700; color:var(--navy); letter-spacing:-.5px; margin-top:2px }
+  .stat .f { font-size:12px; color:var(--muted) }
+
+  button, .btn { font:inherit; cursor:pointer; border:1px solid var(--line); background:#fff;
+                 color:var(--ink); border-radius:8px; padding:7px 13px; text-decoration:none;
+                 display:inline-flex; align-items:center; gap:6px }
+  button:hover:not(:disabled), .btn:hover { border-color:#cbd5e1; background:#f8fafc }
+  button:disabled { opacity:.5; cursor:not-allowed }
+  .b-primary { background:var(--navy); border-color:var(--navy); color:#fff; font-weight:600 }
+  .b-primary:hover:not(:disabled) { background:#24406f; border-color:#24406f; color:#fff }
+  .b-good { color:var(--good); border-color:#a7f3d0; background:var(--good-soft) }
+  .b-bad { color:var(--bad); border-color:#fecaca; background:var(--bad-soft) }
+  .b-sm { padding:4px 9px; font-size:12.5px }
+
+  input, select, textarea { font:inherit; width:100%; padding:8px 10px; border:1px solid var(--line);
+                            border-radius:8px; background:#fff; color:var(--ink) }
+  input:focus, select:focus, textarea:focus { outline:2px solid #bfdbfe; outline-offset:-1px; border-color:var(--blue) }
+  textarea { min-height:80px; resize:vertical }
+  label { display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:4px }
+  .field { margin-bottom:14px }
+  .hint { font-size:12px; color:var(--muted); margin-top:5px }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+  .row.end { justify-content:flex-end }
+  .spacer { flex:1 }
+
+  input[type=range] { padding:0; border:0; background:transparent; height:22px }
+
+  table { width:100%; border-collapse:collapse; font-size:13.5px }
+  th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.6px;
+       color:var(--muted); font-weight:700; padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap }
+  td { padding:10px; border-bottom:1px solid #f1f5f9; vertical-align:middle }
+  tbody tr:hover { background:#fafcff }
+  .num { text-align:right; font-variant-numeric:tabular-nums }
+
+  .tag { display:inline-block; font:700 11px 'Segoe UI',system-ui,sans-serif; padding:2px 8px;
+         border-radius:20px; border:1px solid transparent; white-space:nowrap }
+  .t-good { background:var(--good-soft); color:var(--good); border-color:#a7f3d0 }
+  .t-warn { background:var(--warn-soft); color:var(--warn); border-color:#fde68a }
+  .t-bad  { background:var(--bad-soft); color:var(--bad); border-color:#fecaca }
+  .t-info { background:var(--blue-soft); color:var(--blue); border-color:#bfdbfe }
+  .t-mute { background:#f1f5f9; color:var(--muted); border-color:var(--line) }
+
+  .note { border-radius:10px; padding:11px 14px; font-size:13px; margin-bottom:14px; border:1px solid }
+  .n-info { background:var(--blue-soft); border-color:#bfdbfe; color:#1e40af }
+  .n-good { background:var(--good-soft); border-color:#a7f3d0; color:#065f46 }
+  .n-warn { background:var(--warn-soft); border-color:#fde68a; color:#92400e }
+  .n-bad  { background:var(--bad-soft); border-color:#fecaca; color:#991b1b }
+  .note b { display:block; margin-bottom:2px }
+
+  .chips { display:flex; flex-wrap:wrap; gap:5px }
+  .chip { background:#f8fafc; border:1px solid var(--line); border-radius:6px; padding:2px 8px;
+          font-size:12.5px; color:#334155 }
+  .chip .mt { font-size:9.5px; text-transform:uppercase; letter-spacing:.5px; color:#94a3b8; margin-left:4px }
+  .chip.exact { border-color:#a7f3d0 } .chip.phrase { border-color:#bfdbfe }
+  .chip.broad { border-color:#fde68a } .chip.neg { border-color:#fecaca; color:#b91c1c }
+
+  .empty { text-align:center; padding:44px 16px; color:var(--muted) }
+  .empty h4 { margin:0 0 4px; color:var(--ink); font-size:15px }
+  .mono { font-family:ui-monospace,Consolas,Menlo,monospace; font-size:12.5px }
+  .brk { overflow-wrap:anywhere }
+  .spin { display:inline-block; width:13px; height:13px; border:2px solid #cbd5e1;
+          border-top-color:var(--navy); border-radius:50%; animation:sp .7s linear infinite }
+  @keyframes sp { to { transform:rotate(360deg) } }
+  .comment { border-left:2px solid var(--line); padding:0 0 8px 12px; margin-bottom:12px }
+  .comment .meta { font-size:11.5px; color:var(--muted) }
+  @media print { .noprint { display:none !important } body { background:#fff } .wrap { padding:0; max-width:none } }
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+<div class="wrap">
+  {% block shell %}
+  <div class="modhead noprint">
+    <div>
+      <h1>Smart 1 Ads</h1>
+      <p>{% block strap %}Google Ads campaign operations{% endblock %}</p>
+    </div>
+    <div class="spacer"></div>
+    <span class="vtag">v{{ version }} · {{ version_date }}</span>
+  </div>
+
+  <nav class="tabs noprint">
+    <a href="{{ mount }}/" class="{{ 'on' if active=='campaigns' }}">Live campaigns</a>
+    <a href="{{ mount }}/generator" class="{{ 'on' if active=='generator' }}">Campaign generator</a>
+    <a href="{{ mount }}/approvals" class="{{ 'on' if active=='approvals' }}">Approval hub{% if open_count %}<span class="pill">{{ open_count }}</span>{% endif %}</a>
+    <a href="{{ mount }}/activity" class="{{ 'on' if active=='activity' }}">Activity</a>
+    <a href="{{ mount }}/settings" class="{{ 'on' if active=='settings' }}">Settings</a>
+  </nav>
+  {% endblock %}
+
+  {% block content %}{% endblock %}
+</div>
+
+<script>
+async function api(method, url, body) {
+  const res = await fetch(url, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+    credentials: 'same-origin'
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* non-JSON */ }
+  if (!res.ok) {
+    const err = new Error((data && data.error) || (res.status + ' ' + res.statusText));
+    err.code = data && data.code; err.field = data && data.field;
+    throw err;
+  }
+  return data;
+}
+const money  = n => '$' + Number(n || 0).toLocaleString('en-US', {maximumFractionDigits:0});
+const money2 = n => '$' + Number(n || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const numf   = n => Number(n || 0).toLocaleString('en-US', {maximumFractionDigits:1});
+const pctf   = n => (Number(n || 0) * 100).toFixed(2) + '%';
+const titleise = s => String(s || '').replace(/_/g,' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function toast(tone, msg) {
+  const el = document.getElementById('toast');
+  if (!el) return alert(msg);
+  el.className = 'note n-' + tone;
+  el.textContent = msg;
+  el.style.display = 'block';
+  if (tone === 'good') setTimeout(() => { el.style.display = 'none'; }, 6000);
+}
+</script>
+{% block script %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,44 @@
+{% extends "ads_base.html" %}
+{% set active = 'activity' %}
+{% block title %}Activity{% endblock %}
+{% block strap %}Every generation, status change, deployment and API error{% endblock %}
+
+{% block content %}
+<div class="row" style="margin-bottom:14px">
+  <input id="filter" style="max-width:280px" placeholder="Filter…" oninput="applyFilter()">
+  <div class="spacer"></div>
+  <a class="btn" href="{{ mount }}/activity">Refresh</a>
+</div>
+
+<div class="card">
+  {% if not events %}
+    <div class="empty"><h4>Nothing logged yet</h4>Actions in this module will appear here.</div>
+  {% else %}
+  <table>
+    <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Details</th></tr></thead>
+    <tbody id="rows">
+      {% for e in events %}
+        {% set bad = 'ERROR' in e.action or 'FAILED' in e.action or 'DENIED' in e.action %}
+        <tr>
+          <td style="white-space:nowrap;color:#64748b">{{ (e.timestamp or '')[:19].replace('T',' ') }}</td>
+          <td><span class="tag {{ 't-bad' if bad else 't-info' if 'DEPLOY' in e.action else 't-mute' }}">{{ e.action }}</span></td>
+          <td>{{ e.actor }}</td>
+          <td class="mono brk" style="color:#94a3b8">{{ e.details|tojson }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+function applyFilter() {
+  const q = document.getElementById('filter').value.toLowerCase();
+  document.querySelectorAll('#rows tr').forEach(tr => {
+    tr.style.display = !q || tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}
