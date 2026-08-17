@@ -1554,6 +1554,9 @@ def create_hub_app() -> Flask:
             pass
 
         out["db_boot_error"] = app.config.get("HUB_DB_BOOT_ERROR") or None
+        out["users_registered"] = app.config.get("HUB_USERS_REGISTERED", None)
+        if out["users_registered"] is False:
+            out["signup_available"] = False
         out["users_boot_error"] = app.config.get("HUB_USERS_BOOT_ERROR") or None
 
         # Can we actually reach the users table? This is the failure that makes
@@ -1585,6 +1588,13 @@ def create_hub_app() -> Flask:
 
         # Plain-English verdict, so nobody has to interpret the booleans.
         problems = []
+        if app.config.get("HUB_USERS_REGISTERED") is False:
+            problems.append(
+                "The user-accounts blueprint failed to register, so /signup "
+                "and /diagnostics/users return 404. Reason: "
+                + str(app.config.get("HUB_USERS_BOOT_ERROR", "unknown"))
+                + " — if it names flask_sqlalchemy, Flask-SQLAlchemy is "
+                  "missing from requirements.txt.")
         try:
             from .config import settings as _cfg
             for w in _cfg.placeholder_warnings():
@@ -1890,7 +1900,15 @@ def create_hub_app() -> Flask:
     try:
         from .users_routes import register_users
         register_users(app)
+        app.config["HUB_USERS_REGISTERED"] = True
     except Exception as _users_exc:  # noqa: BLE001
+        # This failing is why /signup returned 404 with nothing to go on:
+        # Flask-SQLAlchemy was missing from requirements.txt, the import
+        # raised, and the except swallowed it. Record the reason so
+        # /login/health can say so instead of leaving you guessing.
+        app.config["HUB_USERS_REGISTERED"] = False
+        app.config["HUB_USERS_BOOT_ERROR"] = (
+            f"{type(_users_exc).__name__}: {_users_exc}")
         try:
             errors.log_exception("hub", _users_exc)
         except Exception:  # noqa: BLE001

@@ -10,8 +10,11 @@ psycopg2-binary==2.9.10
 python-dotenv==1.1.1
 beautifulsoup4==4.13.4
 SQLAlchemy==2.0.36
+Flask-SQLAlchemy==3.1.1
 flask-cors==5.0.0
 reportlab==4.2.5
 python-docx==1.1.2
 cloudinary==1.41.0
 qrcode[pil]==8.0
+openai==1.59.6
+MarkupSafe==3.0.2
