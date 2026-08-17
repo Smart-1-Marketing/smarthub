@@ -67,6 +67,68 @@ def create_hub_app() -> Flask:
         from . import version as _v
         return jsonify(_v.info())
 
+    # ---------------- v7.5: diagnostics, quotas, cost ----------------
+    @app.route("/diagnostics")
+    def page_diagnostics():
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("diagnostics.html", user=current_user(),
+                               active="diagnostics")
+
+    @app.route("/api/diagnostics")
+    def api_diagnostics():
+        """Live reachability of every external API.
+
+        Deliberately never spends a credit: Insites has no free endpoint, so it
+        reports `unverified` rather than starting a throwaway audit.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import diagnostics
+        return jsonify(diagnostics.run_all())
+
+    @app.route("/api/quotas")
+    def api_quotas():
+        """Monthly usage against allowances, plus the OpenAI cost estimate."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import quotas
+        return jsonify(quotas.summary(request.args.get("month")))
+
+    @app.route("/api/quotas/warnings")
+    def api_quota_warnings():
+        """Just the providers needing attention — for a banner or a cron job."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import quotas
+        warns = quotas.warnings(request.args.get("month"))
+        return jsonify({"warnings": warns, "count": len(warns),
+                        "ok": not warns})
+
+    @app.route("/api/providers")
+    def api_providers():
+        """Every provider, configured or not, with what breaks when it isn't.
+
+        This is the answer to "is Cloudinary actually set?" — a question that
+        went unanswered long enough for the whole v1.6.0 tool set to run
+        degraded in production without anyone noticing.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .config import settings as _cfg
+        rows = _cfg.status()
+        return jsonify({
+            "providers": rows,
+            "missing_required": _cfg.missing_required(),
+            "ok": not _cfg.missing_required(),
+            "degraded": [r["name"] for r in rows if r["state"] == "warn"],
+        })
+
     # ---------------- clients: one list from every source ----------------
     @app.route("/api/clients/search")
     def api_clients_search():
@@ -103,12 +165,98 @@ def create_hub_app() -> Flask:
         return jsonify({"ok": True, "client": row,
                         "clients": clients_registry.house_clients()})
 
+    def _hub_user():
+        """The signed-in user as a rich object, for the help/demo layer."""
+        try:
+            from . import identity
+            u = identity.user_from_environ(request.environ)
+            if u:
+                return u
+            name = current_user()
+            return identity.User(email="", name=name, via="password") if name else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _login_cookie(user, nxt="/"):
+        from . import identity
+        if not nxt.startswith("/"):
+            nxt = "/"
+        resp = make_response(redirect(nxt))
+        secure = (os.environ.get("NODE_ENV") == "production"
+                  or os.environ.get("FLASK_ENV") == "production")
+        # Both cookies: the rich one for v7 features, the legacy one so every
+        # existing @requires_login check keeps working untouched.
+        resp.set_cookie(identity.COOKIE_NAME, identity.issue_cookie(user),
+                        max_age=identity.SESSION_TTL_SECONDS, httponly=True,
+                        samesite="Lax", secure=secure)
+        resp.set_cookie(auth.COOKIE_NAME, auth.issue_cookie_value(user.name),
+                        max_age=auth.SESSION_TTL_SECONDS, httponly=True,
+                        samesite="Lax", secure=secure)
+        return resp
+
+    @app.route("/auth/google")
+    def auth_google():
+        from . import identity
+        if not identity.google_configured():
+            return redirect("/login?error=google_not_configured")
+        state = identity.new_state()
+        redirect_uri = request.url_root.rstrip("/") + "/auth/google/callback"
+        resp = make_response(redirect(identity.authorize_url(redirect_uri, state)))
+        # State is held in a short-lived cookie and compared on the way back —
+        # without it the callback accepts a code an attacker supplies.
+        resp.set_cookie("s1_oauth_state", state, max_age=600, httponly=True,
+                        samesite="Lax")
+        resp.set_cookie("s1_oauth_next", request.args.get("next", "/"),
+                        max_age=600, httponly=True, samesite="Lax")
+        return resp
+
+    @app.route("/auth/google/callback")
+    def auth_google_callback():
+        from . import identity
+        sent = request.cookies.get("s1_oauth_state") or ""
+        got = request.args.get("state") or ""
+        if not sent or sent != got:
+            audit.log("auth", "login_rejected", reason="state_mismatch")
+            return render_template("login.html", next="/",
+                                   error="That sign-in link expired. Try again."), 400
+        code = request.args.get("code") or ""
+        if not code:
+            return redirect("/login")
+        try:
+            user = identity.complete_google_login(
+                code, request.url_root.rstrip("/") + "/auth/google/callback")
+        except identity.LoginRejected as exc:
+            return render_template("login.html", next="/", error=str(exc)), 403
+        nxt = request.cookies.get("s1_oauth_next") or "/"
+        resp = _login_cookie(user, nxt)
+        resp.delete_cookie("s1_oauth_state")
+        resp.delete_cookie("s1_oauth_next")
+        return resp
+
+    @app.route("/auth/demo", methods=["POST"])
+    def auth_demo():
+        from . import identity
+        try:
+            user = identity.complete_demo_login(
+                request.form.get("code") or "",
+                request.form.get("name") or "")
+        except identity.LoginRejected as exc:
+            return render_template("login.html", next="/", error=str(exc)), 403
+        return _login_cookie(user, "/")
+
     @app.route("/login", methods=["GET", "POST"])
     def login():
+        from . import identity
         if request.method == "GET":
             if current_user():
                 return redirect(request.args.get("next") or "/")
-            return render_template("login.html", next=request.args.get("next", "/"))
+            return render_template(
+                "login.html", next=request.args.get("next", "/"),
+                google_enabled=identity.google_configured(),
+                demo_enabled=identity.demo_enabled(),
+                login_domains=sorted(identity.allowed_domains()),
+                error=("Google sign-in isn't configured on this Hub yet."
+                       if request.args.get("error") == "google_not_configured" else None))
 
         ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
         wait = auth.throttle_check(ip)
@@ -1550,5 +1698,25 @@ def create_hub_app() -> Flask:
             else "/var/data not mounted — audit log and Google tokens are ephemeral.")
 
         return jsonify({"checks": checks})
+
+    # ---------------- v7: help bubbles, tool walkthroughs, demo mode -------
+    # Registered last, because it needs _hub_user (defined with the login
+    # routes above). The fallbacks below are not decoration: an earlier build
+    # wrapped this in a bare try/except, the registration failed on a NameError,
+    # and every page in the Hub 500'd on an undefined `demo_banner`. A failure
+    # here must degrade to "no help" — never to "no Hub".
+    try:
+        from .help_routes import register_help
+        register_help(app, current_user_fn=_hub_user)
+    except Exception as _help_exc:  # noqa: BLE001
+        from markupsafe import Markup as _M
+        app.jinja_env.globals.setdefault("demo_banner", lambda *a, **k: _M(""))
+        app.jinja_env.globals.setdefault("help_dot", lambda *a, **k: _M(""))
+        app.jinja_env.globals.setdefault("demo_launcher", lambda *a, **k: _M(""))
+        app.jinja_env.globals.setdefault("help_text", lambda *a, **k: "")
+        try:
+            errors.log_exception("hub", _help_exc)
+        except Exception:  # noqa: BLE001
+            pass
 
     return app

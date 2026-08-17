@@ -18,6 +18,44 @@
     <button class="btn-primary full" type="submit">Sign in &rarr;</button>
     <div class="login-note">Actions are logged under your name &middot; Sessions last 12 hours</div>
   </form>
+
+{% if google_enabled %}
+  <div class="s1-login-or"><span>or</span></div>
+  <a class="s1-login-google" href="/auth/google?next={{ next|urlencode }}">
+    Sign in with Google
+  </a>
+  {% if login_domains %}
+    <p class="s1-login-hint">
+      Use your {{ login_domains|join(' or ') }} account.
+    </p>
+  {% endif %}
+{% endif %}
+
+{% if demo_enabled %}
+  <details class="s1-login-demo">
+    <summary>Just here to try it out?</summary>
+    <form method="post" action="/auth/demo">
+      <input name="name" placeholder="Your name" required>
+      <input name="code" placeholder="Demo code" required>
+      <button type="submit">Start a demo session</button>
+      <p class="s1-login-hint">
+        Sample data only. Nothing spends a credit or touches a real client.
+      </p>
+    </form>
+  </details>
+{% endif %}
+
+<style>
+.s1-login-or{display:flex;align-items:center;gap:.6rem;margin:1.1rem 0;color:#94a3b8;font-size:.78rem}
+.s1-login-or::before,.s1-login-or::after{content:"";flex:1;height:1px;background:#e2e8f0}
+.s1-login-google{display:block;text-align:center;padding:.6rem;border:1px solid #d7dfe8;
+  border-radius:8px;background:#fff;color:#1b2733;font-weight:600;text-decoration:none;font-size:.88rem}
+.s1-login-google:hover{background:#f7fafc}
+.s1-login-hint{color:#94a3b8;font-size:.76rem;text-align:center;margin:.55rem 0 0;line-height:1.5}
+.s1-login-demo{margin-top:1.4rem;border-top:1px solid #e2e8f0;padding-top:1rem}
+.s1-login-demo summary{color:#64748b;font-size:.8rem;cursor:pointer}
+.s1-login-demo form{margin-top:.7rem;display:flex;flex-direction:column;gap:.5rem}
+</style>
 </div>
 </body>
 </html>

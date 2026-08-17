@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="diag">
+
+  <div class="diag-head">
+    <div>
+      <h1>Diagnostics</h1>
+      <p class="diag-sub">Live checks against every external API, monthly usage
+        against your allowances, and an estimate of the OpenAI bill.</p>
+    </div>
+    <button type="button" class="diag-refresh" onclick="loadAll(true)">Re-run checks</button>
+  </div>
+
+  <!-- ---------------- warnings ---------------- -->
+  <div id="diag-alerts"></div>
+
+  <!-- ---------------- API health ---------------- -->
+  <section class="diag-card">
+    <h2>API health <span class="diag-note" id="diag-timing"></span></h2>
+    <p class="diag-help">
+      This is not "is the key set" — it's "does the key work right now". A key
+      that has been revoked, a token that expired, or a plan that lapsed all
+      pass a config check and fail in production.
+    </p>
+    <div id="diag-checks" class="diag-rows"><p class="diag-loading">Running checks…</p></div>
+  </section>
+
+  <!-- ---------------- quotas ---------------- -->
+  <section class="diag-card">
+    <h2>Usage this month</h2>
+    <p class="diag-help">
+      Counted from the activity log, so a redeploy doesn't reset it. Cached
+      hits are shown separately — they cost nothing and are what keeps you
+      under the line.
+    </p>
+    <div id="diag-quotas" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+  </section>
+
+  <!-- ---------------- OpenAI cost ---------------- -->
+  <section class="diag-card">
+    <h2>OpenAI — estimated cost</h2>
+    <div id="diag-openai"><p class="diag-loading">Loading…</p></div>
+  </section>
+
+</div>
+
+<style>
+.diag{max-width:1000px;margin:0 auto;font-family:system-ui,sans-serif;color:#1b2733}
+.diag-head{display:flex;align-items:flex-start;gap:1rem;margin-bottom:1.2rem}
+.diag-head h1{margin:0 0 .25rem;font-size:1.5rem;color:#0d2340}
+.diag-sub{margin:0;color:#64748b;font-size:.86rem;line-height:1.5}
+.diag-refresh{margin-left:auto;background:#1769AA;color:#fff;border:0;border-radius:8px;
+  padding:.5rem 1rem;font:600 .82rem system-ui;cursor:pointer;white-space:nowrap}
+.diag-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;
+  padding:1.1rem 1.25rem;margin-bottom:1.1rem}
+.diag-card h2{margin:0 0 .3rem;font-size:1.02rem;color:#0d2340}
+.diag-note{font-weight:400;font-size:.75rem;color:#94a3b8;margin-left:.4rem}
+.diag-help{margin:0 0 .9rem;font-size:.81rem;line-height:1.55;color:#64748b}
+.diag-loading{color:#94a3b8;font-size:.85rem}
+.diag-rows{display:flex;flex-direction:column;gap:.4rem}
+
+.diag-row{display:flex;align-items:flex-start;gap:.7rem;padding:.6rem .7rem;
+  border:1px solid #eef2f6;border-radius:9px;background:#fcfdfe}
+.diag-pill{flex:0 0 auto;padding:.12rem .5rem;border-radius:20px;
+  font:700 .66rem system-ui;letter-spacing:.05em;text-transform:uppercase;margin-top:.1rem}
+.p-ok{background:#dcfce7;color:#166534}
+.p-warn{background:#fef3c7;color:#92400e}
+.p-error{background:#fee2e2;color:#991b1b}
+.p-off{background:#e2e8f0;color:#475569}
+.p-unverified{background:#e0e7ff;color:#3730a3}
+.diag-name{flex:0 0 10.5rem;font-weight:600;font-size:.86rem}
+.diag-detail{flex:1;font-size:.82rem;line-height:1.5;color:#41525f}
+.diag-fix{display:block;margin-top:.2rem;color:#1769AA;font-size:.78rem}
+.diag-ms{flex:0 0 auto;color:#94a3b8;font-size:.72rem;margin-top:.15rem}
+
+.diag-bar{height:7px;border-radius:4px;background:#eef2f6;overflow:hidden;margin:.4rem 0 .3rem}
+.diag-bar i{display:block;height:100%;background:#1769AA}
+.diag-bar i.warn{background:#f59e0b}
+.diag-bar i.over{background:#dc2626}
+.diag-quota{padding:.75rem .8rem;border:1px solid #eef2f6;border-radius:9px}
+.diag-quota-top{display:flex;align-items:baseline;gap:.5rem}
+.diag-quota-top b{font-size:.9rem}
+.diag-quota-num{margin-left:auto;font-size:.86rem;font-weight:700}
+.diag-quota-sub{font-size:.78rem;color:#64748b;line-height:1.5}
+.diag-byline{font-size:.75rem;color:#94a3b8;margin-top:.3rem}
+
+.diag-alert{display:flex;gap:.6rem;padding:.75rem .9rem;border-radius:10px;
+  margin-bottom:.6rem;font-size:.86rem;line-height:1.5}
+.a-warn{background:#fef3c7;border:1px solid #fcd34d;color:#78350f}
+.a-over{background:#fee2e2;border:1px solid #fca5a5;color:#7f1d1d}
+
+.diag-cost{display:flex;flex-wrap:wrap;gap:1.4rem;margin-bottom:1rem}
+.diag-cost div{min-width:8rem}
+.diag-cost span{display:block;font-size:.72rem;text-transform:uppercase;
+  letter-spacing:.06em;color:#94a3b8;margin-bottom:.15rem}
+.diag-cost b{font-size:1.35rem;color:#0d2340}
+table.diag-tbl{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:.5rem}
+table.diag-tbl th{text-align:left;color:#94a3b8;font-weight:600;font-size:.72rem;
+  text-transform:uppercase;letter-spacing:.05em;padding:.35rem .5rem;border-bottom:1px solid #eef2f6}
+table.diag-tbl td{padding:.4rem .5rem;border-bottom:1px solid #f4f7fa}
+table.diag-tbl td.num{text-align:right;font-variant-numeric:tabular-nums}
+.diag-caveat{margin-top:.8rem;font-size:.78rem;color:#94a3b8;line-height:1.55}
+@media(max-width:700px){
+  .diag-row{flex-wrap:wrap}
+  .diag-name{flex:1 0 100%}
+}
+</style>
+
+<script>
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function money(n){return "$"+Number(n||0).toFixed(2);}
+function num(n){return Number(n||0).toLocaleString();}
+
+function renderChecks(d){
+  document.getElementById("diag-timing").textContent =
+    "checked in "+(d.took_ms/1000).toFixed(1)+"s";
+  document.getElementById("diag-checks").innerHTML = d.checks.map(c=>
+    '<div class="diag-row">'+
+      '<span class="diag-pill p-'+esc(c.state)+'">'+esc(c.state)+'</span>'+
+      '<span class="diag-name">'+esc(c.label)+'</span>'+
+      '<span class="diag-detail">'+esc(c.detail)+
+        (c.fix && c.state!=="ok" ? '<em class="diag-fix">'+esc(c.fix)+'</em>' : '')+
+      '</span>'+
+      '<span class="diag-ms">'+(c.ms?c.ms+"ms":"")+'</span>'+
+    '</div>').join("");
+}
+
+function renderQuotas(d){
+  const alerts=[];
+  document.getElementById("diag-quotas").innerHTML = d.quotas.map(q=>{
+    if(q.state!=="ok") alerts.push(q);
+    const pct = q.percent==null ? null : Math.min(100,q.percent);
+    const byMod = Object.entries(q.by_module||{});
+    return '<div class="diag-quota">'+
+      '<div class="diag-quota-top">'+
+        '<span class="diag-pill p-'+(q.state==="over"?"error":q.state==="warn"?"warn":"ok")+'">'+esc(q.state)+'</span>'+
+        '<b>'+esc(q.label)+'</b>'+
+        '<span class="diag-quota-num">'+num(q.used)+(q.limit?" / "+num(q.limit):"")+" "+esc(q.unit)+'</span>'+
+      '</div>'+
+      (pct!==null?'<div class="diag-bar"><i class="'+(q.state==="over"?"over":q.state==="warn"?"warn":"")+'" style="width:'+pct+'%"></i></div>':'')+
+      '<div class="diag-quota-sub">'+esc(q.note)+
+        (q.cached?' <b>'+num(q.cached)+' served from cache</b> (free).':'')+
+        (q.warn_at?' Warning at '+num(q.warn_at)+'.':'')+
+      '</div>'+
+      (byMod.length?'<div class="diag-byline">By tool: '+byMod.map(([m,n])=>esc(m)+" "+num(n)).join(" · ")+'</div>':'')+
+    '</div>';
+  }).join("");
+
+  document.getElementById("diag-alerts").innerHTML = alerts.map(a=>
+    '<div class="diag-alert a-'+(a.state==="over"?"over":"warn")+'">'+
+      '<b>'+(a.state==="over"?"Over allowance":"Approaching allowance")+'</b>'+
+      '<span>'+esc(a.message)+'</span></div>').join("");
+}
+
+function renderOpenAI(o){
+  const models = Object.entries(o.by_model||{});
+  const mods   = Object.entries(o.by_module||{});
+  document.getElementById("diag-openai").innerHTML =
+    '<div class="diag-cost">'+
+      '<div><span>Month to date</span><b>'+money(o.estimated_cost)+'</b></div>'+
+      '<div><span>Projected month end</span><b>'+money(o.projected_month_end)+'</b></div>'+
+      '<div><span>Calls</span><b>'+num(o.calls)+'</b></div>'+
+      '<div><span>Tokens</span><b>'+num(o.tokens_in+o.tokens_out)+'</b></div>'+
+      (o.errors?'<div><span>Failed calls</span><b>'+num(o.errors)+'</b></div>':'')+
+    '</div>'+
+    (models.length?
+      '<table class="diag-tbl"><tr><th>Model</th><th class="num">Calls</th>'+
+      '<th class="num">Tokens in</th><th class="num">Tokens out</th><th class="num">Cost</th></tr>'+
+      models.map(([m,v])=>'<tr><td>'+esc(m)+'</td><td class="num">'+num(v.calls)+
+        '</td><td class="num">'+num(v.tokens_in)+'</td><td class="num">'+num(v.tokens_out)+
+        '</td><td class="num">'+money(v.cost)+'</td></tr>').join("")+'</table>'
+      :'<p class="diag-loading">No OpenAI calls logged this month yet.</p>')+
+    (mods.length?
+      '<table class="diag-tbl"><tr><th>Tool</th><th class="num">Calls</th>'+
+      '<th class="num">Errors</th><th class="num">Cost</th></tr>'+
+      mods.map(([m,v])=>'<tr><td>'+esc(m)+'</td><td class="num">'+num(v.calls)+
+        '</td><td class="num">'+num(v.errors)+'</td><td class="num">'+money(v.cost)+
+        '</td></tr>').join("")+'</table>':'')+
+    (o.untracked_modules && o.untracked_modules.length?
+      '<p class="diag-caveat"><b>Not counted above:</b> '+
+      o.untracked_modules.map(esc).join(", ")+
+      ' call OpenAI directly instead of through the shared client, so their '+
+      'spend is invisible here. Migrating them onto hub/ai.py closes the gap.</p>':'')+
+    '<p class="diag-caveat">'+esc(o.caveat)+'</p>';
+}
+
+function loadAll(force){
+  if(force){
+    document.getElementById("diag-checks").innerHTML='<p class="diag-loading">Running checks…</p>';
+  }
+  fetch("/api/diagnostics",{credentials:"same-origin"})
+    .then(r=>r.json()).then(renderChecks)
+    .catch(()=>{document.getElementById("diag-checks").innerHTML=
+      '<p class="diag-loading">Checks could not be run.</p>';});
+  fetch("/api/quotas",{credentials:"same-origin"})
+    .then(r=>r.json()).then(d=>{renderQuotas(d);renderOpenAI(d.openai);})
+    .catch(()=>{});
+}
+loadAll(false);
+</script>
+{% endblock %}

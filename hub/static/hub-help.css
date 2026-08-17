@@ -1,0 +1,102 @@
+/* Smart 1 Hub — help bubbles, tour overlay, demo banner.
+   Neutral tokens so this drops onto any existing page without a restyle. */
+
+.s1-help{position:relative;display:inline-flex;vertical-align:middle;margin-left:.35em}
+.s1-help-dot{width:1.15em;height:1.15em;min-width:1.15em;border-radius:50%;border:0;
+  background:#1769AA;color:#fff;font:600 .72em/1.15em system-ui,sans-serif;
+  cursor:pointer;padding:0;text-align:center;opacity:.85;transition:opacity .12s}
+.s1-help-dot:hover,.s1-help-dot:focus-visible{opacity:1}
+.s1-help-dot:focus-visible{outline:2px solid #1769AA;outline-offset:2px}
+
+.s1-help-pop{position:absolute;top:calc(100% + 8px);left:-8px;z-index:900;width:min(21rem,78vw);
+  display:flex;flex-direction:column;gap:.4em;padding:.75rem .85rem;
+  background:#fff;color:#1b2733;border:1px solid #dfe6ee;border-radius:10px;
+  box-shadow:0 10px 30px rgba(16,32,52,.16);font:400 .82rem/1.5 system-ui,sans-serif;
+  text-align:left;white-space:normal}
+.s1-help-pop[hidden]{display:none}
+.s1-help-pop.s1-flip{left:auto;right:-8px}
+.s1-help-pop strong{font-size:.85rem;color:#0d2340}
+.s1-help-pop a{color:#1769AA;font-weight:600;text-decoration:none}
+.s1-help-pop a:hover{text-decoration:underline}
+.s1-help-pop::before{content:"";position:absolute;top:-5px;left:14px;width:9px;height:9px;
+  background:#fff;border-left:1px solid #dfe6ee;border-top:1px solid #dfe6ee;transform:rotate(45deg)}
+.s1-help-pop.s1-flip::before{left:auto;right:14px}
+
+/* ---- tour ---- */
+body.s1-tour-open{overflow:hidden}
+.s1-tour-layer{position:fixed;inset:0;z-index:1000;background:rgba(9,22,38,.62);
+  display:flex;align-items:flex-end;justify-content:center;padding:1.25rem}
+.s1-tour-card{position:relative;z-index:1002;width:min(30rem,94vw);background:#fff;
+  border-radius:14px;padding:1.15rem 1.25rem;box-shadow:0 24px 60px rgba(6,18,32,.4);
+  font-family:system-ui,sans-serif;color:#1b2733}
+.s1-tour-count{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:#7b8a9c;margin-bottom:.4rem}
+.s1-tour-title{margin:0 0 .45rem;font-size:1.02rem;color:#0d2340}
+.s1-tour-body{margin:0 0 1rem;font-size:.87rem;line-height:1.55;color:#41525f}
+.s1-tour-actions{display:flex;align-items:center;gap:.5rem}
+.s1-tour-spacer{flex:1}
+.s1-tour-actions button{border-radius:8px;padding:.45rem .95rem;font:600 .82rem system-ui,sans-serif;cursor:pointer;border:1px solid transparent}
+.s1-tour-skip{background:none;color:#7b8a9c}
+.s1-tour-back{background:#fff;border-color:#d7dfe8;color:#41525f}
+.s1-tour-back:disabled{opacity:.4;cursor:default}
+.s1-tour-next{background:#1769AA;color:#fff}
+.s1-tour-ring{position:absolute;z-index:1001;border-radius:10px;pointer-events:none;
+  box-shadow:0 0 0 3px #4aa3e8,0 0 0 9999px rgba(9,22,38,.62);transition:all .22s ease}
+
+/* ---- demo banner ---- */
+.s1-demo-banner{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;
+  padding:.6rem .9rem;background:#fff4d6;border-bottom:1px solid #f0d99a;
+  color:#5a4413;font:.83rem/1.5 system-ui,sans-serif}
+.s1-demo-banner strong{color:#3f2f08}
+.s1-demo-banner .s1-demo-cta{margin-left:auto;background:#1769AA;color:#fff;
+  padding:.35rem .8rem;border-radius:7px;text-decoration:none;font-weight:600;white-space:nowrap}
+.s1-demo-chip{display:inline-block;padding:.05rem .45rem;border-radius:5px;
+  background:#f0d99a;color:#5a4413;font-size:.68rem;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase}
+
+@media (prefers-reduced-motion:reduce){
+  .s1-tour-ring{transition:none}
+  .s1-help-dot{transition:none}
+}
+@media (max-width:640px){
+  .s1-help-pop{width:min(19rem,88vw)}
+  .s1-tour-layer{align-items:center}
+}
+
+/* ---- guided demo panel (hub-demo.js) ---- */
+.s1-demo-panel{position:fixed;right:1rem;bottom:1rem;z-index:1200;width:min(24rem,92vw);
+  background:#fff;border:1px solid #dfe6ee;border-radius:14px;
+  box-shadow:0 20px 50px rgba(6,18,32,.28);padding:1rem 1.05rem;
+  font-family:system-ui,sans-serif;color:#1b2733}
+.s1-demo-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.55rem}
+.s1-demo-scenario{flex:1;font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;
+  color:#7b8a9c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.s1-demo-count{font-size:.7rem;font-weight:700;color:#1769AA}
+.s1-demo-close{border:0;background:none;font-size:1.15rem;line-height:1;cursor:pointer;color:#8a97a6;padding:0 .1rem}
+.s1-demo-bar{height:3px;border-radius:2px;background:#eaf0f6;overflow:hidden;margin-bottom:.8rem}
+.s1-demo-bar i{display:block;height:100%;background:#1769AA;transition:width .25s ease}
+.s1-demo-title{margin:0 0 .35rem;font-size:.97rem;color:#0d2340}
+.s1-demo-body{margin:0 0 .55rem;font-size:.84rem;line-height:1.55;color:#41525f}
+.s1-demo-notice{margin:0 0 .6rem;font-size:.8rem;line-height:1.5;color:#2b4a63;
+  background:#eef5fb;border-left:3px solid #1769AA;border-radius:0 7px 7px 0;padding:.5rem .65rem}
+.s1-demo-sim{font-size:.73rem;color:#5a4413;background:#fff4d6;border-radius:7px;
+  padding:.35rem .55rem;margin-bottom:.6rem}
+.s1-demo-actions{display:flex;gap:.45rem}
+.s1-demo-actions button{flex:1;border-radius:8px;padding:.45rem .5rem;
+  font:600 .8rem system-ui,sans-serif;cursor:pointer;border:1px solid transparent}
+.s1-demo-back{background:#fff;border-color:#d7dfe8;color:#41525f;flex:0 0 4.2rem}
+.s1-demo-back:disabled{opacity:.4;cursor:default}
+.s1-demo-do{background:#eef5fb;color:#1769AA;border-color:#cfe2f2}
+.s1-demo-do[hidden]{display:none}
+.s1-demo-next{background:#1769AA;color:#fff}
+.s1-demo-ring{position:absolute;z-index:1199;border-radius:9px;pointer-events:none;
+  box-shadow:0 0 0 3px #4aa3e8,0 0 0 4px rgba(23,105,170,.25);transition:all .2s ease}
+
+.s1-demo-launch{display:inline-flex;align-items:center;gap:.4rem;padding:.4rem .8rem;
+  border-radius:8px;border:1px solid #cfe2f2;background:#eef5fb;color:#1769AA;
+  font:600 .8rem system-ui,sans-serif;cursor:pointer;text-decoration:none}
+.s1-demo-launch:hover{background:#e2eef8}
+
+@media (prefers-reduced-motion:reduce){.s1-demo-ring,.s1-demo-bar i{transition:none}}
+@media (max-width:640px){
+  .s1-demo-panel{right:.5rem;left:.5rem;bottom:.5rem;width:auto}
+}

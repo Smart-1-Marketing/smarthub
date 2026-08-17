@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}Smart 1 Hub{% endblock %}</title>
 <link rel="stylesheet" href="/assets/hub.css">
+  <link rel="stylesheet" href="/hub-help.css">
 </head>
 <body>
 <div class="shell">
@@ -41,6 +42,7 @@
       <div class="chip"><div class="avatar">{{ (user or 'U')[0]|upper }}</div><span>{{ user }}</span></div>
     </div>
     <div class="page">
+      {{ demo_banner()|safe }}
       {% block content %}{% endblock %}
       <div class="s1hub-ver">Smart 1 Hub &middot; <b>{{ hub_version }}</b></div>
     </div>
@@ -76,5 +78,7 @@ function s1hubFeedback(){
   document.body.appendChild(m);
 }
 </script>
+  <script defer src="/hub-help.js"></script>
+  <script defer src="/hub-demo.js"></script>
 </body>
 </html>

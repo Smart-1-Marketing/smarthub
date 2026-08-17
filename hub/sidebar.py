@@ -24,6 +24,7 @@ _ITEMS = [
     ("tools", "/tools", "&#10022;", "Tools"),
     ("qa", "/qa", "&#10003;", "QA Reports"),
     ("activity", "/activity", "&#8801;", "Activity Log"),
+    ("diagnostics", "/diagnostics", "&#9678;", "Diagnostics"),
     ("status", "/status", "&#9825;", "System Status"),
 ]
 

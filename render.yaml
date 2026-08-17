@@ -7,7 +7,7 @@ services:
     disk:
       name: hub-data
       mountPath: /var/data
-      sizeGB: 1
+      sizeGB: 5
     envVars:
       # ---- Hub login ----
       - key: PANEL_PASSWORD
@@ -57,6 +57,8 @@ services:
         sync: false
       # Public URL of this Hub service, so Insites can POST finished audits
       # back to /scans/api/callback. Set to your Render service URL.
+      # REQUIRED for Site Scans. Blank means Insites never posts completions
+      # back, so every scan hangs on "running" forever. Set to this service URL.
       - key: PUBLIC_BASE_URL
         sync: false
       # Shared secret guarding the Insites completion callback. Generate any
@@ -75,6 +77,78 @@ services:
         sync: false
       - key: QB_ENVIRONMENT
         value: production
+      # ---- Cloudinary (proposals, SEO images, image projects, cutouts) ----
+      # MISSING BEFORE v7. Without this every asset tool silently degraded to
+      # local-disk-only storage on a 1 GB disk that is wiped on redeploy.
+      - key: CLOUDINARY_URL
+        sync: false
+      # ---- OpenAI (SEO naming, FAQ, schema, ads, proposals, image gen) ----
+      # MISSING BEFORE v7. Without this every AI feature fell back to templates.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_VISION_MODEL
+        value: gpt-4o
+      - key: OPENAI_IMAGE_MODEL
+        value: gpt-image-1
+      - key: OPENAI_TIMEOUT
+        value: "90"
+      - key: OPENAI_RETRIES
+        value: "2"
+      # ---- Stock photo providers (Image Creator universal search) ----
+      # Any subset works; search degrades to whichever answer.
+      - key: PEXELS_API_KEY
+        sync: false
+      - key: PIXABAY_API_KEY
+        sync: false
+      - key: UNSPLASH_ACCESS_KEY
+        sync: false
+      # ---- Background Remover (billed per image) ----
+      - key: REMOVE_BG_API_KEY
+        sync: false
+      # ---- Fonts (optional; a curated list is used without it) ----
+      - key: GOOGLE_FONTS_API_KEY
+        sync: false
+      # ---- Image pipeline ----
+      # Longest-edge cap applied BEFORE WebP conversion. WebP alone does not
+      # shrink a camera photo — a 6000px JPEG stays 6000px.
+      - key: SEO_IMAGES_MAX_EDGE
+        value: "2400"
+      - key: HUB_PREVIEW_EDGE
+        value: "640"
+      - key: HUB_AI_USAGE_LOG
+        value: "true"
+      # ---- Google Workspace login (hub/identity.py) ----
+      # GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are already declared above for
+      # Google Finder — the Hub login reuses the same OAuth client. Add this
+      # Hub's /auth/google/callback to the Authorised redirect URIs in the
+      # Google Cloud console, or sign-in returns redirect_uri_mismatch.
+      - key: ALLOWED_LOGIN_DOMAINS
+        value: smart1marketing.com
+      - key: HUB_ADMIN_EMAILS
+        sync: false
+      # ---- Demo mode (hub/demo.py) ----
+      # Any non-empty value turns on demo sign-in. Demo sessions are read-only
+      # and every paid call (Insites, remove.bg, OpenAI) is intercepted.
+      - key: HUB_DEMO_CODE
+        sync: false
+      # Set true ONLY on a separate throwaway service used purely for training.
+      - key: HUB_DEMO_MODE
+        value: "false"
+      # ---- provider allowances (/diagnostics warns as you approach them) ----
+      - key: BRANDFETCH_WARN_AT
+        value: "80"
+      - key: BRANDFETCH_MONTHLY_LIMIT
+        value: "100"
+      - key: INSITES_WARN_AT
+        value: "900"
+      - key: INSITES_MONTHLY_LIMIT
+        value: "1000"
+      - key: REMOVEBG_WARN_AT
+        value: "40"
+      - key: REMOVEBG_MONTHLY_LIMIT
+        value: "50"
       # ---- shared ----
       - key: AUDIT_LOG_PATH
         value: /var/data/hub-audit.log.jsonl
