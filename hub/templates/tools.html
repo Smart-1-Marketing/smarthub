@@ -2,7 +2,8 @@
 {% block title %}Tools — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head"><h2>Tools</h2><p>Everyday utilities — same login, no separate URLs</p></div>
-<div class="tool-group"><h2>Creative</h2><p>Make things for clients — images, video, audio and ad copy.</p></div>
+<div class="qa-group-label">Creative</div>
+<p class="qa-group-blurb">Make things for clients — images, video, audio and ad copy.</p>
 <div class="tool-tiles">
   <a class="tool-tile" href="/tools/image-creator/">
     <div class="t-ico">&#127912;</div>
@@ -61,7 +62,8 @@
     <p>Reads a Smart 1 Suite landing page and generates matching responsive search, social, display and audio ads.</p>
   </a>
 </div>
-<div class="tool-group"><h2>Client Work</h2><p>Audits, tracked links, documents and client websites.</p></div>
+<div class="qa-group-label">Client Work</div>
+<p class="qa-group-blurb">Audits, tracked links, documents and client websites.</p>
 <div class="tool-tiles">
   <a class="tool-tile" href="/scans/bulk">
     <div class="t-ico">&#9776;</div>
@@ -102,7 +104,8 @@
     <p>Digital Audio, CTV, DOOH, IMS Trade and Female 18&ndash;34. Publishable on a client page with a real server-side gate: headline numbers first, full detail only after a validated name, email and phone.</p>
   </a>
 </div>
-<div class="tool-group"><h2>Access & Setup</h2><p>Getting connected to a client's systems.</p></div>
+<div class="qa-group-label">Access & Setup</div>
+<p class="qa-group-blurb">Getting connected to a client's systems.</p>
 <div class="tool-tiles">
   <a class="tool-tile" href="/tools/google-access/">
     <div class="t-ico">&#128273;</div>
@@ -111,10 +114,12 @@
   </a>
 </div>
 <style>
-.tool-group{grid-column:1 / -1;margin:26px 2px 12px}
-.tool-group:first-of-type{margin-top:6px}
-.tool-group h2{margin:0 0 3px;font-size:15px;color:var(--navy,#0d2340)}
-.tool-group p{margin:0;font-size:12.5px;color:#64748b}
+/* Same grouping treatment as QA Reports — the two index pages should read as
+   one product, not two different designs. */
+.qa-group-label{grid-column:1 / -1;margin:24px 2px 2px;font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:1px;color:#64748b}
+.qa-group-label:first-of-type{margin-top:4px}
+.qa-group-blurb{grid-column:1 / -1;margin:0 2px 12px;font-size:12.5px;color:#94a3b8}
 </style>
 
 {% endblock %}

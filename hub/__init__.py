@@ -1639,6 +1639,27 @@ def create_hub_app() -> Flask:
                 groups[g] = []
                 seen.append(g)
             groups[g].append((key, meta))
+        # Two audits live outside REPORTS because they're modules with their
+        # own pages, not table-returning functions. They still belong here —
+        # somebody looking for "what's wrong" shouldn't have to know which
+        # kind of thing each one is.
+        extras = [
+            ("Data Quality", "stale-creative", {
+                "title": "Stale Creative",
+                "desc": "How long since we last produced creative for each "
+                        "active client — and who has never had any.",
+                "ico": "&#9203;", "href": "/qa/stale-creative"}),
+            ("Data Quality", "web-tickets", {
+                "title": "Web Tickets",
+                "desc": "Website change requests from Knack: what's open, "
+                        "what's gone stale, and per-client history.",
+                "ico": "&#127915;", "href": "/tools/tickets/"}),
+        ]
+        for g, key, meta in extras:
+            if g not in groups:
+                groups[g] = []
+                seen.append(g)
+            groups[g].append((key, meta))
         return render_template("qa.html", user=current_user(), modules=MODULES,
                                active="qa", groups=[(g, groups[g]) for g in seen])
 
