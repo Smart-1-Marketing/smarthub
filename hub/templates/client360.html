@@ -230,6 +230,11 @@ function render(g,q){
         <dt>Site</dt><dd>${esc(w.name||'—')}${w.attached?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</dd>
         <dt>Domain</dt><dd>${w.domain?`<a href="https://${esc(w.domain)}" target="_blank" rel="noopener">${esc(w.domain)}</a>`:'—'}${w.domainPurchased?' <span class="pill info">we purchased</span>':''}</dd>
         <dt>Platform</dt><dd><select class="web-plat" data-domain="${esc(w.domain||'')}" style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit">${platOpts.join('')}</select> <span class="web-plat-msg muted" style="font-size:11px">${w.platform_overridden?'corrected':''}</span></dd>
+        <dt>S1M hosted</dt><dd><select class="web-hosted" data-domain="${esc(w.domain||'')}" style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit">
+          <option value=""${!w.s1m_hosted?' selected':''}>—</option>
+          <option value="yes"${w.s1m_hosted==='yes'?' selected':''}>Yes</option>
+          <option value="no"${w.s1m_hosted==='no'?' selected':''}>No</option>
+        </select> <span class="web-hosted-msg muted" style="font-size:11px"></span></dd>
         <dt>Status</dt><dd><span class="pill ${String(w.status||'').toLowerCase()==='active'?'ok':'neutral'}">${esc(w.status||'—')}</span></dd>
         <dt>H&amp;M</dt><dd>${w.hmMonthly?money(w.hmMonthly)+' / mo':'—'}</dd>
         <dt>GA4</dt><dd>${w.ga?esc(w.ga):'<span class="muted">none</span> <a class="gbtn ga-lookup" style="cursor:pointer;font-size:11.5px">Search &amp; attach →</a>'}</dd>
@@ -610,6 +615,16 @@ function render(g,q){
   };
 
   // Website record: platform corrections (hub-only) + GA4 lookup shortcuts
+  document.querySelectorAll('.web-hosted').forEach(sel=>{
+    sel.onchange=()=>{
+      const msg=sel.parentElement.querySelector('.web-hosted-msg');
+      if(msg)msg.textContent='Saving…';
+      fetch('/api/client/website-hosted',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,domain:sel.dataset.domain,s1m_hosted:sel.value})})
+        .then(r=>r.json()).then(res=>{if(msg)msg.textContent=res.error||'saved ✓';})
+        .catch(()=>{if(msg)msg.textContent='could not save';});
+    };
+  });
   document.querySelectorAll('.web-plat').forEach(sel=>{
     sel.onchange=()=>{
       const msg=sel.parentElement.querySelector('.web-plat-msg');

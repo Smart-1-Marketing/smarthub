@@ -257,6 +257,18 @@ def create_hub_app() -> Flask:
         from .client_context import structure_report
         return jsonify(structure_report())
 
+    @app.route("/api/qb/health")
+    def api_qb_health():
+        """Why the QuickBooks connection may not be holding."""
+        gate = _require_api()
+        if gate:
+            return gate
+        try:
+            from . import quickbooks as qb
+            return jsonify(qb.health())
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"ok": False, "problems": [str(exc)]}), 200
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.
@@ -954,6 +966,36 @@ def create_hub_app() -> Flask:
         audit.log("hub", f"campaign_{kind}_request", actor=current_user(),
                   detail=f"{client}: {subject[:60]}")
         return jsonify({"ok": True, "id": rec.get("id")})
+
+    @app.route("/api/client/website-hosted", methods=["POST"])
+    def api_client_website_hosted():
+        """Whether Smart 1 Marketing hosts this site.
+
+        Stored through the existing website-override mechanism rather than a
+        parallel store: overrides are already merged into every website dict
+        on read, are already scoped per domain, and are already documented as
+        hub-side corrections that never write back to Knack. A second store
+        would need its own merge step and would drift.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "").strip()
+        domain = str(body.get("domain") or "").strip()
+        value = str(body.get("s1m_hosted") or "").strip().lower()
+        if value not in ("", "yes", "no"):
+            return jsonify({"error": "Value must be yes, no or blank."}), 400
+        if not client:
+            return jsonify({"error": "No client given."}), 400
+        try:
+            from . import seo
+            seo.set_website_override(client, domain, {"s1m_hosted": value})
+            audit.log("hub", "s1m_hosted_set", actor=current_user(),
+                      client=client, domain=domain, value=value or "cleared")
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"Could not save ({type(exc).__name__})."}), 500
+        return jsonify({"ok": True, "s1m_hosted": value})
 
     @app.route("/api/client/website-platform", methods=["POST"])
     def api_client_website_platform():

@@ -80,10 +80,26 @@ def _login_response(user: User, nxt: str = "/"):
 
 
 def _require_account():
+    """Require a real user account, not just a session.
+
+    The shared PANEL_PASSWORD gives a valid Hub session but creates no account
+    row, so pages that need an account used to redirect to /login — which saw
+    a valid session and redirected straight back. An infinite loop, and the
+    browser's only clue was ERR_TOO_MANY_REDIRECTS.
+
+    A redirect is the wrong tool when the person is already signed in and the
+    thing they lack can't be obtained by signing in again. Explain it instead.
+    """
     user = current_account()
-    if not user:
-        return None, redirect("/signin?next=" + request.path)
-    return user, None
+    if user:
+        return user, None
+
+    from hub import auth as hub_auth
+    if hub_auth.user_from_environ(request.environ):
+        # Signed in on the shared password: don't bounce, tell them why.
+        return None, (render_template("users_need_account.html",
+                                      next=request.path), 403)
+    return None, redirect("/login?next=" + request.path)
 
 
 def _require_admin_api():

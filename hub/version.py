@@ -9,9 +9,9 @@ Bump VERSION whenever code is deployed. BUILD_DATE is the date of that bump.
 import os
 import subprocess
 
-VERSION = "1.17.2"
+VERSION = "1.18.0"
 BUILD_DATE = "2026-08-17"
-CODENAME = "Match Sites Reachable"
+CODENAME = "S1M Hosted, Login Loop, QuickBooks Health"
 
 _sha_cache: str | None = None
 

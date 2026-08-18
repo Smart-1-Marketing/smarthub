@@ -411,9 +411,19 @@ def set_website_override(client: str, domain: str, updates: dict) -> dict:
     if not d:
         raise ValueError("A domain is required.")
     entry = ov.setdefault(d, {})
-    for k in ("platform",):
-        if k in updates and str(updates[k]).strip():
-            entry[k] = str(updates[k]).strip()
+    # An allowlist, so a typo'd key can't quietly become a stored field — but
+    # it has to list every override we actually support. "platform" alone meant
+    # s1m_hosted was accepted, reported saved, and silently discarded.
+    for k in ("platform", "s1m_hosted"):
+        if k not in updates:
+            continue
+        val = str(updates[k]).strip()
+        if val:
+            entry[k] = val
+        else:
+            entry.pop(k, None)          # blank clears rather than being ignored
+    if not entry:
+        ov.pop(d, None)
     save_store(client, store)
     return ov
 
@@ -430,6 +440,10 @@ def apply_website_overrides(client: str, websites: list[dict]) -> list[dict]:
         if hit:
             w.update({k: v for k, v in hit.items() if v})
             w["platform_overridden"] = "platform" in hit
+            # Explicit yes/no only. A blank means "not recorded", which should
+            # read as an empty dropdown rather than an implied "no".
+            if hit.get("s1m_hosted") in ("yes", "no"):
+                w["s1m_hosted"] = hit["s1m_hosted"]
     return websites
 
 

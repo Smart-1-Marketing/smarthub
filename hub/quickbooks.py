@@ -71,6 +71,58 @@ def disconnect():
         pass
 
 
+def health() -> dict:
+    """Why the QuickBooks connection may not be holding.
+
+    Two things drop it silently and neither is visible from the UI:
+
+      * **Intuit expires a refresh token after 100 days**, and after 24 hours
+        if it is never used. The token rotates on every refresh, so an active
+        connection stays alive — one that sits idle does not.
+      * **The token lives in a JSON file on the Render disk.** If that disk
+        isn't mounted, the file is written to the container filesystem and is
+        gone on the next deploy, so the connection appears to drop every time
+        you ship.
+    """
+    tok = _load_tokens() or {}
+    path = _token_path()
+    persistent = os.path.isdir("/var/data")
+    now = time.time()
+    obtained = tok.get("obtained_at") or tok.get("issued_at")
+    age_days = round((now - obtained) / 86400, 1) if obtained else None
+    # Intuit's refresh token lifetime.
+    days_left = (100 - age_days) if age_days is not None else None
+
+    problems = []
+    if not persistent:
+        problems.append(
+            "Tokens are being written to the container filesystem, not a "
+            "mounted disk — the connection will drop on every deploy. Confirm "
+            "the Render disk is mounted at /var/data.")
+    if tok and days_left is not None and days_left < 14:
+        problems.append(
+            f"The refresh token is {age_days} days old and Intuit expires them "
+            f"at 100 days — about {round(days_left)} days left. Reconnect "
+            f"before it lapses.")
+    if not tok:
+        problems.append("Not connected. Connect from System Status.")
+
+    return {
+        "connected": bool(tok.get("refresh_token") and tok.get("realm_id")),
+        "token_path": path,
+        "persistent_storage": persistent,
+        "token_file_exists": os.path.isfile(path),
+        "realm_id": bool(tok.get("realm_id")),
+        "access_expires_in": (round(tok.get("expires_at", 0) - now)
+                              if tok.get("expires_at") else None),
+        "refresh_age_days": age_days,
+        "refresh_days_left": round(days_left) if days_left is not None else None,
+        "environment": _env("QB_ENVIRONMENT") or "sandbox",
+        "problems": problems,
+        "ok": not problems,
+    }
+
+
 def connected() -> bool:
     tok = _load_tokens()
     return bool(tok and tok.get("refresh_token") and tok.get("realm_id"))
@@ -153,6 +205,10 @@ def _ensure_access_token():
         # Intuit rotates refresh tokens — always persist the new one.
         "refresh_token": fresh.get("refresh_token") or tok.get("refresh_token"),
         "expires_at": time.time() + int(fresh.get("expires_in", 3600)),
+        # Intuit rotates the refresh token on every refresh, so its clock
+        # restarts here. Recording that is what makes the 100-day expiry
+        # predictable instead of a surprise.
+        "obtained_at": time.time(),
     })
     _save_tokens(tok)
     return tok
