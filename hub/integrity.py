@@ -198,12 +198,48 @@ def check_bare_except_pass() -> list[dict]:
     return out
 
 
+
+def check_shadowed_routes() -> list[dict]:
+    """Hub routes hidden behind a mounted module's prefix.
+
+    DispatcherMiddleware routes purely by URL prefix, so anything under
+    /sites, /scans, /google and the rest goes to that module — a route
+    registered on the hub app at /sites/match is never reached and 404s. This
+    has now caught three separate features (Tickets, bulk scan, Match Sites),
+    which is enough times to make it a check rather than a lesson.
+    """
+    import re
+    try:
+        src = (ROOT / "wsgi.py").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    mounts = sorted(set(re.findall(r'"(/[a-z0-9/_-]+)":\s*_mount', src)))
+    if not mounts:
+        return []
+    hub_src = (ROOT / "hub" / "__init__.py").read_text(encoding="utf-8", errors="ignore")
+    out = []
+    for m_route in re.finditer(r'@app\.route\(\s*"([^"]+)"', hub_src):
+        path = m_route.group(1)
+        for m in mounts:
+            if path == m or path.startswith(m + "/"):
+                out.append({
+                    "file": "hub/__init__.py", "module": "hub",
+                    "detail": f"{path} is registered on the hub app but sits "
+                              f"under the mounted prefix {m}, so the request "
+                              f"never reaches it — it 404s.",
+                    "fix": f"Move it outside {m} (for example /tools/…), or "
+                           f"register it inside that module instead.",
+                })
+                break
+    return out
+
 CHECKS = [
     ("pdf_resource_type", "PDF uploaded as an image type", "high", check_pdf_resource_type),
     ("convert_without_resize", "Converts without resizing", "high", check_convert_without_resize),
     ("untracked_openai", "OpenAI spend not recorded", "medium", check_untracked_openai),
     ("silent_modules", "Modules that never log", "medium", check_silent_modules),
     ("unclamped_limits", "Unclamped query limits", "medium", check_unclamped_limits),
+    ("shadowed_routes", "Routes hidden behind a mount", "high", check_shadowed_routes),
     ("bare_except_pass", "Silent exception handling", "low", check_bare_except_pass),
 ]
 

@@ -88,7 +88,7 @@
     <h2>Do a New Scan</h2>
     <div class="row">
       <div class="field grow">
-        <label for="url">Website {{ help_dot('scans.new.domain') }}</label>
+        <label for="url">Website {{ help_dot('scans.new.domain') if help_dot is defined else '' }}</label>
         <input type="text" id="url" placeholder="yourbusiness.com" autocomplete="off"
                inputmode="url" autocapitalize="off" spellcheck="false" />
       </div>

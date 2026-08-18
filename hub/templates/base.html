@@ -13,7 +13,7 @@
      middleware injects into every mounted module. There used to be a second
      hardcoded copy here, so entries added to one never appeared on the other
      and the Hub's own pages silently fell behind. #}
-  {{ hub_sidebar(active)|safe }}
+  {{ hub_sidebar(active)|safe if hub_sidebar is defined else '' }}
   <div class="main">
     <div class="topbar">
       <form class="global-search" action="/client360" method="get">
@@ -24,7 +24,7 @@
       <div class="chip"><div class="avatar">{{ (user or 'U')[0]|upper }}</div><span>{{ user }}</span></div>
     </div>
     <div class="page">
-      {{ demo_banner()|safe }}
+      {{ demo_banner()|safe if demo_banner is defined else '' }}
       {% block content %}{% endblock %}
       <div class="s1hub-ver">Smart 1 Hub &middot; <b>{{ hub_version }}</b></div>
     </div>

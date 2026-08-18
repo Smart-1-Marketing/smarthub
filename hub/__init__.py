@@ -198,7 +198,11 @@ def create_hub_app() -> Flask:
         return jsonify(context(request.args.get("name", ""),
                                request.args.get("domain", "")))
 
-    @app.route("/sites/match")
+    # NOT /sites/match: DispatcherMiddleware owns the whole /sites prefix and
+    # forwards it to the Sites Admin app, so a hub route under it is never
+    # reached — it 404s (or 503s when that module is down). Anything the hub
+    # app serves has to live outside a mounted prefix.
+    @app.route("/tools/sites-match")
     def page_sites_match():
         gate = _require_page()
         if gate:
@@ -206,7 +210,7 @@ def create_hub_app() -> Flask:
         return render_template("sites_match.html", user=current_user(),
                                active="sites")
 
-    @app.route("/api/sites/match")
+    @app.route("/api/sites-match")
     def api_sites_match():
         """Propose a client for every unlinked Simvoly project. Read-only."""
         gate = _require_api()
@@ -215,7 +219,7 @@ def create_hub_app() -> Flask:
         from .sites_match import suggest
         return jsonify(suggest())
 
-    @app.route("/api/sites/match/apply", methods=["POST"])
+    @app.route("/api/sites-match/apply", methods=["POST"])
     def api_sites_match_apply():
         """Write only the matches a human accepted."""
         gate = _require_api()

@@ -13,7 +13,7 @@ _ITEMS = [
     ("clients", "/clients", "&#9636;", "Clients"),
     ("google", "/google/", "G", "Google"),
     ("sites", "/sites/", "&#11041;", "Sites"),
-    ("sitesmatch", "/sites/match", "&#128279;", "Match Sites"),
+    ("sitesmatch", "/tools/sites-match", "&#128279;", "Match Sites"),
     ("suite", "/suite/", "&#9635;", "Suite"),
     ("_secseo", "", "", "SEO"),
     ("seo", "/seo", "&#128269;", "SEO Clients"),

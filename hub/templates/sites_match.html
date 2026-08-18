@@ -61,7 +61,7 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
 
 function load(){
   document.getElementById('smOut').innerHTML='<p class="sm-muted">Scanning…</p>';
-  fetch('/api/sites/match',{credentials:'same-origin'}).then(function(r){return r.json();})
+  fetch('/api/sites-match',{credentials:'same-origin'}).then(function(r){return r.json();})
     .then(function(d){DATA=d;render();})
     .catch(function(){document.getElementById('smOut').innerHTML=
       '<p class="sm-muted">Could not scan.</p>';});
@@ -123,7 +123,7 @@ function applySel(){
   if(!picked.length) return;
   if(!confirm('Link '+picked.length+' site'+(picked.length===1?'':'s')+
               ' to their clients?\n\nThis writes internal_client_name on each project.')) return;
-  fetch('/api/sites/match/apply',{method:'POST',credentials:'same-origin',
+  fetch('/api/sites-match/apply',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({matches:picked.map(function(m){
       return {project_id:m.project_id, client:m.client};})})})

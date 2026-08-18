@@ -48,6 +48,8 @@ _MOUNT_ACTIVE = {
     "/tools/image": "tools", "/tools/pdf": "tools", "/tools/seo-images": "tools",
     "/tools/image-creator": "tools", "/tools/bg-remover": "tools",
     "/tools/utm": "tools",
+    "/tools/radio-promo": "radio_promo",
+    "/tools/landing-ads": "landing_ads",
     "/tools/calculators": "calculators",
     "/tools/fan-radio": "fan_radio",
     "/tools/google-access": "google_access",
@@ -123,16 +125,26 @@ class HubBar:
         finally:
             if hasattr(result, "close"):
                 result.close()
-        _THEME = b'<link rel="stylesheet" href="/assets/theme.css">'
+        # The help/demo layer has to be injected here, not put in base.html:
+        # every module is a standalone Flask app mounted through
+        # DispatcherMiddleware with its own <html>, so none of them inherit the
+        # hub's base template. Injecting alongside the sidebar means all 20
+        # tools get bubbles and walkthroughs without touching 20 templates.
+        _THEME = (b'<link rel="stylesheet" href="/assets/theme.css">'
+                  b'<link rel="stylesheet" href="/hub-help.css">')
         if b"</head>" in body:
             body = body.replace(b"</head>", _THEME + b"</head>", 1)
         elif b"<body" in body:
             body = _THEME + body
         _bar = render_sidebar(self.active)
+        _scripts = (b'<script defer src="/hub-help.js"></script>'
+                    b'<script defer src="/hub-demo.js"></script>'
+                    b'<script defer src="/hub-autofill.js"></script>'
+                    b'<script defer src="/hub-accordion.js"></script>')
         if b"</body>" in body:
-            body = body.replace(b"</body>", _bar + b"</body>", 1)
+            body = body.replace(b"</body>", _bar + _scripts + b"</body>", 1)
         else:
-            body += _bar
+            body += _bar + _scripts
         headers = [(k, v) for k, v in headers if k.lower() != "content-length"]
         headers.append(("Content-Length", str(len(body))))
         start_response(status, headers, captured.get("exc_info"))
@@ -279,6 +291,15 @@ except Exception as _utm_exc:  # noqa: BLE001
 
 
 def _mount(flask_app, prefix, public_prefixes=None):
+    # A module's Jinja environment is its own, so hub-level globals aren't
+    # visible to it. Register the shared template helpers here rather than in
+    # each module: without this, {{ help_dot(...) }} in a module template
+    # raises UndefinedError and the page 500s.
+    try:
+        from hub.help_routes import install_template_helpers
+        install_template_helpers(flask_app)
+    except Exception:  # noqa: BLE001 — helpers are never load-bearing
+        pass
     return AuthGuard(HubBar(flask_app, _MOUNT_ACTIVE.get(prefix, "")), prefix,
                      public_prefixes=public_prefixes)
 
@@ -290,6 +311,21 @@ try:
     fanrad_fb = None
 except Exception as _exc_fanrad:  # noqa: BLE001
     fanrad, fanrad_fb = None, _fallback_app("Fan Radio", str(_exc_fanrad))
+
+
+try:
+    import importlib as _il_radiop
+    radiop = _il_radiop.import_module("modules.radio_promo.app")
+    radiop_fb = None
+except Exception as _exc_radiop:  # noqa: BLE001
+    radiop, radiop_fb = None, _fallback_app("Radio Promo", str(_exc_radiop))
+
+try:
+    import importlib as _il_landads
+    landads = _il_landads.import_module("modules.landing_ads.app")
+    landads_fb = None
+except Exception as _exc_landads:  # noqa: BLE001
+    landads, landads_fb = None, _fallback_app("Landing Page Ads", str(_exc_landads))
 
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
@@ -304,6 +340,8 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/utm": _mount(utm.app, "/tools/utm") if utm else utm_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
+    "/tools/radio-promo": _mount(radiop.app, "/tools/radio-promo") if radiop else radiop_fb,
+    "/tools/landing-ads": _mount(landads.app, "/tools/landing-ads") if landads else landads_fb,
     "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio") if fanrad else fanrad_fb,
 })
 from hub import errors as _errors
