@@ -437,7 +437,7 @@ function renderReview(){
           <input type="text" class="fn" value="${esc(f.seo_filename)}" spellcheck="false">
           <span class="ext">.webp</span>
         </div>
-        <label style="margin-top:9px">Alt text</label>
+        <label style="margin-top:9px">Alt text {{ help_dot('seo_images.review.alt') if help_dot is defined else '' }}</label>
         <textarea class="alt" rows="2" maxlength="180">${esc(f.alt_text)}</textarea>
         <div class="count" data-c="${i}"></div>
         <div class="meta">${esc(f.original_name)} · ${sizeLine(f)}</div>

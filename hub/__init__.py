@@ -4,6 +4,7 @@ Owns: login/logout, dashboard, Client 360, Tools landing, Activity, Status,
 plus serving the prebuilt Knack "Clients" app (which expects /static and
 /data at the site root, so the hub serves those paths for it).
 """
+import re
 import json
 import os
 import shutil
@@ -62,6 +63,20 @@ def create_hub_app() -> Flask:
     got_request_exception.connect(_log_exc, app)
 
     # ---------------- auth ----------------
+    @app.context_processor
+    def _inject_demo_module():
+        """Which walkthrough belongs to the page being rendered.
+
+        The demo launcher reads <body data-module>. Hub pages had none, so no
+        walkthrough button ever appeared on the Dashboard, Client 360, SEO or
+        QA — which is most of where somebody would look for one.
+        """
+        path = (request.path or "/").rstrip("/") or "/"
+        mapping = {"/": "hub", "/client360": "hub", "/seo": "seo",
+                   "/qa": "qa", "/qa/stale-creative": "qa",
+                   "/tools": "hub", "/diagnostics": "hub"}
+        return {"hub_demo_module": mapping.get(path, "")}
+
     @app.context_processor
     def _inject_sidebar():
         """Expose the one shared nav to hub templates."""
@@ -2227,7 +2242,39 @@ def create_hub_app() -> Flask:
             from .sidebar import render_sidebar
             bar = render_sidebar(_MOUNT_ACTIVE_HUB.get(
                 "/" + path.strip("/").split("/")[0], ""))
-            resp.set_data(body.replace(b"</body>", bar + b"</body>", 1))
+            # The help/demo/autofill layer has to come with the sidebar. It
+            # was injected by HubBar for dispatcher-mounted modules and by
+            # base.html for hub pages, which left blueprint-registered pages
+            # — Tickets, Calculators, Page Images, Google Access, Stale
+            # Creative — with neither. No scripts means no bubbles and no
+            # walkthrough button, silently.
+            # Tag <body> so the walkthrough launcher knows which tool it's on.
+            # Only when the page hasn't already declared one.
+            if b"data-module=" not in body and b"<body" in body:
+                seg = path.strip("/").split("/")
+                slug = seg[1] if len(seg) > 1 and seg[0] == "tools" else (seg[0] if seg else "")
+                mod = {"tickets": "tickets", "calculators": "calculators",
+                       "page-images": "page_image_optimizer",
+                       "google-access": "google_access",
+                       "image-picker": "image_picker",
+                       "sites-match": "sites_admin",
+                       "stale-creative": "qa", "qa": "qa"}.get(slug, "")
+                if mod:
+                    body = re.sub(rb"<body\b",
+                                  b'<body data-module="' + mod.encode() + b'"',
+                                  body, count=1)
+
+            extra = b""
+            if b"hub-help.js" not in body:
+                extra = (b'<script defer src="/hub-help.js"></script>'
+                         b'<script defer src="/hub-demo.js"></script>'
+                         b'<script defer src="/hub-autofill.js"></script>'
+                         b'<script defer src="/hub-accordion.js"></script>')
+            if b"hub-help.css" not in body and b"</head>" in body:
+                body = body.replace(
+                    b"</head>",
+                    b'<link rel="stylesheet" href="/hub-help.css"></head>', 1)
+            resp.set_data(body.replace(b"</body>", bar + extra + b"</body>", 1))
         except Exception:  # noqa: BLE001 — never break a page over navigation
             pass
         return resp

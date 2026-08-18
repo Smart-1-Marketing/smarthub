@@ -243,7 +243,7 @@
     <!-- ================= PROPERTIES ================= -->
     <div class="props" id="rightPanel">
       <button class="panelClose" id="rightPanelClose" title="Close">&times;</button>
-      <h2>Properties</h2>
+      <h2>Properties {{ help_dot('image_creator.canvas.size') if help_dot is defined else '' }}</h2>
       <div id="propBody"><div class="pgroup"><div class="hint">Select something on the canvas to edit it.</div></div></div>
     </div>
   </div>
@@ -305,7 +305,7 @@
     <div class="mhead"><b>Save project</b><button class="x" data-close>&times;</button></div>
     <div class="mbody">
       <div class="sect">
-        <label class="f">Project name</label>
+        <label class="f">Project name {{ help_dot('image_creator.layers.panel') if help_dot is defined else '' }}</label>
         <input type="text" id="svName" placeholder="Summer AC tune-up promo">
       </div>
       <div class="sect" style="position:relative">

@@ -88,7 +88,7 @@
 
     <div class="grid" style="margin-top:16px">
       <div>
-        <label class="f">Resize before cutting</label>
+        <label class="f">Resize before cutting {{ help_dot('bg_remover.upload.credits') if help_dot is defined else '' }}</label>
         <select id="preResize">
           {% for key, (label, px) in presets.items() %}
           <option value="{{ key }}"{% if key == 'auto' %} selected{% endif %}>{{ label }}</option>
@@ -106,7 +106,7 @@
         <div class="hint">Preview is free but small — good for checking the cut.</div>
       </div>
       <div>
-        <label class="f">Resize the result</label>
+        <label class="f">Resize the result {{ help_dot('bg_remover.upload.white_bg') if help_dot is defined else '' }}</label>
         <select id="postResize">
           {% for key, (label, px) in presets.items() %}
           <option value="{{ key }}"{% if key == 'auto' %} selected{% endif %}>{{ label }}</option>

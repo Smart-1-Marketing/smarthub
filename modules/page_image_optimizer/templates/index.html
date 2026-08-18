@@ -166,7 +166,7 @@
       optimised copies are saved into their SEO images.</p>
     <div class="grid">
       <div>
-        <label for="company">Client or company</label>
+        <label for="company">Client or company {{ help_dot('seo_images.upload.details') if help_dot is defined else '' }}</label>
         <input type="text" id="company" placeholder="Smart 1 Marketing" autocomplete="off">
       </div>
       <div>
@@ -178,7 +178,7 @@
         <input type="text" id="pagename" placeholder="Home" autocomplete="off">
       </div>
       <div>
-        <label for="url">Page address</label>
+        <label for="url">Page address {{ help_dot('seo_images.results.copy_tag') if help_dot is defined else '' }}</label>
         <input type="url" id="url" placeholder="https://client.com/services" autocomplete="off">
       </div>
     </div>

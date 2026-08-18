@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/assets/hub.css">
   <link rel="stylesheet" href="/hub-help.css">
 </head>
-<body>
+<body data-module="{{ hub_demo_module or 'hub' }}">
 <div class="shell">
   {# Single source of truth: hub/sidebar.py — the same nav the HubBar
      middleware injects into every mounted module. There used to be a second

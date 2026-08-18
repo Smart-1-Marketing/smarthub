@@ -1284,6 +1284,118 @@ SCENARIOS: list[Scenario] = [
                  "a client costs a fraction of the first.",
                  action="look", selector="[data-demo='cb-variations']"),
         ]),
+
+    # ------------------------------------------------------------------
+    Scenario(
+        key="radio_promo.first_spot", module="radio_promo",
+        title="Write and voice a radio spot",
+        goal="A scripted spot, voiced, saved to the library and ready to send.",
+        minutes=5, path="/tools/radio-promo/",
+        spends=["openai.text"],
+        steps=[
+            Step("Say who it's for and what's on offer",
+                 "Client, offer, and the length you're buying.",
+                 "Length is a hard constraint, not a preference. :30 is about "
+                 "70 words spoken at a natural pace — write 90 and the read "
+                 "either gallops or gets cut.",
+                 action="fill", selector="[name='client']", value="Riverside HVAC"),
+            Step("Add the must-say and the must-not",
+                 "Anything legal requires, and anything they've asked you to "
+                 "avoid.",
+                 "The avoid list saves the re-record. A claim they can't "
+                 "substantiate is the expensive kind of mistake here, because "
+                 "it's caught after the voice work is paid for.",
+                 action="look"),
+            Step("Generate, then read it aloud",
+                 "Actually say it at pace.",
+                 "Copy that scans fine on screen often doesn't fit when "
+                 "spoken. If you're rushing the last line, cut before you "
+                 "record.",
+                 action="click", selector="[data-demo='rp-generate']", simulated=True),
+            Step("Pick a voice that matches the client",
+                 "Not the one you like most.",
+                 "A contractor and a law firm want different reads. Listen to "
+                 "one line before committing the whole spot — regenerating "
+                 "audio costs credits.",
+                 action="look", selector="[data-demo='rp-voice']"),
+            Step("Save it to the library",
+                 "So the next spot for this client starts from something.",
+                 "Most spots are a variation on the last one. The library is "
+                 "what makes the second one quick.",
+                 action="look"),
+        ]),
+
+    # ------------------------------------------------------------------
+    Scenario(
+        key="landing_ads.from_page", module="landing_ads",
+        title="Generate ads from a landing page",
+        goal="Search, social, display and audio ad copy drawn from a real "
+             "Suite landing page, consistent with what the page actually says.",
+        minutes=5, path="/tools/landing-ads/",
+        spends=["openai.text"],
+        steps=[
+            Step("Pick the landing page, not the homepage",
+                 "The ads should match the page the click lands on.",
+                 "This is the whole point of generating from the page rather "
+                 "than from a brief: promising something in the ad that isn't "
+                 "on the page is what kills conversion rate and quality score "
+                 "at the same time.",
+                 action="look", selector="[data-demo='la-page']"),
+            Step("Check what it read off the page",
+                 "The offer and proof points it extracted.",
+                 "If this is wrong the ads will be too. Faster to correct here "
+                 "than to regenerate.",
+                 action="look"),
+            Step("Generate the set",
+                 "Search, social, display and audio together.",
+                 "Simulated here. Generating them together keeps the message "
+                 "consistent across channels, which is the thing that usually "
+                 "drifts when each is written separately.",
+                 action="click", selector="[data-demo='la-generate']", simulated=True),
+            Step("Read the headlines against the character limits",
+                 "Each channel truncates differently.",
+                 "A headline cut mid-word reads as careless. The counters show "
+                 "you before the platform does.",
+                 action="look"),
+            Step("Export what you'll actually upload",
+                 "Copy per channel.",
+                 "Paste straight into the ad platform — no reformatting, which "
+                 "is where typos get introduced.",
+                 action="look"),
+        ]),
+
+    # ------------------------------------------------------------------
+    Scenario(
+        key="tickets.triage", module="tickets",
+        title="Work the website request queue",
+        goal="A clear view of what's open, what's gone stale, and what to "
+             "chase — with the client history behind each request.",
+        minutes=4, path="/tools/tickets/",
+        steps=[
+            Step("Start with what's stale, not what's newest",
+                 "Sort by age.",
+                 "A new request has someone's attention already. A three-week-"
+                 "old one has a client wondering whether we forgot, and that's "
+                 "the one that costs you the relationship.",
+                 action="look", selector="[data-demo='tk-age']"),
+            Step("Read the client's history before replying",
+                 "Open the client to see their other requests.",
+                 "Their fourth request this month about the same page means "
+                 "something different from their first. Context changes the "
+                 "answer.",
+                 action="look"),
+            Step("Look for the repeats",
+                 "The same request from several clients.",
+                 "Three people asking for the same thing is a product gap, not "
+                 "three tickets. Fixing it once beats answering it three times.",
+                 action="look"),
+            Step("Export when you need to work offline",
+                 "CSV of the current view.",
+                 "Useful for a weekly review with whoever does the work — the "
+                 "queue is easier to triage in a spreadsheet than one ticket "
+                 "at a time.",
+                 action="look", selector="[data-demo='tk-export']"),
+        ]),
 ]
 
 _BY_KEY = {s.key: s for s in SCENARIOS}

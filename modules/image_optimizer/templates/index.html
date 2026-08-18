@@ -37,7 +37,7 @@
           </div>
         </div>
 
-        <div class="section-title">Crop image</div>
+        <div class="section-title">Crop image {{ help_dot('image_creator.export.scale') if help_dot is defined else '' }}</div>
         <label class="check-row">
           <input id="crop_enabled" type="checkbox">
           <span>Enable cropping</span>
@@ -53,7 +53,7 @@
         </div>
         <p class="helper">Turn cropping on, then drag across the preview to select the area you want to keep.</p>
 
-        <div class="section-title">Resize image</div>
+        <div class="section-title">Resize image {{ help_dot('seo_images.upload.max_edge') if help_dot is defined else '' }}</div>
         <div class="grid two">
           <label>
             <span>Width (px)</span>
