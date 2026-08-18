@@ -158,6 +158,10 @@ services:
       # Google sign-in button. Off until the OAuth consent screen is approved.
       - key: HUB_GOOGLE_LOGIN
         value: "false"
+      # Inbound Suite webhook. The endpoint FAILS CLOSED without this, so
+      # leaving it unset simply means no opportunities flow back in.
+      - key: GHL_WEBHOOK_TOKEN
+        sync: false
       # ---- shared ----
       - key: AUDIT_LOG_PATH
         value: /var/data/hub-audit.log.jsonl

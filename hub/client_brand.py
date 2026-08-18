@@ -1,0 +1,220 @@
+"""Client brand kit, and a log of everything the Hub has made for a client.
+
+Two gaps this closes on the Client 360 record.
+
+**Brand.** Brandfetch data has been stored per client since v1.6 — logos,
+colours, fonts — and nothing ever showed it. So the person building a graphic
+opens Image Creator, types the company name, and waits for a lookup the Hub
+already had cached. Worse, if Brandfetch is over its monthly allowance that
+lookup fails and they guess at the colours. The data was there the whole time.
+
+**Work log.** Twenty tools make things for clients and each files its output in
+its own place: images in one gallery, quotes in another, scans in a third.
+Nobody could answer "what have we actually done for this client?" without
+opening six screens. This assembles one reverse-chronological list from the
+activity log plus each tool's own records.
+
+Both are read-only views over data that already exists. Nothing new is stored,
+so there is nothing to keep in sync and nothing to migrate.
+"""
+from __future__ import annotations
+
+import re
+from datetime import datetime, timezone
+
+from hub import audit, seo
+
+# Modules whose activity counts as "work produced for a client", and how to
+# describe it. Anything not listed is Hub housekeeping and stays out, so the
+# log reads as a record of deliverables rather than a debug feed.
+WORK_KINDS = {
+    "seo_images":           ("Images optimised", "SEO Image Pipeline"),
+    "image_creator":        ("Graphic created", "Image Creator"),
+    "image_picker":         ("Images added to library", "Image Picker"),
+    "page_image_optimizer": ("Page images fixed", "Page Image Optimizer"),
+    "bg_remover":           ("Cut-out produced", "Background Remover"),
+    "scans":                ("Site audit", "Site Scans"),
+    "seo":                  ("Schema / FAQ", "SEO"),
+    "proposals":            ("Proposal", "Proposals"),
+    "proposal_builder":     ("Proposal generated", "Proposal Builder"),
+    "sales_builder":        ("Quote", "Sales Builder"),
+    "ads_builder":          ("Ads campaign", "Ads Builder"),
+    "fan_radio":            ("Radio spot", "Fan Radio"),
+    "commercial_builder":   ("Commercial", "Commercial Builder"),
+    "utm_builder":          ("Tracked links", "UTM Builder"),
+    "calculators":          ("Calculator published", "Calculators"),
+    "google_access":        ("Google access", "Google Access"),
+    "suite_panel":          ("Suite account", "Suite Panel"),
+    "sites_admin":          ("Website", "Sites"),
+    "hooks":                ("Suite opportunity", "Smart 1 Suite"),
+}
+
+
+def _norm(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(name or "").lower())
+
+
+# ---------------------------------------------------------------------------
+# Brand kit
+# ---------------------------------------------------------------------------
+
+def _hex(value: str) -> str:
+    v = str(value or "").strip()
+    if not v:
+        return ""
+    if not v.startswith("#"):
+        v = "#" + v
+    return v if re.fullmatch(r"#[0-9a-fA-F]{3,8}", v) else ""
+
+
+def brand_kit(client: str, domain: str = "") -> dict:
+    """Logos, colours and fonts for a client, from stored Brandfetch data.
+
+    Returns a `found: False` shell rather than raising when there's nothing,
+    so the card can say "no brand data yet" and offer to fetch it instead of
+    disappearing — an absent card looks like a broken page.
+    """
+    payload = None
+    try:
+        payload = seo.brand_for(client, domain)
+    except Exception:                                   # noqa: BLE001
+        payload = None
+    if not payload:
+        return {"found": False, "client": client, "domain": domain,
+                "logos": [], "colors": [], "fonts": [],
+                "note": "No brand data on file yet. Running a lookup from "
+                        "Image Creator or Suite Panel will cache it here."}
+
+    logos = []
+    for logo in (payload.get("logos") or []):
+        for fmt in (logo.get("formats") or []):
+            url = fmt.get("src") or ""
+            if not url:
+                continue
+            logos.append({
+                "url": url,
+                "kind": logo.get("type") or "logo",      # logo | symbol | icon
+                "theme": logo.get("theme") or "",        # light | dark
+                "format": (fmt.get("format") or "").lower(),
+                "width": fmt.get("width"), "height": fmt.get("height"),
+            })
+    # Prefer SVG, then the largest raster — that's the order a designer wants.
+    logos.sort(key=lambda l: (0 if l["format"] == "svg" else 1,
+                              -(l.get("width") or 0)))
+
+    colors = []
+    seen = set()
+    for c in (payload.get("colors") or []):
+        hx = _hex(c.get("hex") or c)
+        if not hx or hx.lower() in seen:
+            continue
+        seen.add(hx.lower())
+        colors.append({"hex": hx.upper(),
+                       "type": (c.get("type") if isinstance(c, dict) else "") or "",
+                       "brightness": (c.get("brightness") if isinstance(c, dict) else None)})
+
+    fonts = []
+    for f in (payload.get("fonts") or []):
+        name = f.get("name") if isinstance(f, dict) else str(f)
+        if name and name not in [x["name"] for x in fonts]:
+            fonts.append({"name": name,
+                          "usage": (f.get("type") if isinstance(f, dict) else "") or "",
+                          "google": f"https://fonts.google.com/?query={name}"})
+
+    return {
+        "found": True, "client": client,
+        "domain": payload.get("domain") or domain,
+        "name": payload.get("name") or client,
+        "logos": logos[:8], "colors": colors[:10], "fonts": fonts[:6],
+        "description": (payload.get("description") or "")[:280],
+    }
+
+
+def brand_guide_payload(client: str, domain: str = "") -> dict:
+    """Flat key/value shape suitable for pushing into GoHighLevel custom fields.
+
+    Deliberately flat and string-valued: GHL custom fields don't take nested
+    objects, and a JSON blob in a text field is unusable inside their workflow
+    builder.
+    """
+    kit = brand_kit(client, domain)
+    if not kit["found"]:
+        return {"found": False, "client": client}
+    primary = kit["colors"][0]["hex"] if kit["colors"] else ""
+    return {
+        "found": True,
+        "brand_client": kit["client"],
+        "brand_domain": kit["domain"],
+        "brand_primary_color": primary,
+        "brand_colors": ", ".join(c["hex"] for c in kit["colors"]),
+        "brand_fonts": ", ".join(f["name"] for f in kit["fonts"]),
+        "brand_logo_url": kit["logos"][0]["url"] if kit["logos"] else "",
+        "brand_logo_svg": next((l["url"] for l in kit["logos"]
+                                if l["format"] == "svg"), ""),
+        "brand_logo_dark": next((l["url"] for l in kit["logos"]
+                                 if l["theme"] == "dark"), ""),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Work log
+# ---------------------------------------------------------------------------
+
+def work_log(client: str, limit: int = 60) -> dict:
+    """Everything the Hub has produced for one client, newest first.
+
+    Reads the activity log rather than each tool's own store: a tool that
+    logs its work appears here automatically, with no per-tool integration.
+    The flip side is that a tool which doesn't log is invisible, which is
+    exactly what the integrity audit's "modules that never log" check is for.
+    """
+    want = _norm(client)
+    rows = []
+    for e in audit.tail(limit=6000):
+        mod = e.get("module") or ""
+        if mod not in WORK_KINDS:
+            continue
+        # A client can be named under any of several keys depending on the tool.
+        named = ""
+        for key in ("client", "client_name", "company", "business_name", "tool_client"):
+            if e.get(key):
+                named = str(e[key])
+                break
+        if not named or _norm(named) != want:
+            continue
+        label, source = WORK_KINDS[mod]
+        rows.append({
+            "when": e.get("time", ""),
+            "kind": label, "source": source, "module": mod,
+            "action": e.get("type", ""),
+            "actor": e.get("actor") or "",
+            "detail": str(e.get("detail") or e.get("title") or "")[:160],
+        })
+        if len(rows) >= limit:
+            break
+
+    by_source: dict[str, int] = {}
+    for r in rows:
+        by_source[r["source"]] = by_source.get(r["source"], 0) + 1
+
+    return {
+        "client": client, "count": len(rows), "items": rows,
+        "by_source": dict(sorted(by_source.items(), key=lambda kv: -kv[1])),
+        "last_activity": rows[0]["when"] if rows else None,
+        "note": "Assembled from the activity log. A tool that doesn't write "
+                "there won't appear — /api/integrity lists which ones those are.",
+    }
+
+
+def log_work(module: str, client: str, action: str, actor: str = "", **extra):
+    """Helper for tools to record a deliverable against a client.
+
+    One call is all a tool needs to appear on the client's record:
+
+        from hub.client_brand import log_work
+        log_work("fan_radio", client, "spot_produced", actor, length="30")
+    """
+    try:
+        audit.log(module, action, actor=actor or None, client=client, **extra)
+    except Exception:                                   # noqa: BLE001
+        pass

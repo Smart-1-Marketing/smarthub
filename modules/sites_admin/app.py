@@ -50,6 +50,18 @@ from sync_service import (
     sync_project,
 )
 
+# Activity logging. Guarded so this module still runs standalone, but
+# inside the Hub every action is attributable — this module changes live client sites, and
+# an unattributable change to a client's account is one nobody can
+# explain later.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("sites_admin")
+except Exception:  # noqa: BLE001
+    def _audit(*a, **k):  # no-op outside the Hub
+        return None
+
+
 app = Flask(__name__)
 app.secret_key = SETTINGS.secret_key
 app.config.update(

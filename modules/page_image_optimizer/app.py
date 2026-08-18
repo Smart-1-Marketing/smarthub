@@ -15,6 +15,18 @@ from flask import Blueprint, Response, jsonify, render_template, request
 from . import archive, naming, optimizer, settings, store
 from .scanner import ScanError, scan_page, safe_url
 
+# Activity logging. Guarded so this module still runs standalone, but
+# inside the Hub every action is attributable — this module optimised images on a live page,
+# and an unattributable change to a client's account is one nobody can
+# explain later.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("page_image_optimizer")
+except Exception:  # noqa: BLE001
+    def _audit(*a, **k):  # no-op outside the Hub
+        return None
+
+
 log = logging.getLogger(__name__)
 
 bp = Blueprint(

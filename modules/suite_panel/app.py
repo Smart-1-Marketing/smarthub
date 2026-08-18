@@ -482,7 +482,7 @@ def api_delete_location(loc_id):
 
 @app.route("/api/audit")
 def api_audit():
-    limit = min(int(request.args.get("limit", 300) or 300), 1000)
+    limit = max(1, min(1000, int(request.args.get("limit") or 300)))
     return jsonify({"entries": audit.read(limit=limit, module="suite")})
 
 

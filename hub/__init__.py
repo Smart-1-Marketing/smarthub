@@ -118,6 +118,94 @@ def create_hub_app() -> Flask:
         return jsonify({"warnings": warns, "count": len(warns),
                         "ok": not warns})
 
+    @app.route("/api/client/brand")
+    def api_client_brand():
+        """Logos, colours and fonts for the Client 360 brand card."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_brand import brand_kit
+        return jsonify(brand_kit(request.args.get("name", ""),
+                                 request.args.get("domain", "")))
+
+    @app.route("/api/client/work")
+    def api_client_work():
+        """Everything the Hub has made for this client, newest first."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_brand import work_log
+        limit = max(1, min(200, int(request.args.get("limit") or 50)))
+        return jsonify(work_log(request.args.get("name", ""), limit))
+
+    @app.route("/api/client/brand/push-to-suite", methods=["POST"])
+    def api_brand_push():
+        """Send the brand guide into the client's Smart 1 Suite sub-account."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_brand import brand_guide_payload
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("name") or "")
+        payload = brand_guide_payload(client, str(body.get("domain") or ""))
+        if not payload.get("found"):
+            return jsonify({"error": "No brand data on file for that client "
+                                     "yet — run a Brandfetch lookup first."}), 400
+        target = (os.environ.get("GHL_BRAND_WEBHOOK_URL") or "").strip()
+        if not target:
+            # Return the payload anyway so it's copy-pasteable. A missing
+            # webhook shouldn't mean the work is unavailable.
+            return jsonify({"ok": False, "delivered": False, "payload": payload,
+                            "note": "Set GHL_BRAND_WEBHOOK_URL to deliver this "
+                                    "automatically. The payload above is ready "
+                                    "to paste into a Suite workflow meanwhile."})
+        try:
+            import requests as _rq
+            r = _rq.post(target, json=payload, timeout=15)
+            ok = r.ok
+        except Exception:  # noqa: BLE001
+            ok = False
+        audit.log("brand", "pushed_to_suite", actor=current_user(),
+                  client=client, ok=ok)
+        return jsonify({"ok": ok, "delivered": ok, "payload": payload})
+
+    @app.route("/api/client/context")
+    def api_client_context():
+        """Merged client record for prefilling any form in the Hub."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_context import context
+        return jsonify(context(request.args.get("name", ""),
+                               request.args.get("domain", "")))
+
+    @app.route("/api/db/urls")
+    def api_db_urls():
+        """Clients with no usable URL, and one domain filed under two names."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_context import url_audit
+        return jsonify(url_audit())
+
+    @app.route("/api/client/by-url")
+    def api_client_by_url():
+        """Resolve a client from a URL, whatever the name is filed as."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_context import resolve_by_url
+        return jsonify(resolve_by_url(request.args.get("url", "")))
+
+    @app.route("/api/db/structure")
+    def api_db_structure():
+        """Where client data lives, and where it can drift apart."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_context import structure_report
+        return jsonify(structure_report())
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.
@@ -146,7 +234,7 @@ def create_hub_app() -> Flask:
             return gate
         from . import clients_registry
         rows = clients_registry.search_clients(request.args.get("q", ""),
-                                               limit=int(request.args.get("limit", 12)))
+                                               limit=max(1, min(500, int(request.args.get("limit") or 12))))
         return jsonify({"clients": rows})
 
     @app.route("/api/clients/house", methods=["GET", "POST"])
@@ -1697,7 +1785,7 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        limit = min(int(request.args.get("limit", 50) or 50), 300)
+        limit = max(1, min(300, int(request.args.get("limit") or 50)))
         return jsonify({"errors": errors.read(limit=limit)})
 
     @app.route("/api/errors/clear", methods=["POST"])
@@ -1714,7 +1802,7 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        limit = min(int(request.args.get("limit", 300) or 300), 1000)
+        limit = max(1, min(1000, int(request.args.get("limit") or 300)))
         module = request.args.get("module") or None
         return jsonify({"entries": audit.read(limit=limit, module=module)})
 
@@ -1866,6 +1954,7 @@ def create_hub_app() -> Flask:
         ("Google Access", "modules.google_access", "register_google_access", "/tools/google-access"),
         ("Image Picker", "modules.image_picker", "register_image_picker", "/tools/image-picker"),
         ("Page Image Optimizer", "modules.page_image_optimizer", "register", "/tools/page-images"),
+        ("Web Tickets", "modules.tickets", "register_tickets", "/tools/tickets"),
     ):
         try:
             _m = __import__(_mod, fromlist=[_fn])
@@ -1911,6 +2000,17 @@ def create_hub_app() -> Flask:
             f"{type(_users_exc).__name__}: {_users_exc}")
         try:
             errors.log_exception("hub", _users_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Inbound Suite (GoHighLevel) webhooks ----------------
+    try:
+        from .ghl_hooks import register_ghl_hooks
+        register_ghl_hooks(app)
+    except Exception as _hook_exc:  # noqa: BLE001
+        app.config["HUB_HOOKS_BOOT_ERROR"] = str(_hook_exc)
+        try:
+            errors.log_exception("hub", _hook_exc)
         except Exception:  # noqa: BLE001
             pass
 

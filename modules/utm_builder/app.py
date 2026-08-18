@@ -256,7 +256,7 @@ def api_links():
                       "utm_source", "utm_medium", "utm_content", "utm_term",
                       "label", "created_by"))]
     try:
-        limit = max(1, min(int(request.args.get("limit", 300)), 2000))
+        limit = max(1, max(1, min(2000, int(request.args.get("limit") or 300))))
     except (TypeError, ValueError):
         limit = 300
     return jsonify({"links": rows[:limit], "total": len(load_links())})

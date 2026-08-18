@@ -49,6 +49,18 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
 
+# Activity logging. Guarded so this module still runs standalone, but
+# inside the Hub every action is attributable — this module created client quotes,
+# and an unattributable change to a client's account is one nobody can
+# explain later.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("sales_builder")
+except Exception:  # noqa: BLE001
+    def _audit(*a, **k):  # no-op outside the Hub
+        return None
+
+
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -304,7 +316,7 @@ def create_quote():
 def list_quotes():
     qstr = (request.args.get("q") or "").strip().lower()
     status = (request.args.get("status") or "").strip()
-    limit = min(int(request.args.get("limit") or 200), 500)
+    limit = max(1, min(500, int(request.args.get("limit") or 50)))
     db = SessionLocal()
     try:
         query = db.query(Quote)

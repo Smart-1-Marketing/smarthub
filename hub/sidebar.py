@@ -26,10 +26,14 @@ _ITEMS = [
     ("pageimg", "/tools/page-images", "&#128200;", "Page Images"),
     ("commb", "/tools/commercial-builder", "&#127916;", "Commercial Builder"),
     ("fanrad", "/tools/fan-radio", "&#127911;", "Fan Radio"),
+    ("radiop", "/tools/radio-promo", "&#128266;", "Radio Promo"),
+    ("landads", "/tools/landing-ads", "&#128240;", "Landing Page Ads"),
+    ("_sec3", "", "", "Utilities"),
     ("_sec3", "", "", "Utilities"),
     ("tools", "/tools", "&#10022;", "Tools"),
     ("calc", "/tools/calculators", "&#128425;", "Calculators"),
     ("gaccess", "/tools/google-access", "G", "Google Access"),
+    ("tickets", "/tools/tickets/", "&#127915;", "Web Tickets"),
     ("qa", "/qa", "&#10003;", "QA Reports"),
     ("stalecre", "/qa/stale-creative", "&#9203;", "Stale Creative"),
     ("activity", "/activity", "&#8801;", "Activity Log"),
@@ -44,7 +48,28 @@ _CSS = """
   body { margin-left: 224px !important; }
   .s1hub-chip { display: none !important; }
 }
-@media (max-width: 949.98px) { .s1hub-sb { display: none !important; } }
+/* Below 950px the sidebar becomes a slide-out drawer rather than vanishing.
+   It used to be display:none with a chip that only linked to the dashboard,
+   which meant a phone had no navigation at all -- every tool was unreachable
+   unless you typed its URL. */
+@media (max-width: 949.98px) {
+  .s1hub-sb { transform: translateX(-100%); transition: transform .22s ease;
+              width: min(280px, 84vw) !important; box-shadow: 0 0 40px rgba(6,18,32,.45); }
+  .s1hub-sb.s1hub-open { transform: translateX(0); }
+  .s1hub-burger { display: flex !important; }
+  .s1hub-scrim { position: fixed; inset: 0; z-index: 99988; background: rgba(9,22,38,.5);
+                 opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .s1hub-scrim.s1hub-open { opacity: 1; pointer-events: auto; }
+  .s1hub-sb a.s1hub-item { padding: 12px 18px; }   /* bigger tap targets */
+}
+@media (prefers-reduced-motion: reduce) {
+  .s1hub-sb { transition: none } .s1hub-scrim { transition: none }
+}
+.s1hub-burger { display: none; position: fixed; top: 12px; left: 12px; z-index: 99991;
+  width: 42px; height: 42px; align-items: center; justify-content: center;
+  border: 0; border-radius: 10px; background: #1a2e58; color: #fff;
+  font-size: 19px; line-height: 1; cursor: pointer;
+  box-shadow: 0 3px 12px rgba(6,18,32,.3); }
 /* This markup is injected into 13 modules whose CSS we do not control, so it
    has to assert its own layout rather than inherit whatever the host page
    happens to set. sites_admin ships `header>div,nav{display:flex;align-items:
@@ -129,10 +154,36 @@ def render_sidebar(active: str = "") -> bytes:
             continue
         on = " s1hub-on" if key == active else ""
         rows.append(f'<a class="s1hub-item{on}" href="{href}"><span class="s1hub-ico">{ico}</span> {label}</a>')
+    # The burger replaces the old chip, which only linked to the dashboard.
+    # Inline vanilla JS with no dependencies, because this markup is injected
+    # into 20 modules whose own scripts we do not control.
+    _JS = (
+        "<script>(function(){"
+        "var b=document.querySelector('.s1hub-burger'),"
+        "n=document.querySelector('.s1hub-sb'),"
+        "s=document.querySelector('.s1hub-scrim');"
+        "if(!b||!n||!s)return;"
+        "function set(o){n.classList.toggle('s1hub-open',o);"
+        "s.classList.toggle('s1hub-open',o);"
+        "b.setAttribute('aria-expanded',o?'true':'false');}"
+        "b.addEventListener('click',function(){"
+        "set(!n.classList.contains('s1hub-open'));});"
+        "s.addEventListener('click',function(){set(false);});"
+        "document.addEventListener('keydown',function(e){"
+        "if(e.key==='Escape')set(false);});"
+        # Follow a link and the drawer closes itself, otherwise it covers
+        # the page you just navigated to.
+        "n.addEventListener('click',function(e){"
+        "if(e.target.closest('a'))set(false);});"
+        "})();</script>"
+    )
     html = (
         _CSS
-        + '<nav class="s1hub-sb">' + "".join(rows) + "</nav>"
-        + '<a class="s1hub-chip" href="/">&#8962; Smart 1 Hub</a>'
+        + '<button class="s1hub-burger" aria-label="Open menu" '
+          'aria-expanded="false" aria-controls="s1hub-nav">&#9776;</button>'
+        + '<div class="s1hub-scrim"></div>'
+        + '<nav class="s1hub-sb" id="s1hub-nav">' + "".join(rows) + "</nav>"
         + FOOTER_HTML
+        + _JS
     )
     return html.encode()

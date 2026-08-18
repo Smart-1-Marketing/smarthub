@@ -47,6 +47,18 @@ from .models import (
     get_client_by_token, init_db, new_token, session, unique_slug,
 )
 
+# Activity logging. Guarded so this module still runs standalone, but
+# inside the Hub every action is attributable — this module saves images to a client library, and
+# an unattributable change to a client's account is one nobody can
+# explain later.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("image_picker")
+except Exception:  # noqa: BLE001
+    def _audit(*a, **k):  # no-op outside the Hub
+        return None
+
+
 log = logging.getLogger(__name__)
 
 bp = Blueprint(
@@ -586,7 +598,7 @@ def _save_summary(n_saved: int, n_skipped: int, n_failed: int, saved: list[dict]
 def api_saved():
     db, client, is_staff = resolve_scope()
     try:
-        limit = int(request.args.get("limit") or 60)
+        limit = max(1, min(500, int(request.args.get("limit") or 50)))
     except (TypeError, ValueError):
         limit = 60
     limit = max(1, min(200, limit))     # clamp BOTH ends -- ?limit=-1 was a 500 in Scans

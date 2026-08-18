@@ -1,0 +1,170 @@
+/* Web Tickets audit — scoped under .tkt so it can sit inside the Hub shell
+   without fighting hub.css. Numeric columns are set in a tabular mono face on
+   purpose: an audit is read down a column, not across a row. */
+
+.tkt {
+  --navy: #0b1f33;
+  --navy-2: #14314c;
+  --paper: #f5f7f9;
+  --card: #ffffff;
+  --ink: #14202c;
+  --muted: #6b7c8c;
+  --line: #dde5ea;
+  --cyan: #12a8b8;
+  --flag: #c8394f;
+  --watch: #b57800;
+  --ok: #2c8f66;
+
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+}
+
+.tkt *, .tkt *::before, .tkt *::after { box-sizing: border-box; }
+.tkt .num { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums; }
+
+/* ---- shell ---------------------------------------------------------- */
+.tkt-bar {
+  background: var(--navy); color: #fff; padding: 18px 24px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+.tkt-bar h1 { font-size: 19px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+.tkt-bar .sub { color: #9fb6c9; font-size: 13px; margin-left: 4px; }
+.tkt-bar .spacer { flex: 1 1 auto; }
+.tkt-wrap { max-width: 1220px; margin: 0 auto; padding: 22px 24px 64px; }
+
+.tkt a { color: var(--cyan); }
+.tkt-btn {
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  padding: 8px 14px; border-radius: 7px; font: inherit; font-size: 14px;
+  cursor: pointer; text-decoration: none; display: inline-block;
+}
+.tkt-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.tkt-btn.ghost { background: transparent; border-color: #33536f; color: #dbe8f2; }
+.tkt-btn.ghost:hover { border-color: var(--cyan); color: #fff; }
+.tkt-btn.primary { background: var(--cyan); border-color: var(--cyan); color: #fff; }
+.tkt-btn.primary:hover { background: #0e8f9d; color: #fff; }
+.tkt-btn:focus-visible, .tkt input:focus-visible, .tkt select:focus-visible {
+  outline: 2px solid var(--cyan); outline-offset: 2px;
+}
+
+/* ---- notices -------------------------------------------------------- */
+.tkt-note {
+  border: 1px solid var(--line); border-left: 3px solid var(--watch);
+  background: #fffaf0; padding: 12px 16px; border-radius: 7px;
+  margin-bottom: 18px; font-size: 14px;
+}
+.tkt-note.error { border-left-color: var(--flag); background: #fff5f6; }
+
+/* ---- stat strip ----------------------------------------------------- */
+.tkt-stats { display: grid; gap: 12px; grid-template-columns: repeat(6, 1fr);
+  margin-bottom: 22px; }
+.tkt-stat { background: var(--card); border: 1px solid var(--line);
+  border-radius: 9px; padding: 14px 16px; }
+.tkt-stat b { display: block; font-size: 26px; font-weight: 650; line-height: 1.1;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.tkt-stat span { font-size: 12px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .06em; }
+.tkt-stat.flag b { color: var(--flag); }
+.tkt-stat.watch b { color: var(--watch); }
+
+/* ---- tabs ----------------------------------------------------------- */
+.tkt-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line);
+  margin-bottom: 18px; }
+.tkt-tab { border: 0; background: none; font: inherit; padding: 10px 16px;
+  cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+.tkt-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--cyan);
+  font-weight: 600; }
+
+/* ---- tables --------------------------------------------------------- */
+.tkt-card { background: var(--card); border: 1px solid var(--line);
+  border-radius: 10px; overflow: hidden; margin-bottom: 20px; }
+.tkt-card > header { padding: 14px 18px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.tkt-card > header h2 { font-size: 16px; margin: 0; font-weight: 650; }
+.tkt-card > header p { margin: 6px 0 0; font-size: 13px; color: var(--muted);
+  flex-basis: 100%; max-width: 78ch; }
+.tkt-scroll { overflow-x: auto; }
+.tkt table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tkt th { text-align: left; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--muted); padding: 10px 14px;
+  border-bottom: 1px solid var(--line); white-space: nowrap; }
+.tkt td { padding: 11px 14px; border-bottom: 1px solid #eef3f6; vertical-align: middle; }
+.tkt tbody tr:last-child td { border-bottom: 0; }
+.tkt tbody tr:hover { background: #f8fbfc; }
+.tkt td.r, .tkt th.r { text-align: right; }
+.tkt td.nw, .tkt th.nw { white-space: nowrap; }
+.tkt td.wide { min-width: 22ch; }
+
+.tkt-empty { padding: 22px 18px; color: var(--muted); font-size: 14px; }
+
+/* ---- badges --------------------------------------------------------- */
+.tkt-badge { display: inline-block; white-space: nowrap; font-size: 11px; font-weight: 650;
+  padding: 3px 8px; border-radius: 999px; letter-spacing: .03em;
+  text-transform: uppercase; }
+.tkt-badge.flag { background: #fdeaed; color: var(--flag); }
+.tkt-badge.watch { background: #fdf3dd; color: var(--watch); }
+.tkt-badge.ok { background: #e6f4ee; color: var(--ok); }
+.tkt-badge.info, .tkt-badge.unknown { background: #eef2f5; color: var(--muted); }
+
+/* ---- the load bar: tickets a month against what the plan absorbs ---- */
+.tkt-load { min-width: 132px; }
+.tkt-load .track { position: relative; height: 8px; background: #eef2f5;
+  border-radius: 4px; overflow: visible; }
+.tkt-load .fill { height: 8px; border-radius: 4px; background: var(--ok);
+  transition: width .3s ease; }
+.tkt-load.watch .fill { background: var(--watch); }
+.tkt-load.over .fill { background: var(--flag); }
+.tkt-load.unknown .fill { background: #b9c6d1; }
+.tkt-load .notch { position: absolute; top: -3px; width: 2px; height: 14px;
+  background: var(--navy-2); opacity: .55; }
+.tkt-load .cap { font-size: 11px; color: var(--muted); margin-top: 5px; display: block; }
+
+/* ---- search --------------------------------------------------------- */
+.tkt-search { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.tkt input[type="search"], .tkt input[type="text"], .tkt select {
+  border: 1px solid var(--line); border-radius: 7px; padding: 9px 12px;
+  font: inherit; font-size: 14px; background: var(--card); color: var(--ink);
+}
+.tkt input[type="search"] { flex: 1 1 260px; }
+
+/* ---- client page ---------------------------------------------------- */
+.tkt-head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+  margin-bottom: 18px; }
+.tkt-head h2 { margin: 0; font-size: 24px; letter-spacing: -0.015em; }
+.tkt-head .meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.tkt-cols { display: grid; gap: 20px; grid-template-columns: repeat(3, 1fr);
+  align-items: start; }
+.tkt-mini { display: flex; align-items: flex-end; gap: 4px; height: 64px;
+  margin: 6px 0 10px; }
+.tkt-mini i { flex: 1 1 auto; background: var(--cyan); opacity: .8; border-radius: 2px 2px 0 0;
+  min-height: 2px; display: block; }
+.tkt-mini-labels { display: flex; gap: 4px; font-size: 10px; color: var(--muted); }
+.tkt-mini-labels span { flex: 1 1 auto; text-align: center; }
+.tkt-list { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+.tkt-list li { display: flex; justify-content: space-between; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid #eef3f6; }
+.tkt-list li:last-child { border-bottom: 0; }
+
+/* ---- setup ---------------------------------------------------------- */
+.tkt-map { display: grid; grid-template-columns: 210px 1fr; gap: 10px 16px;
+  align-items: center; padding: 16px 18px; }
+.tkt-map label { font-size: 14px; }
+.tkt-map .req { color: var(--flag); }
+.tkt-map select { width: 100%; }
+
+/* ---- responsive ----------------------------------------------------- */
+@media (max-width: 980px) {
+  .tkt-stats { grid-template-columns: repeat(3, 1fr); }
+  .tkt-cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .tkt-stats { grid-template-columns: repeat(2, 1fr); }
+  .tkt-wrap { padding: 16px 14px 48px; }
+  .tkt-map { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tkt * { transition: none !important; animation: none !important; }
+}

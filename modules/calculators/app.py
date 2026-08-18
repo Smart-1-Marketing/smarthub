@@ -27,6 +27,18 @@ from flask import (Blueprint, Response, abort, current_app, jsonify,
 
 from . import catalog, store
 
+# Activity logging. Guarded so this module still runs standalone, but
+# inside the Hub every action is attributable — this module published calculators and captured leads,
+# and an unattributable change to a client's account is one nobody can
+# explain later.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("calculators")
+except Exception:  # noqa: BLE001
+    def _audit(*a, **k):  # no-op outside the Hub
+        return None
+
+
 bp = Blueprint("calculators", __name__, template_folder="templates")
 
 MOUNT = "/tools/calculators"

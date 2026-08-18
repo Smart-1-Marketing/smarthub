@@ -121,7 +121,7 @@
     <div class="step"><span class="n">1</span><h2>Project details &amp; images</h2></div>
     <div class="grid">
       <div style="position:relative">
-        <label>Company <span class="req">*</span>
+        <label>Company <span class="req">*</span>{{ help_dot('seo_images.upload.details') }}
           <span class="hint" style="display:inline">— search existing, or add a new one</span></label>
         <input type="text" id="company" placeholder="Start typing a client name or domain…" autocomplete="off">
         <div id="clientDrop" class="drop-list" style="display:none"></div>
@@ -138,7 +138,7 @@
         <input type="text" id="page" placeholder="AC Repair"></div>
     </div>
     <div style="margin-top:13px">
-      <label>Resize before optimising
+      <label>Resize before optimising{{ help_dot('seo_images.upload.max_edge') }}
         <span class="hint" style="display:inline">— the longest edge is capped, then everything is converted to WebP</span></label>
       <select id="maxEdge" style="padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit;background:#fff">
         {% for key, (label, px) in presets.items() %}

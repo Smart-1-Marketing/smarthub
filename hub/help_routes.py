@@ -47,6 +47,18 @@ def static_demo_js():
                                max_age=3600)
 
 
+@bp.route("/hub-autofill.js")
+def static_autofill_js():
+    return send_from_directory(_STATIC, "hub-autofill.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
+@bp.route("/hub-accordion.js")
+def static_accordion_js():
+    return send_from_directory(_STATIC, "hub-accordion.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-help.css")
 def static_css():
     return send_from_directory(_STATIC, "hub-help.css", mimetype="text/css",

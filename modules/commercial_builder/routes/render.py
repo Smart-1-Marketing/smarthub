@@ -8,6 +8,16 @@ from ..services import qc_service, creatomate_service, cloudinary_service
 
 bp = Blueprint("cb_render", __name__, url_prefix="/api/projects/<int:project_id>")
 
+# A rendered commercial is a deliverable, so it belongs on the client's 360
+# record alongside their images, quotes and scans. Guarded so the module still
+# runs standalone.
+try:
+    from hub import audit as _hub_audit
+    _cb_log = _hub_audit.for_module("commercial_builder")
+except Exception:  # noqa: BLE001
+    def _cb_log(*_a, **_k):
+        return None
+
 
 @bp.post("/qc")
 def run_qc(project_id):
@@ -28,6 +38,9 @@ def submit_render(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     client = Client.query.get_or_404(project.client_id)
     data = request.get_json(force=True) or {}
+    _cb_log("render_submitted", client=client.name,
+            detail=f"{project.name or 'Commercial'} · {project.length or ''}s",
+            project=project.id)
     formats = data.get("formats") or project.formats or ["16:9"]
     force = data.get("force_despite_qc_failures", False)
 

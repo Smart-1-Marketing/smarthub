@@ -100,3 +100,44 @@ body.s1-tour-open{overflow:hidden}
 @media (max-width:640px){
   .s1-demo-panel{right:.5rem;left:.5rem;bottom:.5rem;width:auto}
 }
+
+/* Floating walkthrough launcher, added by hub-demo.js on any page with
+   data-module set and a scenario available. Sits opposite the demo panel so
+   the two never overlap. */
+.s1-demo-fab{position:fixed;left:1rem;bottom:1rem;z-index:1150;
+  display:inline-flex;align-items:center;gap:.4rem;
+  padding:.55rem .95rem;border-radius:999px;border:1px solid #cfe2f2;
+  background:#fff;color:#1769AA;font:600 .82rem system-ui,sans-serif;
+  cursor:pointer;box-shadow:0 6px 20px rgba(16,32,52,.16)}
+.s1-demo-fab:hover{background:#eef5fb}
+@media (max-width:640px){.s1-demo-fab{left:.5rem;bottom:.5rem;font-size:.78rem}}
+
+/* Autofilled fields — visibly sourced from the Hub rather than typed. */
+.s1-filled{background:#f3f9ff !important;border-color:#bcd9f0 !important}
+.s1-fill-toast{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);
+  z-index:1200;background:#0d2340;color:#fff;padding:.6rem 1rem;border-radius:999px;
+  font:600 .8rem system-ui,sans-serif;box-shadow:0 8px 24px rgba(6,18,32,.3)}
+
+/* ---- collapsible cards (hub-accordion.js) ---- */
+.s1-acc-head{cursor:pointer;user-select:none}
+.s1-acc-head:focus-visible{outline:2px solid #1769AA;outline-offset:2px;border-radius:6px}
+.s1-acc-caret{border:0;background:none;cursor:pointer;color:#94a3b8;font-size:13px;
+  padding:0 6px 0 0;transition:transform .16s ease;line-height:1}
+.s1-acc-closed .s1-acc-caret{transform:rotate(-90deg)}
+.s1-acc-closed .card-b{display:none !important}
+.s1-acc-closed{padding-bottom:0}
+.s1-acc-all{display:flex;gap:8px;margin:0 0 12px;grid-column:1 / -1}
+.s1-acc-all button{border:1px solid #d7dfe8;background:#fff;border-radius:7px;
+  padding:5px 11px;font:600 12px system-ui,sans-serif;color:#41525f;cursor:pointer}
+.s1-acc-all button:hover{background:#f7fafc}
+
+/* ---- consistent card headers across every page ---- */
+.card-h{display:flex !important;align-items:center;gap:9px;
+  padding:12px 14px !important;border-bottom:1px solid #eef2f6;
+  background:#fbfcfe;border-radius:11px 11px 0 0}
+.card-h h3{margin:0 !important;font:600 14px/1.3 'Segoe UI',system-ui,sans-serif !important;
+  color:#0d2340 !important;letter-spacing:0 !important}
+.card-h .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.card-h .src-tag{font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.05em;padding:2px 7px;border-radius:20px}
+@media (prefers-reduced-motion:reduce){.s1-acc-caret{transition:none}}

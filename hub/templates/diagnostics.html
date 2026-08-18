@@ -53,6 +53,20 @@
     <div id="diag-integrity" class="diag-rows"><p class="diag-loading">Loading…</p></div>
   </section>
 
+  <!-- ---------------- database structure ---------------- -->
+  <section class="diag-card">
+    <h2>Database structure</h2>
+    <p class="diag-help">
+      Where client data actually lives. There is no single client table &mdash;
+      several modules build their own database engine and identify a client in
+      their own way, so the same client can exist more than once under slightly
+      different names. That is what makes name-matching audits report false
+      alarms. Read from source, so it stays accurate even when a module fails
+      to load.
+    </p>
+    <div id="diag-structure" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+  </section>
+
   <!-- ---------------- OpenAI cost ---------------- -->
   <section class="diag-card">
     <h2>OpenAI — estimated cost</h2>
@@ -216,6 +230,22 @@ function renderIntegrity(d){
   }).join("");
 }
 
+function renderStructure(d){
+  var el=document.getElementById("diag-structure"); if(!el) return;
+  var head='<div class="diag-row"><span class="diag-pill p-'+(d.risks.length?"warn":"ok")+'">'+
+    (d.own_engines)+'</span><span class="diag-name">Own engines</span>'+
+    '<span class="diag-detail">'+d.engines.length+' engines total, '+d.shared_engine_users+
+    ' sharing hub/extensions.py. '+d.json_stores+' JSON stores. Client keys in use: <b>'+
+    d.client_keys.map(esc).join(", ")+'</b>.</span></div>';
+  el.innerHTML = head + d.risks.map(function(r){
+    return '<div class="diag-row"><span class="diag-pill p-'+
+      (r.level==="high"?"error":"warn")+'">'+esc(r.level)+'</span>'+
+      '<span class="diag-name">'+esc(r.title)+'</span>'+
+      '<span class="diag-detail">'+esc(r.detail)+
+      '<em class="diag-fix">'+esc((r.where||[]).join(", "))+'</em></span></div>';
+  }).join("") || head;
+}
+
 function loadAll(force){
   if(force){
     document.getElementById("diag-checks").innerHTML='<p class="diag-loading">Running checks…</p>';
@@ -228,6 +258,26 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderIntegrity)
     .catch(function(){document.getElementById("diag-integrity").innerHTML=
       '<p class="diag-loading">Could not run the audit.</p>';});
+  fetch("/api/db/urls",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(function(d){
+      var el=document.getElementById("diag-structure"); if(!el) return;
+      var extra='<div class="diag-row"><span class="diag-pill p-'+
+        (d.duplicate_domains.length?"error":"ok")+'">'+d.duplicate_domains.length+'</span>'+
+        '<span class="diag-name">Duplicate domains</span><span class="diag-detail">'+
+        (d.duplicate_domains.length
+          ? 'One website filed under more than one client name — almost certainly the same company: '+
+            d.duplicate_domains.slice(0,6).map(function(x){
+              return "<b>"+esc(x.domain)+"</b> ("+x.clients.map(esc).join(" / ")+")";}).join("; ")
+          : "Every domain maps to one client name.")+'</span></div>'+
+      '<div class="diag-row"><span class="diag-pill p-'+
+        (d.missing_url.length?"warn":"ok")+'">'+d.missing_url.length+'</span>'+
+        '<span class="diag-name">Clients with no URL</span><span class="diag-detail">'+
+        esc(d.note)+' Checked '+d.checked+' clients · '+d.unique_domains+' unique domains.</span></div>';
+      el.insertAdjacentHTML("beforeend", extra);
+    }).catch(function(){});
+  fetch("/api/db/structure",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderStructure)
+    .catch(function(){});
   fetch("/api/quotas",{credentials:"same-origin"})
     .then(r=>r.json()).then(d=>{renderQuotas(d);renderOpenAI(d.openai);})
     .catch(()=>{});

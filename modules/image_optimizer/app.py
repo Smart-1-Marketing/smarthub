@@ -8,6 +8,17 @@ from typing import List, Tuple
 from flask import Flask, render_template, request, send_file, jsonify
 from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 
+# Activity logging — so this tool's output appears on the client's
+# 360 record. This module processes client images, and work that isn't logged is work
+# nobody can point to later.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("image_optimizer")
+except Exception:  # noqa: BLE001
+    def _audit(*a, **k):  # no-op outside the Hub
+        return None
+
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024
 

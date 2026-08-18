@@ -96,7 +96,7 @@
   <!-- ---------- 1. Destination + client ---------- -->
   <div class="card">
     <h2><span class="n">1</span> Destination</h2>
-    <label class="f">Landing page URL</label>
+    <label class="f">Landing page URL {{ help_dot('utm.form.source') }}</label>
     <input type="url" id="url" placeholder="coolairco.com/ac-repair" value="{{ url }}">
     <div class="hint">Any existing non-UTM query parameters are kept; existing UTM tags are replaced.</div>
 
@@ -119,7 +119,7 @@
     <h2><span class="n">2</span> Campaign</h2>
     <div class="grid3">
       <div>
-        <label class="f">Campaign <span style="color:var(--bad)">*</span>
+        <label class="f">Campaign <span style="color:var(--bad)">*</span>{{ help_dot('utm.form.campaign') }}
           <a class="manage" data-manage="utm_campaign">edit list</a></label>
         <input type="text" id="utm_campaign" placeholder="spring-promo" list="campaignList">
         <datalist id="campaignList"></datalist>
@@ -156,7 +156,7 @@
         <input type="text" id="sourceCustom" placeholder="or type one…" style="margin-top:8px">
       </div>
       <div>
-        <label class="f">Medium <span style="color:var(--bad)">*</span>
+        <label class="f">Medium <span style="color:var(--bad)">*</span>{{ help_dot('utm.form.medium') }}
           <a class="manage" data-manage="utm_medium">edit list</a></label>
         <div class="picks" id="mediumPicks"></div>
         <input type="text" id="mediumCustom" placeholder="or type one…" style="margin-top:8px">

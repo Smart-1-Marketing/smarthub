@@ -194,8 +194,29 @@
     if (e.key === "ArrowLeft" && e.altKey) back();
   });
 
+  function autoLauncher(mod) {
+    // Only render the button if this tool actually has a walkthrough, so a
+    // module without one shows nothing rather than a button that fails.
+    fetch("/api/demos?module=" + encodeURIComponent(mod), { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.scenarios || !d.scenarios.length) return;
+        if (document.querySelector("[data-demo-start]")) return;  // page has its own
+        var sc = d.scenarios[0];
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "s1-demo-fab";
+        b.title = sc.title + " — about " + sc.minutes + " min";
+        b.innerHTML = '<span aria-hidden="true">\u25b6</span> Walk me through this';
+        b.addEventListener("click", function () { start(sc.key, true); });
+        document.body.appendChild(b);
+      })
+      .catch(function () { /* the launcher is never load-bearing */ });
+  }
+
   function init() {
     var mod = document.body.getAttribute("data-module");
+    if (mod) autoLauncher(mod);
     document.querySelectorAll("[data-demo-start]").forEach(function (b) {
       b.addEventListener("click", function () {
         var key = b.getAttribute("data-demo-start");

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Landing Page Ads — Smart 1 Hub</title>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
+        --bad:#dc2626;--ok:#16a34a}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 80px}
+  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px;max-width:78ch;line-height:1.55}
+  a.back{color:var(--blue);text-decoration:none;font-size:13px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+  .card.off{opacity:.45;pointer-events:none}
+  h2{color:var(--navy);font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:9px}
+  h2 .n{background:var(--navy);color:#fff;width:22px;height:22px;border-radius:50%;
+        display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+  label.f{display:block;font-size:12px;font-weight:600;color:#475569;margin:0 0 4px}
+  label.f .opt{font-weight:400;color:var(--muted)}
+  input[type=text],input[type=url],input[type=search],select,textarea{
+    width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit;background:#fff}
+  textarea{min-height:70px;resize:vertical;line-height:1.5}
+  input:focus,select:focus,textarea:focus{outline:2px solid #bfdbfe;outline-offset:-1px;border-color:var(--blue)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+  @media(max-width:820px){.grid{grid-template-columns:1fr}}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13.5px inherit;padding:10px 18px;
+       border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.sm{padding:6px 12px;font-size:12.5px}
+  .msg{font-size:13px;margin-left:10px;color:var(--muted)}
+  .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+  .hint{color:var(--muted);font-size:12px;margin-top:5px;line-height:1.5}
+  .modes{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+  .mode{flex:1;min-width:230px;border:1.5px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;background:#fff}
+  .mode.on{border-color:var(--blue);background:#eff6ff}
+  .mode b{display:block;color:var(--navy);font-size:13.5px;margin-bottom:2px}
+  .mode span{color:var(--muted);font-size:12px;line-height:1.45;display:block}
+  .picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:9px}
+  .pick{border:1.5px solid var(--line);border-radius:9px;padding:10px 12px;cursor:pointer;background:#fff}
+  .pick.on{border-color:var(--blue);background:#eff6ff}
+  .pick.dim{opacity:.55}
+  .pick b{display:block;font-size:13px;color:var(--navy)}
+  .pick span{font-size:11.5px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  td.n{text-align:right;white-space:nowrap;color:var(--muted)}
+  td.n.over{color:var(--bad);font-weight:700}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .tab{border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 14px;font-size:12.5px;cursor:pointer}
+  .tab.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .tag{display:inline-block;font-size:11px;border-radius:10px;padding:1px 8px;background:#e2e8f0;color:#475569}
+  .tag.spec{background:#fef3c7;color:#92400e}
+  .tag.client{background:#dbeafe;color:#1e40af}
+  .tag.over{background:#fee2e2;color:#991b1b;font-weight:700}
+  .rowbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .ac{position:relative}
+  .aclist{position:absolute;z-index:20;left:0;right:0;background:#fff;border:1px solid var(--line);
+          border-radius:8px;margin-top:2px;max-height:230px;overflow:auto;box-shadow:0 8px 20px rgba(15,23,42,.09)}
+  .aclist div{padding:8px 11px;cursor:pointer;font-size:13px}
+  .aclist div:hover{background:var(--soft)}
+  .foot{color:var(--muted);font-size:11.5px;margin-top:26px;text-align:center}
+  details{margin-top:10px}
+  summary{cursor:pointer;color:var(--blue);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/tools">&larr; Tools</a>
+  <h1>Landing Page Ads</h1>
+  <p class="sub">Pick one of our landing pages and it gets read, then the whole campaign is
+     written from what that page actually says — Google search, Meta and TikTok, display
+     banners, and streaming-audio scripts. Spec or attached to a client, same as Radio Promo.</p>
+
+  <!-- 1 -->
+  <div class="card" id="c-setup">
+    <h2><span class="n">1</span> Which page, and who for?</h2>
+    <div class="modes">
+      <div class="mode on" id="m-spec" onclick="setMode('spec')">
+        <b>Spec</b><span>No client attached. For pitching or for our own campaigns.</span>
+      </div>
+      <div class="mode" id="m-client" onclick="setMode('client')">
+        <b>Attach to a client</b><span>Files under their name and shows on their record.</span>
+      </div>
+    </div>
+    <div id="clientBox" style="display:none;margin-bottom:13px;max-width:420px">
+      <label class="f">Client</label>
+      <div class="ac">
+        <input type="search" id="client" placeholder="Start typing a client name…"
+               autocomplete="off" oninput="searchClients()">
+        <div class="aclist" id="acList" style="display:none"></div>
+      </div>
+    </div>
+
+    <label class="f">Landing page</label>
+    <div class="picks" id="pageList"></div>
+    <div class="hint">A page with no live URL can't be read — set it once under
+      <a href="#pages">Pages</a> and every future campaign uses it.</div>
+
+    <div class="grid" style="margin-top:14px">
+      <div>
+        <label class="f">…or paste any URL</label>
+        <input type="url" id="url" placeholder="https://smart1marketing.com/…" oninput="clearPage()">
+      </div>
+      <div>
+        <label class="f">Objective</label>
+        <select id="objective">
+          {% for o in objectives %}<option>{{ o }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="f">Audience <span class="opt">optional — overrides what the page implies</span></label>
+        <input type="text" id="audience" placeholder="Single-truck HVAC contractors in Ohio">
+      </div>
+      <div>
+        <label class="f">Notes for the writer <span class="opt">optional</span></label>
+        <input type="text" id="notes" placeholder="Push the free instant report, not the pricing">
+      </div>
+    </div>
+    <div class="rowbar">
+      <button class="btn" id="briefBtn" onclick="start()">Read the page</button>
+      <span class="msg" id="setupMsg"></span>
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <div class="card off" id="c-brief">
+    <h2><span class="n">2</span> Brief</h2>
+    <div id="briefBox"></div>
+    <label class="f" style="margin-top:14px">Formats</label>
+    <div class="picks" id="formatList">
+      {% for f in formats %}
+      <div class="pick" data-fmt="{{ f.id }}" onclick="toggleFormat(this)">
+        <b>{{ f.label }}</b><span>{{ f.blurb }}</span></div>
+      {% endfor %}
+    </div>
+    <div class="rowbar">
+      <button class="btn" onclick="generate()">Write the ads</button>
+      <span class="msg" id="genMsg"></span>
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <div class="card off" id="c-out">
+    <h2><span class="n">3</span> Ads</h2>
+    <div class="tabs" id="tabs"></div>
+    <div id="outBox"></div>
+    <div class="rowbar">
+      <a class="btn sec" id="csvBtn" href="#">Download CSV</a>
+      <button class="btn sec" onclick="attachPrompt()">Attach to a client</button>
+      <span class="msg" id="outMsg"></span>
+    </div>
+  </div>
+
+  <!-- pages -->
+  <div class="card" id="pages">
+    <h2>Pages</h2>
+    <p class="hint" style="margin-top:0">The live URL for each Smart 1 landing page. Set once;
+       used by every campaign after that.</p>
+    <table><thead><tr><th>Page</th><th>Vertical</th><th>Live URL</th><th></th></tr></thead>
+      <tbody id="pageRows"></tbody></table>
+  </div>
+
+  <p class="foot">Smart 1 Hub · {{ version }}</p>
+</div>
+
+<script>
+const MOUNT = {{ mount|tojson }};
+let PAGES = {{ pages|tojson }};
+let S = null, mode = 'spec', pageSlug = '', formats = new Set(['google_rsa']), tab = '';
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function say(id, t, cls){ const e=$(id); e.textContent=t||''; e.className='msg'+(cls?' '+cls:''); }
+function open(id, on){ $(id).classList.toggle('off', !on); }
+
+async function api(path, opts){
+  const res = await fetch(MOUNT + path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
+  let d = {}; try { d = await res.json(); } catch(e){}
+  if(!res.ok || d.ok === false) throw new Error(d.error || ('Request failed ('+res.status+')'));
+  return d;
+}
+
+function setMode(m){
+  mode = m;
+  $('m-spec').classList.toggle('on', m==='spec');
+  $('m-client').classList.toggle('on', m==='client');
+  $('clientBox').style.display = m==='client' ? '' : 'none';
+}
+
+let acTimer=null;
+function searchClients(){
+  clearTimeout(acTimer);
+  acTimer = setTimeout(async()=>{
+    const q = $('client').value.trim();
+    if(q.length<2){ $('acList').style.display='none'; return; }
+    try{
+      const d = await api('/api/clients?q='+encodeURIComponent(q));
+      if(!d.clients.length){ $('acList').style.display='none'; return; }
+      $('acList').innerHTML = d.clients.map(c =>
+        `<div onclick="pickClient(${JSON.stringify(c.name||c.client||'').replace(/"/g,'&quot;')})">${esc(c.name||c.client||'')}</div>`).join('');
+      $('acList').style.display='';
+    }catch(e){ $('acList').style.display='none'; }
+  },220);
+}
+function pickClient(n){ $('client').value=n; $('acList').style.display='none'; }
+
+/* ---------- pages ---------- */
+function drawPages(){
+  $('pageList').innerHTML = PAGES.map(p => `
+    <div class="pick${pageSlug===p.slug?' on':''}${p.url?'':' dim'}" onclick="pickPage('${p.slug}')">
+      <b>${esc(p.name)}</b><span>${esc(p.industry)}${p.url?'':' · no URL set'}</span></div>`).join('');
+  $('pageRows').innerHTML = PAGES.map(p => `
+    <tr><td>${esc(p.name)}</td><td>${esc(p.industry)}</td>
+      <td><input type="url" id="pu-${p.slug}" value="${esc(p.url)}" placeholder="https://…"></td>
+      <td><button class="btn sec sm" onclick="savePage('${p.slug}')">Save</button></td></tr>`).join('');
+}
+function pickPage(slug){
+  const p = PAGES.find(x=>x.slug===slug);
+  if(p && !p.url){ alert(p.name+' has no live URL yet. Set it under Pages first.'); return; }
+  pageSlug = (pageSlug===slug) ? '' : slug;
+  $('url').value = '';
+  drawPages();
+}
+function clearPage(){ pageSlug=''; drawPages(); }
+async function savePage(slug){
+  try{
+    await api('/api/pages', {method:'POST', body:JSON.stringify({slug, url:$('pu-'+slug).value.trim()})});
+    const d = await api('/api/pages'); PAGES = d.pages; drawPages();
+  }catch(e){ alert(e.message); }
+}
+drawPages();
+
+/* ---------- start ---------- */
+async function start(){
+  $('briefBtn').disabled = true;
+  say('setupMsg','Reading the page…');
+  try{
+    const d = await api('/api/sets', {method:'POST', body:JSON.stringify({
+      page_slug: pageSlug, url: $('url').value.trim(),
+      client: mode==='client' ? $('client').value.trim() : '',
+      objective: $('objective').value, notes: $('notes').value.trim(),
+      audience: $('audience').value.trim()})});
+    S = d.set;
+    location.hash = 's=' + S.id;
+    const b = await api('/api/sets/'+S.id+'/brief', {method:'POST'});
+    S = b.set;
+    say('setupMsg','Read.','ok');
+    drawBrief();
+  }catch(e){ say('setupMsg', e.message, 'err'); }
+  $('briefBtn').disabled = false;
+}
+
+function drawBrief(){
+  open('c-brief', true);
+  const b = S.brief||{};
+  $('briefBox').innerHTML = `<table>
+    <tr><th style="width:150px">Product</th><td>${esc(b.product)}</td></tr>
+    <tr><th>Audience</th><td>${esc(b.audience)}</td></tr>
+    <tr><th>Promise</th><td>${esc(b.promise)}</td></tr>
+    <tr><th>Proof</th><td>${(b.proof||[]).map(esc).join(' · ')}</td></tr>
+    <tr><th>Objections</th><td>${(b.objections||[]).map(esc).join(' · ')}</td></tr>
+    <tr><th>Call to action</th><td>${esc(b.cta)}</td></tr>
+    <tr><th>Search terms</th><td>${(b.keywords||[]).map(esc).join(', ')}</td></tr>
+    <tr><th>Won't claim</th><td>${(b.avoid||[]).map(esc).join(' · ')}</td></tr>
+    <tr><th>Read from</th><td>${esc(b.source_url||S.url)}</td></tr></table>`;
+  document.querySelectorAll('#formatList .pick').forEach(el =>
+    el.classList.toggle('on', formats.has(el.dataset.fmt)));
+}
+
+function toggleFormat(el){
+  const f = el.dataset.fmt;
+  formats.has(f) ? formats.delete(f) : formats.add(f);
+  el.classList.toggle('on', formats.has(f));
+}
+
+async function generate(){
+  if(!formats.size){ say('genMsg','Pick at least one format.','err'); return; }
+  say('genMsg','Writing…');
+  try{
+    const d = await api('/api/sets/'+S.id+'/generate', {method:'POST',
+      body:JSON.stringify({formats:[...formats]})});
+    S = d.set;
+    const errs = Object.values(d.errors||{});
+    say('genMsg', errs.length ? errs.join(' · ') : 'Written.', errs.length ? 'err' : 'ok');
+    drawOut();
+  }catch(e){ say('genMsg', e.message, 'err'); }
+}
+
+/* ---------- output ---------- */
+const LABEL = {google_rsa:'Google search', paid_social:'Paid social',
+               display:'Display banners', streaming_audio:'Streaming audio'};
+
+function drawOut(){
+  open('c-out', true);
+  const keys = Object.keys(S.formats||{});
+  if(!keys.length) return;
+  if(!keys.includes(tab)) tab = keys[0];
+  $('tabs').innerHTML = keys.map(k =>
+    `<span class="tab${k===tab?' on':''}" onclick="tab='${k}';drawOut()">${esc(LABEL[k]||k)}</span>`).join('');
+  $('csvBtn').href = MOUNT + '/api/sets/' + S.id + '/export.csv';
+  $('outBox').innerHTML = ({google_rsa:rsaHtml, paid_social:socialHtml,
+                            display:displayHtml, streaming_audio:audioHtml}[tab] || (()=>''))(S.formats[tab]);
+}
+
+function lines(rows, label){
+  return `<h3 style="font-size:13px;color:var(--navy);margin:14px 0 4px">${label}</h3>
+    <table>${rows.map(r=>`<tr><td>${esc(r.text)}</td>
+      <td class="n${r.over?' over':''}">${r.chars}${r.over?' · too long':''}</td></tr>`).join('')}</table>`;
+}
+
+function rsaHtml(f){
+  return lines(f.headlines||[], 'Headlines (30 characters)')
+    + lines(f.descriptions||[], 'Descriptions (90)')
+    + lines(f.callouts||[], 'Callouts (25)')
+    + `<h3 style="font-size:13px;color:var(--navy);margin:14px 0 4px">Sitelinks</h3>
+       <table>${(f.sitelinks||[]).map(s=>`<tr><td><b>${esc(s.text)}</b></td><td>${esc(s.description)}</td></tr>`).join('')}</table>
+       <h3 style="font-size:13px;color:var(--navy);margin:14px 0 4px">Keywords</h3>
+       <table>${(f.keywords||[]).map(k=>`<tr><td>${esc(k.keyword)}</td><td class="n">${esc(k.match)}</td></tr>`).join('')}</table>
+       <details><summary>Negative keywords</summary><p class="hint">${(f.negatives||[]).map(esc).join(' · ')}</p></details>`;
+}
+
+function chars(n, over){
+  return `<span class="tag${over?' over':''}">${n} chars${over?' · too long':''}</span>`;
+}
+
+function socialHtml(f){
+  const block = (p, name) => `<h3 style="font-size:13px;color:var(--navy);margin:14px 0 4px">${name}</h3>` +
+    (f[p]||[]).map(a=>`<div class="pick" style="cursor:default;margin-bottom:8px">
+      <b>${esc(a.angle)}</b>
+      <p style="margin:6px 0 4px"><i>${esc(a.hook)}</i></p>
+      <p style="margin:0 0 4px">${esc(a.primary)} ${chars(a.primary_chars, a.primary_over)}</p>
+      <p style="margin:0"><b>${esc(a.headline)}</b> — ${esc(a.description)}
+        ${chars(a.headline_chars, a.headline_over)}</p></div>`).join('');
+  return block('meta','Meta') + block('tiktok','TikTok') +
+    `<details open><summary>Creative notes</summary><p class="hint">${(f.creative_notes||[]).map(esc).join('<br>')}</p></details>`;
+}
+
+function displayHtml(f){
+  return (f.concepts||[]).map((c,i)=>`<div class="pick" style="cursor:default;margin-bottom:9px">
+      <b>${esc(c.name)}</b>
+      <p style="margin:6px 0 2px;font-size:16px"><b>${esc(c.headline)}</b></p>
+      <p style="margin:0 0 4px">${esc(c.subhead||'')} <span class="tag">${esc(c.cta)}</span></p>
+      <p class="hint" style="margin:0">${esc(c.art_direction)}</p>
+      <p class="hint" style="margin:4px 0 0">Sizes: ${(c.sizes||[]).map(esc).join(' · ')}</p>
+      <div class="rowbar"><button class="btn sec sm" onclick="makeArt(${i})">Generate background</button>
+        <a class="btn sec sm" href="/tools/image-creator/" target="_blank">Build it in Image Creator</a></div>
+    </div>`).join('') +
+    `<p class="hint">${esc(f.palette_note||'')}</p>` +
+    (S.art||[]).map(a=>`<div style="margin-top:8px"><span class="tag">${esc(a.concept)}</span><br>
+       <img src="${esc(a.url)}" alt="" style="max-width:300px;border-radius:8px;margin-top:5px"></div>`).join('');
+}
+
+async function makeArt(i){
+  const c = (S.formats.display.concepts||[])[i];
+  say('outMsg','Generating background…');
+  try{
+    const d = await api('/api/sets/'+S.id+'/art', {method:'POST', body:JSON.stringify({concept:c})});
+    S = d.set; say('outMsg','Done.','ok'); drawOut();
+  }catch(e){ say('outMsg', e.message, 'err'); }
+}
+
+function audioHtml(f){
+  const slot = (k,label) => {
+    const s = f[k]||{};
+    return `<div class="pick" style="cursor:default;margin-bottom:9px">
+      <b>${label}</b> <span class="tag">${s.wordCount||''} words</span>
+      <p style="margin:6px 0 0;line-height:1.6">${esc(s.script)}</p></div>`;
+  };
+  const b = f.companion_banner||{};
+  return `<p class="hint" style="margin-top:0">Tone: <b>${esc(f.tone)}</b>. These are written to the
+    same budgets Radio Promo enforces — paste one in there to cast and record it.</p>
+    ${slot('fifteen',':15')}${slot('thirty',':30')}
+    <p class="hint">Companion banner: <b>${esc(b.headline)}</b> — ${esc(b.subline)} · ${esc(b.cta)}</p>
+    <a class="btn sec sm" href="/tools/radio-promo/" target="_blank">Open Radio Promo</a>`;
+}
+
+async function attachPrompt(){
+  const n = prompt('Attach this campaign to which client? (exact Hub client name)');
+  if(!n) return;
+  try{
+    const d = await api('/api/sets/'+S.id+'/settings', {method:'POST',
+      body:JSON.stringify({client:n.trim()})});
+    S = d.set; say('outMsg','Attached to '+S.client+'.','ok');
+  }catch(e){ say('outMsg', e.message, 'err'); }
+}
+
+/* ---------- resume ---------- */
+(async function(){
+  const m = /s=([\w-]+)/.exec(location.hash||'');
+  if(!m) return;
+  try{
+    const d = await api('/api/sets/'+m[1]);
+    S = d.set;
+    setMode(S.spec?'spec':'client');
+    if($('client')) $('client').value = S.client||'';
+    if($('url')) $('url').value = S.url||'';
+    pageSlug = S.page_slug||''; drawPages();
+    if(S.brief) drawBrief();
+    if(Object.keys(S.formats||{}).length){ formats = new Set(Object.keys(S.formats)); drawOut(); }
+  }catch(e){ location.hash=''; }
+})();
+</script>
+</body>
+</html>

@@ -74,6 +74,8 @@ function pick(i){
 function render(g,q){
   window.__trafficStarted=null;
   const name=g.client||q;
+  window.CURRENT_CLIENT = name;
+  setTimeout(function(){ loadBrandAndWork(name); }, 0);
   const liveCount=g.products.filter(p=>String(p.status||'').toLowerCase()==='live').length;
   const web0=(g.websites||[])[0]||null;
   window.__c360domain=web0&&web0.domain?String(web0.domain).replace(/^https?:\/\//,'').replace(/\/.*$/,''):'';
@@ -191,6 +193,18 @@ function render(g,q){
     <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Images</span><h3>Client Images</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center" id="c-img-acts"></div></div>
     <div class="card-b" id="c-images"><div class="empty">Looking for saved images… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Brand kit (logos, colours, fonts already cached per client) ----------
+  html+=`<div class="card"><div class="card-h">
+    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Brandfetch</span><h3>Brand</h3>
+    <div class="right" id="c-brand-acts"></div></div>
+    <div class="card-b" id="c-brand"><div class="empty">Loading brand…</div></div></div>`;
+
+  // ---------- Everything the Hub has made for this client ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Work for this client</h3>
+    <div class="right" id="c-work-sum"></div></div>
+    <div class="card-b" id="c-work"><div class="empty">Loading…</div></div></div>`;
 
   // ---------- Site health (latest Insites scan: what's broken + speed) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
@@ -1119,5 +1133,72 @@ function c360Traffic(propertyId,googleLogin){
 }
 
 {% if q %}run();{% endif %}
+
+// ---------------------------------------------------------------- brand card
+function renderBrand(d){
+  const el=document.getElementById('c-brand'); if(!el) return;
+  const acts=document.getElementById('c-brand-acts');
+  if(!d || !d.found){
+    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>';
+    return;
+  }
+  const swatches = (d.colors||[]).map(c=>
+    `<span title="${esc(c.hex)}${c.type?' — '+esc(c.type):''}" style="display:inline-flex;
+      flex-direction:column;align-items:center;gap:4px;margin:0 8px 8px 0">
+      <span style="width:38px;height:38px;border-radius:8px;background:${esc(c.hex)};
+        border:1px solid rgba(0,0,0,.12);display:block"></span>
+      <code style="font-size:10.5px;color:#64748b">${esc(c.hex)}</code></span>`).join('');
+  const logos = (d.logos||[]).slice(0,4).map(l=>
+    `<a href="${esc(l.url)}" target="_blank" rel="noopener"
+        style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin:0 6px 6px 0;
+        border:1px solid #e2e8f0;border-radius:8px;text-decoration:none;font-size:12px;color:#1769AA">
+        ${esc((l.format||'').toUpperCase()||'LOGO')}${l.theme?' · '+esc(l.theme):''}</a>`).join('');
+  const fonts = (d.fonts||[]).map(f=>
+    `<a href="${esc(f.google)}" target="_blank" rel="noopener"
+       style="font-size:13px;color:#1769AA;text-decoration:none;margin-right:12px">${esc(f.name)}</a>`).join('');
+  el.innerHTML =
+    (swatches?`<div style="margin-bottom:6px"><div class="lbl">Brand colours</div>${swatches}</div>`:'')+
+    (logos?`<div style="margin-bottom:10px"><div class="lbl">Logos</div>${logos}</div>`:'')+
+    (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
+    (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'');
+  if(acts) acts.innerHTML='<button class="mini" onclick="pushBrand()">Send to Suite</button>';
+}
+function pushBrand(){
+  fetch('/api/client/brand/push-to-suite',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({name:CURRENT_CLIENT})})
+   .then(r=>r.json()).then(d=>{
+     if(d.error){alert(d.error);return;}
+     alert(d.delivered ? 'Brand guide sent to Smart 1 Suite.'
+       : 'No GHL_BRAND_WEBHOOK_URL set, so nothing was sent. The payload is ready in the response.');
+   }).catch(()=>alert('Could not send the brand guide.'));
+}
+
+// ------------------------------------------------------------- work log card
+function renderWork(d){
+  const el=document.getElementById('c-work'); if(!el) return;
+  const sum=document.getElementById('c-work-sum');
+  if(!d || !d.count){
+    el.innerHTML='<div class="empty">Nothing recorded yet. Work shows here as tools log it.</div>';
+    return;
+  }
+  if(sum) sum.innerHTML='<span class="muted" style="font-size:12px">'+d.count+' item'+(d.count===1?'':'s')+'</span>';
+  el.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+    d.items.map(i=>`<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;color:#94a3b8">
+        ${esc((i.when||'').slice(0,10))}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9"><b>${esc(i.kind)}</b></td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#64748b">${esc(i.source)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#64748b">${esc(i.detail||'')}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#94a3b8;white-space:nowrap">
+        ${esc(i.actor||'')}</td></tr>`).join('')+'</table>';
+}
+
+function loadBrandAndWork(name){
+  if(!name) return;
+  fetch('/api/client/brand?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(r=>r.json()).then(renderBrand).catch(()=>{});
+  fetch('/api/client/work?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(r=>r.json()).then(renderWork).catch(()=>{});
+}
 </script>
 {% endblock %}

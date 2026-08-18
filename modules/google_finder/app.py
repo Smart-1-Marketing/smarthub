@@ -15,6 +15,17 @@ from flask_session import Session
 from cryptography.fernet import Fernet, InvalidToken
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+# Activity logging — so this tool's output appears on the client's
+# 360 record. This module reads client Google properties, and work that isn't logged is work
+# nobody can point to later.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("google_finder")
+except Exception:  # noqa: BLE001
+    def _audit(*a, **k):  # no-op outside the Hub
+        return None
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("google-account-finder")
 

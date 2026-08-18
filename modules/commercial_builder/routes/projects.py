@@ -11,6 +11,13 @@ from ..services import openai_service, qrcode_service, cloudinary_service
 
 bp = Blueprint("cb_projects", __name__, url_prefix="/api/projects")
 
+try:  # deliverables belong on the client's 360 record
+    from hub import audit as _hub_audit
+    _cb_log = _hub_audit.for_module("commercial_builder")
+except Exception:  # noqa: BLE001
+    def _cb_log(*_a, **_k):
+        return None
+
 
 # ---------------------------------------------------------------------------
 # 1. Start Commercial

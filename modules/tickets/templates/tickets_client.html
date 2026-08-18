@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web Tickets · Smart 1 Hub</title>
+<link rel="stylesheet" href="{{ url_for('tickets.static', filename='tickets.css') }}">
+</head>
+<body class="tkt">
+
+<div class="tkt-bar">
+  <h1>Web Tickets</h1>
+  <span class="spacer"></span>
+  <span class="sub" id="tkt-stamp"></span>
+  <a class="tkt-btn ghost" id="tkt-csv" href="#">Export CSV</a>
+  <a class="tkt-btn ghost" href="{{ url_for('tickets.index') }}">All customers</a>
+</div>
+
+<div class="tkt-wrap">
+  <div class="tkt-note error" id="tkt-msg" hidden></div>
+
+  <div class="tkt-head">
+    <div>
+      <h2 id="tkt-name">Loading…</h2>
+      <div class="meta" id="tkt-meta"></div>
+    </div>
+  </div>
+
+  <div class="tkt-stats" id="tkt-stats"></div>
+
+  <div class="tkt-cols">
+    <div class="tkt-card">
+      <header><h2>Load vs. plan</h2></header>
+      <div style="padding:16px 18px">
+        <div id="tkt-loadbar"></div>
+        <p style="margin:12px 0 0;font-size:13px;color:var(--muted)" id="tkt-loadnote"></p>
+      </div>
+    </div>
+
+    <div class="tkt-card">
+      <header><h2>Tickets a month</h2></header>
+      <div style="padding:14px 18px 18px">
+        <div class="tkt-mini" id="tkt-months"></div>
+        <div class="tkt-mini-labels" id="tkt-monthlabels"></div>
+      </div>
+    </div>
+
+    <div class="tkt-card">
+      <header><h2>What they ask for</h2></header>
+      <div style="padding:6px 18px 14px">
+        <ul class="tkt-list" id="tkt-types"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="tkt-card">
+    <header><h2>Every ticket</h2></header>
+    <div class="tkt-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th class="nw">Ticket</th><th class="nw">Opened</th><th>Summary</th><th class="nw">Type</th>
+            <th class="nw">Status</th><th class="nw">Assigned</th><th class="r nw">Time</th><th class="r nw">Age</th>
+          </tr>
+        </thead>
+        <tbody id="tkt-rows">
+          <tr><td colspan="8" class="tkt-empty">Reading tickets…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.TKT = {
+    page: "client",
+    base: "{{ url_for('tickets.index') }}".replace(/\/$/, ""),
+    clientKey: {{ client_key | tojson }},
+    slaDays: {{ sla_days }}
+  };
+</script>
+<script src="{{ url_for('tickets.static', filename='tickets.js') }}"></script>
+</body>
+</html>

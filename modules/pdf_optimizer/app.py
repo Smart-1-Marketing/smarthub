@@ -12,6 +12,17 @@ from pathlib import Path
 
 from flask import Flask, after_this_request, jsonify, request, send_file
 
+# Activity logging — so this tool's output appears on the client's
+# 360 record. This module processes client documents, and work that isn't logged is work
+# nobody can point to later.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("pdf_optimizer")
+except Exception:  # noqa: BLE001
+    def _audit(*a, **k):  # no-op outside the Hub
+        return None
+
+
 app = Flask(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"

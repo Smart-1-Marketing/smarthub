@@ -160,7 +160,12 @@ def check_unclamped_limits() -> list[dict]:
     out = []
     for rel, src in _sources():
         for m in re.finditer(r'request\.args\.get\(\s*["\'](limit|items|per_page|n)["\']', src):
-            window = src[m.start():m.start() + 260]
+            # Look BEHIND as well as ahead: the usual clamp wraps the read
+            # rather than following it — max(1, min(500, int(request.args...)))
+            # — so a forward-only window reports correctly-clamped code as
+            # unclamped. A check that cries wolf gets ignored.
+            line_start = src.rfind("\n", 0, m.start()) + 1
+            window = src[line_start:m.start() + 260]
             if re.search(r"\bmin\(|\bmax\(|clamp", window):
                 continue
             out.append({

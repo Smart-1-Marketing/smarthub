@@ -20,6 +20,17 @@ from flask import Blueprint
 from .db import db, STANDALONE
 from .routes import clients, projects, scripts, stock, voices, heygen, render, assets, pages
 
+# Activity logging — so this tool's output appears on the client's
+# 360 record. This module produces client commercials, and work that isn't logged is work
+# nobody can point to later.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("commercial_builder")
+except Exception:  # noqa: BLE001
+    def _audit(*a, **k):  # no-op outside the Hub
+        return None
+
+
 
 def create_blueprint():
     bp = Blueprint(

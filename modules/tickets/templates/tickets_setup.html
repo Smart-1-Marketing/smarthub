@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web Tickets setup · Smart 1 Hub</title>
+<link rel="stylesheet" href="{{ url_for('tickets.static', filename='tickets.css') }}">
+</head>
+<body class="tkt">
+
+<div class="tkt-bar">
+  <h1>Web Tickets setup</h1>
+  <span class="sub">Tell the audit which Knack fields hold what</span>
+  <span class="spacer"></span>
+  <a class="tkt-btn ghost" href="{{ url_for('tickets.index') }}">Back to the audit</a>
+</div>
+
+<div class="tkt-wrap">
+  {% if demo %}
+  <div class="tkt-note">
+    Knack credentials are not set, so this page is showing a sample schema. Set
+    <code>KNACK_APP_ID</code> and <code>KNACK_API_KEY</code> on Render and reload
+    to map the real objects.
+  </div>
+  {% endif %}
+
+  <div class="tkt-note" id="tkt-msg" hidden></div>
+
+  <div class="tkt-card">
+    <header>
+      <h2>Objects</h2>
+      <p>Pick the object that holds web tickets. The client object is only needed
+         when the Hub's own client registry isn't available — leave it blank and
+         the registry is used instead.</p>
+    </header>
+    <div class="tkt-map">
+      <label for="tkt-obj">Ticket object <span class="req">*</span></label>
+      <select id="tkt-obj"></select>
+      <label for="tkt-clientobj">Client object</label>
+      <select id="tkt-clientobj"></select>
+    </div>
+  </div>
+
+  <div class="tkt-card">
+    <header>
+      <h2>Ticket fields</h2>
+      <p>Fields are matched by name on load; check the guesses before saving.
+         Starred fields are the ones the audit cannot run without.</p>
+    </header>
+    <div class="tkt-map">
+      {% for f in ticket_fields %}
+      <label>{{ f.label }}{% if f.required %} <span class="req">*</span>{% endif %}</label>
+      <select data-map="tickets" data-field="{{ f.key }}"
+              aria-label="{{ f.label }}"></select>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="tkt-card">
+    <header>
+      <h2>Client fields</h2>
+      <p>Only read when a client object is chosen above. Monthly price is what
+         the load-vs-plan reports measure cost to serve against.</p>
+    </header>
+    <div class="tkt-map">
+      {% for f in client_fields %}
+      <label>{{ f.label }}{% if f.required %} <span class="req">*</span>{% endif %}</label>
+      <select data-map="clients" data-field="{{ f.key }}"
+              aria-label="{{ f.label }}"></select>
+      {% endfor %}
+    </div>
+  </div>
+
+  <button class="tkt-btn primary" id="tkt-save" type="button">Save mapping</button>
+</div>
+
+<script>
+  window.TKT = {
+    page: "setup",
+    base: "{{ url_for('tickets.index') }}".replace(/\/$/, "")
+  };
+</script>
+<script src="{{ url_for('tickets.static', filename='tickets.js') }}"></script>
+</body>
+</html>

@@ -166,7 +166,7 @@ def api_photo_proxy():
 @app.route("/api/icons/search")
 def api_icons():
     return jsonify(assets.search_icons(request.args.get("q", ""),
-                                       int(request.args.get("limit", 60))))
+                                       max(1, min(500, int(request.args.get("limit") or 60)))))
 
 
 @app.route("/api/icons/svg")
@@ -449,7 +449,7 @@ def api_export_optimize():
 def api_projects_list():
     return jsonify({"projects": projects.search_projects(
         request.args.get("q", ""), request.args.get("client", ""),
-        int(request.args.get("limit", 100))),
+        max(1, min(500, int(request.args.get("limit") or 100)))),
         "cloudinary": projects.cloud_ready()})
 
 

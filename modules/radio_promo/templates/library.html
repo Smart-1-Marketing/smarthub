@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Radio Promo library — Smart 1 Hub</title>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--bad:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
+  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px}
+  a.back{color:var(--blue);text-decoration:none;font-size:13px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  input[type=search]{width:100%;max-width:360px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit}
+  .chips{display:flex;gap:6px;margin:12px 0}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 13px;font-size:12.5px;cursor:pointer}
+  .chip.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  .tag{display:inline-block;font-size:11px;border-radius:10px;padding:1px 8px;background:#e2e8f0;color:#475569}
+  .tag.spec{background:#fef3c7;color:#92400e}
+  .tag.client{background:#dbeafe;color:#1e40af}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 12.5px inherit;padding:6px 12px;border-radius:8px;
+       cursor:pointer;text-decoration:none;display:inline-block}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.danger{background:#fff;color:var(--bad);border:1px solid #fecaca}
+  .foot{color:var(--muted);font-size:11.5px;margin-top:26px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href=".">&larr; Radio Promo</a>
+  <h1>Library</h1>
+  <p class="sub">Every spot written here, spec and client alike.</p>
+  <div class="card">
+    <input type="search" id="q" placeholder="Client, business, project or team member…" oninput="load()">
+    <div class="chips">
+      <span class="chip on" data-scope="all" onclick="setScope(this)">All</span>
+      <span class="chip" data-scope="client" onclick="setScope(this)">Clients</span>
+      <span class="chip" data-scope="spec" onclick="setScope(this)">Spec</span>
+    </div>
+    <table><thead><tr><th>Business</th><th>Project</th><th>For</th><th>Spots</th>
+      <th>Status</th><th>Updated</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="7">Loading…</td></tr></tbody></table>
+  </div>
+  <p class="foot">Smart 1 Hub · {{ version }}</p>
+</div>
+<script>
+const MOUNT = {{ mount|tojson }};
+let scope = 'all';
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function setScope(el){
+  scope = el.dataset.scope;
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c===el));
+  load();
+}
+
+async function load(){
+  const q = document.getElementById('q').value.trim();
+  const res = await fetch(`${MOUNT}/api/library?scope=${scope}&q=${encodeURIComponent(q)}`);
+  const d = await res.json();
+  document.getElementById('rows').innerHTML = (d.projects||[]).map(p => `
+    <tr>
+      <td>${esc(p.company||p.client||'—')}</td>
+      <td>${esc(p.project_name||'—')}</td>
+      <td>${p.spec?'<span class="tag spec">spec</span>':'<span class="tag client">'+esc(p.client)+'</span>'}</td>
+      <td>${p.spots}</td><td>${esc(p.status)}</td>
+      <td>${esc((p.updated_at||'').slice(0,10))}</td>
+      <td style="white-space:nowrap">
+        <a class="btn sec" href="./#p=${esc(p.id)}">Open</a>
+        <button class="btn danger" onclick="del('${esc(p.id)}')">Delete</button></td>
+    </tr>`).join('') || '<tr><td colspan="7">Nothing here yet.</td></tr>';
+}
+
+async function del(id){
+  if(!confirm('Delete this project? The audio stays in Cloudinary.')) return;
+  await fetch(`${MOUNT}/api/projects/${id}/delete`, {method:'POST'});
+  load();
+}
+load();
+</script>
+</body>
+</html>

@@ -81,15 +81,137 @@ def list_proposals(client: str) -> list[dict]:
     return items
 
 
+PROPOSAL_STATUSES = ("draft", "sent", "viewed", "won", "lost")
+
+
+def set_status(client: str, rec_id: str, status: str, actor: str = "") -> dict:
+    """Move a proposal along the pipeline. Won/lost is what makes the rollup
+    mean anything -- an unmarked won proposal reads as still outstanding."""
+    if status not in PROPOSAL_STATUSES:
+        raise ValueError("Unknown proposal status.")
+    items = list_proposals(client)
+    for it in items:
+        if it.get("id") == rec_id:
+            it["status"] = status
+            it["status_changed_at"] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+            it["status_by"] = str(actor or "").strip()
+            _write(client, items)
+            try:
+                from hub import audit
+                audit.log("proposals", "status_changed", actor=actor,
+                          client=client, proposal=rec_id, status=status)
+            except Exception:  # noqa: BLE001
+                pass
+            return it
+    raise ValueError("No such proposal.")
+
+
+def upsert_from_ghl(client: str, opportunity_id: str, title: str,
+                    value: float, status: str, when: str = "") -> dict:
+    """Create or update the proposal row for a Suite opportunity.
+
+    Keyed on the opportunity id so repeated webhooks update one row instead of
+    piling up duplicates — GoHighLevel fires on create, update and every stage
+    change, so an append-only handler would produce five rows for one deal.
+    """
+    items = list_proposals(client)
+    now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    for it in items:
+        if opportunity_id and it.get("opportunity_id") == opportunity_id:
+            it.update({"title": title or it.get("title"),
+                       "value": round(float(value or 0), 2) or it.get("value", 0),
+                       "status": status, "status_changed_at": now,
+                       "updated_at": now})
+            _write(client, items)
+            return it
+    record = {
+        "id": uuid.uuid4().hex[:12],
+        "opportunity_id": opportunity_id,
+        "title": title or "Suite opportunity",
+        "date_sent": _iso_date(when, _today()),
+        "uploaded_at": now,
+        "uploaded_by": "Smart 1 Suite",
+        "value": round(float(value or 0), 2),
+        "term": "monthly",
+        "status": status,
+        "status_changed_at": now,
+        "note": "",
+        "url": "",
+        "storage": "ghl",
+        "public_id": "",
+        "kind": "opportunity",
+        "size": 0,
+        "source": "ghl",
+    }
+    items.append(record)
+    _write(client, items)
+    return record
+
+
+def rollup(client: str = "") -> dict:
+    """Totals by status, for the client card and the pipeline report."""
+    if client:
+        clients = [client]
+    else:
+        try:
+            from hub import clients_registry
+            clients = [c.get("name", "") for c in clients_registry.all_clients()
+                       if c.get("name")]
+        except Exception:  # noqa: BLE001
+            clients = []
+    out = {s: {"count": 0, "value": 0.0} for s in PROPOSAL_STATUSES}
+    for c in clients:
+        for it in list_proposals(c):
+            st = it.get("status") or "sent"
+            if st not in out:
+                st = "sent"
+            out[st]["count"] += 1
+            out[st]["value"] += float(it.get("value") or 0)
+    for v in out.values():
+        v["value"] = round(v["value"], 2)
+    open_value = round(sum(out[s]["value"] for s in ("draft", "sent", "viewed")), 2)
+    won = out["won"]["value"]
+    decided = won + out["lost"]["value"]
+    return {"by_status": out, "open_value": open_value, "won_value": won,
+            "win_rate": (round(100 * won / decided) if decided else None),
+            "clients": len(clients)}
+
+
 def _write(client: str, items: list[dict]):
     store = seo.load_store(client)
     store["uploaded_proposals"] = items
     seo.save_store(client, store)
 
 
+def _money(value) -> float:
+    """Parse a proposal value from whatever a human typed.
+
+    "$2,500/mo", "2500", "2,500.00" all become 2500.0. Deliberately strict
+    about ranges: "2,500-5,000" would otherwise strip to 25005000, which is
+    the exact bug that pushed a $300,060,000 opportunity into GoHighLevel in
+    the suite audit. A range returns the lower bound instead.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return 0.0
+    raw = raw.replace(",", "")
+    parts = re.findall(r"\d+(?:\.\d+)?", raw)
+    if not parts:
+        return 0.0
+    # A dash between two numbers means a range -- take the lower bound.
+    return round(float(parts[0]), 2)
+
+
 def add_proposal(client: str, filename: str, data: bytes, date_sent: str = "",
-                 title: str = "", note: str = "", actor: str = "") -> dict:
-    """Store one uploaded proposal file and attach it to the client."""
+                 title: str = "", note: str = "", actor: str = "",
+                 value: str = "", term: str = "monthly",
+                 status: str = "sent") -> dict:
+    """Store one uploaded proposal file and attach it to the client.
+
+    `value` and `status` exist so proposals are trackable rather than just
+    filed: what was quoted, and what happened to it. Without them the
+    Proposals card is an archive; with them it's a pipeline.
+    """
     client = str(client or "").strip()
     if not client:
         raise ValueError("A client is required.")
@@ -135,6 +257,10 @@ def add_proposal(client: str, filename: str, data: bytes, date_sent: str = "",
         "public_id": public_id if storage == "cloudinary" else "",
         "kind": "pdf" if ext == ".pdf" else "doc",
         "size": len(data),
+        "value": _money(value),
+        "term": (term if term in ("monthly", "one_time", "annual") else "monthly"),
+        "status": (status if status in PROPOSAL_STATUSES else "sent"),
+        "status_changed_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "source": "uploaded",
     }
     items = list_proposals(client)

@@ -726,7 +726,7 @@ def api_gallery():
             for k in ("company", "project", "page", "seo_filename", "alt_text",
                       "web_url", "saved_by", "original_name"))]
     try:
-        limit = max(1, min(int(request.args.get("limit", 200)), 1000))
+        limit = max(1, max(1, min(1000, int(request.args.get("limit") or 200))))
     except (TypeError, ValueError):
         limit = 200
     return jsonify({"gallery": rows[:limit], "total": len(load_archive())})
