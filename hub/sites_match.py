@@ -129,7 +129,25 @@ def suggest(limit: int = 2000) -> dict:
                                    "punctuation are ignored. Check before "
                                    "applying."})
             continue
-        unmatched.append({"project_id": pid, "site": site, "domain": dom})
+        # Nothing exact — offer the near misses from the Knack website
+        # registry so a human can confirm rather than the site staying
+        # orphaned forever. object_153 carries both a client name and a
+        # domain, which is why it can suggest where name-matching alone can't.
+        maybes = []
+        try:
+            from hub import knack_websites
+            for cand in knack_websites.suggest_for(site, dom):
+                maybes.append({
+                    "client": cand.get("client_name") or cand.get("organization"),
+                    "score": cand["score"], "why": cand["why"],
+                    "knack_domain": cand.get("domain", ""),
+                    "platform": cand.get("platform", ""),
+                    "hm_fee": cand.get("hm_fee", 0),
+                })
+        except Exception:                               # noqa: BLE001
+            maybes = []
+        unmatched.append({"project_id": pid, "site": site, "domain": dom,
+                          "maybe": maybes})
 
     by_conf = {"domain": 0, "name": 0}
     for m in matched:
@@ -145,6 +163,7 @@ def suggest(limit: int = 2000) -> dict:
         "no_domain_count": len(no_domain),
         "unmatched": unmatched,
         "unmatched_count": len(unmatched),
+        "with_suggestions": sum(1 for u in unmatched if u.get("maybe")),
         "clients_with_domain": len(by_domain),
         "note": "Nothing has been changed. A wrong internal_client_name is "
                 "worse than a blank one — it attributes revenue to the wrong "

@@ -375,6 +375,35 @@ def create_hub_app() -> Flask:
             pass
         return jsonify(out)
 
+    @app.route("/api/client/website-registry")
+    def api_website_registry():
+        """GA, GTM, platform, go-live and H&M fee from Knack object_153."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .knack_websites import enrich
+        return jsonify(enrich(request.args.get("name", ""),
+                              request.args.get("domain", "")))
+
+    @app.route("/api/client/analytics-ids")
+    def api_analytics_ids():
+        """GA and GTM from BOTH Knack and Google, with whether they agree."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .analytics_ids import compare
+        return jsonify(compare(request.args.get("name", ""),
+                               request.args.get("domain", "")))
+
+    @app.route("/api/qa/analytics-ids")
+    def api_analytics_audit():
+        """Every client where the two sources disagree, or we lack access."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .analytics_ids import audit_all
+        return jsonify(audit_all())
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.

@@ -91,10 +91,17 @@ function render(){
     }).join('')+'</tbody></table>':'<p class="sm-muted" style="padding:12px 14px">Nothing to suggest.</p>')+'</div>';
 
   if(d.unmatched_count){
-    html+='<div class="sm-card"><h3>No client matched ('+d.unmatched_count+')</h3><table class="sm-t">'+
-      d.unmatched.slice(0,60).map(function(u){
-        return '<tr><td>'+esc(u.site)+'</td><td class="sm-muted">'+esc(u.domain)+'</td></tr>';}).join('')+
-      '</table></div>';
+    html+='<div class="sm-card"><h3>No exact match ('+d.unmatched_count+
+      (d.with_suggestions?' &mdash; '+d.with_suggestions+' have a possible match':'')+')</h3>'+
+      '<table class="sm-t"><thead><tr><th>Site</th><th>Domain</th><th>Is this it?</th></tr></thead><tbody>'+
+      d.unmatched.slice(0,60).map(function(u,ui){
+        var maybe=(u.maybe||[]).map(function(m,mi){
+          return '<div style="margin-bottom:5px"><button class="sm-btn" style="padding:3px 9px;font-size:12px" '+
+            'onclick=\'confirmMaybe('+ui+','+mi+')\'>Yes &mdash; '+esc(m.client)+'</button> '+
+            '<span class="sm-muted" style="font-size:11.5px">'+esc(m.why)+'</span></div>';}).join('');
+        return '<tr><td><b>'+esc(u.site)+'</b></td><td class="sm-muted">'+esc(u.domain)+'</td>'+
+               '<td>'+(maybe||'<span class="sm-muted">no candidate</span>')+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
   }
   if(d.no_domain_count){
     html+='<div class="sm-card"><h3>No real domain yet ('+d.no_domain_count+')</h3><table class="sm-t">'+
@@ -104,6 +111,21 @@ function render(){
   }
   document.getElementById('smOut').innerHTML=html;
   window.__list=list; count();
+}
+
+function confirmMaybe(ui, mi){
+  /* A fuzzy match is only ever a suggestion — this is the human confirming
+     it. Applying these automatically would put the wrong client name on a
+     site, and a wrong internal_client_name is worse than a blank one. */
+  var u=DATA.unmatched[ui], m=u.maybe[mi];
+  if(!confirm('Link "'+u.site+'" to "'+m.client+'"?\n\n'+m.why)) return;
+  fetch('/api/sites-match/apply',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({matches:[{project_id:u.project_id, client:m.client}]})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(d.error){alert(d.error);return;}
+     load();
+   }).catch(function(){alert('That did not go through.');});
 }
 
 function toggleAll(){
