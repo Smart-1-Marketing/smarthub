@@ -36,8 +36,28 @@ SORTS = ("relevant", "popular", "new")
 
 
 # ------------------------------------------------------------------ helpers
+# Env var names for the stock providers drifted: this deployment sets
+# PEXELS_API and PIXABAY_API, while the code was written against
+# PEXELS_API_KEY / PIXABAY_API_KEY. The keys were present and the tool
+# reported "no API key set" — worse than a missing key, because everything
+# looked configured. hub/config.py already knows every spelling; route
+# through it rather than maintaining a second list here.
+_ALIASES = {
+    "PEXELS_API_KEY": ("PEXELS_API", "PEXELS_API_KEY", "PEXELS_KEY"),
+    "PIXABAY_API_KEY": ("PIXABAY_API", "PIXABAY_API_KEY", "PIXABAY_KEY"),
+    "UNSPLASH_ACCESS_KEY": ("UNSPLASH_ACCESS_KEY", "UNSPLASH_API",
+                            "UNSPLASH_API_KEY", "UNSPLASH_KEY"),
+    "GOOGLE_FONTS_API_KEY": ("GOOGLE_FONTS_API", "GOOGLE_FONTS_API_KEY"),
+    "REMOVE_BG_API_KEY": ("REMOVE_BG_API", "REMOVE_BG_API_KEY"),
+}
+
+
 def _key(name: str) -> str:
-    return (os.environ.get(name) or "").strip()
+    for candidate in _ALIASES.get(name, (name,)):
+        val = (os.environ.get(candidate) or "").strip()
+        if val:
+            return val
+    return ""
 
 
 def configured() -> dict[str, bool]:

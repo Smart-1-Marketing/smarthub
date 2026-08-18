@@ -566,7 +566,7 @@ function drawIoLookup(){
  const q=(document.getElementById('ioq2')?.value||"").toLowerCase();
  const rows=LIST.filter(x=>x.status==='Converted'&&x.io_number)
   .filter(x=>!q||["io #"+x.io_number,x.io_number,x.client,x.website,x.quote_number,x.products_summary].join(" ").toLowerCase().includes(q));
- tb.innerHTML=rows.map(ioRowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px">No converted IOs yet. IOs built directly in the IO builder below live in the IO system (Cloudinary / Smart 1 Suite); IOs converted from proposals show up here automatically.</td></tr>`;
+ tb.innerHTML=rows.map(ioRowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px">No converted IOs yet. IOs built directly in the IO builder below live in the IO system (client gallery / Smart 1 Suite); IOs converted from proposals show up here automatically.</td></tr>`;
 }
 function setIoUrl(){const v=prompt("IO builder URL:",CFG.io_app_url);if(v!==null&&v.trim()){CFG.io_app_url=v.trim();lsSet("s1_io_app_url",CFG.io_app_url);drawIO();}}
 
@@ -1026,7 +1026,7 @@ function drawConvert(){
    <div class="dsec">What happens next</div>
    <ol style="font-size:13px;color:#33415C;padding-left:20px;line-height:1.7">
     <li>The IO API issues the next order number (10200 series) — same counter the IO builder uses.</li>
-    <li>The customer PDF and internal PDF are generated and stored in Cloudinary, exactly like a hand-built IO.</li>
+    <li>The customer PDF and internal PDF are generated and stored in client gallery, exactly like a hand-built IO.</li>
     <li>${CONV.submit?"The finished IO is sent to Smart 1 Suite / GoHighLevel.":"The IO is prepared but NOT sent to Smart 1 Suite (you can submit from the IO builder later)."}</li>
     <li>${esc(q.quote_number)} is marked <b>Converted</b> and linked to the new IO number.</li>
    </ol>

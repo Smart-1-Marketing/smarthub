@@ -27,6 +27,25 @@ from __future__ import annotations
 
 import logging
 import os
+
+
+# Same env-name drift as Image Creator: this deployment uses PEXELS_API /
+# PIXABAY_API, not the _KEY suffixed names the code was written against.
+_ALIASES = {
+    "PEXELS_API_KEY": ("PEXELS_API", "PEXELS_API_KEY", "PEXELS_KEY"),
+    "PIXABAY_API_KEY": ("PIXABAY_API", "PIXABAY_API_KEY", "PIXABAY_KEY"),
+    "UNSPLASH_ACCESS_KEY": ("UNSPLASH_ACCESS_KEY", "UNSPLASH_API",
+                            "UNSPLASH_API_KEY", "UNSPLASH_KEY"),
+}
+
+
+def _key(name: str) -> str:
+    for candidate in _ALIASES.get(name, (name,)):
+        val = (os.environ.get(candidate) or "").strip()
+        if val:
+            return val
+    return ""
+
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -65,9 +84,9 @@ def _cache_put(key: str, val: list[dict[str, Any]]) -> None:
 
 def configured_providers() -> dict[str, bool]:
     return {
-        "pexels": bool(os.environ.get("PEXELS_API_KEY")),
-        "pixabay": bool(os.environ.get("PIXABAY_API_KEY")),
-        "unsplash": bool(os.environ.get("UNSPLASH_ACCESS_KEY")),
+        "pexels": bool(_key("PEXELS_API_KEY")),
+        "pixabay": bool(_key("PIXABAY_API_KEY")),
+        "unsplash": bool(_key("UNSPLASH_ACCESS_KEY")),
     }
 
 
@@ -121,7 +140,7 @@ def _norm(
 
 
 def search_pexels(query: str, *, per_page: int, page: int, orientation: str | None) -> list[dict[str, Any]]:
-    key = os.environ.get("PEXELS_API_KEY")
+    key = _key("PEXELS_API_KEY")
     if not key:
         return []
     params: dict[str, Any] = {"query": query, "per_page": per_page, "page": page}
@@ -156,7 +175,7 @@ def search_pexels(query: str, *, per_page: int, page: int, orientation: str | No
 
 
 def search_pixabay(query: str, *, per_page: int, page: int, orientation: str | None) -> list[dict[str, Any]]:
-    key = os.environ.get("PIXABAY_API_KEY")
+    key = _key("PIXABAY_API_KEY")
     if not key:
         return []
     params: dict[str, Any] = {
@@ -193,7 +212,7 @@ def search_pixabay(query: str, *, per_page: int, page: int, orientation: str | N
 
 
 def search_unsplash(query: str, *, per_page: int, page: int, orientation: str | None) -> list[dict[str, Any]]:
-    key = os.environ.get("UNSPLASH_ACCESS_KEY")
+    key = _key("UNSPLASH_ACCESS_KEY")
     if not key:
         return []
     params: dict[str, Any] = {"query": query, "per_page": per_page, "page": page}
@@ -245,7 +264,7 @@ def trigger_unsplash_download(download_location: str) -> bool:
     Called on save, not on browse. Never raises -- a failed ping must not cost
     the client their image.
     """
-    key = os.environ.get("UNSPLASH_ACCESS_KEY")
+    key = _key("UNSPLASH_ACCESS_KEY")
     if not key or not download_location:
         return False
     try:

@@ -374,7 +374,7 @@ function render(g,q){
   }).catch(()=>{$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>'});
 
   // ---------- Uploaded proposals: the PDFs and Word docs we sent ----------
-  // Stored in Cloudinary and attached to the client for good, with the date
+  // Stored in client gallery and attached to the client for good, with the date
   // the proposal went to them.
   const todayISO=()=>new Date().toISOString().slice(0,10);
   function renderUploaded(list){
@@ -519,7 +519,7 @@ function render(g,q){
       <input id="up-file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         style="font:12.5px inherit;margin-bottom:8px">
       <div><button class="btn-primary" id="up-go" style="padding:7px 14px">Save to client</button>
-        <span id="up-msg" class="muted" style="margin-left:8px;font-size:12px">PDF or Word, up to 25 MB. Stored in Cloudinary and kept with this client.</span></div>
+        <span id="up-msg" class="muted" style="margin-left:8px;font-size:12px">PDF or Word, up to 25 MB. Stored in client gallery and kept with this client.</span></div>
     </div>`;
     $('up-go').onclick=()=>{
       const f=$('up-file').files[0];

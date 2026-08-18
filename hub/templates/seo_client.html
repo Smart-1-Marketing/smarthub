@@ -192,7 +192,7 @@
   <div class="seoc-cardhead"><h3>Client Images</h3>
     <div class="seoc-muted" id="imgCount"></div></div>
   <p class="seoc-muted" style="margin:0 0 12px">Images optimised and named for this client &mdash; saved to
-    Cloudinary as WebP with SEO filenames and alt text.</p>
+    client gallery as WebP with SEO filenames and alt text.</p>
   <div id="imgStrip"></div>
   <div class="seoc-imgacts">
     <a class="seoc-btn" id="btnImgGallery">&#128444; See client image gallery</a>
@@ -544,6 +544,18 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     var w=(d.websites||[])[0]||{};
     var s='';
     s+=kv('Website', siteUrl?'<a href="'+esc(siteUrl)+'" target="_blank">'+esc(siteUrl)+'</a>':'<span class="seoc-warn">no site on file</span>');
+    /* Straight into the site's admin, so nobody has to remember whether a
+       given client is WordPress or Smart 1 Sites and type the path by hand. */
+    var plat = String(w.platform||d.platform||'').toLowerCase();
+    var loginPath = plat.indexOf('wordpress')>-1 ? '/wp-admin'
+                  : (plat.indexOf('simvoly')>-1 || plat.indexOf('smart 1')>-1
+                     || plat.indexOf('smart1')>-1) ? '/login' : '';
+    if(siteUrl && loginPath){
+      var base = String(siteUrl).replace(/\/+$/,'');
+      s+=kv('Log in', '<a class="seoc-btn" href="'+esc(base+loginPath)+'" target="_blank" '+
+            'rel="noopener">Log in to site &#8599;</a> <span class="muted" style="font-size:11.5px">'+
+            esc(base.replace(/^https?:\/\//,'')+loginPath)+'</span>');
+    }
     s+=kv('Site type', esc(w.platform||d.platform||'Unknown'));
     if(w.status) s+=kv('Status', esc(w.status));
     if(d.setup && d.setup.access_method) s+=kv('Access', esc(d.setup.access_method));

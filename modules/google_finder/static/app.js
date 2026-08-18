@@ -273,7 +273,21 @@ if (gtmLookupBtn && gtmLookupInput) {
         });
       });
     } else {
-      gtmLookupResults.innerHTML = '<span style="font-size:12px; color:#c5221f;">No GTM containers found.</span>';
+      /* "Not found" was true but useless. This tool can only see containers
+         belonging to a Google account that has been CONNECTED here — a
+         container ID copied off a client's website record won't appear unless
+         someone has linked the account that owns it. Saying so turns a dead
+         end into a next step. */
+      gtmLookupResults.innerHTML =
+        '<div style="font-size:12.5px;line-height:1.55;background:#fff4d7;' +
+        'border:1px solid #f0d99a;color:#78350f;padding:10px 12px;border-radius:8px">' +
+        '<b>No GTM container matched in the connected accounts.</b><br>' +
+        'This searches Tag Manager accounts that have been connected to the Hub. ' +
+        'A container ID taken from a client\'s website record won\'t show up here ' +
+        'unless someone has connected the Google account that owns it — the ID being ' +
+        'on the site is not the same as us having access.<br>' +
+        '<a href="/tools/google-access/" style="color:#1769AA;font-weight:600">' +
+        'Request access from the client &rarr;</a></div>';
     }
   });
 }

@@ -7,7 +7,7 @@
     <div class="mark">S1</div>
     <div>
       <h1>Image Picker</h1>
-      <div class="sub">Clients pick photos · saves to Cloudinary + Smart 1 Suite</div>
+      <div class="sub">Clients pick photos · saves to the client gallery + Smart 1 Suite</div>
     </div>
     <div class="top-actions">
       <a class="ghost" href="/tools">Tools</a>
@@ -22,11 +22,11 @@
       <span class="mini" aria-pressed="{{ 'true' if providers_on.pexels else 'false' }}">Pexels {{ '✓' if providers_on.pexels else '—' }}</span>
       <span class="mini" aria-pressed="{{ 'true' if providers_on.pixabay else 'false' }}">Pixabay {{ '✓' if providers_on.pixabay else '—' }}</span>
       <span class="mini" aria-pressed="{{ 'true' if providers_on.unsplash else 'false' }}">Unsplash {{ '✓' if providers_on.unsplash else '—' }}</span>
-      <span class="mini" aria-pressed="{{ 'true' if cloudinary_on else 'false' }}">Cloudinary {{ '✓' if cloudinary_on else '—' }}</span>
+      <span class="mini" aria-pressed="{{ 'true' if cloudinary_on else 'false' }}">client gallery {{ '✓' if cloudinary_on else '—' }}</span>
       <span class="mini" aria-pressed="{{ 'true' if ghl_on else 'false' }}">Smart 1 Suite {{ '✓' if ghl_on else '—' }}</span>
     </div>
     {% if not cloudinary_on %}
-    <div class="note warn"><h3>Cloudinary is off</h3>
+    <div class="note warn"><h3>client gallery is off</h3>
       <p>Set <code>CLOUDINARY_URL</code> on Render. Clients can browse but not save until it's on.</p></div>
     {% endif %}
   </section>

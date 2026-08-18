@@ -65,7 +65,7 @@
   <a class="back" href="/tools">&larr; Tools</a>
   <h1>Background Remover</h1>
   <p class="sub">Drop in photos and get transparent PNG cut-outs back. Resize before the cut to control
-    cost and after it to control the file you keep. Finished cut-outs can be saved to Cloudinary against
+    cost and after it to control the file you keep. Finished cut-outs can be saved to the client gallery against
     a client, ready to drop onto a canvas in the Image Creator.</p>
 
   {% if not configured %}
@@ -136,7 +136,7 @@
       <span class="msg" id="resultMeta"></span>
       <div style="margin-left:auto;display:flex;gap:7px">
         <button class="btn sec sm" id="dlAll">&#8681; Download all</button>
-        {% if cloud %}<button class="btn sec sm" id="saveAll">Save all to Cloudinary</button>{% endif %}
+        {% if cloud %}<button class="btn sec sm" id="saveAll">Save all to the client gallery</button>{% endif %}
       </div>
     </div>
     <div id="errors"></div>

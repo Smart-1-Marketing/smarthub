@@ -144,7 +144,7 @@
   </div>
   <div class="pills">
     <span class="pill {{ '' if ai_on else 'off' }}">{{ 'AI naming on' if ai_on else 'AI naming off — names are editable' }}</span>
-    <span class="pill {{ '' if cloudinary_on else 'off' }}">{{ 'Cloudinary connected' if cloudinary_on else 'Cloudinary not set' }}</span>
+    <span class="pill {{ '' if cloudinary_on else 'off' }}">{{ 'client gallery connected' if cloudinary_on else 'client gallery not set' }}</span>
     <span class="pill">Longest edge {{ max_edge }}px</span>
   </div>
 </header>
@@ -574,7 +574,7 @@
     if (data.skipped.length) summary += " " + data.skipped.length + " skipped.";
     if (data.failed.length) summary += " " + data.failed.length + " couldn't be saved.";
     if (data.saved.some((r) => !r.stored))
-      summary += " Cloudinary isn't configured, so files weren't uploaded — set CLOUDINARY_URL.";
+      summary += " client gallery isn't configured, so files weren't uploaded — set CLOUDINARY_URL.";
     $("doneSummary").innerHTML = summary;
 
     const left = data.totals.remaining;

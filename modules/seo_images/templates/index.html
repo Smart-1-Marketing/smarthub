@@ -102,10 +102,10 @@
 <div class="wrap">
   <h1>SEO Image Pipeline</h1>
   <p class="sub">Name images the way search engines want them named, review every one, then save the
-    approved set to Cloudinary as optimised WebP — filed under the client and kept in a searchable archive.</p>
+    approved set to the client gallery as optimised WebP — filed under the client and kept in a searchable archive.</p>
 
   {% if not cloud_ready %}
-  <div class="alert"><b>Cloudinary isn't configured.</b>
+  <div class="alert"><b>client gallery isn't configured.</b>
     <div class="hint">Set <code>CLOUDINARY_URL</code> (or <code>CLOUDINARY_CLOUD_NAME</code> +
       <code>CLOUDINARY_API_KEY</code> + <code>CLOUDINARY_API_SECRET</code>) and redeploy.
       You can still analyse images, but saving is disabled.</div></div>
@@ -169,7 +169,7 @@
     <div id="warnBox"></div>
     <div id="revList"></div>
     <div style="margin-top:6px">
-      <button class="btn" id="btnSave">Approve &amp; save to Cloudinary</button>
+      <button class="btn" id="btnSave">Approve &amp; save to the client gallery</button>
       <button class="btn sec" id="btnCancel">Start over</button>
       <span class="msg" id="msg2"></span>
     </div>
@@ -462,7 +462,7 @@ function renderReview(){
   const keep = items.filter(f => f.state === 'keep').length;
   $('btnSave').disabled = !keep || !CLOUD_READY;
   $('btnSave').textContent = keep
-    ? 'Approve & save ' + keep + ' image' + (keep>1?'s':'') + ' to Cloudinary'
+    ? 'Approve & save ' + keep + ' image' + (keep>1?'s':'') + ' to the client gallery'
     : 'Nothing selected to save';
 }
 
@@ -642,7 +642,7 @@ function renderArchive(rows){
   $('archWrap').querySelectorAll('[data-del]').forEach(a => {
     a.onclick = async () => {
       const r = rows.find(x => x.id === a.dataset.del);
-      if(!r || !confirm('Delete this image from Cloudinary and the archive?\n\n'+r.filename)) return;
+      if(!r || !confirm('Delete this image from client gallery and the archive?\n\n'+r.filename)) return;
       await fetch('api/gallery/update', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({id:r.id, delete:true})});
       loadArchive();

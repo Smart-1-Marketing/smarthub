@@ -63,6 +63,26 @@ except Exception:  # noqa: BLE001
 
 
 app = Flask(__name__)
+
+
+@app.context_processor
+def _site_helpers():
+    """Template helpers for the Sites views.
+
+    project_detail.html calls login_url(host) and nothing defined it, so every
+    site detail page raised UndefinedError and returned a traceback. Defined
+    here rather than in the template so the URL shape lives in one place.
+    """
+    def login_url(host: str) -> str:
+        host = str(host or "").strip().lower()
+        host = re.sub(r"^https?://", "", host).split("/")[0]
+        if not host:
+            return ""
+        # Simvoly's per-site admin entry point.
+        return f"https://{host}/admin"
+
+    return {"login_url": login_url}
+
 app.secret_key = SETTINGS.secret_key
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,

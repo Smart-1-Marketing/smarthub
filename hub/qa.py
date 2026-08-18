@@ -86,7 +86,25 @@ def _is_active(g: dict) -> bool:
 
 
 def _join(vals) -> str:
-    return ", ".join(sorted(v for v in vals if v)) or "—"
+    """Join partner names, folding case-only duplicates together.
+
+    Knack holds "MOTO" and "Moto" as separate partner values for the same
+    company, so reports grouped by partner showed them as two rows with the
+    revenue split between them. Case is not a meaningful distinction here.
+    The first spelling encountered wins, so the display stays stable rather
+    than flipping between runs.
+    """
+    seen, out = {}, []
+    for v in vals:
+        v = str(v or "").strip()
+        if not v:
+            continue
+        k = v.lower()
+        if k in seen:
+            continue
+        seen[k] = v
+        out.append(v)
+    return ", ".join(sorted(out, key=str.lower)) or "—"
 
 
 def _norm_name(s: str) -> str:
@@ -145,6 +163,13 @@ def no_dashboards() -> dict:
             _money(g["live_total"] or g["this_total"]),
         ])
     rows, styles = [], []
+    # Fold any remaining case-only duplicate GROUP keys into one bucket, so
+    # "MOTO" and "Moto" don't render as two partners with split subtotals.
+    folded = {}
+    for k, v in list(by_partner.items()):
+        canon = next((c for c in folded if c.lower() == k.lower()), k)
+        folded.setdefault(canon, []).extend(v)
+    by_partner = folded
     keys = sorted([k for k in by_partner if k != "—"], key=str.lower) + \
         (["—"] if "—" in by_partner else [])
     for k in keys:
@@ -189,6 +214,13 @@ def stale_90() -> dict:
             _money(last_total),
         ]))
     rows, styles = [], []
+    # Fold any remaining case-only duplicate GROUP keys into one bucket, so
+    # "MOTO" and "Moto" don't render as two partners with split subtotals.
+    folded = {}
+    for k, v in list(by_partner.items()):
+        canon = next((c for c in folded if c.lower() == k.lower()), k)
+        folded.setdefault(canon, []).extend(v)
+    by_partner = folded
     keys = sorted([k for k in by_partner if k != "—"], key=str.lower) + \
         (["—"] if "—" in by_partner else [])
     grand = 0.0

@@ -62,6 +62,12 @@
   .adv { margin-top: 12px; }
   .adv summary { cursor: pointer; color: var(--muted); font-size: 12.5px; font-weight: 600; }
   .adv .row { margin-top: 12px; }
+
+/* The actions cell held "Open" and "Check status" as separate inline links,
+   which wrapped mid-phrase and read as two mis-aligned columns. */
+td.actions-cell{white-space:nowrap}
+td.actions-cell a{display:inline-block;margin-right:12px}
+td.actions-cell a:last-child{margin-right:0}
 </style>
 </head>
 <body data-module="scans">
@@ -218,6 +224,7 @@ function renderTable(rows){
     $("tableWrap").innerHTML = '<div class="empty">No scans yet. Run one above to get started.</div>';
     return;
   }
+  window.__rows = rows;   // so "Re-check all running" can see them
   let html = '<table><thead><tr>' +
     '<th>Site</th><th>Business</th><th>Date</th><th>Status</th><th>Score</th><th>Source</th><th>Actions</th>' +
     '</tr></thead><tbody>';
@@ -248,6 +255,33 @@ function renderTable(rows){
   }
   html += "</tbody></table>";
   $("tableWrap").innerHTML = html;
+}
+
+async function recheckAll(){
+  /* A bulk run can leave dozens of scans on "running" — the table refresh only
+     re-reads the local database, so a scan whose callback never arrived sits
+     there forever looking busy. This pulls each one from Insites directly,
+     which is the only thing that can actually resolve it. */
+  const btn=document.getElementById("recheckBtn");
+  const running=(window.__rows||[]).filter(r=>r.status==="running");
+  if(!running.length){ alert("Nothing is running."); return; }
+  if(!confirm(`Re-check ${running.length} running scan(s) against Insites?\n\n`+
+              `This re-reads existing audits — it does not start new ones, so no credits are spent.`)) return;
+  btn.disabled=true;
+  let done=0, resolved=0;
+  for(const r of running){
+    try{
+      const res=await fetch(`api/scans/${encodeURIComponent(r.public_id)}/refresh`,{method:"POST"});
+      const j=await res.json().catch(()=>({}));
+      if(j && j.status && j.status!=="running") resolved++;
+    }catch(e){}
+    done++;
+    btn.textContent=`Checking ${done}/${running.length}…`;
+  }
+  btn.disabled=false; btn.textContent="Re-check all running";
+  alert(`${done} checked · ${resolved} resolved.` +
+        (resolved===0 ? "\n\nNone resolved. That usually means the callback token or PUBLIC_BASE_URL is wrong — check /login/health." : ""));
+  load();
 }
 
 async function refreshScan(pid){

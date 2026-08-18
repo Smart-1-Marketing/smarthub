@@ -187,7 +187,7 @@
     Sources read: {{ data.sources.live|join(', ') if data.sources.live else 'none' }}.
     {% if data.sources.no_records %}No records from:
       {{ data.sources.no_records|join(', ') }}.{% endif %}
-    {% if data.sources.cloudinary_fallback %}Fell back to a Cloudinary folder scan.{% endif %}
+    {% if data.sources.cloudinary_fallback %}Fell back to a client gallery folder scan.{% endif %}
   </p>
 </div>
 
