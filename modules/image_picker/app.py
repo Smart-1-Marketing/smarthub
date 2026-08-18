@@ -169,12 +169,30 @@ def rate_limit(limit: int, window: int):
 
 
 def hub_login_ok() -> bool:
-    """MERGE NOTE: replace this body with the Hub's AuthGuard check.
+    """Is there a signed-in Hub user?
 
-    Standalone it honours a session flag set by the Hub, or IMAGE_PICKER_DEV_OPEN
-    for local work. It fails closed -- an unrecognised deployment gets a locked
-    door, not an open one.
+    This was left as a merge placeholder looking for a Flask session key the
+    Hub never sets, so it always returned False, redirected to /login, and the
+    Hub redirected straight back -- ERR_TOO_MANY_REDIRECTS on every visit.
+
+    It now reads the Hub's own signed cookies. Still fails closed: an
+    unrecognised deployment gets a locked door, not an open one.
     """
+    # 1. A real user account (v10+).
+    try:
+        from hub import identity
+        if identity.user_from_environ(request.environ):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    # 2. The legacy shared-password cookie, still valid during migration.
+    try:
+        from hub import auth as hub_auth
+        if hub_auth.user_from_environ(request.environ):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    # 3. Flask session, for standalone use.
     try:
         from flask import session as flask_session
         if flask_session.get("hub_user") or flask_session.get("logged_in"):

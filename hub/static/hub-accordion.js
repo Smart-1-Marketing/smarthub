@@ -1,36 +1,113 @@
-/* Smart 1 Hub — collapsible cards.
+/* Smart 1 Hub — collapsible, reorderable cards.
  *
- * Client 360 is 16 cards in one column and the SEO dashboard is similar. Most
- * visits need two or three of them, so everything else is scrolling. This
- * turns every .card into a collapsible section with its open/closed state
- * remembered per page.
+ * Rewritten to be self-contained. The previous version relied on rules in
+ * hub-help.css, and when that stylesheet didn't reach a page the carets
+ * appeared but nothing collapsed — a control that looks live and does nothing
+ * is worse than no control. Collapse is now an inline style and the styling is
+ * injected by this file, so it cannot half-work.
  *
- * Applied progressively: if the JS never loads, every card stays open and the
- * page behaves exactly as it does now. A collapse control that fails closed
- * would hide content with no way to reach it.
- *
- * Which cards start open is a judgement, not a preference: the ones you need
- * to answer "who is this client and is anything wrong" stay open, and the
- * reference material folds away.
+ * Only runs on the long record pages. The dashboard is four cards you read at
+ * a glance; collapsing there adds a control without saving any scrolling.
  */
 (function () {
   "use strict";
 
-  var OPEN_BY_DEFAULT = [
-    "products", "site health", "brand", "work for this client",
-    "smart 1 suite account", "website record"
+  var ONLY_ON = ["/client360", "/seo", "/qa"];
+
+  /* Card order and default state, keyed on a distinctive word from the title.
+   * Order is the reading order of the page: who is this client, what are we
+   * doing for them, what have we made, is anything broken — then reference
+   * material. Anything not listed keeps its original position, so a card
+   * added later doesn't vanish or need registering here. */
+  var LAYOUT = [
+    { match: "products",       open: true  },
+    { match: "creative infor", open: true  },
+    { match: "client images",  open: true  },   // moved above analytics
+    { match: "brand",          open: true,  half: true },
+    { match: "client notes",   open: true,  half: true },  // paired with brand
+    { match: "work for this",  open: true  },
+    { match: "site health",    open: true  },
+    { match: "smart 1 suite",  open: true  },
+    { match: "proposals",      open: true  },
+    { match: "social media",   open: true  },
+    { match: "traffic summary",open: true  },
+    { match: "ga4",            open: false },   // auto-collapsed
+    { match: "gtm container",  open: false },   // auto-collapsed, moved down
+    { match: "invoices",       open: false },   // auto-collapsed
+    { match: "website record", open: false },   // auto-collapsed
+    { match: "web tickets",    open: false }
   ];
 
-  function key(title) {
-    return "s1acc:" + location.pathname + ":" +
-           title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+  var CSS = [
+    ".s1-acc-head{cursor:pointer;user-select:none}",
+    ".s1-acc-head:focus-visible{outline:2px solid #1769AA;outline-offset:2px}",
+    ".s1-acc-caret{border:0;background:none;cursor:pointer;color:#94a3b8;",
+    "font-size:12px;padding:0 7px 0 0;line-height:1;transition:transform .15s}",
+    ".s1-acc-closed .s1-acc-caret{transform:rotate(-90deg)}",
+    ".s1-acc-all{display:flex;gap:8px;margin:0 0 14px;grid-column:1 / -1}",
+    ".s1-acc-all button{border:1px solid #d7dfe8;background:#fff;border-radius:7px;",
+    "padding:6px 12px;font:600 12px 'Segoe UI',system-ui,sans-serif;color:#41525f;cursor:pointer}",
+    ".s1-acc-all button:hover{background:#f1f5f9}",
+    "@media(prefers-reduced-motion:reduce){.s1-acc-caret{transition:none}}"
+  ].join("");
+
+  function injectCSS() {
+    if (document.getElementById("s1-acc-css")) return;
+    var st = document.createElement("style");
+    st.id = "s1-acc-css";
+    st.textContent = CSS;
+    document.head.appendChild(st);
   }
 
-  function remembered(title) {
-    try { return localStorage.getItem(key(title)); } catch (e) { return null; }
+  function pageWants() {
+    var p = location.pathname.replace(/\/+$/, "") || "/";
+    return ONLY_ON.some(function (x) { return p === x || p.indexOf(x + "/") === 0; });
   }
-  function remember(title, open) {
-    try { localStorage.setItem(key(title), open ? "1" : "0"); } catch (e) {}
+
+  function titleOf(card) {
+    var h = card.querySelector(".card-h h3");
+    return (h ? h.textContent : "").trim();
+  }
+
+  /* Prefer a match at the START of the title, and only fall back to a
+     substring match if nothing anchors. Otherwise "brand" would claim any
+     card whose title merely contains the word, and card order becomes a
+     matter of which rule happens to be listed first. */
+  function rule(title) {
+    var t = title.toLowerCase();
+    var i;
+    for (i = 0; i < LAYOUT.length; i++) {
+      if (t.indexOf(LAYOUT[i].match) === 0) return LAYOUT[i];
+    }
+    for (i = 0; i < LAYOUT.length; i++) {
+      if (t.indexOf(LAYOUT[i].match) > -1) return LAYOUT[i];
+    }
+    return null;
+  }
+
+  function storeKey(title) {
+    return "s1acc:" + location.pathname + ":" +
+      title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+  }
+  function saved(title) {
+    try { return localStorage.getItem(storeKey(title)); } catch (e) { return null; }
+  }
+  function save(title, open) {
+    try { localStorage.setItem(storeKey(title), open ? "1" : "0"); } catch (e) {}
+  }
+
+  /* Collapse via inline style, not a CSS class. No stylesheet dependency
+     means this cannot silently fail to work. */
+  function setOpen(card, open, title) {
+    var body = card.querySelector(".card-b");
+    if (body) body.style.display = open ? "" : "none";
+    card.classList.toggle("s1-acc-closed", !open);
+    var caret = card.querySelector(".s1-acc-caret");
+    if (caret) {
+      caret.setAttribute("aria-expanded", open ? "true" : "false");
+      caret.style.transform = open ? "" : "rotate(-90deg)";
+    }
+    if (title) save(title, open);
   }
 
   function wire(card) {
@@ -39,49 +116,60 @@
     if (!head || !body || head.dataset.s1acc) return;
     head.dataset.s1acc = "1";
 
-    var title = (head.querySelector("h3") || {}).textContent || "";
-    var t = title.trim().toLowerCase();
-    var saved = remembered(title);
-    var open = saved === null
-      ? OPEN_BY_DEFAULT.some(function (o) { return t.indexOf(o) === 0; })
-      : saved === "1";
+    var title = titleOf(card);
+    var r = rule(title);
+    var st = saved(title);
+    var open = st === null ? (r ? r.open : true) : st === "1";
 
     var caret = document.createElement("button");
     caret.type = "button";
     caret.className = "s1-acc-caret";
-    caret.setAttribute("aria-label", (open ? "Collapse " : "Expand ") + title);
-    caret.setAttribute("aria-expanded", open ? "true" : "false");
     caret.innerHTML = "&#9662;";
+    caret.setAttribute("aria-label", "Toggle " + title);
     head.insertBefore(caret, head.firstChild);
     head.classList.add("s1-acc-head");
-
-    function set(o) {
-      card.classList.toggle("s1-acc-closed", !o);
-      caret.setAttribute("aria-expanded", o ? "true" : "false");
-      caret.setAttribute("aria-label", (o ? "Collapse " : "Expand ") + title);
-      remember(title, o);
-    }
-    set(open);
-
-    head.addEventListener("click", function (e) {
-      // Don't swallow clicks on the buttons and links already in the header.
-      if (e.target.closest("a, button:not(.s1-acc-caret), input, select")) return;
-      set(card.classList.contains("s1-acc-closed"));
-    });
-    head.addEventListener("keydown", function (e) {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        set(card.classList.contains("s1-acc-closed"));
-      }
-    });
     head.tabIndex = 0;
+
+    setOpen(card, open, null);
+
+    function toggle(e) {
+      if (e && e.target.closest("a, input, select, textarea")) return;
+      if (e && e.target.closest("button") && !e.target.closest(".s1-acc-caret")) return;
+      setOpen(card, card.classList.contains("s1-acc-closed"), title);
+    }
+    head.addEventListener("click", toggle);
+    head.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(null); }
+    });
   }
 
-  function scan() {
-    document.querySelectorAll(".card").forEach(wire);
+  /* Reorder to the reading order in LAYOUT. Cards with no rule keep their
+     relative position at the end, so a card added later still appears. */
+  function reorder() {
+    var cards = Array.prototype.slice.call(document.querySelectorAll(".card"));
+    if (cards.length < 3) return;
+    var parent = cards[0].parentNode;
+    if (!parent || parent.dataset.s1ordered === String(cards.length)) return;
+
+    var ranked = cards.map(function (c, i) {
+      var t = titleOf(c).toLowerCase();
+      var idx = LAYOUT.findIndex(function (r) { return t.indexOf(r.match) === 0; });
+      if (idx === -1) idx = LAYOUT.findIndex(function (r) { return t.indexOf(r.match) > -1; });
+      return { card: c, rank: idx === -1 ? 900 + i : idx, i: i };
+    });
+    ranked.sort(function (a, b) { return a.rank - b.rank || a.i - b.i; });
+    ranked.forEach(function (r) { parent.appendChild(r.card); });
+    parent.dataset.s1ordered = String(cards.length);
+
+    // Brand and Client Notes sit side by side rather than full width.
+    ranked.forEach(function (r) {
+      var t = titleOf(r.card).toLowerCase();
+      var rule_ = rule(titleOf(r.card));
+      if (rule_ && rule_.half) r.card.style.gridColumn = "span 1";
+    });
   }
 
-  function addControls() {
+  function controls() {
     if (document.querySelector(".s1-acc-all")) return;
     var first = document.querySelector(".card");
     if (!first || !first.parentNode) return;
@@ -94,25 +182,22 @@
       var b = e.target.closest("button"); if (!b) return;
       var open = b.dataset.all === "open";
       document.querySelectorAll(".card").forEach(function (c) {
-        c.classList.toggle("s1-acc-closed", !open);
-        var t = ((c.querySelector(".card-h h3") || {}).textContent || "").trim();
-        if (t) remember(t, open);
-        var cr = c.querySelector(".s1-acc-caret");
-        if (cr) cr.setAttribute("aria-expanded", open ? "true" : "false");
+        setOpen(c, open, titleOf(c));
       });
     });
   }
 
+  function pass() { injectCSS(); reorder(); document.querySelectorAll(".card").forEach(wire); controls(); }
+
   function init() {
-    // Cards on these pages are rendered by JS after a fetch, so watch for them
-    // rather than assuming they exist at DOMContentLoaded.
-    scan(); addControls();
-    var mo = new MutationObserver(function () { scan(); addControls(); });
-    mo.observe(document.body, { childList: true, subtree: true });
+    if (!pageWants()) return;
+    pass();
+    // Client 360 renders its cards from a fetch, so wait for them.
+    new MutationObserver(pass).observe(document.body, { childList: true, subtree: true });
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 
-  window.S1Accordion = { scan: scan };
+  window.S1Accordion = { refresh: pass };
 })();

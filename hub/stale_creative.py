@@ -394,11 +394,18 @@ def _registry_clients():
                 continue
             if get("is_house") or get("house"):
                 continue  # house URLs are ours, not customers
+            # A client with no live product isn't someone we owe creative to.
+            # Counting all 950 as "no creative on file" made the headline
+            # number meaningless — it was really "clients we have ever had".
+            products = get("product_count") or get("products") or 0
+            if isinstance(products, (list, tuple, set)):
+                products = len(products)
             out.append({
                 "name": name,
                 "id": _text(get("id") or get("client_id") or get("knack_id"), 80),
-                "products": get("product_count") or get("products") or 0,
+                "products": products,
                 "seo": bool(get("is_seo") or get("seo")),
+                "active": bool(get("live")) or int(products or 0) > 0,
             })
         if out:
             return out
@@ -453,14 +460,16 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
         key = match(c["name"])
         seen.add(key)
         clients.append({"name": c["name"], "key": key, "id": c["id"],
-                        "in_registry": True, "products": c["products"]})
+                        "in_registry": True, "products": c["products"],
+                        "active": c.get("active", True)})
 
     # Anything with creative but no registry match still gets a row, flagged.
     for key, recs in by_key.items():
         if key in seen:
             continue
         clients.append({"name": recs[0]["client_raw"] or key, "key": key,
-                        "id": "", "in_registry": False, "products": 0})
+                        "id": "", "in_registry": False, "products": 0,
+                        "active": True})   # they have creative, so they count
 
     rows = []
     for c in clients:
@@ -472,6 +481,7 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
         rows.append({
             "client": c["name"],
             "client_id": c["id"],
+            "active": c.get("active", True),
             "in_registry": c["in_registry"],
             "days_since": days,
             "last_upload": _iso(last),
@@ -490,8 +500,12 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
             } for r in recs[:items_per_client]],
         })
 
-    # Worst first: never, then longest gap.
-    rows.sort(key=lambda r: (r["days_since"] is not None,
+    # Active clients first, then the rest. A former client with no creative
+    # isn't a gap in our work — listing them alongside live accounts buried
+    # the ones that actually need something, and made the headline count read
+    # as "clients we have ever had" rather than "clients owed creative".
+    rows.sort(key=lambda r: (not r.get("active", True),
+                             r["days_since"] is not None,
                              -(r["days_since"] or 0), r["client"].lower()))
 
     lo, mid, hi = edges
@@ -509,14 +523,23 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
     ]
     for g in groups:
         g["clients"] = [r for r in rows if r["bucket"] == g["key"]]
-        g["count"] = len(g["clients"])
+        # The headline count is ACTIVE clients only. A former client with no
+        # creative is not a gap in our work, and counting them made "950 with
+        # no creative on file" read as alarming when it mostly meant "clients
+        # we have ever had". Inactive rows still appear, below the active ones
+        # and labelled, so nothing is hidden.
+        g["count"] = sum(1 for r in g["clients"] if r.get("active", True))
+        g["inactive_count"] = len(g["clients"]) - g["count"]
 
+    active_rows = [r for r in rows if r.get("active", True)]
     return {
         "generated_at": _iso(now),
         "edges": edges,
         "groups": groups,
         "totals": {
-            "clients": len(rows),
+            "clients": len(active_rows),
+            "all_clients": len(rows),
+            "inactive": len(rows) - len(active_rows),
             "creatives": len(records),
             "needs_attention": sum(
                 g["count"] for g in groups if g["key"] not in ("fresh",)

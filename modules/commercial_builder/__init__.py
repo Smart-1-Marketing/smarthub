@@ -58,5 +58,9 @@ def register_commercial_builder(app):
     app.register_blueprint(create_blueprint())
     if STANDALONE:
         with app.app_context():
-            db.create_all()
+            try:
+                from hub.extensions import create_all as _hub_create_all
+                _hub_create_all(app)          # advisory-locked, race-safe
+            except ImportError:
+                db.create_all()
     return app

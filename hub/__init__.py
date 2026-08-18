@@ -34,6 +34,13 @@ def current_user():
     return auth.verify_cookie_value(request.cookies.get(auth.COOKIE_NAME))
 
 
+_MOUNT_ACTIVE_HUB = {
+    "/tools": "tools", "/qa": "qa", "/activity": "activity",
+    "/diagnostics": "diagnostics", "/client360": "client360", "/seo": "seo",
+    "/clients": "clients", "/status": "status",
+}
+
+
 def create_hub_app() -> Flask:
     app = Flask(
         __name__,
@@ -55,6 +62,18 @@ def create_hub_app() -> Flask:
     got_request_exception.connect(_log_exc, app)
 
     # ---------------- auth ----------------
+    @app.context_processor
+    def _inject_sidebar():
+        """Expose the one shared nav to hub templates."""
+        from .sidebar import render_sidebar
+
+        def hub_sidebar(active=""):
+            try:
+                return render_sidebar(active or "").decode()
+            except Exception:  # noqa: BLE001 — nav must never break a page
+                return ""
+        return {"hub_sidebar": hub_sidebar}
+
     @app.context_processor
     def _inject_version():
         """Every page footer shows the running build, so you can open the
@@ -178,6 +197,34 @@ def create_hub_app() -> Flask:
         from .client_context import context
         return jsonify(context(request.args.get("name", ""),
                                request.args.get("domain", "")))
+
+    @app.route("/sites/match")
+    def page_sites_match():
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("sites_match.html", user=current_user(),
+                               active="sites")
+
+    @app.route("/api/sites/match")
+    def api_sites_match():
+        """Propose a client for every unlinked Simvoly project. Read-only."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .sites_match import suggest
+        return jsonify(suggest())
+
+    @app.route("/api/sites/match/apply", methods=["POST"])
+    def api_sites_match_apply():
+        """Write only the matches a human accepted."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .sites_match import apply as apply_matches
+        body = request.get_json(silent=True) or {}
+        return jsonify(apply_matches(body.get("matches") or [],
+                                     actor=current_user() or ""))
 
     @app.route("/api/db/urls")
     def api_db_urls():
@@ -1944,6 +1991,44 @@ def create_hub_app() -> Flask:
             errors.log_exception("hub", _db_exc)
         except Exception:  # noqa: BLE001
             pass
+
+    # ---------------- sidebar for blueprint-registered pages ----------------
+    # Modules mounted through DispatcherMiddleware get the sidebar injected by
+    # HubBar in wsgi.py. Modules registered as blueprints on this app do not,
+    # and they don't extend base.html either — so Tickets, Calculators, Image
+    # Picker, Page Images and Google Access rendered with no navigation at all.
+    #
+    # Editing five modules' templates would fix today and break again the next
+    # time one is added. Injecting on the way out covers every one of them, and
+    # anything registered later, automatically.
+    CHROMELESS = ("/login", "/signup", "/reset", "/signin", "/account",
+                  "/connect", "/api/", "/assets/", "/hub-", "/static/")
+
+    @app.after_request
+    def _inject_sidebar_response(resp):
+        try:
+            if resp.status_code != 200:
+                return resp
+            if not (resp.mimetype or "").startswith("text/html"):
+                return resp
+            path = request.path or "/"
+            # Sign-in and the client-facing pages are deliberately chrome-free.
+            if any(path.startswith(p) for p in CHROMELESS):
+                return resp
+            if resp.direct_passthrough:
+                return resp
+            body = resp.get_data()
+            if b"s1hub-sb" in body or b'class="sidebar"' in body:
+                return resp                      # already has one
+            if b"</body>" not in body:
+                return resp                      # a fragment, not a page
+            from .sidebar import render_sidebar
+            bar = render_sidebar(_MOUNT_ACTIVE_HUB.get(
+                "/" + path.strip("/").split("/")[0], ""))
+            resp.set_data(body.replace(b"</body>", bar + b"</body>", 1))
+        except Exception:  # noqa: BLE001 — never break a page over navigation
+            pass
+        return resp
 
     # ---------------- v7.9 blueprint tools ----------------
     # These ship as Flask blueprints rather than standalone apps, so they

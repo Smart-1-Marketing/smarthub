@@ -191,6 +191,24 @@ def demo_banner_html(user=None) -> Markup:
         "</div>")
 
 
+def install_template_helpers(app) -> None:
+    """Make help_dot / demo_launcher available to a module's own Jinja env.
+
+    Every module is a separate Flask app with its own environment, so globals
+    registered on the hub app are invisible to them. Putting {{ help_dot(...) }}
+    into a module template therefore raised UndefinedError and returned a 500 —
+    which is exactly what happened to Site Scans and the SEO Image Pipeline.
+
+    Called from wsgi.py for every mounted module, so a template can use these
+    without knowing which app it belongs to.
+    """
+    app.jinja_env.globals.setdefault("help_dot", help_dot)
+    app.jinja_env.globals.setdefault("help_text", help_text)
+    app.jinja_env.globals.setdefault("demo_launcher", demo_launcher)
+    app.jinja_env.globals.setdefault("demo_banner", lambda *a, **k: Markup(""))
+    app.jinja_env.globals.setdefault("hub_sidebar", lambda *a, **k: Markup(""))
+
+
 def register_help(app, current_user_fn=None) -> None:
     """Mount the blueprint and expose the template helpers."""
     app.register_blueprint(bp)

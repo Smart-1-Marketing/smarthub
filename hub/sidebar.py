@@ -13,6 +13,7 @@ _ITEMS = [
     ("clients", "/clients", "&#9636;", "Clients"),
     ("google", "/google/", "G", "Google"),
     ("sites", "/sites/", "&#11041;", "Sites"),
+    ("sitesmatch", "/sites/match", "&#128279;", "Match Sites"),
     ("suite", "/suite/", "&#9635;", "Suite"),
     ("_secseo", "", "", "SEO"),
     ("seo", "/seo", "&#128269;", "SEO Clients"),
@@ -45,7 +46,12 @@ _ITEMS = [
 _CSS = """
 <style>
 @media (min-width: 950px) {
-  body { margin-left: 224px !important; }
+  /* Offset the page for the fixed sidebar — but only when the host page
+     isn't already doing it. hub.css lays the Hub's own pages out with
+     .main{margin-left:224px}, so applying it to <body> as well pushed the
+     content 448px right. :not(:has(.main)) leaves those pages alone and
+     still offsets every module page, which has no such rule. */
+  body:not(:has(.main)) { margin-left: 224px; }
   .s1hub-chip { display: none !important; }
 }
 /* Below 950px the sidebar becomes a slide-out drawer rather than vanishing.
@@ -65,6 +71,27 @@ _CSS = """
 @media (prefers-reduced-motion: reduce) {
   .s1hub-sb { transition: none } .s1hub-scrim { transition: none }
 }
+/* Collapsed state: the nav folds to a 56px icon rail rather than vanishing.
+   Hiding it entirely is what the old mobile behaviour did, and it left people
+   with no way back — a hide control has to be reversible from the hidden
+   state, so the toggle stays visible either way. */
+body.s1hub-collapsed .s1hub-sb { width: 56px !important; }
+body.s1hub-collapsed .s1hub-sb .s1hub-label,
+body.s1hub-collapsed .s1hub-sb .s1hub-sec,
+body.s1hub-collapsed .s1hub-sb .s1hub-foot,
+body.s1hub-collapsed .s1hub-sb .s1hub-logo span { display: none !important; }
+body.s1hub-collapsed .s1hub-sb a.s1hub-item { justify-content: center; padding: 11px 0; }
+body.s1hub-collapsed .s1hub-sb .s1hub-ico { margin: 0 }
+body.s1hub-collapsed:not(:has(.main)) { margin-left: 56px; }
+body.s1hub-collapsed .main { margin-left: 56px !important; }
+.s1hub-toggle { position: absolute; top: 10px; right: 8px; z-index: 2;
+  width: 24px; height: 24px; border: 0; border-radius: 6px; cursor: pointer;
+  background: rgba(255,255,255,.08); color: #c9d4ea; font-size: 13px;
+  line-height: 1; padding: 0; }
+.s1hub-toggle:hover { background: rgba(255,255,255,.18); }
+body.s1hub-collapsed .s1hub-toggle { right: 4px; }
+@media (max-width: 949.98px) { .s1hub-toggle { display: none } }
+
 .s1hub-burger { display: none; position: fixed; top: 12px; left: 12px; z-index: 99991;
   width: 42px; height: 42px; align-items: center; justify-content: center;
   border: 0; border-radius: 10px; background: #1a2e58; color: #fff;
@@ -153,7 +180,9 @@ def render_sidebar(active: str = "") -> bytes:
             rows.append(f'<div class="s1hub-sec">{label}</div>')
             continue
         on = " s1hub-on" if key == active else ""
-        rows.append(f'<a class="s1hub-item{on}" href="{href}"><span class="s1hub-ico">{ico}</span> {label}</a>')
+        rows.append(f'<a class="s1hub-item{on}" href="{href}" title="{label}">'
+                    f'<span class="s1hub-ico">{ico}</span>'
+                    f'<span class="s1hub-label"> {label}</span></a>')
     # The burger replaces the old chip, which only linked to the dashboard.
     # Inline vanilla JS with no dependencies, because this markup is injected
     # into 20 modules whose own scripts we do not control.
@@ -175,6 +204,17 @@ def render_sidebar(active: str = "") -> bytes:
         # the page you just navigated to.
         "n.addEventListener('click',function(e){"
         "if(e.target.closest('a'))set(false);});"
+        # Collapse to an icon rail, remembered across pages. Applied before
+        # paint where possible so the layout doesn't jump on every navigation.
+        "var t=document.querySelector('.s1hub-toggle');"
+        "function coll(on){document.body.classList.toggle('s1hub-collapsed',on);"
+        "if(t){t.innerHTML=on?'\\u276F':'\\u276E';"
+        "t.title=on?'Show menu':'Hide menu';"
+        "t.setAttribute('aria-label',t.title);}"
+        "try{localStorage.setItem('s1hub:collapsed',on?'1':'0');}catch(e){}}"
+        "try{if(localStorage.getItem('s1hub:collapsed')==='1')coll(true);}catch(e){}"
+        "if(t)t.addEventListener('click',function(){"
+        "coll(!document.body.classList.contains('s1hub-collapsed'));});"
         "})();</script>"
     )
     html = (
@@ -182,7 +222,10 @@ def render_sidebar(active: str = "") -> bytes:
         + '<button class="s1hub-burger" aria-label="Open menu" '
           'aria-expanded="false" aria-controls="s1hub-nav">&#9776;</button>'
         + '<div class="s1hub-scrim"></div>'
-        + '<nav class="s1hub-sb" id="s1hub-nav">' + "".join(rows) + "</nav>"
+        + '<nav class="s1hub-sb" id="s1hub-nav">'
+        + '<button class="s1hub-toggle" type="button" aria-label="Hide menu" '
+          'title="Hide menu">&#10094;</button>'
+        + "".join(rows) + "</nav>"
         + FOOTER_HTML
         + _JS
     )

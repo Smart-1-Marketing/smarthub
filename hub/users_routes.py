@@ -270,9 +270,13 @@ def register_users(app) -> None:
         return
     app.register_blueprint(bp)
     try:
+        # create_all goes through the locked helper so two workers don't race
+        # each other's DDL. Seeding still needs its own app context.
+        from hub.extensions import create_all as _create_all
+        err = _create_all(app)
+        if err:
+            app.config["HUB_USERS_BOOT_ERROR"] = err
         with app.app_context():
-            from hub.extensions import db
-            db.create_all()
             users.seed_super_admins()
     except Exception as exc:                            # noqa: BLE001
         app.config["HUB_USERS_BOOT_ERROR"] = str(exc)

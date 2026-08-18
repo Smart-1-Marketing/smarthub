@@ -207,5 +207,28 @@
   });
 })();
 </script>
-</body>
+<script>
+/* Inactive clients still render, after the active ones and labelled, so the
+   list stays complete while the headline number means "clients owed creative"
+   rather than "clients we have ever had". */
+document.addEventListener("DOMContentLoaded",function(){
+  var f=window.renderAudit;
+  if(!f) return;
+  window.renderAudit=function(d){
+    f(d);
+    if(d&&d.totals&&d.totals.inactive){
+      var host=document.querySelector("h1");
+      if(host&&!document.getElementById("sc-inactive-note")){
+        var p=document.createElement("p");
+        p.id="sc-inactive-note";
+        p.style.cssText="color:#64748b;font-size:13px;margin:4px 0 0";
+        p.textContent="Counts cover "+d.totals.clients+" active clients. "+
+          d.totals.inactive+" former clients with no live product are listed "+
+          "after them and excluded from the totals.";
+        host.parentNode.insertBefore(p,host.nextSibling);
+      }
+    }
+  };
+});
+</script></body>
 </html>

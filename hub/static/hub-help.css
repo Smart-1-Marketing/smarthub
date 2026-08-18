@@ -118,18 +118,6 @@ body.s1-tour-open{overflow:hidden}
   z-index:1200;background:#0d2340;color:#fff;padding:.6rem 1rem;border-radius:999px;
   font:600 .8rem system-ui,sans-serif;box-shadow:0 8px 24px rgba(6,18,32,.3)}
 
-/* ---- collapsible cards (hub-accordion.js) ---- */
-.s1-acc-head{cursor:pointer;user-select:none}
-.s1-acc-head:focus-visible{outline:2px solid #1769AA;outline-offset:2px;border-radius:6px}
-.s1-acc-caret{border:0;background:none;cursor:pointer;color:#94a3b8;font-size:13px;
-  padding:0 6px 0 0;transition:transform .16s ease;line-height:1}
-.s1-acc-closed .s1-acc-caret{transform:rotate(-90deg)}
-.s1-acc-closed .card-b{display:none !important}
-.s1-acc-closed{padding-bottom:0}
-.s1-acc-all{display:flex;gap:8px;margin:0 0 12px;grid-column:1 / -1}
-.s1-acc-all button{border:1px solid #d7dfe8;background:#fff;border-radius:7px;
-  padding:5px 11px;font:600 12px system-ui,sans-serif;color:#41525f;cursor:pointer}
-.s1-acc-all button:hover{background:#f7fafc}
 
 /* ---- consistent card headers across every page ---- */
 .card-h{display:flex !important;align-items:center;gap:9px;
