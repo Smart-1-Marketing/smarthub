@@ -2,48 +2,14 @@
 {% block title %}Tools — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head"><h2>Tools</h2><p>Everyday utilities — same login, no separate URLs</p></div>
+<div class="tool-group"><h2>Creative</h2><p>Make things for clients — images, video, audio and ad copy.</p></div>
 <div class="tool-tiles">
-  <a class="tool-tile" href="/tools/seo-images/">
-    <div class="t-ico">&#127991;</div>
-    <h3>SEO Image Pipeline</h3>
-    <p>Batch up to 5 images and let AI write the SEO filename &amp; alt text for that client&rsquo;s page.
-      Review and edit every one, then save as optimised WebP to the client gallery &mdash; with a searchable
-      archive kept per client and project.</p>
-  </a>
   <a class="tool-tile" href="/tools/image-creator/">
     <div class="t-ico">&#127912;</div>
     <h3>Image Creator</h3>
     <p>A full graphics editor built on Fabric.js. Stock photos from Pexels, Pixabay &amp; Unsplash in one
       search, Brandfetch logos &amp; brand colours, Iconify icons, Google Fonts, AI generation, and your own
       client gallery &amp; audit imagery. Projects save as editable canvases you can reopen.</p>
-  </a>
-  <a class="tool-tile" href="/tools/bg-remover/">
-    <div class="t-ico">&#9986;</div>
-    <h3>Background Remover</h3>
-    <p>Transparent PNG cut-outs via remove.bg. Resize before the cut to control credits and after it to
-      control the file, then save straight to the client gallery against a client.</p>
-  </a>
-  <a class="tool-tile" href="/tools/utm/">
-    <div class="t-ico">&#128279;</div>
-    <h3>UTM Builder</h3>
-    <p>Tagged campaign URLs filed against the client and the product they belong to. One editable list of
-      sources and mediums keeps spelling consistent, and bulk build makes every placement at once.</p>
-  </a>
-  <a class="tool-tile" href="/tools/seo-images/house">
-    <div class="t-ico">&#127968;</div>
-    <h3>House URLs</h3>
-    <p>The sites we run in house. No products on the books, but they get the same tooling &mdash;
-      adding one here makes it selectable anywhere the Hub asks which client something belongs to.</p>
-  </a>
-  <a class="tool-tile" href="/tools/image/">
-    <div class="t-ico">&#128444;</div>
-    <h3>Image Optimizer &amp; Resizer</h3>
-    <p>Crop, resize &amp; compress PNG / JPG / GIF toward a target size (default 150&nbsp;KB). Animated GIFs preserved; transparent PNGs flattened for JPG.</p>
-  </a>
-  <a class="tool-tile" href="/tools/pdf/">
-    <div class="t-ico">&#128462;</div>
-    <h3>PDF Optimizer</h3>
-    <p>Ghostscript + qPDF compression with three profiles (web &middot; high &middot; maximum). Keeps text searchable and never returns a bigger file.</p>
   </a>
   <a class="tool-tile" href="/tools/image-picker/">
     <div class="t-ico">&#128444;</div>
@@ -55,25 +21,34 @@
     <h3>Page Image Optimizer</h3>
     <p>Scan a live client page for oversized images, then fix the worst ones five at a time. Comes back with replacement &lt;img&gt; tags and the page weight you saved.</p>
   </a>
-  <a class="tool-tile" href="/tools/calculators/">
-    <div class="t-ico">&#128425;</div>
-    <h3>Media Calculators</h3>
-    <p>Digital Audio, CTV, DOOH, IMS Trade and Female 18&ndash;34. Publishable on a client page with a real server-side gate: headline numbers first, full detail only after a validated name, email and phone.</p>
+  <a class="tool-tile" href="/tools/image/">
+    <div class="t-ico">&#128444;</div>
+    <h3>Image Optimizer &amp; Resizer</h3>
+    <p>Crop, resize and compress a single image toward an exact pixel size and KB
+      budget. For naming a batch for SEO, use the SEO Image Pipeline instead.</p>
   </a>
-  <a class="tool-tile" href="/tools/fan-radio/">
-    <div class="t-ico">&#127911;</div>
-    <h3>Fan Radio</h3>
-    <p>Football-themed :15 and :30 spots across three dayparts, voiced through ElevenLabs, on a share page the client can listen to and approve.</p>
+  <a class="tool-tile" href="/tools/bg-remover/">
+    <div class="t-ico">&#9986;</div>
+    <h3>Background Remover</h3>
+    <p>Transparent PNG cut-outs via remove.bg. Resize before the cut to control credits and after it to
+      control the file, then save straight to the client gallery against a client.</p>
+  </a>
+  <a class="tool-tile" href="/tools/seo-images/">
+    <div class="t-ico">&#127991;</div>
+    <h3>SEO Image Pipeline</h3>
+    <p>Batch up to 5 images and let AI write the SEO filename &amp; alt text for that client&rsquo;s page.
+      Review and edit every one, then save as optimised WebP to the client gallery &mdash; with a searchable
+      archive kept per client and project.</p>
   </a>
   <a class="tool-tile" href="/tools/commercial-builder/">
     <div class="t-ico">&#127916;</div>
     <h3>Commercial Builder</h3>
     <p>Full :05&ndash;:60 CTV and YouTube spots &mdash; concept, timed script, storyboard, voice, QR end card and render. Eleven automatic QC checks gate the render rather than advising on it.</p>
   </a>
-  <a class="tool-tile" href="/tools/google-access/">
-    <div class="t-ico">&#128273;</div>
-    <h3>Google Access</h3>
-    <p>Send a client one link. They sign in with Google once and Smart 1 lands on their Analytics, Tag Manager, Ads and Business Profile &mdash; no password ever changes hands.</p>
+  <a class="tool-tile" href="/tools/fan-radio/">
+    <div class="t-ico">&#127911;</div>
+    <h3>Fan Radio</h3>
+    <p>Football-themed :15 and :30 spots across three dayparts, voiced through ElevenLabs, on a share page the client can listen to and approve.</p>
   </a>
   <a class="tool-tile" href="/tools/radio-promo/">
     <div class="t-ico">&#128266;</div>
@@ -85,20 +60,61 @@
     <h3>Landing Page Ads</h3>
     <p>Reads a Smart 1 Suite landing page and generates matching responsive search, social, display and audio ads.</p>
   </a>
-  <a class="tool-tile" href="/tools/tickets/">
-    <div class="t-ico">&#127915;</div>
-    <h3>Web Tickets</h3>
-    <p>Website change requests from Knack, normalised and reportable — what's open, what's stale, and per-client history.</p>
-  </a>
+</div>
+<div class="tool-group"><h2>Client Work</h2><p>Audits, tracked links, documents and client websites.</p></div>
+<div class="tool-tiles">
   <a class="tool-tile" href="/scans/bulk">
     <div class="t-ico">&#9776;</div>
     <h3>Scan All Clients</h3>
     <p>Audit every client with a website on file. Previews the credit cost, skips anything scanned recently, and caps each run before anything is spent.</p>
+  </a>
+  <a class="tool-tile" href="/tools/utm/">
+    <div class="t-ico">&#128279;</div>
+    <h3>UTM Builder</h3>
+    <p>Tagged campaign URLs filed against the client and the product they belong to. One editable list of
+      sources and mediums keeps spelling consistent, and bulk build makes every placement at once.</p>
+  </a>
+  <a class="tool-tile" href="/tools/pdf/">
+    <div class="t-ico">&#128462;</div>
+    <h3>PDF Optimizer</h3>
+    <p>Ghostscript + qPDF compression with three profiles (web &middot; high &middot; maximum). Keeps text searchable and never returns a bigger file.</p>
   </a>
   <a class="tool-tile" href="/tools/sites-match">
     <div class="t-ico">&#128279;</div>
     <h3>Match Sites to Clients</h3>
     <p>Links Simvoly projects to Hub clients by domain, so the Sites margin report has revenue to sit against cost. Proposes matches; you accept them.</p>
   </a>
+  <a class="tool-tile" href="/tools/tickets/">
+    <div class="t-ico">&#127915;</div>
+    <h3>Web Tickets</h3>
+    <p>Website change requests from Knack, normalised and reportable — what's open, what's stale, and per-client history.</p>
+  </a>
+  <a class="tool-tile" href="/tools/house-urls">
+    <div class="t-ico">&#127968;</div>
+    <h3>House URLs</h3>
+    <p>The sites we run in house. No products on the books, but they get the same
+      tooling &mdash; adding one here makes it selectable anywhere the Hub asks which
+      client something belongs to.</p>
+  </a>
+  <a class="tool-tile" href="/tools/calculators/">
+    <div class="t-ico">&#128425;</div>
+    <h3>Media Calculators</h3>
+    <p>Digital Audio, CTV, DOOH, IMS Trade and Female 18&ndash;34. Publishable on a client page with a real server-side gate: headline numbers first, full detail only after a validated name, email and phone.</p>
+  </a>
 </div>
+<div class="tool-group"><h2>Access & Setup</h2><p>Getting connected to a client's systems.</p></div>
+<div class="tool-tiles">
+  <a class="tool-tile" href="/tools/google-access/">
+    <div class="t-ico">&#128273;</div>
+    <h3>Google Access</h3>
+    <p>Send a client one link. They sign in with Google once and Smart 1 lands on their Analytics, Tag Manager, Ads and Business Profile &mdash; no password ever changes hands.</p>
+  </a>
+</div>
+<style>
+.tool-group{grid-column:1 / -1;margin:26px 2px 12px}
+.tool-group:first-of-type{margin-top:6px}
+.tool-group h2{margin:0 0 3px;font-size:15px;color:var(--navy,#0d2340)}
+.tool-group p{margin:0;font-size:12.5px;color:#64748b}
+</style>
+
 {% endblock %}

@@ -26,7 +26,7 @@ import json
 import os
 import secrets
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -424,6 +424,67 @@ def api_check():
 @app.route("/bulk")
 def page_bulk():
     return render_template("bulk.html")
+
+
+@app.route("/api/scans/reap-stuck", methods=["POST"])
+def api_reap_stuck():
+    """Resolve scans that can never complete.
+
+    A row stuck on "running" is either still genuinely in progress, or it is
+    unresolvable — no Insites report id was stored, so there is nothing to
+    poll and no callback was registered. The second kind sits there looking
+    like work in progress forever, which is worse than an error because
+    nobody investigates it.
+
+    Anything with a report id is re-pulled from Insites first; only rows with
+    no id, older than the grace window, are marked errored.
+    """
+    from . import insites_client
+    body = request.get_json(silent=True) or {}
+    grace = max(5, min(1440, int(body.get("older_than_minutes") or 30)))
+    cutoff = _now() - timedelta(minutes=grace)
+
+    db = SessionLocal()
+    resolved, errored, still_running = 0, 0, 0
+    try:
+        rows = db.query(Scan).filter(Scan.status == "running").all()
+        for s_row in rows:
+            created = s_row.created_at
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if created and created > cutoff:
+                still_running += 1
+                continue
+            if s_row.insites_report_id:
+                try:
+                    _try_immediate_fetch(db, s_row)
+                    if s_row.status == "complete":
+                        resolved += 1
+                    else:
+                        still_running += 1
+                    continue
+                except Exception:  # noqa: BLE001
+                    pass
+                still_running += 1
+                continue
+            s_row.status = "error"
+            s_row.error_message = (
+                "No Insites report id was recorded for this scan, so it could "
+                "never resolve. This affected bulk scans started before the "
+                "fix. Re-run it — no credit was charged twice.")
+            errored += 1
+        db.commit()
+    finally:
+        db.close()
+
+    _log("reap_stuck", resolved=resolved, errored=errored,
+         still_running=still_running)
+    return jsonify({
+        "resolved": resolved, "errored": errored,
+        "still_running": still_running,
+        "message": (f"{resolved} completed, {errored} marked unresolvable, "
+                    f"{still_running} still genuinely running."),
+    })
 
 
 @app.route("/api/bulk/plan", methods=["POST"])

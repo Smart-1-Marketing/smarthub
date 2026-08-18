@@ -257,6 +257,25 @@ function renderTable(rows){
   $("tableWrap").innerHTML = html;
 }
 
+function reapStuck(){
+  /* Rows with no Insites report id can never resolve — they were started
+     before the bulk path saved it. Re-pull anything that CAN be resolved,
+     and mark the rest errored so they stop looking like work in progress. */
+  if(!confirm('Check every scan stuck on "running"?\n\n'+
+              'Anything Insites can still resolve is pulled in. Anything that '+
+              'can never resolve is marked as an error so you can re-run it. '+
+              'No credits are spent.')) return;
+  var b=document.getElementById('reapBtn');
+  b.disabled=true; b.textContent='Checking…';
+  fetch('api/scans/reap-stuck',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({older_than_minutes:30})})
+   .then(function(r){return r.json();}).then(function(d){
+     b.disabled=false; b.textContent='Clear stuck scans';
+     alert(d.message||'Done.'); load();
+   }).catch(function(){ b.disabled=false; b.textContent='Clear stuck scans';
+     alert('That did not go through.'); });
+}
+
 async function recheckAll(){
   /* A bulk run can leave dozens of scans on "running" — the table refresh only
      re-reads the local database, so a scan whose callback never arrived sits

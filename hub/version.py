@@ -9,9 +9,9 @@ Bump VERSION whenever code is deployed. BUILD_DATE is the date of that bump.
 import os
 import subprocess
 
-VERSION = "1.22.1"
+VERSION = "1.23.1"
 BUILD_DATE = "2026-08-17"
-CODENAME = "GA & GTM from Knack and Google"
+CODENAME = "Creative Tools Grouped Under Tools"
 
 _sha_cache: str | None = None
 

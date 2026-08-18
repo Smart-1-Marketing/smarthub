@@ -237,7 +237,9 @@ def _quota_note(cost: int) -> dict:
 def run(plan_id: str, *, requested_by: str = "", allow_over_quota: bool = False) -> dict:
     """Start the scans in a previously reviewed plan. This spends credits."""
     from modules.scans.app import (Scan, SessionLocal, _LOCK, _new_public_id,
-                                   _text, _now as _scan_now)
+                                   _text, _now as _scan_now,
+                                   PUBLIC_BASE_URL, CALLBACK_TOKEN,
+                                   _try_immediate_fetch)
     from modules.scans import insites_client
 
     entry = _PLANS.get(plan_id)
@@ -288,7 +290,47 @@ def run(plan_id: str, *, requested_by: str = "", allow_over_quota: bool = False)
                              status="running", created_at=_scan_now())
                     db.add(s)
                     db.commit()
-                insites_client.start_audit(url)
+                # This is the bug that left every bulk scan on "running"
+                # forever. The single-scan path hands Insites an
+                # `on_completion` URL and saves the returned reportId; this
+                # did neither. With no callback URL Insites had nowhere to
+                # deliver results, and with no reportId stored, "Check status"
+                # and "Re-check all" had nothing to poll — so the row could
+                # never resolve by any route.
+                on_completion = None
+                if PUBLIC_BASE_URL:
+                    tok = f"?token={CALLBACK_TOKEN}" if CALLBACK_TOKEN else ""
+                    on_completion = (f"{PUBLIC_BASE_URL}/scans/api/callback/"
+                                     f"{s.public_id}{tok}")
+                resp = insites_client.start_audit(
+                    url, on_completion=on_completion, name=name) or {}
+                rid = resp.get("reportId") or resp.get("report_id")
+                if rid:
+                    s.insites_report_id = _text(str(rid), 80)
+                    db.commit()
+                else:
+                    # No report id means nothing can ever resolve this row.
+                    # Mark it error now rather than leaving it "running"
+                    # indefinitely — a stuck row looks like work in progress.
+                    s.status = "error"
+                    s.error_message = ("Insites accepted the request but "
+                                       "returned no report id, so there is "
+                                       "nothing to poll. Try again.")
+                    db.commit()
+                    failed.append({"domain": key, "name": name,
+                                   "error": "no report id returned"})
+                    log("scan_failed", detail=key, via="bulk",
+                        error="no_report_id")
+                    continue
+
+                # A 303 means results already existed — fetch straight away
+                # rather than waiting for a callback that won't come.
+                if on_completion is None or resp.get("status") == "success":
+                    try:
+                        _try_immediate_fetch(db, s)
+                    except Exception:              # noqa: BLE001
+                        pass
+
                 started.append({"domain": key, "name": name,
                                 "public_id": s.public_id})
                 log("scan_started", detail=key, scan=s.public_id, via="bulk")
