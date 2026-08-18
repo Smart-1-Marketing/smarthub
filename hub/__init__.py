@@ -269,6 +269,112 @@ def create_hub_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jsonify({"ok": False, "problems": [str(exc)]}), 200
 
+    @app.route("/api/seo/llms-txt")
+    def api_llms_txt_build():
+        """Draft an llms.txt for a client from what the Hub already knows."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .llms_txt import build, load
+        client = request.args.get("client", "")
+        if request.args.get("saved") == "1":
+            return jsonify({"client": client, "text": load(client)})
+        return jsonify(build(client))
+
+    @app.route("/api/seo/llms-txt", methods=["POST"])
+    def api_llms_txt_save():
+        gate = _require_api()
+        if gate:
+            return gate
+        from .llms_txt import save
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        text = str(body.get("text") or "")
+        if not client or not text.strip():
+            return jsonify({"error": "Client and text are both required."}), 400
+        if "NEED " in text:
+            return jsonify({"error": "This still contains NEED placeholders. "
+                                     "Fill them in first — a file with gaps is "
+                                     "worse than none, because a model treats "
+                                     "the whole thing as authoritative."}), 400
+        return jsonify(save(client, text))
+
+    @app.route("/llms/<slug>.txt")
+    def public_llms_txt(slug):
+        """Serve the approved file publicly, as plain text.
+
+        Deliberately no login: the point is that an AI system can fetch it.
+        Ideally this lives at the client's own domain root as /llms.txt — this
+        URL is what you use until it can.
+        """
+        import re as _re
+        from . import seo
+        from .llms_txt import load
+
+        def slugify(v):
+            return _re.sub(r"[^a-z0-9]+", "-", str(v or "").lower()).strip("-")
+
+        want = slugify(slug)
+        try:
+            from . import clients_registry
+            names = [c.get("name", "") for c in clients_registry.all_clients()]
+        except Exception:  # noqa: BLE001
+            names = []
+        for name in names:
+            if name and slugify(name) == want:
+                text = load(name)
+                if text:
+                    return app.response_class(
+                        text, mimetype="text/plain; charset=utf-8")
+        return app.response_class("Not found.\n", status=404,
+                                  mimetype="text/plain; charset=utf-8")
+
+    @app.route("/api/suite/blog/access")
+    def api_blog_access():
+        """Which blogs scopes the Suite token actually has."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .ghl_blog import check_access, BlogError
+        try:
+            return jsonify(check_access())
+        except BlogError as exc:
+            return jsonify({"ok": False, "problem": str(exc)}), 200
+
+    @app.route("/api/suite/blog/publish-llms", methods=["POST"])
+    def api_blog_publish_llms():
+        """Publish a client's llms.txt to Suite as a blog post."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .ghl_blog import publish_llms_txt, BlogError
+        from .llms_txt import load
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        text = str(body.get("text") or "") or load(client)
+        if not client or not text.strip():
+            return jsonify({"error": "Save the file before publishing it."}), 400
+        if "NEED " in text:
+            return jsonify({"error": "This still has NEED placeholders — fill "
+                                     "them in before publishing."}), 400
+        try:
+            out = publish_llms_txt(client, text,
+                                   post_id=str(body.get("post_id") or ""),
+                                   status=str(body.get("status") or "PUBLISHED"))
+        except BlogError as exc:
+            return jsonify({"error": str(exc)}), 400
+        # Remember the URL so Client 360 can link to it.
+        try:
+            from . import seo
+            store = seo.load_store(client) or {}
+            rec = store.get("llms_txt") or {}
+            rec.update({"suite_url": out.get("url"), "post_id": out.get("post_id")})
+            store["llms_txt"] = rec
+            seo.save_store(client, store)
+        except Exception:  # noqa: BLE001
+            pass
+        return jsonify(out)
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.

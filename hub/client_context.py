@@ -128,6 +128,27 @@ def context(client: str, domain: str = "") -> dict:
     except Exception as exc:                              # noqa: BLE001
         tried["scan"] = f"error: {type(exc).__name__}"
 
+    # ---- 2b. Knack website registry (object_153) ----
+    # Carries GA/GTM ids, platform, go-live and the H&M fee. Placed after the
+    # scan because a scan observes the site as it is now, but before brand and
+    # profile because this is a maintained record rather than a cache.
+    try:
+        from hub.knack_websites import enrich as _wreg
+        reg = _wreg(client, domain or out.get("website", ""))
+        tried["website_registry"] = "ok" if reg.get("found") else "no match"
+        if reg.get("found"):
+            take("website", reg.get("website"), "registry")
+            take("platform", reg.get("platform"), "registry")
+            take("ga_account", reg.get("ga_account"), "registry")
+            take("gtm_account", reg.get("gtm_account"), "registry")
+            take("login_url", reg.get("login_url"), "registry")
+            take("media_partner", reg.get("media_partner"), "registry")
+            if reg.get("hm_fee"):
+                out.setdefault("hm_fee", reg["hm_fee"])
+                sources.setdefault("hm_fee", "registry")
+    except Exception as exc:                              # noqa: BLE001
+        tried["website_registry"] = f"error: {type(exc).__name__}"
+
     # ---- 3. Brandfetch: visual identity ----
     try:
         from hub.client_brand import brand_kit

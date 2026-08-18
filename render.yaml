@@ -162,6 +162,9 @@ services:
       # leaving it unset simply means no opportunities flow back in.
       - key: GHL_WEBHOOK_TOKEN
         sync: false
+      # Sub-account that owns the blog used for published llms.txt files.
+      - key: GHL_BLOG_LOCATION_ID
+        sync: false
       # ---- shared ----
       - key: AUDIT_LOG_PATH
         value: /var/data/hub-audit.log.jsonl

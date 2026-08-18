@@ -1,5 +1,84 @@
 {% extends "base.html" %}
-{% block title %}{{ client }} — SEO — Smart 1 Hub{% endblock %}
+{% block title %}{{ client }} — SEO — Smart 1 Hub
+<div class="card" id="card-llms" style="grid-column:1 / -1">
+  <div class="card-h"><span class="src-tag" style="background:#ede9fe;color:#5b21b6">AI</span>
+    <h3>llms.txt</h3>
+    <div class="right"><button class="seoc-btn" onclick="buildLlms()">Build from Hub data</button></div>
+  </div>
+  <div class="card-b">
+    <p class="muted" style="font-size:12.8px;line-height:1.6;margin:0 0 10px">
+      A plain-text brief written for AI systems rather than crawlers: who this
+      business is, what it offers, and which pages are authoritative. It belongs
+      at <code>/llms.txt</code> on the client's own domain &mdash; that's where
+      models look. Until Smart 1 Sites can host one, the Hub serves it at a
+      public URL you can point to.
+    </p>
+    <div id="llmsStatus" class="muted" style="font-size:12.5px"></div>
+    <textarea id="llmsTxt" style="width:100%;min-height:300px;margin-top:10px;
+      font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;padding:11px;
+      border:1px solid #cfd7df;border-radius:8px" placeholder="Click Build to draft one."></textarea>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
+      <button class="seoc-btn" onclick="saveLlms()">Save &amp; publish</button>
+      <button class="seoc-btn" onclick="copyLlms()">Copy</button>
+      <button class="seoc-btn" onclick="publishLlms()">Publish to Smart 1 Suite</button>
+      <a class="seoc-btn" id="llmsPublic" href="#" target="_blank" style="display:none">View public file &#8599;</a>
+      <a class="seoc-btn" id="llmsSuite" href="#" target="_blank" style="display:none">View on Suite &#8599;</a>
+      <span id="llmsMsg" class="muted" style="font-size:12px"></span>
+    </div>
+  </div>
+</div>
+
+
+<script>
+function llmsClient(){ return (window.CURRENT_SEO_CLIENT || document.title.split(" — ")[0] || "").trim(); }
+function buildLlms(){
+  var st=document.getElementById('llmsStatus'); st.textContent='Building from client record, last scan and brand data…';
+  fetch('/api/seo/llms-txt?client='+encodeURIComponent(llmsClient()),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.error){ st.textContent=d.error; return; }
+      document.getElementById('llmsTxt').value=d.text||'';
+      st.innerHTML = (d.needs_answer
+        ? '<b style="color:#a06a00">'+d.needs_answer+' placeholder(s) marked NEED</b> — '
+        : '<b style="color:#147d52">Ready.</b> ')
+        + (d.note||'') + ' · ' + (d.page_count||0) + ' pages from the last scan · ' + (d.bytes||0) + ' bytes';
+    }).catch(function(){ st.textContent='Could not build it.'; });
+}
+function saveLlms(){
+  var t=document.getElementById('llmsTxt').value, m=document.getElementById('llmsMsg');
+  m.textContent='Saving…';
+  fetch('/api/seo/llms-txt',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:llmsClient(),text:t})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(d.error){ m.textContent=d.error; m.style.color='#b42318'; return; }
+     m.style.color='#147d52'; m.textContent='Saved ('+d.bytes+' bytes).';
+     var slug=llmsClient().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+     var a=document.getElementById('llmsPublic');
+     a.href='/llms/'+slug+'.txt'; a.style.display='inline-block';
+   }).catch(function(){ m.textContent='Could not save.'; });
+}
+function publishLlms(){
+  var m=document.getElementById('llmsMsg');
+  m.style.color=''; m.textContent='Publishing to Suite…';
+  fetch('/api/suite/blog/publish-llms',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:llmsClient(),text:document.getElementById('llmsTxt').value})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(d.error){ m.style.color='#b42318'; m.textContent=d.error; return; }
+     m.style.color='#147d52';
+     m.textContent='Published as "'+(d.title||'')+'".'+(d.note?' '+d.note:'');
+     if(d.url){ var a=document.getElementById('llmsSuite'); a.href=d.url; a.style.display='inline-block'; }
+   }).catch(function(){ m.style.color='#b42318'; m.textContent='Could not publish.'; });
+}
+
+function copyLlms(){
+  var t=document.getElementById('llmsTxt');
+  t.select(); navigator.clipboard.writeText(t.value).catch(function(){document.execCommand('copy');});
+  document.getElementById('llmsMsg').textContent='Copied.';
+}
+</script>
+
+{% endblock %}
 {% block content %}
 <div class="page-head seoc-head">
   <div>
