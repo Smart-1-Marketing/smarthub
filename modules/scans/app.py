@@ -490,6 +490,61 @@ def api_reap_stuck():
     })
 
 
+@app.route("/api/scans/recover-errored", methods=["POST"])
+def api_recover_errored():
+    """Pull back scans that show as errored but finished on Insites.
+
+    These are rows whose report id was never stored, so nothing local could
+    ever resolve them. Asking Insites to audit the domain again returns the
+    existing report (HTTP 303) whenever one is recent enough, which costs no
+    credit — ``reused`` counts how many came back that way, and ``restarted``
+    how many had no report left and began a genuine new audit.
+    """
+    from . import insites_client
+    db = SessionLocal()
+    reused = restarted = failed = 0
+    errors = []
+    try:
+        rows = (db.query(Scan)
+                .filter(Scan.status == "error",
+                        or_(Scan.insites_report_id.is_(None),
+                            Scan.insites_report_id == ""))
+                .all())
+        for s_row in rows:
+            try:
+                resp = insites_client.start_audit(s_row.domain_key,
+                                                  name=s_row.business_name or "")
+            except InsitesError as exc:
+                failed += 1
+                errors.append(f"{s_row.domain_key}: {exc}")
+                continue
+            rid = resp.get("reportId") or resp.get("report_id")
+            if not rid:
+                failed += 1
+                errors.append(f"{s_row.domain_key}: no report id returned")
+                continue
+            s_row.insites_report_id = _text(rid, 80)
+            s_row.status = "running"
+            s_row.error_message = ""
+            if resp.get("reused"):
+                reused += 1
+            else:
+                restarted += 1
+            db.commit()
+            _try_immediate_fetch(db, s_row)
+    finally:
+        db.close()
+
+    _log("scans_recovered", reused=reused, restarted=restarted, failed=failed)
+    return jsonify({
+        "reused": reused, "restarted": restarted, "failed": failed,
+        "errors": errors[:5],
+        "message": (f"{reused} pulled back from existing Insites reports (no "
+                    f"credits spent), {restarted} re-audited, {failed} could "
+                    f"not be recovered."),
+    })
+
+
 @app.route("/api/bulk/plan", methods=["POST"])
 def api_bulk_plan():
     """Read-only. Works out what a bulk run would cost before anything spends."""
@@ -514,6 +569,15 @@ def api_bulk_run():
                              requested_by=actor_name(),
                              allow_over_quota=bool(b.get("allow_over_quota")))
     return jsonify(payload), code
+
+
+def _callback_url(public_id: str):
+    """Where Insites should POST the finished audit, or None if we have no
+    public URL to be called back on (local dev)."""
+    if not PUBLIC_BASE_URL:
+        return None
+    tok = f"?token={CALLBACK_TOKEN}" if CALLBACK_TOKEN else ""
+    return f"{PUBLIC_BASE_URL}/scans/api/callback/{public_id}{tok}"
 
 
 @app.route("/api/scans", methods=["POST"])
@@ -574,11 +638,7 @@ def api_new_scan():
             db.add(s)
             db.commit()
 
-        # Build the callback URL Insites will POST to on completion.
-        on_completion = None
-        if PUBLIC_BASE_URL:
-            tok = f"?token={CALLBACK_TOKEN}" if CALLBACK_TOKEN else ""
-            on_completion = f"{PUBLIC_BASE_URL}/scans/api/callback/{public_id}{tok}"
+        on_completion = _callback_url(public_id)
 
         from . import insites_client
         try:
@@ -605,14 +665,15 @@ def api_new_scan():
         rid = resp.get("reportId") or resp.get("report_id")
         if rid:
             s.insites_report_id = _text(rid, 80)
-        # 303 => recent results already exist; try an immediate fetch below.
         db.commit()
         _log("scan_started", detail=key, scan=s.public_id)
 
-        # If we have no public callback URL (e.g. local dev), or Insites said
-        # results already exist, attempt an immediate fetch so the row can
-        # complete without a callback.
-        if rid and (on_completion is None or resp.get("status") == "success"):
+        # Fetch straight away when no callback is coming: either there's no
+        # public URL to call back to (local dev), or Insites reused an existing
+        # report — a reused report is already finished, so no callback will
+        # ever fire and waiting for one leaves the row stuck.
+        reused = bool(resp.get("reused")) or resp.get("status") in ("success", "existing")
+        if rid and (on_completion is None or reused):
             _try_immediate_fetch(db, s)
 
         return jsonify({"ok": True, "scan": scan_to_row(s)}), 202
@@ -698,10 +759,36 @@ def api_refresh(public_id):
         # from a report that landed wrong.
         if s.status == "complete" and not request.args.get("force"):
             return jsonify({"ok": True, "status": s.status, "scan": scan_to_row(s)})
-        if not s.insites_report_id:
-            return jsonify({"error": "This scan has no Insites report id yet, so "
-                                     "there is nothing to fetch. Re-run it."}), 400
         from . import insites_client
+        if not s.insites_report_id:
+            # No id recorded — the state that left completed audits looking
+            # errored. Re-asking Insites for this domain returns the existing
+            # report (HTTP 303, no credit) when one exists, which recovers the
+            # row; only if none exists does this start a real audit, so it is
+            # behind an explicit ?recover=1 rather than the normal refresh.
+            if not request.args.get("recover"):
+                return jsonify({
+                    "error": "This scan has no Insites report id, so there is "
+                             "nothing to fetch. Use Recover to pull the "
+                             "existing Insites report for this domain.",
+                    "recoverable": True,
+                }), 400
+            try:
+                resp = insites_client.start_audit(
+                    s.domain_key, on_completion=_callback_url(s.public_id),
+                    name=s.business_name or "")
+            except InsitesError as exc:
+                return jsonify({"error": f"Could not recover this scan: {exc}"}), 502
+            rid = resp.get("reportId") or resp.get("report_id")
+            if not rid:
+                return jsonify({"error": "Insites gave no report id for that "
+                                         "domain, so it can't be recovered."}), 502
+            s.insites_report_id = _text(rid, 80)
+            s.status = "running"
+            s.error_message = ""
+            db.commit()
+            _log("scan_recovered", detail=s.domain_key, scan=s.public_id,
+                 reused=bool(resp.get("reused")))
         try:
             status, report = insites_client.fetch_report(s.insites_report_id)
         except InsitesError as exc:
