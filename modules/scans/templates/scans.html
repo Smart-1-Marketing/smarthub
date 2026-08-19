@@ -226,7 +226,7 @@ function renderTable(rows){
   }
   window.__rows = rows;   // so "Re-check all running" can see them
   let html = '<table><thead><tr>' +
-    '<th>Site</th><th>Business</th><th>Date</th><th>Status</th><th>Score</th><th>Source</th><th>Actions</th>' +
+    '<th>Site</th><th>Business</th><th>Date</th><th>Status {{ help_dot('scans.table.status') if help_dot is defined else '' }}</th><th>Score</th><th>Source</th><th>Actions {{ help_dot('scans.table.refresh') if help_dot is defined else '' }}</th>' +
     '</tr></thead><tbody>';
   for(const s of rows){
     const date = s.created_at ? new Date(s.created_at).toLocaleString() : "";

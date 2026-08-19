@@ -432,7 +432,7 @@ function renderReview(){
     <div class="rev ${f.state==='skip'?'skipped':''}" data-i="${i}">
       <img src="${f.preview}" alt="">
       <div class="body">
-        <label>SEO filename ${f.ai?'<span class="tag">AI</span>':'<span class="tag man">manual</span>'}</label>
+        <label>SEO filename {{ help_dot('seo_images.review.filename') if help_dot is defined else '' }} ${f.ai?'<span class="tag">AI</span>':'<span class="tag man">manual</span>'}</label>
         <div class="fname">
           <input type="text" class="fn" value="${esc(f.seo_filename)}" spellcheck="false">
           <span class="ext">.webp</span>

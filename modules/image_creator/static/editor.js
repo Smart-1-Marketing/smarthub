@@ -243,10 +243,12 @@ PANELS.photos = host => {
       ' — no API key set. The other providers still work.</div>' : ''}
     <div class="row" style="margin-bottom:8px">
       <input type="search" id="phQ" placeholder="Search stock photos…" value="${esc(photoState.q)}">
+      <span data-help="image_creator.photos.search"></span>
       <button class="btn sm" id="phGo" style="flex:none">Search</button>
     </div>
     ${AI_ON ? `<div class="sect">
       <button class="btn sec sm" id="phAI" style="width:100%">✨ Describe it instead</button>
+      <span data-help="image_creator.photos.describe"></span>
       <div class="hint">Say what you need in plain English and AI will work out the search terms.</div>
     </div>` : ''}
     <div class="chips" id="phOrient">

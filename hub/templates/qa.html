@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}QA Reports — Smart 1 Hub{% endblock %}
 {% block content %}
-<div class="page-head"><h2>QA Reports</h2><p>Data-quality and billing checks across Smart 1 Team &amp; QuickBooks</p></div>
+<div class="page-head"><h2>QA Reports {{ help_dot('qa.reports.billing') if help_dot is defined else '' }}</h2><p>Data-quality and billing checks across Smart 1 Team &amp; QuickBooks</p></div>
 {% for group, items in groups %}
 <div class="qa-group-label">{{ group }}</div>
 {% set blurbs = {

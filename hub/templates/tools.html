@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Tools — Smart 1 Hub{% endblock %}
 {% block content %}
-<div class="page-head"><h2>Tools</h2><p>Everyday utilities — same login, no separate URLs</p></div>
+<div class="page-head"><h2>Tools {{ help_dot('hub.dashboard.tiles') if help_dot is defined else '' }}</h2><p>Everyday utilities — same login, no separate URLs</p></div>
 <div class="qa-group-label">Creative</div>
 <p class="qa-group-blurb">Make things for clients — images, video, audio and ad copy.</p>
 <div class="tool-tiles">

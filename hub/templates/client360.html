@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Client 360 — Smart 1 Hub{% endblock %}
 {% block content %}
-<div class="page-head"><h2>Client 360</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
+<div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
 
 <form class="c360-search" onsubmit="run();return false">
   <input id="q" placeholder="Type a client name or domain…" value="{{ q or '' }}" autofocus>
@@ -100,7 +100,7 @@ function render(g,q){
   // ---------- Smart 1 Team: products & IOs ----------
   const clientsLink='/clients?q='+encodeURIComponent(name);
   window.__c360prods=g.products||[];
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs</h3>
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs {{ help_dot('hub.client360.products') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px">
       <a class="open-link" id="c-camp-change" style="cursor:pointer;color:#b45309">&#9998; Campaign change</a>
       <a class="open-link" id="c-camp-support" style="cursor:pointer;color:#b45309">&#128736; Campaign support</a>
@@ -168,7 +168,7 @@ function render(g,q){
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals</h3>
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center">
       <a class="open-link" id="c-props-upload" style="cursor:pointer">&#8679; Upload proposal</a>
       <a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a>
@@ -190,7 +190,7 @@ function render(g,q){
 
   // ---------- Client images (from the SEO Image Pipeline) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
-    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Images</span><h3>Client Images</h3>
+    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Images</span><h3>Client Images {{ help_dot('hub.client360.images') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center" id="c-img-acts"></div></div>
     <div class="card-b" id="c-images"><div class="empty">Looking for saved images… <span class="spin"></span></div></div></div>`;
 

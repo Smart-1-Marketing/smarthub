@@ -193,6 +193,20 @@
         if (d.tours) TOURS = d.tours;
         ready = true;
         mountBubbles(document);
+
+        /* Watch for bubbles that arrive later. Client 360, the SEO client
+           page and Image Creator all draw their panels from a fetch, so a
+           single mount at load misses every bubble on them — the placeholder
+           sits in the DOM as an empty <span> and nothing ever replaces it.
+           Debounced, because these pages re-render whole card bodies. */
+        var pending = null;
+        new MutationObserver(function () {
+          if (pending) return;
+          pending = setTimeout(function () {
+            pending = null;
+            mountBubbles(document);
+          }, 120);
+        }).observe(document.body, { childList: true, subtree: true });
         var screen = document.body.getAttribute("data-screen");
         if (screen) start(screen, false);
         document.querySelectorAll("[data-tour-start]").forEach(function (b) {

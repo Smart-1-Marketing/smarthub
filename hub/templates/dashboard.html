@@ -22,11 +22,11 @@
 
 <div class="grid-2">
   <div class="card">
-    <div class="card-h"><h3>System checks</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
+    <div class="card-h"><h3>System checks {{ help_dot('hub.dashboard.version') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
     <div class="card-b flush"><table id="mini-status"><tbody><tr><td class="empty">Running checks… <span class="spin"></span></td></tr></tbody></table></div>
   </div>
   <div class="card">
-    <div class="card-h"><h3>Recent activity</h3><div class="right"><a class="open-link" href="/activity">View all →</a></div></div>
+    <div class="card-h"><h3>Recent activity {{ help_dot('hub.dashboard.activity') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/activity">View all →</a></div></div>
     <div class="card-b flush"><table id="mini-activity"><tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody></table></div>
   </div>
 </div>

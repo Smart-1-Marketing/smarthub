@@ -132,7 +132,7 @@ function copyLlms(){
 </div>
 
 <div class="card seoc-card" id="cardBuilder" style="display:none">
-  <div class="seoc-cardhead"><h3>Schema Builder</h3><div id="buildProgress" class="seoc-muted"></div></div>
+  <div class="seoc-cardhead"><h3>Schema Builder {{ help_dot('seo.schema.known_first') if help_dot is defined else '' }}</h3><div id="buildProgress" class="seoc-muted"></div></div>
 
   <div id="bizPanel" class="seoc-biz">
     <div class="seoc-biz-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
@@ -204,7 +204,7 @@ function copyLlms(){
 
 <!-- ---------------------------- FAQ Builder ---------------------------- -->
 <div class="card seoc-card" id="cardFAQ">
-  <div class="seoc-cardhead"><h3>FAQ Builder</h3>
+  <div class="seoc-cardhead"><h3>FAQ Builder {{ help_dot('seo.faq.accordion') if help_dot is defined else '' }}</h3>
     <div class="seoc-muted" id="faqProgress"></div></div>
 
   <div id="faqStart">
@@ -232,7 +232,7 @@ function copyLlms(){
     <div id="faqSavePrompt" class="seoc-next" style="display:none">
       <b>Every question has been handled. Save this page to this account?</b>
       <div class="seoc-saverow">
-        <label class="seoc-muted">Date added to site
+        <label class="seoc-muted">Date added to site {{ help_dot('seo.schema.date_added') if help_dot is defined else '' }}
           <input type="date" id="faqAddedDate">
           <span class="seoc-muted">(leave blank until it goes live)</span></label>
       </div>

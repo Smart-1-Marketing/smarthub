@@ -69,7 +69,7 @@
 
   <!-- ---------------- OpenAI cost ---------------- -->
   <section class="diag-card">
-    <h2>OpenAI — estimated cost</h2>
+    <h2>OpenAI — estimated cost {{ help_dot('qa.reports.spend') if help_dot is defined else '' }}</h2>
     <div id="diag-openai"><p class="diag-loading">Loading…</p></div>
   </section>
 

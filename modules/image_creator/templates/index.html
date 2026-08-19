@@ -309,7 +309,7 @@
         <input type="text" id="svName" placeholder="Summer AC tune-up promo">
       </div>
       <div class="sect" style="position:relative">
-        <label class="f">Client <span style="font-weight:400;color:var(--muted)">— optional, but it's how you find this later</span></label>
+        <label class="f">Client {{ help_dot('image_creator.logos.search') if help_dot is defined else '' }} <span style="font-weight:400;color:var(--muted)">— optional, but it's how you find this later</span></label>
         <input type="text" id="svClient" placeholder="Search clients…" autocomplete="off">
         <div class="drops" id="svClientDrop" style="display:none"></div>
         <div class="hint" id="svClientTag"></div>
