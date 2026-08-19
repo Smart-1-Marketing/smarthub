@@ -101,6 +101,11 @@ function render(g,q){
   const clientsLink='/clients?q='+encodeURIComponent(name);
   window.__c360prods=g.products||[];
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs {{ help_dot('hub.client360.products') if help_dot is defined else '' }}</h3>
+    <div class="right" style="display:flex;gap:6px">
+      <button class="mini" onclick="ioStart('new')">New IO</button>
+      <button class="mini" onclick="ioStart('renewal')">Renew</button>
+      <button class="mini" onclick="ioStart('proposal')">From proposal</button>
+    </div>
     <div class="right" style="display:flex;gap:10px">
       <a class="open-link" id="c-camp-change" style="cursor:pointer;color:#b45309">&#9998; Campaign change</a>
       <a class="open-link" id="c-camp-support" style="cursor:pointer;color:#b45309">&#128736; Campaign support</a>
@@ -1317,6 +1322,37 @@ function loadForms(name){
   fetch('/api/client/forms?name='+encodeURIComponent(name)+'&period='+period,
         {credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderForms).catch(function(){});
+}
+
+
+function ioStart(mode){
+  /* Hand the IO builder what we already know rather than opening a blank
+     form. Nothing is submitted here — the builder still walks the rep
+     through it, with our values pre-entered and marked with where they came
+     from. */
+  var name = CURRENT_CLIENT || '';
+  if(!name){ alert('Open a client first.'); return; }
+  if(mode === 'proposal'){
+    window.open('/tools/io/?client=' + encodeURIComponent(name) + '&from=proposal', '_blank');
+    return;
+  }
+  if(mode === 'renewal'){
+    fetch('/api/io/prefill?mode=renewal&client=' + encodeURIComponent(name),
+          {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.error){ alert(d.error); return; }
+        if(!confirm('Renew IO ' + d.renewing_io + '?\n\n' +
+                    d.products.length + ' product(s), $' + d.previous_monthly +
+                    '/month last term (' + d.previous_start + ' to ' + d.previous_end + ').\n\n' +
+                    'Dates roll forward a year. You confirm every figure in the builder.')) return;
+        window.open('/tools/io/?client=' + encodeURIComponent(name) +
+                    '&mode=renewal&io=' + encodeURIComponent(d.renewing_io), '_blank');
+      })
+      .catch(function(){ alert('Could not read the previous IO.'); });
+    return;
+  }
+  window.open('/tools/io/?client=' + encodeURIComponent(name) + '&mode=new', '_blank');
 }
 
 function loadBrandAndWork(name){

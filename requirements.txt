@@ -14,6 +14,7 @@ Flask-SQLAlchemy==3.1.1
 flask-cors==5.0.0
 reportlab==4.2.5
 python-docx==1.1.2
+pypdf==5.1.0
 cloudinary==1.41.0
 qrcode[pil]==8.0
 openai==1.59.6

@@ -381,9 +381,45 @@ def _write_temp_counter(number):
     except Exception:
         logger.exception("Unable to write temporary order counter")
 
+def _postgres_order_number():
+    """Take the next order number from a Postgres sequence.
+
+    `threading.Lock` only holds inside one process. Gunicorn runs two workers,
+    so two reps clicking "New IO" at the same moment could each read the same
+    counter and get the same number — the exact risk flagged as open in the
+    handoff. A sequence is atomic across every worker and every connection,
+    which no amount of application-level locking can be.
+
+    Returns None when there's no Postgres, so the Cloudinary path still runs.
+    """
+    try:
+        from hub.extensions import db
+        from sqlalchemy import text
+        engine = db.engine
+        if not engine.dialect.name.startswith("postgres"):
+            return None
+        with engine.connect() as cx:
+            cx.execute(text(
+                "CREATE SEQUENCE IF NOT EXISTS io_order_number_seq "
+                "START WITH 1000 INCREMENT BY 1"))
+            cx.commit()
+            val = cx.execute(text("SELECT nextval('io_order_number_seq')")).scalar()
+            cx.commit()
+        return str(int(val))
+    except Exception:                                   # noqa: BLE001
+        return None
+
+
 def _next_order_number():
     """Return (order_number, storage, warning). Never raises for storage reasons —
     the salesperson always receives a usable number so the IO can proceed."""
+    # Postgres first: it's the only option that's genuinely atomic across
+    # workers. Cloudinary remains the fallback so a Hub without a database
+    # still issues numbers.
+    seq = _postgres_order_number()
+    if seq:
+        return seq, "postgres sequence", ""
+
     with _ORDER_LOCK:
         if _cloudinary_is_configured():
             # Determine the current value from Cloudinary, tolerating a missing asset.

@@ -42,6 +42,50 @@ _MOUNT_ACTIVE_HUB = {
 }
 
 
+def _read_document(raw: bytes, filename: str) -> str:
+    """Text out of a PDF or DOCX. Returns "" rather than raising.
+
+    A scanned PDF has no text layer, so this legitimately returns nothing —
+    the caller says so plainly rather than reporting a failure.
+    """
+    name = (filename or "").lower()
+    try:
+        if name.endswith(".pdf"):
+            try:
+                from pypdf import PdfReader
+            except ImportError:
+                from PyPDF2 import PdfReader  # type: ignore
+            import io as _io
+            reader = PdfReader(_io.BytesIO(raw))
+            return "\n".join((pg.extract_text() or "") for pg in reader.pages[:40])
+        if name.endswith((".docx", ".doc")):
+            import io as _io
+            from docx import Document
+            return "\n".join(p.text for p in Document(_io.BytesIO(raw)).paragraphs)
+        return raw.decode("utf-8", errors="ignore")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _proposal_text_for(client: str, filename: str) -> str:
+    """Fetch a proposal already uploaded against a client and read it."""
+    try:
+        from . import proposals
+        import requests as _r
+        for rec in proposals.list_proposals(client):
+            if rec.get("filename") == filename or rec.get("id") == filename:
+                url = rec.get("url")
+                if not url:
+                    return ""
+                resp = _r.get(url, timeout=30)
+                if not resp.ok:
+                    return ""
+                return _read_document(resp.content, rec.get("filename", ""))
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 def create_hub_app() -> Flask:
     app = Flask(
         __name__,
@@ -621,6 +665,52 @@ def create_hub_app() -> Flask:
             return gate
         from .knack_products import scan_domains
         return jsonify(scan_domains(request.args.get("client", "")))
+
+    @app.route("/api/io/prefill")
+    def api_io_prefill():
+        """Start an IO from a client, their last IO, or a proposal."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import io_prefill
+        client = request.args.get("client", "")
+        mode = request.args.get("mode", "new")
+        if mode == "renewal":
+            return jsonify(io_prefill.from_last_io(client))
+        if mode == "creative":
+            return jsonify(io_prefill.creative_for(client))
+        return jsonify(io_prefill.from_client(client))
+
+    @app.route("/api/io/from-proposal", methods=["POST"])
+    def api_io_from_proposal():
+        """Read a proposal — uploaded now, or already on the client — for an IO.
+
+        Works without a client, so a prospect's proposal can start an IO
+        before they exist in the system.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import io_prefill
+        client = (request.form.get("client") or "").strip()
+        text, name = "", ""
+        up = request.files.get("file")
+        if up and up.filename:
+            name = up.filename
+            raw = up.read(8 * 1024 * 1024)
+            text = _read_document(raw, name)
+        else:
+            body = request.get_json(silent=True) or {}
+            client = client or str(body.get("client") or "")
+            name = str(body.get("filename") or "")
+            text = str(body.get("text") or "")
+            if not text and client and name:
+                text = _proposal_text_for(client, name)
+        if not text.strip():
+            return jsonify({"error": "Couldn't read any text from that "
+                                     "proposal. If it's a scanned PDF there's "
+                                     "no text layer to read."}), 400
+        return jsonify(io_prefill.from_proposal(client, text, name))
 
     @app.route("/api/providers")
     def api_providers():
