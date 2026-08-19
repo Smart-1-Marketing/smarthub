@@ -233,6 +233,43 @@ def check_shadowed_routes() -> list[dict]:
                 break
     return out
 
+
+def check_shared_services() -> list[dict]:
+    """Modules still doing Cloudinary, image work or settings themselves.
+
+    Not a defect on its own — these all work. It is here so the migration is
+    visible and shrinking, rather than something everyone means to get to. The
+    rule is to move a module onto the shared code when you are already editing
+    it for another reason.
+    """
+    out = []
+    for rel, src in _sources():
+        if not rel.startswith("modules/"):
+            continue
+        mod = _module_of(rel)
+        uses_shared = ("hub.storage" in src or "hub.images" in src
+                       or "from hub.config import" in src
+                       or "from hub import config" in src)
+        if uses_shared:
+            continue
+        own = []
+        if "cloudinary.config(" in src:
+            own.append("its own Cloudinary setup")
+        if "thumbnail(" in src or "LANCZOS" in src:
+            own.append("its own image resizing")
+        if not own:
+            continue
+        out.append({
+            "file": rel, "module": mod,
+            "detail": f"{mod} has {' and '.join(own)} rather than using "
+                      f"hub/storage.py and hub/images.py. A fix to the shared "
+                      f"code will not reach it.",
+            "fix": "Move it across next time you are editing this module for "
+                   "another reason — not as a separate project.",
+        })
+    return out
+
+
 CHECKS = [
     ("pdf_resource_type", "PDF uploaded as an image type", "high", check_pdf_resource_type),
     ("convert_without_resize", "Converts without resizing", "high", check_convert_without_resize),
@@ -241,6 +278,7 @@ CHECKS = [
     ("unclamped_limits", "Unclamped query limits", "medium", check_unclamped_limits),
     ("shadowed_routes", "Routes hidden behind a mount", "high", check_shadowed_routes),
     ("bare_except_pass", "Silent exception handling", "low", check_bare_except_pass),
+    ("shared_services", "Not yet on shared services", "low", check_shared_services),
 ]
 
 

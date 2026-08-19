@@ -221,6 +221,16 @@ def _openai_response(prompt, max_output_tokens=6000):
         timeout=120,
     )
     response.raise_for_status()
+    # Record the spend so it shows in the Hub's cost tracking. Migrated on the
+    # way past, per the rule in CLAUDE.md — this module was already being
+    # edited, so it moves onto the shared plumbing rather than staying
+    # invisible.
+    try:
+        from hub import ai as _hub_ai
+        _hub_ai.note_usage("io_builder", response.json(),
+                           purpose="business_description")
+    except Exception:  # noqa: BLE001
+        pass
     return _extract_response_text(response.json())
 
 @app.post('/api/generate-business-description')
