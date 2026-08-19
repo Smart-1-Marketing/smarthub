@@ -747,6 +747,71 @@ def create_hub_app() -> Flask:
         spec = CS.CampaignSpec.from_dict(body.get("spec") or {})
         return jsonify(CS.to_io_payload(spec))
 
+    @app.route("/api/client/suite-match")
+    def api_suite_match():
+        """Suite sub-accounts that look like this client.
+
+        The card offered "Add to Smart 1 Suite" whether or not an account
+        already existed under a slightly different name — which is how a
+        client ends up with two sub-accounts and their history split across
+        both. Search first, offer to attach, and only offer to create when
+        nothing plausible comes back.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        name = (request.args.get("name") or "").strip()
+        if not name:
+            return jsonify({"matches": [], "searched": ""})
+        import re as _re
+
+        def norm(v):
+            v = _re.sub(r"\b(llc|inc|ltd|co|corp|company|the|dba)\b", " ",
+                        str(v or "").lower())
+            return _re.sub(r"[^a-z0-9]+", "", v)
+
+        want = norm(name)
+        # Try the distinctive part too — "Icon Solar Power, LLC" should find
+        # a sub-account called just "Icon Solar".
+        terms = [name] + ([" ".join(name.split()[:2])] if len(name.split()) > 2 else [])
+        seen, matches = set(), []
+        try:
+            from modules.suite_panel.app import ghl, _env
+            for term in terms:
+                data = ghl("/locations/search",
+                           query={"companyId": _env("GHL_COMPANY_ID"),
+                                  "limit": "10", "query": term}) or {}
+                for loc in (data.get("locations") or []):
+                    lid = loc.get("id") or loc.get("_id")
+                    if not lid or lid in seen:
+                        continue
+                    seen.add(lid)
+                    ln = loc.get("name") or ""
+                    n = norm(ln)
+                    exact = n == want
+                    close = bool(n) and (n in want or want in n)
+                    if exact or close:
+                        matches.append({
+                            "id": lid, "name": ln,
+                            "website": loc.get("website") or "",
+                            "confidence": "exact" if exact else "close",
+                            "why": ("Name matches once LLC/Inc are ignored."
+                                    if exact else
+                                    f'"{ln}" looks like a variation of this client.'),
+                        })
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"matches": [], "error": f"{type(exc).__name__}",
+                            "searched": name}), 200
+        matches.sort(key=lambda m: 0 if m["confidence"] == "exact" else 1)
+        return jsonify({
+            "searched": name, "matches": matches, "count": len(matches),
+            "note": ("Attach one of these rather than creating a second "
+                     "sub-account — a duplicate splits the client's history."
+                     if matches else
+                     "Nothing in Suite looks like this client. Search the full "
+                     "list before creating one."),
+        })
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.

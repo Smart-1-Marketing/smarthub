@@ -24,18 +24,19 @@
     { match: "creative infor", open: true  },
     { match: "client images",  open: true  },   // moved above analytics
     { match: "brand",          open: true,  half: true },
+    { match: "tracked links",  open: true,  half: true },
+    { match: "web tickets",    open: false, half: true },
     { match: "client notes",   open: true,  half: true },  // paired with brand
     { match: "work for this",  open: true  },
     { match: "site health",    open: true  },
     { match: "smart 1 suite",  open: true  },
     { match: "proposals",      open: true  },
-    { match: "social media",   open: true  },
+    { match: "social media",   open: true,  full: true },
     { match: "traffic summary",open: true  },
     { match: "ga4",            open: false },   // auto-collapsed
     { match: "gtm container",  open: false },   // auto-collapsed, moved down
     { match: "invoices",       open: false },   // auto-collapsed
     { match: "website record", open: false },   // auto-collapsed
-    { match: "web tickets",    open: false },
 
     /* SEO client page. The long working sections fold away by default —
        Schema Builder, FAQ Builder and Blogs are each a workspace you open
@@ -61,6 +62,9 @@
     ".s1-acc-all button{border:1px solid #d7dfe8;background:#fff;border-radius:7px;",
     "padding:6px 12px;font:600 12px 'Segoe UI',system-ui,sans-serif;color:#41525f;cursor:pointer}",
     ".s1-acc-all button:hover{background:#f1f5f9}",
+    ".s1-acc-actions{margin-left:auto;display:flex;gap:8px}",
+    ".s1-acc-actions button{border:1px solid #cfe2f2;background:#eef5fb;color:#1769AA}",
+    ".s1-acc-actions button:hover{background:#e2eef8}",
     "@media(prefers-reduced-motion:reduce){.s1-acc-caret{transition:none}}"
   ].join("");
 
@@ -179,6 +183,7 @@
       var t = titleOf(r.card).toLowerCase();
       var rule_ = rule(titleOf(r.card));
       if (rule_ && rule_.half) r.card.style.gridColumn = "span 1";
+      if (rule_ && rule_.full) r.card.style.gridColumn = "1 / -1";
     });
   }
 
@@ -190,6 +195,19 @@
     bar.className = "s1-acc-all";
     bar.innerHTML = '<button type="button" data-all="open">Expand all</button>' +
                     '<button type="button" data-all="close">Collapse all</button>';
+
+    /* Page actions live in the same toolbar rather than bolted into a card
+       header — they act on the whole record, not on one card, and a lone
+       cluster of buttons inside a card reads as belonging to that card. */
+    if (location.pathname.replace(/\/+$/, "") === "/client360" && window.CURRENT_CLIENT) {
+      var acts = document.createElement("span");
+      acts.className = "s1-acc-actions";
+      acts.innerHTML =
+        '<button type="button" onclick="ioStart(\'new\')">New IO</button>' +
+        '<button type="button" onclick="ioStart(\'renewal\')">Renew IO</button>' +
+        '<button type="button" onclick="ioStart(\'proposal\')">IO from proposal</button>';
+      bar.appendChild(acts);
+    }
     first.parentNode.insertBefore(bar, first);
     bar.addEventListener("click", function (e) {
       var b = e.target.closest("button"); if (!b) return;

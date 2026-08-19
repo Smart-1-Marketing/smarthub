@@ -1,9 +1,27 @@
 {% extends "base.html" %}
-{% block title %}Client 360 — Smart 1 Hub{% endblock %}
+{% block title %}Client 360 — Smart 1 Hub
+<script>
+/* The topbar search posts to /client360?q=… but nothing here read it, so it
+   navigated and then sat there — which is why it looked broken. The page also
+   carried its own search box, so there were two on screen doing different
+   things. One search now, in the topbar, and it runs on arrival. */
+function runFromUrl(){
+  var q = new URLSearchParams(location.search).get('q');
+  if(!q) return;
+  var box = document.getElementById('q');
+  if(box) box.value = q;
+  if(window.run) run();
+}
+if(document.readyState === 'loading')
+  document.addEventListener('DOMContentLoaded', runFromUrl);
+else runFromUrl();
+</script>
+
+{% endblock %}
 {% block content %}
 <div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
 
-<form class="c360-search" onsubmit="run();return false">
+<form class="c360-search" onsubmit="run();return false" hidden>
   <input id="q" placeholder="Type a client name or domain…" value="{{ q or '' }}" autofocus>
   <button class="btn-primary" type="submit">Search</button>
 </form>
@@ -101,11 +119,6 @@ function render(g,q){
   const clientsLink='/clients?q='+encodeURIComponent(name);
   window.__c360prods=g.products||[];
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs {{ help_dot('hub.client360.products') if help_dot is defined else '' }}</h3>
-    <div class="right" style="display:flex;gap:6px">
-      <button class="mini" onclick="ioStart('new')">New IO</button>
-      <button class="mini" onclick="ioStart('renewal')">Renew</button>
-      <button class="mini" onclick="ioStart('proposal')">From proposal</button>
-    </div>
     <div class="right" style="display:flex;gap:10px">
       <a class="open-link" id="c-camp-change" style="cursor:pointer;color:#b45309">&#9998; Campaign change</a>
       <a class="open-link" id="c-camp-support" style="cursor:pointer;color:#b45309">&#128736; Campaign support</a>
@@ -115,12 +128,15 @@ function render(g,q){
     const ioPill=p.io?(p.dash
       ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Open Smart 1 Dashboard">#${esc(p.io)}</a>`
       :` <span class="pill neutral">#${esc(p.io)}</span>`):'';
-    return `<tr><td><b>${esc(p.product||'—')}</b>${ioPill}${p.campaign?`<div class="muted" style="font-size:12px;margin-top:1px">${esc(p.campaign)}</div>`:''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td></tr>`;
+    return `<tr><td><b>${esc(p.product||'—')}</b>${ioPill}</td>`
+      + `<td class="muted" style="font-size:12.5px">${esc(p.campaign||'—')}</td>`
+      + `<td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td>`
+      + `<td>${money(p.monthly)}</td></tr>`;
   };
   const liveProds=g.products.filter(p=>String(p.status||'').toLowerCase()==='live');
   const doneProds=g.products.filter(p=>String(p.status||'').toLowerCase()!=='live');
   if(g.products.length){
-    html+='<table><thead><tr><th>Product</th><th>Status</th><th>Monthly</th></tr></thead><tbody>';
+    html+='<table><thead><tr><th>Product</th><th>Campaign</th><th>Status</th><th>Monthly</th></tr></thead><tbody>';
     html+=liveProds.slice(0,15).map(prodRow).join('');
     if(!liveProds.length)html+='<tr><td colspan="3" class="empty">No live products right now.</td></tr>';
     html+='</tbody></table>';
@@ -341,9 +357,10 @@ function render(g,q){
   const addBtn=()=>{
     const p=new URLSearchParams({prefill:'1',name:name});
     if(web0&&web0.domain){p.set('website','https://'+web0.domain);p.set('domain',web0.domain);}
-    return `<div class="empty">No Smart 1 Suite account yet.<br><br>
-      <a class="btn-primary" style="padding:9px 18px;font-size:13.5px;text-decoration:none" href="/suite/?${p.toString()}">+ Add to Smart 1 Suite</a>
-      <div class="muted" style="font-size:12px;margin-top:8px">Opens the Suite create form pre-filled with this client's details${web0&&web0.domain?' — brand info auto-fetched from '+esc(web0.domain):''}.</div></div>`;
+    // Look for an existing sub-account before offering to make another.
+    setTimeout(function(){ suiteMatch(name); }, 0);
+    return `<div class="empty" id="c-suite-empty">
+      <span class="muted">Checking Smart 1 Suite for an existing account…</span></div>`;
   };
   Promise.all([
     fetch('/suite/api/locations?limit=6&search='+encodeURIComponent(term)).then(r=>r.ok?r.json():null).catch(()=>null),
@@ -1204,7 +1221,7 @@ function renderBrand(d){
     (logos?`<div style="margin-bottom:10px"><div class="lbl">Logos</div>${logos}</div>`:'')+
     (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
     (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'');
-  if(acts) acts.innerHTML='<button class="mini" onclick="pushBrand()">Send to Suite</button>';
+  if(acts) acts.innerHTML='<a class="gbtn" href="#" onclick="pushBrand();return false">Send to Suite</a>';
 }
 function pushBrand(){
   fetch('/api/client/brand/push-to-suite',{method:'POST',credentials:'same-origin',
@@ -1353,6 +1370,44 @@ function ioStart(mode){
     return;
   }
   window.open('/tools/io/?client=' + encodeURIComponent(name) + '&mode=new', '_blank');
+}
+
+
+function suiteMatch(name){
+  var host = document.getElementById('c-suite-empty');
+  if(!host || !name) return;
+  var p = new URLSearchParams({prefill:'1', name:name});
+  fetch('/api/client/suite-match?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.matches && d.matches.length){
+        host.innerHTML =
+          '<div style="text-align:left">'+
+          '<b style="font-size:13px">Found in Smart 1 Suite</b>'+
+          '<p class="muted" style="font-size:12px;margin:4px 0 10px">'+esc(d.note)+'</p>'+
+          d.matches.map(function(m){
+            return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;'+
+              'border-bottom:1px solid #f1f5f9">'+
+              '<div style="flex:1"><b>'+esc(m.name)+'</b>'+
+              '<div class="muted" style="font-size:11.5px">'+esc(m.why)+'</div></div>'+
+              '<a class="gbtn" target="_blank" rel="noopener" '+
+              'href="/suite/?attach='+encodeURIComponent(m.id)+'&name='+encodeURIComponent(name)+
+              '">Attach</a></div>';
+          }).join('')+
+          '<div style="margin-top:10px"><a class="gbtn" href="/suite/?'+p.toString()+
+          '">None of these — create a new account</a></div></div>';
+      } else {
+        host.innerHTML =
+          '<span class="muted">'+esc(d.note||'No Smart 1 Suite account yet.')+'</span><br><br>'+
+          '<a class="gbtn" href="/suite/" target="_blank">Search the full Suite list</a> '+
+          '<a class="btn-primary" style="padding:9px 18px;font-size:13.5px;text-decoration:none" '+
+          'href="/suite/?'+p.toString()+'">+ Create account</a>';
+      }
+    })
+    .catch(function(){
+      host.innerHTML = '<span class="muted">Couldn\'t reach Smart 1 Suite.</span> '+
+        '<a class="gbtn" href="/suite/?'+p.toString()+'">Open Suite</a>';
+    });
 }
 
 function loadBrandAndWork(name){
