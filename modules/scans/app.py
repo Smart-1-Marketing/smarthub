@@ -30,12 +30,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from flask import Flask, jsonify, request, render_template, Response
+from flask import (Flask, jsonify, redirect, render_template, request,
+                   Response)
 from sqlalchemy import (Column, DateTime, Integer, String, Text, create_engine,
                         func, or_)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from . import audit_fields, linkcheck, site_health
+from . import audit_fields, linkcheck, report_pdf, reports, site_health
 from .insites_client import InsitesError, is_configured
 
 try:                                   # Hub activity log (present in the Hub)
@@ -347,6 +348,8 @@ def scan_detail(public_id):
                         .order_by(LinkCheck.id.desc()).first())
         return render_template("scan_detail.html", scan=scan_to_row(s),
                                fixes=health["fixes"], speed=health["speed"],
+                               reports_menu=(reports.available(raw or {})
+                                             if s.status == "complete" else []),
                                linkcheck_state=(last_check.status
                                                 if last_check else ""),
                                detected={
@@ -969,5 +972,172 @@ def api_linkcheck_csv(public_id):
             linkcheck.to_csv(result), mimetype="text/csv",
             headers={"Content-Disposition": f'attachment; filename="{fname}"'},
         )
+    finally:
+        db.close()
+
+
+# =====================================================================
+# Reports — the eight client-facing audits built from a stored scan
+# =====================================================================
+
+def _latest_complete(db, domain: str):
+    """The newest completed scan for a domain, or None."""
+    key = domain_key(domain or "")
+    if not key:
+        return None
+    return (db.query(Scan)
+              .filter(Scan.domain_key == key, Scan.status == "complete")
+              .order_by(Scan.id.desc()).first())
+
+
+def _built_report(s: Scan, key: str):
+    """(report_dict, error_response) — one of the two is always None."""
+    if key not in reports.REPORT_INDEX:
+        return None, (jsonify({"error": "Unknown report."}), 404)
+    if s.status != "complete":
+        return None, (jsonify({"error": "That scan hasn't finished."}), 409)
+    try:
+        return reports.report(_report_of(s), key), None
+    except Exception as exc:                    # noqa: BLE001
+        return None, (jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500)
+
+
+@app.route("/report/<public_id>/<key>")
+def page_report(public_id, key):
+    """One audit, on screen. ``key`` is a report key from reports.REPORTS."""
+    db = SessionLocal()
+    try:
+        s = db.query(Scan).filter(Scan.public_id == public_id).first()
+        if not s:
+            return "Scan not found.", 404
+        if key not in reports.REPORT_INDEX:
+            return "Unknown report.", 404
+        if s.status != "complete":
+            return redirect(f"/scans/scan/{public_id}")
+        r, err = _built_report(s, key)
+        if err is not None:
+            return err
+        client = (request.args.get("client") or "").strip()
+        # client= so the view lands on that client's 360 activity, per the
+        # Hub convention for anything that produces client-facing work.
+        _log("report_viewed", detail=s.domain_key, scan=s.public_id,
+             report=key, client=client or None)
+        return render_template("report.html", r=r, scan=scan_to_row(s),
+                               menu=reports.available(_report_of(s)),
+                               client=client)
+    finally:
+        db.close()
+
+
+@app.route("/report/<public_id>/<key>.pdf")
+def page_report_pdf(public_id, key):
+    """The same audit as a branded PDF, for sending to the client."""
+    db = SessionLocal()
+    try:
+        s = db.query(Scan).filter(Scan.public_id == public_id).first()
+        if not s:
+            return jsonify({"error": "Scan not found."}), 404
+        r, err = _built_report(s, key)
+        if err is not None:
+            return err
+        try:
+            pdf = report_pdf.build(r)
+        except Exception as exc:                # noqa: BLE001
+            return jsonify({"error": f"PDF failed: {type(exc).__name__}: {exc}"}), 500
+        _log("report_pdf", detail=s.domain_key, scan=s.public_id, report=key,
+             client=(request.args.get("client") or "").strip() or None)
+        return Response(pdf, mimetype="application/pdf", headers={
+            "Content-Disposition":
+                f'attachment; filename="{report_pdf.filename(r)}"'})
+    finally:
+        db.close()
+
+
+@app.route("/report/by-domain/<key>")
+def page_report_by_domain(key):
+    """Deep link from a client record, which knows a domain and not a scan id.
+
+    Redirects to the newest completed scan for that domain so the client pages
+    never have to store scan ids of their own.
+    """
+    domain = request.args.get("domain", "")
+    client = (request.args.get("client") or "").strip()
+    db = SessionLocal()
+    try:
+        s = _latest_complete(db, domain)
+        if not s:
+            return redirect("/scans/?q=" + (domain_key(domain) or ""))
+        suffix = ".pdf" if request.args.get("pdf") else ""
+        tail = f"?client={client}" if client and not suffix else ""
+        return redirect(f"/scans/report/{s.public_id}/{key}{suffix}{tail}")
+    finally:
+        db.close()
+
+
+@app.route("/api/reports/<public_id>")
+def api_reports(public_id):
+    """The report menu for one scan, with live counts on each entry."""
+    db = SessionLocal()
+    try:
+        s = db.query(Scan).filter(Scan.public_id == public_id).first()
+        if not s:
+            return jsonify({"error": "Not found."}), 404
+        payload = _report_of(s) if s.status == "complete" else {}
+        return jsonify({"public_id": s.public_id, "status": s.status,
+                        "reports": reports.available(payload) if payload else []})
+    finally:
+        db.close()
+
+
+@app.route("/api/reports/by-domain")
+def api_reports_by_domain():
+    """Everything a client page needs to draw the audit list for a domain.
+
+    ``{"found": false}`` when the client has never been scanned — that's a
+    normal state for a new client, not an error, and the card offers a scan.
+    """
+    domain = request.args.get("domain", "")
+    key = domain_key(domain)
+    if not key:
+        return jsonify({"found": False, "error": "No domain given."})
+    db = SessionLocal()
+    try:
+        s = _latest_complete(db, key)
+        if not s:
+            return jsonify({"found": False, "domain": key})
+        payload = _report_of(s)
+        lc = (db.query(LinkCheck)
+                .filter(LinkCheck.scan_public_id == s.public_id)
+                .order_by(LinkCheck.id.desc()).first())
+        health = site_health.summary(payload)
+        return jsonify({
+            "found": True, "domain": key, "public_id": s.public_id,
+            "scan_url": f"/scans/scan/{s.public_id}",
+            "base_url": f"/scans/report/{s.public_id}/",
+            "score": s.overall_score, "tier": s.tier,
+            "business": s.detected_name or s.business_name or "",
+            "scanned_at": _iso(s.completed_at or s.created_at),
+            "reports": reports.available(payload),
+            # The client pages show the fix list and run the link check from
+            # here too, so this is deliberately the one call they need.
+            "fixes": health["fixes"], "speed": health["speed"],
+            "linkcheck": _linkcheck_row(lc),
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/reports/<public_id>/<key>.json")
+def api_report_json(public_id, key):
+    """The finished report as data — for anything that wants to re-render it."""
+    db = SessionLocal()
+    try:
+        s = db.query(Scan).filter(Scan.public_id == public_id).first()
+        if not s:
+            return jsonify({"error": "Not found."}), 404
+        r, err = _built_report(s, key)
+        if err is not None:
+            return err
+        return jsonify(r)
     finally:
         db.close()

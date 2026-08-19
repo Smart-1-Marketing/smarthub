@@ -246,9 +246,10 @@ function render(g,q){
 
   // ---------- Site health (latest Insites scan: what's broken + speed) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
-    <span class="src-tag src-web" style="background:#e0edff;color:#1e40af">Insites</span><h3>Site Health</h3>
+    <span class="src-tag src-web" style="background:#e0edff;color:#1e40af">Insites</span><h3>Site Health &amp; Audits</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center" id="c-health-acts"></div></div>
-    <div class="card-b" id="c-health"><div class="empty">Checking for a recent scan… <span class="spin"></span></div></div></div>`;
+    <div class="card-b" id="c-health"><div class="empty">Checking for a recent scan… <span class="spin"></span></div></div>
+    <div class="card-b" id="c-audits" style="padding-top:0"></div></div>`;
 
   // ---------- Website record (moved to the bottom) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
@@ -505,7 +506,7 @@ function render(g,q){
       const cls={bad:'err',warn:'warn',ok:'ok'}[sev]||'neutral';
       return '<span class="pill '+cls+'">'+esc(txt)+'</span>';
     };
-    fetch('/scans/api/health/by-domain?domain='+encodeURIComponent(dom))
+    fetch('/scans/api/reports/by-domain?domain='+encodeURIComponent(dom))
       .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
         if(!d.found){
           host.innerHTML='<div class="empty">No completed scan for '+esc(dom)+' yet. '
@@ -513,7 +514,7 @@ function render(g,q){
           return;
         }
         const f=d.fixes||{}, s=d.speed||{};
-        const scanHref=esc(d.url);
+        const scanHref=esc(d.scan_url||d.url||'');
         let fixLine;
         if(!f.measured) fixLine='<span class="muted">Link and image checks weren\'t returned by this scan.</span>';
         else if(!f.total) fixLine=pill('ok','Nothing broken');
@@ -536,10 +537,37 @@ function render(g,q){
           +'<div class="muted" style="font-size:12px">Scanned '
           +(d.scanned_at?esc(String(d.scanned_at).slice(0,10)):'—')
           +' · <a href="'+scanHref+'">see the full scan, the URLs to fix and the speed detail →</a></div>';
+        renderAudits(d);
       }).catch(()=>{
         host.innerHTML='<div class="empty">Site Scans unavailable. '
           +'<a href="'+scansHref+'">Open the module →</a></div>';
       });
+
+    // The eight client-facing audits, built from the same scan. Read on
+    // screen or hand the client the PDF — no second scan, no extra credit.
+    function renderAudits(d){
+      const box=document.getElementById('c-audits');
+      if(!box) return;
+      const rows=d.reports||[];
+      if(!rows.length){ box.innerHTML=''; return; }
+      const q='?client='+encodeURIComponent(name);
+      box.innerHTML='<div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">'
+        +'<b style="font-size:13px">Audits</b> <span class="muted" style="font-size:12px">'
+        +'— built from this scan. View, or download the client-ready PDF.</span>'
+        +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-top:10px">'
+        + rows.map(m=>{
+            const cls = !m.measured ? 'neutral' : (m.failed?'err':(m.warned?'warn':'ok'));
+            const txt = !m.measured ? 'not measured'
+              : (m.failed?m.failed+' to fix':(m.warned?m.warned+' to improve':'clear'));
+            return '<div style="border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:#fff">'
+              +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center">'
+              +'<a class="open-link" href="'+esc(d.base_url+m.key+q)+'">'+esc(m.title)+'</a>'
+              +'<span class="pill '+cls+'">'+esc(txt)+'</span></div>'
+              +'<div style="margin-top:6px"><a class="open-link" style="font-size:11.5px" '
+              +'href="'+esc(d.base_url+m.key+'.pdf')+'">Download PDF ↓</a></div></div>';
+          }).join('')
+        +'</div></div>';
+    }
   })();
 
   const upBtn=$('c-props-upload');

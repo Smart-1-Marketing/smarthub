@@ -383,6 +383,43 @@ function applyFaqPalette(style){
   <div id="aiBody" class="seoc-muted">Waiting for Analytics&hellip;</div>
 </div>
 
+<!-- ---- Site Audits: the last Insites scan, the fix list, and the reports ---- -->
+<div class="card seoc-card" id="cardAudit">
+  <div class="seoc-cardhead"><h3>Site Audits</h3>
+    <div class="seoc-muted" id="auditMeta"></div></div>
+  <div id="auditBody" class="seoc-muted">Looking for the last site scan&hellip;</div>
+
+  <div id="auditFix" style="display:none">
+    <div class="seoc-tablehead" style="margin-top:16px">
+      <b>Fix these</b> <span class="seoc-muted" id="fixCount"></span>
+    </div>
+    <div id="fixBody"></div>
+    <div class="seoc-lc">
+      <div class="seoc-lc-head">
+        <div><b>Which links exactly?</b>
+          <div class="seoc-muted">The audit counts broken links but doesn&rsquo;t list
+            them. This checks the site itself and gives you the addresses.</div></div>
+        <button class="seoc-btn seoc-small" id="lcRun">Find the URLs</button>
+      </div>
+      <div id="lcOut"></div>
+    </div>
+  </div>
+
+  <div id="auditReports" style="display:none;margin-top:18px">
+    <div class="seoc-tablehead">
+      <b>Reports</b>
+      <span class="seoc-muted">Read on screen, or download the client-ready PDF.</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="seoc-t"><thead><tr>
+        <th>Report</th>
+        <th style="text-align:center;width:120px">Findings</th>
+        <th style="text-align:right;width:150px">Actions</th>
+      </tr></thead><tbody id="auditRows"></tbody></table>
+    </div>
+  </div>
+</div>
+
 <div class="card seoc-card" id="cardScan">
   <div class="seoc-cardhead"><h3>Schema Check</h3>
     <button class="seoc-btn seoc-small" id="btnScan">Scan site for schema</button></div>
@@ -852,6 +889,32 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
 .seoc-imgstrip .it .n{padding:6px 8px;font:600 10.5px ui-monospace,Consolas,monospace;
   color:#1a2e58;overflow-wrap:anywhere}
 .seoc-imgstrip .it .p{padding:0 8px 7px;font-size:10.5px;color:#64748b}
+
+/* ---- Site Audits card (broken links + the eight reports) ---- */
+.seoc-lc { margin-top:16px; border-top:1px solid var(--line,#e2e8f0); padding-top:14px; }
+.seoc-lc-head { display:flex; gap:16px; align-items:flex-start;
+  justify-content:space-between; flex-wrap:wrap; }
+.seoc-lcrow { border-top:1px solid var(--line,#e2e8f0); padding:9px 0; font-size:13px; }
+.seoc-lcrow .u { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px;
+  word-break:break-all; }
+.seoc-tag { display:inline-block; font-size:10.5px; font-weight:700; border-radius:5px;
+  padding:2px 6px; margin-right:6px; text-transform:uppercase; letter-spacing:.03em;
+  background:#f1f5f9; color:#64748b; }
+.seoc-tag.image { background:#ede9fe; color:#5b21b6; }
+.seoc-tag.link { background:#e0edff; color:#1e40af; }
+.seoc-fixrow { display:flex; gap:10px; align-items:flex-start; padding:9px 0;
+  border-top:1px solid var(--line,#e2e8f0); }
+.seoc-fixrow:first-child { border-top:0; }
+.seoc-fixn { font-weight:800; color:#0A2240; min-width:34px; }
+.seoc-sev { display:inline-block; width:8px; height:8px; border-radius:50%;
+  margin-right:7px; background:#cbd5e1; vertical-align:middle; }
+.seoc-sev.bad { background:#DC2626; } .seoc-sev.warn { background:#F0B429; }
+.seoc-sev.ok { background:#2DBB72; }
+.seoc-pill { display:inline-block; border-radius:999px; padding:3px 10px;
+  font-size:11.5px; font-weight:700; background:#EEF3F8; color:#68798C; }
+.seoc-pill.ok { background:#ECFDF3; color:#12794B; }
+.seoc-pill.warn { background:#FEF7E7; color:#94620A; }
+.seoc-pill.bad { background:#FDECEC; color:#B01919; }
 </style>
 {% endblock %}
 {% block scripts %}
@@ -922,6 +985,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         refreshCompiled();
       }
     });
+    safe('audits',  function(){ initAudits(d); });
     safe('scan', function(){
       if(d.last_scan){ renderScan(d.last_scan,true); }
       if(!siteUrl){ $('btnScan').disabled=true; $('scanBody').innerHTML='<span class="seoc-warn">No website on file for this client — add one in Smart 1 Team, or set the access URL in Client Setup.</span>'; }
@@ -2152,6 +2216,174 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       renderFaqTable(d.pages||[]);
     });
   };
+
+  // ---------------- Site Audits ----------------
+  // Scans are keyed by domain, not by client, so this matches on the website
+  // record's domain. No scan yet is a normal state for a new client — the card
+  // offers to run one rather than showing an error.
+  var AUDIT = null, lcTimer = null;
+
+  function initAudits(d){
+    var w=(d.websites||[])[0]||{};
+    var dom=String(w.domain||siteUrl||'').replace(/^https?:\/\/(www\.)?/,'')
+              .replace(/\/.*$/,'').trim();
+    var scansHref='/scans/'+(dom?'?q='+encodeURIComponent(dom):'');
+    if(!dom){
+      $('auditBody').innerHTML='<span class="seoc-warn">No website on file for this '
+        +'client, so there\'s nothing to match a scan against.</span> '
+        +'Add one in Smart 1 Team, or set the access URL in Client Setup.';
+      return;
+    }
+    fetch('/scans/api/reports/by-domain?domain='+encodeURIComponent(dom))
+      .then(function(r){return r.ok?r.json():Promise.reject(new Error('Site Scans unavailable'));})
+      .then(function(a){
+        if(!a.found){
+          $('auditBody').innerHTML='No completed site scan for <b>'+esc(dom)+'</b> yet. '
+            +'<a href="'+scansHref+'">Run one &rarr;</a> — the eight audits are built '
+            +'from it.';
+          return;
+        }
+        AUDIT=a;
+        $('auditMeta').innerHTML=
+          (a.score!=null?'<b>'+esc(a.score)+'</b>/100 ':'')
+          +(a.tier?'<span class="seoc-pill">'+esc(a.tier)+'</span> ':'')
+          +(a.scanned_at?'· scanned '+esc(String(a.scanned_at).slice(0,10)):'');
+        $('auditBody').innerHTML='Built from the site audit of <b>'+esc(dom)+'</b>. '
+          +'<a href="'+esc(a.scan_url)+'">See the raw scan &rarr;</a>';
+        renderFixes(a);
+        renderReports(a);
+      })
+      .catch(function(err){
+        $('auditBody').innerHTML='<span class="seoc-warn">Site Scans is unavailable '
+          +'right now.</span> <a href="'+scansHref+'">Open the module &rarr;</a>';
+        console.error('[seo_client] audits failed:', err);
+      });
+  }
+
+  function renderFixes(a){
+    var f=a.fixes||{};
+    $('auditFix').style.display='block';
+    if(!f.measured){
+      $('fixCount').textContent='';
+      $('fixBody').innerHTML='<div class="seoc-muted" style="padding:8px 0">This audit '
+        +'didn\'t return link or image checks. Re-run the scan, or check the plan '
+        +'covers them.</div>';
+    } else if(!f.total){
+      $('fixCount').innerHTML='<span class="seoc-pill ok">nothing broken</span>';
+      $('fixBody').innerHTML='<div style="padding:8px 0">No broken links and no image '
+        +'problems found.</div>';
+    } else {
+      $('fixCount').innerHTML='<span class="seoc-pill '+esc(f.worst||'')+'">'
+        +esc(f.total)+' to fix</span>';
+      $('fixBody').innerHTML=(f.items||[]).filter(function(i){return i.severity!=='ok';})
+        .map(function(i){
+          return '<div class="seoc-fixrow"><div class="seoc-fixn">'
+            +'<span class="seoc-sev '+esc(i.severity)+'"></span>'
+            +esc(i.measured?i.count:'—')+'</div><div><b>'+esc(i.label)+'</b>'
+            +'<div class="seoc-muted">'+esc(i.action)+'</div></div></div>';
+        }).join('') || '<div class="seoc-muted" style="padding:8px 0">Nothing flagged.</div>';
+    }
+    if(a.linkcheck && a.linkcheck.status && a.linkcheck.status!=='none'){
+      lcRender(a.linkcheck);
+      if(a.linkcheck.status==='running') lcTimer=setTimeout(lcPoll,8000);
+    }
+  }
+
+  function lcRow(r){
+    var scope=r.external?'<span class="seoc-tag">external</span>':'';
+    var where=(r.found_on||[]).length
+      ? '<div class="seoc-muted">on '+r.found_on.map(esc).join('<br>on ')
+        +(r.occurrences>1?' · used '+r.occurrences+'×':'')+'</div>' : '';
+    return '<div class="seoc-lcrow"><span class="seoc-tag '+esc(r.kind)+'">'+esc(r.kind)
+      +'</span>'+scope+'<b>'+esc(r.reason||'Broken')+'</b>'
+      +'<div class="u"><a href="'+esc(r.url)+'" target="_blank" rel="noopener">'
+      +esc(r.url)+'</a></div>'+where+'</div>';
+  }
+
+  function lcRender(d){
+    var btn=$('lcRun'), out=$('lcOut');
+    if(!btn||!out) return;
+    if(d.status==='running'){
+      btn.disabled=true; btn.textContent='Checking…';
+      out.innerHTML='<p class="seoc-muted">Walking the site — a minute or two on a '
+        +'big one. You can leave the page open.</p>';
+      return;
+    }
+    btn.disabled=false;
+    btn.textContent=(d.status==='none')?'Find the URLs':'Check again';
+    if(d.status==='error'){
+      out.innerHTML='<p class="seoc-bad">'+esc(d.error||'The check didn\'t finish.')+'</p>';
+      return;
+    }
+    if(d.status!=='complete'){ out.innerHTML=''; return; }
+    var r=d.result||{}, broken=r.broken||[];
+    var head='<p style="margin:12px 0 2px"><b>'
+      +(broken.length
+        ? broken.length+' broken — '+(r.broken_links||0)+' link'
+          +((r.broken_links||0)===1?'':'s')+', '+(r.broken_images||0)+' image'
+          +((r.broken_images||0)===1?'':'s')
+        : 'Nothing broken')
+      +'</b> <span class="seoc-muted">· checked '+(r.links_checked||0)+' across '
+      +(r.pages_checked||0)+' pages'
+      +(r.truncated?', stopped at the limit — larger sites need a crawler':'')+'</span>';
+    if(broken.length && AUDIT) head+=' &nbsp;<a href="/scans/api/scans/'
+      +encodeURIComponent(AUDIT.public_id)+'/linkcheck.csv">Download CSV</a>';
+    head+='</p>';
+    var list=broken.slice(0,50).map(lcRow).join('');
+    if(broken.length>50) list+='<p class="seoc-muted">Showing 50 of '+broken.length
+      +' — the CSV has them all.</p>';
+    var blocked=(r.blocked||[]).length;
+    if(blocked) list+='<p class="seoc-muted" style="margin-top:10px">'+blocked
+      +' external link'+(blocked===1?'':'s')+' refused an automated check (403/429). '
+      +'Those usually work fine in a browser — not counted as broken.</p>';
+    out.innerHTML=head+list;
+  }
+
+  function lcPoll(){
+    if(!AUDIT) return;
+    fetch('/scans/api/scans/'+encodeURIComponent(AUDIT.public_id)+'/linkcheck')
+      .then(function(r){return r.json();})
+      .then(function(d){ lcRender(d); if(d.status==='running') lcTimer=setTimeout(lcPoll,8000); })
+      .catch(function(){ if(lcTimer) clearTimeout(lcTimer); });
+  }
+
+  // Bound once at load. The check hits the customer's live site, so it only
+  // ever runs on an explicit click.
+  if($('lcRun')) $('lcRun').onclick=function(){
+    if(!AUDIT) return;
+    var btn=$('lcRun');
+    btn.disabled=true; btn.textContent='Checking…';
+    $('lcOut').innerHTML='<p class="seoc-muted">Starting…</p>';
+    fetch('/scans/api/scans/'+encodeURIComponent(AUDIT.public_id)+'/linkcheck',
+          {method:'POST'})
+      .then(function(r){return r.json();})
+      .then(function(d){ lcRender(d); if(d.status==='running') lcTimer=setTimeout(lcPoll,6000); })
+      .catch(function(){
+        btn.disabled=false; btn.textContent='Find the URLs';
+        $('lcOut').innerHTML='<p class="seoc-bad">Could not start the check.</p>';
+      });
+  };
+
+  function renderReports(a){
+    var rows=(a.reports||[]);
+    if(!rows.length) return;
+    $('auditReports').style.display='block';
+    var base=a.base_url, q='?client='+encodeURIComponent(CLIENT);
+    $('auditRows').innerHTML=rows.map(function(m){
+      var finding = !m.measured ? '<span class="seoc-pill">not measured</span>'
+        : m.failed ? '<span class="seoc-pill bad">'+m.failed+' to fix</span>'
+        : m.warned ? '<span class="seoc-pill warn">'+m.warned+' to improve</span>'
+        : '<span class="seoc-pill ok">clear</span>';
+      return '<tr><td><b><a href="'+esc(base+m.key+q)+'">'+esc(m.title)+'</a></b>'
+        +'<div class="seoc-muted">'+esc(m.blurb)+'</div></td>'
+        +'<td style="text-align:center">'+finding+'</td>'
+        +'<td style="text-align:right;white-space:nowrap">'
+        +'<a class="seoc-btn seoc-sec seoc-small" href="'+esc(base+m.key+q)+'">View</a> '
+        +'<a class="seoc-btn seoc-sec seoc-small" href="'+esc(base+m.key+'.pdf')+'">PDF &darr;</a>'
+        +'</td></tr>';
+    }).join('');
+  }
+
 })();
 </script>
 {% endblock %}

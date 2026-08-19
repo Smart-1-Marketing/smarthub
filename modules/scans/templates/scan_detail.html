@@ -235,12 +235,37 @@
   </div>
 
   <div class="card">
-    <h2>Reports <span class="soon">— coming in the next phase</span></h2>
-    <div class="menu">
-      <span>SEO &amp; AEO Audit</span><span>Content &amp; UX Audit</span><span>Ads Audit</span>
-      <span>Social Media Audit</span><span>Speed &amp; Performance</span><span>Accessibility</span>
-      <span>Compliance</span><span>Complete Audit</span>
-    </div>
+    <h2>Reports</h2>
+    {% if reports_menu %}
+      <p class="sub" style="margin:0 0 12px">Each one reads the same audit and
+        writes it up for the client. View it on screen, or download the branded
+        PDF to send.</p>
+      <table class="fixtbl">
+        <tbody>
+        {% for m in reports_menu %}
+          <tr>
+            <td class="num" style="width:118px;font-size:13px">
+              <span class="dot {{ m.severity }}"></span>
+              {%- if not m.measured -%}&mdash;
+              {%- elif m.failed -%}{{ m.failed }} to fix
+              {%- elif m.warned -%}{{ m.warned }} to improve
+              {%- else -%}clear{%- endif -%}
+            </td>
+            <td>
+              <b><a href="../report/{{ scan.public_id }}/{{ m.key }}">{{ m.title }}</a></b>
+              <div class="muted">{{ m.blurb }}</div>
+            </td>
+            <td style="width:86px;text-align:right;vertical-align:middle">
+              <a class="csv" href="../report/{{ scan.public_id }}/{{ m.key }}.pdf">PDF &darr;</a>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="sub" style="margin:0">Reports appear here once the audit
+        completes.</p>
+    {% endif %}
   </div>
 
   {% if scan.status == "complete" %}
