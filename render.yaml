@@ -170,6 +170,9 @@ services:
         value: "true"
       - key: SCANS_STUCK_MINUTES
         value: "30"
+      # IO Builder submissions post here.
+      - key: GHL_WEBHOOK_URL
+        sync: false
       # ---- shared ----
       - key: AUDIT_LOG_PATH
         value: /var/data/hub-audit.log.jsonl

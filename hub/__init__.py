@@ -589,6 +589,26 @@ def create_hub_app() -> Flask:
         from .knack_products import refresh
         return jsonify(refresh())
 
+    @app.route("/api/client/forms")
+    def api_client_forms():
+        """Suite forms with submissions, against the previous period."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .ghl_forms import summary
+        return jsonify(summary(request.args.get("name", ""),
+                               request.args.get("location", ""),
+                               request.args.get("period", "this_month")))
+
+    @app.route("/creative")
+    def page_creative():
+        """Creative tools, mirroring the Tools index."""
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("creative.html", user=current_user(),
+                               active="tools")
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.

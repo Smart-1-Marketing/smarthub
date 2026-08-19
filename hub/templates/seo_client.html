@@ -308,6 +308,34 @@ function imgAction(act){
   </div>
 </div>
 
+
+<script>
+/* The FAQ export already matches the source page's fonts and colours. The
+   Hub preview didn't, so what you approved looked nothing like what shipped —
+   and a preview that misrepresents the output is worse than no preview. This
+   applies the same palette here, scoped to the list so it can't leak into the
+   rest of the page. */
+function applyFaqPalette(style){
+  var el = document.getElementById('faqPalette');
+  if(!style){ if(el) el.remove(); return; }
+  if(!el){ el = document.createElement('style'); el.id='faqPalette'; document.head.appendChild(el); }
+  var f = function(v, fallback){ return v || fallback; };
+  el.textContent =
+    '#faqList{font-family:'+f(style.font,'inherit')+';'+
+      'color:'+f(style.text,'#1b2733')+'}'+
+    '#faqList .seoc-faqq{border:1px solid '+f(style.border,'#e2e8f0')+';'+
+      'background:'+f(style.panel,'#fff')+'}'+
+    '#faqList .seoc-faqq b,#faqList h4{font-family:'+f(style.heading_font, f(style.font,'inherit'))+';'+
+      'color:'+f(style.heading,'#0d2340')+'}'+
+    '#faqList a{color:'+f(style.accent,'#1769AA')+'}';
+  var note = document.getElementById('faqPaletteNote');
+  if(note){
+    note.textContent = 'Preview is using this page\'s own fonts and colours — '+
+      'the same ones the export applies.';
+  }
+}
+</script>
+
 {% endblock %}
 {% block content %}
 <div class="page-head seoc-head">
@@ -458,6 +486,7 @@ function imgAction(act){
       <div><b id="faqPageTitle"></b><div class="seoc-muted" id="faqPageUrl"></div></div>
       <button class="seoc-btn seoc-sec seoc-small" id="btnFaqCancel">Start over</button>
     </div>
+    <p id="faqPaletteNote" class="seoc-muted" style="font-size:11.5px;margin:0 0 8px"></p>
     <div id="faqList"></div>
     <div id="faqSavePrompt" class="seoc-next" style="display:none">
       <b>Every question has been handled. Save this page to this account?</b>
@@ -1872,6 +1901,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     var c=faqCounts();
     $('faqProgress').textContent=draft.items.length
       ? c.approved+' approved · '+c.skipped+' skipped · '+c.pending+' left to review' : '';
+    applyFaqPalette(draft.style);
     $('faqList').innerHTML=draft.items.map(function(it,i){
       var cls=it.state==='approved'?' approved':(it.state==='skipped'?' skipped':'');
       var state=it.state==='approved'?'<span class="seoc-faqstate ok">&#10003; Approved</span>'

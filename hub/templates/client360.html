@@ -199,6 +199,18 @@ function render(g,q){
     <div class="right"><a class="mini" href="/tools/utm/" target="_blank">Build links &rarr;</a></div></div>
     <div class="card-b" id="c-utm"><div class="empty">Loading…</div></div></div>`;
 
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">SUITE</span><h3>Form submissions</h3>
+    <div class="right"><select id="formsPeriod" onchange="loadForms(CURRENT_CLIENT)"
+      style="padding:4px 8px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit">
+      <option value="this_month">This month</option>
+      <option value="last_month">Last month</option>
+      <option value="this_quarter">This quarter</option>
+      <option value="this_year">This year</option>
+      <option value="last_30">Last 30 days</option>
+    </select></div></div>
+    <div class="card-b" id="c-forms"><div class="empty">Loading…</div></div></div>`;
+
   // ---------- Brand kit (logos, colours, fonts already cached per client) ----------
   html+=`<div class="card"><div class="card-h">
     <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Brandfetch</span><h3>Brand</h3>
@@ -1265,7 +1277,50 @@ function renderUtm(d){
       (d.count-12)+' more in the UTM Builder.</div>':'');
 }
 
+
+function arrow(dir){
+  if(dir==='up') return '<span style="color:#147d52">&#9650;</span>';
+  if(dir==='down') return '<span style="color:#b42318">&#9660;</span>';
+  return '<span class="muted">&#9644;</span>';
+}
+function renderForms(d){
+  var el=document.getElementById('c-forms'); if(!el) return;
+  if(d.error){ el.innerHTML='<div class="empty">'+esc(d.error)+'</div>'; return; }
+  if(!d.forms || !d.forms.length){
+    el.innerHTML='<div class="empty">No form submissions in '+esc(d.label||'this period')+'.'+
+      (d.no_submissions?' '+d.no_submissions+' form(s) exist but had none.':'')+'</div>';
+    return;
+  }
+  el.innerHTML =
+    '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px">'+
+      '<b style="font-size:22px">'+d.total+'</b>'+
+      '<span style="font-size:13px">'+arrow(d.total_direction)+' '+esc(d.total_text||'')+'</span>'+
+      '<span class="muted" style="font-size:11.5px;margin-left:auto">'+esc(d.label||'')+
+      ' · vs '+esc(d.compared_to||'')+'</span></div>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+    '<thead><tr><th style="text-align:left;padding:5px 6px;font-size:11px;color:#94a3b8;'+
+    'text-transform:uppercase">Form</th><th style="text-align:right;padding:5px 6px;font-size:11px;'+
+    'color:#94a3b8;text-transform:uppercase">Submissions</th>'+
+    '<th style="text-align:right;padding:5px 6px;font-size:11px;color:#94a3b8;'+
+    'text-transform:uppercase">vs previous</th></tr></thead><tbody>'+
+    d.forms.map(function(f){
+      return '<tr><td style="padding:6px;border-bottom:1px solid #f4f7fa">'+esc(f.name)+'</td>'+
+        '<td style="padding:6px;border-bottom:1px solid #f4f7fa;text-align:right"><b>'+f.submissions+'</b></td>'+
+        '<td style="padding:6px;border-bottom:1px solid #f4f7fa;text-align:right;white-space:nowrap">'+
+        arrow(f.direction)+' <span class="muted">'+esc(f.text)+'</span></td></tr>';
+    }).join('')+'</tbody></table>'+
+    (d.note?'<div class="muted" style="font-size:11.5px;margin-top:7px">'+esc(d.note)+'</div>':'');
+}
+function loadForms(name){
+  var sel=document.getElementById('formsPeriod');
+  var period = sel ? sel.value : 'this_month';
+  fetch('/api/client/forms?name='+encodeURIComponent(name)+'&period='+period,
+        {credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderForms).catch(function(){});
+}
+
 function loadBrandAndWork(name){
+  loadForms(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})

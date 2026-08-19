@@ -287,7 +287,10 @@ def index():
 def api_config():
     return jsonify({
         "io_api_base": os.getenv("IO_API_BASE", "https://insertionordersmart.onrender.com"),
-        "io_app_url": os.getenv("IO_APP_URL", "https://insertionordersmart.onrender.com"),
+        # Now mounted inside the Hub rather than iframed from Render, so it
+        # shares the login and can reach the client registry. The external URL
+        # still works as an override if the standalone app is ever needed.
+        "io_app_url": os.getenv("IO_APP_URL", "/tools/io/"),
         "ai_enabled": bool(os.getenv("OPENAI_API_KEY")),
     })
 

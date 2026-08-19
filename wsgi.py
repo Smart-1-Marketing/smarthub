@@ -48,6 +48,7 @@ _MOUNT_ACTIVE = {
     "/tools/image": "tools", "/tools/pdf": "tools", "/tools/seo-images": "tools",
     "/tools/image-creator": "tools", "/tools/bg-remover": "tools",
     "/tools/utm": "tools",
+    "/tools/io": "io_builder",
     "/tools/radio-promo": "radio_promo",
     "/tools/landing-ads": "landing_ads",
     "/tools/calculators": "calculators",
@@ -328,6 +329,13 @@ try:
 except Exception as _exc_landads:  # noqa: BLE001
     landads, landads_fb = None, _fallback_app("Landing Page Ads", str(_exc_landads))
 
+try:
+    import importlib as _il_iob
+    iob = _il_iob.import_module("modules.io_builder.app")
+    iob_fb = None
+except Exception as _exc_iob:  # noqa: BLE001
+    iob, iob_fb = None, _fallback_app("IO Builder", str(_exc_iob))
+
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
@@ -341,6 +349,7 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/utm": _mount(utm.app, "/tools/utm") if utm else utm_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
+    "/tools/io": _mount(iob.app, "/tools/io") if iob else iob_fb,
     "/tools/radio-promo": _mount(radiop.app, "/tools/radio-promo") if radiop else radiop_fb,
     "/tools/landing-ads": _mount(landads.app, "/tools/landing-ads") if landads else landads_fb,
     "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio") if fanrad else fanrad_fb,

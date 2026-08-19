@@ -427,7 +427,17 @@ def fetch_gtm_items(access_token, google_login):
     return items
 
 
+# The Business Profile APIs need per-project access granted by Google, on top
+# of the OAuth scope. Until that's approved every call returns 403, once per
+# connected account per sweep — noise that buries real errors in the deploy
+# log. Off by default; flip it on when Google approves.
+GMB_ENABLED = (os.environ.get("GOOGLE_GMB_ENABLED", "").strip().lower()
+               in {"1", "true", "yes", "on"})
+
+
 def fetch_gmb_items(access_token, google_login):
+    if not GMB_ENABLED:
+        return []
     items = []
     try:
         acct_data = google_get(

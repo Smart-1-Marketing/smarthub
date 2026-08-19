@@ -22,6 +22,7 @@ _ITEMS = [
     ("props", "/sales/proposals/", "&#9733;", "Proposal Builder"),
     ("_sec3", "", "", "Utilities"),
     ("tools", "/tools", "&#10022;", "Tools"),
+    ("creative", "/creative", "&#127912;", "Creative"),
     ("qa", "/qa", "&#10003;", "QA Reports"),
     ("activity", "/activity", "&#8801;", "Activity Log"),
     ("diagnostics", "/diagnostics", "&#9678;", "Diagnostics"),
