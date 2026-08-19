@@ -45,11 +45,16 @@
     { match: "website",        open: true  },
     { match: "ai engine",      open: true  },
     { match: "schema check",   open: true  },
-    { match: "schema questions", open: false },
-    { match: "schema builder", open: false },
-    { match: "faq builder",    open: false },
-    { match: "blogs",          open: false },
-    { match: "llms.txt",       open: false }
+    /* These default OPEN. They were collapsed so the page wasn't a long
+       scroll — but a feature nobody has seen yet, folded shut, is invisible:
+       you don't expand a section you don't know exists. Collapse is still
+       there per card, and the choice is remembered. Once someone has
+       collapsed one deliberately, that sticks. */
+    { match: "schema questions", open: true },
+    { match: "schema builder", open: true },
+    { match: "faq builder",    open: true },
+    { match: "blogs",          open: true },
+    { match: "llms.txt",       open: true }
   ];
 
   var CSS = [
@@ -102,8 +107,14 @@
     return null;
   }
 
+  /* Bumped when a default changes. Anyone who loaded the page while these
+     sections defaulted to collapsed has that remembered — without a new key
+     they would stay hidden forever and the fix would look like it did
+     nothing. */
+  var STORE_VERSION = "s1acc:v2";
+
   function storeKey(title) {
-    return "s1acc:" + location.pathname + ":" +
+    return STORE_VERSION + ":" + location.pathname + ":" +
       title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
   }
   function saved(title) {
