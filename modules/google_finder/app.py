@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import secrets
 import sqlite3
 import time
@@ -313,6 +314,42 @@ def fetch_ga_items(access_token, google_login):
     return items
 
 
+# Tag Manager enforces a low per-user request rate — far lower than Analytics.
+# With 150+ GTM accounts on one login, firing container requests back to back
+# means Google returns 429 for nearly all of them and every container is
+# skipped. That is why containers never appeared in the Hub: not missing
+# access, just rate limiting we weren't handling.
+_GTM_MIN_INTERVAL = float(os.environ.get("GTM_MIN_INTERVAL_SECONDS") or 0.35)
+_GTM_MAX_RETRIES = int(os.environ.get("GTM_MAX_RETRIES") or 4)
+_gtm_last_call = [0.0]
+
+
+def gtm_get(access_token, url, params=None):
+    """GET against Tag Manager, paced and retried on 429.
+
+    Spacing every call is what actually fixes this — retrying alone still
+    sends the first burst too fast and just moves the failures later.
+    """
+    for attempt in range(_GTM_MAX_RETRIES):
+        gap = time.time() - _gtm_last_call[0]
+        if gap < _GTM_MIN_INTERVAL:
+            time.sleep(_GTM_MIN_INTERVAL - gap)
+        _gtm_last_call[0] = time.time()
+        try:
+            return google_get(access_token, url, params=params)
+        except Exception as exc:                        # noqa: BLE001
+            is_429 = "429" in str(exc) or "Too Many Requests" in str(exc)
+            if not is_429 or attempt == _GTM_MAX_RETRIES - 1:
+                raise
+            # Exponential backoff with a little jitter, so parallel workers
+            # don't retry in lockstep and re-create the burst.
+            wait = (2 ** attempt) + random.uniform(0, 0.4)
+            logger.info("GTM rate limited, waiting %.1fs (attempt %d/%d)",
+                        wait, attempt + 1, _GTM_MAX_RETRIES)
+            time.sleep(wait)
+    return {}
+
+
 def fetch_gtm_items(access_token, google_login):
     items = []
     token = None
@@ -323,7 +360,7 @@ def fetch_gtm_items(access_token, google_login):
             params = {}
             if token:
                 params["pageToken"] = token
-            data = google_get(access_token, "https://tagmanager.googleapis.com/tagmanager/v2/accounts", params=params)
+            data = gtm_get(access_token, "https://tagmanager.googleapis.com/tagmanager/v2/accounts", params=params)
             accounts.extend(data.get("account", []))
             token = data.get("nextPageToken")
             if not token:
@@ -332,6 +369,7 @@ def fetch_gtm_items(access_token, google_login):
         logger.warning("Failed fetching GTM accounts for %s: %s", google_login, exc)
         return items
 
+    skipped: list[str] = []
     for acct in accounts:
         account_id = acct.get("accountId", "")
         account_name = acct.get("name", "")
@@ -344,7 +382,7 @@ def fetch_gtm_items(access_token, google_login):
                 params["pageToken"] = ctoken
 
             try:
-                data = google_get(
+                data = gtm_get(
                     access_token,
                     f"https://tagmanager.googleapis.com/tagmanager/v2/{parent}/containers",
                     params=params,
@@ -368,12 +406,24 @@ def fetch_gtm_items(access_token, google_login):
                     })
                 ctoken = data.get("nextPageToken")
             except Exception as exc:
-                logger.warning("Skipping container for GTM account %s (%s): %s", account_id, google_login, exc)
+                # One line per failure buried the signal in 150 lines of noise.
+                # Count them and report once at the end instead.
+                skipped.append(account_id)
+                if len(skipped) <= 3:
+                    logger.warning("Skipping containers for GTM account %s (%s): %s",
+                                   account_id, google_login, exc)
                 break
 
             if not ctoken:
                 break
 
+    if skipped:
+        # One summary line instead of 150 near-identical warnings — the
+        # volume was hiding the GMB 403 further down the same log.
+        logger.warning(
+            "GTM: %d of %d accounts skipped for %s after retries. "
+            "Raise GTM_MIN_INTERVAL_SECONDS if this persists.",
+            len(skipped), len(accounts), google_login)
     return items
 
 
