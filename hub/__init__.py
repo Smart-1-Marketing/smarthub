@@ -525,7 +525,7 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from . import scheduler as _sched
-        out = _sched.status()
+        out = _sched.status(app)
         out["boot_error"] = app.config.get("HUB_SCHEDULER_BOOT_ERROR")
         return jsonify(out)
 

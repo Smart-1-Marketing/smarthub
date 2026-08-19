@@ -314,8 +314,12 @@ function renderSched(d){
       'at client systems.</span></div>';
     return;
   }
-  el.innerHTML='<div class="diag-row"><span class="diag-pill p-'+
-    (d.running?"ok":"error")+'">'+(d.running?"on":"down")+'</span>'+
+  // A follower worker's thread exits by design, so d.running is false on it
+  // half the time. d.state is the honest signal: only "down" is a fault.
+  var pill = {leading:["ok","on"], standby:["ok","standby"],
+              down:["error","down"], off:["off","off"]}[d.state||"down"];
+  el.innerHTML='<div class="diag-row"><span class="diag-pill p-'+pill[0]+'">'+
+    pill[1]+'</span>'+
     '<span class="diag-name">Scheduler</span><span class="diag-detail">'+
     esc(d.note)+'</span></div>' +
     d.jobs.map(function(j){
@@ -373,11 +377,12 @@ function renderScheduler(d){
       '<span class="diag-name">Failed to start</span><span class="diag-detail">'+
       esc(d.boot_error)+'</span></div>'; return;
   }
-  var head='<div class="diag-row"><span class="diag-pill p-'+
-    (d.enabled? (d.running?"ok":"warn") : "off")+'">'+
-    (d.enabled?(d.running?"on":"idle"):"off")+'</span>'+
+  // Same three-state signal as renderSched — see the note there.
+  var p = {leading:["ok","on"], standby:["ok","standby"],
+           down:["error","down"], off:["off","off"]}[d.state||"down"];
+  var head='<div class="diag-row"><span class="diag-pill p-'+p[0]+'">'+
+    p[1]+'</span>'+
     '<span class="diag-name">Scheduler</span><span class="diag-detail">'+
-    (d.enabled?"":"Disabled — set HUB_SCHEDULER=true to enable. ")+
     esc(d.note||"")+'</span></div>';
   el.innerHTML = head + (d.jobs||[]).map(function(j){
     var state = j.ok===false ? "error" : (j.last_run ? "ok" : "off");
