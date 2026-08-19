@@ -166,7 +166,19 @@ def guess_fieldmap(fields, spec=None):
     spec = spec or config.FIELDS
     used = set()
     guessed = {}
+
+    # Confirmed ids win outright. Guessing by name is a fallback for fields
+    # nobody has pinned — it is not a second opinion on ones that are, and a
+    # renamed label must not be able to move a mapping that's already known
+    # to be right.
+    present = {f.get("key") for f in fields}
+    for key, fid in getattr(config, "CONFIRMED_FIELDS", {}).items():
+        if fid in present or not present:
+            guessed[key] = fid
+            used.add(fid)
     for entry in spec:
+        if entry["key"] in guessed:
+            continue                      # already pinned
         best, best_score = None, 0.0
         for field in fields:
             fname = text(field.get("name")).lower().strip()
