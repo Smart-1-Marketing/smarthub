@@ -53,6 +53,18 @@
     <div id="diag-integrity" class="diag-rows"><p class="diag-loading">Loading…</p></div>
   </section>
 
+  <!-- ---------------- Knack data freshness ---------------- -->
+  <section class="diag-card">
+    <h2>Knack data</h2>
+    <p class="diag-help">
+      Insertion orders and products. Until now these came from a JSON export
+      committed to the repo that nothing refreshed &mdash; so Client 360 showed
+      whatever was true on the day someone last exported it. This reads live
+      and reports how old the numbers are.
+    </p>
+    <div id="diag-knack" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+  </section>
+
   <!-- ---------------- background jobs ---------------- -->
   <section class="diag-card">
     <h2>Background jobs</h2>
@@ -62,6 +74,18 @@
       isn't the leader, that's normal: the other one is doing the work.
     </p>
     <div id="diag-sched" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+  </section>
+
+  <!-- ---------------- Knack data freshness ---------------- -->
+  <section class="diag-card">
+    <h2>Knack data</h2>
+    <p class="diag-help">
+      Insertion orders and products. Until now these came from a JSON export
+      committed to the repo that nothing refreshed &mdash; so Client 360 showed
+      whatever was true on the day someone last exported it. This reads live
+      and reports how old the numbers are.
+    </p>
+    <div id="diag-knack" class="diag-rows"><p class="diag-loading">Loading…</p></div>
   </section>
 
   <!-- ---------------- background jobs ---------------- -->
@@ -316,6 +340,32 @@ function runJob(name){
    .catch(function(){ alert("Could not run that job."); });
 }
 
+function renderKnack(d){
+  var el=document.getElementById("diag-knack"); if(!el) return;
+  var stale = d.age_minutes === null || d.age_minutes > (d.ttl_minutes||180)*2;
+  el.innerHTML='<div class="diag-row"><span class="diag-pill p-'+
+    (!d.configured?"error":stale?"warn":"ok")+'">'+
+    (d.configured?(d.cached_records||0):"off")+'</span>'+
+    '<span class="diag-name">IO products</span><span class="diag-detail">'+
+    (!d.configured
+      ? "KNACK_APP_ID / KNACK_API_KEY aren't set, so the Hub is showing the "+
+        "committed JSON export. That file is only as current as the last manual export."
+      : (d.cached_records||0)+" records"+
+        (d.age_minutes!==null?" · pulled "+d.age_minutes+" min ago":" · never pulled")+
+        " · refreshes every "+(d.ttl_minutes||180)+" min")+
+    '<em class="diag-fix">'+esc(d.note||"")+'</em>'+
+    (d.configured?' <button class="um-btn" style="margin:6px 0 0" '+
+      'onclick="refreshKnack()">Refresh now</button>':'')+
+    '</span></div>';
+}
+function refreshKnack(){
+  fetch("/api/knack/products/refresh",{method:"POST",credentials:"same-origin"})
+   .then(function(r){return r.json();}).then(function(d){
+     alert(d.error||("Pulled "+(d.fetched||0)+" products for "+(d.clients||0)+" clients."));
+     loadAll(true);
+   }).catch(function(){ alert("Could not refresh."); });
+}
+
 function renderScheduler(d){
   var el=document.getElementById("diag-scheduler"); if(!el) return;
   if(d.boot_error){
@@ -392,8 +442,12 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderIntegrity)
     .catch(function(){document.getElementById("diag-integrity").innerHTML=
       '<p class="diag-loading">Could not run the audit.</p>';});
+  fetch("/api/knack/products",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderKnack).catch(function(){});
   fetch("/api/scheduler",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderSched).catch(function(){});
+  fetch("/api/knack/products",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderKnack).catch(function(){});
   fetch("/api/scheduler",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderScheduler).catch(function(){});
   fetch("/api/scans/stuck",{credentials:"same-origin"})

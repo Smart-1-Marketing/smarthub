@@ -569,6 +569,26 @@ def create_hub_app() -> Flask:
         from . import blog_images as BI
         return jsonify(BI.status(request.args.get("client", "")))
 
+    @app.route("/api/knack/products")
+    def api_knack_products():
+        """Live IO products for a client, with how fresh the data is."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .knack_products import for_client, status
+        name = request.args.get("name", "")
+        if not name:
+            return jsonify(status())
+        return jsonify(for_client(name))
+
+    @app.route("/api/knack/products/refresh", methods=["POST"])
+    def api_knack_products_refresh():
+        gate = _require_api()
+        if gate:
+            return gate
+        from .knack_products import refresh
+        return jsonify(refresh())
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.

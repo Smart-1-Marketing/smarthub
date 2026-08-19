@@ -248,6 +248,21 @@ def job_refresh_invoice_links(app) -> dict:
         return {"error": type(exc).__name__}
 
 
+def job_refresh_knack_products(app) -> dict:
+    """Re-pull IO products from Knack.
+
+    These were served from a hand-made JSON export that nothing refreshed, so
+    Client 360 showed whatever was true on the day of the last export. Three
+    hours is frequent enough that a product going live today is visible today,
+    without hammering the API.
+    """
+    try:
+        from hub import knack_products
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    return knack_products.refresh()
+
+
 # name -> (every N minutes, function, human description)
 JOBS = {
     "clear_stuck_scans": (15, job_clear_stuck_scans,
@@ -256,6 +271,8 @@ JOBS = {
                           "Roll the activity log before it fills the disk."),
     "quota_warnings":    (240, job_quota_warnings,
                           "Record providers past their monthly warning mark."),
+    "knack_products":    (180, job_refresh_knack_products,
+                          "Re-pull IO products and campaigns from Knack."),
     "invoice_links":     (480, job_refresh_invoice_links,
                           "Refresh public QuickBooks invoice links (3x daily)."),
 }

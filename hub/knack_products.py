@@ -1,0 +1,338 @@
+"""Knack object_135 — IO products, read live.
+
+Products, campaigns and insertion orders have been served from JSON files
+exported by hand into `clients_app/data/`. Nothing refreshed them, so Client
+360 showed whatever was true on the day of the last export. That's why Icon
+Solar's insertion orders looked stale: they were.
+
+This reads the same records from the Knack API. The static files stay as a
+fallback — if Knack is unreachable the Hub shows old data with a visible age
+rather than an empty page, because a blank client record reads as "we have no
+products" rather than "we couldn't reach Knack".
+
+## Caching
+
+object_135 is large — every product on every IO. A page render can't afford a
+full pull, so records are cached on disk with a TTL and refreshed by the
+scheduler. `age_minutes` is returned with every read so the UI can say how
+fresh the number is instead of implying it's live.
+
+## Field ids
+
+Pinned as named constants. Knack field ids are opaque, and `field_2338`
+appearing inline three files away is unmaintainable. If Knack renumbers, this
+is the one file to change.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+from datetime import datetime, timezone
+
+OBJECT = "object_135"
+
+# --- object_135 field map -------------------------------------------------
+F_PRODUCT_NUM      = "field_2640"   # Product #
+F_PRODUCT_NAME     = "field_2775"   # Product Name
+F_PRODUCT_TYPE     = "field_2467"   # Product Type - Text
+F_TACTICS          = "field_2805"   # Tactic(s)
+F_IO               = "field_2311"   # Insertion Order
+F_IO_NUM           = "field_2469"   # IO #
+F_START            = "field_2299"   # Start Date
+F_END              = "field_2313"   # End Date
+F_STATUS           = "field_2300"   # Status
+F_IO_STATUS        = "field_2581"   # IO Status
+F_CLIENT           = "field_2308"   # Client
+F_CLIENT_ORG       = "field_2870"   # Client Organization
+F_MEDIA_PARTNER    = "field_2307"   # Media Partner
+F_IO_CAMPAIGN      = "field_2309"   # IO Campaign Name
+F_PROD_CAMPAIGN    = "field_3340"   # Product Campaign Name
+F_DISPLAY_CAMPAIGN = "field_3341"   # Display Campaign Name
+F_MONTHLY_COST     = "field_2338"   # Monthly Cost
+F_TOTAL_COST       = "field_2339"   # Total Cost
+F_MO_BILLING       = "field_3206"   # Mo Billing Amount
+F_DASHBOARD_URL    = "field_2820"   # Dashboard URL
+F_DASH_VALUE       = "field_2976"   # Client Dashboard URL Value
+F_TRAFFICKER       = "field_2312"   # Trafficker
+F_SALES            = "field_3322"   # Internal Sales
+F_RECORD_ID        = "field_3370"   # Record ID
+F_CLICK_THRU       = "field_2413"   # Click Thru URL
+F_GEO              = "field_2546"   # Geographic Target
+
+CACHE_NAME = "knack_products.json"
+DEFAULT_TTL_MINUTES = 180
+
+
+# ---------------------------------------------------------------------------
+# Value coercion
+# ---------------------------------------------------------------------------
+
+def _href(v) -> str:
+    """Pull the URL out of a Knack link field.
+
+    Link fields arrive as HTML — <a href="...">Dashboard</a> — and _text()
+    correctly returns the label. For a dashboard we want the destination, and
+    "Dashboard" as a URL silently produces a broken link on every product row.
+    """
+    if isinstance(v, dict):
+        for k in ("url", "href", "value"):
+            if v.get(k):
+                return str(v[k]).strip()
+    m = re.search(r'href=[\'"]([^\'"]+)', str(v or ""))
+    if m:
+        return m.group(1).strip()
+    t = _text(v)
+    return t if t.startswith("http") else ""
+
+
+def _text(v) -> str:
+    """Knack returns strings, dicts, lists of connections, and HTML."""
+    if v is None:
+        return ""
+    if isinstance(v, list):
+        return ", ".join(x for x in (_text(i) for i in v) if x)
+    if isinstance(v, dict):
+        for k in ("identifier", "label", "name", "value", "url", "email"):
+            if v.get(k):
+                return str(v[k]).strip()
+        return ""
+    s = re.sub(r"<[^>]+>", " ", str(v))
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _money(v) -> float:
+    s = re.sub(r"[^0-9.\-]", "", _text(v))
+    try:
+        return round(float(s), 2) if s not in ("", "-", ".") else 0.0
+    except ValueError:
+        return 0.0
+
+
+def _date(v) -> str:
+    """Knack dates arrive as {'date': '01/2026', 'iso_timestamp': ...}."""
+    if isinstance(v, dict):
+        iso = v.get("iso_timestamp") or v.get("date_formatted") or v.get("date")
+        if iso:
+            return str(iso)[:10]
+    return _text(v)[:10]
+
+
+def _row(rec: dict) -> dict:
+    """One product, flattened. Campaign name is carried deliberately — it was
+    missing from the IO list, and a product without its campaign can't be
+    matched to the creative made for it."""
+    campaign = (_text(rec.get(F_PROD_CAMPAIGN))
+                or _text(rec.get(F_DISPLAY_CAMPAIGN))
+                or _text(rec.get(F_IO_CAMPAIGN)))
+    return {
+        "id": rec.get("id", ""),
+        "record_id": _text(rec.get(F_RECORD_ID)),
+        "product_num": _text(rec.get(F_PRODUCT_NUM)),
+        "product": (_text(rec.get(F_PRODUCT_NAME))
+                    or _text(rec.get(F_PRODUCT_TYPE))),
+        "kind": _text(rec.get(F_PRODUCT_TYPE)),
+        "tactics": _text(rec.get(F_TACTICS)),
+        "io": _text(rec.get(F_IO_NUM)) or _text(rec.get(F_IO)),
+        "campaign": campaign,
+        "client": _text(rec.get(F_CLIENT)),
+        "organization": _text(rec.get(F_CLIENT_ORG)),
+        "partner": _text(rec.get(F_MEDIA_PARTNER)),
+        "sales": _text(rec.get(F_SALES)),
+        "trafficker": _text(rec.get(F_TRAFFICKER)),
+        "status": _text(rec.get(F_STATUS)),
+        "io_status": _text(rec.get(F_IO_STATUS)),
+        "start": _date(rec.get(F_START)),
+        "end": _date(rec.get(F_END)),
+        "monthly": _money(rec.get(F_MONTHLY_COST)),
+        "total": _money(rec.get(F_TOTAL_COST)),
+        "billing": _money(rec.get(F_MO_BILLING)),
+        "dash": (_href(rec.get(F_DASHBOARD_URL))
+                 or _href(rec.get(F_DASH_VALUE))),
+        "url": _href(rec.get(F_CLICK_THRU)) or _text(rec.get(F_CLICK_THRU)),
+        "geo": _text(rec.get(F_GEO)),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Cache
+# ---------------------------------------------------------------------------
+
+def _cache_path() -> str:
+    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, CACHE_NAME)
+
+
+def _read_cache() -> dict:
+    try:
+        with open(_cache_path(), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_cache(rows: list[dict]) -> None:
+    payload = {"fetched": time.time(), "count": len(rows), "rows": rows}
+    tmp = _cache_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh)
+    os.replace(tmp, _cache_path())      # atomic — a crash can't truncate it
+
+
+def configured() -> bool:
+    return bool((os.environ.get("KNACK_APP_ID") or "").strip()
+                and (os.environ.get("KNACK_API_KEY") or "").strip())
+
+
+# ---------------------------------------------------------------------------
+# Fetch
+# ---------------------------------------------------------------------------
+
+def fetch(limit: int = 12000) -> list[dict]:
+    """Pull every product from Knack. Returns [] rather than raising."""
+    if not configured():
+        return []
+    import requests
+    headers = {"X-Knack-Application-Id": os.environ["KNACK_APP_ID"].strip(),
+               "X-Knack-REST-API-Key": os.environ["KNACK_API_KEY"].strip(),
+               "Accept": "application/json"}
+    out, page = [], 1
+    while len(out) < limit and page <= 120:
+        try:
+            r = requests.get(
+                f"https://api.knack.com/v1/objects/{OBJECT}/records",
+                headers=headers,
+                params={"page": page, "rows_per_page": 1000},
+                timeout=45)
+            if not r.ok:
+                break
+            data = r.json()
+        except Exception:                               # noqa: BLE001
+            break
+        recs = data.get("records") or []
+        if not recs:
+            break
+        out.extend(_row(rec) for rec in recs)
+        total_pages = int(data.get("total_pages") or 1)
+        if page >= total_pages:
+            break
+        page += 1
+    return out[:limit]
+
+
+def refresh() -> dict:
+    """Re-pull and cache. Called by the scheduler."""
+    if not configured():
+        return {"skipped": "KNACK_APP_ID / KNACK_API_KEY not set."}
+    rows = fetch()
+    if not rows:
+        # Never overwrite a good cache with nothing — a transient Knack
+        # failure would otherwise empty every client record at once.
+        old = _read_cache()
+        return {"error": "Knack returned no records; kept the existing cache.",
+                "cached": old.get("count", 0)}
+    _write_cache(rows)
+    try:
+        from hub import audit
+        audit.log("knack", "products_refreshed", count=len(rows))
+    except Exception:                                   # noqa: BLE001
+        pass
+    return {"fetched": len(rows),
+            "clients": len({r["client"] for r in rows if r["client"]})}
+
+
+def rows(max_age_minutes: int | None = None) -> dict:
+    """Cached products, refreshing if stale. Falls back to the export."""
+    ttl = max_age_minutes if max_age_minutes is not None else int(
+        os.environ.get("KNACK_PRODUCTS_TTL_MINUTES") or DEFAULT_TTL_MINUTES)
+    cache = _read_cache()
+    age = (time.time() - cache.get("fetched", 0)) / 60 if cache else 1e9
+
+    if cache and age <= ttl:
+        return {"rows": cache.get("rows", []), "source": "knack",
+                "age_minutes": round(age), "count": cache.get("count", 0)}
+
+    if configured():
+        got = fetch()
+        if got:
+            _write_cache(got)
+            return {"rows": got, "source": "knack", "age_minutes": 0,
+                    "count": len(got)}
+
+    if cache.get("rows"):
+        # Stale beats empty: a blank client record reads as "no products",
+        # which is a different and wrong statement.
+        return {"rows": cache["rows"], "source": "knack (stale)",
+                "age_minutes": round(age), "count": cache.get("count", 0),
+                "note": "Knack couldn't be reached — showing the last "
+                        "successful pull."}
+
+    return _from_export()
+
+
+def _from_export() -> dict:
+    """The old static JSON, used only when there's no cache at all."""
+    try:
+        from hub import knack_data
+        base = knack_data.BASE
+        path = os.path.join(base, "products.json")
+        mtime = os.path.getmtime(path)
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        raw = data if isinstance(data, list) else data.get("records", [])
+        return {"rows": raw, "source": "static export",
+                "age_minutes": round((time.time() - mtime) / 60),
+                "count": len(raw),
+                "note": "From the committed JSON export, which nothing "
+                        "refreshes. Set KNACK_APP_ID and KNACK_API_KEY to "
+                        "read live."}
+    except Exception:                                   # noqa: BLE001
+        return {"rows": [], "source": "none", "age_minutes": None, "count": 0,
+                "note": "No live connection and no export on disk."}
+
+
+def _norm(v: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(v or "").lower())
+
+
+def for_client(client: str) -> dict:
+    """Every product for one client, newest first.
+
+    Matches on client and organisation, since Knack holds both and a product
+    is filed under whichever the salesperson used.
+    """
+    data = rows()
+    want = _norm(client)
+    mine = [r for r in data["rows"]
+            if _norm(r.get("client")) == want or _norm(r.get("organization")) == want]
+    mine.sort(key=lambda r: str(r.get("start") or ""), reverse=True)
+    live = [r for r in mine if str(r.get("status", "")).lower() == "live"]
+    return {
+        "client": client, "products": mine, "count": len(mine),
+        "live": len(live),
+        "monthly": round(sum(r.get("monthly", 0) for r in live), 2),
+        "campaigns": sorted({r["campaign"] for r in mine if r.get("campaign")}),
+        "source": data["source"], "age_minutes": data["age_minutes"],
+        "note": data.get("note", ""),
+    }
+
+
+def status() -> dict:
+    """Freshness, for Diagnostics."""
+    cache = _read_cache()
+    age = (time.time() - cache.get("fetched", 0)) / 60 if cache else None
+    return {
+        "configured": configured(),
+        "cached_records": cache.get("count", 0),
+        "age_minutes": round(age) if age is not None else None,
+        "last_refresh": (datetime.fromtimestamp(cache["fetched"], tz=timezone.utc)
+                         .isoformat(timespec="seconds") if cache.get("fetched") else None),
+        "ttl_minutes": int(os.environ.get("KNACK_PRODUCTS_TTL_MINUTES")
+                           or DEFAULT_TTL_MINUTES),
+        "note": ("Reading live from Knack." if cache.get("count") else
+                 "No live pull yet — Client 360 is showing the static export, "
+                 "which nothing refreshes."),
+    }
