@@ -1,3 +1,26 @@
+/* Skip the builder's own sign-in when the Hub has already authenticated.
+   This tool ran standalone before it moved into the Hub, so it carries a
+   login screen that is now a second password prompt for someone already
+   signed in — the single most visible reason it felt like a different app. */
+(function () {
+  fetch("api/session", { credentials: "same-origin" })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.hub_session) return;
+      document.body.classList.add("hub-embedded");
+      var login = document.getElementById("login");
+      if (login) login.classList.add("hidden");
+      var app = document.getElementById("app");
+      if (app) app.classList.remove("hidden");
+      document.querySelectorAll(".wordmark").forEach(function (w) {
+        // The Hub sidebar already says where you are.
+        if (!w.classList.contains("light")) w.classList.add("hidden");
+      });
+      if (window.boot) { try { window.boot(); } catch (e) {} }
+    })
+    .catch(function () { /* fall back to the built-in login */ });
+})();
+
 /* Smart 1 Proposal Builder — frontend */
 "use strict";
 const $ = (s) => document.querySelector(s);

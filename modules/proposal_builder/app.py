@@ -75,6 +75,20 @@ def login():
     return jsonify({"ok": True, "token": AUTH_TOKEN})
 
 
+@app.route("/api/session")
+def api_session():
+    """Whether the Hub has already authenticated this request.
+
+    The builder ships its own sign-in screen from when it ran standalone.
+    Inside the Hub that's a second login for someone already logged in, so the
+    UI skips it when this reports true.
+    """
+    return jsonify({
+        "hub_session": bool(request.environ.get("s1hub.user")),
+        "user": request.environ.get("s1hub.user") or "",
+    })
+
+
 @app.route("/api/config")
 def config():
     gate = _guard()
@@ -129,6 +143,46 @@ def _ai_blocks(industry_key, customer):
     return blocks if isinstance(blocks, list) and len(blocks) >= 4 else None
 
 
+@app.route("/api/proposals/<pid>/convert-to-io", methods=["POST"])
+def convert_to_io(pid):
+    """Hand a saved proposal to the IO Builder as a campaign spec.
+
+    Nothing is submitted — the IO intake still walks the rep through it, with
+    the proposal's figures pre-entered and flagged as offers rather than
+    agreements.
+    """
+    gate = _guard()
+    if gate:
+        return gate
+    record = store.get_proposal(pid)
+    if not record:
+        return jsonify({"error": "No such proposal."}), 404
+    spec = record.get("spec")
+    if not spec:
+        # Older proposals predate the spec — rebuild from their blocks.
+        latest = (record.get("versions") or [{}])[-1]
+        spec = _spec_from_proposal(record, latest.get("blocks") or [],
+                                   record.get("customer") or {},
+                                   record.get("industry") or "")
+        if not spec:
+            return jsonify({"error": "Couldn't build a campaign from this "
+                                     "proposal — it has no pricing tier."}), 400
+    try:
+        from hub.campaign_spec import CampaignSpec, to_io_payload
+        payload = to_io_payload(CampaignSpec.from_dict(spec))
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Conversion failed ({type(exc).__name__})."}), 500
+    payload["proposal_id"] = pid
+    payload["io_url"] = f"/tools/io/?spec={pid}&mode=from_proposal"
+    try:
+        from hub import audit
+        audit.log("proposal_builder", "converted_to_io",
+                  client=spec.get("client", ""), proposal=pid)
+    except Exception:  # noqa: BLE001
+        pass
+    return jsonify(payload)
+
+
 @app.route("/api/generate", methods=["POST"])
 def generate():
     gate = _guard()
@@ -155,6 +209,66 @@ def generate():
 
 
 # ---------------- Save ----------------
+def _spec_from_proposal(record, blocks, customer, industry):
+    """Build the shared CampaignSpec from what the proposal already contains.
+
+    The proposal has always produced real campaign data — the recommended
+    tier, its price, and the services in it — and then kept it only inside
+    prose. That is why a proposal could never become an IO: the numbers
+    existed but not in a shape anything could read.
+
+    Nothing here is marked agreed. A proposal is an offer.
+    """
+    try:
+        from hub.campaign_spec import CampaignSpec, LineItem, NEEDS, PROPOSED
+    except Exception:                                   # noqa: BLE001
+        return None
+
+    spec = CampaignSpec(
+        client=(customer or {}).get("business_name", ""),
+        website=(customer or {}).get("website", ""),
+        city=(customer or {}).get("city", ""),
+        state=(customer or {}).get("state", ""),
+        contact_name=(customer or {}).get("contact_name", ""),
+        contact_email=(customer or {}).get("contact_email", ""),
+        contact_phone=(customer or {}).get("contact_phone", ""),
+        industry=industry or "",
+        stage="proposal",
+        source=f"proposal {record.get('id', '')}",
+    )
+
+    inv = _derive_investment(blocks) or {}
+    if inv.get("monthly"):
+        spec.monthly_total = float(inv["monthly"])
+        spec.confidence["monthly_total"] = PROPOSED
+        spec.campaign = inv.get("pkg", "")
+
+    # Services inside the recommended tier become line items, so the IO knows
+    # what was actually offered rather than just the total.
+    for b in blocks or []:
+        if b.get("type") != "tiers":
+            continue
+        data = b.get("data") or {}
+        tiers = data.get("tiers") or []
+        try:
+            idx = int(data.get("recommended") or 0)
+        except (TypeError, ValueError):
+            idx = 0
+        tier = tiers[idx] if 0 <= idx < len(tiers) else (tiers[0] if tiers else {})
+        for line in (tier.get("includes") or tier.get("items") or []):
+            name = line if isinstance(line, str) else str(line.get("name") or "")
+            if name.strip():
+                spec.items.append(LineItem(product=name.strip(),
+                                           confidence=PROPOSED))
+        break
+
+    for key in ("client", "website", "city", "state", "industry"):
+        if getattr(spec, key, ""):
+            spec.confidence.setdefault(key, NEEDS)
+    spec.recalculate()
+    return spec.to_dict()
+
+
 def _derive_investment(blocks):
     for b in blocks or []:
         if b.get("type") == "tiers" and isinstance((b.get("data") or {}).get("tiers"), list):
@@ -206,6 +320,12 @@ def save_proposal():
     })
     inv = _derive_investment(blocks)
     record["recommended_package"] = inv["pkg"]
+    # Store the structured spec alongside the prose so this proposal can
+    # become an IO later without anyone retyping it.
+    try:
+        record["spec"] = _spec_from_proposal(record, blocks, customer, industry)
+    except Exception:  # noqa: BLE001
+        record["spec"] = None
     record["monthly_investment"] = inv["monthly"]
 
     # 1) PDF

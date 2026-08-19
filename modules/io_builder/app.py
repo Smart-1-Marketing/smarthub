@@ -454,6 +454,39 @@ def _next_order_number():
                    "server restart. Confirm it is unique before finalizing the IO.")
         return str(next_number), "temporary", warning
 
+@app.get("/api/spec-in")
+def api_spec_in():
+    """Load a campaign spec to start from — a proposal, a client, or a renewal.
+
+    This is what makes the two tools one workflow: the IO doesn't re-ask what
+    the proposal already established, it loads it and asks only what's still
+    unconfirmed.
+    """
+    from flask import request as _rq
+    pid = (_rq.args.get("spec") or "").strip()
+    client = (_rq.args.get("client") or "").strip()
+    mode = (_rq.args.get("mode") or "").strip()
+    try:
+        from hub.campaign_spec import CampaignSpec, from_client, from_last_io, to_io_payload
+        if pid:
+            from modules.proposal_builder import store as pstore
+            rec = pstore.get_proposal(pid) or {}
+            spec_d = rec.get("spec")
+            if not spec_d:
+                return jsonify({"error": "That proposal has no campaign data."}), 404
+            return jsonify(to_io_payload(CampaignSpec.from_dict(spec_d)))
+        if mode == "renewal" and client:
+            spec = from_last_io(client)
+            if not spec:
+                return jsonify({"error": "No previous IO for that client."}), 404
+            return jsonify(to_io_payload(spec))
+        if client:
+            return jsonify(to_io_payload(from_client(client)))
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Couldn't load that ({type(exc).__name__})."}), 200
+    return jsonify({"fields": {}, "products": [], "ask": []})
+
+
 @app.get("/api/clients")
 def api_clients():
     """Clients from the Hub's registry, for the picker.
