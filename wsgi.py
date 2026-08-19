@@ -126,6 +126,17 @@ class HubBar:
         finally:
             if hasattr(result, "close"):
                 result.close()
+
+        # A page loaded inside an iframe must not get the sidebar: Sales
+        # Builder frames /tools/io/, so injecting chrome there puts a full
+        # navigation column inside a frame on a page that already has one.
+        # ?embed=1 is the opt-out, and Sec-Fetch-Dest catches browsers that
+        # send it without needing the caller to remember.
+        qs = environ.get("QUERY_STRING", "")
+        if ("embed=1" in qs
+                or environ.get("HTTP_SEC_FETCH_DEST") in ("iframe", "frame")):
+            start_response(status, headers, captured.get("exc_info"))
+            return [body]
         # The help/demo layer has to be injected here, not put in base.html:
         # every module is a standalone Flask app mounted through
         # DispatcherMiddleware with its own <html>, so none of them inherit the

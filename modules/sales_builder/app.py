@@ -290,7 +290,7 @@ def api_config():
         # Now mounted inside the Hub rather than iframed from Render, so it
         # shares the login and can reach the client registry. The external URL
         # still works as an override if the standalone app is ever needed.
-        "io_app_url": os.getenv("IO_APP_URL", "/tools/io/"),
+        "io_app_url": os.getenv("IO_APP_URL", "/tools/io/?embed=1"),
         "ai_enabled": bool(os.getenv("OPENAI_API_KEY")),
     })
 
