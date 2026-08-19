@@ -336,6 +336,12 @@ function applyFaqPalette(style){
 }
 </script>
 
+<style>
+/* Two columns above 720px, one below — a phone doesn't have room for two
+   label/value columns without the values wrapping to nothing. */
+.site-cols{display:grid;grid-template-columns:1fr;gap:0 26px}
+@media(min-width:720px){.site-cols{grid-template-columns:1fr 1fr}}
+</style>
 {% endblock %}
 {% block content %}
 <div class="page-head seoc-head">
@@ -362,7 +368,9 @@ function applyFaqPalette(style){
 
 <div class="seoc-grid">
   <div class="card seoc-card" id="cardAccounts"><h3>Accounts</h3><div id="accBody">Loading&hellip;</div></div>
-  <div class="card seoc-card" id="cardSite"><h3>Website</h3><div id="siteBody">Loading&hellip;</div></div>
+  <div class="card seoc-card" id="cardSite">
+  <div class="seoc-cardhead"><h3>Website</h3><div class="right"></div></div>
+  <div id="siteBody">Loading&hellip;</div></div>
 </div>
 
 <div class="card seoc-card" id="cardSocial">
@@ -943,26 +951,48 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
 
     safe('website', function(){
     var w=(d.websites||[])[0]||{};
-    var s='';
-    s+=kv('Website', siteUrl?'<a href="'+esc(siteUrl)+'" target="_blank">'+esc(siteUrl)+'</a>':'<span class="seoc-warn">no site on file</span>');
-    /* Straight into the site's admin, so nobody has to remember whether a
-       given client is WordPress or Smart 1 Sites and type the path by hand. */
+
+    /* Two columns. This was one tall stack of label/value rows, which made
+       the card the longest thing on the page for about eight short facts. */
+    var left = '', right = '';
+    left += kv('Website', siteUrl
+      ? '<a href="'+esc(siteUrl)+'" target="_blank" rel="noopener">'+esc(siteUrl)+'</a>'
+      : '<span class="seoc-warn">no site on file</span>');
+    left += kv('Site type', esc(w.platform||d.platform||'Unknown'));
+    if(w.status) left += kv('Status', esc(w.status));
+    if(d.setup && d.setup.access_method) left += kv('Access', esc(d.setup.access_method));
+
+    if(w.go_live) right += kv('Go live', esc(w.go_live));
+    if(w.hosting_fee) right += kv('Hosting', esc(w.hosting_fee));
+    if(d.setup && d.setup.blogs_enabled === 'yes')
+      right += kv('Blogs', esc((d.setup.blogs_per_month||'?')+' / month, '+(d.setup.blogs_frequency||'')));
+    if(w.media_partner) right += kv('Partner', esc(w.media_partner));
+    if(!right) right = '<div class="muted" style="font-size:12px">Nothing else on file.</div>';
+
+    /* The login goes in the card header as a proper action, not squeezed into
+       a label/value row where it read as a value rather than a button. */
     var plat = String(w.platform||d.platform||'').toLowerCase();
     var loginPath = plat.indexOf('wordpress')>-1 ? '/wp-admin'
                   : (plat.indexOf('simvoly')>-1 || plat.indexOf('smart 1')>-1
                      || plat.indexOf('smart1')>-1) ? '/login' : '';
+    var action = '';
     if(siteUrl && loginPath){
       var base = String(siteUrl).replace(/\/+$/,'');
-      s+=kv('Log in', '<a class="seoc-btn" href="'+esc(base+loginPath)+'" target="_blank" '+
-            'rel="noopener">Log in to site &#8599;</a> <span class="muted" style="font-size:11.5px">'+
-            esc(base.replace(/^https?:\/\//,'')+loginPath)+'</span>');
+      /* Secondary, small. A solid blue primary button in a card header reads
+         as "the main thing on this page", which logging in to the client's
+         site is not — it competes with every other card for attention. */
+      action = '<a class="seoc-btn seoc-sec seoc-small" href="'+esc(base+loginPath)+'" target="_blank" '+
+               'rel="noopener" title="Opens '+esc(base.replace(/^https?:\/\//,'')+loginPath)+
+               '">Log in to site &#8599;</a>';
     }
-    s+=kv('Site type', esc(w.platform||d.platform||'Unknown'));
-    if(w.status) s+=kv('Status', esc(w.status));
-    if(d.setup && d.setup.access_method) s+=kv('Access', esc(d.setup.access_method));
-    if(d.setup && d.setup.blogs_enabled==='yes')
-      s+=kv('Blogs', esc((d.setup.blogs_per_month||'?')+' / month, '+(d.setup.blogs_frequency||'')));
-    $('siteBody').innerHTML=s;
+    var head = document.querySelector('#cardSite .seoc-cardhead .right');
+    if(head) head.innerHTML = action;
+
+    $('siteBody').innerHTML =
+      '<div class="site-cols">'+
+        '<div>'+left+'</div>'+
+        '<div>'+right+'</div>'+
+      '</div>';
     });
 
     safe('downloads', function(){

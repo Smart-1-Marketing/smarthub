@@ -3,6 +3,7 @@ import io
 import json
 import math
 import os
+import re
 import secrets
 from decimal import Decimal, InvalidOperation
 from functools import wraps
