@@ -53,6 +53,17 @@
     <div id="diag-integrity" class="diag-rows"><p class="diag-loading">Loading…</p></div>
   </section>
 
+  <!-- ---------------- stalled scans ---------------- -->
+  <section class="diag-card">
+    <h2>Site scans</h2>
+    <p class="diag-help">
+      An Insites audit normally takes one to four minutes. Anything running
+      much longer has stalled &mdash; and a stalled scan looks exactly like
+      work in progress, so nobody investigates it until someone counts.
+    </p>
+    <div id="diag-scans" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+  </section>
+
   <!-- ---------------- database structure ---------------- -->
   <section class="diag-card">
     <h2>Database structure</h2>
@@ -246,6 +257,34 @@ function renderStructure(d){
   }).join("") || head;
 }
 
+function renderScans(d){
+  var el=document.getElementById("diag-scans"); if(!el) return;
+  if(d.error){ el.innerHTML='<div class="diag-row"><span class="diag-pill p-off">n/a</span>'+
+    '<span class="diag-detail">'+esc(d.error)+'</span></div>'; return; }
+  var b=d.buckets||{};
+  el.innerHTML='<div class="diag-row">'+
+    '<span class="diag-pill p-'+(d.state==="error"?"error":d.state==="warn"?"warn":"ok")+'">'+
+    d.running+'</span><span class="diag-name">Running now</span>'+
+    '<span class="diag-detail">'+
+    (b.under_15m||0)+' under 15 min · '+(b["15m_to_1h"]||0)+' up to an hour · '+
+    (b.over_1h||0)+' over an hour'+
+    (b.unresolvable?' · <b>'+b.unresolvable+' unresolvable</b>':'')+
+    (d.oldest_minutes?' · oldest '+d.oldest_minutes+' min':'')+
+    '<em class="diag-fix">'+esc(d.advice)+'</em></span></div>'+
+    (d.running?'<div class="diag-row"><span class="diag-pill p-off">fix</span>'+
+      '<span class="diag-name">Clear stalled</span><span class="diag-detail">'+
+      '<button class="um-btn" onclick="clearStuck()" style="margin:0">Clear stuck scans</button> '+
+      'Re-pulls anything Insites can still resolve; marks the rest errored so they can be re-run. '+
+      'No credits are spent.</span></div>':'');
+}
+function clearStuck(){
+  if(!confirm("Check every scan stuck on running?\n\nNo credits are spent.")) return;
+  fetch("/scans/api/scans/reap-stuck",{method:"POST",credentials:"same-origin",
+    headers:{"Content-Type":"application/json"},body:JSON.stringify({older_than_minutes:30})})
+   .then(function(r){return r.json();}).then(function(d){ alert(d.message||"Done."); loadAll(true); })
+   .catch(function(){ alert("Could not reach the Scans module."); });
+}
+
 function loadAll(force){
   if(force){
     document.getElementById("diag-checks").innerHTML='<p class="diag-loading">Running checks…</p>';
@@ -258,6 +297,8 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderIntegrity)
     .catch(function(){document.getElementById("diag-integrity").innerHTML=
       '<p class="diag-loading">Could not run the audit.</p>';});
+  fetch("/api/scans/stuck",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderScans).catch(function(){});
   fetch("/api/db/urls",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(function(d){
       var el=document.getElementById("diag-structure"); if(!el) return;

@@ -419,6 +419,61 @@ def create_hub_app() -> Flask:
         from .analytics_ids import audit_all
         return jsonify(audit_all())
 
+    @app.route("/api/scans/stuck")
+    def api_scans_stuck():
+        """How many scans are stuck, and how long they've been there.
+
+        Surfaced on Diagnostics because a stalled scan is an operational
+        problem, not something you'd think to go looking for on the Scans
+        page — it looks like work in progress until somebody counts.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        try:
+            from modules.scans.app import Scan, SessionLocal
+            from datetime import datetime, timedelta, timezone
+            db = SessionLocal()
+            try:
+                rows = db.query(Scan).filter(Scan.status == "running").all()
+                now = datetime.now(timezone.utc)
+                buckets = {"under_15m": 0, "15m_to_1h": 0, "over_1h": 0,
+                           "unresolvable": 0}
+                oldest = None
+                for r in rows:
+                    c = r.created_at
+                    if c is not None and c.tzinfo is None:
+                        c = c.replace(tzinfo=timezone.utc)
+                    age = (now - c).total_seconds() / 60 if c else 0
+                    oldest = max(oldest or 0, age)
+                    if not r.insites_report_id and age > 30:
+                        buckets["unresolvable"] += 1
+                    elif age < 15:
+                        buckets["under_15m"] += 1
+                    elif age < 60:
+                        buckets["15m_to_1h"] += 1
+                    else:
+                        buckets["over_1h"] += 1
+            finally:
+                db.close()
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"Scans unavailable ({type(exc).__name__})."}), 200
+        total = sum(buckets.values())
+        return jsonify({
+            "running": total, "buckets": buckets,
+            "oldest_minutes": round(oldest) if oldest else 0,
+            "state": ("error" if buckets["unresolvable"] else
+                      "warn" if buckets["over_1h"] else "ok"),
+            "advice": ("Scans with no Insites report id can never resolve — "
+                       "they were started before the callback fix. Clear them "
+                       "and re-run."
+                       if buckets["unresolvable"] else
+                       "Some scans have been running over an hour. Insites "
+                       "audits normally take one to four minutes."
+                       if buckets["over_1h"] else
+                       "Nothing stalled."),
+        })
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.
@@ -2268,6 +2323,7 @@ def create_hub_app() -> Flask:
             if b"hub-help.js" not in body:
                 extra = (b'<script defer src="/hub-help.js"></script>'
                          b'<script defer src="/hub-demo.js"></script>'
+                    b'<script defer src="/hub-crumbs.js"></script>'
                          b'<script defer src="/hub-autofill.js"></script>'
                          b'<script defer src="/hub-accordion.js"></script>')
             if b"hub-help.css" not in body and b"</head>" in body:

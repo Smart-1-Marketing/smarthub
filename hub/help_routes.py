@@ -59,6 +59,12 @@ def static_accordion_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/hub-crumbs.js")
+def static_crumbs_js():
+    return send_from_directory(_STATIC, "hub-crumbs.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-help.css")
 def static_css():
     return send_from_directory(_STATIC, "hub-help.css", mimetype="text/css",
