@@ -244,6 +244,32 @@ def check_ghl() -> Check:
     return Check("ghl", "GoHighLevel (Suite)", state, detail, ms)
 
 
+def check_ghl_app() -> Check:
+    """The Marketplace app that issues per-sub-account tokens.
+
+    Separate from check_ghl: the agency token can be perfectly healthy while
+    every sub-account read (Forms, above all) still fails for want of this.
+    """
+    from hub import ghl_oauth
+    if not ghl_oauth.configured():
+        return _off("ghl_app", "Suite sub-account access",
+                    "GHL_CLIENT_ID / GHL_CLIENT_SECRET",
+                    "Forms and other sub-account data cannot be read.")
+
+    def go():
+        st = ghl_oauth.status()
+        if not st["connected"]:
+            return ("warn", "App not authorised yet — connect once from "
+                            "Suite → Status → Connect.")
+        try:
+            ghl_oauth.agency_token()
+        except Exception as exc:  # noqa: BLE001
+            return ("error", f"Stored authorisation is not usable: {exc}")
+        return ("ok", "Connected; sub-account tokens are minted on demand.")
+    (state, detail), ms = _timed(go)
+    return Check("ghl_app", "Suite sub-account access", state, detail, ms)
+
+
 def check_knack() -> Check:
     if not (settings.knack_app_id and settings.knack_api_key):
         return _off("knack", "Knack", "KNACK_APP_ID / KNACK_API_KEY",
@@ -306,7 +332,7 @@ CHECKS = [
     check_database, check_public_base_url, check_openai, check_cloudinary,
     check_brandfetch, check_insites, check_removebg, check_pexels,
     check_pixabay, check_unsplash, check_google_fonts, check_ghl,
-    check_knack, check_google_oauth,
+    check_ghl_app, check_knack, check_google_oauth,
 ]
 
 

@@ -357,6 +357,17 @@
         <div id="diagList" class="diag-list"></div>
         <div id="diagEmpty" class="empty">Click "Run checks" to test your GHL and Brandfetch configuration.</div>
       </div>
+
+      <div class="card">
+        <h2>Sub-account access</h2>
+        <p class="sub">The agency token can't read sub-account resources like Forms. Connecting the Marketplace app once lets the Hub issue a token for any client automatically — including clients added later.</p>
+        <div class="toolbar">
+          <a class="btn btn-primary btn-sm" id="oauthConnectBtn" href="/suite/oauth/start">Connect</a>
+          <button class="btn btn-sm" id="oauthRefreshBtn">Check status</button>
+          <button class="btn btn-sm hidden" id="oauthDisconnectBtn">Disconnect</button>
+        </div>
+        <div id="oauthStatus" class="empty">Checking…</div>
+      </div>
     </section>
   </div>
 </div>
@@ -883,11 +894,41 @@ async function runDiagnostics() {
   }
 }
 
+// ---------- Marketplace app (sub-account access) ----------
+$('oauthRefreshBtn').addEventListener('click', loadOauthStatus);
+$('oauthDisconnectBtn').addEventListener('click', async () => {
+  if (!confirm('Disconnect the Marketplace app? Forms and other sub-account data stop working until you reconnect.')) return;
+  await api('/suite/api/oauth/disconnect', { method: 'POST' });
+  loadOauthStatus();
+});
+async function loadOauthStatus() {
+  const box = $('oauthStatus');
+  box.textContent = 'Checking…';
+  try {
+    const s = await api('/suite/api/oauth/status');
+    $('oauthConnectBtn').textContent = s.connected ? 'Reconnect' : 'Connect';
+    $('oauthDisconnectBtn').classList.toggle('hidden', !s.connected);
+    let html = '<div class="diag-row ' + (s.connected ? 'ok' : (s.configured ? 'warn' : 'error')) +
+      '"><span class="dot"></span><div><div class="diag-name">' +
+      (s.connected ? 'Connected' : 'Not connected') + '</div><div class="diag-msg">' +
+      esc(s.detail || '') + '</div></div></div>';
+    if (s.connected) {
+      const hrs = Math.round((s.expires_in_seconds || 0) / 360) / 10;
+      html += '<p class="hint">Agency token renews itself (' + hrs + 'h left). ' +
+        (s.cached_location_tokens || 0) + ' sub-account token(s) cached. Scopes: ' +
+        esc(s.scope || 'none reported') + '</p>';
+    }
+    box.innerHTML = html;
+  } catch (err) {
+    box.textContent = err.message;
+  }
+}
+
 // ---------- Boot ----------
 (async function init() {
   try {
     const { authenticated, name } = await api('/suite/api/session');
-    if (authenticated) showApp(name); else showLogin();
+    if (authenticated) { showApp(name); loadOauthStatus(); } else showLogin();
   } catch { showLogin(); }
 })();
 </script>
