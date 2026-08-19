@@ -303,6 +303,54 @@ except Exception as _utm_exc:  # noqa: BLE001
     utm, utm_fb = None, _fallback_app("UTM Builder", str(_utm_exc))
 
 
+def _install_error_reporter(flask_app, label):
+    """Make every module's 500 name its own cause.
+
+    Flask's stock 500 page says nothing, and the Hub error log only mirrors the
+    response body — so when Site Scans and the SEO Image Pipeline broke on
+    18 Aug the log recorded 600 characters of the injected stylesheet and not
+    one word about the actual exception. Recording the traceback here, once for
+    every mount, means the next failure is diagnosable from /status alone.
+
+    Skipped for a module that already registers its own Exception handler
+    (Sites does), so this never quietly replaces a module's own error page.
+    """
+    try:
+        existing = flask_app.error_handler_spec.get(None, {}).get(None, {})
+        if Exception in existing:
+            return
+    except Exception:  # noqa: BLE001 — a Flask version that shapes this
+        pass           # differently just gets the handler installed
+
+    @flask_app.errorhandler(Exception)
+    def _report(exc):  # noqa: ANN001
+        from werkzeug.exceptions import HTTPException
+        if isinstance(exc, HTTPException):     # 404/403/… are not faults
+            return exc
+        import traceback
+        from flask import request as _rq
+        actor = _rq.environ.get("s1hub.user") or ""
+        try:
+            from hub import errors as _err
+            _err.log_exception(label, exc, path=_rq.path, actor=actor)
+        except Exception:  # noqa: BLE001 — logging must never mask the error
+            pass
+        if not actor:
+            # Unauthenticated callers (the Insites callback) get nothing to
+            # read; the traceback is already in the log for us.
+            return f"Module error — {label}", 500
+        tb = traceback.format_exc()
+        return (
+            "<html><body style='font-family:system-ui;padding:40px;max-width:900px'>"
+            f"<h2 style='color:#1a2e58'>Module error — {label}</h2>"
+            f"<p style='color:#dc2626;font-weight:600'>{type(exc).__name__}: {exc}</p>"
+            f"<pre style='background:#f4f6fa;padding:14px;border-radius:8px;"
+            f"white-space:pre-wrap;font-size:12px'>{tb}</pre>"
+            "<p><a href='/status'>System Status</a></p>"
+            "</body></html>", 500,
+        )
+
+
 def _mount(flask_app, prefix, public_prefixes=None):
     # A module's Jinja environment is its own, so hub-level globals aren't
     # visible to it. Register the shared template helpers here rather than in
@@ -313,6 +361,7 @@ def _mount(flask_app, prefix, public_prefixes=None):
         install_template_helpers(flask_app)
     except Exception:  # noqa: BLE001 — helpers are never load-bearing
         pass
+    _install_error_reporter(flask_app, prefix)
     return AuthGuard(HubBar(flask_app, _MOUNT_ACTIVE.get(prefix, "")), prefix,
                      public_prefixes=public_prefixes)
 
