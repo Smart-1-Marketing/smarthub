@@ -696,10 +696,18 @@ def _store_requirements_pdf(data, doc_type):
     folder = f"smart1_campaigns/{client}/{start}/documents"
     secure_internal = os.getenv("SECURE_INTERNAL_PDF", "").strip().lower() in ("1", "true", "yes", "on")
     delivery_type = 'authenticated' if (secure_internal and doc_type == 'internal') else 'upload'
+    # resource_type='raw', not 'image'. A PDF uploaded as an image type only
+    # DELIVERS if "PDF and ZIP files delivery" is enabled on the Cloudinary
+    # account — it is off by default, and a link that 403s for the client is
+    # indistinguishable from a broken tool. This was the documented open
+    # caveat, and the same mistake caused 403s on the restaurant and stadium
+    # report links elsewhere in the suite.
+    #
+    # Nothing here transforms the PDF (no thumbnails, no page extraction), so
+    # raw costs nothing and always delivers.
     result = cloudinary.uploader.upload(
         BytesIO(pdf_bytes),
-        resource_type='image',
-        format='pdf',
+        resource_type='raw',
         type=delivery_type,
         public_id=title,
         folder=folder,
@@ -710,9 +718,11 @@ def _store_requirements_pdf(data, doc_type):
     if delivery_type == 'authenticated':
         # Return a signed delivery URL so authorized systems (e.g. the GHL workflow) can still fetch it.
         try:
+            # Must match the resource_type it was uploaded with, or the
+            # signature is valid for a path that holds nothing.
             signed_url, _opts = cloudinary.utils.cloudinary_url(
-                result.get('public_id'), resource_type='image', type='authenticated',
-                format='pdf', sign_url=True, secure=True,
+                result.get('public_id'), resource_type='raw',
+                type='authenticated', sign_url=True, secure=True,
             )
             if signed_url:
                 result['secure_url'] = signed_url
