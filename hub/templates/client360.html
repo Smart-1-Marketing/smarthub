@@ -1108,6 +1108,12 @@ function c360Traffic(propertyId,googleLogin){
   fetch('/google/api/ga4/monthly-summary',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({property_id:propertyId,google_login:googleLogin})})
     .then(r=>r.json()).then(d=>{
+      if(d.needs_reauth){
+        // A revoked Google token is fixable in one click — say so, rather than
+        // leaving the reader with an error they can't act on.
+        $('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+
+          ' <a class="btn-primary" style="margin-left:8px;padding:6px 14px;font-size:13px;text-decoration:none" href="'+esc(d.reconnect_url||'/google/login')+
+          '">Reconnect Google</a></div>';return}
       if(d.error){$('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
       const cur=d.current||{},prev=d.previous||{},del=d.deltas||{};
       const rows=[
