@@ -474,6 +474,53 @@ def create_hub_app() -> Flask:
                        "Nothing stalled."),
         })
 
+    @app.route("/api/scheduler")
+    def api_scheduler():
+        """What the background jobs are doing."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import scheduler as _sched
+        out = _sched.status()
+        out["boot_error"] = app.config.get("HUB_SCHEDULER_BOOT_ERROR")
+        return jsonify(out)
+
+    @app.route("/api/seo/schema-questions")
+    def api_schema_questions():
+        """The full question set, answered where possible."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .schema_questions import build
+        return jsonify(build(request.args.get("client", ""),
+                             use_ai=request.args.get("ai", "1") != "0"))
+
+    @app.route("/api/seo/schema-questions/regenerate", methods=["POST"])
+    def api_schema_regenerate():
+        """Ask AI again for one question — the New AI button."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .schema_questions import regenerate_one
+        body = request.get_json(silent=True) or {}
+        return jsonify(regenerate_one(str(body.get("client") or ""),
+                                      str(body.get("key") or "")))
+
+    @app.route("/api/seo/schema-questions", methods=["POST"])
+    def api_schema_answers_save():
+        """Save approved and edited answers."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .schema_questions import save_answers, can_approve
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        if not client:
+            return jsonify({"error": "No client given."}), 400
+        out = save_answers(client, body.get("answers") or {}, current_user() or "")
+        out.update(can_approve(client))
+        return jsonify(out)
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.
@@ -2401,6 +2448,30 @@ def create_hub_app() -> Flask:
         app.config["HUB_HOOKS_BOOT_ERROR"] = str(_hook_exc)
         try:
             errors.log_exception("hub", _hook_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    @app.route("/api/scheduler/run/<name>", methods=["POST"])
+    def api_scheduler_run(name):
+        """Run one job now, without waiting for its next slot."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import scheduler as _s
+        audit.log("scheduler", "manual_run", actor=current_user(), job=name)
+        return jsonify(_s.run_now(name, app))
+
+    # ---------------- background jobs ----------------
+    # Started last, so every module it might call is registered first. Exactly
+    # one worker actually runs jobs — see hub/scheduler.py for why that
+    # matters with two gunicorn workers.
+    try:
+        from . import scheduler as _sched
+        _sched.start(app)
+    except Exception as _sched_exc:  # noqa: BLE001
+        app.config["HUB_SCHEDULER_BOOT_ERROR"] = str(_sched_exc)
+        try:
+            errors.log_exception("hub", _sched_exc)
         except Exception:  # noqa: BLE001
             pass
 

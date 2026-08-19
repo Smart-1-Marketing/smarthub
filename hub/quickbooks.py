@@ -18,6 +18,7 @@ import json
 import os
 import threading
 import time
+from datetime import datetime, timezone
 
 import requests
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -244,8 +245,152 @@ def customer_link(cid) -> str:
     return f"https://app.qbo.intuit.com/app/customerdetail?nameId={cid}"
 
 
+# ---------------------------------------------------------------------------
+# Public invoice links
+# ---------------------------------------------------------------------------
+#
+# The old invoice_link() pointed at app.qbo.intuit.com, which requires a
+# QuickBooks login — so sending it to a client meant they couldn't open it, and
+# opening it internally meant signing in first. QuickBooks does expose a public
+# link: the read-only `InvoiceLink` field, available from minorversion 36 and
+# only when explicitly requested with `include=invoiceLink`. That URL opens the
+# invoice with no login and offers Pay Now.
+#
+# Two constraints worth knowing:
+#   * It is production-only. A sandbox company returns nothing, which reads as
+#     "broken" unless you know to expect it.
+#   * The links are not permanent, which is why they're cached and refreshed
+#     rather than fetched once and stored forever.
+
+_LINK_CACHE_NAME = "quickbooks_invoice_links.json"
+
+
+def _links_path() -> str:
+    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, _LINK_CACHE_NAME)
+
+
+def _load_links() -> dict:
+    try:
+        with open(_links_path(), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_links(data: dict) -> None:
+    with _lock:
+        tmp = _links_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        os.replace(tmp, _links_path())      # atomic: a crash can't truncate it
+
+
+def fetch_public_link(invoice_id) -> str:
+    """The no-login URL for one invoice, straight from QuickBooks."""
+    tok = _ensure_access_token()
+    r = requests.get(
+        f"{_api_base()}/v3/company/{tok['realm_id']}/invoice/{invoice_id}",
+        params={"minorversion": "70", "include": "invoiceLink"},
+        headers={"Authorization": f"Bearer {tok['access_token']}",
+                 "Accept": "application/json"},
+        timeout=20,
+    )
+    if not r.ok:
+        return ""
+    try:
+        return str((r.json().get("Invoice") or {}).get("InvoiceLink") or "")
+    except ValueError:
+        return ""
+
+
+def public_link(invoice_id) -> str:
+    """Cached public link, fetched on first use.
+
+    Reads the cache rather than calling QuickBooks on every page render — an
+    invoice list would otherwise make one API call per row.
+    """
+    iid = str(invoice_id)
+    cache = _load_links()
+    hit = cache.get(iid)
+    if hit and hit.get("url"):
+        return hit["url"]
+    # A cache miss must never break the page that asked. This is called while
+    # rendering an invoice list; before this guard, a disconnected QuickBooks
+    # raised out of invoice_link() and took the whole card down.
+    try:
+        url = fetch_public_link(iid)
+    except Exception:                                   # noqa: BLE001
+        return ""
+    if url:
+        cache[iid] = {"url": url, "fetched": time.time()}
+        _save_links(cache)
+    return url
+
+
+def refresh_public_links(days: int = 120, limit: int = 400) -> dict:
+    """Refresh the cache. Called by the scheduler three times a day.
+
+    Only recent and unpaid invoices: a paid invoice from last year doesn't
+    need a live payment link, and refreshing everything would burn the API
+    quota for no benefit.
+    """
+    import datetime as _dt
+    if not connected():
+        return {"skipped": "QuickBooks isn't connected."}
+    since = (_dt.date.today() - _dt.timedelta(days=days)).isoformat()
+    try:
+        rows = _query(
+            f"SELECT Id, DocNumber, Balance, TxnDate FROM Invoice "
+            f"WHERE TxnDate >= '{since}' ORDERBY TxnDate DESC "
+            f"MAXRESULTS {int(limit)}"
+        ).get("Invoice", [])
+    except Exception as exc:                            # noqa: BLE001
+        return {"error": f"{type(exc).__name__}"}
+
+    cache = _load_links()
+    fetched = failed = 0
+    for inv in rows:
+        iid = str(inv.get("Id") or "")
+        if not iid:
+            continue
+        url = fetch_public_link(iid)
+        if url:
+            cache[iid] = {"url": url, "fetched": time.time(),
+                          "doc": inv.get("DocNumber"),
+                          "balance": float(inv.get("Balance") or 0)}
+            fetched += 1
+        else:
+            failed += 1
+    _save_links(cache)
+    return {"invoices_checked": len(rows), "links_fetched": fetched,
+            "no_link": failed, "cached_total": len(cache),
+            "note": ("InvoiceLink is production-only — a sandbox company "
+                     "returns nothing for every invoice."
+                     if failed and not fetched else "")}
+
+
 def invoice_link(iid) -> str:
-    return f"https://app.qbo.intuit.com/app/invoice?txnId={iid}"
+    """Prefer the public link; fall back to the QuickBooks app URL.
+
+    The fallback still requires a login, so it's only useful internally. When
+    the public link exists it is strictly better for both audiences.
+    """
+    pub = public_link(iid)
+    return pub or f"https://app.qbo.intuit.com/app/invoice?txnId={iid}"
+
+
+def link_status() -> dict:
+    """How much of the invoice list has a public link, for Diagnostics."""
+    cache = _load_links()
+    with_url = sum(1 for v in cache.values() if v.get("url"))
+    newest = max((v.get("fetched", 0) for v in cache.values()), default=0)
+    return {"cached": len(cache), "with_public_link": with_url,
+            "last_refresh": (datetime.fromtimestamp(newest, tz=timezone.utc)
+                             .isoformat(timespec="seconds") if newest else None),
+            "path": _links_path()}
 
 
 def _customer_dict(c: dict) -> dict:
@@ -305,6 +450,7 @@ def invoices_for_customer(customer_id, limit: int = 8) -> list[dict]:
             status = "Open"
         out.append({
             "id": inv.get("Id"),
+            "public_link": bool(public_link(inv.get("Id"))),
             "doc_number": inv.get("DocNumber"),
             "date": inv.get("TxnDate"),
             "due_date": due,

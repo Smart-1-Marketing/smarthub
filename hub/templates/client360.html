@@ -560,7 +560,13 @@ function render(g,q){
       const inv=cu.invoices||[];
       if(!inv.length){h+='<div class="empty" style="padding:8px">No invoices found'+(cu.error?' — '+esc(cu.error):'')+'.</div>';return h;}
       h+='<table style="margin-bottom:12px"><thead><tr><th>Invoice #</th><th>Date</th><th>Due</th><th>Total</th><th>Balance</th><th>Status</th><th></th></tr></thead><tbody>'+
-        inv.map(i=>`<tr><td><b>${esc(i.doc_number||i.id)}</b></td><td>${esc(i.date||'')}</td><td class="muted">${esc(i.due_date||'')}</td><td>${money(i.total)}</td><td>${Number(i.balance)>0?money(i.balance):'—'}</td><td><span class="pill ${i.status==='Paid'?'ok':(i.status==='Overdue'?'err':'warn')}">${esc(i.status)}</span></td><td><a class="gbtn" href="${esc(i.link)}" target="_blank" rel="noopener">Open →</a></td></tr>`).join('')+'</tbody></table>';
+        inv.map(i=>`<tr><td><b>${esc(i.doc_number||i.id)}</b></td><td>${esc(i.date||'')}</td><td class="muted">${esc(i.due_date||'')}</td><td>${money(i.total)}</td><td>${Number(i.balance)>0?money(i.balance):'—'}</td><td><span class="pill ${i.status==='Paid'?'ok':(i.status==='Overdue'?'err':'warn')}">${esc(i.status)}</span></td><td>${i.public_link
+        ? '<a class="gbtn" href="'+esc(i.link)+'" target="_blank" rel="noopener" '+
+          'title="Opens without a QuickBooks login — safe to send to the client">Customer link &#8599;</a>'+
+          ' <button class="btn-ghost" style="padding:2px 7px;font-size:11px" '+
+          'onclick="navigator.clipboard.writeText(\''+esc(i.link)+'\');this.textContent=\'copied\'">copy</button>'
+        : '<a class="gbtn" href="'+esc(i.link)+'" target="_blank" rel="noopener" '+
+          'title="QuickBooks app — needs a login. No public link cached for this invoice yet.">Open in QB &#8599;</a>'}</td></tr>`).join('')+'</tbody></table>';
       return h;
     }).join('');
   }

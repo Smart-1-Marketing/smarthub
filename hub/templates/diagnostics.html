@@ -53,6 +53,29 @@
     <div id="diag-integrity" class="diag-rows"><p class="diag-loading">Loading…</p></div>
   </section>
 
+  <!-- ---------------- background jobs ---------------- -->
+  <section class="diag-card">
+    <h2>Background jobs</h2>
+    <p class="diag-help">
+      Exactly one worker runs these, chosen by a database lock &mdash; Render
+      runs two, and without that every job would fire twice. If this worker
+      isn't the leader, that's normal: the other one is doing the work.
+    </p>
+    <div id="diag-sched" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+  </section>
+
+  <!-- ---------------- background jobs ---------------- -->
+  <section class="diag-card">
+    <h2>Background jobs</h2>
+    <p class="diag-help">
+      Scheduled maintenance. Exactly one worker runs these &mdash; if this
+      page says another worker is the leader, that's normal and correct;
+      running them twice would mean two sets of alerts and two attempts at the
+      same cleanup. Any job can be run now without waiting for its slot.
+    </p>
+    <div id="diag-scheduler" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+  </section>
+
   <!-- ---------------- stalled scans ---------------- -->
   <section class="diag-card">
     <h2>Site scans</h2>
@@ -257,6 +280,78 @@ function renderStructure(d){
   }).join("") || head;
 }
 
+function renderSched(d){
+  var el=document.getElementById("diag-sched"); if(!el||!d) return;
+  if(!d.enabled){
+    el.innerHTML='<div class="diag-row"><span class="diag-pill p-off">off</span>'+
+      '<span class="diag-name">Scheduler</span><span class="diag-detail">'+
+      'Not running. Set <code>HUB_SCHEDULER=true</code> to enable it &mdash; '+
+      'off by default outside Render so local testing can\'t fire real jobs '+
+      'at client systems.</span></div>';
+    return;
+  }
+  el.innerHTML='<div class="diag-row"><span class="diag-pill p-'+
+    (d.running?"ok":"error")+'">'+(d.running?"on":"down")+'</span>'+
+    '<span class="diag-name">Scheduler</span><span class="diag-detail">'+
+    esc(d.note)+'</span></div>' +
+    d.jobs.map(function(j){
+      var state = j.ok===null ? "off" : (j.ok ? "ok" : "error");
+      var when = j.last_run ? esc(j.last_run.replace("T"," ").slice(0,16)) : "not yet run";
+      return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+
+        (j.every_minutes>=60 ? Math.round(j.every_minutes/60)+"h" : j.every_minutes+"m")+
+        '</span><span class="diag-name">'+esc(j.name.replace(/_/g," "))+'</span>'+
+        '<span class="diag-detail">'+esc(j.description)+
+        '<em class="diag-fix">Last: '+when+
+        (j.result?" · "+esc(JSON.stringify(j.result)).slice(0,110):"")+
+        (j.error?' · <b>'+esc(j.error)+'</b>':"")+
+        ' &nbsp;<button class="um-btn" style="margin:0;padding:2px 8px;font-size:11px" '+
+        'onclick="runJob(\''+j.name+'\')">Run now</button></em></span></div>';
+    }).join("");
+}
+function runJob(name){
+  fetch("/api/scheduler/run/"+encodeURIComponent(name),
+        {method:"POST",credentials:"same-origin"})
+   .then(function(r){return r.json();})
+   .then(function(d){ alert(d.error||("Done: "+JSON.stringify(d.result||d))); loadAll(true); })
+   .catch(function(){ alert("Could not run that job."); });
+}
+
+function renderScheduler(d){
+  var el=document.getElementById("diag-scheduler"); if(!el) return;
+  if(d.boot_error){
+    el.innerHTML='<div class="diag-row"><span class="diag-pill p-error">error</span>'+
+      '<span class="diag-name">Failed to start</span><span class="diag-detail">'+
+      esc(d.boot_error)+'</span></div>'; return;
+  }
+  var head='<div class="diag-row"><span class="diag-pill p-'+
+    (d.enabled? (d.running?"ok":"warn") : "off")+'">'+
+    (d.enabled?(d.running?"on":"idle"):"off")+'</span>'+
+    '<span class="diag-name">Scheduler</span><span class="diag-detail">'+
+    (d.enabled?"":"Disabled — set HUB_SCHEDULER=true to enable. ")+
+    esc(d.note||"")+'</span></div>';
+  el.innerHTML = head + (d.jobs||[]).map(function(j){
+    var state = j.ok===false ? "error" : (j.last_run ? "ok" : "off");
+    return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+
+      (j.every_minutes>=60 ? Math.round(j.every_minutes/60)+"h" : j.every_minutes+"m")+
+      '</span><span class="diag-name">'+esc(j.name.replace(/_/g," "))+'</span>'+
+      '<span class="diag-detail">'+esc(j.description||"")+
+      (j.last_run? ' <em class="diag-fix">Last run '+esc(j.last_run.replace("T"," ").slice(0,16))+
+        (j.result?" · "+esc(JSON.stringify(j.result).slice(0,90)):"")+'</em>'
+        : ' <em class="diag-fix">Not run yet this boot.</em>')+
+      (j.error? ' <em class="diag-fix" style="color:#b42318">'+esc(j.error)+'</em>':'')+
+      ' <button class="um-btn" style="margin:6px 0 0;padding:3px 9px;font-size:11.5px" '+
+      'onclick="runJob(\''+j.name+'\')">Run now</button>'+
+      '</span></div>';
+  }).join("");
+}
+function runJob(name){
+  fetch("/api/scheduler/run/"+encodeURIComponent(name),{method:"POST",credentials:"same-origin"})
+   .then(function(r){return r.json();}).then(function(d){
+     alert(d.error ? d.error : (name+": "+JSON.stringify(d.result||d)));
+     loadAll(true);
+   }).catch(function(){ alert("Could not run that job."); });
+}
+
 function renderScans(d){
   var el=document.getElementById("diag-scans"); if(!el) return;
   if(d.error){ el.innerHTML='<div class="diag-row"><span class="diag-pill p-off">n/a</span>'+
@@ -297,6 +392,10 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderIntegrity)
     .catch(function(){document.getElementById("diag-integrity").innerHTML=
       '<p class="diag-loading">Could not run the audit.</p>';});
+  fetch("/api/scheduler",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderSched).catch(function(){});
+  fetch("/api/scheduler",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderScheduler).catch(function(){});
   fetch("/api/scans/stuck",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderScans).catch(function(){});
   fetch("/api/db/urls",{credentials:"same-origin"})

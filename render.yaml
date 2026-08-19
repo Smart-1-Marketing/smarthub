@@ -165,6 +165,11 @@ services:
       # Sub-account that owns the blog used for published llms.txt files.
       - key: GHL_BLOG_LOCATION_ID
         sync: false
+      # Background jobs — exactly one worker runs them.
+      - key: HUB_SCHEDULER
+        value: "true"
+      - key: SCANS_STUCK_MINUTES
+        value: "30"
       # ---- shared ----
       - key: AUDIT_LOG_PATH
         value: /var/data/hub-audit.log.jsonl

@@ -1,5 +1,24 @@
 {% extends "base.html" %}
 {% block title %}{{ client }} — SEO — Smart 1 Hub
+
+<div class="card" id="card-schemaq" style="grid-column:1 / -1">
+  <div class="card-h"><span class="src-tag" style="background:#ede9fe;color:#5b21b6">SCHEMA</span>
+    <h3>Schema questions</h3>
+    <div class="right">
+      <span id="schemaQCount" class="muted" style="font-size:12px"></span>
+      <button class="seoc-btn" onclick="loadSchemaQ()">Build answers</button>
+    </div>
+  </div>
+  <div class="card-b">
+    <p class="muted" style="font-size:12.8px;line-height:1.6;margin:0 0 10px">
+      Thirty-odd questions, answered from the client record first, then their
+      site, then AI. Anything that can't be found is marked
+      <b>NEED ANSWER</b> and blocks approval &mdash; structured data is read by
+      search engines as fact, so a plausible guess is worse than a blank.
+    </p>
+    <div id="schemaQ"><span class="muted">Not built yet.</span></div>
+  </div>
+</div>
 <div class="card" id="card-llms" style="grid-column:1 / -1">
   <div class="card-h"><span class="src-tag" style="background:#ede9fe;color:#5b21b6">AI</span>
     <h3>llms.txt</h3>
@@ -77,6 +96,129 @@ function copyLlms(){
   document.getElementById('llmsMsg').textContent='Copied.';
 }
 </script>
+
+
+<script>
+var SCHEMA_Q = null;
+function schemaClient(){ return (window.CURRENT_SEO_CLIENT || document.title.split(" — ")[0] || "").trim(); }
+
+function loadSchemaQ(){
+  var el=document.getElementById('schemaQ');
+  el.innerHTML='<span class="muted">Answering from the client record, their site, then AI…</span>';
+  fetch('/api/seo/schema-questions?client='+encodeURIComponent(schemaClient()),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){ SCHEMA_Q=d; renderSchemaQ(); })
+    .catch(function(){ el.innerHTML='<span class="muted">Could not build the questions.</span>'; });
+}
+
+function renderSchemaQ(){
+  var d=SCHEMA_Q, el=document.getElementById('schemaQ');
+  if(!d || !d.questions) return;
+  document.getElementById('schemaQCount').textContent =
+    d.answered+' of '+d.total+' answered'+(d.need_answer?' · '+d.need_answer+' need you':'');
+  var pill={known:'#e7f6ef|#147d52', ai:'#fff4d7|#a06a00', needed:'#feeceb|#b42318',
+            site:'#e0f2fe|#075985', search:'#e0f2fe|#075985'};
+  var groups={};
+  d.questions.forEach(function(q){ (groups[q.group]=groups[q.group]||[]).push(q); });
+
+  var html = '<div style="padding:9px 12px;border-radius:8px;margin-bottom:12px;font-size:12.8px;'+
+    (d.can_approve ? 'background:#e7f6ef;color:#11633f">&#10003; ' :
+                     'background:#feeceb;color:#8e2018">&#9888; ') + esc(d.note) + '</div>';
+
+  Object.keys(groups).forEach(function(g){
+    html += '<div style="font:700 11px system-ui;text-transform:uppercase;letter-spacing:.06em;'+
+            'color:#94a3b8;margin:14px 0 6px">'+esc(g)+'</div>';
+    groups[g].forEach(function(q){
+      var col=(pill[q.confidence]||pill.needed).split('|');
+      html += '<div class="sq-row" data-key="'+esc(q.key)+'" style="border:1px solid #eef2f6;'+
+        'border-radius:9px;padding:10px 12px;margin-bottom:8px">'+
+        '<div style="font-size:12.8px;color:#41525f;margin-bottom:5px">'+esc(q.question)+'</div>'+
+        '<div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">'+
+        '<span style="background:'+col[0]+';color:'+col[1]+';border-radius:20px;padding:2px 9px;'+
+        'font-size:10.5px;font-weight:700;white-space:nowrap">'+esc(q.confidence)+'</span>'+
+        '<textarea class="sq-ans" rows="1" style="flex:1;min-width:220px;padding:6px 9px;'+
+        'border:1px solid '+(q.confidence==="needed"?'#fca5a5':'#cfd7df')+';border-radius:7px;'+
+        'font:13px inherit;resize:vertical'+
+        (q.confidence==="needed"?';background:#fff7f6;font-weight:600':'')+'">'+
+        esc(q.answer)+'</textarea></div>'+
+        '<div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;align-items:center">'+
+        '<button class="sq-b" onclick="sqApprove(this)">Approve</button>'+
+        '<button class="sq-b" onclick="sqEdit(this)">Edit</button>'+
+        '<button class="sq-b sq-bad" onclick="sqRemove(this)">Remove</button>'+
+        '<button class="sq-b" onclick="sqRegen(this)">New AI</button>'+
+        '<span class="muted sq-note" style="font-size:11.5px">'+esc(q.source||'')+'</span>'+
+        '</div></div>';
+    });
+  });
+  html += '<div style="margin-top:14px;display:flex;gap:8px;align-items:center">'+
+    '<button class="seoc-btn" onclick="saveSchemaQ()">Save all answers</button>'+
+    '<span id="sqMsg" class="muted" style="font-size:12px"></span></div>';
+  el.innerHTML = html;
+}
+
+function sqRow(btn){ return btn.closest('.sq-row'); }
+function sqApprove(btn){
+  var r=sqRow(btn), t=r.querySelector('.sq-ans');
+  if(!t.value.trim() || t.value.trim().toUpperCase()==='NEED ANSWER'){
+    r.querySelector('.sq-note').textContent='Type an answer first — this one blocks approval.';
+    t.focus(); return;
+  }
+  t.readOnly=true; t.style.background='#f7fbf9'; t.style.borderColor='#86efac';
+  r.querySelector('.sq-note').textContent='Approved.';
+}
+function sqEdit(btn){
+  var t=sqRow(btn).querySelector('.sq-ans');
+  t.readOnly=false; t.style.background=''; t.focus();
+  sqRow(btn).querySelector('.sq-note').textContent='Editing — remember to save.';
+}
+function sqRemove(btn){
+  /* Clearing writes NEED ANSWER back rather than leaving it blank, so the
+     approval gate still catches it. A silently empty field is how a schema
+     ships with a hole in it. */
+  var r=sqRow(btn), t=r.querySelector('.sq-ans');
+  t.value='NEED ANSWER'; t.readOnly=false;
+  t.style.background='#fff7f6'; t.style.borderColor='#fca5a5'; t.style.fontWeight='600';
+  r.querySelector('.sq-note').textContent='Cleared — this now blocks approval until answered.';
+}
+function sqRegen(btn){
+  var r=sqRow(btn), note=r.querySelector('.sq-note');
+  note.textContent='Asking again…';
+  fetch('/api/seo/schema-questions/regenerate',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:schemaClient(), key:r.dataset.key})})
+   .then(function(x){return x.json();}).then(function(d){
+     if(d.error){ note.textContent=d.error; return; }
+     var t=r.querySelector('.sq-ans');
+     t.value=d.answer; t.readOnly=false;
+     var need = d.confidence==='needed';
+     t.style.background=need?'#fff7f6':''; t.style.borderColor=need?'#fca5a5':'#cfd7df';
+     note.textContent=d.source||'';
+   }).catch(function(){ note.textContent='Could not regenerate.'; });
+}
+function saveSchemaQ(){
+  var answers={};
+  document.querySelectorAll('.sq-row').forEach(function(r){
+    answers[r.dataset.key]=r.querySelector('.sq-ans').value;
+  });
+  var m=document.getElementById('sqMsg'); m.textContent='Saving…';
+  fetch('/api/seo/schema-questions',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:schemaClient(), answers:answers})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(d.error){ m.textContent=d.error; return; }
+     m.style.color = d.can_approve ? '#147d52' : '#b42318';
+     m.textContent = d.can_approve
+       ? 'Saved. All questions answered — schema can be approved.'
+       : 'Saved. '+d.need_answer+' still marked NEED ANSWER, so approval stays blocked.';
+     loadSchemaQ();
+   }).catch(function(){ m.textContent='Could not save.'; });
+}
+</script>
+<style>
+.sq-b{border:1px solid #d7dfe8;background:#fff;border-radius:6px;padding:3px 10px;
+  font:600 11.5px system-ui;color:#41525f;cursor:pointer}
+.sq-b:hover{background:#f1f5f9}
+.sq-b.sq-bad{border-color:#f3b8b3;color:#b42318}
+</style>
 
 {% endblock %}
 {% block content %}
