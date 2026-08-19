@@ -59,6 +59,7 @@ F_TRAFFICKER       = "field_2312"   # Trafficker
 F_SALES            = "field_3322"   # Internal Sales
 F_RECORD_ID        = "field_3370"   # Record ID
 F_CLICK_THRU       = "field_2413"   # Click Thru URL
+F_DISPLAY_CLICK    = "field_2414"   # Display Click Thru URL
 F_GEO              = "field_2546"   # Geographic Target
 
 CACHE_NAME = "knack_products.json"
@@ -151,6 +152,8 @@ def _row(rec: dict) -> dict:
         "dash": (_href(rec.get(F_DASHBOARD_URL))
                  or _href(rec.get(F_DASH_VALUE))),
         "url": _href(rec.get(F_CLICK_THRU)) or _text(rec.get(F_CLICK_THRU)),
+        "display_url": (_href(rec.get(F_DISPLAY_CLICK))
+                        or _text(rec.get(F_DISPLAY_CLICK))),
         "geo": _text(rec.get(F_GEO)),
     }
 
@@ -336,3 +339,60 @@ def status() -> dict:
                  "No live pull yet — Client 360 is showing the static export, "
                  "which nothing refreshes."),
     }
+
+
+def scan_domains(client: str = "") -> dict:
+    """Root domains worth scanning, from the click-thru URLs on live products.
+
+    Some clients have no website on the registry record, so the bulk scanner
+    skipped them entirely — nothing to scan, no report, invisible. But their
+    live products carry a click-thru URL, which is by definition a page on
+    their site.
+
+    **Only the host is kept.** A click-thru is usually a deep link — a landing
+    page, a tracked path, a specific product page. Scanning
+    example.com/lp/spring-promo audits one page; scanning example.com audits
+    the site. The path is where the campaign points, not what we're auditing.
+
+    Subdomains ARE kept. fresno.waterdamagesvcs.com is a distinct site with
+    its own content and its own problems, not a path on the parent — treating
+    it as one would collapse dozens of real sites into a handful.
+    """
+    from hub.client_context import canonical_domain
+
+    data = rows()
+    want = _norm(client) if client else ""
+    found: dict[str, dict] = {}
+
+    for r in data["rows"]:
+        if want and _norm(r.get("client")) != want and _norm(r.get("organization")) != want:
+            continue
+        if str(r.get("status", "")).lower() != "live":
+            continue            # a finished campaign's landing page may be gone
+        name = r.get("client") or r.get("organization") or ""
+        for field in ("display_url", "url"):
+            raw = r.get(field) or ""
+            if not raw:
+                continue
+            host = canonical_domain(raw)
+            if not host:
+                continue
+            key = (_norm(name), host)
+            if key in found:
+                continue
+            found[key] = {
+                "client": name, "domain": host, "from_field": field,
+                "original": raw,
+                # Flag it so the reviewer can see we reduced a deep link.
+                "was_deep_link": canonical_domain(raw) != raw.strip()
+                                 .replace("https://", "").replace("http://", "")
+                                 .rstrip("/"),
+            }
+
+    out = list(found.values())
+    out.sort(key=lambda x: (x["client"].lower(), x["domain"]))
+    return {"domains": out, "count": len(out),
+            "clients": len({d["client"] for d in out}),
+            "source": data["source"], "age_minutes": data["age_minutes"],
+            "note": "Root domains only — a click-thru is usually a deep link, "
+                    "and scanning one landing page isn't auditing the site."}

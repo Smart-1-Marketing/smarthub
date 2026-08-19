@@ -609,6 +609,19 @@ def create_hub_app() -> Flask:
         return render_template("creative.html", user=current_user(),
                                active="tools")
 
+    @app.route("/api/scans/click-thru-domains")
+    def api_click_thru_domains():
+        """Root domains taken from click-thru URLs on live products.
+
+        These are clients the bulk scanner used to skip for having no website
+        on file, while their live campaigns pointed at one the whole time.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .knack_products import scan_domains
+        return jsonify(scan_domains(request.args.get("client", "")))
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.

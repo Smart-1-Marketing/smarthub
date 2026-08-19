@@ -23,6 +23,8 @@ addresses, and the monthly quota counter that warns at 900.
 """
 from __future__ import annotations
 
+import re
+
 import secrets
 import time
 from dataclasses import dataclass, field, asdict
@@ -108,6 +110,19 @@ def plan(*, cap: int = DEFAULT_CAP, fresh_days: int = DEFAULT_FRESH_DAYS,
     cands: list[Candidate] = []
     seen: set[str] = set()
 
+    # Fall back to the click-thru URLs on live products for clients with no
+    # website on their registry record. Those clients were being skipped
+    # entirely — no scan, no report, invisible — while their live campaigns
+    # were pointing at a site the whole time.
+    click_thru: dict[str, dict] = {}
+    try:
+        from hub.knack_products import scan_domains
+        for d in scan_domains().get("domains", []):
+            key = re.sub(r"[^a-z0-9]+", "", d["client"].lower())
+            click_thru.setdefault(key, d)
+    except Exception:                                   # noqa: BLE001
+        click_thru = {}
+
     for c in _clients():
         if c.get("is_house") and not include_house:
             continue
@@ -115,10 +130,17 @@ def plan(*, cap: int = DEFAULT_CAP, fresh_days: int = DEFAULT_FRESH_DAYS,
             continue
         url = (c.get("url") or c.get("domain") or "").strip()
         name = c.get("name", "")
+        from_click = False
+        if not url:
+            hit = click_thru.get(re.sub(r"[^a-z0-9]+", "", name.lower()))
+            if hit:
+                url, from_click = hit["domain"], True
         if not url:
             cands.append(Candidate(name, "", "", c.get("source", ""),
                                    c.get("products", []), bool(c.get("is_house")),
-                                   "skip_no_domain", "No website on file."))
+                                   "skip_no_domain",
+                                   "No website on file, and no click-thru URL "
+                                   "on any live product either."))
             continue
         if not looks_like_domain(url):
             cands.append(Candidate(name, "", url, c.get("source", ""),
