@@ -137,6 +137,7 @@ td.actions-cell a:last-child{margin-right:0}
       <input type="text" id="search" placeholder="Search by site, business, or who ran it…"
              oninput="debouncedLoad()" />
       <button class="ghost" onclick="loadScans()">Refresh</button>
+      <button class="ghost" id="recoverBtn" onclick="recoverErrored()">Recover errored scans</button>
     </div>
     <div id="tableWrap"><div class="empty">Loading…</div></div>
   </div>
@@ -303,10 +304,42 @@ async function recheckAll(){
   load();
 }
 
+function recoverErrored(){
+  /* The batch version of the per-row recovery: every errored row that never
+     stored a report id, pulled back from the audit Insites already has. */
+  if(!confirm('Pull every errored scan back from Insites?\n\n'+
+              'Where Insites still holds a recent audit for the domain it is '+
+              'reused and costs nothing. Any domain whose report has aged out '+
+              'is audited again, which spends one credit each.')) return;
+  var b=document.getElementById('recoverBtn');
+  b.disabled=true; b.textContent='Recovering…';
+  fetch('api/scans/recover-errored',{method:'POST'})
+   .then(function(r){return r.json();}).then(function(d){
+     b.disabled=false; b.textContent='Recover errored scans';
+     alert(d.message||'Done.'); loadScans();
+   }).catch(function(){ b.disabled=false; b.textContent='Recover errored scans';
+     alert('That did not go through.'); });
+}
+
 async function refreshScan(pid){
+  /* "Try again" used to swallow the server's answer, so a row with no report
+     id — the state that made finished Insites audits look errored here — gave
+     no feedback at all. Now the recoverable case offers the recovery. */
   try{
     const r = await fetch("api/scans/"+pid+"/refresh", {method:"POST"});
-    await r.json();
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok && d.recoverable){
+      if(confirm("This scan lost its Insites report id, so there is nothing to "+
+                 "re-read.\n\nPull the existing report for this domain from "+
+                 "Insites? If Insites still has a recent audit it costs nothing; "+
+                 "if it doesn't, this starts a new audit and spends one credit.")){
+        const r2 = await fetch("api/scans/"+pid+"/refresh?recover=1", {method:"POST"});
+        const d2 = await r2.json().catch(()=>({}));
+        if(!r2.ok) alert(d2.error || "That did not go through.");
+      }
+    } else if(!r.ok){
+      alert(d.error || "That did not go through.");
+    }
     loadScans();
   }catch(e){ loadScans(); }
 }

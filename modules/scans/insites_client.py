@@ -96,8 +96,14 @@ def start_audit(url: str, *, on_completion: Optional[str] = None,
         payload.update(extra)
 
     try:
+        # allow_redirects=False matters: a 303 means "recent results already
+        # exist", and requests would otherwise silently follow it to the report
+        # resource. The followed response carries no ``reportId``, so the scan
+        # was recorded with no id, could never resolve, and got reaped as an
+        # error — while the audit sat completed on insites.com the whole time.
         resp = requests.post(f"{API_BASE}/report", headers=_headers(),
-                             json=payload, timeout=DEFAULT_TIMEOUT)
+                             json=payload, timeout=DEFAULT_TIMEOUT,
+                             allow_redirects=False)
     except requests.RequestException as exc:
         raise InsitesError(f"Couldn't reach the Insites API: {exc}") from exc
 
@@ -113,10 +119,24 @@ def start_audit(url: str, *, on_completion: Optional[str] = None,
         except Exception:                             # noqa: BLE001
             pass
         try:
-            return resp.json()
+            data = resp.json()
         except ValueError:
-            raise InsitesError("Insites returned a non-JSON response when "
-                               "starting the audit.", status=resp.status_code)
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        # A 303 body may be empty and put the report only in Location, so the
+        # id is recovered from wherever it actually is. Without an id the row
+        # is unresolvable, which is the one outcome worth working for.
+        rid = report_id_from(resp, data)
+        if not rid:
+            raise InsitesError(
+                "Insites accepted the audit but returned no report id "
+                f"(HTTP {resp.status_code}), so it can't be tracked.",
+                status=resp.status_code)
+        data["reportId"] = rid
+        data.setdefault("status", "existing" if resp.status_code == 303 else "running")
+        data["reused"] = resp.status_code == 303
+        return data
     if resp.status_code == 400:
         raise InsitesError("Insites rejected the request (400) — usually a URL "
                            "with a path, which the audit API can't accept. Send "
@@ -127,6 +147,34 @@ def start_audit(url: str, *, on_completion: Optional[str] = None,
                            f"{detail}", status=422)
     raise InsitesError(f"Insites returned HTTP {resp.status_code} when starting "
                        f"the audit.", status=resp.status_code)
+
+
+def report_id_from(resp, body: Optional[dict] = None) -> str:
+    """Dig the report id out of a start-audit response.
+
+    Insites documents ``reportId`` on a 202, but the 303 reuse path answers
+    differently — sometimes only with a Location pointing at the existing
+    report. Checking every place it can be avoids storing a scan we can never
+    finish.
+    """
+    body = body if isinstance(body, dict) else {}
+    for key in ("reportId", "report_id", "id"):
+        val = body.get(key)
+        if val:
+            return str(val)
+    report = body.get("report")
+    if isinstance(report, dict):
+        for key in ("reportId", "report_id", "id"):
+            val = report.get(key)
+            if val:
+                return str(val)
+    location = (resp.headers.get("Location") or "").strip()
+    if location:
+        tail = location.split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+        # Report ids are 40-character hex; anything else is a path segment.
+        if len(tail) >= 16 and all(c in "0123456789abcdefABCDEF" for c in tail):
+            return tail
+    return ""
 
 
 def fetch_report(report_id: str, *, include_datasets: bool = True,

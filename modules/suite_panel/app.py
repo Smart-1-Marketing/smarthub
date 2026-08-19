@@ -9,12 +9,13 @@ The GHL Private Integration token stays server-side, exactly as before.
 """
 import os
 import re
+import secrets
 import threading
 import time
 from pathlib import Path
 
 import requests
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, redirect, request, send_file
 
 from hub import audit
 from hub import auth as hub_auth
@@ -44,10 +45,32 @@ class GhlError(Exception):
         self.details = details
 
 
-def ghl(pathname, method="GET", body=None, query=None, timeout=30):
+def _token_for(location_id=None):
+    """Pick the credential a call should use.
+
+    ``location_id`` asks for a sub-account-scoped token, which is the only kind
+    that can read location resources like Forms. Those are minted from the
+    Marketplace app install (hub.ghl_oauth). Everything else keeps using the
+    agency Private Integration Token, so nothing changes for calls that already
+    work — and the whole panel still runs before the app is connected.
+    """
+    if location_id:
+        try:
+            from hub import ghl_oauth
+            if ghl_oauth.connected():
+                return ghl_oauth.location_token(location_id)
+        except ImportError:
+            pass
+        except Exception as exc:  # noqa: BLE001 — surface it as an API error
+            raise GhlError(str(exc), 502) from exc
     token = _env("GHL_PRIVATE_TOKEN")
     if not token:
         raise GhlError("GHL_PRIVATE_TOKEN is not configured on the server.", 500)
+    return token
+
+
+def ghl(pathname, method="GET", body=None, query=None, timeout=30, location_id=None):
+    token = _token_for(location_id)
     params = {k: v for k, v in (query or {}).items() if v not in (None, "")}
     resp = requests.request(
         method, GHL_BASE + pathname, params=params, json=body,
@@ -445,6 +468,11 @@ def api_location_analytics(loc_id):
         ghl(f"/locations/{loc_id}/tags").get("tags") or []))
     metric("custom_fields", lambda: len(
         ghl(f"/locations/{loc_id}/customFields").get("customFields") or []))
+    # Forms needs a sub-account token, so it is the one metric that routes
+    # through the Marketplace app install rather than the agency token.
+    metric("forms", lambda: len(
+        ghl("/forms/", query={"locationId": loc_id, "limit": "100"},
+            location_id=loc_id).get("forms") or []))
 
     app_base = _env("GHL_APP_BASE", "https://app.gohighlevel.com").rstrip("/")
     return jsonify({
@@ -466,6 +494,124 @@ def api_location_analytics(loc_id):
         "metrics": metrics,
         "dashboard_url": f"{app_base}/v2/location/{loc_id}/dashboard",
     })
+
+
+@app.route("/api/locations/<loc_id>/forms")
+def api_location_forms(loc_id):
+    """Forms for one sub-account.
+
+    Location-scoped, so this is the call that needed a per-client token and
+    could never work on the agency Private Integration Token alone.
+    """
+    try:
+        data = ghl("/forms/", query={
+            "locationId": loc_id,
+            "limit": request.args.get("limit", "100"),
+            "skip": request.args.get("skip", "0"),
+        }, location_id=loc_id)
+        forms = data.get("forms") or []
+        return jsonify({"forms": forms, "total": data.get("total", len(forms))})
+    except Exception as err:  # noqa: BLE001
+        return send_error(err)
+
+
+@app.route("/api/locations/<loc_id>/form-submissions")
+def api_location_form_submissions(loc_id):
+    try:
+        data = ghl("/forms/submissions", query={
+            "locationId": loc_id,
+            "formId": request.args.get("formId") or None,
+            "limit": request.args.get("limit", "100"),
+            "page": request.args.get("page", "1"),
+        }, location_id=loc_id)
+        return jsonify(data)
+    except Exception as err:  # noqa: BLE001
+        return send_error(err)
+
+
+# ---------------- Marketplace app (OAuth) ----------------
+def _state_serializer():
+    """Signed, expiring OAuth state — not a server-side session.
+
+    Gunicorn runs two workers, so the callback often lands on a different
+    process than the one that started the flow; anything held in memory would
+    fail about half the time. A signature over the shared SECRET_KEY is
+    checkable by whichever worker answers.
+    """
+    from itsdangerous import URLSafeTimedSerializer
+    key = (_env("SECRET_KEY") or _env("PANEL_PASSWORD") or "s1hub-suite-oauth")
+    return URLSafeTimedSerializer(key, salt="ghl-oauth-state")
+
+
+def _sign_state() -> str:
+    return _state_serializer().dumps({"n": secrets.token_urlsafe(16)})
+
+
+def _check_state(state: str) -> bool:
+    if not state:
+        return False
+    try:
+        from itsdangerous import BadSignature, SignatureExpired
+        try:
+            _state_serializer().loads(state, max_age=900)
+            return True
+        except (BadSignature, SignatureExpired):
+            return False
+    except ImportError:                     # itsdangerous ships with Flask
+        return False
+
+
+@app.route("/oauth/start")
+def oauth_start():
+    """One-time agency consent. Everything after this is automatic."""
+    from hub import ghl_oauth
+    if not ghl_oauth.configured():
+        return ("Set GHL_CLIENT_ID and GHL_CLIENT_SECRET on the service first, "
+                "then reload this page.", 500)
+    return redirect(ghl_oauth.authorize_url(_sign_state()))
+
+
+@app.route("/oauth/callback")
+def oauth_callback():
+    from hub import ghl_oauth
+    error = request.args.get("error")
+    if error:
+        return (f"HighLevel returned an error: {error}", 400)
+    if not _check_state(request.args.get("state")):
+        return ("That authorisation link didn't come from this Hub, or it sat "
+                "unused too long. Start again from Suite.", 400)
+    code = request.args.get("code")
+    if not code:
+        return ("HighLevel didn't send an authorisation code.", 400)
+    try:
+        ghl_oauth.exchange_code(code)
+    except Exception as exc:  # noqa: BLE001
+        return (f"Could not finish connecting: {exc}", 502)
+    audit.log("suite", "ghl_app_connected", actor=actor_name())
+    return redirect("/suite/")
+
+
+@app.route("/api/oauth/status")
+def api_oauth_status():
+    from hub import ghl_oauth
+    return jsonify(ghl_oauth.status())
+
+
+@app.route("/api/oauth/installed-locations")
+def api_oauth_installed_locations():
+    from hub import ghl_oauth
+    try:
+        return jsonify({"locations": ghl_oauth.installed_locations()})
+    except Exception as err:  # noqa: BLE001
+        return send_error(err)
+
+
+@app.route("/api/oauth/disconnect", methods=["POST"])
+def api_oauth_disconnect():
+    from hub import ghl_oauth
+    ghl_oauth.disconnect()
+    audit.log("suite", "ghl_app_disconnected", actor=actor_name())
+    return jsonify({"ok": True})
 
 
 @app.route("/api/locations/<loc_id>", methods=["DELETE"])

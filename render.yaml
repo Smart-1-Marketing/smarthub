@@ -52,6 +52,20 @@ services:
         sync: false
       - key: SMART1SUITE_PRIVATE_TOKEN
         sync: false
+      # ---- Suite Marketplace app (sub-account access) ----
+      # The agency Private Integration Token above cannot read sub-account
+      # resources such as Forms, and HighLevel has no API that creates those
+      # tokens. These come from a Marketplace app instead: install it once at
+      # the agency and the Hub mints a per-sub-account token on demand, so a
+      # new client needs no setup. Redirect URL to register on the app:
+      #   <PUBLIC_BASE_URL>/suite/oauth/callback
+      - key: GHL_CLIENT_ID
+        sync: false
+      - key: GHL_CLIENT_SECRET
+        sync: false
+      # Optional — overrides the default read-only scope set if you need more.
+      - key: GHL_OAUTH_SCOPES
+        sync: false
       # ---- Scans (Insites Audit API) ----
       - key: INSITES_API_KEY
         sync: false

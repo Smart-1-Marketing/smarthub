@@ -109,7 +109,15 @@ class ErrorMirror:
                     try:
                         import re
                         body = b"".join(chunks[:4]).decode("utf-8", "replace")
-                        snippet = re.sub(r"<[^>]+>", " ", body)
+                        # Drop <style>/<script> bodies first. Stripping tags
+                        # alone leaves their *contents* behind, and the Hub
+                        # injects a stylesheet into every page — so the 600
+                        # characters we keep were all CSS and the actual error
+                        # message never reached the log.
+                        snippet = re.sub(
+                            r"<(style|script)\b[^>]*>.*?</\1>", " ", body,
+                            flags=re.I | re.S)
+                        snippet = re.sub(r"<[^>]+>", " ", snippet)
                         snippet = " ".join(snippet.split())[:600]
                     except Exception:  # noqa: BLE001
                         snippet = ""

@@ -242,6 +242,36 @@ installs them).
 - `clients_app/` — the prebuilt Knack lookup bundle; the Hub serves `/static`
   and `/data` at the root because the bundle was built with absolute paths.
 
+## Suite sub-account access (Forms, and anything else per-client)
+
+The agency Private Integration Token (`GHL_PRIVATE_TOKEN`) can read
+agency-level things — the sub-account list, snapshots — but **not** resources
+that belong to a sub-account. Forms is the one that makes this obvious:
+`/forms/` returns a scope error no matter which boxes you tick on the agency
+token, because it is not the right *kind* of token.
+
+HighLevel has no API that creates Private Integration Tokens, so the answer is
+not "make one per client". It's a Marketplace app, installed once:
+
+1. **Create the app** at `marketplace.gohighlevel.com` → My Apps → Create App.
+   - Distribution: **Agency** (and sub-account, so it can be installed on both)
+   - Redirect URL: `https://<your-hub>/suite/oauth/callback`
+   - Scopes: at least `locations.readonly`, `forms.readonly`,
+     `forms/submissions.readonly` — see `DEFAULT_SCOPES` in
+     [`hub/ghl_oauth.py`](hub/ghl_oauth.py) for the full set the Hub asks for.
+2. **Add the credentials** to Render: `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET`.
+3. **Install it on every sub-account.** Agency install with "install on all
+   sub-accounts" also covers accounts created later.
+4. **Connect once**: Suite → Status → *Sub-account access* → **Connect**, as the
+   agency owner. That stores an agency refresh token on the persistent disk.
+
+After that it is automatic. `location_token(location_id)` mints a 24-hour
+sub-account token on demand and caches it, so a new client works with no setup
+at all. `/status` shows the state under *Suite sub-account access*.
+
+Until step 4 happens nothing changes: every call falls back to the Private
+Integration Token exactly as before.
+
 ## Env var compatibility notes
 
 - `SECRET_KEY` signs the Hub login cookie **and** the Sites session. Set it
