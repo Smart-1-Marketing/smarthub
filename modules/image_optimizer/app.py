@@ -40,6 +40,14 @@ def sanitize_filename(value: str | None, fallback: str = "optimized-image") -> s
 
 
 def validate_dimension(value: str | None, label: str) -> int | None:
+    """Blank or zero means "not specified", not an error.
+
+    Locking the aspect ratio and clearing one box is the normal way to say
+    "work this one out for me". Rejecting 0 turned that into a hard failure
+    with a message that read like the user had done something wrong.
+    """
+    if str(value or "").strip() in ("", "0"):
+        return None
     if value in (None, ""):
         return None
     try:

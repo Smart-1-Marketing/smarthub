@@ -65,7 +65,12 @@ function updateCropDetails() {
 }
 
 function fitCanvas() {
-  const maxWidth = Math.min(640, document.querySelector(".preview-stage").clientWidth - 20);
+  // Floor the measurement: a container that reports 0 (hidden, or not yet
+  // laid out) must not produce a negative ratio. Belt and braces alongside
+  // unhiding first — a preview that silently disappears is hard to diagnose.
+  const stage = document.querySelector(".preview-stage");
+  const measured = stage ? stage.clientWidth - 20 : 0;
+  const maxWidth = Math.min(640, Math.max(280, measured));
   const maxHeight = 420;
   const ratio = Math.min(maxWidth / originalWidth, maxHeight / originalHeight, 1);
   canvas.width = Math.max(1, Math.round(originalWidth * ratio));
@@ -108,6 +113,11 @@ function setFile(file) {
   image.onload = () => {
     originalWidth = image.naturalWidth;
     originalHeight = image.naturalHeight;
+    // Unhide first: fitCanvas() measures .preview-stage, and a hidden element
+    // reports clientWidth 0. That made the ratio negative and collapsed the
+    // canvas to 1x1 — a blank grey box with correct metadata beside it, which
+    // is exactly what it looked like.
+    previewWrap.classList.remove("hidden");
     fitCanvas();
     widthInput.value = originalWidth;
     heightInput.value = originalHeight;
@@ -115,7 +125,6 @@ function setFile(file) {
     const originalStem = file.name.replace(/\.[^/.]+$/, "");
     outputName.value = `${originalStem}-resized`;
     details.textContent = `${originalWidth} × ${originalHeight}px · ${(file.size / 1024).toFixed(1)} KB`;
-    previewWrap.classList.remove("hidden");
     resetCrop();
     URL.revokeObjectURL(url);
   };
