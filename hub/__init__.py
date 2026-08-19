@@ -521,6 +521,54 @@ def create_hub_app() -> Flask:
         out.update(can_approve(client))
         return jsonify(out)
 
+    @app.route("/api/client/utm")
+    def api_client_utm():
+        """Tracked links built for this client.
+
+        Read from the UTM Builder's own store rather than duplicating them —
+        two copies of a link is how one ends up stale and the other gets used.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        name = (request.args.get("name") or "").strip().lower()
+        try:
+            from modules.utm_builder.app import load_links
+            rows = [r for r in (load_links() or [])
+                    if str(r.get("client") or "").strip().lower() == name]
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"links": [], "error": f"{type(exc).__name__}"}), 200
+        rows.sort(key=lambda r: str(r.get("created") or ""), reverse=True)
+        return jsonify({"client": name, "count": len(rows), "links": rows[:40]})
+
+    @app.route("/api/seo/blogs/image", methods=["POST"])
+    def api_blog_image():
+        """Generate, approve or delete a post's featured image."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import blog_images as BI
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        pid = body.get("id")
+        action = str(body.get("action") or "generate")
+        actor = current_user() or ""
+        if not client or pid is None:
+            return jsonify({"error": "Client and post id are both required."}), 400
+        if action == "approve":
+            return jsonify(BI.approve(client, pid, actor))
+        if action in ("delete", "reject"):
+            return jsonify(BI.reject(client, pid, actor))
+        return jsonify(BI.generate(client, pid, str(body.get("extra") or ""), actor))
+
+    @app.route("/api/seo/blogs/image-status")
+    def api_blog_image_status():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import blog_images as BI
+        return jsonify(BI.status(request.args.get("client", "")))
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.
@@ -1300,7 +1348,11 @@ def create_hub_app() -> Flask:
         name = (request.args.get("name") or "").strip()
         store = seo.load_store(name)
         blogs = store.get("blogs", {})
-        return jsonify({"posts": blogs.get("posts", []),
+        # Archived posts stay in the store but leave the working list.
+        _posts = [p for p in blogs.get("posts", []) if not p.get("archived")]
+        return jsonify({"posts": _posts,
+                        "archived": sum(1 for p in blogs.get("posts", [])
+                                        if p.get("archived")),
                         "focus": blogs.get("focus", ""),
                         "questions": blogs.get("questions", []),
                         "frequency": store.get("setup", {}).get("blogs_frequency", ""),
@@ -1367,6 +1419,11 @@ def create_hub_app() -> Flask:
                 post["status"] = "written"
         if "posted" in body:
             post["posted"] = bool(body["posted"])
+        if "archived" in body:
+            # Archive hides a post from the working list without deleting it.
+            # A deleted post takes its written content and its image with it,
+            # which is rarely what "I'm done with this" means.
+            post["archived"] = bool(body["archived"])
         if isinstance(body.get("answers"), dict):
             blogs = store.setdefault("blogs", {})
             blogs.setdefault("answers", {}).update(

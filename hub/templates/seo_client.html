@@ -220,6 +220,94 @@ function saveSchemaQ(){
 .sq-b.sq-bad{border-color:#f3b8b3;color:#b42318}
 </style>
 
+
+<script>
+/* ---- Blog featured images ------------------------------------------ */
+function blogThumb(p){
+  var im = p.image || null;
+  if(!im || !im.url){
+    return '<span class="seoc-muted" style="font-size:11px">—</span>';
+  }
+  var ring = im.status === 'pending' ? '#f59e0b' : '#86efac';
+  return '<img src="'+esc(im.url)+'" alt="" loading="lazy" '+
+    'onclick="openImageModal('+p.id+')" '+
+    'title="'+(im.status==='pending'?'Awaiting approval':'Approved')+'" '+
+    'style="width:64px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;'+
+    'border:2px solid '+ring+'">';
+}
+
+var IMG_POST = null;
+function openImageModal(id){
+  IMG_POST = blogPosts.find(function(x){ return x.id === id; });
+  if(!IMG_POST) return;
+  var im = IMG_POST.image || null;
+  var host = document.getElementById('imgModal');
+  host.querySelector('.im-title').textContent = IMG_POST.title;
+  var body = host.querySelector('.im-body');
+  body.innerHTML = im && im.url
+    ? '<img src="'+esc(im.url)+'" alt="" style="max-width:100%;border-radius:9px">'+
+      '<p class="seoc-muted" style="font-size:11.5px;margin:8px 0 0">'+
+      (im.status==='pending'
+        ? 'Awaiting approval. Check the details — generated people and storefronts '+
+          'are where these go wrong.'
+        : 'Approved and filed under Blogs in the client gallery.')+
+      (im.bytes? ' · '+Math.round(im.bytes/1024)+' KB':'')+'</p>'
+    : '<p class="seoc-muted">No image yet. Generate one from the post\'s title and content.</p>';
+  host.querySelector('.im-extra').value = '';
+  host.querySelector('[data-act="approve"]').style.display = (im && im.status==='pending') ? '' : 'none';
+  host.querySelector('[data-act="delete"]').style.display = im ? '' : 'none';
+  host.querySelector('[data-act="generate"]').textContent = im ? 'Regenerate' : 'Generate';
+  host.querySelector('.im-msg').textContent = '';
+  host.hidden = false;
+}
+function closeImageModal(){ document.getElementById('imgModal').hidden = true; }
+
+function imgAction(act){
+  if(!IMG_POST) return;
+  var host = document.getElementById('imgModal');
+  var msg = host.querySelector('.im-msg');
+  var extra = host.querySelector('.im-extra').value;
+  if(act === 'delete' && !confirm('Delete this image? The post itself is kept.')) return;
+  msg.textContent = act === 'generate'
+    ? 'Generating — this takes a few seconds…' : 'Working…';
+  post('/api/seo/blogs/image', {client: CLIENT, id: IMG_POST.id, action: act, extra: extra})
+    .then(function(d){
+      if(d.error){ msg.style.color = '#b42318'; msg.textContent = d.error; return; }
+      msg.style.color = '#147d52';
+      msg.textContent = d.note || 'Done.';
+      loadBlogs();                       // refresh the table thumbnails
+      if(act === 'delete'){ closeImageModal(); return; }
+      if(d.image){ IMG_POST.image = d.image; openImageModal(IMG_POST.id); }
+    })
+    .catch(function(){ msg.style.color = '#b42318'; msg.textContent = 'That did not go through.'; });
+}
+</script>
+
+<div id="imgModal" hidden style="position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.6);
+  display:flex;align-items:center;justify-content:center;padding:18px">
+  <div style="background:#fff;border-radius:13px;padding:20px;width:min(40rem,100%);
+    max-height:88vh;overflow:auto">
+    <h3 class="im-title" style="margin:0 0 4px;font-size:16px;color:#0d2340"></h3>
+    <p class="seoc-muted" style="font-size:12px;margin:0 0 12px">Featured image</p>
+    <div class="im-body"></div>
+    <label style="display:block;margin:14px 0 4px;font-size:12.5px;font-weight:600">
+      Anything to change? (optional)</label>
+    <textarea class="im-extra" rows="2" placeholder="e.g. show a technician outdoors, warmer light, wider shot"
+      style="width:100%;padding:8px 10px;border:1px solid #cfd7df;border-radius:8px;font:13px inherit"></textarea>
+    <p class="seoc-muted" style="font-size:11.5px;margin:5px 0 0">
+      Added to the prompt on the next generate. The image is always made from the
+      post's own title and content — no text or logos are ever requested.</p>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="seoc-btn" data-act="approve" onclick="imgAction('approve')">Approve</button>
+      <button class="seoc-btn" data-act="generate" onclick="imgAction('generate')">Generate</button>
+      <button class="seoc-btn" data-act="delete" onclick="imgAction('delete')"
+        style="border-color:#f3b8b3;color:#b42318">Delete</button>
+      <button class="seoc-btn" onclick="closeImageModal()">Close</button>
+      <span class="im-msg seoc-muted" style="font-size:12px;align-self:center"></span>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 {% block content %}
 <div class="page-head seoc-head">
@@ -1452,14 +1540,31 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       return '<tr>'
         +'<td><input type="checkbox" class="blogSel" data-id="'+p.id+'"></td>'
         +'<td style="white-space:nowrap">'+esc(p.week)+'<div class="seoc-muted" style="font-size:11px">'+esc(p.date)+'</div></td>'
+        +'<td>'+blogThumb(p)+'</td>'
         +'<td><b>'+esc(p.title)+'</b>'+(p.summary?'<div class="seoc-muted" style="font-size:11.5px">'+esc(p.summary)+'</div>':'')+'</td>'
         +'<td><span class="seoc-bstat '+(p.status==='written'?'written':'planned')+'">'+(p.status==='written'?'Written':'Planned')+'</span></td>'
         +'<td><input type="checkbox" class="bPosted" data-id="'+p.id+'"'+(p.posted?' checked':'')+' title="Posted on the client\'s site"></td>'
         +'<td style="text-align:right;white-space:nowrap">'
         +'<button class="seoc-blink bView" data-id="'+p.id+'">View</button>'
         +'<a class="seoc-blink" href="/seo/blogs/'+slug+'.doc?ids='+p.id+'">Download</a>'
+        +(p.status==='written'
+          ? '<button class="seoc-blink bImg" data-id="'+p.id+'">'
+            +((p.image&&p.image.status==='pending')?'Review image'
+              :(p.image?'Image &#10003;':'Add image'))+'</button>'
+          : '')
+        +'<button class="seoc-blink bArch" data-id="'+p.id+'" title="Archive — keeps the post, hides it here">Archive</button>'
         +'</td></tr>';
     }).join('');
+    $('blogRows').querySelectorAll('.bImg').forEach(function(b){
+      b.onclick=function(){openImageModal(parseInt(b.dataset.id,10));};
+    });
+    $('blogRows').querySelectorAll('.bArch').forEach(function(b){
+      b.onclick=function(){
+        if(!confirm('Archive this post? It stays saved — it just leaves this list.')) return;
+        post('/api/seo/blogs/update',{client:CLIENT,id:parseInt(b.dataset.id,10),archived:true})
+          .then(function(){ loadBlogs(); });
+      };
+    });
     $('blogRows').querySelectorAll('.bView').forEach(function(b){
       b.onclick=function(){openBlogModal(parseInt(b.dataset.id,10));};
     });

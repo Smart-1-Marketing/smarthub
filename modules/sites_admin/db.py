@@ -590,10 +590,16 @@ def query_projects(q="", status="", plan="", partner="", page=1, per_page=50):
     args = []
     if q:
         like = f"%{q}%"
+        # Search the CLIENT name and subdomain too. Searching a project name
+        # and domain only meant typing the client you're looking for returned
+        # nothing — and the project name is often an internal label that
+        # bears no resemblance to the client.
         where.append(
-            "(p.name ILIKE ? OR w.domain ILIKE ? OR p.project_id ILIKE ? OR w.website_id ILIKE ?)"
+            "(p.name ILIKE ? OR w.domain ILIKE ? OR w.subdomain ILIKE ? "
+            "OR w.name ILIKE ? OR m.internal_client_name ILIKE ? "
+            "OR p.project_id ILIKE ? OR w.website_id ILIKE ?)"
         )
-        args += [like, like, like, like]
+        args += [like] * 7
     if status:
         where.append("p.status=?")
         args.append(status)

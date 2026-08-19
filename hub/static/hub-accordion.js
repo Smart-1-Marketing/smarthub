@@ -35,7 +35,20 @@
     { match: "gtm container",  open: false },   // auto-collapsed, moved down
     { match: "invoices",       open: false },   // auto-collapsed
     { match: "website record", open: false },   // auto-collapsed
-    { match: "web tickets",    open: false }
+    { match: "web tickets",    open: false },
+
+    /* SEO client page. The long working sections fold away by default —
+       Schema Builder, FAQ Builder and Blogs are each a workspace you open
+       deliberately, not something to scroll past every visit. */
+    { match: "accounts",       open: true  },
+    { match: "website",        open: true  },
+    { match: "ai engine",      open: true  },
+    { match: "schema check",   open: true  },
+    { match: "schema questions", open: false },
+    { match: "schema builder", open: false },
+    { match: "faq builder",    open: false },
+    { match: "blogs",          open: false },
+    { match: "llms.txt",       open: false }
   ];
 
   var CSS = [

@@ -576,7 +576,7 @@ GHL_STATUSES = ("open", "won", "lost", "abandoned")
 
 
 def accounting_requests() -> dict:
-    columns = ["Request", "Issue", "Created", "Status", "Stage"]
+    columns = ["Request", "Company", "Created", "Status", "Stage"]
     try:
         loc_id, loc_name = _accounting_location()
         pipe = _accounting_pipeline(loc_id)
@@ -605,12 +605,22 @@ def accounting_requests() -> dict:
         contact = (o.get("contact") or {})
         organization = (_ghl_custom_value(o, "organization")
                         or contact.get("companyName") or o.get("name") or "(unnamed)")
-        issue = _ghl_custom_value(o, "29zlj", "checkbox")
+        # The issue was read from one hardcoded custom-field id, which returns
+        # nothing when the field is renamed or a different form is used — so
+        # every row showed "—". Try the id first, then the field's own name,
+        # so a rename doesn't silently empty the column.
+        issue = (_ghl_custom_value(o, "29zlj", "checkbox")
+                 or _ghl_custom_value(o, "issue", "reason", "request type",
+                                      "what do you need", "problem")
+                 or "")
+        # The issue IS the request — "Buckeye Lake Winery" tells you who asked,
+        # not what for, and a list of client names is not a work queue.
+        request = issue.strip() or (o.get("name") or "").strip() or "(no issue given)"
         rows.append([
-            {"text": organization,
+            {"text": request,
              "href": f"{os.environ.get('GHL_APP_BASE', 'https://app.gohighlevel.com')}"
                      f"/v2/location/{loc_id}/opportunities/list"},
-            issue or "—",
+            organization,
             _mmddyy(o.get("createdAt")),
             {"status_select": o.get("id"),
              "current": str(o.get("status") or "open").lower()},
