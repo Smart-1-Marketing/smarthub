@@ -1,8 +1,16 @@
 # Runtime data written by the app — never belongs in the repo
 data/
 modules/*/data/
-modules/scans/smart1_scans.db
+_attic/
+
+# SQLite. image_picker.db reached the repo root because models.py opens it
+# on a relative path, so it lands in whatever the process CWD happens to be.
+*.db
+*.sqlite3
 *.db-journal
+
+# Scheduler singleton guard
+hub-scheduler.lock
 
 # Python
 __pycache__/
