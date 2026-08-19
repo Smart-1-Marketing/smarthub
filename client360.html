@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Client 360 — Smart 1 Hub{% endblock %}
 {% block content %}
-<div class="page-head"><h2>Client 360</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
+<div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
 
 <form class="c360-search" onsubmit="run();return false">
   <input id="q" placeholder="Type a client name or domain…" value="{{ q or '' }}" autofocus>
@@ -9,11 +9,27 @@
 </form>
 <div id="picker" class="c360-picker" style="display:none"></div>
 <div id="results"></div>
+
+<!-- Creative gallery modal -->
+<div id="galModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.78);z-index:100001;padding:24px" onclick="if(event.target===this)closeGallery()">
+  <div style="max-width:1000px;margin:0 auto;background:#fff;border-radius:14px;max-height:calc(100vh - 48px);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.4)">
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)">
+      <h3 style="color:var(--navy);font-size:15px" id="galTitle">Creative files</h3>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn-ghost" onclick="openAllFiles()" title="Opens each file in its own tab — allow pop-ups for this site">&#8681; Open / download all</button>
+        <button class="btn-ghost" onclick="closeGallery()">✕ Close</button>
+      </div>
+    </div>
+    <div id="galGrid" style="overflow:auto;padding:18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px"></div>
+    <div class="muted" style="padding:10px 18px;border-top:1px solid var(--line-soft);font-size:12px">Click a tile to open the file. Drive and image files show previews; other file types open at their source.</div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 const $=id=>document.getElementById(id);
+const user_name={{ (user or '')|tojson }};
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money=v=>{const n=Number(String(v??'').replace(/[$,]/g,''));return isFinite(n)&&n?'$'+n.toLocaleString():esc(v??'—')};
 let groups=[];
@@ -21,13 +37,14 @@ let groups=[];
 const KIND_ICON={gdrive:'&#128193; Drive',pdf:'&#128462; PDF',dropbox:'&#128230; Dropbox',image:'&#128444; Image',file:'&#128206; File'};
 
 // Google Finder functions attached to each Google result.
-function googleTools(platform,name){
-  const q=encodeURIComponent(name||'');
+function googleTools(platform,name,rid){
+  const q=encodeURIComponent(rid||name||'');
   const P=String(platform||'');
   if(P==='Google Analytics') return [
-    ['GA4 Tools','/google/ga-tools?q='+q],['Compare / AI analysis','/google/ga-tools?q='+q+'#compare'],['Reports','/google/history?q='+q]];
+    ['GA4 Tools','/google/ga-tools?q='+q],['Compare / AI analysis','/google/ga-tools?q='+q+'#compare'],['History & Logs','/google/history?q='+q]];
+  const uParam=window.__c360domain?'&url='+encodeURIComponent(window.__c360domain):'';
   if(P==='Google Tag Manager') return [
-    ['GTM Tools','/google/gtm-tools?q='+q],['Inspect container','/google/gtm-tools?q='+q+'#inspect'],['GTM Logs','/google/gtm-logs?q='+q]];
+    ['GTM Tools','/google/gtm-tools?q='+q+uParam],['Inspect container','/google/gtm-tools?q='+q+uParam+'#inspect'],['History & Logs','/google/history?q='+q]];
   if(P==='Search Console') return [['Webmaster Tools','/google/webmaster-tools?q='+q]];
   if(P==='Google Business Profile') return [['GMB Tools','/google/gmb-tools?q='+q]];
   return [['Open Google Finder','/google/?q='+q]];
@@ -55,9 +72,13 @@ function pick(i){
 }
 
 function render(g,q){
+  window.__trafficStarted=null;
   const name=g.client||q;
+  window.CURRENT_CLIENT = name;
+  setTimeout(function(){ loadBrandAndWork(name); }, 0);
   const liveCount=g.products.filter(p=>String(p.status||'').toLowerCase()==='live').length;
   const web0=(g.websites||[])[0]||null;
+  window.__c360domain=web0&&web0.domain?String(web0.domain).replace(/^https?:\/\//,'').replace(/\/.*$/,''):'';
 
   // ---------- header: Smart 1 Site badge · active billing · dashboard link ----------
   let head=`
@@ -66,36 +87,55 @@ function render(g,q){
     <div><h3 style="font-size:19px;color:var(--navy)">${esc(name)}</h3>
     <div class="muted" style="font-size:13px">${g.products[0]?('Salesperson: '+esc(g.products[0].sales||'—')+' · Partner: '+esc(g.products[0].partner||'—')):''}</div></div>
     <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">`;
+  head+=`<span id="qbSinceBadge"></span>`;
   if(g.smart1_site) head+=`<span class="pill info" style="font-size:12.5px;padding:5px 12px">&#11041; Smart 1 Site</span>`;
   if(g.billing_monthly) head+=`<span class="pill ok" style="font-size:12.5px;padding:5px 12px">Active billing: ${money(g.billing_monthly)}/mo</span>`;
   if(liveCount) head+=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px">${liveCount} live product${liveCount>1?'s':''}</span>`;
   if(g.dash_url) head+=`<a class="btn-primary" style="padding:8px 16px;font-size:13px;text-decoration:none" href="${esc(g.dash_url)}" target="_blank" rel="noopener">Smart 1 Dashboard →</a>`;
   head+='</div></div>';
+  head+='<div id="c-profile" style="margin:-6px 0 14px"></div>';
 
   let html=head+'<div class="grid-2">';
 
   // ---------- Smart 1 Team: products & IOs ----------
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs</h3><a class="open-link" href="/clients">Open in Clients →</a></div><div class="card-b flush">`;
+  const clientsLink='/clients?q='+encodeURIComponent(name);
+  window.__c360prods=g.products||[];
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs {{ help_dot('hub.client360.products') if help_dot is defined else '' }}</h3>
+    <div class="right" style="display:flex;gap:10px">
+      <a class="open-link" id="c-camp-change" style="cursor:pointer;color:#b45309">&#9998; Campaign change</a>
+      <a class="open-link" id="c-camp-support" style="cursor:pointer;color:#b45309">&#128736; Campaign support</a>
+      <a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
+  const prodRow=p=>{
+    const live=String(p.status||'').toLowerCase()==='live';
+    const ioPill=p.io?(p.dash
+      ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Open Smart 1 Dashboard">#${esc(p.io)}</a>`
+      :` <span class="pill neutral">#${esc(p.io)}</span>`):'';
+    return `<tr><td><b>${esc(p.product||'—')}</b>${ioPill}${p.campaign?`<div class="muted" style="font-size:12px;margin-top:1px">${esc(p.campaign)}</div>`:''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td></tr>`;
+  };
+  const liveProds=g.products.filter(p=>String(p.status||'').toLowerCase()==='live');
+  const doneProds=g.products.filter(p=>String(p.status||'').toLowerCase()!=='live');
   if(g.products.length){
-    html+='<table><thead><tr><th>Product</th><th>Status</th><th>Monthly</th><th>IO</th></tr></thead><tbody>';
-    g.products.slice(0,10).forEach(p=>{
-      const live=String(p.status||'').toLowerCase()==='live';
-      html+=`<tr><td><b>${esc(p.product||'—')}</b>${p.dash?' <span class="pill info">dash</span>':''}</td><td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td><td>${money(p.monthly)}</td><td class="muted">${esc(p.io||'')}</td></tr>`;
-    });
+    html+='<table><thead><tr><th>Product</th><th>Status</th><th>Monthly</th></tr></thead><tbody>';
+    html+=liveProds.slice(0,15).map(prodRow).join('');
+    if(!liveProds.length)html+='<tr><td colspan="3" class="empty">No live products right now.</td></tr>';
     html+='</tbody></table>';
-    if(g.products.length>10)html+=`<div class="empty">+${g.products.length-10} more in the Clients module</div>`;
+    if(doneProds.length){
+      html+=`<div style="padding:10px 14px;border-top:1px solid var(--line-soft)"><button class="btn-ghost" onclick="const el=document.getElementById('doneProds');const on=el.style.display==='none';el.style.display=on?'block':'none';this.textContent=on?'Hide completed / other (${doneProds.length})':'Show completed / other (${doneProds.length})'">Show completed / other (${doneProds.length})</button></div>`;
+      html+=`<div id="doneProds" style="display:none"><table><tbody>${doneProds.slice(0,25).map(prodRow).join('')}</tbody></table>`;
+      if(doneProds.length>25)html+=`<div class="empty">+${doneProds.length-25} more in the Clients module</div>`;
+      html+='</div>';
+    }
   } else html+='<div class="empty">No Smart 1 Team IOs matched.</div>';
   html+='</div></div>';
 
   // ---------- Creative Information (replaces the old website-record spot) ----------
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Creative Information</h3><a class="open-link" href="/clients">Open in Clients →</a></div><div class="card-b flush">`;
   const cre=g.creative||[];
+  window._galleryItems=cre;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Creative Information</h3><div class="right">${cre.length?`<a class="open-link" href="#" onclick="openGallery(0);return false">&#9635; View gallery (${cre.length})</a>`:''}<a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
   if(cre.length){
-    html+='<table><thead><tr><th>Year</th><th>Product / Campaign</th><th>IO</th><th>Creative</th></tr></thead><tbody>';
-    let lastYear='';
-    cre.slice(0,12).forEach(c=>{
-      const y=c.year&&c.year!==lastYear?c.year:''; if(c.year)lastYear=c.year;
-      html+=`<tr><td><b>${esc(y)}</b></td><td>${esc(c.product||'—')}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="${esc(c.url)}" target="_blank" rel="noopener">${KIND_ICON[c.kind]||'&#128206; File'} →</a></td></tr>`;
+    html+='<table><thead><tr><th>Product / Campaign</th><th>IO</th><th>Creative</th></tr></thead><tbody>';
+    cre.slice(0,12).forEach((c,i)=>{
+      html+=`<tr><td>${esc(c.product||'—')}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} view →</a></td></tr>`;
     });
     html+='</tbody></table>';
     if(cre.length>12)html+=`<div class="empty">+${cre.length-12} more creative files in the Clients module</div>`;
@@ -103,65 +143,177 @@ function render(g,q){
   html+='</div></div>';
 
   // ---------- Google card ----------
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="/google/">Open Google Finder →</a></div><div class="card-b" id="c-google"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="${'/google/?q='+encodeURIComponent(name)}">Open Google Finder →</a></div><div class="card-b" id="c-google"><div id="c-analytics-ids" style="margin-bottom:10px"></div><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
   // ---------- GTM Containers (replaces the old Simvoly box) ----------
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GTM Containers</h3><a class="open-link" href="/google/gtm-tools">Open GTM Tools →</a></div><div class="card-b">`;
   const gtms=g.gtm_containers||[];
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GTM Containers</h3><a class="open-link" href="${gtms.length?'/google/gtm-tools?q='+encodeURIComponent(gtms[0].id):'/google/gtm-tools'}">Open GTM Tools →</a></div><div class="card-b">`;
   if(gtms.length){
     gtms.forEach(t=>{
       html+=`<div style="padding:9px 0;border-bottom:1px solid var(--line-soft)">
         <b>${esc(t.id)}</b>${t.login?' <span class="pill warn">'+esc(t.login)+'</span>':''}
         <div class="muted" style="font-size:12px;margin-top:2px">${esc(t.site||'')}</div>
-        ${gbtns([['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(t.id)],['Inspect','/google/gtm-tools?q='+encodeURIComponent(t.id)+'#inspect'],['Logs','/google/gtm-logs?q='+encodeURIComponent(t.id)]])}
+        ${gbtns([['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(t.id)+(window.__c360domain?'&url='+encodeURIComponent(window.__c360domain):'')],['Inspect','/google/gtm-tools?q='+encodeURIComponent(t.id)+(window.__c360domain?'&url='+encodeURIComponent(window.__c360domain):'')+'#inspect'],['History & Logs','/google/history?q='+encodeURIComponent(t.id)]])}
       </div>`;
     });
   } else html+='<div class="empty">No GTM container on record for this client.</div>';
   html+='</div></div>';
 
-  // ---------- Smart 1 Suite Account ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  // ---------- Social Media + Client Notes (one row, two columns) ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Social</span><h3>Social Media</h3><a class="open-link" id="c-social-save" style="cursor:pointer">Save →</a></div><div class="card-b" id="c-social"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Traffic Summary (GA4: last month vs previous) ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span></div><div class="card-b" id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center">
+      <a class="open-link" id="c-props-upload" style="cursor:pointer">&#8679; Upload proposal</a>
+      <a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a>
+    </div></div>
+    <div class="card-b">
+      <div id="c-props-uploadbox" style="display:none;margin-bottom:10px"></div>
+      <div id="c-props-saved"></div>
+      <div id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div>
+    </div></div>`;
+
+  // ---------- QuickBooks: invoices for this client ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e8f5e9;color:#1b5e20">QuickBooks</span><h3>Invoices</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center">
+      <a class="open-link" id="c-qb-acct" style="cursor:pointer;color:#b45309">⚑ Accounting issue</a>
+      <a class="open-link" id="c-qb-attach" style="cursor:pointer">Search &amp; attach customer</a>
+      <a class="open-link" href="https://app.qbo.intuit.com" target="_blank" rel="noopener">Open QuickBooks →</a>
+    </div></div>
+    <div class="card-b"><div id="c-qb-attachbox" style="display:none;margin-bottom:10px"></div><div id="c-qb"><div class="empty">Searching… <span class="spin"></span></div></div></div></div>`;
+
+  // ---------- Client images (from the SEO Image Pipeline) ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Images</span><h3>Client Images {{ help_dot('hub.client360.images') if help_dot is defined else '' }}</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-img-acts"></div></div>
+    <div class="card-b" id="c-images"><div class="empty">Looking for saved images… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Brand kit (logos, colours, fonts already cached per client) ----------
+  html+=`<div class="card"><div class="card-h">
+    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Brandfetch</span><h3>Brand</h3>
+    <div class="right" id="c-brand-acts"></div></div>
+    <div class="card-b" id="c-brand"><div class="empty">Loading brand…</div></div></div>`;
+
+  // ---------- Everything the Hub has made for this client ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Work for this client</h3>
+    <div class="right" id="c-work-sum"></div></div>
+    <div class="card-b" id="c-work"><div class="empty">Loading…</div></div></div>`;
+
+  // ---------- Site health (latest Insites scan: what's broken + speed) ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e0edff;color:#1e40af">Insites</span><h3>Site Health</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-health-acts"></div></div>
+    <div class="card-b" id="c-health"><div class="empty">Checking for a recent scan… <span class="spin"></span></div></div></div>`;
 
   // ---------- Website record (moved to the bottom) ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3><a class="open-link" href="/clients">Open in Websites →</a></div><div class="card-b" style="display:flex;gap:36px;flex-wrap:wrap">`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
+    <div class="right" style="display:flex;gap:10px"><a class="open-link" id="c-web-attach" style="cursor:pointer">+ Attach website record</a>
+    <a class="open-link" href="${clientsLink}">Open in Websites →</a></div></div>
+    <div class="card-b"><div id="c-web-attachbox" style="display:none;margin-bottom:10px"></div>
+    <div style="display:flex;gap:36px;flex-wrap:wrap">`;
   if(g.websites&&g.websites.length){
-    g.websites.slice(0,3).forEach(w=>{
+    g.websites.slice(0,4).forEach(w=>{
+      const PLATFORMS=['Smart1Sites','WordPress','Wix','Squarespace','Shopify','Other'];
+      const curPlat=w.platform||'';
+      const platOpts=['<option value="">Set platform…</option>'].concat(
+        PLATFORMS.map(p=>`<option value="${esc(p)}"${p.toLowerCase()===String(curPlat).toLowerCase()?' selected':''}>${esc(p.replace(/Smart1Sites/i,'Smart 1 Sites'))}</option>`));
+      if(curPlat&&!PLATFORMS.some(p=>p.toLowerCase()===String(curPlat).toLowerCase()))
+        platOpts.push(`<option value="${esc(curPlat)}" selected>${esc(curPlat)}</option>`);
       html+=`<div style="flex:1;min-width:280px"><dl class="kv">
-        <dt>Site</dt><dd>${esc(w.name||'—')}</dd>
+        <dt>Site</dt><dd>${esc(w.name||'—')}${w.attached?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</dd>
         <dt>Domain</dt><dd>${w.domain?`<a href="https://${esc(w.domain)}" target="_blank" rel="noopener">${esc(w.domain)}</a>`:'—'}${w.domainPurchased?' <span class="pill info">we purchased</span>':''}</dd>
-        <dt>Platform</dt><dd>${esc((w.platform||'—').replace(/Smart1Sites/i,'Smart 1 Sites'))}</dd>
+        <dt>Platform</dt><dd><select class="web-plat" data-domain="${esc(w.domain||'')}" style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit">${platOpts.join('')}</select> <span class="web-plat-msg muted" style="font-size:11px">${w.platform_overridden?'corrected':''}</span></dd>
+        <dt>S1M hosted</dt><dd><select class="web-hosted" data-domain="${esc(w.domain||'')}" style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit">
+          <option value=""${!w.s1m_hosted?' selected':''}>—</option>
+          <option value="yes"${w.s1m_hosted==='yes'?' selected':''}>Yes</option>
+          <option value="no"${w.s1m_hosted==='no'?' selected':''}>No</option>
+        </select> <span class="web-hosted-msg muted" style="font-size:11px"></span></dd>
         <dt>Status</dt><dd><span class="pill ${String(w.status||'').toLowerCase()==='active'?'ok':'neutral'}">${esc(w.status||'—')}</span></dd>
         <dt>H&amp;M</dt><dd>${w.hmMonthly?money(w.hmMonthly)+' / mo':'—'}</dd>
-        ${w.ga?`<dt>GA4</dt><dd>${esc(w.ga)}</dd>`:''}
+        <dt>GA4</dt><dd>${w.ga?esc(w.ga):'<span class="muted">none</span> <a class="gbtn ga-lookup" style="cursor:pointer;font-size:11.5px">Search &amp; attach →</a>'}</dd>
         ${w.gtm?`<dt>GTM</dt><dd>${esc(w.gtm)}</dd>`:''}
       </dl>`;
       const links=[];
-      if(w.ga)links.push(['GA4 Tools','/google/ga-tools?q='+encodeURIComponent(w.ga)]);
-      if(w.gtm)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(w.gtm)]);
+      const gaId=w.ga?(String(w.ga).match(/\d{6,}/)||[w.ga])[0]:null;
+      const gtmId=w.gtm?(String(w.gtm).match(/GTM-[A-Z0-9]+/i)||[w.gtm])[0]:null;
+      if(gaId)links.push(['GA4 Tools','/google/ga-tools?q='+encodeURIComponent(gaId)]);
+      if(gtmId)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(gtmId)]);
       if(links.length)html+=gbtns(links);
+      html+=`<div style="margin-top:6px"><a class="gbtn web-ticket" data-site="${esc(w.name||'')}" data-domain="${esc(w.domain||'')}" style="cursor:pointer;color:#b45309">&#127915; + Web ticket</a></div>`;
       html+='</div>';
     });
-  } else html+='<div class="empty" style="flex:1">No website record matched.</div>';
-  html+='</div></div>';
+  } else html+='<div class="empty" style="flex:1">No website record matched — use <b>+ Attach website record</b> above to link one.</div>';
+  html+='</div></div></div>';
+
+  // ---------- Web Tickets (Smart 1 Team) + Notes ----------
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Web Tickets</h3><a class="open-link" id="c-tickets-new" style="cursor:pointer">+ New web ticket</a></div><div class="card-b" id="c-tickets"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   html+='</div>';
   $('results').innerHTML=html;
 
   const term=(name||q);
 
-  // Google Finder live search
-  fetch('/google/api/search?q='+encodeURIComponent(term)).then(async r=>{
-    if(r.status===401){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';return}
-    const d=await r.json();
-    const res=(d.results||[]).slice(0,8);
-    if(!res.length){$('c-google').innerHTML='<div class="empty">No GA4/GTM matches for “'+esc(term)+'”.</div>';return}
-    $('c-google').innerHTML=res.map(it=>`
+  // Google Finder live search — matched by client NAME and by website DOMAIN
+  // (they often don't match), merged and deduped. Each result carries its
+  // finder functions.
+  const gTerms=[term];
+  (g.websites||[]).slice(0,3).forEach(w=>{
+    if(w.domain){
+      const dom=String(w.domain).replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0];
+      if(dom&&!gTerms.includes(dom))gTerms.push(dom);
+      const root=dom.split('.')[0];
+      if(root&&root.length>3&&!gTerms.includes(root))gTerms.push(root);
+    }
+    // GA measurement id + GTM id from the website record find GA4 by id
+    const gaM=w.ga?(String(w.ga).match(/G-[A-Z0-9]+/)||[])[0]:null;
+    if(gaM&&!gTerms.includes(gaM))gTerms.push(gaM);
+    const gtmM=w.gtm?(String(w.gtm).match(/GTM-[A-Z0-9]+/i)||[])[0]:null;
+    if(gtmM&&!gTerms.includes(gtmM))gTerms.push(gtmM);
+  });
+  Promise.all(gTerms.slice(0,7).map(t=>
+    fetch('/google/api/search?q='+encodeURIComponent(t))
+      .then(r=>r.status===401?{noauth:true}:r.json()).then(d=>Object.assign({term:t},d)).catch(()=>null)
+  ).concat([
+    // manually attached accounts always show, even when no search term matches
+    fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).then(la=>{
+      const att=(la||{}).attached||{};
+      const items=[];
+      const push=(list,platform)=>{ (Array.isArray(list)?list:(list?[list]:[])).forEach(a=>{
+        items.push({platform:platform,name:a.name,resource_id:a.resource_id,
+          google_login:a.google_login,account_id:a.account_id,
+          internal_container_id:a.container,_attached:true}); }); };
+      push(att.analytics,'Google Analytics');
+      push(att.gtm,'Google Tag Manager');
+      push(att.gsc,'Search Console');
+      return {term:'(attached)',results:items};
+    }).catch(()=>null),
+  ])).then(all=>{
+    all=all.filter(Boolean);
+    if(all.some(a=>a.noauth)){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';maybeTraffic(name,[]);return}
+    const seen=new Set(),res=[];
+    all.forEach(a=>(a.results||[]).forEach(it=>{
+      const k=(it.platform||'')+'|'+(it.resource_id||'')+'|'+(it.google_login||'');
+      if(!seen.has(k)){seen.add(k);it._via=a.term;res.push(it);}
+    }));
+    maybeTraffic(name,res);
+    if(!res.length){$('c-google').innerHTML='<div class="empty">No GA4/GTM matches for '+gTerms.map(t=>'\u201c'+esc(t)+'\u201d').join(', ')+' \u2014 you can search &amp; attach one in the Traffic Summary card below.</div>';return}
+    res.sort((a,b)=>(b._attached?1:0)-(a._attached?1:0));
+    $('c-google').innerHTML=res.slice(0,10).map(it=>`
       <div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
         <b>${esc(it.name||'—')}</b> <span class="pill ${it.platform==='Google Analytics'?'info':'warn'}">${esc(it.platform||'')}</span>
+        ${it._attached?'<span class="pill ok" title="Manually attached to this client">attached</span>':''}
+        ${it._via&&it._via!==term&&it._via!=='(attached)'?'<span class="pill neutral" title="Matched by website URL">via '+esc(it._via)+'</span>':''}
         <div class="muted" style="font-size:12px;margin-top:2px">${esc(it.resource_id||'')} · ${esc(it.google_login||'')}</div>
-        ${gbtns(googleTools(it.platform,it.name))}
+        ${gbtns(googleTools(it.platform,it.name,it.resource_id))}
       </div>`).join('');
-  }).catch(()=>{$('c-google').innerHTML='<div class="empty">Google module unavailable.</div>'});
+  }).catch(()=>{$('c-google').innerHTML='<div class="empty">Google module unavailable.</div>';maybeTraffic(name,[]);});
 
   // Smart 1 Suite account — with prefilled "Add" when there's no match.
   const addBtn=()=>{
@@ -171,16 +323,924 @@ function render(g,q){
       <a class="btn-primary" style="padding:9px 18px;font-size:13.5px;text-decoration:none" href="/suite/?${p.toString()}">+ Add to Smart 1 Suite</a>
       <div class="muted" style="font-size:12px;margin-top:8px">Opens the Suite create form pre-filled with this client's details${web0&&web0.domain?' — brand info auto-fetched from '+esc(web0.domain):''}.</div></div>`;
   };
-  fetch('/suite/api/locations?limit=6&search='+encodeURIComponent(term)).then(async r=>{
-    if(!r.ok){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
-    const d=await r.json();
-    const res=d.locations||[];
+  Promise.all([
+    fetch('/suite/api/locations?limit=6&search='+encodeURIComponent(term)).then(r=>r.ok?r.json():null).catch(()=>null),
+    fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).catch(()=>({attached:{}})),
+  ]).then(([d,la])=>{
+    let suiteAtt=((la||{}).attached||{}).suite||[];
+    if(!Array.isArray(suiteAtt)) suiteAtt=[suiteAtt];
+    if(d===null&&!suiteAtt.length){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
+    const res=(d&&d.locations)||[];
+    const attIds=new Set(suiteAtt.map(a=>a.id));
+    // attached accounts not in the search results still show
+    suiteAtt.forEach(a=>{ if(!res.some(l=>(l.id||l._id)===a.id)) res.push({id:a.id,name:a.name,_attachedOnly:true}); });
     if(!res.length){$('c-ghl').innerHTML=addBtn();return}
     $('c-ghl').innerHTML='<table><thead><tr><th>Account</th><th>City</th><th>Email</th><th></th></tr></thead><tbody>'+
-      res.map(l=>`<tr><td><b>${esc(l.name||'—')}</b></td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td><td><a class="open-link" href="/suite/">Manage →</a></td></tr>`).join('')+'</tbody></table>';
+      res.map((l,i)=>{const lid=l.id||l._id||'';
+        const isAtt=attIds.has(lid);
+        return `<tr><td><b>${esc(l.name||'—')}</b>${isAtt?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td>
+          <td style="white-space:nowrap"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>
+          ${isAtt?`<a class="gbtn suite-det" data-id="${esc(lid)}" style="cursor:pointer;color:#94a3b8">un-attach</a>`
+                 :`<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">Attach</a>`}</td></tr>`;}).join('')+'</tbody></table>';
+    document.querySelectorAll('.suite-att').forEach(btn=>{
+      btn.onclick=()=>{
+        const l=res[parseInt(btn.dataset.i,10)];
+        fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,kind:'suite',data:{id:l.id||l._id,name:l.name}})})
+          .then(r=>r.json()).then(()=>{btn.outerHTML='<span class="pill ok">attached ✓</span>';});
+      };
+    });
+    document.querySelectorAll('.suite-det').forEach(btn=>{
+      btn.onclick=()=>{
+        fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,kind:'suite',remove:btn.dataset.id})})
+          .then(r=>r.json()).then(()=>{btn.outerHTML='<span class="muted" style="font-size:11px">removed</span>';});
+      };
+    });
   }).catch(()=>{$('c-ghl').innerHTML='<div class="empty">Suite module unavailable.</div>'});
+
+  // Proposals from the Proposal Builder — "+ New proposal" prefills this client
+  const propPrefill='/sales/proposals/?prefill=1&business_name='+encodeURIComponent(name)+
+    (web0&&web0.domain?'&website='+encodeURIComponent('https://'+web0.domain):'');
+  const propNew=document.getElementById('c-props-new'); if(propNew)propNew.href=propPrefill;
+  fetch('/sales/proposals/api/proposals?q='+encodeURIComponent(term)+'&limit=6',
+        {headers:{'Accept':'application/json'}}).then(async r=>{
+    if(!r.ok){$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>';return}
+    const d=await r.json();
+    const res=d.results||[];
+    if(!res.length){$('c-props').innerHTML='<div class="empty">No proposals yet for this client. <a href="'+propPrefill+'">Create one (pre-filled) →</a></div>';return}
+    $('c-props').innerHTML='<table><thead><tr><th>Business</th><th>Industry</th><th>Monthly</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>'+
+      res.map(p=>`<tr><td><b>${esc(p.business||'—')}</b><div class="muted" style="font-size:12px">${esc(p.salesperson||'')}</div></td><td>${esc(p.industry_label||'')}</td><td>${p.monthly?money(p.monthly)+'/mo':'—'}</td><td><span class="pill ${p.status==='saved'?'ok':'neutral'}">${esc(p.status||'')} · v${p.versions||1}</span></td><td class="muted">${esc(String(p.updated_at||'').slice(0,10))}</td><td>${p.pdf_url?'<a class="gbtn" href="'+esc(p.pdf_url)+'" target="_blank" rel="noopener">PDF →</a> ':''}<a class="gbtn" href="/sales/proposals/">Open →</a></td></tr>`).join('')+'</tbody></table>';
+  }).catch(()=>{$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>'});
+
+  // ---------- Uploaded proposals: the PDFs and Word docs we sent ----------
+  // Stored in client gallery and attached to the client for good, with the date
+  // the proposal went to them.
+  const todayISO=()=>new Date().toISOString().slice(0,10);
+  function renderUploaded(list){
+    const host=$('c-props-saved'); if(!host)return;
+    if(!list||!list.length){host.innerHTML='';return}
+    host.innerHTML='<div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;margin:2px 0 6px">Sent to client</div>'
+      +'<table><thead><tr><th>Proposal</th><th>Date sent</th><th>Uploaded by</th><th></th></tr></thead><tbody>'
+      +list.map(p=>`<tr data-pid="${esc(p.id)}">
+        <td><b>${esc(p.title||p.filename)}</b>
+          <div class="muted" style="font-size:11.5px">${esc(p.filename)}${p.note?' · '+esc(p.note):''}</div></td>
+        <td><input type="date" class="up-date" value="${esc(p.date_sent||'')}"
+             style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;font:12px inherit"></td>
+        <td class="muted">${esc(p.uploaded_by||'—')}<div style="font-size:11px">${esc(p.uploaded_at||'')}</div></td>
+        <td style="white-space:nowrap">
+          <a class="gbtn" href="${esc(p.url)}" target="_blank" rel="noopener">${p.kind==='pdf'?'PDF':'DOC'} →</a>
+          <a class="gbtn up-del" style="cursor:pointer;color:#b91c1c" title="Remove this proposal">✕</a>
+        </td></tr>`).join('')+'</tbody></table>';
+    host.querySelectorAll('tr[data-pid]').forEach(tr=>{
+      const pid=tr.dataset.pid;
+      tr.querySelector('.up-date').onchange=function(){
+        fetch('/api/client/proposals/update',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,id:pid,date_sent:this.value})})
+          .then(r=>r.json()).then(d=>{if(d.error)alert(d.error);else renderUploaded(d.proposals)});
+      };
+      tr.querySelector('.up-del').onclick=()=>{
+        if(!confirm('Remove this proposal from the client record?'))return;
+        fetch('/api/client/proposals/update',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,id:pid,delete:true})})
+          .then(r=>r.json()).then(d=>renderUploaded(d.proposals||[]));
+      };
+    });
+  }
+  fetch('/api/client/proposals?client='+encodeURIComponent(name)).then(r=>r.json())
+    .then(d=>renderUploaded(d.proposals||[])).catch(()=>{});
+
+  // ---------- Client images: what the SEO Image Pipeline has saved ----------
+  const imgBase = '/tools/seo-images/';
+  const galleryHref  = imgBase+'gallery?company='+encodeURIComponent(name);
+  const optimizeHref = imgBase+'?company='+encodeURIComponent(name)
+    + (web0&&web0.domain ? '&url='+encodeURIComponent('https://'+web0.domain) : '');
+  const actsHost = document.getElementById('c-img-acts');
+  if(actsHost) actsHost.innerHTML =
+      '<a class="open-link" href="'+galleryHref+'">See client image gallery →</a>'
+    + '<a class="open-link" href="'+optimizeHref+'">Optimize client images →</a>';
+
+  fetch(imgBase+'api/gallery?company='+encodeURIComponent(name)+'&limit=12')
+    .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+      const rows=d.gallery||[];
+      if(!rows.length){
+        $('c-images').innerHTML='<div class="empty">No images saved for this client yet. '
+          +'<a href="'+optimizeHref+'">Optimize their first batch →</a></div>';
+        return;
+      }
+      const total=d.total||rows.length;
+      $('c-images').innerHTML=
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">'
+        + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff">
+            <a href="${esc(r.url)}" target="_blank" rel="noopener" style="display:block;aspect-ratio:4/3;background:#f1f5f9">
+              <img src="${esc(r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
+                   style="width:100%;height:100%;object-fit:cover;display:block"></a>
+            <div style="padding:7px 9px">
+              <div style="font:600 10.5px ui-monospace,Consolas,monospace;color:var(--navy);overflow-wrap:anywhere">${esc(r.filename)}</div>
+              <div class="muted" style="font-size:11px;margin-top:2px">${esc(r.project||'')}${r.page?' · '+esc(r.page):''}</div>
+            </div></div>`).join('')
+        + '</div>'
+        + '<div class="muted" style="font-size:12px;margin-top:10px">Showing '+rows.length+' of '+total
+        + ' saved image'+(total===1?'':'s')+' · <a href="'+galleryHref+'">see the full gallery →</a></div>';
+    }).catch(()=>{
+      $('c-images').innerHTML='<div class="empty">Image pipeline unavailable. '
+        +'<a href="'+optimizeHref+'">Open the tool →</a></div>';
+    });
+
+  // ---------- Site health: broken links / images + speed, from the last scan ----------
+  // Matched on the website record's domain, since scans are keyed by domain
+  // rather than by client. No scan yet is a normal state, not an error — the
+  // card offers to run one.
+  (function(){
+    const host=$('c-health'), acts=document.getElementById('c-health-acts');
+    if(!host) return;
+    const dom=(web0&&web0.domain)?String(web0.domain):'';
+    const scansHref='/scans/'+(dom?'?q='+encodeURIComponent(dom):'');
+    if(acts) acts.innerHTML='<a class="open-link" href="'+scansHref+'">Open Site Scans →</a>';
+    if(!dom){
+      host.innerHTML='<div class="empty">No website record attached, so there\'s '
+        +'nothing to match a scan against. Attach one below.</div>';
+      return;
+    }
+    const pill=(sev,txt)=>{
+      const cls={bad:'err',warn:'warn',ok:'ok'}[sev]||'neutral';
+      return '<span class="pill '+cls+'">'+esc(txt)+'</span>';
+    };
+    fetch('/scans/api/health/by-domain?domain='+encodeURIComponent(dom))
+      .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+        if(!d.found){
+          host.innerHTML='<div class="empty">No completed scan for '+esc(dom)+' yet. '
+            +'<a href="'+scansHref+'">Run one →</a></div>';
+          return;
+        }
+        const f=d.fixes||{}, s=d.speed||{};
+        const scanHref=esc(d.url);
+        let fixLine;
+        if(!f.measured) fixLine='<span class="muted">Link and image checks weren\'t returned by this scan.</span>';
+        else if(!f.total) fixLine=pill('ok','Nothing broken');
+        else {
+          const parts=(f.items||[]).filter(i=>i.severity!=='ok'&&i.measured)
+            .slice(0,4).map(i=>esc(i.count+' '+i.label.toLowerCase()));
+          fixLine=pill(f.worst,f.total+' to fix')+' <span class="muted">'+parts.join(' · ')+'</span>';
+        }
+        const speedLine=s.available
+          ? pill(s.severity,(s.score!=null?s.score+'/100':'measured'))
+            +' <span class="muted">'+esc(s.headline)+'</span>'
+          : '<span class="muted">'+esc(s.headline||'Speed not measured.')+'</span>';
+        host.innerHTML=
+          '<dl class="kv" style="margin-bottom:10px">'
+          +'<dt>Broken</dt><dd>'+fixLine+'</dd>'
+          +'<dt>Speed</dt><dd>'+speedLine+'</dd>'
+          +'<dt>Overall</dt><dd>'+(d.score!=null?esc(d.score)+'/100':'—')
+            +(d.tier?' <span class="pill neutral">'+esc(d.tier)+'</span>':'')+'</dd>'
+          +'</dl>'
+          +'<div class="muted" style="font-size:12px">Scanned '
+          +(d.scanned_at?esc(String(d.scanned_at).slice(0,10)):'—')
+          +' · <a href="'+scanHref+'">see the full scan, the URLs to fix and the speed detail →</a></div>';
+      }).catch(()=>{
+        host.innerHTML='<div class="empty">Site Scans unavailable. '
+          +'<a href="'+scansHref+'">Open the module →</a></div>';
+      });
+  })();
+
+  const upBtn=$('c-props-upload');
+  if(upBtn) upBtn.onclick=()=>{
+    const box=$('c-props-uploadbox');
+    if(box.style.display==='block'){box.style.display='none';return}
+    box.style.display='block';
+    box.innerHTML=`<div style="background:var(--bg-soft,#f8fafc);border:1px dashed var(--line);border-radius:10px;padding:12px">
+      <div style="display:grid;grid-template-columns:1fr 150px;gap:8px;margin-bottom:8px">
+        <input id="up-title" placeholder="Proposal name (optional)"
+          style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+        <div><label class="muted" style="font-size:11px;display:block;margin-bottom:2px">Date sent to client</label>
+        <input id="up-date" type="date" value="${todayISO()}"
+          style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit;width:100%;box-sizing:border-box"></div>
+      </div>
+      <input id="up-file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        style="font:12.5px inherit;margin-bottom:8px">
+      <div><button class="btn-primary" id="up-go" style="padding:7px 14px">Save to client</button>
+        <span id="up-msg" class="muted" style="margin-left:8px;font-size:12px">PDF or Word, up to 25 MB. Stored in client gallery and kept with this client.</span></div>
+    </div>`;
+    $('up-go').onclick=()=>{
+      const f=$('up-file').files[0];
+      if(!f){$('up-msg').textContent='Choose a file first.';return}
+      const fd=new FormData();
+      fd.append('client',name); fd.append('file',f);
+      fd.append('date_sent',$('up-date').value); fd.append('title',$('up-title').value);
+      $('up-go').disabled=true; $('up-msg').textContent='Uploading…';
+      fetch('/api/client/proposals/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+        $('up-go').disabled=false;
+        if(d.error){$('up-msg').textContent=d.error;return}
+        $('up-msg').textContent='Saved ✓';
+        renderUploaded(d.proposals||[]);
+        setTimeout(()=>{box.style.display='none'},900);
+      }).catch(e=>{$('up-go').disabled=false;$('up-msg').textContent='Upload failed: '+e});
+    };
+  };
+
+  // QuickBooks invoices — attached customer wins; shows customer-since in header
+  function renderQb(d,attachedNote){
+    if(!d.configured){$('c-qb').innerHTML='<div class="empty">QuickBooks not configured — set QB_CLIENT_ID / QB_CLIENT_SECRET. <a href="/status">Status →</a></div>';return}
+    if(!d.connected){$('c-qb').innerHTML='<div class="empty">QuickBooks not connected yet. <a href="/qb/connect">Connect QuickBooks →</a></div>';return}
+    if(d.error){$('c-qb').innerHTML='<div class="empty">QuickBooks error: '+esc(d.error)+'</div>';return}
+    const custs=d.customers||[];
+    if(!custs.length){$('c-qb').innerHTML='<div class="empty">No QuickBooks customer matched “'+esc(term)+'” — use <b>Search &amp; attach customer</b> above to link the right one permanently.</div>';return}
+    // header badge: how long they've been in QuickBooks
+    const first=custs[0];
+    const badge=document.getElementById('qbSinceBadge');
+    if(badge&&first.customer_years){
+      badge.innerHTML=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px" title="In QuickBooks since ${esc(first.customer_since_label||'')}">Customer for ${first.customer_years} years</span>`;
+    }
+    $('c-qb').innerHTML=(attachedNote||'')+custs.map(cu=>{
+      let h=`<div style="display:flex;align-items:center;gap:10px;margin:6px 0 8px;flex-wrap:wrap">
+        <b>${esc(cu.name)}</b>
+        ${cu.customer_since_label?'<span class="pill neutral">since '+esc(cu.customer_since_label)+(cu.customer_years?' ('+cu.customer_years+' yrs)':'')+'</span>':''}
+        ${Number(cu.balance)>0?'<span class="pill warn">Balance '+money(cu.balance)+'</span>':'<span class="pill ok">No balance</span>'}
+        <a class="gbtn" href="${esc(cu.link)}" target="_blank" rel="noopener">Customer in QuickBooks →</a></div>`;
+      const inv=cu.invoices||[];
+      if(!inv.length){h+='<div class="empty" style="padding:8px">No invoices found'+(cu.error?' — '+esc(cu.error):'')+'.</div>';return h;}
+      h+='<table style="margin-bottom:12px"><thead><tr><th>Invoice #</th><th>Date</th><th>Due</th><th>Total</th><th>Balance</th><th>Status</th><th></th></tr></thead><tbody>'+
+        inv.map(i=>`<tr><td><b>${esc(i.doc_number||i.id)}</b></td><td>${esc(i.date||'')}</td><td class="muted">${esc(i.due_date||'')}</td><td>${money(i.total)}</td><td>${Number(i.balance)>0?money(i.balance):'—'}</td><td><span class="pill ${i.status==='Paid'?'ok':(i.status==='Overdue'?'err':'warn')}">${esc(i.status)}</span></td><td><a class="gbtn" href="${esc(i.link)}" target="_blank" rel="noopener">Open →</a></td></tr>`).join('')+'</tbody></table>';
+      return h;
+    }).join('');
+  }
+  fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).then(la=>{
+    let qbAtt=((la||{}).attached||{}).qb||[];
+    if(!Array.isArray(qbAtt)) qbAtt=[qbAtt];
+    const url=qbAtt.length?('/api/qb/invoices?customer_id='+encodeURIComponent(qbAtt.map(a=>a.id).join(',')))
+                          :('/api/qb/invoices?q='+encodeURIComponent(term));
+    const note=qbAtt.length?`<div class="muted" style="font-size:12px;margin-bottom:4px">Showing ${qbAtt.length} attached customer${qbAtt.length>1?'s':''}: <b>${qbAtt.map(a=>esc(a.name||a.id)).join(', ')}</b> · <a href="#" id="qbDetach">un-attach all</a></div>`:'';
+    return fetch(url).then(r=>r.json()).then(d=>{
+      renderQb(d,note);
+      const det=document.getElementById('qbDetach');
+      if(det)det.onclick=e=>{e.preventDefault();
+        if(!confirm('Remove all attached QuickBooks customers from this client?'))return;
+        fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,kind:'qb',data:null})}).then(()=>location.reload());};
+    });
+  }).catch(()=>{$('c-qb').innerHTML='<div class="empty">QuickBooks lookup unavailable.</div>'});
+
+  // QB: search & attach customer
+  const qbAttachLink=document.getElementById('c-qb-attach');
+  if(qbAttachLink)qbAttachLink.onclick=()=>{
+    const box=document.getElementById('c-qb-attachbox');
+    if(box.style.display!=='none'){box.style.display='none';return;}
+    box.style.display='block';
+    box.innerHTML=`<div style="display:flex;gap:8px;max-width:520px">
+      <input id="qbq" placeholder="Search QuickBooks customers…" value="${esc(term)}" style="flex:1;padding:8px 11px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+      <a class="gbtn" id="qbgo" style="cursor:pointer">Search</a></div><div id="qbres" style="margin-top:8px"></div>`;
+    const go=()=>{
+      const q=document.getElementById('qbq').value.trim(); if(!q)return;
+      document.getElementById('qbres').innerHTML='<div class="empty">Searching… <span class="spin"></span></div>';
+      fetch('/api/qb/customers?q='+encodeURIComponent(q)).then(r=>r.json()).then(d=>{
+        const items=d.customers||[];
+        if(d.error){document.getElementById('qbres').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+        if(!items.length){document.getElementById('qbres').innerHTML='<div class="empty">No QuickBooks customers matched.</div>';return}
+        document.getElementById('qbres').innerHTML=items.map((c,i)=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff">
+            <span><b>${esc(c.name)}</b> <span class="muted" style="font-size:11.5px">${c.customer_since_label?'since '+esc(c.customer_since_label):''}</span></span>
+            <a class="gbtn qb-att" data-i="${i}" style="cursor:pointer">Attach →</a></div>`).join('');
+        document.querySelectorAll('.qb-att').forEach(btn=>{
+          btn.onclick=()=>{
+            const c=items[parseInt(btn.dataset.i,10)];
+            fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({client:name,kind:'qb',data:{id:c.id,name:c.name}})})
+              .then(r=>r.json()).then(()=>location.reload());   // attach re-runs the card
+          };
+        });
+      });
+    };
+    document.getElementById('qbgo').onclick=go;
+    document.getElementById('qbq').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+  };
+
+  // Website record: platform corrections (hub-only) + GA4 lookup shortcuts
+  document.querySelectorAll('.web-hosted').forEach(sel=>{
+    sel.onchange=()=>{
+      const msg=sel.parentElement.querySelector('.web-hosted-msg');
+      if(msg)msg.textContent='Saving…';
+      fetch('/api/client/website-hosted',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,domain:sel.dataset.domain,s1m_hosted:sel.value})})
+        .then(r=>r.json()).then(res=>{if(msg)msg.textContent=res.error||'saved ✓';})
+        .catch(()=>{if(msg)msg.textContent='could not save';});
+    };
+  });
+  document.querySelectorAll('.web-plat').forEach(sel=>{
+    sel.onchange=()=>{
+      const msg=sel.parentElement.querySelector('.web-plat-msg');
+      if(!sel.value)return;
+      if(msg)msg.textContent='Saving…';
+      fetch('/api/client/website-platform',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,domain:sel.dataset.domain,platform:sel.value})})
+        .then(r=>r.json()).then(res=>{if(msg)msg.textContent=res.error||'corrected ✓';});
+    };
+  });
+  document.querySelectorAll('.ga-lookup').forEach(a=>{
+    a.onclick=()=>{
+      showTrafficAttach(name);
+      const card=document.getElementById('c-traffic');
+      if(card)card.scrollIntoView({behavior:'smooth',block:'center'});
+    };
+  });
+
+  // Website record: search & attach (hub-only — nothing written to Knack)
+  const webAttachLink=document.getElementById('c-web-attach');
+  if(webAttachLink)webAttachLink.onclick=()=>{
+    const box=document.getElementById('c-web-attachbox');
+    if(box.style.display!=='none'){box.style.display='none';return;}
+    box.style.display='block';
+    box.innerHTML=`<div style="display:flex;gap:8px;max-width:520px">
+      <input id="webq" placeholder="Search website records by name or domain…" style="flex:1;padding:8px 11px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+      <a class="gbtn" id="webgo" style="cursor:pointer">Search</a></div><div id="webres" style="margin-top:8px"></div>`;
+    const go=()=>{
+      const q=document.getElementById('webq').value.trim(); if(!q)return;
+      document.getElementById('webres').innerHTML='<div class="empty">Searching… <span class="spin"></span></div>';
+      fetch('/api/websites/search?q='+encodeURIComponent(q)).then(r=>r.json()).then(d=>{
+        const items=d.results||[];
+        if(!items.length){document.getElementById('webres').innerHTML='<div class="empty">No website records matched.</div>';return}
+        document.getElementById('webres').innerHTML=items.map((w,i)=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff">
+            <span><b>${esc(w.name||w.domain)}</b> <span class="muted" style="font-size:11.5px">${esc(w.domain||'')} · ${esc(w.platform||'')}</span></span>
+            <a class="gbtn web-att" data-i="${i}" style="cursor:pointer">Attach →</a></div>`).join('');
+        document.querySelectorAll('.web-att').forEach(btn=>{
+          btn.onclick=()=>{
+            const w=items[parseInt(btn.dataset.i,10)];
+            fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({client:name,kind:'website',data:{name:w.name,domain:w.domain}})})
+              .then(r=>r.json()).then(()=>location.reload());   // re-search shows the record
+          };
+        });
+      });
+    };
+    document.getElementById('webgo').onclick=go;
+    document.getElementById('webq').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+  };
+
+  // ---------- Client profile: contacts, address, category + notes ----------
+  let clientProfile=null;
+  function renderProfile(p){
+    clientProfile=p||{contacts:[],address:'',category:'',notes:[]};
+    const prim=(p.contacts||[]).find(c=>c.primary)||(p.contacts||[])[0]||{};
+    const others=(p.contacts||[]).filter(c=>c!==prim);
+    const bits=[];
+    if(prim.name)bits.push('<b>'+esc(prim.name)+'</b>');
+    if(prim.phone)bits.push('&#128222; '+esc(prim.phone));
+    if(prim.email)bits.push('<a href="mailto:'+esc(prim.email)+'">'+esc(prim.email)+'</a>');
+    if(p.address)bits.push('&#128205; '+esc(p.address));
+    if(p.category)bits.push('<span class="pill neutral">'+esc(p.category)+'</span>');
+    others.forEach(c=>{bits.push('<span class="muted">+ '+esc(c.name||c.email||c.phone)+'</span>');});
+    $('c-profile').innerHTML=`<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px">
+      ${bits.length?bits.join('<span class="muted" style="margin:0 2px">·</span>'):'<span class="muted">No contact info on file yet.</span>'}
+      <a class="gbtn" id="profEdit" style="cursor:pointer;margin-left:auto">&#9998; Edit info</a></div>`;
+    document.getElementById('profEdit').onclick=openProfileModal;
+    // notes card
+    const notes=p.notes||[];
+    $('c-notes').innerHTML=`<div style="display:flex;gap:8px;margin-bottom:12px">
+      <input id="noteInput" placeholder="Add a note about this client…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+      <a class="gbtn" id="noteAdd" style="cursor:pointer">Add note</a></div>`
+      +(notes.length?notes.slice(0,8).map(n=>`<div style="padding:8px 0;border-bottom:1px solid var(--line-soft)">
+        <span class="muted" style="font-size:11.5px">${esc(n.time)} · <b>${esc(n.author)}</b></span>
+        <div style="font-size:13px;margin-top:2px">${esc(n.text)}</div></div>`).join('')
+        +(notes.length>8?'<div class="muted" style="font-size:12px;padding-top:6px">'+(notes.length-8)+' older note(s)</div>':'')
+      :'<div class="empty">No notes yet.</div>');
+    document.getElementById('noteAdd').onclick=()=>{
+      const t=document.getElementById('noteInput').value.trim();
+      if(!t)return;
+      fetch('/api/client/notes',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,text:t})})
+        .then(r=>r.json()).then(d=>{if(d.profile)renderProfile(d.profile);});
+    };
+    document.getElementById('noteInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('noteAdd').click();});
+  }
+  fetch('/api/client/profile?name='+encodeURIComponent(name)).then(r=>r.json())
+    .then(d=>renderProfile(d.profile||{}))
+    .catch(()=>{$('c-profile').innerHTML='';$('c-notes').innerHTML='<div class="empty">Notes unavailable.</div>';});
+
+  function openProfileModal(){
+    const p=clientProfile||{contacts:[]};
+    let m=document.getElementById('profModal');
+    if(m)m.remove();
+    m=document.createElement('div');
+    m.id='profModal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+    const contacts=(p.contacts&&p.contacts.length?p.contacts:[{name:'',email:'',phone:'',primary:true}]);
+    const contactRow=(c,i)=>`<div class="prof-contact" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;margin-bottom:8px">
+      <input class="pc-name" placeholder="Name" value="${esc(c.name||'')}">
+      <input class="pc-email" placeholder="Email" value="${esc(c.email||'')}">
+      <input class="pc-phone" placeholder="Phone" value="${esc(c.phone||'')}">
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b"><input type="radio" name="pcPrimary" ${c.primary?'checked':''}> primary</label></div>`;
+    m.innerHTML=`<div style="background:#fff;border-radius:14px;width:640px;max-width:100%;max-height:90vh;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line)">
+        <b style="color:var(--navy)">Client Info — ${esc(name)}</b>
+        <button id="profClose" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
+      <div style="padding:16px 18px;overflow-y:auto">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:8px">Contacts</div>
+        <div id="profContacts">${contacts.map(contactRow).join('')}</div>
+        <a class="gbtn" id="profAddContact" style="cursor:pointer">+ Add contact</a>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-top:16px">
+          <div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:6px">Address</div>
+            <input id="profAddr" style="width:100%;box-sizing:border-box" value="${esc(p.address||'')}" placeholder="Street, city, state, zip"></div>
+          <div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:6px">Category</div>
+            <input id="profCat" style="width:100%;box-sizing:border-box" value="${esc(p.category||'')}" placeholder="HVAC, winery, retail…"></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding:12px 18px;border-top:1px solid var(--line)">
+        <span id="profMsg" class="muted" style="font-size:12px"></span>
+        <a class="btn-primary" id="profSave" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Save</a></div></div>`;
+    m.querySelectorAll('input').forEach(i=>{if(!i.style.padding)i.style.cssText+='padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit';});
+    document.body.appendChild(m);
+    m.onclick=e=>{if(e.target===m)m.remove();};
+    document.getElementById('profClose').onclick=()=>m.remove();
+    document.getElementById('profAddContact').onclick=()=>{
+      const div=document.createElement('div');
+      div.innerHTML=contactRow({name:'',email:'',phone:'',primary:false},99);
+      const row=div.firstChild;
+      row.querySelectorAll('input').forEach(i=>{i.style.cssText+='padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit';});
+      document.getElementById('profContacts').appendChild(row);
+    };
+    document.getElementById('profSave').onclick=()=>{
+      const contacts=[];
+      document.querySelectorAll('#profModal .prof-contact').forEach(row=>{
+        contacts.push({name:row.querySelector('.pc-name').value.trim(),
+          email:row.querySelector('.pc-email').value.trim(),
+          phone:row.querySelector('.pc-phone').value.trim(),
+          primary:row.querySelector('input[type=radio]').checked});
+      });
+      fetch('/api/client/profile',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,contacts:contacts,
+          address:document.getElementById('profAddr').value.trim(),
+          category:document.getElementById('profCat').value.trim()})})
+        .then(r=>r.json()).then(d=>{
+          if(d.error){document.getElementById('profMsg').textContent=d.error;return;}
+          renderProfile(d.profile);
+          m.remove();
+        });
+    };
+  }
+
+  // ---------- Web tickets: list + create ----------
+  function loadTickets(){
+    const dom=web0&&web0.domain?web0.domain:'';
+    fetch('/api/client/tickets?name='+encodeURIComponent(name)+'&website='+encodeURIComponent(dom))
+      .then(r=>r.json()).then(d=>{
+        if(!d.configured){$('c-tickets').innerHTML='<div class="empty">Knack API not connected — set KNACK_APP_ID and KNACK_API_KEY to see and create web tickets.</div>';return}
+        if(d.error){$('c-tickets').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+        const ts=d.tickets||[];
+        if(!ts.length){$('c-tickets').innerHTML='<div class="empty">No web tickets for this client yet — create one from any website record above or with "+ New web ticket".</div>';return}
+        $('c-tickets').innerHTML='<table><thead><tr><th>Ticket</th><th>Website</th><th>Status</th><th>Date</th></tr></thead><tbody>'+
+          ts.slice(0,5).map(t=>`<tr><td><b>${esc(t.title)}</b>${t.description?'<div class="muted" style="font-size:12px">'+esc(t.description.slice(0,110))+'</div>':''}</td>
+            <td class="muted">${esc(t.website)}</td>
+            <td>${t.status?'<span class="pill neutral">'+esc(t.status)+'</span>':''}</td>
+            <td class="muted">${esc(t.date)}</td></tr>`).join('')+'</tbody></table>'
+          +(ts.length>5?'<div class="muted" style="font-size:12px;padding-top:6px">'+(ts.length-5)+' more in Smart 1 Team</div>':'');
+      }).catch(()=>{$('c-tickets').innerHTML='<div class="empty">Web tickets unavailable.</div>'});
+  }
+  loadTickets();
+  function openTicketModal(site,domain){
+    let m=document.getElementById('tickModal');
+    if(m)m.remove();
+    m=document.createElement('div');
+    m.id='tickModal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+    m.innerHTML=`<div style="background:#fff;border-radius:14px;width:560px;max-width:100%;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line)">
+        <b style="color:var(--navy)">New Web Ticket — ${esc(site||name)}</b>
+        <button id="tickClose" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
+      <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+        <input id="tickSite" placeholder="Website" value="${esc(domain||'')}" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+        <select id="tickReq" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit"><option value="">Requested by…</option></select>
+        <input id="tickSubject" placeholder="Subject — what needs done?" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+        <textarea id="tickDesc" rows="5" placeholder="Details for the web team…" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit"></textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding:12px 18px;border-top:1px solid var(--line)">
+        <span id="tickMsg" class="muted" style="font-size:12px"></span>
+        <a class="btn-primary" id="tickSend" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Send to Smart 1 Team</a></div></div>`;
+    document.body.appendChild(m);
+    m.onclick=e=>{if(e.target===m)m.remove();};
+    document.getElementById('tickClose').onclick=()=>m.remove();
+    // requested-by names from Knack (objects 161 + 109), same as campaign requests
+    fetch('/api/knack/people').then(r=>r.json()).then(p=>{
+      const sel=document.getElementById('tickReq');
+      if(!sel)return;
+      const names=(p&&p.names)||[];
+      sel.innerHTML='<option value="">Requested by…</option>'
+        +names.map(n=>`<option value="${esc(n)}"${n===user_name?' selected':''}>${esc(n)}</option>`).join('');
+      if(!names.length) sel.innerHTML+=`<option value="${esc(user_name)}" selected>${esc(user_name)}</option>`;
+    }).catch(()=>{});
+    document.getElementById('tickSend').onclick=()=>{
+      const subject=document.getElementById('tickSubject').value.trim();
+      if(!subject){document.getElementById('tickMsg').textContent='Subject is required.';return;}
+      document.getElementById('tickMsg').textContent='Sending…';
+      fetch('/api/client/tickets',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,website:document.getElementById('tickSite').value.trim(),
+          subject:subject,description:document.getElementById('tickDesc').value.trim(),
+          requested_by:document.getElementById('tickReq').value})})
+        .then(r=>r.json()).then(d=>{
+          if(d.error){document.getElementById('tickMsg').textContent=d.error;return;}
+          m.remove();
+          loadTickets();          // the new ticket appears at the bottom
+        });
+    };
+  }
+  document.querySelectorAll('.web-ticket').forEach(btn=>{
+    btn.onclick=()=>openTicketModal(btn.dataset.site,btn.dataset.domain);
+  });
+  const newTick=document.getElementById('c-tickets-new');
+  if(newTick)newTick.onclick=()=>openTicketModal(name,web0&&web0.domain?web0.domain:'');
+
+  // ---------- Campaign Change / Support requests (Knack object_140 / 121) ----------
+  function openCampaignModal(kind){
+    const label=kind==='change'?'Campaign Change Request':'Campaign Support Request';
+    let m=document.getElementById('campModal');
+    if(m)m.remove();
+    m=document.createElement('div');
+    m.id='campModal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+    m.innerHTML=`<div style="background:#fff;border-radius:14px;width:620px;max-width:100%;max-height:92vh;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line)">
+        <b style="color:var(--navy)">${label} — ${esc(name)}</b>
+        <button id="campClose" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
+      <div id="campBody" style="padding:16px 18px;overflow-y:auto"><div class="empty">Reading Knack fields… <span class="spin"></span></div></div></div>`;
+    document.body.appendChild(m);
+    m.onclick=e=>{if(e.target===m)m.remove();};
+    document.getElementById('campClose').onclick=()=>m.remove();
+
+    Promise.all([
+      fetch('/api/knack/campaign-fields?kind='+kind).then(r=>r.json()),
+      fetch('/api/knack/people').then(r=>r.json()).catch(()=>({names:[]})),
+    ]).then(([d,people])=>{
+      const body=document.getElementById('campBody');
+      if(!d.configured){body.innerHTML='<div class="empty">Knack API not connected — set KNACK_APP_ID and KNACK_API_KEY, then redeploy.</div>';return}
+      if(d.error){body.innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+      const roleNames={title:'Subject',description:'Details',client:'Client name',campaign:'Campaign / product',io:'IO number',requested_by:'Requested by'};
+      const mapRows=Object.keys(roleNames).map(role=>{
+        const slot=(d.map||{})[role];
+        return `<tr><td style="padding:4px 10px 4px 0;color:#64748b;font-size:12px">${roleNames[role]}</td>
+          <td style="padding:4px 0;font-size:12px">${slot?'<b>'+esc(slot.label)+'</b> <span class="muted">('+esc(slot.field)+')</span>':'<span style="color:#b45309">no matching field — will be skipped</span>'}</td></tr>`;
+      }).join('');
+
+      // client: from the C360 screen — dropdown only when the search matched several
+      const allGroups=(typeof groups!=='undefined'&&groups&&groups.length)?groups:[{client:name,products:window.__c360prods||[]}];
+      const clientSel=allGroups.length>1
+        ?`<select id="campClient" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+            ${allGroups.map(g=>`<option value="${esc(g.client)}"${g.client===name?' selected':''}>${esc(g.client)}</option>`).join('')}</select>`
+        :`<input id="campClient" value="${esc(name)}" readonly style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit;background:#f8fafc;color:#475569">`;
+
+      // campaign/IO options: client + IO number, newest IO first
+      function prodOptions(clientName){
+        const grp=allGroups.find(g=>g.client===clientName)||allGroups[0];
+        const prods=(grp.products||[]).slice().sort((a,b)=>{
+          const ai=parseInt(a.io,10)||0, bi=parseInt(b.io,10)||0;
+          return bi-ai;                                  // newest (highest IO) first
+        });
+        return '<option value="">Which campaign / IO?</option>'+prods.map(p=>{
+          const label=esc(clientName)+(p.io?' — IO '+esc(p.io):'')+': '+esc(p.product||'')
+            +(String(p.status||'').toLowerCase()==='live'?' (live)':'');
+          return `<option value="${esc(p.product||'')}" data-io="${esc(p.io||'')}">${label}</option>`;
+        }).join('');
+      }
+
+      // requested by: names from Knack objects 161 + 109
+      const names=(people&&people.names)||[];
+      const meFirst=names.includes(user_name)?user_name:'';
+      const reqOpts=['<option value="">Requested by…</option>']
+        .concat(names.map(n=>`<option value="${esc(n)}"${n===meFirst?' selected':''}>${esc(n)}</option>`));
+      if(!names.length) reqOpts.push(`<option value="${esc(user_name)}" selected>${esc(user_name)}</option>`);
+
+      body.innerHTML=`
+        <div style="background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+          <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:6px">
+            Writing to Knack ${esc(d.object)} — these fields will be used</div>
+          <table>${mapRows}</table>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${clientSel}
+          <select id="campProd" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">${prodOptions(name)}</select>
+          <select id="campReq" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">${reqOpts.join('')}</select>
+          <input id="campSubject" placeholder="Subject — what do you need?" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+          <textarea id="campDesc" rows="5" placeholder="${kind==='change'?'Describe the change: budget, targeting, dates, creative…':'Describe the issue or question for the campaign team…'}" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit"></textarea>
+          <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center">
+            <span id="campMsg" class="muted" style="font-size:12px"></span>
+            <a class="btn-primary" id="campSend" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Send to Smart 1 Team</a>
+          </div>
+        </div>`;
+      const clientEl=document.getElementById('campClient');
+      if(clientEl.tagName==='SELECT') clientEl.onchange=()=>{
+        document.getElementById('campProd').innerHTML=prodOptions(clientEl.value);
+      };
+      document.getElementById('campSend').onclick=()=>{
+        const subject=document.getElementById('campSubject').value.trim();
+        if(!subject){document.getElementById('campMsg').textContent='Subject is required.';return;}
+        const sel=document.getElementById('campProd');
+        const opt=sel.options[sel.selectedIndex]||{};
+        document.getElementById('campMsg').textContent='Sending…';
+        fetch('/api/client/campaign-request',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({kind:kind,client:clientEl.value,campaign:sel.value,
+            io:(opt.dataset&&opt.dataset.io)||'',subject:subject,
+            requested_by:document.getElementById('campReq').value,
+            description:document.getElementById('campDesc').value.trim()})})
+          .then(r=>r.json()).then(res=>{
+            if(res.error){document.getElementById('campMsg').textContent=res.error;return;}
+            document.getElementById('campMsg').textContent='Sent ✓';
+            setTimeout(()=>m.remove(),900);
+          });
+      };
+    });
+  }
+  const campChange=document.getElementById('c-camp-change');
+  const campSupport=document.getElementById('c-camp-support');
+  if(campChange)campChange.onclick=()=>openCampaignModal('change');
+  if(campSupport)campSupport.onclick=()=>openCampaignModal('support');
+
+  // Accounting issue form (GHL) in a modal
+  const acctBtn=document.getElementById('c-qb-acct');
+  if(acctBtn)acctBtn.onclick=()=>{
+    let m=document.getElementById('acctModal');
+    if(!m){
+      m=document.createElement('div');
+      m.id='acctModal';
+      m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+      m.innerHTML=`<div style="background:#fff;border-radius:14px;width:640px;max-width:100%;height:86vh;display:flex;flex-direction:column;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)">
+          <b style="color:var(--navy)">Accounting Issue — ${esc(name)}</b>
+          <button onclick="document.getElementById('acctModal').remove()" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
+        <iframe src="https://api.leadconnectorhq.com/widget/form/oNilGBDoJrYdHl44KeLa" style="flex:1;border:0;width:100%"></iframe></div>`;
+      m.onclick=e=>{if(e.target===m)m.remove();};
+      document.body.appendChild(m);
+    }
+  };
+
+  // Social Media — shared store with the SEO page
+  const SOCIAL_KEYS=['facebook','instagram','linkedin','twitter','youtube','tiktok','pinterest','yelp','gbp'];
+  fetch('/api/client/social?name='+encodeURIComponent(name)+(web0&&web0.domain?'&domain='+encodeURIComponent(web0.domain):''))
+    .then(r=>r.json()).then(d=>{
+      const social=d.social||{};
+      $('c-social').innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px">'
+        +SOCIAL_KEYS.map(k=>{
+          const v=social[k]||'';
+          return `<div style="display:flex;gap:6px;align-items:center">
+            <b style="width:74px;flex:none;font-size:12px;color:var(--muted);text-transform:capitalize">${k==='gbp'?'Google Biz':esc(k)}</b>
+            <input data-sk="${k}" value="${esc(v)}" placeholder="https://…" style="flex:1;min-width:0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit">
+            ${v?`<a href="${esc(v)}" target="_blank" rel="noopener" style="flex:none">↗</a>`:''}
+          </div>`;}).join('')+'</div>';
+      const saveBtn=document.getElementById('c-social-save');
+      if(saveBtn) saveBtn.onclick=()=>{
+        const soc={};
+        document.querySelectorAll('#c-social input').forEach(i=>{soc[i.dataset.sk]=i.value.trim();});
+        fetch('/api/client/social',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,social:soc})})
+          .then(r=>r.json()).then(res=>{
+            saveBtn.textContent=res.error?('Error: '+res.error):'Saved ✓';
+            setTimeout(()=>{saveBtn.textContent='Save →';},1600);
+          });
+      };
+    }).catch(()=>{$('c-social').innerHTML='<div class="empty">Social links unavailable.</div>'});
+}
+
+// ---------- Creative gallery ----------
+function galleryThumb(item){
+  if(item.kind==='image') return `<img src="${esc(item.url)}" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('${esc(item.kind)}')">`;
+  if(item.kind==='gdrive'){
+    const m=String(item.url).match(/\/d\/([\w-]+)/);
+    if(m) return `<img src="https://drive.google.com/thumbnail?id=${m[1]}&sz=w400" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('gdrive')">`;
+  }
+  return galleryIconTile(item.kind);
+}
+function galleryIconTile(kind){
+  const icon={gdrive:'&#128193;',pdf:'&#128462;',dropbox:'&#128230;',image:'&#128444;',file:'&#128206;'}[kind]||'&#128206;';
+  return `<div style="width:100%;height:120px;display:flex;align-items:center;justify-content:center;font-size:40px;background:var(--bg);border-radius:8px 8px 0 0">${icon}</div>`;
+}
+function openGallery(startIdx){
+  const items=window._galleryItems||[];
+  if(!items.length)return;
+  $('galTitle').textContent='Creative files ('+items.length+')';
+  $('galGrid').innerHTML=items.map((c,i)=>`
+    <a href="${esc(c.url)}" target="_blank" rel="noopener" style="text-decoration:none;color:var(--ink);border:1px solid ${i===startIdx?'var(--brand)':'var(--line)'};border-radius:10px;overflow:hidden;background:#fff;display:block">
+      ${galleryThumb(c)}
+      <div style="padding:8px 10px">
+        <div style="font-weight:600;font-size:12.5px;line-height:1.3">${esc(c.product||'Creative')}</div>
+        <div class="muted" style="font-size:11px;margin-top:2px">${esc(c.year||'')}${c.campaign?' · '+esc(c.campaign):''}${c.io?' · IO '+esc(c.io):''}</div>
+        <div class="muted" style="font-size:10.5px;margin-top:3px">${KIND_ICON[c.kind]||'&#128206; File'}</div>
+      </div>
+    </a>`).join('');
+  $('galModal').style.display='block';
+  document.body.style.overflow='hidden';
+  if(startIdx>0){setTimeout(()=>{const el=$('galGrid').children[startIdx];if(el)el.scrollIntoView({block:'center'});},50);}
+}
+function closeGallery(){$('galModal').style.display='none';document.body.style.overflow='';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeGallery();});
+function openAllFiles(){
+  const items=window._galleryItems||[];
+  let i=0;
+  const next=()=>{
+    if(i>=items.length)return;
+    window.open(items[i].url,'_blank','noopener');
+    i++;
+    if(i<items.length)setTimeout(next,450);
+  };
+  next();
+}
+
+// ---------- Traffic Summary: last month vs previous, attach-aware ----------
+function fmtEng(sec){sec=Math.round(sec||0);return Math.floor(sec/60)+'m '+(sec%60)+'s';}
+function deltaPill(v){
+  if(v===null||v===undefined)return '<span class="muted" style="font-size:11px">new</span>';
+  const up=v>=0;
+  return `<span style="font-weight:700;color:${up?'#16a34a':'#dc2626'};white-space:nowrap">${up?'▲':'▼'} ${Math.abs(v).toFixed(1)}%</span>`;
+}
+function maybeTraffic(clientName,googleResults){
+  if(window.__trafficStarted===clientName)return;   // once per search
+  window.__trafficStarted=clientName;
+  fetch('/api/client/links?name='+encodeURIComponent(clientName))
+    .then(r=>r.json()).then(d=>{
+      let att=(d.attached||{}).analytics;
+      if(Array.isArray(att)) att=att[0];
+      if(att&&att.resource_id){
+        $('c-traffic-meta').textContent=(att.name||att.resource_id)+' · '+(att.google_login||'')+' · attached';
+        return c360Traffic(att.resource_id,att.google_login);
+      }
+      const ga=(googleResults||[]).find(it=>it.platform==='Google Analytics');
+      if(ga){
+        $('c-traffic-meta').textContent=(ga.name||ga.resource_id)+' · '+ga.google_login;
+        return c360Traffic(ga.resource_id,ga.google_login);
+      }
+      showTrafficAttach(clientName);
+    }).catch(()=>showTrafficAttach(clientName));
+}
+function showTrafficAttach(clientName){
+  $('c-traffic').innerHTML=`<div class="empty">No Analytics property found for this client — search your connected Google accounts and attach one. It will be used everywhere this client appears going forward.<br><br>
+    <div style="display:flex;gap:8px;max-width:520px;margin:0 auto">
+      <input id="ta-q" placeholder="Search by client name or domain…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit" value="${esc(clientName)}">
+      <a class="gbtn" id="ta-go" style="cursor:pointer">Search</a>
+    </div><div id="ta-res" style="max-width:520px;margin:10px auto 0;text-align:left"></div></div>`;
+  const go=()=>{
+    const q=$('ta-q').value.trim(); if(!q)return;
+    $('ta-res').innerHTML='<div class="empty">Searching… <span class="spin"></span></div>';
+    fetch('/google/api/search?q='+encodeURIComponent(q)+'&platform=analytics').then(r=>r.json()).then(d=>{
+      const items=(d.results||[]).filter(x=>x.platform==='Google Analytics');
+      if(!items.length){$('ta-res').innerHTML='<div class="empty">No matches — try a domain, or connect the owning Google login in the <a href="/google/">Google module</a>.</div>';return}
+      $('ta-res').innerHTML=items.slice(0,6).map((x,i)=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff">
+          <div><b>${esc(x.name||x.resource_id)}</b> <span class="muted" style="font-size:11.5px">${esc(x.resource_id)}</span>
+          <div class="muted" style="font-size:11px">${esc(x.google_login)} · ${esc(x.account_name||'')}</div></div>
+          <a class="gbtn ta-attach" data-i="${i}" style="cursor:pointer">Attach →</a>
+        </div>`).join('');
+      document.querySelectorAll('.ta-attach').forEach(btn=>{
+        btn.onclick=()=>{
+          const x=items[parseInt(btn.dataset.i,10)];
+          fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({client:clientName,kind:'analytics',
+              data:{name:x.name,resource_id:x.resource_id,google_login:x.google_login,account_id:x.account_id}})})
+            .then(r=>r.json()).then(res=>{
+              if(res.error){$('ta-res').innerHTML='<div class="empty">'+esc(res.error)+'</div>';return}
+              $('c-traffic-meta').textContent=(x.name||x.resource_id)+' · '+x.google_login+' · attached';
+              c360Traffic(x.resource_id,x.google_login);   // attach auto-runs the report
+            });
+        };
+      });
+    });
+  };
+  $('ta-go').onclick=go;
+  $('ta-q').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+}
+function c360Traffic(propertyId,googleLogin){
+  $('c-traffic').innerHTML='<div class="empty">Pulling last month vs the previous period… <span class="spin"></span></div>';
+  fetch('/google/api/ga4/monthly-summary',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({property_id:propertyId,google_login:googleLogin})})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){$('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+      const cur=d.current||{},prev=d.previous||{},del=d.deltas||{};
+      const rows=[
+        ['Sessions',cur.sessions,prev.sessions,del.sessions,v=>Number(v||0).toLocaleString()],
+        ['Engaged sessions',cur.engaged_sessions,prev.engaged_sessions,del.engaged_sessions,v=>Number(v||0).toLocaleString()],
+        ['Avg engagement time',cur.avg_engagement_seconds,prev.avg_engagement_seconds,del.avg_engagement_seconds,fmtEng],
+        ['Total events',cur.events,prev.events,del.events,v=>Number(v||0).toLocaleString()],
+        ['Total key events',cur.key_events,prev.key_events,del.key_events,v=>Number(v||0).toLocaleString()],
+      ];
+      let h=`<div style="background:#eef6ff;border:1px solid #cfe3ff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13.5px;line-height:1.55">
+        <b>Executive summary — ${esc((d.period||{}).current||'last month')}:</b> ${esc(d.summary||'')}</div>`;
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px">';
+      rows.forEach(([label,c,p,dl,fmt])=>{
+        h+=`<div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 14px">
+          <div class="muted" style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">${label}</div>
+          <div style="font-size:20px;font-weight:800;color:var(--navy);margin-top:3px">${fmt(c)}</div>
+          <div style="font-size:11.5px;margin-top:2px">${deltaPill(dl)} <span class="muted">vs ${fmt(p)}</span></div>
+        </div>`;
+      });
+      h+='</div>';
+      const br=d.breakdown||[];
+      if(br.length){
+        h+=`<div class="muted" style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Top ${br.length} source / medium — ${esc((d.period||{}).current||'')}</div>`;
+        h+='<table><thead><tr><th>Source / Medium</th><th>Sessions</th><th>Engaged</th><th>Avg engagement</th><th>Events</th><th>Key events</th></tr></thead><tbody>';
+        br.forEach(b=>{
+          const c=b.current||{},p=b.previous||{};
+          h+=`<tr><td><b>${esc(b.source_medium||'—')}</b></td>
+            <td>${Number(c.sessions||0).toLocaleString()} ${deltaPill(b.delta_sessions)}</td>
+            <td>${Number(c.engaged_sessions||0).toLocaleString()}</td>
+            <td>${fmtEng(c.avg_engagement_seconds)}</td>
+            <td>${Number(c.events||0).toLocaleString()}</td>
+            <td>${Number(c.key_events||0).toLocaleString()}</td></tr>`;
+        });
+        h+='</tbody></table>';
+      }
+      $('c-traffic').innerHTML=h;
+    }).catch(e=>{$('c-traffic').innerHTML='<div class="empty">'+esc(String(e))+'</div>'});
 }
 
 {% if q %}run();{% endif %}
+
+// ---------------------------------------------------------------- brand card
+function renderBrand(d){
+  const el=document.getElementById('c-brand'); if(!el) return;
+  const acts=document.getElementById('c-brand-acts');
+  if(!d || !d.found){
+    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>';
+    return;
+  }
+  const swatches = (d.colors||[]).map(c=>
+    `<span title="${esc(c.hex)}${c.type?' — '+esc(c.type):''}" style="display:inline-flex;
+      flex-direction:column;align-items:center;gap:4px;margin:0 8px 8px 0">
+      <span style="width:38px;height:38px;border-radius:8px;background:${esc(c.hex)};
+        border:1px solid rgba(0,0,0,.12);display:block"></span>
+      <code style="font-size:10.5px;color:#64748b">${esc(c.hex)}</code></span>`).join('');
+  const logos = (d.logos||[]).slice(0,4).map(l=>
+    `<a href="${esc(l.url)}" target="_blank" rel="noopener"
+        style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin:0 6px 6px 0;
+        border:1px solid #e2e8f0;border-radius:8px;text-decoration:none;font-size:12px;color:#1769AA">
+        ${esc((l.format||'').toUpperCase()||'LOGO')}${l.theme?' · '+esc(l.theme):''}</a>`).join('');
+  const fonts = (d.fonts||[]).map(f=>
+    `<a href="${esc(f.google)}" target="_blank" rel="noopener"
+       style="font-size:13px;color:#1769AA;text-decoration:none;margin-right:12px">${esc(f.name)}</a>`).join('');
+  el.innerHTML =
+    (swatches?`<div style="margin-bottom:6px"><div class="lbl">Brand colours</div>${swatches}</div>`:'')+
+    (logos?`<div style="margin-bottom:10px"><div class="lbl">Logos</div>${logos}</div>`:'')+
+    (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
+    (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'');
+  if(acts) acts.innerHTML='<button class="mini" onclick="pushBrand()">Send to Suite</button>';
+}
+function pushBrand(){
+  fetch('/api/client/brand/push-to-suite',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({name:CURRENT_CLIENT})})
+   .then(r=>r.json()).then(d=>{
+     if(d.error){alert(d.error);return;}
+     alert(d.delivered ? 'Brand guide sent to Smart 1 Suite.'
+       : 'No GHL_BRAND_WEBHOOK_URL set, so nothing was sent. The payload is ready in the response.');
+   }).catch(()=>alert('Could not send the brand guide.'));
+}
+
+// ------------------------------------------------------------- work log card
+function renderWork(d){
+  const el=document.getElementById('c-work'); if(!el) return;
+  const sum=document.getElementById('c-work-sum');
+  if(!d || !d.count){
+    el.innerHTML='<div class="empty">Nothing recorded yet. Work shows here as tools log it.</div>';
+    return;
+  }
+  if(sum) sum.innerHTML='<span class="muted" style="font-size:12px">'+d.count+' item'+(d.count===1?'':'s')+'</span>';
+  el.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+    d.items.map(i=>`<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;color:#94a3b8">
+        ${esc((i.when||'').slice(0,10))}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9"><b>${esc(i.kind)}</b></td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#64748b">${esc(i.source)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#64748b">${esc(i.detail||'')}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#94a3b8;white-space:nowrap">
+        ${esc(i.actor||'')}</td></tr>`).join('')+'</table>';
+}
+
+function renderAnalyticsIds(d){
+  var host=document.getElementById('c-analytics-ids'); if(!host||!d) return;
+  var pill={match:'#e7f6ef|#147d52', mismatch:'#feeceb|#b42318',
+            recorded_only:'#fff4d7|#a06a00', live_only:'#e0f2fe|#075985',
+            missing:'#eef1f4|#64748b'};
+  host.innerHTML = d.rows.map(function(r){
+    var col=(pill[r.state]||pill.missing).split('|');
+    return '<div style="padding:8px 0;border-bottom:1px solid #f1f5f9">'+
+      '<b style="font-size:12.5px">'+esc(r.kind)+'</b> '+
+      '<span style="background:'+col[0]+';color:'+col[1]+';border-radius:20px;'+
+      'padding:2px 8px;font-size:10.5px;font-weight:700">'+esc(r.state.replace("_"," "))+'</span><br>'+
+      '<span style="font-size:12.5px">'+
+        (r.recorded?'<b>Knack:</b> '+esc(r.recorded)+'  ':'')+
+        (r.live?'<b>Google:</b> '+esc(r.live)+(r.live_name?' ('+esc(r.live_name)+')':''):
+                '<span class="muted">no Google access</span>')+
+      '</span>'+
+      (r.state!=='match'?'<br><span class="muted" style="font-size:11.5px">'+esc(r.advice)+'</span>':'')+
+      '</div>';
+  }).join('') +
+  (d.google_accounts_connected===0
+    ? '<p class="muted" style="font-size:11.5px;margin:8px 0 0">No Google accounts are '+
+      'connected, so only the Knack record is shown. <a href="/tools/google-access/">Request access</a>.</p>'
+    : '');
+}
+
+function loadBrandAndWork(name){
+  fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderAnalyticsIds).catch(function(){});
+  if(!name) return;
+  fetch('/api/client/brand?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(r=>r.json()).then(renderBrand).catch(()=>{});
+  fetch('/api/client/work?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(r=>r.json()).then(renderWork).catch(()=>{});
+}
 </script>
 {% endblock %}

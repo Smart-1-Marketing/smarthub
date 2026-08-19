@@ -4,6 +4,7 @@ Owns: login/logout, dashboard, Client 360, Tools landing, Activity, Status,
 plus serving the prebuilt Knack "Clients" app (which expects /static and
 /data at the site root, so the hub serves those paths for it).
 """
+import re
 import json
 import os
 import shutil
@@ -34,6 +35,13 @@ def current_user():
     return auth.verify_cookie_value(request.cookies.get(auth.COOKIE_NAME))
 
 
+_MOUNT_ACTIVE_HUB = {
+    "/tools": "tools", "/qa": "qa", "/activity": "activity",
+    "/diagnostics": "diagnostics", "/client360": "client360", "/seo": "seo",
+    "/clients": "clients", "/status": "status",
+}
+
+
 def create_hub_app() -> Flask:
     app = Flask(
         __name__,
@@ -55,6 +63,32 @@ def create_hub_app() -> Flask:
     got_request_exception.connect(_log_exc, app)
 
     # ---------------- auth ----------------
+    @app.context_processor
+    def _inject_demo_module():
+        """Which walkthrough belongs to the page being rendered.
+
+        The demo launcher reads <body data-module>. Hub pages had none, so no
+        walkthrough button ever appeared on the Dashboard, Client 360, SEO or
+        QA — which is most of where somebody would look for one.
+        """
+        path = (request.path or "/").rstrip("/") or "/"
+        mapping = {"/": "hub", "/client360": "hub", "/seo": "seo",
+                   "/qa": "qa", "/qa/stale-creative": "qa",
+                   "/tools": "hub", "/diagnostics": "hub"}
+        return {"hub_demo_module": mapping.get(path, "")}
+
+    @app.context_processor
+    def _inject_sidebar():
+        """Expose the one shared nav to hub templates."""
+        from .sidebar import render_sidebar
+
+        def hub_sidebar(active=""):
+            try:
+                return render_sidebar(active or "").decode()
+            except Exception:  # noqa: BLE001 — nav must never break a page
+                return ""
+        return {"hub_sidebar": hub_sidebar}
+
     @app.context_processor
     def _inject_version():
         """Every page footer shows the running build, so you can open the
@@ -118,6 +152,328 @@ def create_hub_app() -> Flask:
         return jsonify({"warnings": warns, "count": len(warns),
                         "ok": not warns})
 
+    @app.route("/api/client/brand")
+    def api_client_brand():
+        """Logos, colours and fonts for the Client 360 brand card."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_brand import brand_kit
+        return jsonify(brand_kit(request.args.get("name", ""),
+                                 request.args.get("domain", "")))
+
+    @app.route("/api/client/work")
+    def api_client_work():
+        """Everything the Hub has made for this client, newest first."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_brand import work_log
+        limit = max(1, min(200, int(request.args.get("limit") or 50)))
+        return jsonify(work_log(request.args.get("name", ""), limit))
+
+    @app.route("/api/client/brand/push-to-suite", methods=["POST"])
+    def api_brand_push():
+        """Send the brand guide into the client's Smart 1 Suite sub-account."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_brand import brand_guide_payload
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("name") or "")
+        payload = brand_guide_payload(client, str(body.get("domain") or ""))
+        if not payload.get("found"):
+            return jsonify({"error": "No brand data on file for that client "
+                                     "yet — run a Brandfetch lookup first."}), 400
+        target = (os.environ.get("GHL_BRAND_WEBHOOK_URL") or "").strip()
+        if not target:
+            # Return the payload anyway so it's copy-pasteable. A missing
+            # webhook shouldn't mean the work is unavailable.
+            return jsonify({"ok": False, "delivered": False, "payload": payload,
+                            "note": "Set GHL_BRAND_WEBHOOK_URL to deliver this "
+                                    "automatically. The payload above is ready "
+                                    "to paste into a Suite workflow meanwhile."})
+        try:
+            import requests as _rq
+            r = _rq.post(target, json=payload, timeout=15)
+            ok = r.ok
+        except Exception:  # noqa: BLE001
+            ok = False
+        audit.log("brand", "pushed_to_suite", actor=current_user(),
+                  client=client, ok=ok)
+        return jsonify({"ok": ok, "delivered": ok, "payload": payload})
+
+    @app.route("/api/client/context")
+    def api_client_context():
+        """Merged client record for prefilling any form in the Hub."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_context import context
+        return jsonify(context(request.args.get("name", ""),
+                               request.args.get("domain", "")))
+
+    # NOT /sites/match: DispatcherMiddleware owns the whole /sites prefix and
+    # forwards it to the Sites Admin app, so a hub route under it is never
+    # reached — it 404s (or 503s when that module is down). Anything the hub
+    # app serves has to live outside a mounted prefix.
+    @app.route("/tools/sites-match")
+    def page_sites_match():
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("sites_match.html", user=current_user(),
+                               active="sites")
+
+    @app.route("/api/sites-match")
+    def api_sites_match():
+        """Propose a client for every unlinked Simvoly project. Read-only."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .sites_match import suggest
+        return jsonify(suggest())
+
+    @app.route("/api/sites-match/apply", methods=["POST"])
+    def api_sites_match_apply():
+        """Write only the matches a human accepted."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .sites_match import apply as apply_matches
+        body = request.get_json(silent=True) or {}
+        return jsonify(apply_matches(body.get("matches") or [],
+                                     actor=current_user() or ""))
+
+    @app.route("/api/db/urls")
+    def api_db_urls():
+        """Clients with no usable URL, and one domain filed under two names."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_context import url_audit
+        return jsonify(url_audit())
+
+    @app.route("/api/client/by-url")
+    def api_client_by_url():
+        """Resolve a client from a URL, whatever the name is filed as."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_context import resolve_by_url
+        return jsonify(resolve_by_url(request.args.get("url", "")))
+
+    @app.route("/api/db/structure")
+    def api_db_structure():
+        """Where client data lives, and where it can drift apart."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_context import structure_report
+        return jsonify(structure_report())
+
+    @app.route("/api/qb/health")
+    def api_qb_health():
+        """Why the QuickBooks connection may not be holding."""
+        gate = _require_api()
+        if gate:
+            return gate
+        try:
+            from . import quickbooks as qb
+            return jsonify(qb.health())
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"ok": False, "problems": [str(exc)]}), 200
+
+    @app.route("/api/seo/llms-txt")
+    def api_llms_txt_build():
+        """Draft an llms.txt for a client from what the Hub already knows."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .llms_txt import build, load
+        client = request.args.get("client", "")
+        if request.args.get("saved") == "1":
+            return jsonify({"client": client, "text": load(client)})
+        return jsonify(build(client))
+
+    @app.route("/api/seo/llms-txt", methods=["POST"])
+    def api_llms_txt_save():
+        gate = _require_api()
+        if gate:
+            return gate
+        from .llms_txt import save
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        text = str(body.get("text") or "")
+        if not client or not text.strip():
+            return jsonify({"error": "Client and text are both required."}), 400
+        if "NEED " in text:
+            return jsonify({"error": "This still contains NEED placeholders. "
+                                     "Fill them in first — a file with gaps is "
+                                     "worse than none, because a model treats "
+                                     "the whole thing as authoritative."}), 400
+        return jsonify(save(client, text))
+
+    @app.route("/llms/<slug>.txt")
+    def public_llms_txt(slug):
+        """Serve the approved file publicly, as plain text.
+
+        Deliberately no login: the point is that an AI system can fetch it.
+        Ideally this lives at the client's own domain root as /llms.txt — this
+        URL is what you use until it can.
+        """
+        import re as _re
+        from . import seo
+        from .llms_txt import load
+
+        def slugify(v):
+            return _re.sub(r"[^a-z0-9]+", "-", str(v or "").lower()).strip("-")
+
+        want = slugify(slug)
+        try:
+            from . import clients_registry
+            names = [c.get("name", "") for c in clients_registry.all_clients()]
+        except Exception:  # noqa: BLE001
+            names = []
+        for name in names:
+            if name and slugify(name) == want:
+                text = load(name)
+                if text:
+                    return app.response_class(
+                        text, mimetype="text/plain; charset=utf-8")
+        return app.response_class("Not found.\n", status=404,
+                                  mimetype="text/plain; charset=utf-8")
+
+    @app.route("/api/suite/blog/access")
+    def api_blog_access():
+        """Which blogs scopes the Suite token actually has."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .ghl_blog import check_access, BlogError
+        try:
+            return jsonify(check_access())
+        except BlogError as exc:
+            return jsonify({"ok": False, "problem": str(exc)}), 200
+
+    @app.route("/api/suite/blog/publish-llms", methods=["POST"])
+    def api_blog_publish_llms():
+        """Publish a client's llms.txt to Suite as a blog post."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .ghl_blog import publish_llms_txt, BlogError
+        from .llms_txt import load
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        text = str(body.get("text") or "") or load(client)
+        if not client or not text.strip():
+            return jsonify({"error": "Save the file before publishing it."}), 400
+        if "NEED " in text:
+            return jsonify({"error": "This still has NEED placeholders — fill "
+                                     "them in before publishing."}), 400
+        try:
+            out = publish_llms_txt(client, text,
+                                   post_id=str(body.get("post_id") or ""),
+                                   status=str(body.get("status") or "PUBLISHED"))
+        except BlogError as exc:
+            return jsonify({"error": str(exc)}), 400
+        # Remember the URL so Client 360 can link to it.
+        try:
+            from . import seo
+            store = seo.load_store(client) or {}
+            rec = store.get("llms_txt") or {}
+            rec.update({"suite_url": out.get("url"), "post_id": out.get("post_id")})
+            store["llms_txt"] = rec
+            seo.save_store(client, store)
+        except Exception:  # noqa: BLE001
+            pass
+        return jsonify(out)
+
+    @app.route("/api/client/website-registry")
+    def api_website_registry():
+        """GA, GTM, platform, go-live and H&M fee from Knack object_153."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .knack_websites import enrich
+        return jsonify(enrich(request.args.get("name", ""),
+                              request.args.get("domain", "")))
+
+    @app.route("/api/client/analytics-ids")
+    def api_analytics_ids():
+        """GA and GTM from BOTH Knack and Google, with whether they agree."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .analytics_ids import compare
+        return jsonify(compare(request.args.get("name", ""),
+                               request.args.get("domain", "")))
+
+    @app.route("/api/qa/analytics-ids")
+    def api_analytics_audit():
+        """Every client where the two sources disagree, or we lack access."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .analytics_ids import audit_all
+        return jsonify(audit_all())
+
+    @app.route("/api/scans/stuck")
+    def api_scans_stuck():
+        """How many scans are stuck, and how long they've been there.
+
+        Surfaced on Diagnostics because a stalled scan is an operational
+        problem, not something you'd think to go looking for on the Scans
+        page — it looks like work in progress until somebody counts.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        try:
+            from modules.scans.app import Scan, SessionLocal
+            from datetime import datetime, timedelta, timezone
+            db = SessionLocal()
+            try:
+                rows = db.query(Scan).filter(Scan.status == "running").all()
+                now = datetime.now(timezone.utc)
+                buckets = {"under_15m": 0, "15m_to_1h": 0, "over_1h": 0,
+                           "unresolvable": 0}
+                oldest = None
+                for r in rows:
+                    c = r.created_at
+                    if c is not None and c.tzinfo is None:
+                        c = c.replace(tzinfo=timezone.utc)
+                    age = (now - c).total_seconds() / 60 if c else 0
+                    oldest = max(oldest or 0, age)
+                    if not r.insites_report_id and age > 30:
+                        buckets["unresolvable"] += 1
+                    elif age < 15:
+                        buckets["under_15m"] += 1
+                    elif age < 60:
+                        buckets["15m_to_1h"] += 1
+                    else:
+                        buckets["over_1h"] += 1
+            finally:
+                db.close()
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"Scans unavailable ({type(exc).__name__})."}), 200
+        total = sum(buckets.values())
+        return jsonify({
+            "running": total, "buckets": buckets,
+            "oldest_minutes": round(oldest) if oldest else 0,
+            "state": ("error" if buckets["unresolvable"] else
+                      "warn" if buckets["over_1h"] else "ok"),
+            "advice": ("Scans with no Insites report id can never resolve — "
+                       "they were started before the callback fix. Clear them "
+                       "and re-run."
+                       if buckets["unresolvable"] else
+                       "Some scans have been running over an hour. Insites "
+                       "audits normally take one to four minutes."
+                       if buckets["over_1h"] else
+                       "Nothing stalled."),
+        })
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.
@@ -146,7 +502,7 @@ def create_hub_app() -> Flask:
             return gate
         from . import clients_registry
         rows = clients_registry.search_clients(request.args.get("q", ""),
-                                               limit=int(request.args.get("limit", 12)))
+                                               limit=max(1, min(500, int(request.args.get("limit") or 12))))
         return jsonify({"clients": rows})
 
     @app.route("/api/clients/house", methods=["GET", "POST"])
@@ -816,6 +1172,36 @@ def create_hub_app() -> Flask:
                   detail=f"{client}: {subject[:60]}")
         return jsonify({"ok": True, "id": rec.get("id")})
 
+    @app.route("/api/client/website-hosted", methods=["POST"])
+    def api_client_website_hosted():
+        """Whether Smart 1 Marketing hosts this site.
+
+        Stored through the existing website-override mechanism rather than a
+        parallel store: overrides are already merged into every website dict
+        on read, are already scoped per domain, and are already documented as
+        hub-side corrections that never write back to Knack. A second store
+        would need its own merge step and would drift.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "").strip()
+        domain = str(body.get("domain") or "").strip()
+        value = str(body.get("s1m_hosted") or "").strip().lower()
+        if value not in ("", "yes", "no"):
+            return jsonify({"error": "Value must be yes, no or blank."}), 400
+        if not client:
+            return jsonify({"error": "No client given."}), 400
+        try:
+            from . import seo
+            seo.set_website_override(client, domain, {"s1m_hosted": value})
+            audit.log("hub", "s1m_hosted_set", actor=current_user(),
+                      client=client, domain=domain, value=value or "cleared")
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"Could not save ({type(exc).__name__})."}), 500
+        return jsonify({"ok": True, "s1m_hosted": value})
+
     @app.route("/api/client/website-platform", methods=["POST"])
     def api_client_website_platform():
         """Hub-only correction of a website record's platform — Knack untouched."""
@@ -1323,6 +1709,27 @@ def create_hub_app() -> Flask:
                 groups[g] = []
                 seen.append(g)
             groups[g].append((key, meta))
+        # Two audits live outside REPORTS because they're modules with their
+        # own pages, not table-returning functions. They still belong here —
+        # somebody looking for "what's wrong" shouldn't have to know which
+        # kind of thing each one is.
+        extras = [
+            ("Data Quality", "stale-creative", {
+                "title": "Stale Creative",
+                "desc": "How long since we last produced creative for each "
+                        "active client — and who has never had any.",
+                "ico": "&#9203;", "href": "/qa/stale-creative"}),
+            ("Data Quality", "web-tickets", {
+                "title": "Web Tickets",
+                "desc": "Website change requests from Knack: what's open, "
+                        "what's gone stale, and per-client history.",
+                "ico": "&#127915;", "href": "/tools/tickets/"}),
+        ]
+        for g, key, meta in extras:
+            if g not in groups:
+                groups[g] = []
+                seen.append(g)
+            groups[g].append((key, meta))
         return render_template("qa.html", user=current_user(), modules=MODULES,
                                active="qa", groups=[(g, groups[g]) for g in seen])
 
@@ -1554,6 +1961,9 @@ def create_hub_app() -> Flask:
             pass
 
         out["db_boot_error"] = app.config.get("HUB_DB_BOOT_ERROR") or None
+        out["users_registered"] = app.config.get("HUB_USERS_REGISTERED", None)
+        if out["users_registered"] is False:
+            out["signup_available"] = False
         out["users_boot_error"] = app.config.get("HUB_USERS_BOOT_ERROR") or None
 
         # Can we actually reach the users table? This is the failure that makes
@@ -1585,6 +1995,19 @@ def create_hub_app() -> Flask:
 
         # Plain-English verdict, so nobody has to interpret the booleans.
         problems = []
+        if app.config.get("HUB_USERS_REGISTERED") is False:
+            problems.append(
+                "The user-accounts blueprint failed to register, so /signup "
+                "and /diagnostics/users return 404. Reason: "
+                + str(app.config.get("HUB_USERS_BOOT_ERROR", "unknown"))
+                + " — if it names flask_sqlalchemy, Flask-SQLAlchemy is "
+                  "missing from requirements.txt.")
+        try:
+            from .config import settings as _cfg
+            for w in _cfg.placeholder_warnings():
+                problems.append(w["detail"])
+        except Exception:  # noqa: BLE001
+            pass
         if out.get("users_table") != "ok":
             problems.append("The user accounts table isn't reachable, so /signup "
                             "will fail. Usually DATABASE_URL is unset and the "
@@ -1681,7 +2104,7 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        limit = min(int(request.args.get("limit", 50) or 50), 300)
+        limit = max(1, min(300, int(request.args.get("limit") or 50)))
         return jsonify({"errors": errors.read(limit=limit)})
 
     @app.route("/api/errors/clear", methods=["POST"])
@@ -1698,7 +2121,7 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        limit = min(int(request.args.get("limit", 300) or 300), 1000)
+        limit = max(1, min(1000, int(request.args.get("limit") or 300)))
         module = request.args.get("module") or None
         return jsonify({"entries": audit.read(limit=limit, module=module)})
 
@@ -1841,6 +2264,77 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- sidebar for blueprint-registered pages ----------------
+    # Modules mounted through DispatcherMiddleware get the sidebar injected by
+    # HubBar in wsgi.py. Modules registered as blueprints on this app do not,
+    # and they don't extend base.html either — so Tickets, Calculators, Image
+    # Picker, Page Images and Google Access rendered with no navigation at all.
+    #
+    # Editing five modules' templates would fix today and break again the next
+    # time one is added. Injecting on the way out covers every one of them, and
+    # anything registered later, automatically.
+    CHROMELESS = ("/login", "/signup", "/reset", "/signin", "/account",
+                  "/connect", "/api/", "/assets/", "/hub-", "/static/")
+
+    @app.after_request
+    def _inject_sidebar_response(resp):
+        try:
+            if resp.status_code != 200:
+                return resp
+            if not (resp.mimetype or "").startswith("text/html"):
+                return resp
+            path = request.path or "/"
+            # Sign-in and the client-facing pages are deliberately chrome-free.
+            if any(path.startswith(p) for p in CHROMELESS):
+                return resp
+            if resp.direct_passthrough:
+                return resp
+            body = resp.get_data()
+            if b"s1hub-sb" in body or b'class="sidebar"' in body:
+                return resp                      # already has one
+            if b"</body>" not in body:
+                return resp                      # a fragment, not a page
+            from .sidebar import render_sidebar
+            bar = render_sidebar(_MOUNT_ACTIVE_HUB.get(
+                "/" + path.strip("/").split("/")[0], ""))
+            # The help/demo/autofill layer has to come with the sidebar. It
+            # was injected by HubBar for dispatcher-mounted modules and by
+            # base.html for hub pages, which left blueprint-registered pages
+            # — Tickets, Calculators, Page Images, Google Access, Stale
+            # Creative — with neither. No scripts means no bubbles and no
+            # walkthrough button, silently.
+            # Tag <body> so the walkthrough launcher knows which tool it's on.
+            # Only when the page hasn't already declared one.
+            if b"data-module=" not in body and b"<body" in body:
+                seg = path.strip("/").split("/")
+                slug = seg[1] if len(seg) > 1 and seg[0] == "tools" else (seg[0] if seg else "")
+                mod = {"tickets": "tickets", "calculators": "calculators",
+                       "page-images": "page_image_optimizer",
+                       "google-access": "google_access",
+                       "image-picker": "image_picker",
+                       "sites-match": "sites_admin",
+                       "stale-creative": "qa", "qa": "qa"}.get(slug, "")
+                if mod:
+                    body = re.sub(rb"<body\b",
+                                  b'<body data-module="' + mod.encode() + b'"',
+                                  body, count=1)
+
+            extra = b""
+            if b"hub-help.js" not in body:
+                extra = (b'<script defer src="/hub-help.js"></script>'
+                         b'<script defer src="/hub-demo.js"></script>'
+                    b'<script defer src="/hub-crumbs.js"></script>'
+                         b'<script defer src="/hub-autofill.js"></script>'
+                         b'<script defer src="/hub-accordion.js"></script>')
+            if b"hub-help.css" not in body and b"</head>" in body:
+                body = body.replace(
+                    b"</head>",
+                    b'<link rel="stylesheet" href="/hub-help.css"></head>', 1)
+            resp.set_data(body.replace(b"</body>", bar + extra + b"</body>", 1))
+        except Exception:  # noqa: BLE001 — never break a page over navigation
+            pass
+        return resp
+
     # ---------------- v7.9 blueprint tools ----------------
     # These ship as Flask blueprints rather than standalone apps, so they
     # register on the hub app directly. Each is wrapped: a tool that fails to
@@ -1850,6 +2344,7 @@ def create_hub_app() -> Flask:
         ("Google Access", "modules.google_access", "register_google_access", "/tools/google-access"),
         ("Image Picker", "modules.image_picker", "register_image_picker", "/tools/image-picker"),
         ("Page Image Optimizer", "modules.page_image_optimizer", "register", "/tools/page-images"),
+        ("Web Tickets", "modules.tickets", "register_tickets", "/tools/tickets"),
     ):
         try:
             _m = __import__(_mod, fromlist=[_fn])
@@ -1884,9 +2379,28 @@ def create_hub_app() -> Flask:
     try:
         from .users_routes import register_users
         register_users(app)
+        app.config["HUB_USERS_REGISTERED"] = True
     except Exception as _users_exc:  # noqa: BLE001
+        # This failing is why /signup returned 404 with nothing to go on:
+        # Flask-SQLAlchemy was missing from requirements.txt, the import
+        # raised, and the except swallowed it. Record the reason so
+        # /login/health can say so instead of leaving you guessing.
+        app.config["HUB_USERS_REGISTERED"] = False
+        app.config["HUB_USERS_BOOT_ERROR"] = (
+            f"{type(_users_exc).__name__}: {_users_exc}")
         try:
             errors.log_exception("hub", _users_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Inbound Suite (GoHighLevel) webhooks ----------------
+    try:
+        from .ghl_hooks import register_ghl_hooks
+        register_ghl_hooks(app)
+    except Exception as _hook_exc:  # noqa: BLE001
+        app.config["HUB_HOOKS_BOOT_ERROR"] = str(_hook_exc)
+        try:
+            errors.log_exception("hub", _hook_exc)
         except Exception:  # noqa: BLE001
             pass
 

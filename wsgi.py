@@ -139,6 +139,7 @@ class HubBar:
         _bar = render_sidebar(self.active)
         _scripts = (b'<script defer src="/hub-help.js"></script>'
                     b'<script defer src="/hub-demo.js"></script>'
+                    b'<script defer src="/hub-crumbs.js"></script>'
                     b'<script defer src="/hub-autofill.js"></script>'
                     b'<script defer src="/hub-accordion.js"></script>')
         if b"</body>" in body:

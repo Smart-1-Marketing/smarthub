@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stale Creative — Smart 1 Hub</title>
+<style>
+  :root{
+    --ink:#0a2240; --ink-2:#33507a; --muted:#6b7d99;
+    --line:#dfe6f0; --bg:#f6f8fb; --card:#fff;
+    --red:#c0392b; --amber:#d18b1f; --blue:#2f80ed; --green:#1e8e5a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
+  h1{font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:20px}
+  .btn{display:inline-block;padding:7px 13px;border:1px solid var(--line);
+       border-radius:7px;background:var(--card);color:var(--ink-2);
+       text-decoration:none;font-size:14px;cursor:pointer}
+  .btn:hover{border-color:var(--ink-2)}
+  .btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+
+  .tiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+         margin-bottom:24px}
+  .tile{background:var(--card);border:1px solid var(--line);border-left-width:4px;
+        border-radius:9px;padding:12px 14px}
+  .tile .n{font-size:26px;font-weight:650;line-height:1.1}
+  .tile .l{color:var(--muted);font-size:13px;margin-top:2px}
+  .t-never{border-left-color:var(--red)}
+  .t-hi{border-left-color:var(--red)}
+  .t-mid{border-left-color:var(--amber)}
+  .t-lo{border-left-color:var(--blue)}
+  .t-fresh{border-left-color:var(--green)}
+
+  .group{background:var(--card);border:1px solid var(--line);border-radius:11px;
+         margin-bottom:18px;overflow:hidden}
+  .group>header{padding:13px 16px;border-bottom:1px solid var(--line);
+                display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .group h2{font-size:16px;margin:0}
+  .group .blurb{color:var(--muted);font-size:13px}
+  .pill{margin-left:auto;font-size:13px;font-weight:600;color:var(--muted)}
+
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:10px 16px;border-top:1px solid var(--line);
+        font-size:14px;vertical-align:middle}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;
+     letter-spacing:.04em;border-top:0}
+  tr.row{cursor:pointer}
+  tr.row:hover td{background:#fbfcfe}
+  tr.row:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+  .name{font-weight:600}
+  .chev{display:inline-block;width:14px;color:var(--muted);
+        transition:transform .15s ease}
+  tr.row.open .chev{transform:rotate(90deg)}
+  .num{white-space:nowrap;font-variant-numeric:tabular-nums}
+  .warnflag{color:var(--amber);font-size:12px;margin-left:6px}
+  .dash{color:var(--muted)}
+
+  tr.detail{display:none}
+  tr.detail.open{display:table-row}
+  tr.detail td{background:#fbfcfe;padding:14px 16px 18px}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+  .item{border:1px solid var(--line);border-radius:8px;background:var(--card);
+        overflow:hidden;font-size:12px}
+  .item img{display:block;width:100%;height:110px;object-fit:cover;background:#eef2f7}
+  .item .meta{padding:8px 9px}
+  .item .t{font-weight:600;word-break:break-word}
+  .item .m{color:var(--muted);margin-top:2px}
+  .item a{color:var(--blue);text-decoration:none}
+  .empty{color:var(--muted);padding:14px 16px;font-size:14px}
+  .foot{color:var(--muted);font-size:12px;margin-top:26px}
+  @media (max-width:640px){
+    th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5){display:none}
+    .wrap{padding:16px 10px 48px}
+  }
+  @media (prefers-reduced-motion:reduce){.chev{transition:none}}
+</style>
+</head>
+<body>
+{% include "hubbar.html" ignore missing %}
+<div class="wrap">
+
+  <h1>Stale Creative</h1>
+  <p class="sub">How long it has been since we last uploaded creative for each client.</p>
+
+  {% set e = data.edges %}
+  {% set g = {} %}
+  {% for grp in data.groups %}{% set _ = g.update({grp.key: grp.count}) %}{% endfor %}
+
+  <div class="tiles">
+    <div class="tile t-never"><div class="n">{{ g.get('never', 0) }}</div>
+      <div class="l">No creative on file</div></div>
+    <div class="tile t-hi"><div class="n">{{ g.get('over_' ~ e[2], 0) }}</div>
+      <div class="l">{{ e[2] }}+ days</div></div>
+    <div class="tile t-mid"><div class="n">{{ g.get('d' ~ e[1] ~ '_' ~ e[2], 0) }}</div>
+      <div class="l">{{ e[1] }}-{{ e[2] }} days</div></div>
+    <div class="tile t-lo"><div class="n">{{ g.get('d' ~ e[0] ~ '_' ~ e[1], 0) }}</div>
+      <div class="l">{{ e[0] }}-{{ e[1] }} days</div></div>
+    <div class="tile t-fresh"><div class="n">{{ g.get('fresh', 0) }}</div>
+      <div class="l">Under {{ e[0] }} days</div></div>
+  </div>
+
+  <div class="bar">
+    <a class="btn" href="?refresh=1">Refresh</a>
+    <a class="btn" href="/api/qa/stale-creative.csv">Download CSV</a>
+    <a class="btn" href="/tools/seo-images">Upload client images</a>
+    <a class="btn" href="/tools/image-creator">Open Image Creator</a>
+  </div>
+
+  {% for grp in data.groups %}
+  <section class="group">
+    <header>
+      <h2>{{ grp.label }}</h2>
+      <span class="blurb">{{ grp.blurb }}</span>
+      <span class="pill">{{ grp.count }} client{{ '' if grp.count == 1 else 's' }}</span>
+    </header>
+
+    {% if grp.clients %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width:38%">Customer</th>
+          <th class="num">Days since</th>
+          <th class="num">Last upload</th>
+          <th class="num">On file</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in grp.clients %}
+        <tr class="row" tabindex="0" data-target="d-{{ grp.key }}-{{ loop.index }}">
+          <td><span class="chev">&#9656;</span>
+            <span class="name">{{ c.client }}</span>
+            {% if not c.in_registry %}<span class="warnflag"
+              title="Creative found but no matching client in the registry">unmatched</span>{% endif %}
+          </td>
+          <td class="num">{% if c.days_since is none %}<span class="dash">never</span>
+            {% else %}{{ c.days_since }}{% endif %}</td>
+          <td class="num">{% if c.last_upload %}{{ c.last_upload[:10] }}
+            {% else %}<span class="dash">&mdash;</span>{% endif %}</td>
+          <td class="num">{{ c.total_creatives }}</td>
+          <td>{{ c.last_source or '' }}</td>
+        </tr>
+        <tr class="detail" id="d-{{ grp.key }}-{{ loop.index }}">
+          <td colspan="5">
+            {% if c.creatives %}
+            <div class="grid">
+              {% for it in c.creatives %}
+              <div class="item">
+                {% if it.thumb %}<img src="{{ it.thumb }}" alt="{{ it.alt or it.title }}" loading="lazy">{% endif %}
+                <div class="meta">
+                  <div class="t">{{ it.title }}</div>
+                  <div class="m">{{ it.uploaded_at[:10] if it.uploaded_at else '' }} &middot; {{ it.source }}</div>
+                  {% if it.note %}<div class="m">{{ it.note }}</div>{% endif %}
+                  {% if it.url %}<div class="m"><a href="{{ it.url }}" target="_blank" rel="noopener">Open</a></div>{% endif %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            {% if c.total_creatives > c.creatives|length %}
+              <p class="m" style="color:var(--muted);font-size:12px;margin:10px 0 0">
+                Showing the {{ c.creatives|length }} most recent of {{ c.total_creatives }}.
+                <a href="?items=50#">Show more</a></p>
+            {% endif %}
+            {% else %}
+            <p class="empty" style="padding:0">Nothing on file yet. Start in the
+              <a href="/tools/seo-images">SEO Image Pipeline</a> or the
+              <a href="/tools/image-creator">Image Creator</a>.</p>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="empty">No clients in this range.</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  <p class="foot">
+    {{ data.totals.creatives }} creatives across {{ data.totals.clients }} clients.
+    Generated {{ data.generated_at[:16].replace('T', ' ') }} UTC.
+    Sources read: {{ data.sources.live|join(', ') if data.sources.live else 'none' }}.
+    {% if data.sources.no_records %}No records from:
+      {{ data.sources.no_records|join(', ') }}.{% endif %}
+    {% if data.sources.cloudinary_fallback %}Fell back to a client gallery folder scan.{% endif %}
+  </p>
+</div>
+
+<script>
+(function () {
+  function toggle(row) {
+    var d = document.getElementById(row.dataset.target);
+    if (!d) return;
+    row.classList.toggle('open');
+    d.classList.toggle('open');
+  }
+  document.querySelectorAll('tr.row').forEach(function (row) {
+    row.addEventListener('click', function () { toggle(row); });
+    row.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(row); }
+    });
+  });
+})();
+</script>
+<script>
+/* Inactive clients still render, after the active ones and labelled, so the
+   list stays complete while the headline number means "clients owed creative"
+   rather than "clients we have ever had". */
+document.addEventListener("DOMContentLoaded",function(){
+  var f=window.renderAudit;
+  if(!f) return;
+  window.renderAudit=function(d){
+    f(d);
+    if(d&&d.totals&&d.totals.inactive){
+      var host=document.querySelector("h1");
+      if(host&&!document.getElementById("sc-inactive-note")){
+        var p=document.createElement("p");
+        p.id="sc-inactive-note";
+        p.style.cssText="color:#64748b;font-size:13px;margin:4px 0 0";
+        p.textContent="Counts cover "+d.totals.clients+" active clients. "+
+          d.totals.inactive+" former clients with no live product are listed "+
+          "after them and excluded from the totals.";
+        host.parentNode.insertBefore(p,host.nextSibling);
+      }
+    }
+  };
+});
+</script></body>
+</html>

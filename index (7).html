@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page Image Optimizer · Smart 1 Hub</title>
+<style>
+  :root{
+    --navy:#0a2240; --navy-2:#143a63; --cyan:#17b6c9; --cyan-dk:#0e8fa1;
+    --ink:#16202c; --muted:#64748b; --line:#e3e9f0; --bg:#f4f7fa;
+    --good:#0f8a5f; --good-bg:#e8f6f0; --warn:#a15c07; --warn-bg:#fdf3e3;
+    --bad:#b3261e; --bad-bg:#fdecea; --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 "Segoe UI",Roboto,system-ui,-apple-system,sans-serif}
+  a{color:var(--cyan-dk)}
+  h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.01em}
+
+  .bar{background:var(--navy);color:#fff;padding:14px 22px;display:flex;
+       align-items:center;gap:14px;flex-wrap:wrap}
+  .bar h1{font-size:18px}
+  .bar .sub{color:#9fc0dd;font-size:13px}
+  .pills{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+  .pill{font-size:11.5px;padding:3px 9px;border-radius:999px;
+        background:rgba(255,255,255,.12);color:#dbe9f6}
+  .pill.off{background:rgba(255,190,120,.18);color:#ffd7a8}
+
+  .wrap{max-width:1080px;margin:0 auto;padding:22px}
+
+  .steps{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+  .step{font-size:12.5px;padding:6px 12px;border-radius:999px;background:#fff;
+        border:1px solid var(--line);color:var(--muted)}
+  .step.on{background:var(--navy);border-color:var(--navy);color:#fff}
+  .step.done{background:var(--good-bg);border-color:#bfe4d4;color:var(--good)}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);
+        padding:20px;margin-bottom:18px}
+  .card > h2{font-size:16px;margin-bottom:4px}
+  .card > .hint{color:var(--muted);font-size:13px;margin:0 0 16px}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  label{display:block;font-size:12.5px;font-weight:600;color:var(--navy-2);
+        margin-bottom:5px}
+  input[type=text],input[type=url],textarea,select{
+    width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+    font:inherit;background:#fff;color:var(--ink)}
+  input:focus-visible,textarea:focus-visible,button:focus-visible,
+  .tile:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  textarea{resize:vertical;min-height:62px}
+
+  button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid transparent;
+         padding:9px 16px;font-weight:600}
+  .primary{background:var(--cyan);color:#04222a}
+  .primary:hover{background:var(--cyan-dk);color:#fff}
+  .primary[disabled]{background:#cfd9e2;color:#8a97a5;cursor:not-allowed}
+  .ghost{background:#fff;border-color:var(--line);color:var(--navy-2)}
+  .ghost:hover{border-color:var(--navy-2)}
+  .link{background:none;border:none;color:var(--cyan-dk);padding:4px 2px;
+        text-decoration:underline;font-weight:600;font-size:13px}
+
+  .note{padding:11px 14px;border-radius:8px;font-size:13.5px;margin-bottom:14px}
+  .note.err{background:var(--bad-bg);color:var(--bad)}
+  .note.ok{background:var(--good-bg);color:var(--good)}
+  .note.warn{background:var(--warn-bg);color:var(--warn)}
+  .hidden{display:none !important}
+
+  /* page summary */
+  .stats{display:flex;gap:26px;flex-wrap:wrap;padding:14px 0 4px;
+         border-top:1px solid var(--line);margin-top:14px}
+  .stat b{display:block;font-size:20px;color:var(--navy)}
+  .stat span{font-size:12px;color:var(--muted)}
+
+  /* image tiles */
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(196px,1fr));
+         gap:12px;margin-top:14px}
+  .tile{border:2px solid var(--line);border-radius:var(--radius);overflow:hidden;
+        background:#fff;text-align:left;padding:0;display:flex;flex-direction:column}
+  .tile.sel{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(23,182,201,.15)}
+  .tile.saved{opacity:.62}
+  .tile.blocked{opacity:.6;cursor:not-allowed}
+  .thumb{height:118px;background:#eef2f6 center/contain no-repeat;position:relative}
+  .thumb img{width:100%;height:100%;object-fit:contain;display:block}
+  .tick{position:absolute;top:7px;left:7px;width:21px;height:21px;border-radius:5px;
+        background:#fff;border:2px solid #c7d2dd;font-size:13px;line-height:17px;
+        text-align:center;color:transparent}
+  .tile.sel .tick{background:var(--cyan);border-color:var(--cyan);color:#04222a}
+  .tile.blocked .tick,.tile.saved .tick{display:none}
+  .tmeta{padding:9px 10px;font-size:12px;flex:1}
+  .tname{font-weight:600;word-break:break-all;font-size:12px;margin-bottom:3px}
+  .tdim{color:var(--muted)}
+  .tsave{color:var(--good);font-weight:600;margin-top:4px}
+  .tblock{color:var(--warn);margin-top:4px}
+  .badge{display:inline-block;font-size:10.5px;padding:2px 7px;border-radius:999px;
+         background:#eef2f6;color:var(--muted);margin-top:5px}
+  .badge.done{background:var(--good-bg);color:var(--good)}
+
+  /* sticky action bar */
+  .actionbar{position:sticky;bottom:0;background:#fff;border:1px solid var(--line);
+    border-radius:var(--radius);padding:12px 16px;display:flex;align-items:center;
+    gap:14px;flex-wrap:wrap;box-shadow:0 -3px 14px rgba(10,34,64,.07);margin-top:16px}
+  .actionbar .count{font-weight:600}
+  .actionbar .spacer{margin-left:auto}
+
+  /* review rows */
+  .row{display:grid;grid-template-columns:190px 1fr;gap:18px;padding:18px 0;
+       border-top:1px solid var(--line)}
+  .row:first-of-type{border-top:none}
+  .row.skip{opacity:.5}
+  .rpreview img{width:100%;border-radius:8px;background:#eef2f6;display:block}
+  .rstats{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.7}
+  .rstats b{color:var(--good)}
+  .fname{display:flex;align-items:center;gap:0}
+  .fname input{border-top-right-radius:0;border-bottom-right-radius:0}
+  .ext{padding:9px 11px;border:1px solid var(--line);border-left:none;
+       border-radius:0 8px 8px 0;background:#f1f5f9;color:var(--muted);font-size:13px}
+  .counter{font-size:11.5px;color:var(--muted);text-align:right}
+  .counter.over{color:var(--bad);font-weight:600}
+  .rowacts{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+
+  /* results */
+  .res{display:grid;grid-template-columns:64px 1fr auto;gap:14px;align-items:center;
+       padding:12px 0;border-top:1px solid var(--line)}
+  .res img{width:64px;height:64px;object-fit:cover;border-radius:6px;background:#eef2f6}
+  .res code{font-size:12px;word-break:break-all;color:var(--muted)}
+
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(0,0,0,.15);
+        border-top-color:var(--navy);border-radius:50%;animation:sp .7s linear infinite;
+        vertical-align:-2px;margin-right:7px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.spin{animation:none}}
+  @media (max-width:640px){
+    .row{grid-template-columns:1fr}
+    .res{grid-template-columns:48px 1fr}
+  }
+</style>
+</head>
+<body data-module="page_image_optimizer">
+
+<header class="bar">
+  <div>
+    <h1>Page Image Optimizer</h1>
+    <div class="sub">Read a page, pick the images, optimise {{ batch_size }} at a time.</div>
+  </div>
+  <div class="pills">
+    <span class="pill {{ '' if ai_on else 'off' }}">{{ 'AI naming on' if ai_on else 'AI naming off — names are editable' }}</span>
+    <span class="pill {{ '' if cloudinary_on else 'off' }}">{{ 'client gallery connected' if cloudinary_on else 'client gallery not set' }}</span>
+    <span class="pill">Longest edge {{ max_edge }}px</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="steps" aria-label="Progress">
+    <span class="step on" id="s1">1 · Page</span>
+    <span class="step" id="s2">2 · Choose images</span>
+    <span class="step" id="s3">3 · Review names</span>
+    <span class="step" id="s4">4 · Saved</span>
+  </nav>
+
+  <div id="alert" class="note err hidden" role="alert"></div>
+
+  <!-- ---------------- step 1 ---------------- -->
+  <section class="card" id="setup">
+    <h2>Which page?</h2>
+    <p class="hint">The page is read live. Nothing on the client's site is changed —
+      optimised copies are saved into their SEO images.</p>
+    <div class="grid">
+      <div>
+        <label for="company">Client or company {{ help_dot('seo_images.upload.details') if help_dot is defined else '' }}</label>
+        <input type="text" id="company" placeholder="Smart 1 Marketing" autocomplete="off">
+      </div>
+      <div>
+        <label for="project">Project</label>
+        <input type="text" id="project" placeholder="Spring site refresh" autocomplete="off">
+      </div>
+      <div>
+        <label for="pagename">Page name <span style="font-weight:400;color:var(--muted)">optional</span></label>
+        <input type="text" id="pagename" placeholder="Home" autocomplete="off">
+      </div>
+      <div>
+        <label for="url">Page address {{ help_dot('seo_images.results.copy_tag') if help_dot is defined else '' }}</label>
+        <input type="url" id="url" placeholder="https://client.com/services" autocomplete="off">
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <button class="primary" id="scanBtn">Scan page</button>
+      <span id="scanMsg" style="margin-left:10px;color:var(--muted);font-size:13px"></span>
+    </div>
+  </section>
+
+  <!-- ---------------- step 2 ---------------- -->
+  <section class="card hidden" id="choose">
+    <h2 id="pageTitle"></h2>
+    <p class="hint" id="pageUrl"></p>
+    <div class="stats">
+      <div class="stat"><b id="nFound">0</b><span>images found</span></div>
+      <div class="stat"><b id="nOpt">0</b><span>worth optimising</span></div>
+      <div class="stat"><b id="nWeight">0</b><span>current weight</span></div>
+      <div class="stat"><b id="nSaving">0</b><span>estimated saving</span></div>
+      <div class="stat"><b id="nDone">0</b><span>saved so far</span></div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="ghost" id="pickTop">Select the {{ batch_size }} biggest</button>
+      <button class="ghost" id="clearPick">Clear selection</button>
+    </div>
+    <div class="tiles" id="tiles"></div>
+    <div class="actionbar">
+      <span class="count" id="pickCount">Nothing selected</span>
+      <span style="color:var(--muted);font-size:13px" id="pickHint"></span>
+      <span class="spacer"></span>
+      <button class="primary" id="optimizeBtn" disabled>Optimise selected</button>
+    </div>
+  </section>
+
+  <!-- ---------------- step 3 ---------------- -->
+  <section class="card hidden" id="review">
+    <h2>Check the names before they save</h2>
+    <p class="hint">Filenames and alt text are written for this client and this page.
+      Change anything that isn't right, or skip an image to leave it out.</p>
+    <div id="rows"></div>
+    <div class="actionbar">
+      <span class="count" id="saveCount"></span>
+      <span class="spacer"></span>
+      <button class="ghost" id="backBtn">Back to the list</button>
+      <button class="primary" id="saveBtn">Save to client SEO</button>
+    </div>
+  </section>
+
+  <!-- ---------------- step 4 ---------------- -->
+  <section class="card hidden" id="done">
+    <h2>Saved</h2>
+    <p class="hint" id="doneSummary"></p>
+    <div id="results"></div>
+    <div class="actionbar">
+      <button class="ghost" id="copyAll">Copy all image tags</button>
+      <span class="spacer"></span>
+      <button class="primary" id="nextBtn">Optimise the next {{ batch_size }}</button>
+      <button class="ghost" id="newPageBtn">Start another page</button>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const BATCH = {{ batch_size }};
+  const ALT_MAX = {{ alt_max }};
+  const BASE = window.location.pathname.replace(/\/$/, "");
+
+  const state = { jobId:null, images:[], picked:new Set(), savedUrls:new Set(),
+                  batchId:null, items:[], lastSaved:[], totalSaved:0 };
+
+  const $ = (id) => document.getElementById(id);
+  const alertBox = $("alert");
+
+  function say(msg, kind) {
+    alertBox.className = "note " + (kind || "err");
+    alertBox.textContent = msg;
+    alertBox.classList.toggle("hidden", !msg);
+    if (msg) alertBox.scrollIntoView({block:"nearest"});
+  }
+
+  function bytes(n) {
+    if (!n) return "0 KB";
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return Math.round(n / 1024) + " KB";
+    return (n / 1048576).toFixed(1) + " MB";
+  }
+
+  function step(n) {
+    ["s1","s2","s3","s4"].forEach((id, i) => {
+      const el = $(id);
+      el.className = "step" + (i + 1 === n ? " on" : (i + 1 < n ? " done" : ""));
+    });
+  }
+
+  async function api(path, body, method) {
+    const res = await fetch(BASE + path, {
+      method: method || (body ? "POST" : "GET"),
+      headers: body ? {"Content-Type":"application/json"} : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    });
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* non-JSON */ }
+    if (!res.ok || !data.ok) throw new Error(data.error || "Something went wrong. Try again.");
+    return data;
+  }
+
+  function busy(btn, label) {
+    btn.dataset.label = btn.dataset.label || btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span>' + label;
+  }
+  function idle(btn) {
+    btn.disabled = false;
+    btn.textContent = btn.dataset.label;
+  }
+
+  // ---------------- step 1: scan ----------------
+  $("scanBtn").addEventListener("click", async () => {
+    say("");
+    const btn = $("scanBtn");
+    busy(btn, "Reading the page…");
+    $("scanMsg").textContent = "Measuring every image. This can take a few seconds.";
+    try {
+      const data = await api("/api/scan", {
+        url: $("url").value, company: $("company").value,
+        project: $("project").value, page_name: $("pagename").value
+      });
+      state.jobId = data.job_id;
+      state.images = data.images;
+      state.picked.clear();
+      state.savedUrls.clear();
+      state.totalSaved = 0;
+      $("pageTitle").textContent = data.page.title || data.page.company;
+      $("pageUrl").textContent = data.page.url;
+      $("nFound").textContent = data.totals.found;
+      $("nOpt").textContent = data.totals.optimizable;
+      $("nWeight").textContent = bytes(data.totals.bytes);
+      $("nSaving").textContent = bytes(data.totals.saving);
+      renderTiles();
+      $("choose").classList.remove("hidden");
+      $("setup").classList.add("hidden");
+      step(2);
+      $("choose").scrollIntoView({block:"start", behavior:"smooth"});
+    } catch (err) {
+      say(err.message);
+    } finally {
+      idle(btn);
+      $("scanMsg").textContent = "";
+    }
+  });
+
+  // ---------------- step 2: choose ----------------
+  function renderTiles() {
+    const box = $("tiles");
+    box.innerHTML = "";
+    state.images.forEach((img) => {
+      const saved = state.savedUrls.has(img.url);
+      const usable = img.optimizable && !saved;
+      const tile = document.createElement("button");
+      tile.type = "button";
+      tile.className = "tile" + (state.picked.has(img.url) ? " sel" : "")
+                     + (saved ? " saved" : "") + (usable ? "" : " blocked");
+      tile.setAttribute("aria-pressed", state.picked.has(img.url) ? "true" : "false");
+      if (!usable) tile.setAttribute("aria-disabled", "true");
+
+      const name = img.url.split("/").pop().split("?")[0] || img.url;
+      const facts = [];
+      if (img.width) facts.push(img.width + " × " + img.height);
+      if (img.bytes) facts.push(bytes(img.bytes));
+      if (img.format) facts.push(img.format.toUpperCase());
+      const dims = facts.join(" · ");
+      let foot = "";
+      if (saved) foot = '<span class="badge done">Saved</span>';
+      else if (!img.optimizable) foot = '<div class="tblock">' + esc(img.skip_reason) + "</div>";
+      else foot = '<div class="tsave">saves about ' + bytes(img.saving) + "</div>";
+
+      tile.innerHTML =
+        '<div class="thumb"><img loading="lazy" alt="" src="' + esc(img.url) + '"' +
+        ' onerror="this.style.display=\'none\'"><span class="tick">✓</span></div>' +
+        '<div class="tmeta"><div class="tname">' + esc(name.slice(0, 44)) + "</div>" +
+        '<div class="tdim">' + (dims || "not readable") + "</div>" + foot + "</div>";
+
+      if (usable) tile.addEventListener("click", () => toggle(img.url));
+      box.appendChild(tile);
+    });
+    updateCount();
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+      ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  function toggle(url) {
+    if (state.picked.has(url)) state.picked.delete(url);
+    else if (state.picked.size >= BATCH) {
+      say("That's " + BATCH + " — save these first, then the rest are one click away.", "warn");
+      return;
+    } else state.picked.add(url);
+    say("");
+    renderTiles();
+  }
+
+  function updateCount() {
+    const n = state.picked.size;
+    $("pickCount").textContent = n ? n + " of " + BATCH + " selected" : "Nothing selected";
+    const left = state.images.filter(
+      (i) => i.optimizable && !state.savedUrls.has(i.url)).length - n;
+    $("pickHint").textContent = left > 0 ? left + " more waiting" : "";
+    $("optimizeBtn").disabled = n === 0;
+    $("optimizeBtn").textContent = n ? "Optimise these " + n : "Optimise selected";
+    $("nDone").textContent = state.totalSaved;
+  }
+
+  $("pickTop").addEventListener("click", () => {
+    state.picked.clear();
+    state.images.filter((i) => i.optimizable && !state.savedUrls.has(i.url))
+      .slice(0, BATCH).forEach((i) => state.picked.add(i.url));
+    renderTiles();
+  });
+  $("clearPick").addEventListener("click", () => { state.picked.clear(); renderTiles(); });
+
+  $("optimizeBtn").addEventListener("click", async () => {
+    say("");
+    const btn = $("optimizeBtn");
+    busy(btn, "Optimising and naming…");
+    try {
+      const data = await api("/api/job/" + state.jobId + "/batch",
+                             { urls: Array.from(state.picked) });
+      state.batchId = data.batch_id;
+      state.items = data.items;
+      renderRows();
+      $("choose").classList.add("hidden");
+      $("review").classList.remove("hidden");
+      $("done").classList.add("hidden");
+      step(3);
+      window.scrollTo({top:0, behavior:"smooth"});
+    } catch (err) {
+      say(err.message);
+    } finally { idle(btn); }
+  });
+
+  // ---------------- step 3: review ----------------
+  function renderRows() {
+    const box = $("rows");
+    box.innerHTML = "";
+    state.items.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.dataset.id = item.id;
+
+      if (item.status === "error") {
+        row.innerHTML = '<div class="rpreview"></div><div><div class="note err">' +
+          esc(item.source_url.split("/").pop()) + " — " + esc(item.error) + "</div></div>";
+        box.appendChild(row);
+        return;
+      }
+
+      const i = item.info || {};
+      row.innerHTML =
+        '<div class="rpreview">' +
+          '<img alt="" src="' + BASE + "/api/job/" + state.jobId + "/preview/" + item.id + '">' +
+          '<div class="rstats">' +
+            bytes(i.source_bytes) + " → <b>" + bytes(i.bytes) + "</b> (" + i.saved_pct + "% off)<br>" +
+            i.source_width + "×" + i.source_height + " → " + i.width + "×" + i.height +
+            "<br>" + (i.source_format || "?").toUpperCase() + " → WEBP" +
+          "</div>" +
+        "</div>" +
+        '<div>' +
+          '<label for="f-' + item.id + '">Filename</label>' +
+          '<div class="fname"><input type="text" id="f-' + item.id + '" value="' +
+            esc(item.filename) + '"><span class="ext">.webp</span></div>' +
+          '<div style="margin-top:12px">' +
+            '<label for="a-' + item.id + '">Alt text</label>' +
+            '<textarea id="a-' + item.id + '">' + esc(item.alt) + "</textarea>" +
+            '<div class="counter" id="c-' + item.id + '"></div>' +
+          "</div>" +
+          '<div class="rowacts">' +
+            '<button class="link" data-act="again">Ask AI again</button>' +
+            '<button class="link" data-act="skip">Skip this one</button>' +
+            (item.ai ? "" : '<span class="badge">Name written from the page, not AI</span>') +
+            '<span style="color:var(--muted);font-size:12px;margin-left:auto">' +
+              esc(item.source_url.split("/").pop().slice(0, 40)) + "</span>" +
+          "</div>" +
+        "</div>";
+
+      box.appendChild(row);
+      countAlt(item.id);
+      $("a-" + item.id).addEventListener("input", () => countAlt(item.id));
+      row.querySelector('[data-act="again"]').addEventListener("click", (e) => again(item, e.target));
+      row.querySelector('[data-act="skip"]').addEventListener("click", (e) => skip(item, row, e.target));
+    });
+    updateSaveCount();
+  }
+
+  function countAlt(id) {
+    const el = $("a-" + id), c = $("c-" + id);
+    if (!el || !c) return;
+    const n = el.value.length;
+    c.textContent = n + " / " + ALT_MAX;
+    c.className = "counter" + (n > ALT_MAX ? " over" : "");
+  }
+
+  async function again(item, btn) {
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = "Thinking…";
+    try {
+      const data = await api("/api/job/" + state.jobId + "/batch/" + state.batchId + "/rename",
+                             { item_id: item.id });
+      item.filename = data.item.filename;
+      item.alt = data.item.alt;
+      $("f-" + item.id).value = item.filename;
+      $("a-" + item.id).value = item.alt;
+      countAlt(item.id);
+    } catch (err) { say(err.message); }
+    finally { btn.disabled = false; btn.textContent = label; }
+  }
+
+  function skip(item, row, btn) {
+    item.skip = !item.skip;
+    row.classList.toggle("skip", item.skip);
+    btn.textContent = item.skip ? "Include this one" : "Skip this one";
+    updateSaveCount();
+  }
+
+  function updateSaveCount() {
+    const n = state.items.filter((i) => i.status !== "error" && !i.skip).length;
+    $("saveCount").textContent = n === 1 ? "1 image ready" : n + " images ready";
+    $("saveBtn").disabled = n === 0;
+  }
+
+  $("backBtn").addEventListener("click", () => {
+    $("review").classList.add("hidden");
+    $("choose").classList.remove("hidden");
+    step(2);
+  });
+
+  $("saveBtn").addEventListener("click", async () => {
+    say("");
+    const btn = $("saveBtn");
+    busy(btn, "Saving…");
+    try {
+      const items = state.items.map((i) => ({
+        id: i.id,
+        skip: !!i.skip,
+        filename: ($("f-" + i.id) || {}).value || i.filename,
+        alt: ($("a-" + i.id) || {}).value || i.alt
+      }));
+      const data = await api("/api/job/" + state.jobId + "/batch/" + state.batchId + "/save",
+                             { items: items });
+      state.lastSaved = data.saved;
+      state.savedUrls = new Set(data.saved_urls);
+      state.totalSaved = data.totals.saved_all;
+      state.picked.clear();
+      renderResults(data);
+      renderTiles();
+      $("review").classList.add("hidden");
+      $("done").classList.remove("hidden");
+      step(4);
+      window.scrollTo({top:0, behavior:"smooth"});
+    } catch (err) { say(err.message); }
+    finally { idle(btn); }
+  });
+
+  // ---------------- step 4: results ----------------
+  function renderResults(data) {
+    const box = $("results");
+    box.innerHTML = "";
+    data.saved.forEach((row) => {
+      const el = document.createElement("div");
+      el.className = "res";
+      el.innerHTML =
+        '<img alt="" src="' + esc(row.url) + '">' +
+        "<div><div style=\"font-weight:600\">" + esc(row.filename) + ".webp " +
+        '<span class="badge done">' + bytes(row.source_bytes) + " → " +
+        bytes(row.bytes) + "</span></div>" +
+        '<div style="font-size:12.5px;color:var(--muted)">' + esc(row.alt) + "</div>" +
+        "<code>" + esc(row.url || row.note) + "</code></div>" +
+        '<div style="display:flex;gap:8px">' +
+          '<button class="ghost" data-copy="' + esc(row.url) + '">Copy URL</button>' +
+          '<button class="ghost" data-copy="' + esc(row.img_tag) + '">Copy tag</button>' +
+        "</div>";
+      box.appendChild(el);
+    });
+
+    box.querySelectorAll("[data-copy]").forEach((b) =>
+      b.addEventListener("click", () => copy(b.dataset.copy, b)));
+
+    const savedBytes = data.saved.reduce((t, r) => t + (r.saved_bytes || 0), 0);
+    let summary = data.saved.length + " saved to " + esc($("company").value) +
+      " · " + bytes(savedBytes) + " lighter than the originals.";
+    if (data.skipped.length) summary += " " + data.skipped.length + " skipped.";
+    if (data.failed.length) summary += " " + data.failed.length + " couldn't be saved.";
+    if (data.saved.some((r) => !r.stored))
+      summary += " client gallery isn't configured, so files weren't uploaded — set CLOUDINARY_URL.";
+    $("doneSummary").innerHTML = summary;
+
+    const left = data.totals.remaining;
+    $("nextBtn").classList.toggle("hidden", left === 0);
+    $("nextBtn").textContent = "Optimise the next " + Math.min(BATCH, left) +
+      (left > BATCH ? " of " + left : "");
+  }
+
+  function copy(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+      const was = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = was; }, 1400);
+    });
+  }
+
+  $("copyAll").addEventListener("click", (e) =>
+    copy(state.lastSaved.map((r) => r.img_tag).join("\n"), e.target));
+
+  $("nextBtn").addEventListener("click", () => {
+    $("done").classList.add("hidden");
+    $("choose").classList.remove("hidden");
+    renderTiles();
+    step(2);
+    window.scrollTo({top:0, behavior:"smooth"});
+  });
+
+  $("newPageBtn").addEventListener("click", () => {
+    $("done").classList.add("hidden");
+    $("choose").classList.add("hidden");
+    $("setup").classList.remove("hidden");
+    $("url").value = "";
+    $("pagename").value = "";
+    state.jobId = null;
+    step(1);
+    $("url").focus();
+  });
+})();
+</script>
+</body>
+</html>

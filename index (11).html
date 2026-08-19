@@ -1,122 +1,659 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Smart 1 Google Account Command Center</title>
-  <link rel="stylesheet" href="/static/style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SEO Image Pipeline — Smart 1 Hub</title>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--ok:#16a34a;--bad:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 22px 70px}
+  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
+  h2{color:var(--navy);font-size:15px;margin:0 0 10px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px;
+    box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .step{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+  .step .n{background:var(--navy);color:#fff;width:23px;height:23px;border-radius:50%;display:flex;
+    align-items:center;justify-content:center;font-size:12.5px;font-weight:700;flex:none}
+  .step h2{margin:0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  label{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+  label .req{color:var(--bad)}
+  input[type=text],input[type=url],input[type=search],textarea{width:100%;padding:9px 11px;border:1px solid var(--line);
+    border-radius:8px;font:13.5px inherit;background:#fff}
+  input:focus,textarea:focus{outline:2px solid #bfdbfe;outline-offset:-1px;border-color:var(--blue)}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13.5px inherit;padding:10px 18px;border-radius:8px;
+    cursor:pointer;text-decoration:none;display:inline-block}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.small{padding:6px 12px;font-size:12.5px}
+  .btn.danger{background:#fff;color:var(--bad);border:1px solid #fecaca}
+  .drop{border:2px dashed #cbd5e1;border-radius:10px;padding:22px;text-align:center;background:var(--soft);
+    cursor:pointer;transition:.15s}
+  .drop.over{border-color:var(--blue);background:#eff6ff}
+  .drop .big{font-size:26px}
+  .hint{color:var(--muted);font-size:12px;margin-top:6px}
+  .msg{font-size:13px;margin-left:10px;color:var(--muted)}
+  .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+  .warn{background:#fdf9f0;border:1px solid #f5d9a8;border-radius:8px;padding:9px 12px;font-size:12.5px;
+    color:#8a5a12;margin-bottom:10px}
+  .alert{background:#fdf4f4;border:1px solid #f3c1c1;border-radius:8px;padding:10px 13px;margin-bottom:14px}
+  .alert b{color:#a12626}
+  /* review cards */
+  .rev{display:flex;gap:14px;border:1px solid var(--line);border-radius:10px;padding:13px;margin-bottom:11px;
+    background:#fff}
+  .rev.skipped{opacity:.45}
+  .rev img{width:132px;height:132px;object-fit:cover;border-radius:8px;background:#f1f5f9;flex:none}
+  .rev .body{flex:1;min-width:0}
+  .rev .fname{display:flex;align-items:center;gap:4px}
+  .rev .fname input{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+  .rev .ext{color:var(--muted);font-size:12.5px;font-family:ui-monospace,Consolas,monospace;flex:none}
+  .rev textarea{resize:vertical;min-height:52px}
+  .rev .meta{color:var(--muted);font-size:11.5px;margin-top:7px}
+  .rev .acts{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap;align-items:center}
+  .tag{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:20px;padding:1px 8px;
+    font-size:10.5px;font-weight:700}
+  .tag.man{background:#fef3c7;color:#92400e}
+  .count{font-size:11.5px;color:var(--muted)}
+  .count.over{color:var(--bad);font-weight:700}
+  /* table */
+  .bar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:11px}
+  .bar input[type=search]{flex:1;min-width:200px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{background:var(--soft);text-align:left;padding:8px 9px;font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:8px 9px;border-bottom:1px solid #eef2f7;vertical-align:top}
+  td img{width:52px;height:52px;object-fit:cover;border-radius:6px;background:#f1f5f9}
+  td .fn{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;overflow-wrap:anywhere}
+  .lnk{color:var(--blue);text-decoration:none;cursor:pointer}
+  .lnk:hover{text-decoration:underline}
+  .empty{text-align:center;color:var(--muted);padding:26px}
+  .saved{display:flex;gap:12px;align-items:center;border:1px solid #bbf7d0;background:#f0fdf4;
+    border-radius:10px;padding:11px 13px;margin-bottom:9px}
+  .saved img{width:56px;height:56px;object-fit:cover;border-radius:7px}
+  /* client / project type-ahead */
+  .drop-list{position:absolute;left:0;right:0;top:100%;z-index:40;background:#fff;border:1px solid var(--line);
+    border-radius:9px;box-shadow:0 10px 26px rgba(15,23,42,.14);max-height:300px;overflow-y:auto;margin-top:3px}
+  .drop-list .opt{padding:9px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px}
+  .drop-list .opt:last-child{border-bottom:0}
+  .drop-list .opt:hover,.drop-list .opt.on{background:#eff6ff}
+  .drop-list .opt b{color:var(--navy)}
+  .drop-list .opt .d{color:var(--muted);font-size:11.5px}
+  .drop-list .add{background:#f0fdf4;color:#166534;font-weight:600}
+  .drop-list .none{padding:9px 12px;color:var(--muted);font-size:12.5px}
+  .picked-tag{margin-top:5px;font-size:12px}
+  .badge{display:inline-block;border-radius:20px;padding:1px 8px;font-size:10.5px;font-weight:700;margin-left:5px}
+  .badge.house{background:#fef3c7;color:#92400e}
+  .badge.seo{background:#dcfce7;color:#166534}
+  .badge.new{background:#e0e7ff;color:#3730a3}
+  .verfoot{text-align:center;color:#94a3b8;font-size:11.5px;padding:18px 0 4px;
+    border-top:1px solid var(--line);margin-top:22px}
+  .shrink{color:var(--ok);font-weight:600}
+  /* one line, ellipsis — the full URL is on the Copy button, and an
+     unbounded wrap turns a long URL into a screen-high block of text */
+  .saved .u{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--muted);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+</style>
 </head>
-<body>
-  <div id="toast-container"></div>
+<body data-module="seo_images">
+<div class="wrap">
+  <h1>SEO Image Pipeline</h1>
+  <p class="sub">Name images the way search engines want them named, review every one, then save the
+    approved set to the client gallery as optimised WebP — filed under the client and kept in a searchable archive.</p>
 
-  <main class="wrap">
-    <section class="card">
-      <div class="topline">
-        <div>
-          <h1>Smart 1 Google Account Command Center</h1>
-          <p>Search all connected Analytics, Tag Manager, Search Console, & Business Profiles instantly.</p>
-        </div>
-        <div class="auth">
-          <a class="btn" href="/login">+ Add Google Account</a>
-        </div>
+  {% if not cloud_ready %}
+  <div class="alert"><b>client gallery isn't configured.</b>
+    <div class="hint">Set <code>CLOUDINARY_URL</code> (or <code>CLOUDINARY_CLOUD_NAME</code> +
+      <code>CLOUDINARY_API_KEY</code> + <code>CLOUDINARY_API_SECRET</code>) and redeploy.
+      You can still analyse images, but saving is disabled.</div></div>
+  {% endif %}
+  {% if not ai_ready %}
+  <div class="alert" style="border-color:#f5d9a8;background:#fdf9f0"><b style="color:#8a5a12">No OpenAI key.</b>
+    <div class="hint">Set <code>OPENAI_API_KEY</code> for AI-written filenames and alt text.
+      Without it you'll get a sensible starting name to edit by hand.</div></div>
+  {% endif %}
+
+  <!-- ---------------- Step 1 ---------------- -->
+  <div class="card" id="step1">
+    <div class="step"><span class="n">1</span><h2>Project details &amp; images</h2></div>
+    <div class="grid">
+      <div style="position:relative">
+        <label>Company <span class="req">*</span>{{ help_dot('seo_images.upload.details') if help_dot is defined else '' }}
+          <span class="hint" style="display:inline">— search existing, or add a new one</span></label>
+        <input type="text" id="company" placeholder="Start typing a client name or domain…" autocomplete="off">
+        <div id="clientDrop" class="drop-list" style="display:none"></div>
+        <div id="clientTag" class="picked-tag" style="display:none"></div>
       </div>
-
-      <!-- TOP NAVIGATION MENU -->
-      <nav class="nav-anchor-bar">
-        <a href="/" class="active-page">🔍 Quick Search</a>
-        <a href="/ga-tools">📊 GA Tools</a>
-        <a href="/gtm-tools">⚡ GTM Tools</a>
-        <a href="/webmaster-tools">🌐 Webmaster Tools</a>
-        <a href="/gmb-tools">📍 GMB Tools</a>
-        <a href="/history">📜 History & Logs</a>
-      </nav>
-
-      <!-- PRIMARY SEARCH SECTION -->
-      {% if accounts %}
-      <div id="primary-search" class="primary-search-section" style="margin-top:20px;">
-        <div class="filters">
-          <button class="filter active" data-platform="all">All Platforms <span id="cnt-all" class="badge-count"></span></button>
-          <button class="filter" data-platform="analytics">Analytics & GTM <span id="cnt-ga" class="badge-count"></span></button>
-          <button class="filter" data-platform="gsc">Search Console <span id="cnt-gsc" class="badge-count"></span></button>
-          <button class="filter" data-platform="gmb">Business Profiles <span id="cnt-gmb" class="badge-count"></span></button>
-          <button id="refresh" class="refresh">Refresh Google data</button>
-        </div>
-        <div class="searchbox">
-          <input id="q" autocomplete="off" autofocus placeholder="Type client name, domain, GA4 ID, GTM ID, or email to search all sites...">
-        </div>
-        <div id="status" class="status">Auto-refreshing Google data...</div>
-        
-        <!-- RESULT CATEGORY CONTAINERS -->
-        <div id="results-container" class="results-container">
-          <div id="box-analytics" class="result-category-box" style="display:none;">
-            <h3 class="category-header">📊 Google Analytics & Tag Manager</h3>
-            <div id="results-analytics" class="results"></div>
-          </div>
-
-          <div id="box-gmb" class="result-category-box" style="display:none;">
-            <h3 class="category-header">📍 Google Business Profiles (GMB)</h3>
-            <div id="results-gmb" class="results"></div>
-          </div>
-
-          <div id="box-gsc" class="result-category-box" style="display:none;">
-            <h3 class="category-header">🔍 Google Search Console (Webmaster Tools)</h3>
-            <div id="results-gsc" class="results"></div>
-          </div>
-        </div>
+      <div><label>Web URL <span class="req">*</span></label><input type="url" id="weburl" placeholder="coolairco.com"></div>
+      <div style="position:relative">
+        <label>Project <span class="req">*</span>
+          <span class="hint" style="display:inline">— existing projects appear as you type</span></label>
+        <input type="text" id="project" placeholder="Spring site refresh" autocomplete="off">
+        <div id="projDrop" class="drop-list" style="display:none"></div>
       </div>
-      {% else %}
-      <div class="connect-panel">
-        <strong>Connect your Google accounts</strong>
-        <p>Add adops@smart1marketing.com, smartadops@gmail.com, smart1sites@gmail.com, and gmb@smart1marketing.com to combine records across GA4, GTM, Search Console, and GMB.</p>
-        <a class="btn connect" href="/login">Connect Google Account</a>
+      <div><label>Page name <span class="hint" style="display:inline">(optional — sharpens the naming)</span></label>
+        <input type="text" id="page" placeholder="AC Repair"></div>
+    </div>
+    <div style="margin-top:13px">
+      <label>Resize before optimising{{ help_dot('seo_images.upload.max_edge') if help_dot is defined else '' }}
+        <span class="hint" style="display:inline">— the longest edge is capped, then everything is converted to WebP</span></label>
+      <select id="maxEdge" style="padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit;background:#fff">
+        {% for key, (label, px) in presets.items() %}
+        <option value="{{ key }}"{% if key == default_edge %} selected{% endif %}>{{ label }}{% if px %} — max {{ px }}px{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="margin-top:13px">
+      <label>Images <span class="req">*</span> <span class="hint" style="display:inline">up to 5, 10 MB each</span></label>
+      <div class="drop" id="drop">
+        <div class="big">&#128444;</div>
+        <div><b>Drop images here</b> or click to choose</div>
+        <div class="hint" id="picked">JPG · PNG · WebP · GIF · AVIF</div>
       </div>
-      {% endif %}
-
-      <!-- CONNECTED ACCOUNTS FOOTER (SINGLE INSTANCE) -->
-      <div id="connected-accounts" class="accounts" style="margin-top:28px;">
-        <div class="accounts-title">Connected Google Accounts</div>
-        {% if accounts %}
-          {% for acc in accounts %}
-          <div class="account-chip" data-email="{{ acc.email }}">
-            <span class="check">{% if acc.status == 'ACTIVE' %}✓{% else %}⚠️{% endif %}</span>
-            <span>{{ acc.email }}</span>
-            <button class="disconnect" data-email="{{ acc.email }}" title="Disconnect Account">×</button>
-          </div>
-          {% endfor %}
-        {% else %}
-          <span class="muted">No Google accounts connected yet.</span>
-        {% endif %}
-      </div>
-
-      <!-- DIAGNOSTICS LINK -->
-      <div style="margin-top: 14px; text-align: center; font-size: 12px;">
-        <a href="#" id="btn-open-diagnostics" style="color: #69758a; text-decoration: underline; font-weight: 600;">⚙️ System Diagnostics Dashboard</a>
-      </div>
-    </section>
-  </main>
-
-  <!-- DIAGNOSTICS MODAL -->
-  <div id="diagnostics-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:999;">
-    <div style="background:#fff; padding:24px; border-radius:12px; width:100%; max-width:680px; max-height:85vh; overflow-y:auto;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0; color:#1a2e58;">⚙️ System Diagnostics Dashboard</h3>
-        <button id="diagnostics-modal-close" style="border:0; background:none; font-size:20px; cursor:pointer;">×</button>
-      </div>
-      <div id="diagnostics-modal-body" style="margin-top:16px;"></div>
+      <input type="file" id="files" accept="image/*" multiple hidden>
+    </div>
+    <div style="margin-top:14px">
+      <button class="btn" id="btnAnalyze">Analyse &amp; review</button>
+      <span class="msg" id="msg1"></span>
     </div>
   </div>
 
-  <!-- GTM INSPECTOR MODAL -->
-  <div id="gtm-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:999;">
-    <div style="background:#fff; padding:24px; border-radius:12px; width:100%; max-width:650px; max-height:85vh; overflow-y:auto;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0; color:#1a2e58;">🏷️ GTM Container Live Inspector</h3>
-        <button id="gtm-modal-close" style="border:0; background:none; font-size:20px; cursor:pointer;">×</button>
-      </div>
-      <div id="gtm-modal-body" style="margin-top:16px;"></div>
+  <!-- ---------------- Step 2 ---------------- -->
+  <div class="card" id="step2" style="display:none">
+    <div class="step"><span class="n">2</span><h2>Review &amp; edit names and alt text</h2></div>
+    <p class="sub" style="margin-bottom:14px">Edit anything before it's saved. Filenames become permanent
+      once uploaded, so this is the moment to get them right.</p>
+    <div id="warnBox"></div>
+    <div id="revList"></div>
+    <div style="margin-top:6px">
+      <button class="btn" id="btnSave">Approve &amp; save to the client gallery</button>
+      <button class="btn sec" id="btnCancel">Start over</button>
+      <span class="msg" id="msg2"></span>
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <!-- ---------------- Step 3 ---------------- -->
+  <div class="card" id="step3" style="display:none">
+    <div class="step"><span class="n">3</span><h2>Saved</h2></div>
+    <div id="savedList"></div>
+    <div style="margin-top:12px">
+      <button class="btn sec" id="btnMore">Add more to this project</button>
+      <button class="btn sec" id="btnNew">Start a new project</button>
+      <button class="btn sec" id="btnCopyAll">Copy all &lt;img&gt; tags</button>
+      <span class="msg" id="msg3"></span>
+    </div>
+  </div>
+
+  <!-- ---------------- Archive ---------------- -->
+  <div class="card">
+    <div class="step"><span class="n">&#9635;</span><h2>Project archive</h2></div>
+    <div class="bar">
+      <input type="search" id="search" placeholder="Search company, project, page, filename or alt text…">
+      <button class="btn sec small" id="btnRefresh">Refresh</button>
+      <a class="btn sec small" id="btnCsv" href="api/gallery/export">&#8681; CSV</a>
+      <span class="count" id="archCount"></span>
+    </div>
+    <div style="overflow-x:auto" id="archWrap"><div class="empty">Loading archive…</div></div>
+  </div>
+
+  <div class="verfoot">Smart 1 Hub &middot; SEO Image Pipeline &middot; <b>{{ version }}</b></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const CLOUD_READY = {{ 'true' if cloud_ready else 'false' }};
+
+let picked = [];       // File objects chosen but not yet uploaded
+let batch = null;      // server-side batch token
+let meta = {};         // project details for the current batch
+let items = [];        // review cards
+let lastSaved = [];
+let client = null;     // the client record chosen from the picker
+
+/* ---------------- client type-ahead ----------------
+   Search everything the Hub already knows — Knack clients, website records
+   and house URLs — so images attach to a real client record rather than a
+   free-typed string that never matches anything again. Anything genuinely
+   new can still be added on the spot, as a house site. */
+function clientBadge(c){
+  if(c.is_house) return '<span class="badge house">house</span>';
+  if(c.is_seo)   return '<span class="badge seo">SEO</span>';
+  return '';
+}
+function setClient(c){
+  client = c;
+  $('company').value = c ? c.name : '';
+  const tag = $('clientTag');
+  if(!c){ tag.style.display='none'; return; }
+  tag.style.display='block';
+  tag.innerHTML = (c.isNew
+      ? '<span class="badge new">new house site</span> will be added when you save'
+      : '<span class="badge ' + (c.is_house?'house':'seo') + '">'
+        + (c.is_house ? 'house site' : (c.is_seo ? 'SEO client' : 'client'))
+        + '</span> ' + esc(c.domain || c.url || ''))
+    + ' &middot; <a class="lnk" id="clearClient">change</a>';
+  const cl = $('clearClient');
+  if(cl) cl.onclick = () => { setClient(null); $('company').focus(); };
+  if(c.url && !$('weburl').value.trim()) $('weburl').value = c.url;
+  loadProjectsFor(c.name);
+}
+
+let clientTimer;
+$('company').addEventListener('input', () => {
+  client = null; $('clientTag').style.display='none';
+  clearTimeout(clientTimer);
+  clientTimer = setTimeout(searchClients, 200);
+});
+$('company').addEventListener('blur', () => setTimeout(() => $('clientDrop').style.display='none', 180));
+$('company').addEventListener('focus', () => { if($('company').value.trim()) searchClients(); });
+
+async function searchClients(){
+  const q = $('company').value.trim();
+  const drop = $('clientDrop');
+  if(q.length < 2){ drop.style.display='none'; return; }
+  try{
+    const d = await fetch('api/clients?q='+encodeURIComponent(q)).then(r=>r.json());
+    const list = d.clients || [];
+    const exact = list.some(c => c.name.toLowerCase() === q.toLowerCase());
+    drop.innerHTML =
+      list.map(c => `<div class="opt" data-pick='${esc(JSON.stringify(c))}'>
+          <b>${esc(c.name)}</b>${clientBadge(c)}
+          <div class="d">${esc(c.domain || c.url || 'no website on file')}${
+            c.product_count ? ' · '+c.product_count+' product'+(c.product_count>1?'s':'') : ''}</div>
+        </div>`).join('')
+      + (exact ? '' : `<div class="opt add" data-new="${esc(q)}">
+          + Add “${esc(q)}” as a new house site</div>`)
+      + (list.length ? '' : '<div class="none">No existing client matches — add it above.</div>');
+    drop.style.display='block';
+    drop.querySelectorAll('[data-pick]').forEach(el => {
+      el.onmousedown = e => { e.preventDefault(); setClient(JSON.parse(el.dataset.pick)); drop.style.display='none'; };
+    });
+    const addEl = drop.querySelector('[data-new]');
+    if(addEl) addEl.onmousedown = e => {
+      e.preventDefault(); drop.style.display='none';
+      setClient({name: addEl.dataset.new, slug:'', url:'', domain:'',
+                 source:'house', is_house:true, is_seo:false, isNew:true});
+    };
+  }catch(e){ drop.style.display='none'; }
+}
+
+/* ---------------- project type-ahead ---------------- */
+let knownProjects = [];
+async function loadProjectsFor(company){
+  try{
+    const d = await fetch('api/projects?company='+encodeURIComponent(company||'')).then(r=>r.json());
+    knownProjects = d.projects || [];
+  }catch(e){ knownProjects = []; }
+}
+$('project').addEventListener('input', showProjects);
+$('project').addEventListener('focus', showProjects);
+$('project').addEventListener('blur', () => setTimeout(() => $('projDrop').style.display='none', 180));
+function showProjects(){
+  const q = $('project').value.trim().toLowerCase();
+  const hits = knownProjects.filter(p => !q || p.project.toLowerCase().includes(q));
+  const drop = $('projDrop');
+  if(!hits.length){ drop.style.display='none'; return; }
+  drop.innerHTML = hits.slice(0,8).map(p => `<div class="opt" data-p="${esc(p.project)}"
+      data-page="${esc((p.pages||[])[0]||'')}" data-url="${esc(p.web_url||'')}">
+      <b>${esc(p.project)}</b>
+      <div class="d">${p.count} image${p.count>1?'s':''}${p.pages&&p.pages.length?' · '+esc(p.pages.join(', ')):''} · last ${esc(p.last||'')}</div>
+    </div>`).join('');
+  drop.style.display='block';
+  drop.querySelectorAll('[data-p]').forEach(el => {
+    el.onmousedown = e => {
+      e.preventDefault();
+      $('project').value = el.dataset.p;
+      if(el.dataset.url && !$('weburl').value.trim()) $('weburl').value = el.dataset.url;
+      if(el.dataset.page && !$('page').value.trim()) $('page').value = el.dataset.page;
+      drop.style.display='none';
+    };
+  });
+}
+
+/* prefill from a link (Client 360 "Optimize client images") */
+(function(){
+  const pc = {{ prefill_company|tojson }}, pu = {{ prefill_url|tojson }}, pp = {{ prefill_project|tojson }};
+  if(pc){
+    $('company').value = pc;
+    fetch('api/clients?q='+encodeURIComponent(pc)).then(r=>r.json()).then(d => {
+      const hit = (d.clients||[]).find(c => c.name.toLowerCase() === pc.toLowerCase());
+      if(hit) setClient(hit); else loadProjectsFor(pc);
+    }).catch(()=>{});
+  }
+  if(pu) $('weburl').value = pu;
+  if(pp) $('project').value = pp;
+})();
+
+/* ---------------- step 1: pick files ---------------- */
+const drop = $('drop'), fileInput = $('files');
+drop.onclick = () => fileInput.click();
+['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.add('over');
+}));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.remove('over');
+}));
+drop.addEventListener('drop', ev => setPicked([...ev.dataTransfer.files]));
+fileInput.onchange = () => setPicked([...fileInput.files]);
+
+function setPicked(list){
+  const imgs = list.filter(f => f.type.startsWith('image/'));
+  if(imgs.length > 5){
+    $('msg1').className = 'msg err';
+    $('msg1').textContent = 'Only the first 5 images were kept.';
+  } else { $('msg1').textContent = ''; }
+  picked = imgs.slice(0,5);
+  $('picked').innerHTML = picked.length
+    ? '<b>' + picked.length + ' image' + (picked.length>1?'s':'') + ':</b> '
+      + picked.map(f => esc(f.name)).join(', ')
+    : 'JPG · PNG · WebP · GIF · AVIF';
+}
+
+$('btnAnalyze').onclick = async () => {
+  const m = {
+    company_name: $('company').value.trim(),
+    web_url: $('weburl').value.trim(),
+    project_name: $('project').value.trim(),
+    page_name: $('page').value.trim(),
+  };
+  if(!m.company_name || !m.web_url || !m.project_name){
+    $('msg1').className='msg err'; $('msg1').textContent='Company, web URL and project name are required.'; return;
+  }
+  if(!picked.length){
+    $('msg1').className='msg err'; $('msg1').textContent='Choose at least one image.'; return;
+  }
+  // a brand-new house site is registered now, so the images attach to a real
+  // client record rather than a string that never matches again
+  if(client && client.isNew){
+    $('msg1').className='msg';
+    $('msg1').textContent = 'Adding “'+m.company_name+'” to the house list…';
+    try{
+      const res = await fetch('api/clients/house', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({name:m.company_name, url:m.web_url})}).then(r=>r.json());
+      if(res.client) setClient({...res.client, is_house:true, is_seo:false});
+      else if(res.error) { /* already exists — carry on */ }
+    }catch(e){ /* not fatal: the batch can still be named and saved */ }
+  }
+
+  const fd = new FormData();
+  Object.entries(m).forEach(([k,v]) => fd.append(k,v));
+  fd.append('max_edge', $('maxEdge').value);
+  fd.append('client_slug', (client && client.slug) || '');
+  fd.append('client_source', (client && client.source) || '');
+  picked.forEach(f => fd.append('images', f));
+
+  $('btnAnalyze').disabled = true;
+  $('msg1').className='msg';
+  $('msg1').textContent = 'Optimising and reading ' + picked.length + ' image'
+    + (picked.length>1?'s':'') + ' with AI…';
+  try{
+    const r = await fetch('api/analyze', {method:'POST', body:fd});
+    const d = await r.json();
+    $('btnAnalyze').disabled = false;
+    if(d.error){ $('msg1').className='msg err'; $('msg1').textContent=d.error; return; }
+    batch = d.batch; meta = d.meta;
+    items = d.files.map(f => ({...f, state:'keep'}));
+    $('msg1').textContent='';
+    $('warnBox').innerHTML = (d.warnings||[]).map(w => '<div class="warn">'+esc(w)+'</div>').join('');
+    renderReview();
+    $('step1').style.display='none';
+    $('step2').style.display='block';
+    $('step3').style.display='none';
+    $('step2').scrollIntoView({behavior:'smooth', block:'start'});
+  }catch(e){
+    $('btnAnalyze').disabled=false;
+    $('msg1').className='msg err'; $('msg1').textContent='Upload failed: '+e;
+  }
+};
+
+/* ---------------- step 2: review ---------------- */
+function kb(n){ return n ? Math.round(n/1024).toLocaleString()+' KB' : ''; }
+
+// Show what the resize actually saved — the whole point of the size control.
+function sizeLine(f){
+  const r = f.resize || {};
+  if(r.resized && r.from && r.to){
+    const pct = Math.round((1 - f.bytes / f.original_bytes) * 100);
+    return kb(f.original_bytes) + ' <span class="shrink">→ ' + kb(f.bytes)
+         + (pct > 0 ? ' (−'+pct+'%)' : '') + '</span> · '
+         + r.from[0]+'×'+r.from[1] + ' → ' + r.to[0]+'×'+r.to[1];
+  }
+  return kb(f.bytes) + (f.width ? ' · '+f.width+'×'+f.height : '')
+       + ' <span class="count">(already within the size cap)</span>';
+}
+
+function renderReview(){
+  $('revList').innerHTML = items.map((f,i) => `
+    <div class="rev ${f.state==='skip'?'skipped':''}" data-i="${i}">
+      <img src="${f.preview}" alt="">
+      <div class="body">
+        <label>SEO filename {{ help_dot('seo_images.review.filename') if help_dot is defined else '' }} ${f.ai?'<span class="tag">AI</span>':'<span class="tag man">manual</span>'}</label>
+        <div class="fname">
+          <input type="text" class="fn" value="${esc(f.seo_filename)}" spellcheck="false">
+          <span class="ext">.webp</span>
+        </div>
+        <label style="margin-top:9px">Alt text {{ help_dot('seo_images.review.alt') if help_dot is defined else '' }}</label>
+        <textarea class="alt" rows="2" maxlength="180">${esc(f.alt_text)}</textarea>
+        <div class="count" data-c="${i}"></div>
+        <div class="meta">${esc(f.original_name)} · ${sizeLine(f)}</div>
+        <div class="acts">
+          <button class="btn sec small" data-act="redo" data-i="${i}">&#8635; Ask AI again</button>
+          <button class="btn ${f.state==='skip'?'sec':'danger'} small" data-act="skip" data-i="${i}">
+            ${f.state==='skip'?'Include':'Skip this one'}</button>
+        </div>
+      </div>
+    </div>`).join('');
+
+  $('revList').querySelectorAll('.rev').forEach(card => {
+    const i = +card.dataset.i;
+    const fn = card.querySelector('.fn'), alt = card.querySelector('.alt');
+    fn.oninput  = () => { items[i].seo_filename = fn.value; };
+    alt.oninput = () => { items[i].alt_text = alt.value; counts(i); };
+    counts(i);
+  });
+  $('revList').querySelectorAll('[data-act]').forEach(b => {
+    b.onclick = () => act(b.dataset.act, +b.dataset.i, b);
+  });
+  const keep = items.filter(f => f.state === 'keep').length;
+  $('btnSave').disabled = !keep || !CLOUD_READY;
+  $('btnSave').textContent = keep
+    ? 'Approve & save ' + keep + ' image' + (keep>1?'s':'') + ' to the client gallery'
+    : 'Nothing selected to save';
+}
+
+function counts(i){
+  const el = $('revList').querySelector('[data-c="'+i+'"]');
+  if(!el) return;
+  const n = (items[i].alt_text||'').length;
+  el.textContent = n + ' / 125 characters' + (n>125 ? ' — Google usually truncates past 125' : '');
+  el.className = 'count' + (n>125 ? ' over' : '');
+}
+
+async function act(kind, i, btn){
+  if(kind === 'skip'){
+    items[i].state = items[i].state === 'skip' ? 'keep' : 'skip';
+    renderReview(); return;
+  }
+  if(kind === 'redo'){
+    btn.disabled = true; btn.textContent = 'Thinking…';
+    try{
+      const r = await fetch('api/rename', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({batch, id: items[i].id, meta})});
+      const d = await r.json();
+      if(d.error){ $('msg2').className='msg err'; $('msg2').textContent = d.error; }
+      else { items[i].seo_filename = d.seo_filename; items[i].alt_text = d.alt_text; items[i].ai = true; }
+    }catch(e){ $('msg2').className='msg err'; $('msg2').textContent='Failed: '+e; }
+    renderReview();
+  }
+}
+
+$('btnCancel').onclick = () => resetAll(true);
+
+$('btnSave').onclick = async () => {
+  const keep = items.filter(f => f.state === 'keep');
+  if(!keep.length) return;
+  const bad = keep.find(f => !String(f.seo_filename||'').trim() || !String(f.alt_text||'').trim());
+  if(bad){ $('msg2').className='msg err';
+    $('msg2').textContent='Every saved image needs a filename and alt text.'; return; }
+
+  $('btnSave').disabled = true;
+  $('msg2').className='msg'; $('msg2').textContent='Optimising and uploading…';
+  try{
+    const r = await fetch('api/finalize', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({batch, meta, files: keep.map(f => ({
+        id: f.id, seo_filename: f.seo_filename, alt_text: f.alt_text}))})});
+    const d = await r.json();
+    $('btnSave').disabled = false;
+    if(d.error){ $('msg2').className='msg err'; $('msg2').textContent=d.error; return; }
+    lastSaved = d.saved || [];
+    $('msg2').textContent='';
+    renderSaved(lastSaved, d.errors||[]);
+    $('step2').style.display='none';
+    $('step3').style.display='block';
+    $('step3').scrollIntoView({behavior:'smooth', block:'start'});
+    loadArchive();
+  }catch(e){
+    $('btnSave').disabled=false;
+    $('msg2').className='msg err'; $('msg2').textContent='Save failed: '+e;
+  }
+};
+
+/* ---------------- step 3: results ---------------- */
+function imgTag(s){
+  return '<img src="'+s.url+'" alt="'+String(s.alt_text||'').replace(/"/g,"'")+'"'
+       + (s.width?' width="'+s.width+'" height="'+s.height+'"':'') + ' loading="lazy">';
+}
+function renderSaved(saved, errors){
+  $('savedList').innerHTML =
+    (errors.length ? '<div class="warn">'+errors.map(esc).join('<br>')+'</div>' : '') +
+    saved.map(s => `
+      <div class="saved">
+        <img src="${esc(s.url)}" alt="">
+        <div style="flex:1;min-width:0">
+          <b class="fn">${esc(s.filename)}</b>
+          <div style="font-size:12.5px;margin:2px 0 3px">${esc(s.alt_text)}</div>
+          <div class="u">${esc(s.url)}</div>
+          <div class="count">${kb(s.original_bytes)} → ${kb(s.bytes)}${s.width?' · '+s.width+'×'+s.height:''}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <button class="btn sec small" onclick="copyText('${esc(s.url)}',this)">Copy URL</button>
+          <button class="btn sec small" data-tag="${esc(s.id)}">Copy &lt;img&gt;</button>
+        </div>
+      </div>`).join('');
+  $('savedList').querySelectorAll('[data-tag]').forEach(b => {
+    b.onclick = () => {
+      const s = saved.find(x => x.id === b.dataset.tag);
+      if(s) copyText(imgTag(s), b);
+    };
+  });
+}
+function copyText(text, btn){
+  navigator.clipboard.writeText(text).then(() => {
+    if(!btn) return;
+    const old = btn.textContent; btn.textContent = 'Copied ✓';
+    setTimeout(() => btn.textContent = old, 1400);
+  });
+}
+$('btnCopyAll').onclick = () => copyText(lastSaved.map(imgTag).join('\n'), $('btnCopyAll'));
+$('btnMore').onclick = () => {                    // keep the project details
+  picked = []; batch = null; items = [];
+  $('picked').innerHTML = 'JPG · PNG · WebP · GIF · AVIF';
+  fileInput.value = '';
+  $('step3').style.display='none'; $('step1').style.display='block';
+  $('step1').scrollIntoView({behavior:'smooth', block:'start'});
+};
+$('btnNew').onclick = () => resetAll(true);
+
+function resetAll(clearMeta){
+  picked = []; batch = null; items = []; lastSaved = [];
+  fileInput.value = '';
+  $('picked').innerHTML = 'JPG · PNG · WebP · GIF · AVIF';
+  $('msg1').textContent = ''; $('msg2').textContent = ''; $('msg3').textContent = '';
+  if(clearMeta){ ['company','weburl','project','page'].forEach(id => $(id).value=''); }
+  $('step2').style.display='none'; $('step3').style.display='none';
+  $('step1').style.display='block';
+  $('step1').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+/* ---------------- archive ---------------- */
+let archRows = [];
+async function loadArchive(){
+  const q = $('search').value.trim();
+  $('btnCsv').href = 'api/gallery/export' + (q ? '?q='+encodeURIComponent(q) : '');
+  try{
+    const r = await fetch('api/gallery' + (q ? '?q='+encodeURIComponent(q) : ''));
+    const d = await r.json();
+    archRows = d.gallery || [];
+    $('archCount').textContent = q
+      ? archRows.length + ' of ' + d.total + ' images'
+      : d.total + ' image' + (d.total===1?'':'s') + ' saved';
+    renderArchive(archRows);
+  }catch(e){
+    $('archWrap').innerHTML = '<div class="empty">Couldn\'t load the archive.</div>';
+  }
+}
+function renderArchive(rows){
+  if(!rows.length){
+    $('archWrap').innerHTML = '<div class="empty">No images saved yet.</div>';
+    return;
+  }
+  $('archWrap').innerHTML = '<table><thead><tr>'
+    + '<th></th><th>Company</th><th>Project / page</th><th>SEO filename</th>'
+    + '<th>Alt text</th><th>Saved</th><th></th></tr></thead><tbody>'
+    + rows.map(r => `<tr data-id="${esc(r.id)}">
+        <td><a href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.url)}" alt=""></a></td>
+        <td><b>${esc(r.company)}</b>${r.web_url?'<div><a class="lnk" href="'+esc(r.web_url)+'" target="_blank" rel="noopener">'+esc(r.web_url.replace(/^https?:\/\//,''))+'</a></div>':''}</td>
+        <td>${esc(r.project)}${r.page?'<div class="count">'+esc(r.page)+'</div>':''}</td>
+        <td class="fn">${esc(r.filename)}<div class="count">${r.width?r.width+'×'+r.height+' · ':''}${kb(r.bytes)}</div></td>
+        <td><span class="altv">${esc(r.alt_text)}</span></td>
+        <td class="count">${esc(r.saved_at||'')}<div>${esc(r.saved_by||'')}</div></td>
+        <td style="white-space:nowrap">
+          <a class="lnk" data-copy="${esc(r.id)}">Copy URL</a><br>
+          <a class="lnk" data-edit="${esc(r.id)}">Edit alt</a><br>
+          <a class="lnk" style="color:#b91c1c" data-del="${esc(r.id)}">Delete</a>
+        </td></tr>`).join('')
+    + '</tbody></table>';
+
+  $('archWrap').querySelectorAll('[data-copy]').forEach(a => {
+    a.onclick = () => { const r = rows.find(x => x.id===a.dataset.copy); if(r) copyText(r.url, a); };
+  });
+  $('archWrap').querySelectorAll('[data-edit]').forEach(a => {
+    a.onclick = () => {
+      const tr = a.closest('tr'), span = tr.querySelector('.altv');
+      const r = rows.find(x => x.id === a.dataset.edit);
+      if(!r || tr.querySelector('.alted')) return;
+      span.innerHTML = '<textarea class="alted" rows="3" style="width:100%">'+esc(r.alt_text)+'</textarea>'
+        + '<button class="btn small" style="margin-top:5px">Save</button>';
+      span.querySelector('button').onclick = async () => {
+        const val = span.querySelector('textarea').value;
+        const res = await fetch('api/gallery/update', {method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({id:r.id, alt_text: val})}).then(x=>x.json());
+        if(res.error){ alert(res.error); return; }
+        loadArchive();
+      };
+    };
+  });
+  $('archWrap').querySelectorAll('[data-del]').forEach(a => {
+    a.onclick = async () => {
+      const r = rows.find(x => x.id === a.dataset.del);
+      if(!r || !confirm('Delete this image from client gallery and the archive?\n\n'+r.filename)) return;
+      await fetch('api/gallery/update', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id:r.id, delete:true})});
+      loadArchive();
+    };
+  });
+}
+
+let searchTimer;
+$('search').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadArchive, 250); };
+$('btnRefresh').onclick = loadArchive;
+loadArchive();
+</script>
 </body>
 </html>

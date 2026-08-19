@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Image Creator — Smart 1 Hub</title>
+<!-- Fabric is served from the Hub itself, not a CDN. A blocked or slow CDN
+     would otherwise take the whole editor down with nothing but a console
+     error, and this way the tool works behind a restrictive network too. -->
+<script src="static/fabric.min.js"></script>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
+        --bad:#dc2626;--ok:#16a34a;--panel:#fff;--bg:#eef1f6}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:#1e293b;font:13.5px 'Segoe UI',system-ui,sans-serif;
+       overflow:hidden}
+  button{font:inherit}
+  .app{display:flex;flex-direction:column;height:100vh}
+
+  /* ---------- top bar ---------- */
+  .top{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--navy);
+       color:#fff;flex:none;flex-wrap:wrap}
+  .top h1{font-size:15px;margin:0;font-weight:700;letter-spacing:.2px}
+  .top .sp{flex:1}
+  .tbtn{background:rgba(255,255,255,.12);color:#fff;border:0;padding:7px 12px;border-radius:7px;
+        cursor:pointer;font-size:12.5px;font-weight:600}
+  .tbtn:hover{background:rgba(255,255,255,.22)}
+  .tbtn:disabled{opacity:.35;cursor:not-allowed}
+  .tbtn.pri{background:var(--blue)}
+  .tbtn.pri:hover{background:#1d4ed8}
+  .pname{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;
+         padding:6px 10px;border-radius:7px;font-size:12.5px;width:190px}
+  .pname::placeholder{color:rgba(255,255,255,.55)}
+  .csize{font-size:12px;color:#c9d4ea}
+
+  /* ---------- layout ---------- */
+  .main{flex:1;display:flex;min-height:0}
+  .rail{width:74px;background:var(--navy);display:flex;flex-direction:column;flex:none;
+        overflow-y:auto;padding-bottom:8px}
+  .rail button{background:none;border:0;color:#c9d4ea;padding:11px 4px;cursor:pointer;
+        display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;
+        border-left:3px solid transparent}
+  .rail button:hover{background:rgba(255,255,255,.07);color:#fff}
+  .rail button.on{background:rgba(255,255,255,.13);color:#fff;border-left-color:var(--blue)}
+  .rail .ico{font-size:17px;line-height:1}
+
+  .panel{width:322px;background:var(--panel);border-right:1px solid var(--line);
+         display:flex;flex-direction:column;flex:none;min-height:0}
+  .panel h2{margin:0;padding:13px 15px 10px;font-size:13px;color:var(--navy);
+            border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.7px}
+  .pbody{flex:1;overflow-y:auto;padding:13px 15px}
+
+  .stage{flex:1;background:var(--bg);display:flex;flex-direction:column;min-width:0}
+  .canvwrap{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:26px}
+  .canvshell{box-shadow:0 6px 30px rgba(15,23,42,.16);background:#fff;
+    background-image:linear-gradient(45deg,#eceff4 25%,transparent 25%),linear-gradient(-45deg,#eceff4 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#eceff4 75%),linear-gradient(-45deg,transparent 75%,#eceff4 75%);
+    background-size:18px 18px;background-position:0 0,0 9px,9px -9px,-9px 0}
+  .zoombar{flex:none;display:flex;align-items:center;justify-content:center;gap:9px;
+           padding:7px;background:var(--panel);border-top:1px solid var(--line);font-size:12.5px}
+  .zoombar button{border:1px solid var(--line);background:#fff;width:26px;height:26px;
+                  border-radius:6px;cursor:pointer}
+
+  .props{width:266px;background:var(--panel);border-left:1px solid var(--line);
+         overflow-y:auto;flex:none}
+  .props h2{margin:0;padding:13px 15px 10px;font-size:13px;color:var(--navy);
+            border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.7px}
+  .pgroup{padding:11px 15px;border-bottom:1px solid #f1f5f9}
+  .pgroup .t{font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;
+             letter-spacing:.6px;margin-bottom:7px}
+
+  /* ---------- controls ---------- */
+  label.f{display:block;font-size:11px;font-weight:600;color:#475569;margin:0 0 3px}
+  input[type=text],input[type=url],input[type=search],input[type=number],select,textarea{
+    width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit;
+    background:#fff}
+  input:focus,select:focus,textarea:focus{outline:2px solid #bfdbfe;outline-offset:-1px;border-color:var(--blue)}
+  input[type=color]{width:100%;height:30px;padding:2px;border:1px solid var(--line);border-radius:7px;background:#fff}
+  input[type=range]{width:100%}
+  .row{display:flex;gap:7px}
+  .row>*{flex:1;min-width:0}
+  .btn{border:0;background:var(--blue);color:#fff;padding:8px 13px;border-radius:7px;
+       cursor:pointer;font-size:12.5px;font-weight:600;width:100%}
+  .btn:hover{background:#1d4ed8}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.sec:hover{background:var(--soft)}
+  .btn.sm{padding:6px 10px;font-size:12px;width:auto}
+  .btn.danger{background:#fff;color:var(--bad);border:1px solid #fecaca}
+  .chips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 10px;
+        font-size:11.5px;cursor:pointer}
+  .chip.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .hint{color:var(--muted);font-size:11.5px;line-height:1.5;margin:6px 0}
+  .warn{background:#fdf9f0;border:1px solid #f5d9a8;color:#8a5a12;border-radius:7px;
+        padding:8px 10px;font-size:11.5px;margin-bottom:9px}
+  .err{color:var(--bad);font-size:12px;margin-top:6px}
+  .sect{margin-bottom:15px}
+  .sect>.h{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;
+           letter-spacing:.6px;margin-bottom:7px}
+
+  /* ---------- asset grids ---------- */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .grid.g3{grid-template-columns:1fr 1fr 1fr}
+  .tile{border:1px solid var(--line);border-radius:7px;overflow:hidden;cursor:pointer;
+        background:var(--soft);position:relative;aspect-ratio:1;display:block}
+  .tile img{width:100%;height:100%;object-fit:cover;display:block}
+  .tile:hover{border-color:var(--blue);box-shadow:0 0 0 2px #bfdbfe}
+  /* Stock-photo results keep each image's real proportions instead of a
+     forced square crop — a CSS-columns masonry, no JS layout needed. */
+  .masonry{column-count:2;column-gap:7px}
+  .masonry .tile{width:100%;margin:0 0 7px;break-inside:avoid;aspect-ratio:auto;display:inline-block}
+  .masonry .tile img{width:100%;height:auto;object-fit:initial;display:block}
+  .tile .cred{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(0,0,0,.72));
+              color:#fff;font-size:9.5px;padding:9px 5px 3px;line-height:1.25;
+              opacity:0;transition:.15s}
+  .tile:hover .cred{opacity:1}
+  .icontile{aspect-ratio:1;display:flex;align-items:center;justify-content:center;padding:9px;background:#fff}
+  .icontile img{width:100%;height:100%;object-fit:contain}
+  .logotile{aspect-ratio:16/10;background:#fff;display:flex;align-items:center;justify-content:center;padding:8px}
+  .logotile.dark{background:#1e293b}
+  .logotile img{max-width:100%;max-height:100%;object-fit:contain}
+  .swatches{display:flex;gap:6px;flex-wrap:wrap}
+  .sw{width:31px;height:31px;border-radius:7px;border:1px solid rgba(0,0,0,.15);cursor:pointer}
+  .loading{color:var(--muted);font-size:12px;padding:14px 0;text-align:center}
+
+  /* ---------- layers ---------- */
+  .layer{display:flex;align-items:center;gap:7px;padding:7px 8px;border:1px solid var(--line);
+         border-radius:7px;margin-bottom:5px;background:#fff;cursor:pointer;font-size:12px}
+  .layer.on{border-color:var(--blue);background:#eff6ff}
+  .layer .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .layer .kind{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .layer button{border:0;background:none;cursor:pointer;font-size:12px;color:var(--muted);padding:2px 3px}
+  .layer button:hover{color:var(--navy)}
+  .layer .drag{cursor:grab;color:#cbd5e1}
+  .layer.dragging{opacity:.4}
+
+  /* ---------- modal ---------- */
+  .modal{position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:900;display:none;
+         align-items:center;justify-content:center;padding:20px}
+  .modal.open{display:flex}
+  .mbox{background:#fff;border-radius:13px;width:520px;max-width:100%;max-height:90vh;
+        display:flex;flex-direction:column;overflow:hidden}
+  .mhead{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;
+         justify-content:space-between;align-items:center}
+  .mhead b{color:var(--navy);font-size:14.5px}
+  .mbody{padding:18px;overflow-y:auto}
+  .mfoot{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;
+         justify-content:flex-end;align-items:center}
+  .x{border:0;background:none;font-size:21px;cursor:pointer;color:var(--muted);line-height:1}
+  .sizes{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:9px}
+  .sizeopt{border:1px solid var(--line);border-radius:8px;padding:9px 11px;cursor:pointer;background:#fff}
+  .sizeopt:hover{border-color:var(--blue)}
+  .sizeopt.on{border-color:var(--blue);background:#eff6ff}
+  .sizeopt b{display:block;font-size:12.5px;color:var(--navy)}
+  .sizeopt span{font-size:11px;color:var(--muted)}
+  .gnote{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;
+         margin:11px 0 5px;font-weight:700}
+  .drop{border:2px dashed #cbd5e1;border-radius:9px;padding:18px;text-align:center;
+        background:var(--soft);cursor:pointer;font-size:12.5px}
+  .drop.over{border-color:var(--blue);background:#eff6ff}
+  .ver{position:fixed;right:10px;bottom:8px;font-size:10.5px;color:#94a3b8;z-index:5}
+  .cbadge{display:inline-block;border-radius:20px;padding:1px 7px;font-size:10px;font-weight:700}
+  .cbadge.house{background:#fef3c7;color:#92400e}
+  .cbadge.seo{background:#dcfce7;color:#166534}
+  .drops{position:absolute;left:0;right:0;top:100%;z-index:40;background:#fff;
+         border:1px solid var(--line);border-radius:8px;max-height:230px;overflow-y:auto;
+         box-shadow:0 8px 22px rgba(15,23,42,.14)}
+  .drops div{padding:7px 10px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #f1f5f9}
+  .drops div:hover{background:#eff6ff}
+
+  /* ---------- responsive: below full desktop width the side panels
+     become slide-over drawers instead of pushing the canvas around ---------- */
+  .panelClose{display:none;border:0;background:none;font-size:19px;color:var(--muted);
+              cursor:pointer;position:absolute;right:8px;top:9px;line-height:1;padding:2px 6px}
+  @media (max-width:1180px){
+    .props{width:230px}
+    .panel{width:270px}
+  }
+  @media (max-width:920px){
+    .panel,.props{position:fixed;top:56px;bottom:0;z-index:60;
+      box-shadow:0 0 26px rgba(15,23,42,.28);transition:transform .18s ease;width:280px}
+    .panel{left:74px;transform:translateX(-120%)}
+    .panel.show{transform:translateX(0)}
+    .props{right:0;transform:translateX(120%)}
+    .props.show{transform:translateX(0)}
+    .panelClose{display:block}
+    .stage{min-width:0}
+  }
+</style>
+</head>
+<body data-module="image_creator">
+<div class="app">
+  <!-- ================= TOP ================= -->
+  <div class="top">
+    <h1>Image Creator</h1>
+    <input class="pname" id="projName" placeholder="Untitled project">
+    <span class="csize" id="canvasLabel">—</span>
+    <button class="tbtn" id="btnUndo" title="Ctrl+Z">↶ Undo</button>
+    <button class="tbtn" id="btnRedo" title="Ctrl+Y">↷ Redo</button>
+    <button class="tbtn" id="btnResize">Canvas size</button>
+    <span class="sp"></span>
+    <span class="csize" id="saveMsg"></span>
+    <a class="tbtn" href="projects" title="Browse saved projects">📁 Projects</a>
+    <button class="tbtn" id="btnSave">💾 Save</button>
+    <button class="tbtn pri" id="btnDownload">⬇ Download</button>
+  </div>
+
+  <div class="main">
+    <!-- ================= RAIL ================= -->
+    <div class="rail" id="rail">
+      <button data-p="upload" class="on"><span class="ico">⬆</span>Upload</button>
+      <button data-p="photos"><span class="ico">🖼</span>Photos</button>
+      <button data-p="assets"><span class="ico">📚</span>Assets</button>
+      <button data-p="backgrounds"><span class="ico">▦</span>Background</button>
+      <button data-p="logos"><span class="ico">✦</span>Logos</button>
+      <button data-p="icons"><span class="ico">★</span>Icons</button>
+      <button data-p="text"><span class="ico">T</span>Text</button>
+      <button data-p="shapes"><span class="ico">◼</span>Shapes</button>
+      <button data-p="ai"><span class="ico">✨</span>AI</button>
+      <button data-p="layers"><span class="ico">☰</span>Layers</button>
+    </div>
+
+    <!-- ================= LEFT PANEL ================= -->
+    <div class="panel" id="leftPanel">
+      <button class="panelClose" id="leftPanelClose" title="Close">&times;</button>
+      <h2 id="panelTitle">Upload</h2>
+      <div class="pbody" id="panelBody"></div>
+    </div>
+
+    <!-- ================= STAGE ================= -->
+    <div class="stage">
+      <div class="canvwrap" id="canvWrap">
+        <div class="canvshell"><canvas id="c"></canvas></div>
+      </div>
+      <div class="zoombar">
+        <button id="zOut">−</button>
+        <span id="zLabel">100%</span>
+        <button id="zIn">+</button>
+        <button id="zFit" style="width:auto;padding:0 9px">Fit</button>
+      </div>
+    </div>
+
+    <!-- ================= PROPERTIES ================= -->
+    <div class="props" id="rightPanel">
+      <button class="panelClose" id="rightPanelClose" title="Close">&times;</button>
+      <h2>Properties {{ help_dot('image_creator.canvas.size') if help_dot is defined else '' }}</h2>
+      <div id="propBody"><div class="pgroup"><div class="hint">Select something on the canvas to edit it.</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MODALS ================= -->
+<div class="modal" id="sizeModal">
+  <div class="mbox">
+    <div class="mhead"><b>Canvas size</b><button class="x" data-close>&times;</button></div>
+    <div class="mbody" id="sizeBody"></div>
+    <div class="mfoot">
+      <span class="hint" style="margin-right:auto" id="sizeWarn"></span>
+      <button class="btn sec sm" data-close>Cancel</button>
+      <button class="btn sm" id="sizeApply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="dlModal">
+  <div class="mbox" style="width:430px">
+    <div class="mhead"><b>Download</b><button class="x" data-close>&times;</button></div>
+    <div class="mbody">
+      <div class="sect">
+        <div class="h">Format</div>
+        <div class="chips" id="dlFormat">
+          <button class="chip on" data-f="png">PNG</button>
+          <button class="chip" data-f="jpeg">JPG</button>
+          <button class="chip" data-f="webp">WebP</button>
+        </div>
+      </div>
+      <div class="sect">
+        <div class="h">Scale</div>
+        <div class="chips" id="dlScale">
+          <button class="chip on" data-s="1">1×</button>
+          <button class="chip" data-s="2">2×</button>
+          <button class="chip" data-s="3">3×</button>
+        </div>
+      </div>
+      <div class="sect" id="dlQualityWrap" style="display:none">
+        <div class="h">Quality <span id="dlQLabel">92%</span></div>
+        <input type="range" id="dlQuality" min="40" max="100" value="92">
+      </div>
+      <div class="sect" id="dlTransWrap">
+        <label style="font-size:12.5px"><input type="checkbox" id="dlTransparent"> Transparent background</label>
+        <div class="hint">PNG and WebP only, and only when no background layer is set.</div>
+      </div>
+      <div class="hint" id="dlSize"></div>
+    </div>
+    <div class="mfoot">
+      <span class="hint" id="dlMsg" style="margin-right:auto"></span>
+      <button class="btn sec sm" id="dlCloud">Save to the client gallery</button>
+      <button class="btn sm" id="dlGo">Download</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="saveModal">
+  <div class="mbox" style="width:470px">
+    <div class="mhead"><b>Save project</b><button class="x" data-close>&times;</button></div>
+    <div class="mbody">
+      <div class="sect">
+        <label class="f">Project name {{ help_dot('image_creator.layers.panel') if help_dot is defined else '' }}</label>
+        <input type="text" id="svName" placeholder="Summer AC tune-up promo">
+      </div>
+      <div class="sect" style="position:relative">
+        <label class="f">Client {{ help_dot('image_creator.logos.search') if help_dot is defined else '' }} <span style="font-weight:400;color:var(--muted)">— optional, but it's how you find this later</span></label>
+        <input type="text" id="svClient" placeholder="Search clients…" autocomplete="off">
+        <div class="drops" id="svClientDrop" style="display:none"></div>
+        <div class="hint" id="svClientTag"></div>
+      </div>
+      <div class="sect">
+        <label class="f">Tags <span style="font-weight:400;color:var(--muted)">— comma separated</span></label>
+        <input type="text" id="svTags" placeholder="facebook, summer, promo">
+      </div>
+      <div class="hint" id="svInfo"></div>
+    </div>
+    <div class="mfoot">
+      <span class="hint" id="svMsg" style="margin-right:auto"></span>
+      <button class="btn sec sm" data-close>Cancel</button>
+      <button class="btn sm" id="svGo">Save project</button>
+    </div>
+  </div>
+</div>
+
+<div class="ver">Image Creator · {{ version }}</div>
+
+<script>
+/* Feature flags, presets and per-request data the server knows and the
+   static editor engine (static/editor.js) needs. Kept to this one small
+   inline block — everything else lives in the plain static file below, a
+   structural split from the old single 1,900+ line template+script file. */
+window.IC_CONFIG = {
+  presets: {{ presets|tojson }},
+  providers: {{ providers|tojson }},
+  ai: {{ 'true' if ai else 'false' }},
+  cloud: {{ 'true' if cloud else 'false' }},
+  brandfetch: {{ 'true' if brandfetch else 'false' }},
+  bgRemove: {{ 'true' if bg_remove else 'false' }},
+  fonts: {{ fonts|tojson }},
+  prefillClient: {{ prefill_client|tojson }},
+  openProject: {{ open_project|tojson }}
+};
+</script>
+<script src="static/editor.js?v={{ version|urlencode }}"></script>
+</body>
+</html>

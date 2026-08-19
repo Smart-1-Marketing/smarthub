@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Smart 1 Image Optimizer & Resizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/tools/image/static/styles.css">
+</head>
+<body data-module="image_optimizer">
+  <main class="shell">
+    <section class="hero">
+      <div class="eyebrow">SMART 1 MARKETING</div>
+      <h1>Image Optimizer <span>& Resizer</span></h1>
+      <p>Resize images, reduce file size, and convert them to PNG, JPG, or GIF.</p>
+    </section>
+
+    <section class="card">
+      <form id="optimizer-form">
+        <label class="dropzone" id="dropzone">
+          <input id="image" name="image" type="file" accept="image/png,image/jpeg,image/gif" required>
+          <div class="drop-icon">↥</div>
+          <strong>Drop an image here or click to browse</strong>
+          <span>PNG, JPG, JPEG, or GIF · Up to 40 MB</span>
+        </label>
+
+        <div id="preview-wrap" class="preview-wrap hidden">
+          <div class="preview-stage">
+            <canvas id="crop-canvas" aria-label="Image crop preview"></canvas>
+          </div>
+          <div class="preview-meta">
+            <strong id="file-name"></strong>
+            <span id="original-details"></span>
+            <span id="crop-details">Crop: full image</span>
+          </div>
+        </div>
+
+        <div class="section-title">Crop image {{ help_dot('image_creator.export.scale') if help_dot is defined else '' }}</div>
+        <label class="check-row">
+          <input id="crop_enabled" type="checkbox">
+          <span>Enable cropping</span>
+        </label>
+
+        <div class="preset-row crop-presets">
+          <button type="button" data-crop-ratio="free">Freeform</button>
+          <button type="button" data-crop-ratio="1">Square 1:1</button>
+          <button type="button" data-crop-ratio="1.7777778">Landscape 16:9</button>
+          <button type="button" data-crop-ratio="0.8">Portrait 4:5</button>
+          <button type="button" data-crop-ratio="1.91">Social 1.91:1</button>
+          <button type="button" id="reset-crop">Reset crop</button>
+        </div>
+        <p class="helper">Turn cropping on, then drag across the preview to select the area you want to keep.</p>
+
+        <div class="section-title">Resize image {{ help_dot('seo_images.upload.max_edge') if help_dot is defined else '' }}</div>
+        <div class="grid two">
+          <label>
+            <span>Width (px)</span>
+            <input id="width" name="width" type="number" min="1" max="12000" placeholder="Original width">
+          </label>
+          <label>
+            <span>Height (px)</span>
+            <input id="height" name="height" type="number" min="1" max="12000" placeholder="Original height">
+          </label>
+        </div>
+
+        <label class="check-row">
+          <input id="lock_aspect" type="checkbox" checked>
+          <span>Lock aspect ratio</span>
+        </label>
+
+        <div class="preset-row">
+          <button type="button" data-scale="0.5">50%</button>
+          <button type="button" data-scale="0.75">75%</button>
+          <button type="button" data-scale="1">Original</button>
+          <button type="button" data-size="300x250">300 × 250</button>
+          <button type="button" data-size="1080x1080">1080 × 1080</button>
+          <button type="button" data-size="1920x1080">1920 × 1080</button>
+        </div>
+
+        <div class="section-title">Output settings</div>
+
+        <label class="filename-field">
+          <span>Rename downloaded image</span>
+          <div class="filename-control">
+            <input id="output_name" name="output_name" type="text" maxlength="120" placeholder="Enter a new file name">
+            <b id="extension-preview">.png</b>
+          </div>
+          <small>The selected output format determines the file extension.</small>
+        </label>
+
+        <div class="grid three output-grid">
+          <label>
+            <span>Save as</span>
+            <select id="format" name="format">
+              <option value="PNG">PNG</option>
+              <option value="JPG">JPG</option>
+              <option value="GIF">GIF</option>
+            </select>
+          </label>
+          <label>
+            <span>Quality</span>
+            <div class="range-wrap">
+              <input id="quality" name="quality" type="range" min="20" max="100" value="82">
+              <output id="quality-output">82%</output>
+            </div>
+          </label>
+          <label>
+            <span>Target file size</span>
+            <div class="input-suffix">
+              <input id="target_kb" name="target_kb" type="number" min="10" max="10000" value="150">
+              <b>KB</b>
+            </div>
+          </label>
+        </div>
+
+        <label class="check-row optimization">
+          <input id="optimize" type="checkbox" checked>
+          <span><strong>Optimize toward target size</strong><small>The app may reduce quality or dimensions when needed.</small></span>
+        </label>
+
+        <button class="primary" id="submit" type="submit">Resize, Optimize & Download</button>
+        <div id="status" role="status" aria-live="polite"></div>
+      </form>
+    </section>
+
+    <p class="note">Animated GIFs remain animated when the output is GIF. Saving an animated GIF as PNG or JPG exports its first frame.</p>
+  </main>
+  <script src="/tools/image/static/app.js"></script>
+</body>
+</html>

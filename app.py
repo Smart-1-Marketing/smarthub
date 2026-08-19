@@ -50,7 +50,39 @@ from sync_service import (
     sync_project,
 )
 
+# Activity logging. Guarded so this module still runs standalone, but
+# inside the Hub every action is attributable — this module changes live client sites, and
+# an unattributable change to a client's account is one nobody can
+# explain later.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("sites_admin")
+except Exception:  # noqa: BLE001
+    def _audit(*a, **k):  # no-op outside the Hub
+        return None
+
+
 app = Flask(__name__)
+
+
+@app.context_processor
+def _site_helpers():
+    """Template helpers for the Sites views.
+
+    project_detail.html calls login_url(host) and nothing defined it, so every
+    site detail page raised UndefinedError and returned a traceback. Defined
+    here rather than in the template so the URL shape lives in one place.
+    """
+    def login_url(host: str) -> str:
+        host = str(host or "").strip().lower()
+        host = re.sub(r"^https?://", "", host).split("/")[0]
+        if not host:
+            return ""
+        # Simvoly's per-site admin entry point.
+        return f"https://{host}/admin"
+
+    return {"login_url": login_url}
+
 app.secret_key = SETTINGS.secret_key
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -535,6 +567,84 @@ def refresh_project(pid):
     except Exception as exc:
         flash(f"Detail refresh failed: {exc}", "danger")
     return redirect(url_for("project_detail", pid=pid))
+
+
+@app.route("/packages", methods=["GET", "POST"])
+@login_required
+def packages():
+    """Package (plan) wholesale costs — restores the endpoint the nav and
+    packages.html expect; this app.py revision had lost it."""
+    from db import set_plan_cost
+    if request.method == "POST":
+        require_csrf()
+        updated = 0
+        for key, value in request.form.items():
+            if not key.startswith("cost_"):
+                continue
+            plan_id = key[len("cost_"):]
+            value = value.strip()
+            if not value:
+                continue
+            try:
+                cost = float(Decimal(value))
+            except InvalidOperation:
+                flash(f"Ignored invalid cost for plan {plan_id}: {value!r}", "danger")
+                continue
+            set_plan_cost(plan_id, cost)
+            updated += 1
+        flash(f"Saved platform cost for {updated} package(s).", "success")
+        return redirect(url_for("packages"))
+    return render_template("packages.html", plans=list_plans_for_ui())
+
+
+@app.post("/costs/import")
+@login_required
+def costs_import():
+    """Per-site actual cost import from pasted invoice text / JSON / file."""
+    import json as _json
+
+    from costs import parse_charges
+    from db import known_project_ids, set_platform_cost
+    require_csrf()
+    payload = (request.form.get("payload") or "").strip()
+    upload = request.files.get("file")
+    if upload and upload.filename:
+        try:
+            payload = upload.read().decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            flash("Could not read the uploaded file.", "danger")
+            return redirect(url_for("packages"))
+    if not payload:
+        flash("Paste invoice text or choose a file first.", "danger")
+        return redirect(url_for("packages"))
+
+    costs_map = {}
+    try:  # JSON map {"project_id": cost} first
+        data = _json.loads(payload)
+        if isinstance(data, dict):
+            costs_map = {str(k): float(v) for k, v in data.items()}
+    except (ValueError, TypeError):
+        pass
+    matched = len(costs_map)
+    if not costs_map:  # fall back to invoice-text parsing
+        costs_map, matched = parse_charges(payload)
+    if not costs_map:
+        flash("No site charges recognized in that text.", "danger")
+        return redirect(url_for("packages"))
+
+    known = set(known_project_ids())
+    applied = skipped = 0
+    for pid, cost in costs_map.items():
+        if known and str(pid) not in known:
+            skipped += 1
+            continue
+        set_platform_cost(pid, cost)
+        applied += 1
+    msg = f"Imported per-site costs for {applied} site(s) from {matched} charge line(s)."
+    if skipped:
+        msg += f" Skipped {skipped} unknown project id(s)."
+    flash(msg, "success")
+    return redirect(url_for("packages"))
 
 
 @app.post("/projects/<pid>/pricing")
