@@ -712,6 +712,41 @@ def create_hub_app() -> Flask:
                                      "no text layer to read."}), 400
         return jsonify(io_prefill.from_proposal(client, text, name))
 
+    @app.route("/api/spec/<source>")
+    def api_spec(source):
+        """A campaign spec from a client, their last IO, or a proposal.
+
+        One shape shared by the Proposal Builder and the IO Builder, so a
+        proposal converts by loading rather than by retyping.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import campaign_spec as CS
+        client = request.args.get("client", "")
+        if source == "last-io":
+            spec = CS.from_last_io(client)
+            if not spec:
+                return jsonify({"error": "No previous IO for that client."}), 404
+        elif source == "proposal":
+            spec = CS.from_proposal_text(request.args.get("text", ""), client)
+        else:
+            spec = CS.from_client(client)
+        out = spec.to_dict()
+        out["ready_for_io"] = spec.ready_for_io()
+        return jsonify(out)
+
+    @app.route("/api/spec/to-io", methods=["POST"])
+    def api_spec_to_io():
+        """Convert a spec into what the IO intake consumes."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import campaign_spec as CS
+        body = request.get_json(silent=True) or {}
+        spec = CS.CampaignSpec.from_dict(body.get("spec") or {})
+        return jsonify(CS.to_io_payload(spec))
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.

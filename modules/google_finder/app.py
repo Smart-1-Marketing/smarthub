@@ -204,18 +204,6 @@ def is_allowed(email):
     return not ALLOWED_EMAILS or email.lower() in ALLOWED_EMAILS
 
 
-class ReauthRequired(RuntimeError):
-    """The account's refresh token is dead — only the user can fix it, by
-    signing in again. Kept distinct from a genuine server fault so routes can
-    answer 401 with a reconnect link instead of a 500 nobody can action."""
-
-    def __init__(self, email):
-        self.email = email
-        super().__init__(
-            f"Authentication token for {email} was revoked or expired. "
-            "Re-login required.")
-
-
 def refresh_access_token(email, refresh_token):
     try:
         r = requests.post(
@@ -233,7 +221,7 @@ def refresh_access_token(email, refresh_token):
     except requests.exceptions.HTTPError as exc:
         if exc.response.status_code in (400, 401):
             mark_account_reauth(email)
-            raise ReauthRequired(email) from exc
+            raise RuntimeError(f"Authentication token for {email} was revoked or expired. Re-login required.") from exc
         raise
 
 
@@ -1332,13 +1320,6 @@ def api_ga4_monthly_summary():
         return jsonify({"period": {"current": label_cur, "previous": label_prev},
                         "summary": summary, "current": cur, "previous": prev,
                         "deltas": deltas, "breakdown": breakdown})
-    except ReauthRequired as exc:
-        # Not a server fault: the token is dead and only a fresh sign-in fixes
-        # it. 401 + a reconnect link so the page can offer the one useful
-        # action, instead of a 500 that just reads as "broken".
-        return jsonify({"error": str(exc), "needs_reauth": True,
-                        "reconnect_url": "/google/login",
-                        "account": exc.email}), 401
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"GA4 monthly summary failed: {exc}"}), 500
 
