@@ -812,6 +812,57 @@ def create_hub_app() -> Flask:
                      "list before creating one."),
         })
 
+    @app.route("/sales/leads")
+    def page_leads():
+        """One panel for every lead, whatever produced it."""
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("leads.html", user=current_user(), active="leads")
+
+    @app.route("/api/leads")
+    def api_leads():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import leads
+        return jsonify(leads.listing(
+            days=int(request.args.get("days") or 30),
+            source=request.args.get("source", ""),
+            page=request.args.get("page", ""),
+            undelivered_only=request.args.get("undelivered") == "1"))
+
+    @app.route("/api/leads/capture", methods=["POST"])
+    def api_leads_capture():
+        """Where every landing page and calculator posts.
+
+        Unauthenticated on purpose — these come from public pages. It stores
+        before it forwards, so a Suite outage can't destroy a lead.
+        """
+        from . import leads
+        body = request.get_json(silent=True) or request.form.to_dict() or {}
+        src = str(body.get("source") or "").strip()
+        if not src:
+            return jsonify({"ok": False, "error": "source is required."}), 400
+        fields = body.get("fields") if isinstance(body.get("fields"), dict) else {
+            k: v for k, v in body.items()
+            if k not in ("source", "page", "pdf_url", "client", "meta")}
+        if not (fields.get("email") or fields.get("phone")):
+            return jsonify({"ok": False,
+                            "error": "An email or phone is required."}), 400
+        return jsonify(leads.capture_and_deliver(
+            src, str(body.get("page") or ""), fields,
+            str(body.get("pdf_url") or ""), str(body.get("client") or ""),
+            body.get("meta") if isinstance(body.get("meta"), dict) else None))
+
+    @app.route("/api/leads/retry", methods=["POST"])
+    def api_leads_retry():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import leads
+        return jsonify(leads.retry_undelivered())
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.
