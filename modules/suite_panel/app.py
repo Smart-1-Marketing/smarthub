@@ -93,6 +93,19 @@ def ghl(pathname, method="GET", body=None, query=None, timeout=30, location_id=N
     return data
 
 
+def _page_arg(name, default, lo=1, hi=500):
+    """A paging value from the query string, clamped and never non-numeric.
+
+    Passing ?limit= straight through hands a stranger's number to the upstream
+    API — ?limit=-1 or ?limit=999999 is their problem to reject, and how they
+    reject it is not something this panel should discover in production.
+    """
+    try:
+        return str(max(lo, min(hi, int(request.args.get(name, default)))))
+    except (TypeError, ValueError):
+        return str(default)
+
+
 def send_error(err):
     status = err.status if isinstance(err, GhlError) and 400 <= (err.status or 0) < 600 else 502
     details = err.details if isinstance(err, GhlError) else None
@@ -295,8 +308,8 @@ def api_locations():
     try:
         data = ghl("/locations/search", query={
             "companyId": _env("GHL_COMPANY_ID"),
-            "limit": request.args.get("limit", "100"),
-            "skip": request.args.get("skip", "0"),
+            "limit": _page_arg("limit", 100),
+            "skip": _page_arg("skip", 0, lo=0, hi=100000),
             "order": "asc",
             "query": request.args.get("search") or None,
             "email": request.args.get("email") or None,
@@ -506,8 +519,8 @@ def api_location_forms(loc_id):
     try:
         data = ghl("/forms/", query={
             "locationId": loc_id,
-            "limit": request.args.get("limit", "100"),
-            "skip": request.args.get("skip", "0"),
+            "limit": _page_arg("limit", 100),
+            "skip": _page_arg("skip", 0, lo=0, hi=100000),
         }, location_id=loc_id)
         forms = data.get("forms") or []
         return jsonify({"forms": forms, "total": data.get("total", len(forms))})
@@ -521,8 +534,8 @@ def api_location_form_submissions(loc_id):
         data = ghl("/forms/submissions", query={
             "locationId": loc_id,
             "formId": request.args.get("formId") or None,
-            "limit": request.args.get("limit", "100"),
-            "page": request.args.get("page", "1"),
+            "limit": _page_arg("limit", 100),
+            "page": _page_arg("page", 1),
         }, location_id=loc_id)
         return jsonify(data)
     except Exception as err:  # noqa: BLE001

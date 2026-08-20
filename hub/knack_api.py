@@ -59,30 +59,97 @@ def _find_field(*label_keywords, types=None) -> str | None:
     return _find_in(TICKETS_OBJECT, *label_keywords, types=types)
 
 
+# --- object_107 web tickets: confirmed field ids ------------------------
+#
+# These were discovered by matching field LABELS, which is why the Issue
+# column on the Accounting report came back empty — a renamed label silently
+# broke the lookup and nothing said so. These ids are confirmed against the
+# live object, so a rename can't break them.
+#
+# Environment overrides exist for each so a Knack restructure doesn't need a
+# code change.
+TICKET_FIELDS = {
+    "title":          "field_1895",   # Ticket title
+    "client":         "field_1784",   # Client organization
+    "website":        "field_2965",   # Client website URL
+    "type":           "field_2973",   # Type of ticket
+    "billable":       "field_3160",   # Revision requires billing
+    "description":    "field_1923",   # Describe the changes
+    "assigner":       "field_1653",   # Assigner
+    "status":         "field_1657",   # Status
+    "developer":      "field_1729",   # Developer
+}
+
+# Fields written when CREATING a ticket. Status, Assigner and Developer are
+# deliberately absent: a new ticket's status is set by Knack's own workflow,
+# and assigning to a person is a decision made in the Manage step, not at
+# submission. Writing them here would overwrite that workflow.
+TICKET_CREATE_FIELDS = ("title", "client", "website", "type", "billable",
+                        "description", "assigner")
+
+# Fields editable in the Manage Ticket section.
+TICKET_MANAGE_FIELDS = ("client", "website", "type", "billable",
+                        "description", "status", "assigner", "developer")
+
+
 def field_map() -> dict:
-    """Best-effort label→field mapping for object_107, cached."""
+    """The confirmed ids, with a label-matched fallback for anything absent.
+
+    Confirmed ids win. The old discovery is kept only for keys nobody has
+    pinned yet, so an unmapped extra field still resolves rather than being
+    silently dropped.
+    """
     if "map" in _schema_cache:
         return _schema_cache["map"]
-    m = {
-        "title": _find_field("ticket name", "subject", "title", "ticket",
-                             types=("short_text", "paragraph_text")),
-        "description": _find_field("description", "details", "request", "issue",
-                                   types=("paragraph_text", "rich_text", "short_text")),
-        "website": _find_field("website", "site", "domain", "url"),
-        "client": _find_field("client", "customer", "business"),
-        "status": _find_field("status"),
-        "date": _find_field("date created", "created", "date"),
-        "requested_by": _find_field("requested by", "submitted by", "created by", "name"),
-    }
+    m = {}
+    for key, fid in TICKET_FIELDS.items():
+        m[key] = (os.environ.get(f"KNACK_TICKET_{key.upper()}") or fid).strip()
+    # Date isn't in the confirmed set — still discovered.
+    m["date"] = _find_field("date created", "created", "date")
+    m["requested_by"] = _find_field("requested by", "submitted by", "created by")
     _schema_cache["map"] = m
     return m
 
 
+def ticket_value(rec: dict, key: str):
+    """Read one mapped field off a Knack ticket record.
+
+    Knack returns a `_raw` variant for connections and multiple-choice, which
+    holds the usable value; the plain key holds display HTML. Preferring raw
+    is what stops a connection field rendering as an anchor tag.
+    """
+    fid = field_map().get(key)
+    if not fid:
+        return ""
+    raw = rec.get(f"{fid}_raw")
+    if raw not in (None, "", []):
+        if isinstance(raw, list):
+            parts = []
+            for item in raw:
+                if isinstance(item, dict):
+                    parts.append(item.get("identifier") or item.get("label")
+                                 or item.get("value") or "")
+                else:
+                    parts.append(str(item))
+            return ", ".join(p for p in parts if p)
+        if isinstance(raw, dict):
+            return (raw.get("identifier") or raw.get("label")
+                    or raw.get("value") or "")
+        return raw
+    import re as _re
+    return _re.sub(r"<[^>]+>", " ", str(rec.get(fid) or "")).strip()
+
+
 def create_ticket(client: str, website: str, subject: str,
                   description: str, author: str = "",
-                  requested_by: str = "") -> dict:
-    """Create a web ticket in Knack. Text is written into the best-matched
-    fields; connection fields are skipped rather than guessed."""
+                  requested_by: str = "", ticket_type: str = "",
+                  billable: str = "") -> dict:
+    """Create a web ticket in Knack against the confirmed field ids.
+
+    Status and Developer are not written here — Knack's own workflow sets the
+    opening status, and assigning a developer is a decision made in Manage
+    Ticket. Writing either at submission would override that.
+    """
     m = field_map()
     payload = {}
     conn_types = ("connection",)
@@ -103,11 +170,15 @@ def create_ticket(client: str, website: str, subject: str,
     put_text(m["description"], body)
     put_text(m["website"], website)
     put_text(m["client"], client)
-    put_text(m["requested_by"], requested_by or author)
+    put_text(m["type"], ticket_type)
+    put_text(m["billable"], billable)
+    put_text(m["assigner"], requested_by or author)
+    put_text(m.get("requested_by"), requested_by or author)
     if not payload:
         raise RuntimeError(
-            "Could not match any writable fields on "
-            f"{TICKETS_OBJECT} — check the object's field labels.")
+            "Nothing writable resolved on "
+            f"{TICKETS_OBJECT}. The field ids are pinned in TICKET_FIELDS, so "
+            "this means the object itself changed — check it in Knack.")
     r = requests.post(f"{BASE}/objects/{TICKETS_OBJECT}/records",
                       headers=_headers(), json=payload, timeout=20)
     if not r.ok:
@@ -288,3 +359,38 @@ def list_tickets(client: str, website: str = "", limit: int = 25) -> list[dict]:
             "date": _plain(rec.get(m["date"])) if m["date"] else "",
         })
     return out
+
+
+def update_ticket(record_id: str, **values) -> dict:
+    """Update a ticket from the Manage section.
+
+    Only the fields listed in TICKET_MANAGE_FIELDS may be written, so a
+    mistyped key can't quietly write to something else on the record — and
+    Title stays read-only after creation, since renaming a ticket breaks the
+    thread for whoever raised it.
+    """
+    m = field_map()
+    fields_by_key = {f.get("key"): f for f in _fields()}
+    payload = {}
+    rejected = []
+    for key, value in (values or {}).items():
+        if key not in TICKET_MANAGE_FIELDS:
+            rejected.append(key)
+            continue
+        fid = m.get(key)
+        if not fid or value in (None, ""):
+            continue
+        if fields_by_key.get(fid, {}).get("type") == "connection":
+            # A connection needs a Knack record id, not a name. Writing the
+            # display text silently creates nothing and clears the link.
+            rejected.append(f"{key} (connection — needs a record id)")
+            continue
+        payload[fid] = value
+    if not payload:
+        return {"ok": False, "error": "Nothing to update.", "rejected": rejected}
+    r = requests.put(f"{BASE}/objects/{TICKETS_OBJECT}/records/{record_id}",
+                     headers=_headers(), json=payload, timeout=20)
+    if not r.ok:
+        return {"ok": False, "error": f"Knack returned HTTP {r.status_code}.",
+                "rejected": rejected}
+    return {"ok": True, "updated": list(payload), "rejected": rejected}

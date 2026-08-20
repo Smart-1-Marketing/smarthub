@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Leads — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Leads</h2>
+  <p>Everything captured by a landing page or a calculator, tagged with the page
+     that produced it. Leads are stored here first and then forwarded to Smart 1
+     Suite &mdash; so a Suite outage delays a lead rather than losing it.</p>
+</div>
+
+<div id="leadWarn"></div>
+
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 14px">
+  <select id="lDays" onchange="loadLeads()"
+    style="padding:6px 10px;border:1px solid #cfd7df;border-radius:8px;font:13px inherit">
+    <option value="7">Last 7 days</option>
+    <option value="30" selected>Last 30 days</option>
+    <option value="90">Last 90 days</option>
+    <option value="365">Last year</option>
+  </select>
+  <input id="lPage" placeholder="Filter by page…" oninput="debounceLeads()"
+    style="padding:6px 10px;border:1px solid #cfd7df;border-radius:8px;font:13px inherit;min-width:200px">
+  <label style="font-size:13px;display:flex;align-items:center;gap:5px">
+    <input type="checkbox" id="lUndel" onchange="loadLeads()"> Not yet in Suite
+  </label>
+  <button class="um-btn" onclick="retryLeads()" style="margin-left:auto">Retry undelivered</button>
+  <a class="um-btn" href="/api/leads?days=365" target="_blank">Raw JSON</a>
+</div>
+
+<div id="leadStats" class="diag-rows" style="margin-bottom:14px"></div>
+<div id="leadTable"><p class="muted">Loading…</p></div>
+
+<script>
+var lTimer=null;
+function debounceLeads(){ clearTimeout(lTimer); lTimer=setTimeout(loadLeads,300); }
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+function loadLeads(){
+  var q = new URLSearchParams({
+    days: document.getElementById('lDays').value,
+    page: document.getElementById('lPage').value,
+    undelivered: document.getElementById('lUndel').checked ? '1' : '0'
+  });
+  fetch('/api/leads?'+q.toString(),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderLeads)
+    .catch(function(){
+      document.getElementById('leadTable').innerHTML =
+        '<p class="muted">Could not load leads.</p>';
+    });
+}
+
+function renderLeads(d){
+  document.getElementById('leadWarn').innerHTML = d.note
+    ? '<div style="background:#fff4d7;color:#8a5a00;padding:10px 14px;border-radius:9px;'+
+      'font-size:13px;margin-bottom:14px">'+esc(d.note)+'</div>' : '';
+
+  document.getElementById('leadStats').innerHTML =
+    '<div class="diag-row"><span class="diag-pill p-ok">'+d.count+'</span>'+
+    '<span class="diag-name">Leads</span><span class="diag-detail">'+
+    'in the last '+d.days+' days · '+d.with_pdf+' with a report attached'+
+    (d.undelivered ? ' · <b>'+d.undelivered+' not yet in Suite</b>' : ' · all delivered')+
+    '</span></div>'+
+    (d.by_page.length
+      ? '<div class="diag-row"><span class="diag-pill p-off">'+d.by_page.length+
+        '</span><span class="diag-name">Pages</span><span class="diag-detail">'+
+        d.by_page.slice(0,6).map(function(p){
+          return esc(p[0])+' <b>'+p[1]+'</b>';}).join(' · ')+'</span></div>'
+      : '');
+
+  if(!d.leads.length){
+    document.getElementById('leadTable').innerHTML =
+      '<p class="muted">No leads in this period.</p>';
+    return;
+  }
+  document.getElementById('leadTable').innerHTML =
+    '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+    '<thead><tr>'+
+    ['Captured','Name','Contact','Page','Report','Suite'].map(function(h){
+      return '<th style="text-align:left;padding:6px;font-size:11px;color:#94a3b8;'+
+             'text-transform:uppercase;letter-spacing:.5px">'+h+'</th>';}).join('')+
+    '</tr></thead><tbody>'+
+    d.leads.map(function(l){
+      return '<tr>'+
+        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;white-space:nowrap">'+
+          esc((l.created||'').replace('T',' ').slice(0,16))+'</td>'+
+        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa"><b>'+
+          esc(l.name||'—')+'</b>'+(l.company?'<div class="muted" style="font-size:11.5px">'+
+          esc(l.company)+'</div>':'')+'</td>'+
+        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
+          (l.email?'<a href="mailto:'+esc(l.email)+'">'+esc(l.email)+'</a>':'')+
+          (l.phone?'<div class="muted" style="font-size:11.5px">'+esc(l.phone)+'</div>':'')+'</td>'+
+        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
+          '<span class="pill neutral">'+esc(l.source||'')+'</span> '+esc(l.page||'')+'</td>'+
+        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
+          (l.pdf_url?'<a class="um-btn" href="'+esc(l.pdf_url)+'" target="_blank" '+
+            'rel="noopener">Open PDF</a>':'<span class="muted">—</span>')+'</td>'+
+        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
+          (l.delivered
+            ? '<span class="pill ok">sent</span>'
+            : '<span class="pill err" title="'+esc(l.last_error||'')+'">queued</span>')+
+          '</td></tr>';
+    }).join('')+'</tbody></table>';
+}
+
+function retryLeads(){
+  fetch('/api/leads/retry',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      alert(d.note || (d.delivered+' delivered, '+d.still_failing+' still queued.'));
+      loadLeads();
+    }).catch(function(){ alert('Could not retry.'); });
+}
+loadLeads();
+</script>
+{% endblock %}

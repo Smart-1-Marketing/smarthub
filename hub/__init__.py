@@ -525,7 +525,7 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from . import scheduler as _sched
-        out = _sched.status()
+        out = _sched.status(app)
         out["boot_error"] = app.config.get("HUB_SCHEDULER_BOOT_ERROR")
         return jsonify(out)
 
@@ -811,6 +811,73 @@ def create_hub_app() -> Flask:
                      "Nothing in Suite looks like this client. Search the full "
                      "list before creating one."),
         })
+
+    @app.route("/sales/leads")
+    def page_leads():
+        """One panel for every lead, whatever produced it."""
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("leads.html", user=current_user(), active="leads")
+
+    @app.route("/api/leads")
+    def api_leads():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import leads
+        return jsonify(leads.listing(
+            days=int(request.args.get("days") or 30),
+            source=request.args.get("source", ""),
+            page=request.args.get("page", ""),
+            undelivered_only=request.args.get("undelivered") == "1"))
+
+    @app.route("/api/leads/capture", methods=["POST"])
+    def api_leads_capture():
+        """Where every landing page and calculator posts.
+
+        Unauthenticated on purpose — these come from public pages. It stores
+        before it forwards, so a Suite outage can't destroy a lead.
+        """
+        from . import leads
+        body = request.get_json(silent=True) or request.form.to_dict() or {}
+        src = str(body.get("source") or "").strip()
+
+        ip = leads.client_ip(request)
+        allowed, retry_after = leads.rate_check(ip)
+        if not allowed:
+            # Recorded, because the number that stops a script is also the
+            # number that could turn away a busy office sharing one address.
+            # If real submissions start showing up here, raise
+            # LEADS_RATE_LIMIT — a turned-away lead costs more than spam.
+            audit.log("leads", "rate_limited", ip=ip, source=src[:60],
+                      page=str(body.get("page") or "")[:120])
+            return jsonify({
+                "ok": False,
+                "error": "Too many submissions from this connection. "
+                         "Please try again shortly.",
+            }), 429, {"Retry-After": str(retry_after)}
+
+        if not src:
+            return jsonify({"ok": False, "error": "source is required."}), 400
+        fields = body.get("fields") if isinstance(body.get("fields"), dict) else {
+            k: v for k, v in body.items()
+            if k not in ("source", "page", "pdf_url", "client", "meta")}
+        if not (fields.get("email") or fields.get("phone")):
+            return jsonify({"ok": False,
+                            "error": "An email or phone is required."}), 400
+        return jsonify(leads.capture_and_deliver(
+            src, str(body.get("page") or ""), fields,
+            str(body.get("pdf_url") or ""), str(body.get("client") or ""),
+            body.get("meta") if isinstance(body.get("meta"), dict) else None))
+
+    @app.route("/api/leads/retry", methods=["POST"])
+    def api_leads_retry():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import leads
+        return jsonify(leads.retry_undelivered())
 
     @app.route("/api/providers")
     def api_providers():

@@ -69,29 +69,6 @@
   <section class="diag-card">
     <h2>Background jobs</h2>
     <p class="diag-help">
-      Exactly one worker runs these, chosen by a database lock &mdash; Render
-      runs two, and without that every job would fire twice. If this worker
-      isn't the leader, that's normal: the other one is doing the work.
-    </p>
-    <div id="diag-sched" class="diag-rows"><p class="diag-loading">Loading…</p></div>
-  </section>
-
-  <!-- ---------------- Knack data freshness ---------------- -->
-  <section class="diag-card">
-    <h2>Knack data</h2>
-    <p class="diag-help">
-      Insertion orders and products. Until now these came from a JSON export
-      committed to the repo that nothing refreshed &mdash; so Client 360 showed
-      whatever was true on the day someone last exported it. This reads live
-      and reports how old the numbers are.
-    </p>
-    <div id="diag-knack" class="diag-rows"><p class="diag-loading">Loading…</p></div>
-  </section>
-
-  <!-- ---------------- background jobs ---------------- -->
-  <section class="diag-card">
-    <h2>Background jobs</h2>
-    <p class="diag-help">
       Scheduled maintenance. Exactly one worker runs these &mdash; if this
       page says another worker is the leader, that's normal and correct;
       running them twice would mean two sets of alerts and two attempts at the
@@ -303,43 +280,6 @@ function renderStructure(d){
       '<em class="diag-fix">'+esc((r.where||[]).join(", "))+'</em></span></div>';
   }).join("") || head;
 }
-
-function renderSched(d){
-  var el=document.getElementById("diag-sched"); if(!el||!d) return;
-  if(!d.enabled){
-    el.innerHTML='<div class="diag-row"><span class="diag-pill p-off">off</span>'+
-      '<span class="diag-name">Scheduler</span><span class="diag-detail">'+
-      'Not running. Set <code>HUB_SCHEDULER=true</code> to enable it &mdash; '+
-      'off by default outside Render so local testing can\'t fire real jobs '+
-      'at client systems.</span></div>';
-    return;
-  }
-  el.innerHTML='<div class="diag-row"><span class="diag-pill p-'+
-    (d.running?"ok":"error")+'">'+(d.running?"on":"down")+'</span>'+
-    '<span class="diag-name">Scheduler</span><span class="diag-detail">'+
-    esc(d.note)+'</span></div>' +
-    d.jobs.map(function(j){
-      var state = j.ok===null ? "off" : (j.ok ? "ok" : "error");
-      var when = j.last_run ? esc(j.last_run.replace("T"," ").slice(0,16)) : "not yet run";
-      return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+
-        (j.every_minutes>=60 ? Math.round(j.every_minutes/60)+"h" : j.every_minutes+"m")+
-        '</span><span class="diag-name">'+esc(j.name.replace(/_/g," "))+'</span>'+
-        '<span class="diag-detail">'+esc(j.description)+
-        '<em class="diag-fix">Last: '+when+
-        (j.result?" · "+esc(JSON.stringify(j.result)).slice(0,110):"")+
-        (j.error?' · <b>'+esc(j.error)+'</b>':"")+
-        ' &nbsp;<button class="um-btn" style="margin:0;padding:2px 8px;font-size:11px" '+
-        'onclick="runJob(\''+j.name+'\')">Run now</button></em></span></div>';
-    }).join("");
-}
-function runJob(name){
-  fetch("/api/scheduler/run/"+encodeURIComponent(name),
-        {method:"POST",credentials:"same-origin"})
-   .then(function(r){return r.json();})
-   .then(function(d){ alert(d.error||("Done: "+JSON.stringify(d.result||d))); loadAll(true); })
-   .catch(function(){ alert("Could not run that job."); });
-}
-
 function renderKnack(d){
   var el=document.getElementById("diag-knack"); if(!el) return;
   var stale = d.age_minutes === null || d.age_minutes > (d.ttl_minutes||180)*2;
@@ -373,11 +313,12 @@ function renderScheduler(d){
       '<span class="diag-name">Failed to start</span><span class="diag-detail">'+
       esc(d.boot_error)+'</span></div>'; return;
   }
-  var head='<div class="diag-row"><span class="diag-pill p-'+
-    (d.enabled? (d.running?"ok":"warn") : "off")+'">'+
-    (d.enabled?(d.running?"on":"idle"):"off")+'</span>'+
+  // Same three-state signal as renderSched — see the note there.
+  var p = {leading:["ok","on"], standby:["ok","standby"],
+           down:["error","down"], off:["off","off"]}[d.state||"down"];
+  var head='<div class="diag-row"><span class="diag-pill p-'+p[0]+'">'+
+    p[1]+'</span>'+
     '<span class="diag-name">Scheduler</span><span class="diag-detail">'+
-    (d.enabled?"":"Disabled — set HUB_SCHEDULER=true to enable. ")+
     esc(d.note||"")+'</span></div>';
   el.innerHTML = head + (d.jobs||[]).map(function(j){
     var state = j.ok===false ? "error" : (j.last_run ? "ok" : "off");
@@ -442,10 +383,6 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderIntegrity)
     .catch(function(){document.getElementById("diag-integrity").innerHTML=
       '<p class="diag-loading">Could not run the audit.</p>';});
-  fetch("/api/knack/products",{credentials:"same-origin"})
-    .then(function(r){return r.json();}).then(renderKnack).catch(function(){});
-  fetch("/api/scheduler",{credentials:"same-origin"})
-    .then(function(r){return r.json();}).then(renderSched).catch(function(){});
   fetch("/api/knack/products",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderKnack).catch(function(){});
   fetch("/api/scheduler",{credentials:"same-origin"})

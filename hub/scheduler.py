@@ -330,24 +330,76 @@ def start(app) -> bool:
     return True
 
 
-def status() -> dict:
+def _leader_exists(app) -> bool:
+    """Is some worker holding leadership right now?
+
+    A follower's thread exits on purpose (``_loop`` returns the moment it
+    loses the election), so "my thread isn't alive" says nothing about whether
+    jobs are being run — and Diagnostics was reporting that as a red **down**
+    on whichever worker happened to serve the page. Half the time that is a
+    healthy scheduler being called broken, which also means a genuinely dead
+    one looks identical and gets ignored.
+
+    Probing the lock is the honest answer. If we cannot take it, someone else
+    holds it and the jobs are covered. If we can, nobody is leading — so we
+    release it immediately and report the fault.
+    """
+    if _is_leader:
+        return True
+    try:
+        from hub.extensions import db
+        with app.app_context():
+            engine = db.engine
+            if not engine.dialect.name.startswith("postgres"):
+                try:                       # local: a fresh lock file means alive
+                    return (time.time() - os.path.getmtime(_lock_path())
+                            ) <= LOCK_STALE_SECONDS
+                except OSError:
+                    return False
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                got = conn.execute(text("SELECT pg_try_advisory_lock(:k)"),
+                                   {"k": _LOCK_KEY}).scalar()
+                if got:
+                    conn.execute(text("SELECT pg_advisory_unlock(:k)"),
+                                 {"k": _LOCK_KEY})
+                return not got
+    except Exception:                                   # noqa: BLE001
+        return False
+
+
+def status(app=None) -> dict:
     """What the scheduler is doing, for Diagnostics."""
     with _state_lock:
         runs = dict(_state)
+    alive = bool(_thread and _thread.is_alive())
+    if not enabled():
+        state = "off"
+    elif _is_leader and alive:
+        state = "leading"
+    elif app is not None and _leader_exists(app):
+        state = "standby"          # healthy: the other worker has the jobs
+    else:
+        state = "down"             # nobody is running jobs — a real fault
     return {
         "enabled": enabled(),
-        "running": bool(_thread and _thread.is_alive()),
+        "running": alive,
         "is_leader": _is_leader,
+        "state": state,
         "jobs": [
             {"name": n, "every_minutes": every, "description": desc,
              **runs.get(n, {"last_run": None, "ok": None})}
             for n, (every, _fn, desc) in JOBS.items()
         ],
-        "note": ("Exactly one worker runs jobs, chosen by a Postgres advisory "
-                 "lock. If this worker isn't the leader that's normal — the "
-                 "other one is doing the work."
-                 if not _is_leader else
-                 "This worker is the leader and is running the jobs."),
+        "note": {
+            "off": "Disabled. Set HUB_SCHEDULER=true to turn the jobs on.",
+            "leading": "This worker holds the lock and is running the jobs.",
+            "standby": "The other worker holds the lock and is running the "
+                       "jobs. Exactly one does, by design — nothing is wrong.",
+            "down": "No worker holds the scheduler lock, so no background job "
+                    "is running. Redeploy; if it persists, check the database "
+                    "connection the lock depends on.",
+        }[state],
     }
 
 

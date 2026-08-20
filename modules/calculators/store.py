@@ -216,8 +216,36 @@ def webhook_url(app, slug):
 
 
 def send_webhook(app, row, calc_title):
-    """POST the lead to Smart 1 Suite. Never raises; status is recorded."""
-    url = webhook_url(app, row.slug)
+    """Send the lead to Smart 1 Suite via the Hub's shared lead panel.
+
+    Each calculator used to need its own webhook URL — one environment
+    variable per tool, each able to be unset or wrong with no visible symptom,
+    because the visitor sees success either way. The panel stores every lead
+    first, forwards from one place, and shows what hasn't landed.
+
+    The per-calculator URL still wins if one is set, so an existing override
+    keeps working.
+    """
+    per = os.environ.get("CALC_WEBHOOK_" + row.slug.upper().replace("-", "_"))
+    if not per:
+        try:
+            from hub import leads as hub_leads
+            payload = dict(row.contact())
+            out = hub_leads.capture_and_deliver(
+                source="calculators", page=calc_title or row.slug,
+                fields=payload,
+                pdf_url=getattr(row, "pdf_url", "") or "",
+                client=payload.get("company", ""),
+                meta={"calculator": row.slug, "source_page": row.source or "",
+                      "lead_value": row.lead_value or 0})
+            set_webhook_status(
+                row.token, "sent" if out.get("delivered") else "queued",
+                out.get("note", ""))
+            return bool(out.get("delivered"))
+        except Exception:                               # noqa: BLE001
+            pass          # fall through to the original path
+
+    url = per or webhook_url(app, row.slug)
     if not url:
         set_webhook_status(row.token, "no_url",
                            "CALCULATORS_LEAD_WEBHOOK_URL is not set — the lead is stored "

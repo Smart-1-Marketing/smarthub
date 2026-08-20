@@ -31,6 +31,22 @@ CACHE_TTL = int(os.environ.get("TICKETS_CACHE_TTL", "900"))
 # `required` fields are the ones the audit genuinely cannot run without.
 # `guesses` drive the auto-detect on the setup page.
 # --------------------------------------------------------------------------
+# Confirmed ids for object_107, so the setup page opens pre-mapped instead of
+# asking someone to match twelve fields by eye. Label guessing stays as the
+# fallback for anything not listed here — and guessing is exactly what left
+# the Issue column empty on the Accounting report when a label was renamed.
+CONFIRMED_FIELDS = {
+    "summary":   "field_1895",   # Ticket title
+    "client":    "field_1784",   # Client organization
+    "website":   "field_2965",   # Client website URL
+    "type":      "field_2973",   # Type of ticket
+    "billable":  "field_3160",   # Revision requires billing
+    "details":   "field_1923",   # Describe the changes
+    "assignee":  "field_1653",   # Assigner
+    "status":    "field_1657",   # Status
+    "developer": "field_1729",   # Developer
+}
+
 FIELDS = [
     dict(key="ticket_number", label="Ticket number", required=False,
          guesses=["ticket number", "ticket id", "ticket #", "number", "id", "ref"]),
@@ -51,7 +67,15 @@ FIELDS = [
                   "reason"]),
     dict(key="priority", label="Priority", required=False,
          guesses=["priority", "urgency", "severity"]),
-    dict(key="assignee", label="Assigned to", required=False,
+    dict(key="website", label="Client website", required=False,
+         guesses=["website", "site", "url", "domain", "client website"]),
+    dict(key="billable", label="Requires billing", required=False,
+         guesses=["requires billing", "billable", "billing", "chargeable"]),
+    dict(key="details", label="Describe the changes", required=False,
+         guesses=["describe the changes", "changes", "description", "details"]),
+    dict(key="developer", label="Developer", required=False,
+         guesses=["developer", "dev", "built by", "assigned developer"]),
+    dict(key="assignee", label="Assigner", required=False,
          guesses=["assigned to", "assignee", "owner", "tech", "handled by",
                   "assigned"]),
     dict(key="summary", label="Summary", required=False,

@@ -20,6 +20,7 @@ _ITEMS = [
     ("_sec2", "", "", "Sales"),
     ("salesb", "/sales/builder/", "&#9998;", "Sales Builder"),
     ("props", "/sales/proposals/", "&#9733;", "Proposal Builder"),
+    ("leads", "/sales/leads", "&#128229;", "Leads"),
     ("_sec3", "", "", "Utilities"),
     ("tools", "/tools", "&#10022;", "Tools"),
     ("creative", "/creative", "&#127912;", "Creative"),

@@ -32,7 +32,11 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-SKIP_DIRS = {"_attic", "__pycache__", ".git", "node_modules"}
+# Third-party code is not ours to fix, and a local virtualenv sits inside the
+# repo — without these, the scan reports the openai package itself for "spend
+# not recorded" and buries the findings that are actually actionable.
+SKIP_DIRS = {"_attic", "__pycache__", ".git", "node_modules",
+             ".venv", "venv", "env", "site-packages", ".tox", "build", "dist"}
 # Files that legitimately mention these patterns without doing the thing.
 SELF = {"hub/integrity.py", "hub/storage.py", "hub/images.py", "hub/ai.py",
         "hub/quotas.py", "hub/diagnostics.py", "hub/demo.py", "hub/demos.py"}
