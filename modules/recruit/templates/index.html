@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Create an AI-powered recruitment market, talent-pool, and competitor-conquest hiring plan.">
+  <title>Precision Recruitment Intelligence | Smart 1 Marketing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    .step:not(.active){display:none!important;}
+:root{--navy:#0a2240;--navy2:#16395f;--blue:#009ed2;--aqua:#e7f7fb;--green:#2dbb72;--ink:#25364b;--muted:#68798c;--line:#dbe5ed;--bg:#f3f7fa;--white:#fff;--danger:#b42318;--shadow:0 20px 60px rgba(10,34,64,.11)}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 50% 0,#dff5fb 0,#f3f7fa 460px);font-family:Montserrat,Arial,sans-serif;color:var(--ink)}button,input,select,textarea{font-family:inherit}.shell{width:min(1120px,calc(100% - 28px));margin:0 auto;padding:38px 0 80px}.hero{text-align:center;max-width:900px;margin:0 auto 28px}.brand-lockup{display:inline-flex;align-items:center;gap:9px;font-size:.72rem;font-weight:800;letter-spacing:.14em;color:var(--navy);margin-bottom:22px}.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--navy);color:#fff;letter-spacing:0}.eyebrow{font-weight:800;letter-spacing:.15em;color:var(--blue);font-size:.75rem}.hero h1{font-size:clamp(2.1rem,5.4vw,4rem);line-height:1.03;color:var(--navy);margin:.5rem 0 1rem;letter-spacing:-.035em}.hero p{font-size:1.03rem;line-height:1.7;margin:0 auto;color:var(--muted);max-width:790px}.benefit-row{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;margin-top:19px}.benefit-row span{background:#fff;border:1px solid #cfe5ed;border-radius:999px;padding:8px 12px;font-size:.72rem;font-weight:700;color:#426278}.benefit-row span:before{content:'✓';color:var(--green);font-weight:900;margin-right:6px}.card,.loading,.results{background:var(--white);border-radius:20px;box-shadow:var(--shadow);border:1px solid rgba(10,34,64,.06)}.card{max-width:900px;margin:auto;overflow:hidden}.form-top{display:flex;align-items:center;justify-content:space-between;padding:21px 34px 15px}.form-top>div{display:flex;align-items:center;gap:10px}.step-count{font-size:.7rem;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.06em}.form-top strong{color:var(--navy);font-size:.86rem}.save-note{font-size:.72rem;color:var(--muted)}.progress-track{height:6px;background:#e8eff4}.progress-track span{display:block;width:25%;height:100%;background:linear-gradient(90deg,var(--blue),var(--green));transition:.3s ease}.step-nav{display:grid;grid-template-columns:repeat(4,1fr);padding:17px 30px 6px;gap:8px}.step-dot{border:0;background:transparent;color:#91a0ae;cursor:pointer;padding:0;display:flex;flex-direction:column;align-items:center;gap:5px}.step-dot span{display:grid;place-items:center;width:27px;height:27px;border-radius:50%;border:2px solid #d5e0e8;font-size:.7rem;font-weight:800;background:#fff}.step-dot small{font-size:.62rem;font-weight:700}.step-dot.active,.step-dot.complete{color:var(--navy)}.step-dot.active span{border-color:var(--blue);background:var(--blue);color:#fff;box-shadow:0 0 0 4px rgba(0,158,210,.12)}.step-dot.complete span{border-color:var(--green);background:var(--green);color:#fff}.step{display:none;padding:30px 42px 12px}.step.active{display:block;animation:fade .22s ease}@keyframes fade{from{opacity:.25;transform:translateY(5px)}to{opacity:1;transform:none}}.step-heading{display:flex;gap:15px;align-items:flex-start;margin-bottom:25px}.step-icon{display:grid;place-items:center;flex:0 0 44px;height:44px;background:var(--aqua);border-radius:13px;font-size:1.25rem;color:var(--blue);font-weight:900}.step-heading h2{color:var(--navy);font-size:1.65rem;letter-spacing:-.02em;margin:0 0 6px}.step-heading p{margin:0;color:var(--muted);font-size:.85rem;line-height:1.5}.grid{display:grid;gap:18px}.grid.two{grid-template-columns:1fr 1fr}label,legend{font-size:.79rem;font-weight:700;color:var(--navy)}label{display:block;margin-bottom:18px}fieldset{border:0;padding:0;margin:0 0 22px}legend{margin-bottom:11px}.required,.optional{font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;margin-left:5px}.required{color:var(--blue)}.optional{color:#8997a5}input:not([type=radio]):not([type=checkbox]),select,textarea{width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:13px 14px;font-size:.88rem;font-weight:500;color:var(--ink);background:#fff;transition:.2s}textarea{min-height:102px;resize:vertical;line-height:1.5}input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,158,210,.12)}.field-help{display:block;color:var(--muted);font-weight:500;line-height:1.45;margin-top:6px;font-size:.67rem}.choice-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.choice-grid.four{grid-template-columns:repeat(4,1fr)}.radius-grid{grid-template-columns:repeat(5,1fr)}.choice-card,.goal-card,.chip{margin:0;cursor:pointer}.choice-card input,.goal-card input,.chip input{position:absolute;opacity:0;pointer-events:none}.choice-card>span{display:flex;flex-direction:column;gap:4px;height:100%;border:1px solid var(--line);border-radius:11px;padding:13px 10px;background:#fff;transition:.2s}.choice-card strong{font-size:.78rem}.choice-card small{font-size:.62rem;color:var(--muted);font-weight:500}.choice-card input:checked+span{border-color:var(--blue);background:#effafe;box-shadow:0 0 0 2px rgba(0,158,210,.1)}.chip-grid{display:flex;flex-wrap:wrap;gap:9px}.chip span{display:block;border:1px solid var(--line);border-radius:999px;padding:9px 13px;font-size:.72rem;background:#fff;transition:.2s}.chip input:checked+span{background:var(--navy);border-color:var(--navy);color:#fff}.goal-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}.goal-card>span{display:block;position:relative;border:1px solid var(--line);border-radius:12px;padding:14px 15px 14px 43px;min-height:84px;transition:.2s}.goal-card>span:before{content:'';position:absolute;left:15px;top:17px;width:16px;height:16px;border-radius:50%;border:2px solid #b8c7d2}.goal-card strong{display:block;font-size:.78rem;margin-bottom:5px}.goal-card small{display:block;color:var(--muted);font-size:.65rem;line-height:1.45;font-weight:500}.goal-card input:checked+span{border-color:var(--blue);background:#effafe}.goal-card input:checked+span:before{border:5px solid var(--blue);background:#fff}.tip-box,.final-note{background:#eff9fc;border-left:4px solid var(--blue);padding:15px 16px;line-height:1.55;font-size:.78rem;border-radius:0 9px 9px 0}.final-note ul{margin:9px 0 0;padding-left:20px}.final-note li{margin:5px 0}.review-card{border:1px solid var(--line);border-radius:12px;background:#f8fafc;padding:16px;margin:3px 0 16px}.review-card h3{font-size:.83rem;color:var(--navy);margin:0 0 11px}.review-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.review-item{font-size:.68rem;color:var(--muted)}.review-item strong{display:block;color:var(--ink);font-size:.73rem;margin-top:2px}.consent{display:flex;gap:10px;align-items:flex-start;margin-top:18px;color:var(--muted);font-weight:500;line-height:1.5;font-size:.69rem}.consent input{margin-top:3px;accent-color:var(--blue)}.actions{display:flex;justify-content:space-between;gap:12px;padding:19px 42px 34px}.actions button,.toolbar button{border:0;border-radius:10px;padding:13px 20px;font-size:.8rem;font-weight:800;cursor:pointer;background:var(--blue);color:#fff;transition:.2s}.actions button:hover,.toolbar button:hover{transform:translateY(-1px);filter:brightness(.97)}.actions .secondary,.toolbar .secondary{background:#e9eef3;color:var(--navy)}button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}.hidden{display:none!important}.error{color:var(--danger);font-size:.75rem;padding:0 42px 19px;margin:0}.privacy-note{text-align:center;font-size:.65rem;color:var(--muted);margin:13px auto 0}.loading{text-align:center;max-width:900px;margin:auto;padding:60px 28px}.radar-loader{width:150px;height:150px;margin:0 auto;display:block}.radar-loader .sweep{transform-box:fill-box;transform-origin:center;animation:radarSpin 2.6s linear infinite}.radar-loader .blip{transform-box:fill-box;transform-origin:center;animation:blipPulse 2.6s ease-in-out infinite}.radar-loader .blip.b2{animation-delay:.7s}.radar-loader .blip.b3{animation-delay:1.3s}.radar-loader .blip.b4{animation-delay:1.9s}@keyframes radarSpin{to{transform:rotate(360deg)}}@keyframes blipPulse{0%,100%{opacity:.15;transform:scale(.5)}45%{opacity:1;transform:scale(1)}}@media(prefers-reduced-motion:reduce){.radar-loader .sweep,.radar-loader .blip{animation:none}}.loading h2{color:var(--navy);margin:22px 0 8px}.loading p{color:var(--muted);line-height:1.55}.loading-steps{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:22px}.loading-steps span{background:#f1f6f8;border-radius:999px;padding:7px 10px;font-size:.64rem;color:#5c7182}.results{padding:34px;margin:auto}.report-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;border-bottom:1px solid var(--line);padding-bottom:22px}.report-head h2{color:var(--navy);font-size:2rem;margin:0 0 8px}.report-head p{color:var(--muted);line-height:1.6;margin:0}.sample-flag{display:inline-block;background:#fff4cf;color:#7a5a00;border:1px solid #f0d896;border-radius:999px;padding:6px 12px;font-size:.63rem;font-weight:800;letter-spacing:.04em;margin-bottom:12px}.toolbar{display:flex;gap:8px;flex-wrap:wrap}.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:24px 0}.metric{padding:18px;border-radius:12px;background:#f4f9fb;border:1px solid #dcecf2}.metric span{display:block;font-size:.7rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.metric strong{display:block;color:var(--navy);font-size:1.4rem;margin-top:7px}.section{margin-top:32px}.section h3{color:var(--navy);font-size:1.25rem;border-left:4px solid var(--blue);padding-left:10px}.section p,.section li{line-height:1.65}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{border-collapse:collapse;width:100%;min-width:900px;font-size:.76rem}th{background:var(--navy);color:#fff;text-align:left;padding:12px}td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}.pill{display:inline-block;border-radius:999px;padding:4px 8px;font-weight:800;font-size:.65rem;background:#e8f7ed;color:#17733a}.priority-1{background:#dff6e7;color:#0b6b31}.priority-2{background:#fff4cf;color:#7a5a00}.priority-3{background:#edf1f5;color:#526174}.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.mini-card{border:1px solid var(--line);border-radius:12px;padding:16px}.mini-card h4{color:var(--navy);margin:0 0 8px}.mini-card p{font-size:.82rem;color:var(--muted);margin:5px 0}.disclaimer{font-size:.72rem;color:var(--muted);border-top:1px solid var(--line);margin-top:30px;padding-top:18px}.market-badge{display:inline-block;background:var(--navy);color:#fff;font-weight:800;font-size:.82rem;padding:9px 17px;border-radius:999px;margin-bottom:12px}.badge-card{border:1px solid var(--line);border-radius:14px;padding:20px 22px;background:#fff;margin:22px 0 4px}.badge-card p{margin:0;color:var(--ink);line-height:1.6}.stat-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0 4px}.stat{padding:24px 16px;border-radius:14px;background:#f4f9fb;border:1px solid #dcecf2;text-align:center}.stat strong{display:block;color:var(--navy);font-size:1.7rem;line-height:1.12;letter-spacing:-.02em}.stat span{display:block;color:var(--muted);font-size:.72rem;font-weight:600;margin-top:9px;line-height:1.35}.chip-list{display:flex;flex-wrap:wrap;gap:9px;margin-top:8px}.chip-tag{display:inline-block;border:1px solid #cfe2ef;background:#fff;color:var(--navy);border-radius:999px;padding:8px 14px;font-size:.76rem;font-weight:700}.package-name{color:var(--navy);font-size:1.35rem;font-weight:800;margin:6px 0 10px}.pkg-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:10px 0 6px}.pkg{border:1px solid var(--line);border-radius:12px;padding:18px 14px;background:#fff;text-align:center;position:relative}.pkg .pkg-price{display:block;color:var(--navy);font-size:1.15rem;font-weight:800}.pkg .pkg-name{display:block;color:var(--ink);font-size:.78rem;font-weight:700;margin-top:4px}.pkg .pkg-blurb{display:block;color:var(--muted);font-size:.66rem;margin-top:8px;line-height:1.4}.pkg.recommended{border-color:var(--blue);background:#effafe;box-shadow:0 0 0 2px rgba(0,158,210,.12)}.pkg .pkg-badge{position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:var(--blue);color:#fff;font-size:.58rem;font-weight:800;letter-spacing:.04em;padding:3px 9px;border-radius:999px;white-space:nowrap}@media(max-width:700px){.pkg-grid{grid-template-columns:1fr 1fr}}table.narrow{min-width:0}.month-focus strong{color:var(--navy);font-size:.9rem}.month-focus p{margin:4px 0 9px;color:var(--muted);font-size:.82rem;line-height:1.5}@media(max-width:640px){.stat-cards{grid-template-columns:1fr}}@media(max-width:780px){.shell{padding-top:24px}.hero h1{font-size:2.35rem}.step-nav small{display:none}.step{padding:26px 22px 10px}.form-top{padding:18px 22px 14px}.step-nav{padding-left:22px;padding-right:22px}.grid.two,.goal-list,.cards{grid-template-columns:1fr}.choice-grid.four{grid-template-columns:1fr 1fr}.radius-grid{grid-template-columns:repeat(3,1fr)}.actions{padding:16px 22px 28px}.error{padding-left:22px;padding-right:22px}.report-head{display:block}.toolbar{margin-top:16px}.results{padding:22px}.metric-grid{grid-template-columns:1fr 1fr}.review-grid{grid-template-columns:1fr}}@media(max-width:480px){.hero p{font-size:.9rem}.benefit-row{gap:6px}.benefit-row span{font-size:.64rem}.form-top strong,.save-note{display:none}.step-heading h2{font-size:1.35rem}.radius-grid{grid-template-columns:1fr 1fr}.choice-grid.four{grid-template-columns:1fr 1fr}.actions button{padding:12px 15px}.metric-grid{grid-template-columns:1fr}}@media print{body{background:#fff}.hero,.card,.privacy-note,.toolbar{display:none!important}.shell{width:100%;padding:0}.results{box-shadow:none;border:0;padding:0}.table-wrap{overflow:visible}table{min-width:0;font-size:8pt}}.pkg-config{border:1px solid var(--line);border-radius:14px;padding:20px 22px;background:#fff;margin-top:6px}.pkg-config-desc{margin:12px 0 4px;color:var(--ink);line-height:1.6;font-size:.9rem}.config-title{font-size:.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 9px}.config-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px 22px}.config-grid div{display:flex;gap:9px;align-items:flex-start;font-size:.82rem;color:var(--ink);font-weight:500;line-height:1.4}.config-grid .ck{color:var(--green);font-weight:900;flex:0 0 auto}@media(max-width:640px){.config-grid{grid-template-columns:1fr}}
+/* Embedded mode: when the tool runs inside an iframe on another page, hide its own hero/branding and blend the background so it doesn't duplicate the host page. */
+html.embedded body{background:#fff}html.embedded .shell{padding:14px 0 40px}html.embedded .hero{display:none}html.embedded .privacy-note{margin-top:16px}
+.hp-field{position:absolute!important;left:-9999px!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none}
+.cta-report{background:linear-gradient(135deg,var(--navy),#123055);color:#fff;border-radius:14px;padding:20px 24px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;margin-top:12px}
+.cta-report .ctx{flex:1 1 300px}
+.cta-report h4{color:#fff;font-size:1.05rem;margin:0 0 4px}
+.cta-report p{color:#c6d6e6;font-size:.82rem;margin:0;line-height:1.5}
+.cta-report a{background:linear-gradient(135deg,var(--green),#37cf80);color:#fff;font-weight:800;padding:14px 24px;border-radius:10px;white-space:nowrap;font-size:.85rem;box-shadow:0 10px 24px rgba(45,187,114,.3)}
+@media print{.cta-report{background:#eff9fc;color:var(--navy);border:1px solid var(--blue)}.cta-report h4,.cta-report p{color:var(--navy)}.cta-report a{background:none;color:var(--navy);padding:0;box-shadow:none}}
+/* Page-load overlay (SPEC 7a): shown immediately, hidden when the app is ready. */
+#pageLoader{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;background:var(--navy);color:#fff;transition:opacity .4s ease}
+#pageLoader.done{opacity:0;pointer-events:none}
+#pageLoader .pl-brand{font-weight:800;letter-spacing:.18em;font-size:.85rem}
+#pageLoader .pl-brand b{color:var(--blue)}
+#pageLoader p{margin:0;color:#c6d6e6;font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+@media(prefers-reduced-motion:reduce){ #pageLoader{transition:none} }
+/* Talent pool funnel bars (on-screen report) */
+.funnel{display:grid;gap:10px;margin-top:14px}
+.funnel-row{display:grid;grid-template-columns:170px 1fr 90px;align-items:center;gap:12px}
+.funnel-label{font-size:.74rem;font-weight:700;color:var(--navy)}
+.funnel-track{height:16px;background:#eef5f9;border:1px solid #dcecf2;border-radius:999px;overflow:hidden}
+.funnel-bar{display:block;height:100%;border-radius:999px}
+.funnel-val{font-size:.78rem;font-weight:800;color:var(--navy);text-align:right}
+@media(max-width:640px){.funnel-row{grid-template-columns:1fr;gap:4px}.funnel-val{text-align:left}}
+/* Prominent PDF download button in the report toolbar */
+.toolbar a.pdf-btn{display:inline-block;background:var(--green);color:#fff;border-radius:10px;padding:13px 20px;font-size:.8rem;font-weight:800;text-decoration:none;box-shadow:0 8px 20px rgba(45,187,114,.28)}
+.toolbar a.pdf-btn:hover{filter:brightness(.97)}
+.report-foot{text-align:center;font-size:.7rem;color:var(--muted);margin-top:16px}
+
+  </style>
+<script>try{if(window.self!==window.top)document.documentElement.classList.add('embedded')}catch(e){document.documentElement.classList.add('embedded')}</script>
+</head>
+<body>
+  <div id="pageLoader" role="status" aria-label="Loading Precision Recruitment Intelligence">
+    <div class="pl-brand">SMART <b>1</b> MARKETING</div>
+    <svg class="radar-loader" viewBox="0 0 160 160" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <defs><radialGradient id="plSweep" cx="0" cy="1" r="1"><stop offset="0" stop-color="#009ed2" stop-opacity=".7"/><stop offset="1" stop-color="#009ed2" stop-opacity="0"/></radialGradient></defs>
+      <circle cx="80" cy="80" r="62" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.22)" stroke-width="1.5"/>
+      <circle cx="80" cy="80" r="42" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>
+      <circle cx="80" cy="80" r="22" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>
+      <line x1="18" y1="80" x2="142" y2="80" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>
+      <line x1="80" y1="18" x2="80" y2="142" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>
+      <path class="sweep" d="M80 80 L80 18 A62 62 0 0 1 133 49 Z" fill="url(#plSweep)"/>
+      <circle class="blip b1" cx="108" cy="58" r="5" fill="#2dbb72"/>
+      <circle class="blip b2" cx="56" cy="62" r="5" fill="#009ed2"/>
+      <circle class="blip b3" cx="98" cy="106" r="5" fill="#2dbb72"/>
+      <circle class="blip b4" cx="60" cy="104" r="5" fill="#009ed2"/>
+      <circle cx="80" cy="80" r="6" fill="#fff"/>
+    </svg>
+    <p>Loading Precision Recruitment Intelligence&hellip;</p>
+  </div>
+  <main class="shell">
+    <section class="hero">
+      <div class="brand-lockup">
+        <span class="brand-mark">S1</span>
+        <span>SMART 1 MARKETING</span>
+      </div>
+      <div class="eyebrow">PRECISION RECRUITMENT INTELLIGENCE</div>
+      <h1>Find the candidates hiding in your market.</h1>
+      <p>Tell us about your company and the roles you're hiring for. Our AI maps your local talent pool, the competitors worth conquesting, the exact job-title audiences to reach, and a month-by-month plan to fill your pipeline.</p>
+      <div class="benefit-row" aria-label="Report benefits">
+        <span>Talent pool estimate</span>
+        <span>Competitor conquest</span>
+        <span>Job-title audiences</span>
+        <span>Hiring plan</span>
+      </div>
+    </section>
+
+    <section class="card" id="formCard">
+      <div class="form-top">
+        <div>
+          <span class="step-count" id="stepCount">Step 1 of 4</span>
+          <strong id="stepName">Your company</strong>
+        </div>
+        <span class="save-note">About 3 minutes</span>
+      </div>
+
+      <div class="progress-track" aria-hidden="true"><span id="progressBar"></span></div>
+      <nav class="step-nav" aria-label="Form progress">
+        <button type="button" class="step-dot active" data-go-step="0"><span>1</span><small>Company</small></button>
+        <button type="button" class="step-dot" data-go-step="1"><span>2</span><small>Roles</small></button>
+        <button type="button" class="step-dot" data-go-step="2"><span>3</span><small>Goals</small></button>
+        <button type="button" class="step-dot" data-go-step="3"><span>4</span><small>Finish</small></button>
+      </nav>
+
+      <form id="hireForm" novalidate>
+        <input type="text" name="website_hp" id="website_hp" class="hp-field" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <section class="step active" data-step="1" data-title="Your company">
+          <div class="step-heading">
+            <div class="step-icon">🏢</div>
+            <div><h2>Where are you hiring?</h2><p>We'll use this as the center point for the labor-market analysis.</p></div>
+          </div>
+          <div class="grid two">
+            <label>Company name <span class="required">Required</span>
+              <input name="company_name" required autocomplete="organization" placeholder="Example Manufacturing">
+            </label>
+            <label>Company ZIP code <span class="required">Required</span>
+              <input name="company_zip" required autocomplete="postal-code" inputmode="numeric" maxlength="10" pattern="[0-9]{5}(-[0-9]{4})?" placeholder="43215">
+              <small class="field-help">This anchors the AI talent-market estimate.</small>
+            </label>
+          </div>
+          <label>Website <span class="optional">Optional</span>
+            <input name="website" type="url" autocomplete="url" placeholder="https://examplemfg.com">
+          </label>
+          <fieldset>
+            <legend>How far will candidates realistically commute?</legend>
+            <div class="choice-grid radius-grid">
+              <label class="choice-card"><input type="radio" name="target_radius" value="15 miles"><span><strong>15 miles</strong><small>Tight local</small></span></label>
+              <label class="choice-card"><input type="radio" name="target_radius" value="25 miles" checked><span><strong>25 miles</strong><small>Most popular</small></span></label>
+              <label class="choice-card"><input type="radio" name="target_radius" value="50 miles"><span><strong>50 miles</strong><small>Regional reach</small></span></label>
+              <label class="choice-card"><input type="radio" name="target_radius" value="100 miles"><span><strong>100 miles</strong><small>Wide territory</small></span></label>
+              <label class="choice-card"><input type="radio" name="target_radius" value="Nationwide / remote"><span><strong>Remote</strong><small>Nationwide</small></span></label>
+            </div>
+          </fieldset>
+        </section>
+
+        <section class="step" data-step="2" data-title="Roles you're hiring">
+          <div class="step-heading">
+            <div class="step-icon">👥</div>
+            <div><h2>Who are you hiring?</h2><p>Select every role type that matters. This helps the AI target the right job titles, competitors, and talent hubs.</p></div>
+          </div>
+          <fieldset>
+            <legend>Role categories <span class="required">Choose at least one</span></legend>
+            <div class="chip-grid" id="roleTypeChoices">
+              <label class="chip"><input type="checkbox" value="General labor & warehouse"><span>General labor / warehouse</span></label>
+              <label class="chip"><input type="checkbox" value="Skilled trades"><span>Skilled trades</span></label>
+              <label class="chip"><input type="checkbox" value="Manufacturing & production"><span>Manufacturing / production</span></label>
+              <label class="chip"><input type="checkbox" value="Drivers & CDL"><span>Drivers / CDL</span></label>
+              <label class="chip"><input type="checkbox" value="Healthcare & caregiving"><span>Healthcare / caregiving</span></label>
+              <label class="chip"><input type="checkbox" value="Customer service & call center"><span>Customer service</span></label>
+              <label class="chip"><input type="checkbox" value="Sales & business development"><span>Sales</span></label>
+              <label class="chip"><input type="checkbox" value="Office & administrative"><span>Office / admin</span></label>
+              <label class="chip"><input type="checkbox" value="Technology & IT"><span>Technology / IT</span></label>
+              <label class="chip"><input type="checkbox" value="Engineering"><span>Engineering</span></label>
+              <label class="chip"><input type="checkbox" value="Finance & accounting"><span>Finance / accounting</span></label>
+              <label class="chip"><input type="checkbox" value="Management & leadership"><span>Management / exec</span></label>
+            </div>
+            <input type="hidden" name="role_types" id="roleTypes" required>
+          </fieldset>
+          <label>Specific titles or skills? <span class="optional">Optional</span>
+            <input id="otherRoles" placeholder="e.g. CNC machinist, RN, Class A driver, .NET developer, licenses/certifications">
+          </label>
+          <fieldset>
+            <legend>How many hires are you making? <span class="optional">Choose one</span></legend>
+            <div class="choice-grid four" id="volumeChoices">
+              <label class="choice-card"><input type="radio" name="hiring_volume" value="1-3 roles"><span><strong>1–3</strong><small>A few key roles</small></span></label>
+              <label class="choice-card"><input type="radio" name="hiring_volume" value="4-10 roles" checked><span><strong>4–10</strong><small>Steady hiring</small></span></label>
+              <label class="choice-card"><input type="radio" name="hiring_volume" value="11-25 roles"><span><strong>11–25</strong><small>Scaling up</small></span></label>
+              <label class="choice-card"><input type="radio" name="hiring_volume" value="25+ / high volume"><span><strong>25+</strong><small>High volume</small></span></label>
+            </div>
+          </fieldset>
+        </section>
+
+        <section class="step" data-step="3" data-title="Hiring goals">
+          <div class="step-heading">
+            <div class="step-icon">🎯</div>
+            <div><h2>What should the campaign accomplish?</h2><p>Choose the primary results you want from the plan.</p></div>
+          </div>
+          <fieldset>
+            <legend>Hiring objectives <span class="optional">Choose any that apply</span></legend>
+            <div class="goal-list" id="objectiveChoices">
+              <label class="goal-card"><input type="checkbox" value="Fill open roles fast"><span><strong>Fill open roles fast</strong><small>Reach candidates most likely to apply, call, or start a conversation now.</small></span></label>
+              <label class="goal-card"><input type="checkbox" value="Build a candidate pipeline"><span><strong>Build a talent pipeline</strong><small>Stay in front of qualified people so roles fill faster over time.</small></span></label>
+              <label class="goal-card"><input type="checkbox" value="Conquest competitor talent"><span><strong>Conquest competitor talent</strong><small>Reach employees inside your top competitors' offices and branches.</small></span></label>
+              <label class="goal-card"><input type="checkbox" value="Improve applicant quality"><span><strong>Improve applicant quality</strong><small>Focus on verified job titles, skills, and certifications — not just volume.</small></span></label>
+              <label class="goal-card"><input type="checkbox" value="Reduce cost per hire"><span><strong>Reduce cost per hire</strong><small>Move off expensive job boards and staffing fees to targeted media.</small></span></label>
+              <label class="goal-card"><input type="checkbox" value="Strengthen employer brand"><span><strong>Strengthen employer brand</strong><small>Showcase culture, pay, and benefits across the local talent market.</small></span></label>
+            </div>
+            <input type="hidden" name="campaign_objective" id="objectives">
+            <small class="field-help">Leave all unchecked and we'll build a complete strategy covering speed-to-hire, pipeline, quality, and employer brand.</small>
+          </fieldset>
+          <label>Other targeting notes or exclusions <span class="optional">Optional</span>
+            <textarea name="notes" placeholder="Shift times, pay range, key competitors to conquest, trade schools or campuses nearby, must-have certifications, communities to prioritize, or areas to avoid"></textarea>
+          </label>
+          <div class="tip-box"><strong>We handle the rest:</strong> We'll identify the competitors worth conquesting, the job-title and in-market job-seeker audiences, the trade schools, campuses, and talent hubs in your area, and build the media plan and budget pacing for you.</div>
+        </section>
+
+        <section class="step" data-step="4" data-title="Contact and review">
+          <div class="step-heading">
+            <div class="step-icon">✓</div>
+            <div><h2>Where can we send your recruitment plan?</h2><p>Your report will display immediately after it is generated.</p></div>
+          </div>
+          <div class="grid two">
+            <label>Your name <span class="required">Required</span><input name="contact_name" required autocomplete="name" placeholder="First and last name"></label>
+            <label>Email <span class="required">Required</span><input name="contact_email" type="email" required autocomplete="email" placeholder="name@company.com"></label>
+            <label>Phone <span class="optional">Optional</span><input name="contact_phone" type="tel" autocomplete="tel" placeholder="(555) 555-5555"></label>
+          </div>
+          <div class="review-card" id="reviewCard"></div>
+          <div class="final-note">
+            <strong>Your report will include:</strong>
+            <ul><li>Estimated local workforce, qualified candidates, and active job seekers for your roles</li><li>Ranked competitors, trade schools, campuses, and talent hubs to target and conquest</li><li>Recommended job-title audiences, channels, and media allocation</li><li>A recommended monthly media budget for your hiring goals</li><li>A month-by-month activation and budget-pacing plan</li></ul>
+          </div>
+          <label class="consent"><input type="checkbox" name="consent" value="yes" required><span>I understand that workforce, candidate, and location figures are AI planning estimates and should be verified before campaign activation.</span></label>
+        </section>
+
+        <div class="actions">
+          <button type="button" class="secondary" id="backBtn" disabled>Back</button>
+          <button type="button" id="nextBtn">Continue <span aria-hidden="true">→</span></button>
+          <button type="submit" id="submitBtn" class="hidden">Generate My Plan</button>
+        </div>
+        <p class="error" id="formError" role="alert"></p>
+      </form>
+    </section>
+
+    <p class="privacy-note">Your information is used to build this report and route the inquiry to Smart 1 Marketing.</p>
+
+    <section class="loading hidden" id="loading" aria-live="polite">
+      <svg class="radar-loader" viewBox="0 0 160 160" role="img" aria-label="Scanning the talent market" xmlns="http://www.w3.org/2000/svg">
+        <defs><radialGradient id="sweepGrad" cx="0" cy="1" r="1"><stop offset="0" stop-color="#009ed2" stop-opacity=".55"/><stop offset="1" stop-color="#009ed2" stop-opacity="0"/></radialGradient></defs>
+        <circle cx="80" cy="80" r="62" fill="#f0f8fb" stroke="#d5e8f1" stroke-width="1.5"/>
+        <circle cx="80" cy="80" r="42" fill="none" stroke="#d5e8f1" stroke-width="1.2"/>
+        <circle cx="80" cy="80" r="22" fill="none" stroke="#d5e8f1" stroke-width="1.2"/>
+        <line x1="18" y1="80" x2="142" y2="80" stroke="#d5e8f1" stroke-width="1.2"/>
+        <line x1="80" y1="18" x2="80" y2="142" stroke="#d5e8f1" stroke-width="1.2"/>
+        <path class="sweep" d="M80 80 L80 18 A62 62 0 0 1 133 49 Z" fill="url(#sweepGrad)"/>
+        <circle class="blip b1" cx="108" cy="58" r="5" fill="#2dbb72"/>
+        <circle class="blip b2" cx="56" cy="62" r="5" fill="#009ed2"/>
+        <circle class="blip b3" cx="98" cy="106" r="5" fill="#2dbb72"/>
+        <circle class="blip b4" cx="60" cy="104" r="5" fill="#009ed2"/>
+        <g fill="#0a2240" aria-hidden="true"><rect x="71" y="75" width="18" height="12" rx="2.5"/><path d="M76.5 75v-2a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v2h-2.4v-1.6h-2.2V75z" fill="#0a2240"/><rect x="71" y="79.5" width="18" height="1.6" fill="#f0f8fb" opacity=".85"/></g>
+      </svg>
+      <h2>Scanning your talent market…</h2><p>Hang tight — we're mapping your area: local workforce, qualified candidates, competitors to conquest, job-title audiences, and your recommended plan. This can take up to a minute.</p>
+      <div class="loading-steps"><span>Sizing the workforce</span><span>Finding candidates</span><span>Mapping competitors</span><span>Building the plan</span></div>
+    </section>
+    <section class="results hidden" id="results"></section>
+  </main>
+  <script>
+const form=document.getElementById('hireForm');
+const steps=[...document.querySelectorAll('.step')];
+const nextBtn=document.getElementById('nextBtn');
+const backBtn=document.getElementById('backBtn');
+const submitBtn=document.getElementById('submitBtn');
+const progress=document.getElementById('progressBar');
+const errorBox=document.getElementById('formError');
+const stepCount=document.getElementById('stepCount');
+const stepName=document.getElementById('stepName');
+const stepDots=[...document.querySelectorAll('.step-dot')];
+const roleTypes=document.getElementById('roleTypes');
+const otherRoles=document.getElementById('otherRoles');
+let current=0;
+
+const objectives=document.getElementById('objectives');
+
+function syncRoleTypes(){
+  const selected=[...document.querySelectorAll('#roleTypeChoices input:checked')].map(x=>x.value);
+  const other=otherRoles.value.trim();
+  roleTypes.value=[...selected,...(other?[other]:[])].join(', ');
+}
+
+function syncObjectives(){
+  objectives.value=[...document.querySelectorAll('#objectiveChoices input:checked')].map(x=>x.value).join(', ');
+}
+
+document.querySelectorAll('#roleTypeChoices input').forEach(x=>x.addEventListener('change',syncRoleTypes));
+otherRoles.addEventListener('input',syncRoleTypes);
+document.querySelectorAll('#objectiveChoices input').forEach(x=>x.addEventListener('change',syncObjectives));
+
+function syncAll(){syncRoleTypes();syncObjectives();}
+
+function buildReview(){
+  syncAll();
+  const data=new FormData(form);
+  const get=name=>data.get(name)||'Not provided';
+  const objectivesText=objectives.value||'Complete strategy (all hiring goals)';
+  document.getElementById('reviewCard').innerHTML=`
+    <h3>Report setup</h3><div class="review-grid">
+      <div class="review-item">Company<strong>${esc(get('company_name'))}</strong></div>
+      <div class="review-item">Hiring market<strong>${esc(get('company_zip'))} · ${esc(get('target_radius'))}</strong></div>
+      <div class="review-item">Roles<strong>${esc(get('role_types'))}</strong></div>
+      <div class="review-item">Hiring volume<strong>${esc(get('hiring_volume'))}</strong></div>
+      <div class="review-item">Objectives<strong>${esc(objectivesText)}</strong></div>
+      <div class="review-item">Budget & plan<strong>Recommended by report</strong></div>
+    </div>`;
+}
+
+function showStep(){
+  steps.forEach((s,i)=>s.classList.toggle('active',i===current));
+  progress.style.width=`${(current+1)/steps.length*100}%`;
+  stepCount.textContent=`Step ${current+1} of ${steps.length}`;
+  stepName.textContent=steps[current].dataset.title;
+  stepDots.forEach((dot,i)=>{dot.classList.toggle('active',i===current);dot.classList.toggle('complete',i<current)});
+  backBtn.disabled=current===0;
+  nextBtn.classList.toggle('hidden',current===steps.length-1);
+  submitBtn.classList.toggle('hidden',current!==steps.length-1);
+  errorBox.textContent='';
+  if(current===steps.length-1)buildReview();
+  document.getElementById('formCard').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function validStep(){
+  syncAll();
+  const fields=[...steps[current].querySelectorAll('input,select,textarea')];
+  for(const f of fields){
+    if(!f.checkValidity()){
+      errorBox.textContent=f===roleTypes?'Please choose at least one role category.':'Please complete the required field before continuing.';
+      if(f!==roleTypes)f.reportValidity();
+      else document.getElementById('roleTypeChoices').scrollIntoView({behavior:'smooth',block:'center'});
+      return false;
+    }
+  }
+  return true;
+}
+
+nextBtn.onclick=()=>{if(validStep()){if(current===0)sendPartial();current++;showStep()}};
+backBtn.onclick=()=>{if(current>0){current--;showStep()}};
+stepDots.forEach((dot,i)=>dot.addEventListener('click',()=>{if(i<=current){current=i;showStep()}}));
+const fmt=n=>new Intl.NumberFormat('en-US').format(Math.round(n)||0);const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+
+// Booking / consultation link surfaced as the report's call-to-action (injected by the server).
+const BOOKING_URL={{ booking_url|tojson }};
+// Capture marketing attribution (UTMs, click IDs, referrer, landing URL) once on load.
+// Keys intentionally match the server's TRACKING_FIELDS (referrer / page_url).
+const TRACK=(()=>{try{const p=new URLSearchParams(location.search);const g=k=>(p.get(k)||'').slice(0,200);return {utm_source:g('utm_source'),utm_medium:g('utm_medium'),utm_campaign:g('utm_campaign'),utm_term:g('utm_term'),utm_content:g('utm_content'),gclid:g('gclid'),fbclid:g('fbclid'),referrer:(document.referrer||'').slice(0,300),page_url:(p.get('s1_ref')||location.href).slice(0,300)};}catch(e){return {};}})();
+
+// --- Partial lead capture (SPEC 3) -----------------------------------------
+// Stable per-visit lead id so GHL can merge partial -> new_lead -> completed.
+const LEAD_ID=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
+let partialSent=false;
+function partialPayload(){
+  syncAll();
+  const o={};
+  new FormData(form).forEach((v,k)=>{v=String(v).trim();if(v)o[k]=v;});
+  return o;
+}
+function sendPartial(){
+  if(partialSent)return;
+  const p=partialPayload();
+  if(!p.website&&!p.company_name)return; // need at least something identifying
+  partialSent=true;
+  const body=JSON.stringify({...p,...TRACK,lead_id:LEAD_ID,lead_stage:'partial'});
+  if(navigator.sendBeacon){navigator.sendBeacon('/api/partial-lead',new Blob([body],{type:'application/json'}));}
+  else{fetch('/api/partial-lead',{method:'POST',headers:{'Content-Type':'application/json'},body,keepalive:true}).catch(()=>{});}
+}
+window.addEventListener('pagehide',sendPartial);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')sendPartial();});
+
+form.addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!validStep())return;
+  partialSent=true; // full lead is captured below — no partial beacon needed anymore
+  const payload={...Object.fromEntries(new FormData(form).entries()),...TRACK,lead_id:LEAD_ID};
+  // Progressive capture: land the lead in the CRM immediately, before the slower
+  // AI report call — so we never lose a completed form to a timeout or a bounce.
+  fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});
+  document.getElementById('formCard').classList.add('hidden');
+  document.getElementById('loading').classList.remove('hidden');
+  try{
+    const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const raw=await r.text();let data;
+    try{data=JSON.parse(raw)}catch{throw new Error(`Server did not return a report (status ${r.status}). The report may have taken too long to generate — please try again.`)}
+    if(!r.ok||!data.ok)throw new Error(data.detail?`${data.error} (${data.detail})`:(data.error||'Report failed'));
+    renderReport(data.report,payload.company_name,data.report_pdf_url||'');
+  }catch(err){
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('formCard').classList.remove('hidden');
+    errorBox.textContent=err.message;
+  }
+});
+
+// What every recruitment package is configured with, regardless of tier.
+const PACKAGE_INCLUDES=['Smart 1 Suite — Talent Pipeline Command Center','Automated SMS & email applicant nurturing','Unified candidate inbox & online scheduling','Dynamic recruitment video production','Custom applicant landing page & workflow build','Month-by-month activation & budget pacing'];
+
+function renderReport(r,company,pdfUrl){
+  const m=r.market_profile;
+  const geo=[...r.target_locations].sort((a,b)=>a.priority-b.priority);
+  const results=document.getElementById('results');
+  const range=(a,b)=>`${fmt(a)}–${fmt(b)}`;
+  document.title=`${company} Recruitment Plan`;
+  // Talent pool funnel: 3 horizontal bars from the base market-profile estimates.
+  const fmax=Math.max(m.estimated_workforce_base||0,m.estimated_qualified_candidates_base||0,m.estimated_active_jobseekers_base||0)||1;
+  const funnelRows=[['Local workforce',m.estimated_workforce_base,'var(--navy)'],['Qualified candidates',m.estimated_qualified_candidates_base,'var(--blue)'],['Active job seekers',m.estimated_active_jobseekers_base,'var(--green)']]
+    .map(x=>{const w=Math.max(4,Math.round((x[1]||0)/fmax*100));return `<div class="funnel-row"><span class="funnel-label">${esc(x[0])}</span><div class="funnel-track"><span class="funnel-bar" style="width:${w}%;background:${x[2]}"></span></div><span class="funnel-val">${fmt(x[1])}</span></div>`}).join('');
+  results.innerHTML=`
+<div class="report-head"><div><div class="eyebrow">SMART 1 PRECISION RECRUITMENT REPORT</div><h2>${esc(company)}</h2><p>${esc(r.market_summary)}</p></div><div class="toolbar">${pdfUrl?`<a class="pdf-btn" href="${esc(pdfUrl)}" target="_blank" rel="noopener">Download PDF Report</a>`:''}<button class="secondary" onclick="window.print()">Print / Save PDF</button><button class="secondary" onclick="copyReport()">Copy Summary</button></div></div>
+<div class="badge-card"><span class="market-badge">${esc(r.market_type)}</span><p>${esc(r.market_type_description)}</p></div>
+<div class="stat-cards"><div class="stat"><strong>${range(m.estimated_workforce_low,m.estimated_workforce_high)}</strong><span>estimated local workforce</span></div><div class="stat"><strong>${range(m.estimated_qualified_candidates_low,m.estimated_qualified_candidates_high)}</strong><span>qualified candidates for your roles</span></div><div class="stat"><strong>${range(m.estimated_active_jobseekers_low,m.estimated_active_jobseekers_high)}</strong><span>active job seekers right now</span></div></div>
+<div class="section"><h3>Talent Pool Funnel</h3><div class="funnel">${funnelRows}</div><p class="field-help">Base-case AI planning estimates within your target radius.</p></div>
+<div class="section"><h3>Your Hiring Opportunity</h3><p>${esc(r.market_opportunity)}</p></div>
+<div class="cta-report"><div class="ctx"><h4>Ready to activate this plan?</h4><p>We work with only one employer per market on this program — claim yours before a competitor does.</p></div><a href="${BOOKING_URL}" target="_blank" rel="noopener">Book Your Strategy Call →</a></div>
+<div class="section"><h3>Your Recommended Package</h3><div class="pkg-config"><span class="market-badge">${esc(r.recommended_package.package_name)}</span><p class="pkg-config-desc">${esc(r.recommended_package.description)}</p><div class="config-title">Included in every package</div><div class="config-grid">${PACKAGE_INCLUDES.map(i=>`<div><span class="ck">✓</span> ${esc(i)}</div>`).join('')}</div><div class="config-title">Your configured targeting channels</div><div class="config-grid">${r.media_channels.map(x=>`<div><span class="ck">✓</span> ${esc(x)}</div>`).join('')}</div><p class="field-help">Budget paces with your hiring cycle: full activation during active hiring pushes, about half while nurturing pipeline, and a light maintenance level in quieter months — see the month-by-month plan below.</p></div></div>
+<div class="section"><h3>Streaming Audio — Job-Seeker Daypart</h3><div class="tip-box">${esc(r.streaming_audio_note)}</div></div>
+<div class="section"><h3>Recruitment Activation Triggers</h3><div class="chip-list">${r.hiring_triggers.map(x=>`<span class="chip-tag">${esc(x)}</span>`).join('')}</div></div>
+<div class="section"><h3>Month-by-Month Hiring Plan</h3><div class="table-wrap"><table class="narrow"><thead><tr><th>Month</th><th>Focus &amp; Signals</th><th>Budget Pacing</th></tr></thead><tbody>${r.monthly_plan.map(x=>`<tr><td><strong>${esc(x.month)}</strong></td><td><div class="month-focus"><strong>${esc(x.focus)}</strong><p>${esc(x.message)}</p><div class="chip-list">${(x.triggers||[]).map(t=>`<span class="chip-tag">${esc(t)}</span>`).join('')}</div></div></td><td><strong>${esc(String(x.pacing).replace(/\s*\(\$[\d,]+\)/,''))}</strong></td></tr>`).join('')}</tbody></table></div></div>
+<div class="section"><h3>Recommended Conquest &amp; Targeting Locations</h3><div class="table-wrap"><table><thead><tr><th>Priority</th><th>Location</th><th>Category</th><th>Industry / Segment</th><th>Method</th><th>Radius</th><th>Why target</th><th>Message</th><th>Confidence</th></tr></thead><tbody>${geo.map(x=>`<tr><td><span class="pill priority-${x.priority}">P${x.priority}</span></td><td><strong>${esc(x.name)}</strong><br>${esc(x.city_state)}${x.address?`<br>${esc(x.address)}`:''}</td><td>${esc(x.category)}</td><td>${esc(x.industry_or_segment)}</td><td>${esc(String(x.recommended_method).replaceAll('_',' '))}</td><td>${esc(x.recommended_radius_miles)} mi</td><td>${esc(x.audience_reason)}</td><td>${esc(x.best_message)}</td><td>${esc(x.confidence)}</td></tr>`).join('')}</tbody></table></div></div>
+<div class="cta-report"><div class="ctx"><h4>Let's put this plan to work.</h4><p>Book a 15-minute strategy call and we'll turn this report into a live campaign for your market.</p></div><a href="${BOOKING_URL}" target="_blank" rel="noopener">Book Your Strategy Call →</a></div>
+<p class="disclaimer">${esc(r.disclaimer)}</p>
+<p class="report-foot">Smart 1 Marketing · (614) 536-0768 · smart1marketing.com</p>`;
+  window.__reportText=`${company}\n\n${r.market_summary}\n\nMarket: ${r.market_type}\nQualified candidates: ${range(m.estimated_qualified_candidates_low,m.estimated_qualified_candidates_high)}\nRecommended package: ${r.recommended_package.package_name}\n\nTop targets:\n${geo.slice(0,12).map((x,i)=>`${i+1}. ${x.name} — ${x.city_state} — ${x.category}`).join('\n')}\n\n${r.disclaimer}`;
+  document.getElementById('loading').classList.add('hidden');
+  results.classList.remove('hidden');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+async function copyReport(){await navigator.clipboard.writeText(window.__reportText||'');alert('Report summary copied.')}
+window.copyReport=copyReport;
+
+// Page-load overlay (SPEC 7a): hide once the app is ready and tell the embedding page.
+function hidePageLoader(){
+  const el=document.getElementById('pageLoader');
+  if(!el||el.classList.contains('done'))return;
+  el.classList.add('done');
+  setTimeout(()=>el.remove(),500);
+  try{if(window.parent&&window.parent!==window)window.parent.postMessage('app-ready','*');}catch(e){}
+}
+if(document.readyState!=='loading')hidePageLoader();
+else document.addEventListener('DOMContentLoaded',hidePageLoader);
+window.addEventListener('load',hidePageLoader);
+
+showStep();
+
+  </script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Smart 1 Seasonal Tourism Marketing Plan</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* This page only ever renders the report card itself for PDF capture —
+     none of the wizard chrome (progress bar, step dots, page background)
+     applies here. */
+  body { background: #fff; margin: 0; }
+  .wrap { max-width: none; padding: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="report-root"></div>
+</div>
+
+<script src="data.js"></script>
+<script src="engine.js"></script>
+<script src="report-template.js"></script>
+<script>
+  // lib/pdf.js seeds window.__REPORT_ANSWERS__ via page.evaluateOnNewDocument
+  // before this script runs, so the same buildReportMarkup() used by the
+  // live wizard (public/app.js) renders here for headless PDF capture.
+  (function () {
+    var a = window.__REPORT_ANSWERS__ || {};
+    document.getElementById('report-root').innerHTML = buildReportMarkup(a);
+  })();
+</script>
+</body>
+</html>

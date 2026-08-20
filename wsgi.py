@@ -99,11 +99,22 @@ class AuthGuard:
 class HubBar:
     """Injects the shared Hub sidebar + theme into module HTML pages."""
 
-    def __init__(self, app, active=""):
+    def __init__(self, app, active="", bare_prefixes=()):
         self.app = app
         self.active = active
+        # Routes that must never receive Hub chrome. Anything served outside
+        # the Hub login is by definition being looked at by someone who is not
+        # staff — a prospect on a client's website. Injecting the staff sidebar
+        # and the feedback tab there leaks internal navigation onto a third
+        # party's domain and makes the embed look broken. Sec-Fetch-Dest below
+        # catches the iframe case but not the hosted landing-page case.
+        self.bare_prefixes = tuple(bare_prefixes or ())
 
     def __call__(self, environ, start_response):
+        if self.bare_prefixes:
+            path = environ.get("PATH_INFO", "") or "/"
+            if path.startswith(self.bare_prefixes):
+                return self.app(environ, start_response)
         captured = {}
 
         def _start(status, headers, exc_info=None):
@@ -362,8 +373,9 @@ def _mount(flask_app, prefix, public_prefixes=None):
     except Exception:  # noqa: BLE001 — helpers are never load-bearing
         pass
     _install_error_reporter(flask_app, prefix)
-    return AuthGuard(HubBar(flask_app, _MOUNT_ACTIVE.get(prefix, "")), prefix,
-                     public_prefixes=public_prefixes)
+    return AuthGuard(HubBar(flask_app, _MOUNT_ACTIVE.get(prefix, ""),
+                            bare_prefixes=public_prefixes),
+                     prefix, public_prefixes=public_prefixes)
 
 
 
@@ -424,11 +436,41 @@ try:
 except Exception as _exc_ski:  # noqa: BLE001
     ski_app, ski_fb = None, _fallback_app("Ski Landing", str(_exc_ski))
 
+try:
+    import importlib as _il_restaurant
+    restaurant_app = _il_restaurant.import_module("modules.restaurant.app")
+    restaurant_fb = None
+except Exception as _exc_restaurant:  # noqa: BLE001
+    restaurant_app, restaurant_fb = None, _fallback_app("Restaurant Landing", str(_exc_restaurant))
+
+try:
+    import importlib as _il_recruit
+    recruit_app = _il_recruit.import_module("modules.recruit.app")
+    recruit_fb = None
+except Exception as _exc_recruit:  # noqa: BLE001
+    recruit_app, recruit_fb = None, _fallback_app("Recruit Landing", str(_exc_recruit))
+
+try:
+    import importlib as _il_tour
+    tourism_app = _il_tour.import_module("modules.tourism.app")
+    tourism_fb = None
+except Exception as _exc_tour:  # noqa: BLE001
+    tourism_app, tourism_fb = None, _fallback_app("Tourism Landing", str(_exc_tour))
+
+# Public (login-exempt) routes under /scans, read from the module itself so the
+# mount and the module can never disagree about what is public.
+_SCANS_PUBLIC = tuple(getattr(scans, "PUBLIC_PREFIXES", ("/api/callback",))) \
+    if scans else ("/api/callback",)
+
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
     "/suite": _mount(suite.app, "/suite") if suite else suite_fb,
-    "/scans": _mount(scans.app, "/scans", public_prefixes=("/api/callback",)) if scans else scans_fb,
+    # The widget is embedded on other people's websites, so its pages and its
+    # public API routes sit outside the Hub login — as does /r/<token>, the
+    # unguessable link a converted lead opens their own report on.
+    "/scans": _mount(scans.app, "/scans",
+                     public_prefixes=_SCANS_PUBLIC) if scans else scans_fb,
     "/sales/builder": _mount(salesb.app, "/sales/builder") if salesb else salesb_fb,
     "/sales/proposals": _mount(propb.app, "/sales/proposals") if propb else propb_fb,
     "/tools/seo-images": _mount(seoimg.app, "/tools/seo-images") if seoimg else seoimg_fb,
@@ -442,6 +484,12 @@ application = DispatcherMiddleware(hub_app, {
     # its lead endpoints are public, which is what public_prefixes=("/",) says.
     "/land/boat": (AuthGuard(boat.app, "/land/boat", public_prefixes=("/",))
                    if boat else boat_fb),
+    "/land/tourism": (AuthGuard(tourism_app.app, "/land/tourism", public_prefixes=("/",))
+                      if tourism_app else tourism_fb),
+    "/land/recruit": (AuthGuard(recruit_app.app, "/land/recruit", public_prefixes=("/",))
+                       if recruit_app else recruit_fb),
+    "/land/restaurant": (AuthGuard(restaurant_app.app, "/land/restaurant", public_prefixes=("/",))
+                       if restaurant_app else restaurant_fb),
     "/land/ski": (AuthGuard(ski_app.app, "/land/ski", public_prefixes=("/",))
                   if ski_app else ski_fb),
     "/land/hvac": (AuthGuard(hvac_app.app, "/land/hvac", public_prefixes=("/",))

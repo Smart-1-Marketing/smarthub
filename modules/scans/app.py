@@ -26,23 +26,33 @@ import json
 import os
 import secrets
 import threading
+import time as _time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from flask import (Flask, jsonify, redirect, render_template, request,
-                   Response)
+from flask import (Flask, jsonify, make_response, redirect,
+                   render_template, request, Response)
 from sqlalchemy import (Column, DateTime, Integer, String, Text, create_engine,
                         func, or_)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from . import audit_fields, linkcheck, report_pdf, reports, site_health
+from . import (audit_fields, insites_client, leads as widget_state,
+               linkcheck, report_pdf, reports, site_health, widget)
 from .insites_client import InsitesError, is_configured
 
 try:                                   # Hub activity log (present in the Hub)
     from hub import audit as hub_audit
 except Exception:                      # noqa: BLE001 - standalone/dev fallback
     hub_audit = None
+
+# v1.42.0 put every lead in one store with one webhook and one panel. The
+# widget writes there like every other capture point; it does not keep a
+# second lead book, a second webhook or a second panel.
+try:
+    from hub import leads as hub_leads
+except Exception:                      # noqa: BLE001 - standalone/dev fallback
+    hub_leads = None
 
 BASE_DIR = Path(__file__).parent
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
@@ -152,6 +162,9 @@ class LinkCheck(Base):
 DB_BOOT_ERROR = ""
 try:
     Base.metadata.create_all(engine)
+    # The widget's placements and run state ride the same engine, so a deploy
+    # that can reach the scans database can always serve the embed too.
+    widget_state.Base.metadata.create_all(engine)
 except Exception as _db_exc:  # noqa: BLE001
     DB_BOOT_ERROR = f"{type(_db_exc).__name__}: {_db_exc}"
 
@@ -1226,5 +1239,542 @@ def api_report_json(public_id, key):
         if err is not None:
             return err
         return jsonify(r)
+    finally:
+        db.close()
+
+
+# =====================================================================
+# Public scan widget — the embeddable lead driver
+# =====================================================================
+#
+# The flow, and why it is in this order:
+#
+#   1. A visitor types a domain. We run our OWN pre-check (widget.precheck) —
+#      robots.txt, schema, sitemap, titles, content. Free, about five seconds,
+#      no Insites credit. They see a score and the three worst findings.
+#   2. To see the rest they give name, business, email and phone. The lead
+#      goes to hub.leads — the one store, the one webhook, the one panel —
+#      tagged with the placement it came from.
+#   3. ONLY THEN does a paid Insites audit start, so no anonymous visitor and
+#      no bot can ever spend a credit. A domain already audited recently
+#      reuses that audit and spends nothing at all.
+#   4. The visitor sees the SEO & AEO report and its PDF through an
+#      unguessable token. They never see the other seven audits; that data is
+#      what the sales conversation is made of.
+
+REUSE_DAYS = int(os.environ.get("SCANS_WIDGET_REUSE_DAYS", "30") or 30)
+
+# The one report a converted lead is allowed to see.
+PUBLIC_REPORT_KEY = "seo_aeo"
+
+# Mount-relative prefixes that sit outside the Hub login. wsgi.py reads this
+# tuple rather than repeating it, so the mount and the module cannot disagree.
+PUBLIC_PREFIXES = ("/api/callback", "/w/", "/embed", "/api/w/", "/r/")
+
+
+def client_ip() -> str:
+    """The caller's address, taking the LAST X-Forwarded-For hop.
+
+    Same rule and same reason as hub.leads.client_ip: the first hop is
+    client-supplied, so trusting it lets one machine present as a new visitor
+    on every request.
+    """
+    if hub_leads is not None:
+        return hub_leads.client_ip(request)
+    fwd = request.headers.get("X-Forwarded-For", "")
+    return (fwd.split(",")[-1].strip() if fwd else request.remote_addr or "")[:64]
+
+
+# The free pre-check hits someone else's website, so it gets its own ceiling.
+# Lead capture is limited by hub.leads.rate_check, which already governs every
+# other public capture point in the Hub.
+_PRECHECK_HITS: dict[str, list] = {}
+_PRECHECK_LOCK = threading.Lock()
+PRECHECK_LIMIT = int(os.environ.get("SCANS_WIDGET_PRECHECK_LIMIT") or 12)
+PRECHECK_WINDOW = 600
+
+
+def _precheck_allowed() -> bool:
+    if PRECHECK_LIMIT <= 0:
+        return True
+    ip, now = client_ip(), _time.time()
+    with _PRECHECK_LOCK:
+        hits = [t for t in _PRECHECK_HITS.get(ip, [])
+                if now - t < PRECHECK_WINDOW]
+        if len(hits) >= PRECHECK_LIMIT:
+            _PRECHECK_HITS[ip] = hits
+            return False
+        hits.append(now)
+        _PRECHECK_HITS[ip] = hits
+        if len(_PRECHECK_HITS) > 5000:
+            for k in [k for k, v in _PRECHECK_HITS.items()
+                      if not any(now - t < PRECHECK_WINDOW for t in v)][:2500]:
+                _PRECHECK_HITS.pop(k, None)
+    return True
+
+
+def _widget_or_none(db, slug: str):
+    return (db.query(widget_state.ScanWidget)
+              .filter(widget_state.ScanWidget.slug == slug).first())
+
+
+def _widget_config(db, slug: str):
+    w = _widget_or_none(db, slug)
+    if w is None or not w.active:
+        return None
+    return w.as_row(PUBLIC_BASE_URL)
+
+
+def _base_url() -> str:
+    return PUBLIC_BASE_URL or request.url_root.rstrip("/")
+
+
+def _run_by_token(db, token: str):
+    return (db.query(widget_state.ScanRun)
+              .filter(widget_state.ScanRun.token == (token or "")).first())
+
+
+# ---------------------------------------------------------------- pages
+
+@app.route("/w/<slug>")
+def widget_page(slug):
+    """Hosted standalone page — the link to run ads to."""
+    db = SessionLocal()
+    try:
+        cfg = _widget_config(db, slug)
+    finally:
+        db.close()
+    if cfg is None:
+        return "This scan isn't available.", 404
+    return render_template("widget.html", w=cfg, embedded=False,
+                           source=request.args.get("src", ""))
+
+
+@app.route("/embed/<slug>")
+def widget_embed(slug):
+    """Chrome-free version for an iframe on a client's site."""
+    db = SessionLocal()
+    try:
+        cfg = _widget_config(db, slug)
+    finally:
+        db.close()
+    if cfg is None:
+        return "This scan isn't available.", 404
+    resp = make_response(render_template("widget.html", w=cfg, embedded=True,
+                                         source=request.args.get("src", "")))
+    # Framed on other people's domains by design, so the default SAMEORIGIN
+    # rules have to be relaxed for this route and no other.
+    resp.headers["Content-Security-Policy"] = "frame-ancestors *"
+    resp.headers.pop("X-Frame-Options", None)
+    return resp
+
+
+@app.route("/embed.js")
+def widget_embed_js():
+    """Auto-resizes the iframe so the host page never shows a scrollbar."""
+    js = """(function(){
+  window.addEventListener('message', function(e){
+    var d = e.data || {};
+    if (!d || d.type !== 's1scan:height') return;
+    var frames = document.querySelectorAll('iframe[data-s1scan]');
+    for (var i = 0; i < frames.length; i++) {
+      if (frames[i].contentWindow === e.source) {
+        frames[i].style.height = d.height + 'px';
+      }
+    }
+  });
+})();"""
+    return Response(js, mimetype="application/javascript",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+# ---------------------------------------------------------------- public API
+
+@app.route("/api/w/<slug>/check", methods=["POST"])
+def api_widget_check(slug):
+    """Step 1 — the free pre-check. No Insites credit is spent here."""
+    if DB_BOOT_ERROR:
+        return jsonify({"ok": False, "error": "The scanner is temporarily "
+                                              "unavailable. Try again shortly."}), 503
+    if not _precheck_allowed():
+        return jsonify({"ok": False, "error": "That's a lot of checks from one "
+                                              "place. Give it a few minutes."}), 429
+
+    body = request.get_json(silent=True) or {}
+    db = SessionLocal()
+    try:
+        cfg = _widget_config(db, slug)
+        if cfg is None:
+            return jsonify({"ok": False, "error": "This scan isn't available."}), 404
+        try:
+            result = widget.precheck(body.get("domain") or "")
+        except widget.PrecheckError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 422
+        except Exception:                          # noqa: BLE001
+            # Never hand a raw traceback to a stranger on a client's website.
+            app.logger.exception("widget precheck failed")
+            return jsonify({"ok": False, "error": "We couldn't read that site "
+                                                  "just now. Try again in a "
+                                                  "moment."}), 500
+
+        row = widget_state.ScanRun(
+            token=widget_state.new_token(),
+            widget_slug=slug, tag=cfg["tag"], created_at=_now(),
+            domain=result["domain"][:255], site_url=result["url"][:500],
+            source=_text(body.get("source") or request.referrer or "", 300),
+            ip=client_ip(),
+            user_agent=_text(request.headers.get("User-Agent", ""), 300),
+            precheck_score=result["score"],
+            precheck_json=json.dumps(result),
+            scan_status="not_started")
+        db.add(row)
+        db.commit()
+        _log("widget_check", detail=result["domain"], widget=slug,
+             score=result["score"])
+        return jsonify({"ok": True, "token": row.token,
+                        "result": widget.teaser(result)})
+    finally:
+        db.close()
+
+
+def _recent_scan_for(db, key: str):
+    """A completed audit for this domain young enough to reuse."""
+    cutoff = _now().replace(tzinfo=None) - timedelta(days=REUSE_DAYS)
+    return (db.query(Scan)
+              .filter(Scan.domain_key == key, Scan.status == "complete",
+                      Scan.created_at >= cutoff)
+              .order_by(Scan.id.desc()).first())
+
+
+def _start_widget_scan(db, row) -> None:
+    """Start (or reuse) the paid audit for a converted lead.
+
+    Never raises: the lead is already stored and already sent, and a failure
+    to buy an audit must not turn a captured lead into an error page.
+    """
+    key = domain_key(row.domain or "")
+    if not key:
+        row.scan_status = "error"
+        db.commit()
+        return
+    with _LOCK:
+        existing = _recent_scan_for(db, key)
+        if existing is not None:
+            row.scan_public_id = existing.public_id
+            row.scan_status = existing.status
+            row.scan_reused = 1
+            db.commit()
+            _log("widget_scan_reused", detail=key, widget=row.widget_slug,
+                 scan=existing.public_id)
+            return
+        if not is_configured():
+            row.scan_status = "unconfigured"
+            db.commit()
+            return
+        public_id = _new_public_id()
+        s = Scan(public_id=public_id, domain_key=key,
+                 input_url=_text(row.site_url or key, 600),
+                 business_name=_text(row.company, 300),
+                 source="widget", source_url=_text(row.source, 600),
+                 requested_by=_text(row.email, 160),
+                 status="running", created_at=_now())
+        db.add(s)
+        db.commit()
+        row.scan_public_id = public_id
+        row.scan_status = "running"
+        db.commit()
+
+    on_completion = None
+    if PUBLIC_BASE_URL:
+        tok = f"?token={CALLBACK_TOKEN}" if CALLBACK_TOKEN else ""
+        on_completion = f"{PUBLIC_BASE_URL}/scans/api/callback/{public_id}{tok}"
+    try:
+        resp = insites_client.start_audit(
+            key, on_completion=on_completion, name=row.company or "",
+            phone=row.phone or "")
+        rid = resp.get("reportId") or resp.get("report_id")
+        if rid:
+            s.insites_report_id = _text(rid, 80)
+            db.commit()
+        _log("scan_started", detail=key, scan=s.public_id, via="widget")
+        if rid and (on_completion is None or resp.get("status") == "success"):
+            _try_immediate_fetch(db, s)
+            row.scan_status = s.status
+            db.commit()
+    except InsitesError as exc:
+        s.status = "error"
+        s.error_message = str(exc)[:600]
+        row.scan_status = "error"
+        db.commit()
+    except Exception as exc:                       # noqa: BLE001
+        app.logger.exception("widget scan start failed")
+        s.status = "error"
+        s.error_message = f"{type(exc).__name__}: {exc}"[:600]
+        row.scan_status = "error"
+        db.commit()
+
+
+def _capture_lead(row, cfg) -> None:
+    """Hand the lead to hub.leads — the one store, webhook and panel.
+
+    Tagged with the placement so the panel answers "which scan did they run?",
+    and carrying the report PDF link so the rep has it without leaving the CRM.
+    """
+    if hub_leads is None:
+        return
+    pdf_url = ""
+    if row.scan_public_id:
+        pdf_url = f"{_base_url()}/scans/r/{row.token}.pdf"
+    try:
+        pre = json.loads(row.precheck_json or "{}")
+    except (TypeError, ValueError):
+        pre = {}
+    issues = [f["label"] for f in pre.get("findings", [])
+              if f.get("state") == "bad"][:5]
+    try:
+        result = hub_leads.capture_and_deliver(
+            source="scan_widget",
+            page=row.tag or row.widget_slug or "scan",
+            fields={
+                "name": row.name, "email": row.email, "phone": row.phone,
+                "company": row.company,
+                "website": row.site_url or row.domain,
+                "ai_visibility_score": row.precheck_score,
+                "top_issues": "; ".join(issues),
+                "source_page": row.source or "",
+            },
+            pdf_url=pdf_url,
+            client=row.company or "",
+            meta={"widget": row.widget_slug or "", "tag": row.tag or "",
+                  "domain": row.domain or "",
+                  "scan_public_id": row.scan_public_id or "",
+                  "report_url": (f"{_base_url()}/scans/r/{row.token}"
+                                 if row.scan_public_id else "")})
+        row.lead_id = str(result.get("lead_id") or "")[:32]
+    except Exception:                              # noqa: BLE001
+        # hub.leads never raises by design; if it somehow does, the run row
+        # still exists and the lead can be recovered from it.
+        app.logger.exception("widget lead capture failed")
+
+
+@app.route("/api/w/<slug>/unlock", methods=["POST"])
+def api_widget_unlock(slug):
+    """Step 2 — contact details in, full pre-check out, paid audit begins."""
+    if DB_BOOT_ERROR:
+        return jsonify({"ok": False, "error": "The scanner is temporarily "
+                                              "unavailable."}), 503
+
+    body = request.get_json(silent=True) or {}
+    # Honeypot: a hidden field no human fills in. Answer 200 so a bot learns
+    # nothing from the difference.
+    if (body.get("company_url") or "").strip():
+        return jsonify({"ok": True, "findings": [], "scan": {"status": "queued"}})
+
+    contact, errors = widget_state.validate_contact(body)
+    if errors:
+        return jsonify({"ok": False, "errors": errors,
+                        "error": "Check the highlighted fields."}), 400
+
+    db = SessionLocal()
+    try:
+        cfg = _widget_config(db, slug)
+        row = _run_by_token(db, body.get("token"))
+        if row is None or row.widget_slug != slug or cfg is None:
+            return jsonify({"ok": False, "error": "That check expired. Run it "
+                                                  "again and we'll unlock the "
+                                                  "report."}), 404
+
+        first_unlock = row.unlocked_at is None
+        if first_unlock and hub_leads is not None:
+            # The Hub's shared ceiling on public lead capture.
+            allowed, wait = hub_leads.rate_check(client_ip())
+            if not allowed:
+                return jsonify({"ok": False, "error":
+                                "Too many submissions from one place. Try "
+                                f"again in about {max(1, wait // 60)} minutes."}), 429
+
+        row.name, row.email = contact["name"], contact["email"]
+        row.phone, row.company = contact["phone"], contact["company"]
+        row.unlocked_at = row.unlocked_at or _now()
+        db.commit()
+
+        try:
+            pre = json.loads(row.precheck_json or "{}")
+        except (TypeError, ValueError):
+            pre = {}
+
+        if first_unlock:
+            _log("widget_lead", detail=row.domain, widget=slug,
+                 client=row.company or None)
+            # The credit is spent here and nowhere earlier. Started before the
+            # lead is filed so the filed lead can carry the report link.
+            _start_widget_scan(db, row)
+            db.refresh(row)
+            _capture_lead(row, cfg)
+            db.commit()
+
+        return jsonify({
+            "ok": True,
+            "findings": pre.get("findings", []),
+            "score": pre.get("score"),
+            "band": pre.get("band"),
+            "headline": pre.get("headline"),
+            "scan": {"status": row.scan_status or "pending",
+                     "reused": bool(row.scan_reused)},
+            "report_url": f"/scans/r/{row.token}",
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/w/<slug>/status")
+def api_widget_status(slug):
+    """Step 3 — has the paid audit landed yet? Polled by the widget."""
+    db = SessionLocal()
+    try:
+        row = _run_by_token(db, request.args.get("token"))
+        if row is None or row.widget_slug != slug or row.unlocked_at is None:
+            return jsonify({"ok": False, "error": "Unknown check."}), 404
+        s = None
+        if row.scan_public_id:
+            s = db.query(Scan).filter(Scan.public_id == row.scan_public_id).first()
+        if s is not None and s.status != row.scan_status:
+            row.scan_status = s.status
+            db.commit()
+        ready = bool(s is not None and s.status == "complete")
+        return jsonify({"ok": True, "status": row.scan_status or "pending",
+                        "ready": ready,
+                        "report_url": f"/scans/r/{row.token}" if ready else "",
+                        "pdf_url": f"/scans/r/{row.token}.pdf" if ready else ""})
+    finally:
+        db.close()
+
+
+def _lead_report(db, token: str):
+    """(report, run) for a converted lead, or (None, ...).
+
+    Only ever builds ``seo_aeo``. The other seven audits stay behind the Hub
+    login — that data is what the sales conversation is made of, and handing
+    it over for an email address gives away the reason to call.
+    """
+    row = _run_by_token(db, token)
+    if row is None or row.unlocked_at is None:
+        return None, None
+    # A converted lead whose audit hasn't attached yet gets the waiting page,
+    # not a 404. They have given us their details and been promised a report.
+    if not row.scan_public_id:
+        return None, row
+    s = db.query(Scan).filter(Scan.public_id == row.scan_public_id).first()
+    if s is None or s.status != "complete":
+        return None, row
+    try:
+        return reports.report(_report_of(s), PUBLIC_REPORT_KEY), row
+    except Exception:                              # noqa: BLE001
+        app.logger.exception("lead report build failed")
+        return None, row
+
+
+@app.route("/r/<token>")
+def widget_report(token):
+    """The converted lead's own report, on an unguessable link."""
+    db = SessionLocal()
+    try:
+        r, row = _lead_report(db, token)
+        if row is None:
+            return "That report link isn't valid.", 404
+        if r is None:
+            return render_template("widget_waiting.html", lead=row.as_row(),
+                                   status=row.scan_status or "pending")
+        return render_template("widget_report.html", r=r, token=token,
+                               lead=row.as_row())
+    finally:
+        db.close()
+
+
+@app.route("/r/<token>.pdf")
+def widget_report_pdf(token):
+    """The same report as a PDF the lead can keep or forward."""
+    db = SessionLocal()
+    try:
+        r, row = _lead_report(db, token)
+        if r is None:
+            return "That report isn't ready yet.", 404
+        try:
+            pdf = report_pdf.build(r)
+        except Exception:                          # noqa: BLE001
+            app.logger.exception("lead PDF failed")
+            return "We couldn't build that PDF.", 500
+        _log("widget_pdf", detail=row.domain, widget=row.widget_slug,
+             client=row.company or None)
+        return Response(pdf, mimetype="application/pdf", headers={
+            "Content-Disposition":
+                f'inline; filename="{report_pdf.filename(r)}"'})
+    finally:
+        db.close()
+
+
+# =====================================================================
+# Placement admin (Hub side, behind the login)
+# =====================================================================
+
+@app.route("/widgets")
+def widgets_page():
+    db = SessionLocal()
+    try:
+        rows = (db.query(widget_state.ScanWidget)
+                  .order_by(widget_state.ScanWidget.id.desc()).all())
+        return render_template(
+            "widgets.html",
+            widgets=[w.as_row(_base_url()) for w in rows],
+            base_url=_base_url(), defaults=widget_state.DEFAULTS,
+            reuse_days=REUSE_DAYS,
+            webhook_set=bool(hub_leads and hub_leads.webhook_url()),
+            insites_ok=is_configured(), warnings=config_warnings())
+    finally:
+        db.close()
+
+
+@app.route("/api/widgets", methods=["POST"])
+def api_widget_save():
+    """Create or update a placement."""
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if len(name) < 2:
+        return jsonify({"error": "Give this placement a name."}), 400
+    slug = widget_state.slugify(body.get("slug") or name)
+    tag = widget_state.slugify(body.get("tag") or slug)
+
+    db = SessionLocal()
+    try:
+        w = _widget_or_none(db, slug)
+        if w is None:
+            w = widget_state.ScanWidget(slug=slug, created_at=_now(),
+                                        created_by=actor_name()[:120])
+            db.add(w)
+        w.name = name[:200]
+        w.tag = tag[:64]
+        w.headline = _text(body.get("headline"), 300)
+        w.subhead = _text(body.get("subhead"), 500)
+        w.button_label = _text(body.get("button_label"), 80)
+        w.accent = _text(body.get("accent"), 16)
+        w.active = 0 if body.get("active") is False else 1
+        db.commit()
+        _log("widget_saved", detail=slug, tag=tag)
+        return jsonify({"ok": True, "widget": w.as_row(_base_url())})
+    finally:
+        db.close()
+
+
+@app.route("/api/widgets/<slug>/toggle", methods=["POST"])
+def api_widget_toggle(slug):
+    db = SessionLocal()
+    try:
+        w = _widget_or_none(db, slug)
+        if w is None:
+            return jsonify({"error": "Unknown placement."}), 404
+        w.active = 0 if w.active else 1
+        db.commit()
+        _log("widget_toggled", detail=slug, active=bool(w.active))
+        return jsonify({"ok": True, "widget": w.as_row(_base_url())})
     finally:
         db.close()

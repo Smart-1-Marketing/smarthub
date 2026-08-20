@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{ r.title }} · {{ r.business or r.domain }} · Smart 1 Hub</title>
+<style>
+  :root { --navy:#0A2240; --blue:#009ED2; --ink:#25364B; --muted:#68798C;
+    --line:#DBE5ED; --bg:#F3F7FA; --ok:#2DBB72; --warn:#F0B429; --bad:#DC2626; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:14.5px/1.55 'Segoe UI',system-ui,-apple-system,sans-serif; }
+  .wrap { max-width:1000px; margin:0 auto; padding:26px 22px 90px; }
+  a { color:var(--blue); }
+  .crumb { font-size:13px; font-weight:600; }
+  .crumb a { text-decoration:none; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:14px;
+    padding:22px 24px; margin-bottom:16px; }
+  h1 { color:var(--navy); font-size:26px; margin:10px 0 4px; }
+  .sub { color:var(--muted); margin:0; font-size:13.5px; }
+  .blurb { font-size:15px; margin:12px 0 0; max-width:70ch; }
+
+  .topgrid { display:grid; grid-template-columns:1fr 190px; gap:22px; align-items:start; }
+  .scorebox { text-align:center; border:1px solid var(--line); border-radius:12px;
+    padding:14px 10px; background:var(--bg); }
+  .scorebox .n { font-size:40px; font-weight:800; color:var(--navy); line-height:1; }
+  .scorebox .l { font-size:11.5px; color:var(--muted); text-transform:uppercase;
+    letter-spacing:.05em; margin-top:6px; }
+
+  .tally { display:flex; gap:10px; flex-wrap:wrap; margin:16px 0 0; }
+  .pill { border-radius:999px; padding:5px 13px; font-size:12.5px; font-weight:700; }
+  .pill.ok { background:#ECFDF3; color:#12794B; }
+  .pill.warn { background:#FEF7E7; color:#94620A; }
+  .pill.bad { background:#FDECEC; color:#B01919; }
+  .pill.info, .pill.unknown, .pill.neutral { background:#EEF3F8; color:var(--muted); }
+
+  .prio { counter-reset:p; }
+  .prio li { list-style:none; border-top:1px solid var(--line); padding:12px 0; }
+  .prio li:first-child { border-top:0; }
+  .prio b { color:var(--navy); }
+  .prio .where { font-size:11.5px; color:var(--muted); text-transform:uppercase;
+    letter-spacing:.05em; }
+  .prio .n { display:inline-block; width:24px; height:24px; border-radius:50%;
+    background:var(--navy); color:#fff; font-size:12px; font-weight:700;
+    text-align:center; line-height:24px; margin-right:9px; }
+
+  h2.sec { color:var(--navy); font-size:17px; margin:0; }
+  .sechead { display:flex; justify-content:space-between; align-items:center;
+    gap:14px; flex-wrap:wrap; }
+  .verdict { font-size:15px; margin:8px 0 0; }
+  .stats { display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 0; }
+  .stat { border:1px solid var(--line); border-radius:10px; padding:8px 13px;
+    min-width:120px; background:var(--bg); }
+  .stat .v { font-size:18px; font-weight:800; color:var(--navy); }
+  .stat .k { font-size:11.5px; color:var(--muted); }
+  .stat.ok .v { color:#12794B; } .stat.bad .v { color:var(--bad); }
+  .stat.warn .v { color:#94620A; }
+
+  ul.checks { list-style:none; margin:14px 0 0; padding:0; }
+  ul.checks li { display:flex; gap:11px; padding:10px 0;
+    border-top:1px solid var(--line); }
+  ul.checks li:first-child { border-top:0; }
+  .dot { flex:0 0 auto; width:18px; height:18px; border-radius:50%; margin-top:2px;
+    color:#fff; font-size:11px; font-weight:800; text-align:center; line-height:18px; }
+  .dot.ok { background:var(--ok); } .dot.bad { background:var(--bad); }
+  .dot.warn { background:var(--warn); } .dot.info, .dot.unknown { background:#9AAABC; }
+  .chk b { color:var(--navy); }
+  .chk .d { color:var(--muted); font-size:13.5px; }
+  .chk .v { float:right; font-weight:800; color:var(--navy); margin-left:12px; }
+
+  table.t { width:100%; border-collapse:collapse; margin-top:12px; font-size:13px; }
+  table.t th { text-align:left; font-size:11px; text-transform:uppercase;
+    letter-spacing:.05em; color:var(--muted); border-bottom:1px solid var(--line);
+    padding:7px 8px 7px 0; }
+  table.t td { border-bottom:1px solid var(--line); padding:8px 8px 8px 0;
+    vertical-align:top; overflow-wrap:anywhere; }
+  details.tbl > summary { cursor:pointer; color:var(--blue); font-weight:600;
+    font-size:13px; list-style:none; padding:10px 0 0; }
+  details.tbl > summary::-webkit-details-marker { display:none; }
+  details.tbl > summary:before { content:"▸ "; }
+  details.tbl[open] > summary:before { content:"▾ "; }
+  .note { color:var(--muted); font-size:12.5px; margin-top:12px; }
+  .notmeasured { color:var(--muted); font-size:13.5px; margin:8px 0 0; }
+
+  .acts { display:flex; gap:10px; flex-wrap:wrap; }
+  .btn { background:var(--navy); color:#fff; border:0; border-radius:9px;
+    padding:10px 17px; font:600 13.5px inherit; cursor:pointer;
+    text-decoration:none; display:inline-block; }
+  .btn.sec { background:#fff; color:var(--navy); border:1px solid var(--line); }
+  .menu { display:flex; flex-wrap:wrap; gap:9px; margin-top:12px; }
+  .menu a { text-decoration:none; border:1px solid var(--line); border-radius:9px;
+    padding:8px 13px; font-size:13px; font-weight:600; color:var(--navy);
+    background:#fff; }
+  .menu a.on { background:var(--navy); color:#fff; border-color:var(--navy); }
+  .menu a .c { font-weight:800; margin-left:6px; }
+  .menu a .c.bad { color:var(--bad); } .menu a.on .c.bad { color:#FF9C9C; }
+  @media print {
+    body { background:#fff; } .noprint { display:none !important; }
+    .card { break-inside:avoid; border-radius:0; border-left:0; border-right:0; }
+    details.tbl > summary { display:none; } details.tbl { display:block; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+    <div style="text-align:center;margin-bottom:18px">
+    <span style="font-weight:800;color:var(--navy);letter-spacing:.02em">SMART 1 MARKETING</span>
+  </div>
+
+  <div class="card">
+    <div class="topgrid">
+      <div>
+        <h1>{{ r.title }}</h1>
+        <p class="sub">{{ r.business or r.domain }}{% if r.domain %} · {{ r.domain }}{% endif %}
+          {% if r.scanned_at %} · scanned {{ r.scanned_at[:10] }}{% endif %}</p>
+        <p class="blurb">{{ r.blurb }}</p>
+        <p class="verdict"><b>{{ r.headline }}</b></p>
+        <div class="tally">
+          <span class="pill ok">{{ r.passed }} passing</span>
+          <span class="pill warn">{{ r.warned }} to improve</span>
+          <span class="pill bad">{{ r.failed }} to fix</span>
+        </div>
+      </div>
+      <div>
+        <div class="scorebox">
+          <div class="n">{{ r.overall_score if r.overall_score is not none else "—" }}</div>
+          <div class="l">Overall site score</div>
+          {% if r.tier %}<div class="l" style="margin-top:4px">{{ r.tier }}</div>{% endif %}
+        </div>
+        <div class="acts noprint" style="margin-top:12px">
+          <a class="btn" href="/scans/r/{{ token }}.pdf" style="width:100%;text-align:center">Download PDF</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if r.priorities %}
+  <div class="card">
+    <h2 class="sec">Fix these first</h2>
+    <p class="sub">The findings in this report with the most to gain, in order.</p>
+    <ul class="prio" style="margin:14px 0 0;padding:0">
+      {% for p in r.priorities %}
+      <li>
+        <div class="where">{{ p.section }}</div>
+        <div><span class="n">{{ loop.index }}</span><b>{{ p.label }}</b></div>
+        <div class="chk"><div class="d" style="margin-left:33px">{{ p.detail }}</div></div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% for s in r.sections %}
+  <div class="card">
+    <div class="sechead">
+      <h2 class="sec">{{ s.title }}</h2>
+      <span class="pill {{ s.severity }}">
+        {%- if not s.measured -%}not measured
+        {%- elif s.failed -%}{{ s.failed }} to fix
+        {%- elif s.warned -%}{{ s.warned }} to improve
+        {%- else -%}clear{%- endif -%}</span>
+    </div>
+    <p class="{{ 'notmeasured' if not s.measured else 'verdict' }}">{{ s.verdict }}</p>
+
+    {% if s.stats %}
+    <div class="stats">
+      {% for st in s.stats %}
+        <div class="stat {{ st.band }}"><div class="v">{{ st.value }}</div><div class="k">{{ st.label }}</div></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if s.checks %}
+    <ul class="checks">
+      {% for c in s.checks %}
+      <li>
+        <span class="dot {{ c.state }}">{% if c.state == 'ok' %}&check;{% elif c.state == 'bad' %}&times;{% elif c.state == 'warn' %}!{% else %}&bull;{% endif %}</span>
+        <div class="chk" style="flex:1">
+          {% if c.value %}<span class="v">{{ c.value }}</span>{% endif %}
+          <b>{% if c.link %}<a href="{{ c.link }}" target="_blank" rel="noopener">{{ c.label }}</a>{% else %}{{ c.label }}{% endif %}</b>
+          {% if c.detail %}<div class="d">{{ c.detail }}</div>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% for t in s.tables %}
+    <details class="tbl">
+      <summary>{{ t.title }}</summary>
+      <table class="t">
+        <thead><tr>{% for col in t.columns %}<th>{{ col }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in t.rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}
+        </tbody>
+      </table>
+      {% if t.note %}<div class="note">{{ t.note }}</div>{% endif %}
+    </details>
+    {% endfor %}
+
+    {% if s.note %}<div class="note">{{ s.note }}</div>{% endif %}
+  </div>
+  {% endfor %}
+
+  <div class="card noprint" style="text-align:center">
+    <h2 class="sec" style="margin-bottom:8px">Want these fixed?</h2>
+    <p class="sub" style="margin:0 0 14px">This report is yours to keep. If you'd
+      rather not work through it yourself, we do this for a living.</p>
+    <a class="btn" href="https://smart1marketing.com/contact" target="_blank"
+       rel="noopener">Talk to Smart 1 Marketing</a>
+    <div class="note" style="margin-top:14px">Prepared by Smart 1 Marketing from an
+      automated audit of {{ r.domain }} on {{ r.scanned_at[:10] if r.scanned_at else "the date shown" }}.
+      A finding here is a starting point, not a legal or engineering opinion.</div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scan Widgets · Smart 1 Hub</title>
+<style>
+  :root { --navy:#0A2240; --blue:#009ED2; --ink:#25364B; --muted:#68798C;
+    --line:#DBE5ED; --bg:#F3F7FA; --ok:#2DBB72; --bad:#DC2626; --warn:#F0B429; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:14.5px/1.55 'Segoe UI',system-ui,sans-serif; }
+  .wrap { max-width:1000px; margin:0 auto; padding:26px 22px 80px; }
+  a { color:var(--blue); }
+  h1 { color:var(--navy); font-size:25px; margin:6px 0 4px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:13px;
+    padding:20px 22px; margin-bottom:16px; }
+  .card h2 { font-size:13px; color:var(--navy); margin:0 0 14px;
+    text-transform:uppercase; letter-spacing:.05em; }
+  .warn { background:#FEF7E7; border:1px solid #F5DFA8; color:#7A5209;
+    border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:13.5px; }
+  label { display:block; font-weight:600; font-size:12.5px; color:var(--navy); margin:0 0 5px; }
+  input, textarea { width:100%; padding:9px 11px; border:1px solid var(--line);
+    border-radius:8px; font:14px inherit; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .field { margin-bottom:12px; }
+  button { background:var(--navy); color:#fff; border:0; border-radius:8px;
+    padding:10px 16px; font:600 14px inherit; cursor:pointer; }
+  button.sec { background:#fff; color:var(--navy); border:1px solid var(--line); }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11px; text-transform:uppercase; color:var(--muted);
+    letter-spacing:.05em; border-bottom:1px solid var(--line); padding:8px 8px 8px 0; }
+  td { border-bottom:1px solid var(--line); padding:11px 8px 11px 0; vertical-align:top; }
+  code { background:#F3F7FA; border:1px solid var(--line); border-radius:6px;
+    padding:1px 6px; font-size:12px; }
+  pre { background:#0A2240; color:#DBE6FF; padding:13px 15px; border-radius:9px;
+    overflow:auto; font-size:12px; margin:8px 0 0; }
+  .pill { display:inline-block; border-radius:999px; padding:3px 10px;
+    font-size:11.5px; font-weight:700; background:#EEF3F8; color:var(--muted); }
+  .pill.on { background:#ECFDF3; color:#12794B; }
+  .pill.off { background:#FDECEC; color:#B01919; }
+  .muted { color:var(--muted); font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="muted"><a href="./">&larr; Site Scans</a> · <a href="/sales/leads">Leads panel</a></p>
+  <h1>Scan Widgets</h1>
+  <p class="sub">The embeddable AI-visibility scanner. Drop one on any site; every
+    lead it captures is tagged with that placement.</p>
+
+  {% if not insites_ok %}
+    <div class="warn"><b>Insites isn't configured.</b> The free pre-check still
+      runs and leads are still captured, but no deep scan will start until
+      <code>INSITES_API_KEY</code> is set.</div>
+  {% endif %}
+  {% if not webhook_set %}
+    <div class="warn"><b>No lead webhook is set.</b> Leads are stored in the
+      <a href="/sales/leads">leads panel</a> and can be retried from there, but nothing
+      reaches Smart 1 Suite until <code>HUB_LEAD_WEBHOOK_URL</code> is set.</div>
+  {% endif %}
+  {% for w in warnings %}<div class="warn">{{ w }}</div>{% endfor %}
+
+  <div class="card">
+    <h2>Add a placement</h2>
+    <div class="grid2">
+      <div class="field"><label for="f_name">Name (internal)</label>
+        <input id="f_name" placeholder="Smart 1 home page"></div>
+      <div class="field"><label for="f_tag">Lead tag</label>
+        <input id="f_tag" placeholder="smart1-home">
+        <div class="muted">Filled in from the name if you leave it blank.</div></div>
+    </div>
+    <div class="field"><label for="f_headline">Headline</label>
+      <input id="f_headline" placeholder="{{ defaults.headline }}"></div>
+    <div class="field"><label for="f_subhead">Sub-headline</label>
+      <textarea id="f_subhead" rows="2" placeholder="{{ defaults.subhead }}"></textarea></div>
+    <div class="grid2">
+      <div class="field"><label for="f_btn">Button label</label>
+        <input id="f_btn" placeholder="{{ defaults.button_label }}"></div>
+      <div class="field"><label for="f_accent">Accent colour</label>
+        <input id="f_accent" placeholder="{{ defaults.accent }}"></div>
+    </div>
+    <button id="saveBtn">Save placement</button>
+    <span class="muted" id="saveMsg" style="margin-left:10px"></span>
+  </div>
+
+  <div class="card">
+    <h2>Placements</h2>
+    {% if not widgets %}
+      <p class="muted">None yet. Add one above and the embed code appears here.</p>
+    {% else %}
+    <table>
+      <thead><tr><th>Placement</th><th>Tag</th><th>Links</th><th></th></tr></thead>
+      <tbody>
+      {% for w in widgets %}
+        <tr>
+          <td><b>{{ w.name }}</b>
+            <div class="muted">{{ w.headline }}</div>
+            <span class="pill {{ 'on' if w.active else 'off' }}">{{ 'live' if w.active else 'paused' }}</span>
+          </td>
+          <td><code>{{ w.tag }}</code></td>
+          <td style="width:280px">
+            <a href="{{ w.page_url }}" target="_blank">Hosted page &#8599;</a><br>
+            <a href="{{ w.embed_url }}" target="_blank">Embed preview &#8599;</a>
+            <details style="margin-top:6px"><summary class="muted" style="cursor:pointer">Embed code</summary>
+<pre>&lt;script src="{{ base_url }}/scans/embed.js" async&gt;&lt;/script&gt;
+&lt;iframe data-s1scan
+  src="{{ w.embed_url }}"
+  style="width:100%;border:0;height:560px"
+  title="{{ w.headline }}"&gt;&lt;/iframe&gt;</pre>
+            </details>
+          </td>
+          <td style="text-align:right">
+            <button class="sec" data-toggle="{{ w.slug }}">{{ 'Pause' if w.active else 'Resume' }}</button>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>How a lead is captured</h2>
+    <p style="margin:0 0 8px">A visitor types their website. We run our own
+      pre-check &mdash; robots.txt, structured data, sitemap, titles, content
+      &mdash; in about five seconds, <b>free</b>, and show them a score and the
+      three worst findings.</p>
+    <p style="margin:0 0 8px">To see the rest they give a name, business, email
+      and phone. The lead is written to the database, the webhook fires, and
+      <b>only then</b> does a paid Insites audit start &mdash; so no anonymous
+      visitor and no bot can ever spend a credit.</p>
+    <p style="margin:0 0 8px">A domain already scanned in the last {{ reuse_days }}
+      days reuses that audit and spends nothing. The visitor only ever sees the
+      SEO &amp; AEO report; the other seven audits stay in the Hub.</p>
+    <p style="margin:0">Leads land in the <a href="/sales/leads">leads panel</a> with
+      every other capture, tagged with the placement and carrying a link to the
+      report PDF.</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+  $('saveBtn').onclick = function(){
+    var body = {
+      name: $('f_name').value, tag: $('f_tag').value,
+      headline: $('f_headline').value, subhead: $('f_subhead').value,
+      button_label: $('f_btn').value, accent: $('f_accent').value
+    };
+    if (!body.name || body.name.trim().length < 2){
+      $('saveMsg').textContent = 'Give it a name first.'; return;
+    }
+    $('saveBtn').disabled = true; $('saveMsg').textContent = 'Saving…';
+    fetch('api/widgets', {method:'POST', headers:{'Content-Type':'application/json'},
+                          body: JSON.stringify(body)})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        $('saveBtn').disabled = false;
+        if (j.error){ $('saveMsg').textContent = j.error; return; }
+        $('saveMsg').textContent = 'Saved ✓';
+        location.reload();
+      })
+      .catch(function(){ $('saveBtn').disabled = false;
+                         $('saveMsg').textContent = 'Save failed.'; });
+  };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-toggle]'), function(b){
+    b.onclick = function(){
+      b.disabled = true;
+      fetch('api/widgets/' + encodeURIComponent(b.getAttribute('data-toggle')) + '/toggle',
+            {method:'POST'})
+        .then(function(){ location.reload(); })
+        .catch(function(){ b.disabled = false; });
+    };
+  });
+})();
+</script>
+</body>
+</html>
