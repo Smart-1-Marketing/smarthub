@@ -879,6 +879,15 @@ def create_hub_app() -> Flask:
         from . import leads
         return jsonify(leads.retry_undelivered())
 
+    @app.route("/api/htmlpdf")
+    def api_htmlpdf():
+        """Is the browser that renders HTML-template PDFs actually present?"""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import htmlpdf
+        return jsonify(htmlpdf.status())
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.

@@ -187,6 +187,12 @@ services:
       # IO Builder submissions post here.
       - key: GHL_WEBHOOK_URL
         sync: false
+      # ---- public scan widget ----
+      # Reuse an audit this many days old instead of buying another.
+      - key: SCANS_WIDGET_REUSE_DAYS
+        value: "30"
+      - key: SCANS_WIDGET_PRECHECK_LIMIT
+        value: "12"
       # ---- shared ----
       - key: AUDIT_LOG_PATH
         value: /var/data/hub-audit.log.jsonl

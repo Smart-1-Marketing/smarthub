@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Create an AI-powered restaurant market, frequent-diner, and geofencing opportunity report.">
+  <title>Restaurant Market Intelligence | Smart 1 Marketing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    .step:not(.active){display:none!important;}
+:root{--navy:#0a2240;--navy2:#16395f;--blue:#009ed2;--aqua:#e7f7fb;--green:#2dbb72;--ink:#25364b;--muted:#68798c;--line:#dbe5ed;--bg:#f3f7fa;--white:#fff;--danger:#b42318;--shadow:0 20px 60px rgba(10,34,64,.11)}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 50% 0,#fdeee0 0,#f3f7fa 460px);font-family:Montserrat,Arial,sans-serif;color:var(--ink)}button,input,select,textarea{font-family:inherit}.shell{width:min(1120px,calc(100% - 28px));margin:0 auto;padding:38px 0 80px}.hero{text-align:center;max-width:900px;margin:0 auto 28px}.brand-lockup{display:inline-flex;align-items:center;gap:9px;font-size:.72rem;font-weight:800;letter-spacing:.14em;color:var(--navy);margin-bottom:22px}.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--navy);color:#fff;letter-spacing:0}.eyebrow{font-weight:800;letter-spacing:.15em;color:var(--blue);font-size:.75rem}.hero h1{font-size:clamp(2.1rem,5.4vw,4rem);line-height:1.03;color:var(--navy);margin:.5rem 0 1rem;letter-spacing:-.035em}.hero p{font-size:1.03rem;line-height:1.7;margin:0 auto;color:var(--muted);max-width:790px}.benefit-row{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;margin-top:19px}.benefit-row span{background:#fff;border:1px solid #cfe5ed;border-radius:999px;padding:8px 12px;font-size:.72rem;font-weight:700;color:#426278}.benefit-row span:before{content:'✓';color:var(--green);font-weight:900;margin-right:6px}.card,.loading,.results{background:var(--white);border-radius:20px;box-shadow:var(--shadow);border:1px solid rgba(10,34,64,.06)}.card{max-width:900px;margin:auto;overflow:hidden}.form-top{display:flex;align-items:center;justify-content:space-between;padding:21px 34px 15px}.form-top>div{display:flex;align-items:center;gap:10px}.step-count{font-size:.7rem;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.06em}.form-top strong{color:var(--navy);font-size:.86rem}.save-note{font-size:.72rem;color:var(--muted)}.progress-track{height:6px;background:#e8eff4}.progress-track span{display:block;width:25%;height:100%;background:linear-gradient(90deg,var(--blue),var(--green));transition:.3s ease}.step-nav{display:grid;grid-template-columns:repeat(4,1fr);padding:17px 30px 6px;gap:8px}.step-dot{border:0;background:transparent;color:#91a0ae;cursor:pointer;padding:0;display:flex;flex-direction:column;align-items:center;gap:5px}.step-dot span{display:grid;place-items:center;width:27px;height:27px;border-radius:50%;border:2px solid #d5e0e8;font-size:.7rem;font-weight:800;background:#fff}.step-dot small{font-size:.62rem;font-weight:700}.step-dot.active,.step-dot.complete{color:var(--navy)}.step-dot.active span{border-color:var(--blue);background:var(--blue);color:#fff;box-shadow:0 0 0 4px rgba(0,158,210,.12)}.step-dot.complete span{border-color:var(--green);background:var(--green);color:#fff}.step{display:none;padding:30px 42px 12px}.step.active{display:block;animation:fade .22s ease}@keyframes fade{from{opacity:.25;transform:translateY(5px)}to{opacity:1;transform:none}}.step-heading{display:flex;gap:15px;align-items:flex-start;margin-bottom:25px}.step-icon{display:grid;place-items:center;flex:0 0 44px;height:44px;background:var(--aqua);border-radius:13px;font-size:1.25rem;color:var(--blue);font-weight:900}.step-heading h2{color:var(--navy);font-size:1.65rem;letter-spacing:-.02em;margin:0 0 6px}.step-heading p{margin:0;color:var(--muted);font-size:.85rem;line-height:1.5}.grid{display:grid;gap:18px}.grid.two{grid-template-columns:1fr 1fr}label,legend{font-size:.79rem;font-weight:700;color:var(--navy)}label{display:block;margin-bottom:18px}fieldset{border:0;padding:0;margin:0 0 22px}legend{margin-bottom:11px}.required,.optional{font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;margin-left:5px}.required{color:var(--blue)}.optional{color:#8997a5}input:not([type=radio]):not([type=checkbox]),select,textarea{width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:13px 14px;font-size:.88rem;font-weight:500;color:var(--ink);background:#fff;transition:.2s}textarea{min-height:102px;resize:vertical;line-height:1.5}input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,158,210,.12)}.field-help{display:block;color:var(--muted);font-weight:500;line-height:1.45;margin-top:6px;font-size:.67rem}.choice-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.choice-grid.four{grid-template-columns:repeat(4,1fr)}.radius-grid{grid-template-columns:repeat(5,1fr)}.choice-card,.goal-card,.chip{margin:0;cursor:pointer}.choice-card input,.goal-card input,.chip input{position:absolute;opacity:0;pointer-events:none}.choice-card>span{display:flex;flex-direction:column;gap:4px;height:100%;border:1px solid var(--line);border-radius:11px;padding:13px 10px;background:#fff;transition:.2s}.choice-card strong{font-size:.78rem}.choice-card small{font-size:.62rem;color:var(--muted);font-weight:500}.choice-card input:checked+span{border-color:var(--blue);background:#effafe;box-shadow:0 0 0 2px rgba(0,158,210,.1)}.chip-grid{display:flex;flex-wrap:wrap;gap:9px}.chip span{display:block;border:1px solid var(--line);border-radius:999px;padding:9px 13px;font-size:.72rem;background:#fff;transition:.2s}.chip input:checked+span{background:var(--navy);border-color:var(--navy);color:#fff}.goal-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}.goal-card>span{display:block;position:relative;border:1px solid var(--line);border-radius:12px;padding:14px 15px 14px 43px;min-height:84px;transition:.2s}.goal-card>span:before{content:'';position:absolute;left:15px;top:17px;width:16px;height:16px;border-radius:50%;border:2px solid #b8c7d2}.goal-card strong{display:block;font-size:.78rem;margin-bottom:5px}.goal-card small{display:block;color:var(--muted);font-size:.65rem;line-height:1.45;font-weight:500}.goal-card input:checked+span{border-color:var(--blue);background:#effafe}.goal-card input:checked+span:before{border:5px solid var(--blue);background:#fff}.tip-box,.final-note{background:#eff9fc;border-left:4px solid var(--blue);padding:15px 16px;line-height:1.55;font-size:.78rem;border-radius:0 9px 9px 0}.final-note ul{margin:9px 0 0;padding-left:20px}.final-note li{margin:5px 0}.review-card{border:1px solid var(--line);border-radius:12px;background:#f8fafc;padding:16px;margin:3px 0 16px}.review-card h3{font-size:.83rem;color:var(--navy);margin:0 0 11px}.review-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.review-item{font-size:.68rem;color:var(--muted)}.review-item strong{display:block;color:var(--ink);font-size:.73rem;margin-top:2px}.consent{display:flex;gap:10px;align-items:flex-start;margin-top:18px;color:var(--muted);font-weight:500;line-height:1.5;font-size:.69rem}.consent input{margin-top:3px;accent-color:var(--blue)}.actions{display:flex;justify-content:space-between;gap:12px;padding:19px 42px 34px}.actions button,.toolbar button{border:0;border-radius:10px;padding:13px 20px;font-size:.8rem;font-weight:800;cursor:pointer;background:var(--blue);color:#fff;transition:.2s}.actions button:hover,.toolbar button:hover{transform:translateY(-1px);filter:brightness(.97)}.actions .secondary,.toolbar .secondary{background:#e9eef3;color:var(--navy)}button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}.hidden{display:none!important}.error{color:var(--danger);font-size:.75rem;padding:0 42px 19px;margin:0}.privacy-note{text-align:center;font-size:.65rem;color:var(--muted);margin:13px auto 0}.loading{text-align:center;max-width:900px;margin:auto;padding:60px 28px}.plate-loader{width:180px;height:130px;margin:0 auto;display:block}.plate-loader .steam{animation:steamRise 2.6s ease-in-out infinite;transform-box:fill-box;transform-origin:center bottom}.plate-loader .steam2{animation:steamRise 2.6s ease-in-out infinite .5s}.plate-loader .steam3{animation:steamRise 2.6s ease-in-out infinite 1s}.plate-loader .sun{animation:sunPulse 3s ease-in-out infinite;transform-box:fill-box;transform-origin:center}@keyframes steamRise{0%{opacity:0;transform:translateY(0) scaleY(.7)}30%{opacity:.9}70%{opacity:.5}100%{opacity:0;transform:translateY(-22px) scaleY(1.15)}}@keyframes sunPulse{0%,100%{opacity:.85;transform:scale(1)}50%{opacity:1;transform:scale(1.08)}}@media(prefers-reduced-motion:reduce){.plate-loader .steam,.plate-loader .steam2,.plate-loader .steam3,.plate-loader .sun{animation:none}}.loading h2{color:var(--navy);margin:22px 0 8px}.loading p{color:var(--muted);line-height:1.55}.loading-steps{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:22px}.loading-steps span{background:#f1f6f8;border-radius:999px;padding:7px 10px;font-size:.64rem;color:#5c7182}.results{padding:34px;margin:auto}.report-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;border-bottom:1px solid var(--line);padding-bottom:22px}.report-head h2{color:var(--navy);font-size:2rem;margin:0 0 8px}.report-head p{color:var(--muted);line-height:1.6;margin:0}.toolbar{display:flex;gap:8px;flex-wrap:wrap}.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:24px 0}.metric{padding:18px;border-radius:12px;background:#f4f9fb;border:1px solid #dcecf2}.metric span{display:block;font-size:.7rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.metric strong{display:block;color:var(--navy);font-size:1.4rem;margin-top:7px}.section{margin-top:32px}.section h3{color:var(--navy);font-size:1.25rem;border-left:4px solid var(--blue);padding-left:10px}.section p,.section li{line-height:1.65}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{border-collapse:collapse;width:100%;min-width:900px;font-size:.76rem}th{background:var(--navy);color:#fff;text-align:left;padding:12px}td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}.pill{display:inline-block;border-radius:999px;padding:4px 8px;font-weight:800;font-size:.65rem;background:#e8f7ed;color:#17733a}.priority-1{background:#dff6e7;color:#0b6b31}.priority-2{background:#fff4cf;color:#7a5a00}.priority-3{background:#edf1f5;color:#526174}.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.mini-card{border:1px solid var(--line);border-radius:12px;padding:16px}.mini-card h4{color:var(--navy);margin:0 0 8px}.mini-card p{font-size:.82rem;color:var(--muted);margin:5px 0}.disclaimer{font-size:.72rem;color:var(--muted);border-top:1px solid var(--line);margin-top:30px;padding-top:18px}.market-badge{display:inline-block;background:var(--navy);color:#fff;font-weight:800;font-size:.82rem;padding:9px 17px;border-radius:999px;margin-bottom:12px}.badge-card{border:1px solid var(--line);border-radius:14px;padding:20px 22px;background:#fff;margin:22px 0 4px}.badge-card p{margin:0;color:var(--ink);line-height:1.6}.stat-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0 4px}.stat{padding:24px 16px;border-radius:14px;background:#f4f9fb;border:1px solid #dcecf2;text-align:center}.stat strong{display:block;color:var(--navy);font-size:1.7rem;line-height:1.12;letter-spacing:-.02em}.stat span{display:block;color:var(--muted);font-size:.72rem;font-weight:600;margin-top:9px;line-height:1.35}.chip-list{display:flex;flex-wrap:wrap;gap:9px;margin-top:8px}.chip-tag{display:inline-block;border:1px solid #cfe2ef;background:#fff;color:var(--navy);border-radius:999px;padding:8px 14px;font-size:.76rem;font-weight:700}.package-name{color:var(--navy);font-size:1.35rem;font-weight:800;margin:6px 0 10px}.pkg-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:10px 0 6px}.pkg{border:1px solid var(--line);border-radius:12px;padding:18px 14px;background:#fff;text-align:center;position:relative}.pkg .pkg-price{display:block;color:var(--navy);font-size:1.15rem;font-weight:800}.pkg .pkg-name{display:block;color:var(--ink);font-size:.78rem;font-weight:700;margin-top:4px}.pkg .pkg-blurb{display:block;color:var(--muted);font-size:.66rem;margin-top:8px;line-height:1.4}.pkg.recommended{border-color:var(--blue);background:#effafe;box-shadow:0 0 0 2px rgba(0,158,210,.12)}.pkg .pkg-badge{position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:var(--blue);color:#fff;font-size:.58rem;font-weight:800;letter-spacing:.04em;padding:3px 9px;border-radius:999px;white-space:nowrap}@media(max-width:700px){.pkg-grid{grid-template-columns:1fr 1fr}}table.narrow{min-width:0}.month-focus strong{color:var(--navy);font-size:.9rem}.month-focus p{margin:4px 0 9px;color:var(--muted);font-size:.82rem;line-height:1.5}@media(max-width:640px){.stat-cards{grid-template-columns:1fr}}@media(max-width:780px){.shell{padding-top:24px}.hero h1{font-size:2.35rem}.step-nav small{display:none}.step{padding:26px 22px 10px}.form-top{padding:18px 22px 14px}.step-nav{padding-left:22px;padding-right:22px}.grid.two,.goal-list,.cards{grid-template-columns:1fr}.choice-grid.four{grid-template-columns:1fr 1fr}.radius-grid{grid-template-columns:repeat(3,1fr)}.actions{padding:16px 22px 28px}.error{padding-left:22px;padding-right:22px}.report-head{display:block}.toolbar{margin-top:16px}.results{padding:22px}.metric-grid{grid-template-columns:1fr 1fr}.review-grid{grid-template-columns:1fr}}@media(max-width:480px){.hero p{font-size:.9rem}.benefit-row{gap:6px}.benefit-row span{font-size:.64rem}.form-top strong,.save-note{display:none}.step-heading h2{font-size:1.35rem}.radius-grid{grid-template-columns:1fr 1fr}.choice-grid.four{grid-template-columns:1fr 1fr}.actions button{padding:12px 15px}.metric-grid{grid-template-columns:1fr}}@media print{body{background:#fff}.hero,.card,.privacy-note,.toolbar{display:none!important}.shell{width:100%;padding:0}.results{box-shadow:none;border:0;padding:0}.table-wrap{overflow:visible}table{min-width:0;font-size:8pt}}
+
+.embed .hero{display:none!important}.embed .shell{padding-top:18px}
+.hp-field{position:absolute!important;left:-9999px!important;top:auto;width:1px;height:1px;overflow:hidden}
+/* Prominent Cloudinary PDF download button (appears once the PDF is ready). */
+.toolbar a.btn-pdf{display:inline-block;background:var(--green);color:#fff;text-decoration:none;border-radius:10px;padding:13px 20px;font-size:.8rem;font-weight:800;transition:.2s}
+.toolbar a.btn-pdf:hover{transform:translateY(-1px);filter:brightness(.97)}
+@media print{.toolbar a.btn-pdf{display:none!important}}
+/* Page-load loader overlay — shown only in embed mode until the app is ready. */
+#pageLoader{display:none}
+.embed #pageLoader{display:flex;position:fixed;inset:0;z-index:9999;background:var(--bg);flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center}
+.embed #pageLoader.hidden{display:none}
+#pageLoader .pl-brand{font-size:.78rem;font-weight:800;letter-spacing:.14em;color:var(--navy)}
+#pageLoader .pl-brand .b{color:var(--blue)}
+#pageLoader p{margin:4px 0 0;color:var(--muted);font-size:.8rem;font-weight:600}
+.trade-map{width:100%;max-width:520px;margin:10px auto 4px;display:block}
+.view-only .card,.view-only .privacy-note,.view-only .hero{display:none!important}
+/* ===== Audit-style report ===== */
+.rpt{--rl:#e6edf3;--gold:#f0b429;max-width:850px;margin:0 auto;color:#25364b}
+.rpt-band{background:var(--navy);color:#fff;border-radius:14px 14px 0 0;padding:26px 30px 22px;border-bottom:4px solid var(--green)}
+.rpt-logo{display:flex;align-items:center;gap:6px;font-weight:800;letter-spacing:.02em;font-size:1.1rem;color:#fff}
+.rpt-logo .b{color:#4db3e6}
+.rpt-band h2{color:#fff;margin:14px 0 3px;font-size:1.7rem;letter-spacing:-.01em;border:0;padding:0}
+.rpt-band .sub{color:#9fb6cf;font-size:.8rem;font-weight:600}
+.rpt-body{border:1px solid var(--rl);border-top:0;border-radius:0 0 14px 14px;padding:22px 30px 30px;background:#fff}
+.rpt-h{font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#6b7a8d;border-bottom:1px solid var(--rl);padding-bottom:8px;margin:28px 0 15px}
+.rpt-lead{font-size:.95rem;line-height:1.6;margin:0}
+.rpt-grid{display:grid;gap:14px}.rpt-3{grid-template-columns:repeat(3,1fr)}
+.rpt-tile{border:1px solid var(--rl);border-radius:12px;padding:16px 18px;background:#fff}
+.rpt-tile .lbl{font-size:.6rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#8595a7}
+.rpt-tile .val{font-size:1.5rem;font-weight:800;color:var(--navy);margin-top:6px;line-height:1.1}
+.rpt-tile .note{font-size:.64rem;color:#8595a7;margin-top:6px}
+.rpt-badge{display:inline-block;background:var(--navy);color:#fff;font-weight:800;font-size:.8rem;padding:8px 15px;border-radius:999px;margin-bottom:10px}
+.gbb{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.gbb .p{border:1px solid var(--rl);border-radius:12px;padding:20px 16px 18px;text-align:center;position:relative;background:#fff}
+.gbb .p.rec{border:2px solid var(--blue);background:#f2fbff;box-shadow:0 0 0 3px rgba(0,158,210,.08)}
+.gbb .tier{font-size:.62rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#8595a7}
+.gbb .price{font-size:1.5rem;font-weight:800;color:var(--navy);margin:6px 0 2px}
+.gbb .per{font-size:.62rem;color:#8595a7}
+.gbb .name{font-size:.82rem;font-weight:700;margin-top:8px;color:var(--ink)}
+.gbb .blurb{font-size:.66rem;color:#68798c;margin-top:8px;line-height:1.45}
+.gbb .rec-badge{position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:var(--blue);color:#fff;font-size:.54rem;font-weight:800;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.rpt-note{font-size:.72rem;color:#68798c;line-height:1.5;margin:8px 0}
+.rpt-disc{background:#f4f9fb;border-left:4px solid var(--blue);border-radius:0 8px 8px 0;padding:12px 15px;font-size:.76rem;color:#3a4b5e;line-height:1.55;margin-top:14px}
+.rpt-cmp{width:100%;border-collapse:collapse;font-size:.8rem;min-width:0}
+.rpt-cmp th,.rpt-cmp td{border:1px solid var(--rl);padding:10px 12px;text-align:left;vertical-align:top}
+.rpt-cmp th{background:var(--navy);color:#fff;font-size:.66rem;letter-spacing:.03em;text-transform:uppercase}
+.rpt-cmp td:first-child{font-weight:700;color:var(--navy);width:30%}
+.rpt-cmp .good{color:#1a7f4b;font-weight:700}
+.rpt-cta{background:linear-gradient(135deg,var(--navy),#12324f);color:#fff;border-radius:14px;padding:26px 28px;text-align:center;margin-top:26px}
+.rpt-cta h3{color:#fff;font-size:1.25rem;margin:0 0 8px;border:0;padding:0}
+.rpt-cta p{color:#c9d6e5;font-size:.86rem;margin:0 auto 16px;max-width:52ch;line-height:1.55}
+.rpt-cta a.btn-consult{display:inline-block;background:var(--green);color:#062315;font-weight:800;text-decoration:none;padding:13px 24px;border-radius:999px;font-size:.9rem}
+.rpt-foot{font-size:.66rem;color:#8595a7;border-top:1px solid var(--rl);margin-top:22px;padding-top:14px;line-height:1.5}
+@media(max-width:720px){.rpt-3,.gbb{grid-template-columns:1fr}}
+/* ===== print / page-break control ===== */
+@media print{
+  @page{margin:14mm 12mm}
+  body{background:#fff}
+  .rpt{max-width:none}
+  .rpt-band{border-radius:0}
+  .rpt-body{border:0;padding:0}
+  .rpt-h,h1,h2,h3{break-after:avoid;page-break-after:avoid}
+  .rpt-h,.rpt-tile,.gbb .p,.rpt-cta,.rpt-disc,.trade-map,.badge-card,.month-focus{break-inside:avoid;page-break-inside:avoid}
+  tr,td,th{break-inside:avoid;page-break-inside:avoid}
+  .toolbar{display:none!important}
+  .pg-break{break-before:page;page-break-before:always}
+  .chan-card{break-inside:avoid;page-break-inside:avoid}
+}
+/* ===== graphical media channels ===== */
+.chan-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:6px}
+.chan-card{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--rl);border-left:4px solid var(--green);border-radius:12px;padding:13px 14px}
+.chan-ic{flex:0 0 auto;width:38px;height:38px;border-radius:9px;background:rgba(45,187,114,.12);display:flex;align-items:center;justify-content:center}
+.chan-ic svg{width:20px;height:20px;stroke:var(--navy);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.chan-tx{min-width:0}
+.chan-tx .n{font-weight:800;color:var(--navy);font-size:.9rem;line-height:1.2}
+.chan-tx .d{color:#5a6b7d;font-size:.72rem;margin-top:2px;line-height:1.35}
+@media(max-width:720px){.chan-grid{grid-template-columns:1fr}}
+  </style>
+  <script>
+    // Server-injected config (packages come from a single source of truth in app.py).
+    window.__PACKAGES__ = {{ packages_json|safe }};
+    window.__REPORT_VIEW_ID__ = {{ report_view_id|tojson }};
+    window.__HP_FIELD__ = {{ honeypot_field|tojson }};
+    // When embedded on the Smart 1 landing page (?embed=1), hide the redundant hero
+    // (headline + intro) so the tool goes straight to the form. Runs before paint.
+    (function(){try{if(new URLSearchParams(location.search).get('embed')==='1'){document.documentElement.classList.add('embed');}}catch(e){}})();
+  </script>
+</head>
+<body>
+  <div id="pageLoader" aria-hidden="true">
+    <div class="pl-brand">SMART <span class="b">1</span> MARKETING</div>
+    <svg class="plate-loader" viewBox="0 0 160 130" role="img" aria-label="Loading" xmlns="http://www.w3.org/2000/svg">
+      <circle class="sun" cx="131" cy="29" r="11" fill="#f6c244"/>
+      <path class="steam" d="M62 58 q-6 -10 0 -20 q6 -10 0 -20" fill="none" stroke="#cfe9f4" stroke-width="4" stroke-linecap="round"/>
+      <path class="steam steam2" d="M80 58 q-6 -10 0 -20 q6 -10 0 -20" fill="none" stroke="#cfe9f4" stroke-width="4" stroke-linecap="round"/>
+      <path class="steam steam3" d="M98 58 q-6 -10 0 -20 q6 -10 0 -20" fill="none" stroke="#cfe9f4" stroke-width="4" stroke-linecap="round"/>
+      <ellipse cx="80" cy="92" rx="52" ry="14" fill="#e3edf3"/>
+      <ellipse cx="80" cy="88" rx="46" ry="13" fill="#ffffff" stroke="#dbe5ed" stroke-width="2"/>
+      <ellipse cx="80" cy="88" rx="26" ry="8" fill="#f4f9fb"/>
+      <circle cx="70" cy="86" r="4" fill="#2dbb72"/>
+      <circle cx="88" cy="90" r="3.5" fill="#009ed2"/>
+      <circle cx="80" cy="83" r="3" fill="#0a2240"/>
+    </svg>
+    <p>Setting the table — loading your market tool…</p>
+  </div>
+  <main class="shell">
+    <section class="hero">
+      <div class="brand-lockup">
+        <span class="brand-mark">S1</span>
+        <span>SMART 1 MARKETING</span>
+      </div>
+      <div class="eyebrow">RESTAURANT MARKET INTELLIGENCE</div>
+      <h1>Find the diners hiding in your market.</h1>
+      <p>Tell us about your restaurant and trade area. Our AI will identify nearby offices, residential density, event venues, likely frequent-diner communities, conquest opportunities, and practical geofences.</p>
+      <div class="benefit-row" aria-label="Report benefits">
+        <span>Trade-area map</span>
+        <span>Diner estimates</span>
+        <span>Geofence targets</span>
+        <span>Media plan</span>
+      </div>
+    </section>
+
+    <section class="card" id="formCard">
+      <div class="form-top">
+        <div>
+          <span class="step-count" id="stepCount">Step 1 of 4</span>
+          <strong id="stepName">Your restaurant</strong>
+        </div>
+        <span class="save-note">About 3 minutes</span>
+      </div>
+
+      <div class="progress-track" aria-hidden="true"><span id="progressBar"></span></div>
+      <nav class="step-nav" aria-label="Form progress">
+        <button type="button" class="step-dot active" data-go-step="0"><span>1</span><small>Restaurant</small></button>
+        <button type="button" class="step-dot" data-go-step="1"><span>2</span><small>Menu &amp; style</small></button>
+        <button type="button" class="step-dot" data-go-step="2"><span>3</span><small>Goals</small></button>
+        <button type="button" class="step-dot" data-go-step="3"><span>4</span><small>Finish</small></button>
+      </nav>
+
+      <form id="restaurantForm" novalidate>
+        <div class="hp-field" aria-hidden="true">
+          <label>Company website (leave blank)
+            <input type="text" name="company_website" tabindex="-1" autocomplete="off">
+          </label>
+        </div>
+        <section class="step active" data-step="1" data-title="Your restaurant">
+          <div class="step-heading">
+            <div class="step-icon">🍽️</div>
+            <div><h2>Where is your restaurant?</h2><p>We will use this as the center point for the market analysis.</p></div>
+          </div>
+          <div class="grid two">
+            <label>Restaurant name <span class="required">Required</span>
+              <input name="restaurant_name" required autocomplete="organization" placeholder="Example Kitchen &amp; Bar">
+            </label>
+            <label>Restaurant ZIP code <span class="required">Required</span>
+              <input name="restaurant_zip" required autocomplete="postal-code" inputmode="numeric" maxlength="10" pattern="[0-9]{5}(-[0-9]{4})?" placeholder="43215">
+              <small class="field-help">This anchors the AI market estimate.</small>
+            </label>
+          </div>
+          <label>Website or Facebook page <span class="required">Required</span>
+            <input name="website" required autocomplete="url" placeholder="yourrestaurant.com or facebook.com/yourrestaurant">
+            <small class="field-help">Our AI reads your site or page to tailor the plan to your menu, prices, and vibe. No website? Paste your Facebook, Instagram, or Google listing.</small>
+          </label>
+          <fieldset>
+            <legend>How far will guests realistically travel?</legend>
+            <div class="choice-grid radius-grid">
+              <label class="choice-card"><input type="radio" name="target_radius" value="1 mile"><span><strong>1 mile</strong><small>Walkable trade area</small></span></label>
+              <label class="choice-card"><input type="radio" name="target_radius" value="3 miles" checked><span><strong>3 miles</strong><small>Most popular</small></span></label>
+              <label class="choice-card"><input type="radio" name="target_radius" value="5 miles"><span><strong>5 miles</strong><small>Neighborhood draw</small></span></label>
+              <label class="choice-card"><input type="radio" name="target_radius" value="10 miles"><span><strong>10 miles</strong><small>Citywide draw</small></span></label>
+              <label class="choice-card"><input type="radio" name="target_radius" value="20 miles"><span><strong>20 miles</strong><small>Destination restaurant</small></span></label>
+            </div>
+          </fieldset>
+        </section>
+
+        <section class="step" data-step="2" data-title="Menu and service style">
+          <div class="step-heading">
+            <div class="step-icon">🍳</div>
+            <div><h2>What do you serve, and how?</h2><p>Select every category that matters. This helps the AI identify the right dayparts and guest profiles.</p></div>
+          </div>
+          <fieldset>
+            <legend>Cuisine and concept <span class="required">Choose at least one</span></legend>
+            <div class="chip-grid" id="cuisineChoices">
+              <label class="chip"><input type="checkbox" value="American / comfort food"><span>American / comfort</span></label>
+              <label class="chip"><input type="checkbox" value="Italian / pizza"><span>Italian / pizza</span></label>
+              <label class="chip"><input type="checkbox" value="Mexican / Latin American"><span>Mexican / Latin American</span></label>
+              <label class="chip"><input type="checkbox" value="Asian / Pan-Asian"><span>Asian / Pan-Asian</span></label>
+              <label class="chip"><input type="checkbox" value="Steakhouse / seafood"><span>Steakhouse / seafood</span></label>
+              <label class="chip"><input type="checkbox" value="Bar, pub, and grill"><span>Bar / pub / grill</span></label>
+              <label class="chip"><input type="checkbox" value="Coffee, cafe, and bakery"><span>Coffee / cafe / bakery</span></label>
+              <label class="chip"><input type="checkbox" value="Breakfast and brunch"><span>Breakfast / brunch</span></label>
+              <label class="chip"><input type="checkbox" value="Fine dining"><span>Fine dining</span></label>
+              <label class="chip"><input type="checkbox" value="Buffet and family-style"><span>Buffet / family-style</span></label>
+              <label class="chip"><input type="checkbox" value="Food truck / quick service"><span>Food truck / quick service</span></label>
+              <label class="chip"><input type="checkbox" value="Catering and private events"><span>Catering / private events</span></label>
+            </div>
+            <input type="hidden" name="cuisine_types" id="cuisineTypes" required>
+          </fieldset>
+          <label>Anything else you serve? <span class="optional">Optional</span>
+            <input id="otherCuisine" placeholder="Specialty dishes, signature items, dietary focus, brands, or house specials">
+          </label>
+          <fieldset>
+            <legend>Service style <span class="optional">Choose up to 2</span></legend>
+            <div class="choice-grid four" id="serviceStyleChoices">
+              <label class="choice-card"><input type="checkbox" value="Dine-in / full service"><span><strong>Dine-in</strong><small>Full-service seating</small></span></label>
+              <label class="choice-card"><input type="checkbox" value="Fast casual / counter service"><span><strong>Fast casual</strong><small>Counter or quick service</small></span></label>
+              <label class="choice-card"><input type="checkbox" value="Delivery and takeout heavy"><span><strong>Delivery / takeout</strong><small>Off-premise focus</small></span></label>
+              <label class="choice-card"><input type="checkbox" value="Bar and late-night"><span><strong>Bar / late-night</strong><small>Evening and nightlife</small></span></label>
+            </div>
+            <input type="hidden" name="service_style" id="serviceStyle">
+          </fieldset>
+        </section>
+
+        <section class="step" data-step="3" data-title="Campaign goals">
+          <div class="step-heading">
+            <div class="step-icon">🎯</div>
+            <div><h2>What should the campaign accomplish?</h2><p>Choose the primary result you want from the plan.</p></div>
+          </div>
+          <fieldset>
+            <legend>Campaign objectives <span class="optional">Choose any that apply</span></legend>
+            <div class="goal-list" id="objectiveChoices">
+              <label class="goal-card"><input type="checkbox" value="Drive dinner rush traffic"><span><strong>Drive dinner traffic</strong><small>Fill tables during your peak evening window.</small></span></label>
+              <label class="goal-card"><input type="checkbox" value="Grow the lunch and happy-hour crowd"><span><strong>Grow lunch / happy hour</strong><small>Reach nearby offices during weekday dayparts.</small></span></label>
+              <label class="goal-card"><input type="checkbox" value="Increase delivery and takeout orders"><span><strong>Increase delivery / takeout</strong><small>Reach nearby households for off-premise orders.</small></span></label>
+              <label class="goal-card"><input type="checkbox" value="Promote a new menu, event, or opening"><span><strong>Promote an event or launch</strong><small>Support a new menu, grand opening, or special night.</small></span></label>
+              <label class="goal-card"><input type="checkbox" value="Grow catering and private events"><span><strong>Grow catering / private events</strong><small>Reach nearby businesses and event planners.</small></span></label>
+              <label class="goal-card"><input type="checkbox" value="Build brand awareness"><span><strong>Build market awareness</strong><small>Increase recognition across your trade area.</small></span></label>
+            </div>
+            <input type="hidden" name="campaign_objective" id="objectives">
+            <small class="field-help">Leave all unchecked and we'll build a complete strategy covering every daypart and revenue center.</small>
+          </fieldset>
+          <label>Other targeting notes or exclusions <span class="optional">Optional</span>
+            <textarea name="notes" placeholder="Signature dishes, price point, competitors to watch, areas to avoid, guest profile, or seasonal promotions"></textarea>
+          </label>
+          <div class="tip-box"><strong>We handle the rest:</strong> We'll assume your daypart pattern, recommend a media budget, build a trigger-driven plan, and find the offices, residential density, hotels, colleges, venues, and competitors in your market for you.</div>
+        </section>
+
+        <section class="step" data-step="4" data-title="Contact and review">
+          <div class="step-heading">
+            <div class="step-icon">✓</div>
+            <div><h2>Where can we send your comprehensive report to?</h2><p>Your report will display immediately after it is generated.</p></div>
+          </div>
+          <div class="grid two">
+            <label>Your name <span class="required">Required</span><input name="contact_name" required autocomplete="name" placeholder="First and last name"></label>
+            <label>Email <span class="required">Required</span><input name="contact_email" type="email" required autocomplete="email" placeholder="name@restaurant.com"></label>
+            <label>Phone <span class="optional">Optional</span><input name="contact_phone" type="tel" autocomplete="tel" placeholder="(555) 555-5555"></label>
+          </div>
+          <div class="review-card" id="reviewCard"></div>
+          <div class="final-note">
+            <strong>Your report will include:</strong>
+            <ul><li>Estimated market population and likely frequent-diner households</li><li>Ranked offices, residential density, venues, competitors, and event generators we find for your market</li><li>Recommended districts, communities, audiences and non-social media allocation</li><li>A recommended monthly media budget for your market</li><li>A trigger-driven activation and budget-pacing plan</li></ul>
+          </div>
+          <label class="consent"><input type="checkbox" required><span>I understand that population, household, dine-out, and location recommendations are AI planning estimates and should be verified before campaign activation.</span></label>
+        </section>
+
+        <div class="actions">
+          <button type="button" class="secondary" id="backBtn" disabled>Back</button>
+          <button type="button" id="nextBtn">Continue <span aria-hidden="true">→</span></button>
+          <button type="submit" id="submitBtn" class="hidden">Generate My Report</button>
+        </div>
+        <p class="error" id="formError" role="alert"></p>
+      </form>
+    </section>
+
+    <p class="privacy-note">Your information is used to build this report and route the inquiry to Smart 1 Marketing.</p>
+
+    <section class="loading hidden" id="loading" aria-live="polite">
+      <svg class="plate-loader" viewBox="0 0 160 130" role="img" aria-label="Steaming plate" xmlns="http://www.w3.org/2000/svg">
+        <circle class="sun" cx="131" cy="29" r="11" fill="#f6c244"/>
+        <path class="steam" d="M62 58 q-6 -10 0 -20 q6 -10 0 -20" fill="none" stroke="#cfe9f4" stroke-width="4" stroke-linecap="round"/>
+        <path class="steam steam2" d="M80 58 q-6 -10 0 -20 q6 -10 0 -20" fill="none" stroke="#cfe9f4" stroke-width="4" stroke-linecap="round"/>
+        <path class="steam steam3" d="M98 58 q-6 -10 0 -20 q6 -10 0 -20" fill="none" stroke="#cfe9f4" stroke-width="4" stroke-linecap="round"/>
+        <ellipse cx="80" cy="92" rx="52" ry="14" fill="#e3edf3"/>
+        <ellipse cx="80" cy="88" rx="46" ry="13" fill="#ffffff" stroke="#dbe5ed" stroke-width="2"/>
+        <ellipse cx="80" cy="88" rx="26" ry="8" fill="#f4f9fb"/>
+        <circle cx="70" cy="86" r="4" fill="#2dbb72"/>
+        <circle cx="88" cy="90" r="3.5" fill="#009ed2"/>
+        <circle cx="80" cy="83" r="3" fill="#0a2240"/>
+      </svg>
+      <h2>Calculating your market data…</h2><p>Hang tight — we're crunching the numbers for your area: nearby demand generators, likely frequent-diner households, demand triggers, and your recommended plan. This can take up to a minute.</p>
+      <div class="loading-steps"><span>Calculating data</span><span>Estimating diners</span><span>Ranking locations</span><span>Building trigger plan</span></div>
+    </section>
+    <section class="results hidden" id="results"></section>
+  </main>
+  <script>
+const form=document.getElementById('restaurantForm');
+const steps=[...document.querySelectorAll('.step')];
+
+// --- lead correlation + analytics ---
+const LEAD_ID=(function(){try{return (crypto.randomUUID?crypto.randomUUID():(Date.now()+''+Math.random())).replace(/[^a-z0-9]/gi,'').slice(0,16);}catch(e){return (Date.now()+''+Math.floor(Math.random()*1e6));}})();
+const FORM_STARTED_AT=Date.now();
+window.dataLayer=window.dataLayer||[];
+function track(ev,extra){try{window.dataLayer.push(Object.assign({event:ev,lead_id:LEAD_ID},extra||{}));}catch(e){}}
+const EMAIL_OK=v=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v||'');
+// Attribution captured once at load and merged into every lead payload.
+const ATTR=(function(){try{
+  const q=new URLSearchParams(location.search);
+  const keys=['utm_source','utm_medium','utm_campaign','utm_term','utm_content','gclid','fbclid'];
+  const o={};keys.forEach(k=>{const v=q.get(k);if(v)o[k]=v.slice(0,200);});
+  o.referrer_url=(document.referrer||'').slice(0,300);
+  o.landing_page_url=(q.get('s1_ref')||location.href).slice(0,300);
+  return o;
+}catch(e){return {};}})();
+// Stage tracker: send at most once per stage — 'partial' (no email yet) and
+// 'new' (valid email), so an abandon fires early and the email upgrade still fires.
+const stagesSent={};
+let startedTracked=false;
+function sendPartialLead(){
+  try{syncAll();}catch(e){}
+  const data=Object.fromEntries(new FormData(form).entries());
+  // need at least something identifying
+  if(!data.restaurant_name&&!data.website&&!data.restaurant_zip)return;
+  const stage=EMAIL_OK(data.contact_email)?'new':'partial';
+  if(stagesSent[stage]||stagesSent['new'])return;
+  stagesSent[stage]=true;
+  Object.assign(data,ATTR);
+  data.lead_id=LEAD_ID; data.form_started_at=FORM_STARTED_AT; data.lead_stage=stage;
+  track('s1_lead_captured',{lead_stage:stage});
+  const body=JSON.stringify(data);
+  try{
+    if(navigator.sendBeacon){navigator.sendBeacon('/api/lead',new Blob([body],{type:'application/json'}));}
+    else{fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});}
+  }catch(e){
+    try{fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});}catch(e2){}
+  }
+}
+const nextBtn=document.getElementById('nextBtn');
+const backBtn=document.getElementById('backBtn');
+const submitBtn=document.getElementById('submitBtn');
+const progress=document.getElementById('progressBar');
+const errorBox=document.getElementById('formError');
+const stepCount=document.getElementById('stepCount');
+const stepName=document.getElementById('stepName');
+const stepDots=[...document.querySelectorAll('.step-dot')];
+const cuisineTypes=document.getElementById('cuisineTypes');
+const otherCuisine=document.getElementById('otherCuisine');
+let current=0;
+
+const serviceStyle=document.getElementById('serviceStyle');
+const objectives=document.getElementById('objectives');
+
+function syncCuisineTypes(){
+  const selected=[...document.querySelectorAll('#cuisineChoices input:checked')].map(x=>x.value);
+  const other=otherCuisine.value.trim();
+  cuisineTypes.value=[...selected,...(other?[other]:[])].join(', ');
+}
+
+function syncServiceStyle(){
+  serviceStyle.value=[...document.querySelectorAll('#serviceStyleChoices input:checked')].map(x=>x.value).join(', ');
+}
+
+function syncObjectives(){
+  objectives.value=[...document.querySelectorAll('#objectiveChoices input:checked')].map(x=>x.value).join(', ');
+}
+
+document.querySelectorAll('#cuisineChoices input').forEach(x=>x.addEventListener('change',syncCuisineTypes));
+otherCuisine.addEventListener('input',syncCuisineTypes);
+
+document.querySelectorAll('#serviceStyleChoices input').forEach(x=>x.addEventListener('change',e=>{
+  const checked=[...document.querySelectorAll('#serviceStyleChoices input:checked')];
+  if(checked.length>2){e.target.checked=false;errorBox.textContent='You can choose up to 2 service styles.';}
+  else{errorBox.textContent='';}
+  syncServiceStyle();
+}));
+
+document.querySelectorAll('#objectiveChoices input').forEach(x=>x.addEventListener('change',syncObjectives));
+
+function syncAll(){syncCuisineTypes();syncServiceStyle();syncObjectives();}
+
+function buildReview(){
+  syncAll();
+  const data=new FormData(form);
+  const get=name=>data.get(name)||'Not provided';
+  const objectivesText=objectives.value||'Complete strategy (all dayparts and revenue centers)';
+  document.getElementById('reviewCard').innerHTML=`
+    <h3>Report setup</h3><div class="review-grid">
+      <div class="review-item">Restaurant<strong>${escapePreview(get('restaurant_name'))}</strong></div>
+      <div class="review-item">Market center<strong>${escapePreview(get('restaurant_zip'))} · ${escapePreview(get('target_radius'))}</strong></div>
+      <div class="review-item">Cuisine / concept<strong>${escapePreview(get('cuisine_types'))}</strong></div>
+      <div class="review-item">Service style<strong>${escapePreview(get('service_style'))}</strong></div>
+      <div class="review-item">Objectives<strong>${escapePreview(objectivesText)}</strong></div>
+      <div class="review-item">Budget & dayparts<strong>Recommended by report</strong></div>
+    </div>`;
+}
+
+function escapePreview(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+function showStep(){
+  steps.forEach((s,i)=>s.classList.toggle('active',i===current));
+  progress.style.width=`${(current+1)/steps.length*100}%`;
+  stepCount.textContent=`Step ${current+1} of ${steps.length}`;
+  stepName.textContent=steps[current].dataset.title;
+  stepDots.forEach((dot,i)=>{dot.classList.toggle('active',i===current);dot.classList.toggle('complete',i<current)});
+  backBtn.disabled=current===0;
+  nextBtn.classList.toggle('hidden',current===steps.length-1);
+  submitBtn.classList.toggle('hidden',current!==steps.length-1);
+  errorBox.textContent='';
+  if(current===steps.length-1)buildReview();
+  document.getElementById('formCard').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function normalizeWebsite(){
+  const w=form.querySelector('input[name="website"]');
+  if(!w)return true;
+  let v=(w.value||'').trim();
+  if(!v){errorBox.textContent='Please add your website, Facebook, Instagram, or Google listing so our AI can tailor the plan.';w.reportValidity();return false;}
+  if(!/^https?:\/\//i.test(v))v='https://'+v.replace(/^\/+/,'');
+  // must look like a domain: a dot, a couple letters after it, no spaces
+  if(!/^https?:\/\/[^\s.]+\.[^\s.]{2,}/i.test(v)){errorBox.textContent="That doesn't look like a web address. Try something like yourrestaurant.com or facebook.com/yourrestaurant.";w.focus();return false;}
+  w.value=v;
+  return true;
+}
+function validStep(){
+  syncAll();
+  if(current===0&&!normalizeWebsite())return false;
+  const fields=[...steps[current].querySelectorAll('input,select,textarea')];
+  for(const f of fields){
+    if(!f.checkValidity()){
+      errorBox.textContent=f===cuisineTypes?'Please choose at least one cuisine or concept category.':'Please complete the required field before continuing.';
+      if(f!==cuisineTypes)f.reportValidity();
+      else document.getElementById('cuisineChoices').scrollIntoView({behavior:'smooth',block:'center'});
+      return false;
+    }
+  }
+  return true;
+}
+
+nextBtn.onclick=()=>{if(validStep()){const leaving=current;current++;showStep();if(leaving===0){try{sendPartialLead();}catch(e){}}}};
+backBtn.onclick=()=>{if(current>0){current--;showStep()}};
+stepDots.forEach((dot,i)=>dot.addEventListener('click',()=>{if(i<=current){current=i;showStep()}}));
+const fmt=n=>new Intl.NumberFormat('en-US').format(n||0);const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+form.addEventListener('submit',async e=>{e.preventDefault();if(!validStep())return;const payload=Object.fromEntries(new FormData(form).entries());Object.assign(payload,ATTR);payload.lead_id=LEAD_ID;payload.form_started_at=FORM_STARTED_AT;sendPartialLead();track('s1_report_requested');document.getElementById('formCard').classList.add('hidden');document.getElementById('loading').classList.remove('hidden');try{const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const raw=await r.text();let data;try{data=JSON.parse(raw)}catch{throw new Error(`Server did not return a report (status ${r.status}). The report may have taken too long to generate — please try again.`)}if(!r.ok||!data.ok)throw new Error(data.detail?`${data.error} (${data.detail})`:(data.error||'Report failed'));renderReport(data.report,payload.restaurant_name);pollForPdf(data.report_id)}catch(err){track('s1_report_error',{message:String(err&&err.message||err)});document.getElementById('loading').classList.add('hidden');document.getElementById('formCard').classList.remove('hidden');errorBox.textContent=err.message}});
+const PACKAGES=(window.__PACKAGES__&&window.__PACKAGES__.length)?window.__PACKAGES__:[{name:'Corner Table',price:'$1,500/month',blurb:''},{name:'Local Favorite',price:'$3,000/month',blurb:''},{name:'Regional Draw',price:'$5,500/month',blurb:''},{name:'Market Leader',price:'$8,500/month',blurb:''}];
+function buildTradeMap(geo){
+  const W=520,H=360,cx=W/2,cy=H/2,rings=[150,102,58];
+  const n=Math.min(10,(geo||[]).length);
+  const pins=(geo||[]).slice(0,10).map((g,i)=>{
+    const ang=(i/Math.max(1,n))*Math.PI*2+0.6, rad=58+((i%3)*40);
+    const x=(cx+Math.cos(ang)*rad).toFixed(0), y=(cy+Math.sin(ang)*rad).toFixed(0);
+    const col=g.priority===1?'#2dbb72':(g.priority===2?'#f0b429':'#009ed2');
+    return `<g><circle cx="${x}" cy="${y}" r="8" fill="${col}"/><text x="${x}" y="${(+y+3)}" font-size="8.5" fill="#fff" text-anchor="middle" font-weight="700">${esc(g.priority)}</text></g>`;
+  }).join('');
+  return `<svg class="trade-map" viewBox="0 0 ${W} ${H}" role="img" aria-label="Illustrative trade-area view">
+    <rect x="1" y="1" width="${W-2}" height="${H-2}" rx="16" fill="#f4f9fb" stroke="#dcecf2"/>
+    ${rings.map(r=>`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#cfe2ef" stroke-dasharray="4 5"/>`).join('')}
+    ${pins}
+    <g><circle cx="${cx}" cy="${cy}" r="11" fill="#0a2240"/><circle cx="${cx}" cy="${cy}" r="4.5" fill="#fff"/></g>
+  </svg>`;
+}
+function s1money(s){var d=String(s||'').replace(/[^\d]/g,'');return d?parseInt(d,10):null;}
+function s1usd(n){return n==null?'—':'$'+new Intl.NumberFormat('en-US').format(n);}
+var CHAN_ICONS={
+  display:['Reach diners across websites & apps in your trade area','<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'],
+  video:['Non-skippable pre-roll on connected TV & streaming','<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/></svg>'],
+  audio:['Ads during commute & pre-meal listening','<svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/></svg>'],
+  social:['Feed & story placements to nearby diners','<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/></svg>'],
+  search:['Capture "restaurants near me" intent','<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>'],
+  geofence:['Target competitors, events & high-traffic venues','<svg viewBox="0 0 24 24"><path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>'],
+  email:['Reach past & prospective guests in the inbox','<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>'],
+  native:['Blend into content diners already trust','<svg viewBox="0 0 24 24"><path d="M4 5h16M4 10h10M4 15h16M4 19h10"/></svg>'],
+  retarget:['Re-engage people who already showed interest or visited','<svg viewBox="0 0 24 24"><path d="M20 8a8 8 0 1 0 .5 5"/><path d="M20 4v4h-4"/></svg>'],
+  audience:['Reach in-market diners built from real foot-traffic data','<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M15 11a3 3 0 1 0-2-5.2"/><path d="M4 20c0-3 2.5-5 5-5s5 2 5 5"/><path d="M15 15c2.2.2 4 2 4 5"/></svg>'],
+  default:['Reach the right diners at the right moment','<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>']
+};
+function channelMeta(name){
+  var s=String(name||'').toLowerCase();
+  if(/retarget|look-?back|lookback|re-?market/.test(s))return CHAN_ICONS.retarget;
+  if(/audience data|in-?market|foot-?traffic|behavior/.test(s))return CHAN_ICONS.audience;
+  if(/video|ott|ctv|connected tv|pre-?roll|youtube/.test(s))return CHAN_ICONS.video;
+  if(/audio|podcast|spotify|pandora|radio|stream/.test(s))return CHAN_ICONS.audio;
+  if(/social|facebook|instagram|tiktok|meta|snap/.test(s))return CHAN_ICONS.social;
+  if(/search|sem|ppc|google ads|keyword/.test(s))return CHAN_ICONS.search;
+  if(/geofenc|geo-?target|venue|addressable/.test(s))return CHAN_ICONS.geofence;
+  if(/email|inbox|newsletter/.test(s))return CHAN_ICONS.email;
+  if(/native|content|sponsored/.test(s))return CHAN_ICONS.native;
+  if(/display|banner|programmatic|website|web|app/.test(s))return CHAN_ICONS.display;
+  return CHAN_ICONS.default;
+}
+function buildChannels(list){
+  return '<div class="chan-grid">'+(list||[]).map(function(x){
+    var meta=channelMeta(x);
+    return '<div class="chan-card"><div class="chan-ic">'+meta[1]+'</div><div class="chan-tx"><div class="n">'+esc(x)+'</div><div class="d">'+meta[0]+'</div></div></div>';
+  }).join('')+'</div>';
+}
+function buildGBB(r){
+  var recName=(r.recommended_package.package_name||'').toLowerCase();
+  var recPrice=r.recommended_package.monthly_investment||'';
+  var idx=PACKAGES.findIndex(function(p){return p.name.toLowerCase()===recName||p.price===recPrice;});
+  if(idx<0)idx=1;
+  var start=Math.max(0,Math.min(idx-1,PACKAGES.length-3));
+  var trio=PACKAGES.slice(start,start+3);
+  var labels=['Good','Better','Best'];
+  return trio.map(function(p,i){
+    var rec=(p.name.toLowerCase()===recName||p.price===recPrice);
+    var mo=s1money(p.price);
+    return '<div class="p'+(rec?' rec':'')+'">'+(rec?'<span class="rec-badge">RECOMMENDED FOR YOUR MARKET</span>':'')+
+      '<div class="tier">'+labels[i]+'</div><div class="price">'+esc(String(p.price).split('/')[0])+'</div>'+
+      '<div class="per">per month · '+s1usd(mo?mo*12:null)+'/yr</div><div class="name">'+esc(p.name)+
+      '</div><div class="blurb">'+esc(p.blurb||'')+'</div></div>';
+  }).join('');
+}
+function renderReport(r,restaurant){const m=r.market_profile;const geo=[...r.geofence_locations].sort((a,b)=>a.priority-b.priority);const results=document.getElementById('results');const range=(a,b)=>`${fmt(a)}–${fmt(b)}`;document.title=`${restaurant} — Smart 1 Restaurant Market Report`;results.innerHTML=`
+<div class="toolbar" style="justify-content:flex-end;margin-bottom:14px"><span id="pdfBtnSlot"></span><button onclick="window.print()">Print / Save PDF</button><button class="secondary" onclick="copyReport()">Copy Summary</button></div>
+<div class="rpt">
+  <div class="rpt-band"><div class="rpt-logo">SMART <span class="b">1</span> MARKETING</div><h2>${esc(restaurant)}</h2><div class="sub">Restaurant Demand &amp; Geofencing Report${r.market_type?` · ${esc(r.market_type)}`:''}</div></div>
+  <div class="rpt-body">
+  <p class="rpt-lead">${esc(r.market_summary)}</p>
+  <div class="rpt-h">Your Market Snapshot</div>
+<div class="rpt-grid rpt-3"><div class="rpt-tile"><div class="lbl">Estimated Population</div><div class="val">${range(m.estimated_population_low,m.estimated_population_high)}</div><div class="note">in your trade area</div></div><div class="rpt-tile"><div class="lbl">Estimated Households</div><div class="val">${range(m.estimated_households_low,m.estimated_households_high)}</div><div class="note">total households</div></div><div class="rpt-tile"><div class="lbl">Likely Frequent Diners</div><div class="val">${range(m.estimated_frequent_diner_households_low,m.estimated_frequent_diner_households_high)}</div><div class="note">households, market-calibrated</div></div></div>
+<div class="rpt-h">Your Market Opportunity</div><span class="rpt-badge">${esc(r.market_type)}</span><p class="rpt-lead">${esc(r.market_type_description)}</p><p class="rpt-lead" style="margin-top:8px">${esc(r.market_opportunity)}</p>
+<div class="rpt-h">Suggested Investment — Good / Better / Best</div><p class="rpt-note">Sized to a market of roughly ${range(m.estimated_population_low,m.estimated_population_high)} people and ${range(m.estimated_households_low,m.estimated_households_high)} households — the highlighted tier is our recommendation for a market this size.</p><div class="gbb">${buildGBB(r)}</div><div class="rpt-disc"><strong>These are suggested budgets, not a quote.</strong> The tiers above are starting points based on estimated market size. In a short consult we'll cater a budget and plan that fits your restaurant's goals, seasonality, and cash flow.</div>
+<div class="rpt-h">How This Compares to Traditional Advertising</div><p class="rpt-lead">The same dollars work harder when they only reach people who are near you and likely to dine — and only fire when demand is live.</p><div class="table-wrap"><table class="rpt-cmp narrow"><thead><tr><th></th><th>Traditional (radio, print, billboard, direct mail)</th><th>Smart 1 trigger-driven plan</th></tr></thead><tbody><tr><td>Who you pay to reach</td><td>Broad — much of the audience is outside your trade area or won't dine out</td><td class="good">Likely diners in your trade area &amp; at your top geofences</td></tr><tr><td>When it runs</td><td>Fixed flights whether demand is there or not</td><td class="good">Paced to dayparts, weather &amp; events — spend when demand is live</td></tr><tr><td>Measurement</td><td>Hard to tie to visits or orders</td><td class="good">Trackable impressions, visits &amp; lookback attribution</td></tr><tr><td>Wasted spend</td><td>High — you pay for impressions you can't use</td><td class="good">Low — concentrated on your best audiences and moments</td></tr></tbody></table></div><div class="rpt-disc">Illustrative comparison of how targeted, trigger-driven media typically uses budget versus broad traditional buys — directional, not a guarantee of specific results.</div><p class="rpt-note">Budget paces with your calendar: the full tier at peak, roughly 60% in shoulder months, and 35% in your slowest months (see the month-by-month plan below).</p>
+<div class="rpt-h">Recommended Media Channels</div>${buildChannels(r.media_channels)}
+<div class="rpt-h">Streaming Audio — Commute &amp; Pre-Meal Daypart</div><div class="rpt-disc" style="border-left-color:var(--green)">${esc(r.streaming_audio_note)}</div>
+<div class="rpt-h">Demand Triggers for Your Market</div><div>${r.demand_triggers.map(x=>`<span class="chip-tag">${esc(x)}</span>`).join('')}</div>
+<div class="rpt-h pg-break">Month-by-Month Campaign Plan</div><div class="table-wrap"><table class="narrow"><thead><tr><th>Month</th><th>Focus &amp; Triggers</th><th>Budget Pacing</th></tr></thead><tbody>${r.monthly_plan.map(x=>`<tr><td><strong>${esc(x.month)}</strong></td><td><div class="month-focus"><strong>${esc(x.focus)}</strong><p>${esc(x.message)}</p><div>${(x.triggers||[]).map(t=>`<span class="chip-tag">${esc(t)}</span>`).join('')}</div></div></td><td><strong>${esc(x.pacing)}</strong></td></tr>`).join('')}</tbody></table></div>
+<div class="rpt-h pg-break">Sample Geofence Locations to Target</div><div class="table-wrap"><table><thead><tr><th>Priority</th><th>Location</th><th>Category</th><th>District / Market</th><th>Method</th><th>Radius</th><th>Reason</th><th>Message</th><th>Confidence</th></tr></thead><tbody>${geo.map(x=>`<tr><td><span class="pill priority-${x.priority}">P${x.priority}</span></td><td><strong>${esc(x.name)}</strong><br>${esc(x.city_state)}${x.address?`<br>${esc(x.address)}`:''}</td><td>${esc(x.category)}</td><td>${esc(x.district_or_market)}</td><td>${esc(x.recommended_method.replaceAll('_',' '))}</td><td>${esc(x.recommended_radius_miles)} mi</td><td>${esc(x.audience_reason)}</td><td>${esc(x.best_message)}</td><td>${esc(x.confidence)}</td></tr>`).join('')}</tbody></table></div>
+<div class="rpt-h">Illustrative Trade-Area View</div><p class="rpt-note">A schematic of your center point and priority targets — illustrative only, not geographically to scale. Final polygons are built and verified in the ad platform before launch.</p>${buildTradeMap(geo)}<div class="rpt-note" style="text-align:center">P1 — Priority 1 &nbsp;·&nbsp; P2 — Priority 2 &nbsp;·&nbsp; P3 — Priority 3</div>
+<div class="rpt-cta"><h3>Let's tailor this to your restaurant</h3><p>These numbers are a directional starting point. Book a short F&amp;B marketing consult and we'll build a budget and trigger plan that fits your goals and market.</p><a class="btn-consult" href="https://smart1marketing.com/fandbmarketingconsult" target="_blank" rel="noopener">Book your free F&amp;B marketing consult →</a></div>
+  <p class="rpt-foot">${esc(r.disclaimer)} Population, household, dine-out, and location figures are AI planning estimates for the market, not exact counts. Smart 1 Marketing · smart1marketing.com</p>
+  </div>
+</div>`;
+window.__reportText=`${restaurant}\n\n${r.market_summary}\n\nMarket: ${r.market_type}\nLikely frequent-diner households: ${range(m.estimated_frequent_diner_households_low,m.estimated_frequent_diner_households_high)}\nRecommended package: ${r.recommended_package.monthly_investment} ${r.recommended_package.package_name}\n\nTop geofences:\n${geo.slice(0,12).map((x,i)=>`${i+1}. ${x.name} — ${x.city_state} — ${x.category}`).join('\n')}\n\n${r.disclaimer}`;document.getElementById('loading').classList.add('hidden');results.classList.remove('hidden');if(r.report_pdf_url)setPdfButton(r.report_pdf_url);track('s1_report_viewed');window.scrollTo({top:0,behavior:'smooth'})}
+async function copyReport(){await navigator.clipboard.writeText(window.__reportText||'');alert('Report summary copied.')}window.copyReport=copyReport;
+
+// --- Cloudinary PDF download button ---
+// The PDF is built in a background thread after /api/analyze responds, so the URL
+// isn't in the analyze response. Poll the stored report JSON until it appears,
+// then swap a prominent Download PDF button into the toolbar.
+function setPdfButton(url){
+  if(!url)return;
+  var slot=document.getElementById('pdfBtnSlot');
+  if(slot)slot.innerHTML='<a class="btn-pdf" href="'+esc(url)+'" target="_blank" rel="noopener">⬇ Download PDF</a>';
+}
+function pollForPdf(reportId){
+  if(!reportId)return;
+  var tries=0;
+  var timer=setInterval(function(){
+    tries++;
+    if(tries>20){clearInterval(timer);return;}
+    fetch('/api/report/'+encodeURIComponent(reportId)).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok&&d.report&&d.report.report_pdf_url){clearInterval(timer);setPdfButton(d.report.report_pdf_url);}
+    }).catch(function(){});
+  },3000);
+}
+
+
+showStep();
+
+// Track the first real interaction as a form start (funnel analytics).
+form.addEventListener('input',function(){ if(!startedTracked){ startedTracked=true; track('s1_form_start'); } }, {once:false});
+
+// Capture the lead as soon as a valid email is entered, so we keep it even if the
+// visitor abandons before the report finishes.
+(function(){
+  var email=form.querySelector('input[name=contact_email]');
+  if(email){ email.addEventListener('change',sendPartialLead); email.addEventListener('blur',sendPartialLead); }
+})();
+
+// Also attempt a partial capture if the visitor leaves the page mid-way.
+window.addEventListener('pagehide',function(){ try{ sendPartialLead(); }catch(e){} });
+document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='hidden'){ try{ sendPartialLead(); }catch(e){} } });
+
+// Page-load loader: visible by default in embed mode; hidden once the DOM is
+// ready (the app is fully inline, so DOM-ready === app-ready).
+(function(){
+  var pl=document.getElementById('pageLoader');
+  function hideLoader(){ if(pl)pl.classList.add('hidden'); }
+  if(document.readyState!=='loading'){ hideLoader(); }
+  else{ document.addEventListener('DOMContentLoaded',hideLoader); }
+  window.addEventListener('load',hideLoader); // belt & braces
+})();
+
+// When embedded, tell the parent landing page the tool is ready so its branded
+// loader clears immediately (the page listens for 's1-report-ready').
+if(document.documentElement.classList.contains('embed')){
+  try{ if(window.parent && window.parent!==window){ window.parent.postMessage('s1-report-ready','*'); } }catch(e){}
+  // Auto-resize: post our height to the parent landing page so the iframe grows/shrinks
+  // with the form and report (no nested scrollbar on mobile). The page listens for
+  // {type:'s1-embed-height'}. Falls back gracefully if not embedded.
+  (function(){
+    if(!(window.parent && window.parent!==window))return;
+    var last=0;
+    function postHeight(){
+      var h=Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+      if(Math.abs(h-last)>4){ last=h; try{ window.parent.postMessage({type:'s1-embed-height',height:h},'*'); }catch(e){} }
+    }
+    postHeight();
+    window.addEventListener('load',postHeight);
+    window.addEventListener('resize',postHeight);
+    if(window.ResizeObserver){ try{ new ResizeObserver(postHeight).observe(document.body); }catch(e){} }
+    setInterval(postHeight,1000);
+  })();
+}
+
+// Shared-report view mode: /r/<id> injects __REPORT_VIEW_ID__. Load the stored
+// report and render it read-only (no form).
+(function(){
+  var vid=window.__REPORT_VIEW_ID__;
+  if(!vid)return;
+  document.documentElement.classList.add('view-only');
+  document.getElementById('loading').classList.remove('hidden');
+  fetch('/api/report/'+encodeURIComponent(vid)).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok&&d.report){ renderReport(d.report, d.report._restaurant||'Your Restaurant'); }
+    else { document.getElementById('loading').innerHTML='<p style="padding:40px;color:#68798c">This report link is no longer available.</p>'; }
+  }).catch(function(){ document.getElementById('loading').innerHTML='<p style="padding:40px;color:#68798c">This report link could not be loaded.</p>'; });
+})();
+
+  </script>
+</body>
+</html>

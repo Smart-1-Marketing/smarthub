@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Smart 1 Seasonal Tourism Marketing Planner</title>
+<meta name="description" content="Get a suggested Good, Better, Best seasonal tourism media plan for your business in about 5 minutes." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- Full-page loading overlay: shown while the wizard scripts load, then
+     re-used by app.js during the final submit (AI + PDF + webhook wait)
+     with rotating captions. Animated via CSS keyframes (see style.css),
+     which are disabled under prefers-reduced-motion. -->
+<div id="s1-loading-overlay" class="s1-overlay" role="status" aria-live="polite">
+  <div class="s1-overlay-brand">SMART<span class="s1-overlay-brand-1">1</span>MARKETING</div>
+  <svg class="s1-overlay-art" viewBox="0 0 220 150" width="200" height="136" aria-hidden="true" focusable="false">
+    <defs>
+      <clipPath id="s1-horizon"><rect x="0" y="0" width="220" height="104" /></clipPath>
+    </defs>
+    <!-- sun rising behind the horizon -->
+    <g clip-path="url(#s1-horizon)">
+      <g class="s1-sun">
+        <circle cx="110" cy="100" r="26" fill="#F0B429" />
+        <g stroke="#F0B429" stroke-width="4" stroke-linecap="round">
+          <line x1="110" y1="62" x2="110" y2="52" />
+          <line x1="140" y1="74" x2="147" y2="67" />
+          <line x1="80" y1="74" x2="73" y2="67" />
+          <line x1="148" y1="100" x2="158" y2="100" />
+          <line x1="72" y1="100" x2="62" y2="100" />
+        </g>
+      </g>
+    </g>
+    <!-- map pin hovering over the water -->
+    <g class="s1-pin">
+      <path d="M172 30c-8 0-14 6.3-14 14 0 10.5 14 24 14 24s14-13.5 14-24c0-7.7-6-14-14-14z" fill="#009ED2" />
+      <circle cx="172" cy="44" r="5.5" fill="#ffffff" />
+    </g>
+    <!-- rolling waves (paths are 2x the viewbox width; CSS drifts them) -->
+    <g clip-path="none">
+      <path class="s1-wave s1-wave-back" fill="#0C6E9E" d="M0 108 Q 27.5 98 55 108 T 110 108 T 165 108 T 220 108 T 275 108 T 330 108 T 385 108 T 440 108 V150 H0 Z" />
+      <path class="s1-wave s1-wave-front" fill="#009ED2" d="M0 118 Q 27.5 108 55 118 T 110 118 T 165 118 T 220 118 T 275 118 T 330 118 T 385 118 T 440 118 V150 H0 Z" />
+    </g>
+  </svg>
+  <div class="s1-overlay-status" id="s1-overlay-status">Preparing your seasonal planner…</div>
+</div>
+
+<div class="wrap">
+
+  <div class="brand no-print">
+    <div class="brand-mark">S1</div>
+    <div class="brand-name">Smart 1 Marketing</div>
+  </div>
+
+  <div class="eyebrow no-print">Seasonal Tourism Marketing Planner</div>
+  <h1 class="hero no-print">Reach tourists before they arrive<br>— and while they're ready to spend.</h1>
+  <p class="subhead no-print">Answer a few questions about your business and get a suggested seasonal media plan: audiences, products, budget, and a Good / Better / Best investment range — built around your ZIP code, category, and travel season.</p>
+
+  <div class="pill-row no-print">
+    <div class="pill"><span class="check">✓</span>Seasonality &amp; dayparts</div>
+    <div class="pill"><span class="check">✓</span>Weather-smart pacing</div>
+    <div class="pill"><span class="check">✓</span>Audience &amp; product plan</div>
+    <div class="pill"><span class="check">✓</span>Budget &amp; ROI estimate</div>
+  </div>
+
+  <div id="app" class="card"></div>
+
+  <footer class="foot-note no-print">Your information is used to build this plan and, if requested, route your inquiry to Smart 1 Marketing.</footer>
+</div>
+
+<script src="data.js"></script>
+<script src="engine.js"></script>
+<script src="report-template.js"></script>
+<script src="app.js"></script>
+<script>
+  // Safety net: if app.js failed to boot (and so never dismissed the
+  // overlay), don't leave the visitor staring at the loader forever.
+  window.addEventListener('load', function () {
+    var o = document.getElementById('s1-loading-overlay');
+    if (o) o.classList.add('s1-overlay-hidden');
+  });
+</script>
+</body>
+</html>
