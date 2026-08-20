@@ -842,6 +842,22 @@ def create_hub_app() -> Flask:
         from . import leads
         body = request.get_json(silent=True) or request.form.to_dict() or {}
         src = str(body.get("source") or "").strip()
+
+        ip = leads.client_ip(request)
+        allowed, retry_after = leads.rate_check(ip)
+        if not allowed:
+            # Recorded, because the number that stops a script is also the
+            # number that could turn away a busy office sharing one address.
+            # If real submissions start showing up here, raise
+            # LEADS_RATE_LIMIT — a turned-away lead costs more than spam.
+            audit.log("leads", "rate_limited", ip=ip, source=src[:60],
+                      page=str(body.get("page") or "")[:120])
+            return jsonify({
+                "ok": False,
+                "error": "Too many submissions from this connection. "
+                         "Please try again shortly.",
+            }), 429, {"Retry-After": str(retry_after)}
+
         if not src:
             return jsonify({"ok": False, "error": "source is required."}), 400
         fields = body.get("fields") if isinstance(body.get("fields"), dict) else {

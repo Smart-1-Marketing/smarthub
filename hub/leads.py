@@ -26,16 +26,71 @@ visible, and can be retried by hand or by the scheduler.
 """
 from __future__ import annotations
 
+import collections
 import json
 import os
 import re
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
 _LOCK = threading.Lock()
 STORE_NAME = "leads.jsonl"
 WEBHOOK_ENV = "HUB_LEAD_WEBHOOK_URL"
+
+# --- Rate limit on the public capture endpoint ----------------------------
+#
+# /api/leads/capture has to be unauthenticated — landing pages post to it —
+# so without a ceiling anyone who finds the URL can fill the panel with
+# invented leads until the real ones are unfindable.
+#
+# The window matches the one already used for the other public endpoint in
+# this codebase (modules/google_access), so there is one convention rather
+# than two. Set LEADS_RATE_LIMIT=0 to switch the limit off entirely.
+#
+# Caveat worth knowing: gunicorn runs two workers and this counter is per
+# process, so the true ceiling is up to twice the configured number. Counting
+# from the stored file instead would be exact, but it would put a full-file
+# read on a public endpoint — a cheaper thing for an attacker to abuse than
+# the limit itself. Approximate and cheap is the right trade here.
+RATE_LIMIT = int(os.environ.get("LEADS_RATE_LIMIT") or 3)
+RATE_WINDOW = int(os.environ.get("LEADS_RATE_WINDOW_SECONDS") or 3600)
+
+_hits: dict[str, collections.deque] = collections.defaultdict(collections.deque)
+_hits_lock = threading.Lock()
+
+
+def client_ip(request) -> str:
+    """The caller's address, taking the LAST X-Forwarded-For hop.
+
+    The first hop is supplied by the client and is therefore spoofable — a
+    header of "1.2.3.4" would let one machine present as a new visitor on
+    every request and walk straight past any limit. Render appends the real
+    address, so the rightmost entry is the one it vouches for.
+    """
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[-1].strip()
+    return request.remote_addr or "unknown"
+
+
+def rate_check(ip: str) -> tuple[bool, int]:
+    """(allowed, seconds_until_a_slot_frees). Never raises."""
+    if RATE_LIMIT <= 0:
+        return True, 0
+    now = time.time()
+    with _hits_lock:
+        bucket = _hits[ip]
+        while bucket and now - bucket[0] > RATE_WINDOW:
+            bucket.popleft()
+        if len(bucket) >= RATE_LIMIT:
+            return False, max(1, int(RATE_WINDOW - (now - bucket[0])))
+        bucket.append(now)
+        if len(_hits) > 10000:            # don't grow without bound
+            for k in [k for k, v in _hits.items() if not v][:5000]:
+                _hits.pop(k, None)
+    return True, 0
 
 
 def _now() -> str:
