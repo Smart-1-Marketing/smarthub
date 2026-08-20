@@ -2,24 +2,13 @@ FROM python:3.12-slim
 
 # Ghostscript + qPDF for the PDF optimizer.
 #
-# Chromium is here for the landing pages whose PDF is an HTML template
-# rendered by a browser (tourism first). It is a deliberate cost: roughly
-# 300 MB on the image and slower builds, paid by every tool. The alternative
-# was rebuilding those documents in reportlab, which changes a PDF clients
-# already receive — Todd chose to keep them identical.
-#
-# --no-install-recommends matters: without it Chromium drags in a desktop
-# stack and the image roughly doubles again.
+# Chromium used to be installed here so one landing page could render its PDF
+# from an HTML template. That was roughly 300 MB on the image and slower builds
+# for every tool, to serve a single module. Tourism now builds its PDF with
+# reportlab like the other six landing pages, so the browser is gone.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ghostscript qpdf \
-        chromium fonts-liberation fonts-dejavu-core \
+    && apt-get install -y --no-install-recommends ghostscript qpdf \
     && rm -rf /var/lib/apt/lists/*
-
-# Playwright would download its own browser; point it at the system one so
-# the image isn't carrying two copies of Chromium.
-ENV CHROME_BIN=/usr/bin/chromium \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 WORKDIR /app
 

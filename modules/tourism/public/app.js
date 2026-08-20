@@ -1099,6 +1099,15 @@ async function submitPlan(body) {
   const payload = { ...a, s1_hp: hp ? hp.value : '', form_elapsed_ms: Date.now() - PAGE_LOADED_AT };
   delete payload._defaultSeasons;
   delete payload.aiSuggestion; // internal client state — not part of the CRM payload
+  // The PDF is laid out server-side from this, so the plan in the download is
+  // the same plan shown on screen — computed once, here, not a second time in
+  // Python where the two could drift apart.
+  try {
+    payload.report_model = window.Smart1ReportTemplate.buildReportModel(a);
+  } catch (e) {
+    // A PDF is worth having but never worth losing the lead over.
+    console.warn('report model failed', e);
+  }
 
   try {
     const res = await fetch('/api/submit', {
