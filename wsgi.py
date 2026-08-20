@@ -396,6 +396,34 @@ try:
 except Exception as _exc_iob:  # noqa: BLE001
     iob, iob_fb = None, _fallback_app("IO Builder", str(_exc_iob))
 
+try:
+    import importlib as _il_boat
+    boat = _il_boat.import_module("modules.boat.app")
+    boat_fb = None
+except Exception as _exc_boat:  # noqa: BLE001
+    boat, boat_fb = None, _fallback_app("Boat Landing", str(_exc_boat))
+
+try:
+    import importlib as _il_legal
+    legal_app = _il_legal.import_module("modules.legal.app")
+    legal_fb = None
+except Exception as _exc_legal:  # noqa: BLE001
+    legal_app, legal_fb = None, _fallback_app("Legal Landing", str(_exc_legal))
+
+try:
+    import importlib as _il_hvac
+    hvac_app = _il_hvac.import_module("modules.hvac.app")
+    hvac_fb = None
+except Exception as _exc_hvac:  # noqa: BLE001
+    hvac_app, hvac_fb = None, _fallback_app("Hvac Landing", str(_exc_hvac))
+
+try:
+    import importlib as _il_ski
+    ski_app = _il_ski.import_module("modules.ski.app")
+    ski_fb = None
+except Exception as _exc_ski:  # noqa: BLE001
+    ski_app, ski_fb = None, _fallback_app("Ski Landing", str(_exc_ski))
+
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
@@ -410,6 +438,16 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
     "/tools/io": _mount(iob.app, "/tools/io") if iob else iob_fb,
+    # A landing page must not sit behind the Hub login — the whole page and
+    # its lead endpoints are public, which is what public_prefixes=("/",) says.
+    "/land/boat": (AuthGuard(boat.app, "/land/boat", public_prefixes=("/",))
+                   if boat else boat_fb),
+    "/land/ski": (AuthGuard(ski_app.app, "/land/ski", public_prefixes=("/",))
+                  if ski_app else ski_fb),
+    "/land/hvac": (AuthGuard(hvac_app.app, "/land/hvac", public_prefixes=("/",))
+                    if hvac_app else hvac_fb),
+    "/land/legal": (AuthGuard(legal_app.app, "/land/legal", public_prefixes=("/",))
+                    if legal_app else legal_fb),
     "/tools/radio-promo": _mount(radiop.app, "/tools/radio-promo") if radiop else radiop_fb,
     "/tools/landing-ads": _mount(landads.app, "/tools/landing-ads") if landads else landads_fb,
     "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio") if fanrad else fanrad_fb,

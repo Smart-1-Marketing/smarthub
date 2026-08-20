@@ -75,6 +75,31 @@ def client_ip(request) -> str:
     return request.remote_addr or "unknown"
 
 
+def rate_limited(bucket: str, request, limit: int, window: int = 3600) -> bool:
+    """True when this caller has spent its allowance for `bucket`.
+
+    Shared so the public landing pages don't each grow their own copy — there
+    were four, two of which had no limit at all and two of which read the
+    spoofable end of X-Forwarded-For. A public endpoint that calls OpenAI is
+    someone else's budget until it has a ceiling.
+    """
+    if limit <= 0:
+        return False
+    key = f"{bucket}:{client_ip(request)}"
+    now = time.time()
+    with _hits_lock:
+        b = _hits[key]
+        while b and now - b[0] > window:
+            b.popleft()
+        if len(b) >= limit:
+            return True
+        b.append(now)
+        if len(_hits) > 10000:
+            for k in [k for k, v in _hits.items() if not v][:5000]:
+                _hits.pop(k, None)
+    return False
+
+
 def rate_check(ip: str) -> tuple[bool, int]:
     """(allowed, seconds_until_a_slot_frees). Never raises."""
     if RATE_LIMIT <= 0:
