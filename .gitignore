@@ -20,3 +20,7 @@ venv/
 
 # Local env
 .env
+
+# Generated landing-page reports — runtime output, not source. One of these
+# reached the repo from a local test run; the directory is recreated on demand.
+modules/*/static/reports/

@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart 1 Marketing — Legal Conquesting Market Plan</title>
+  <style>
+    :root{
+      --navy:#0A2240; --blue:#009ED2; --gold:#B8892B; --gold-2:#d1a542;
+      --ink:#25364b; --muted:#687386; --line:#dfe3ea; --mist:#f2f5fa; --white:#fff;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      color:var(--ink);background:linear-gradient(180deg,#061831 0%,#0A2240 40%,#123059 100%);min-height:100vh}
+    .wrap{max-width:940px;margin:0 auto;padding:30px 18px 60px}
+    header{text-align:center;color:#fff;margin-bottom:22px}
+    .eyebrow{letter-spacing:.16em;font-size:12px;font-weight:700;color:var(--gold-2);text-transform:uppercase}
+    header h1{font-size:29px;margin:8px 0 6px;font-weight:800;line-height:1.15}
+    header p{color:#c8d2e6;margin:0 auto;max-width:620px;font-size:15px}
+    .card{background:#fff;border-radius:16px;box-shadow:0 24px 60px rgba(9,18,40,.35);overflow:hidden}
+
+    /* Progress bar */
+    .steps{display:flex;background:var(--navy);color:#fff}
+    .step-tab{flex:1;padding:15px 10px;text-align:center;font-size:12.5px;font-weight:700;position:relative;
+      color:#8ea1c4;border-bottom:3px solid transparent}
+    .step-tab .n{display:inline-flex;width:22px;height:22px;border-radius:50%;background:#2c447a;color:#c8d2e6;
+      align-items:center;justify-content:center;font-size:12px;margin-right:7px;vertical-align:middle}
+    .step-tab.active{color:#fff;border-bottom-color:var(--gold)}
+    .step-tab.active .n{background:var(--gold);color:#231a06}
+    .step-tab.done .n{background:#3ba776;color:#fff}
+    @media(max-width:560px){.step-tab .lbl{display:none}.step-tab .n{margin-right:0}}
+
+    .panel{padding:26px}
+    .panel h2{margin:0 0 4px;color:var(--navy);font-size:20px}
+    .panel .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px}
+
+    /* Practice-area cards */
+    .pa-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    @media(max-width:760px){.pa-grid{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:480px){.pa-grid{grid-template-columns:repeat(2,1fr)}}
+    .pa{border:1.5px solid var(--line);border-radius:12px;padding:16px 10px;text-align:center;cursor:pointer;
+      background:#fdfefe;transition:all .12s ease;user-select:none}
+    .pa:hover{border-color:var(--blue);box-shadow:0 6px 16px rgba(40,71,127,.1);transform:translateY(-2px)}
+    .pa svg{width:30px;height:30px;stroke:var(--blue);fill:none;stroke-width:1.7;margin-bottom:8px}
+    .pa .t{font-size:12.5px;font-weight:700;color:var(--navy);line-height:1.25}
+    .pa.sel{border-color:var(--gold);background:#fffdf6;box-shadow:0 8px 20px rgba(184,137,43,.18)}
+    .pa.sel svg{stroke:var(--gold)}
+    .pa{position:relative}
+    .pa.sel::after{content:"✓";position:absolute;top:7px;right:7px;background:var(--gold);color:#fff;
+      width:19px;height:19px;border-radius:50%;font-size:11px;font-weight:800;display:inline-flex;
+      align-items:center;justify-content:center;line-height:1}
+
+    /* Secondary chips */
+    .sec-wrap{margin-top:22px;border-top:1px dashed var(--line);padding-top:16px}
+    .sec-title{font-size:12.5px;font-weight:700;color:var(--navy);margin-bottom:9px}
+    .sec-chips{display:flex;flex-wrap:wrap;gap:8px}
+    .sec-chip{border:1.5px solid var(--line);border-radius:999px;padding:7px 13px;font-size:12.5px;color:var(--navy);
+      cursor:pointer;background:#fff;user-select:none}
+    .sec-chip.sel{border-color:var(--blue);background:var(--blue);color:#fff}
+
+    /* Form fields */
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:15px 18px}
+    .full{grid-column:1/-1}
+    label{display:block;font-size:12.5px;font-weight:700;color:var(--navy);margin:0 0 5px}
+    .req{color:var(--gold)}
+    input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;
+      font-size:14px;color:var(--ink);background:#fdfefe;font-family:inherit}
+    input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(40,71,127,.12)}
+    textarea{resize:vertical;min-height:66px}
+    .hint{font-size:11.5px;color:var(--muted);margin-top:4px}
+    .send-box{background:var(--mist);border:1px solid var(--line);border-radius:11px;padding:16px;margin-top:4px}
+    .send-box .full{margin-bottom:0}
+
+    /* Nav */
+    .nav{display:flex;align-items:center;justify-content:space-between;padding:18px 26px;border-top:1px solid var(--line);
+      background:#fbfcfe}
+    .btn{border:none;padding:13px 24px;font-size:14.5px;font-weight:800;border-radius:10px;cursor:pointer;letter-spacing:.02em}
+    .btn-primary{background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);color:#231a06}
+    .btn-ghost{background:transparent;color:var(--muted);font-weight:700}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .field-err{color:#a11;font-size:12px;margin-top:8px;display:none}
+    .field-err.show{display:block}
+
+    /* Status + result */
+    .status{padding:0 26px 24px;font-size:14px;display:none}
+    .status.show{display:block}
+    .spinner{display:inline-block;width:16px;height:16px;border:2px solid #cdd6e6;border-top-color:var(--blue);
+      border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:8px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* Animated SVG loader */
+    .loader{padding:26px 26px 30px;text-align:center}
+    .loader .stage{max-width:420px;margin:0 auto}
+    .loader .cap{margin-top:14px;font-weight:700;color:var(--navy);font-size:15px;min-height:20px}
+    .loader .cap .dots::after{content:"";animation:dots 1.4s steps(4,end) infinite}
+    @keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}100%{content:""}}
+    .loader .track{max-width:420px;margin:14px auto 0;height:6px;border-radius:6px;background:var(--mist);overflow:hidden}
+    .loader .track > i{display:block;height:100%;width:40%;border-radius:6px;
+      background:linear-gradient(90deg,var(--gold),var(--gold-2));animation:load 2.4s ease-in-out infinite}
+    @keyframes load{0%{margin-left:-40%}100%{margin-left:100%}}
+    .loader .sub{margin-top:10px;color:var(--muted);font-size:12px}
+    .err{color:#a11;background:#fdecec;border:1px solid #f4caca;padding:12px 14px;border-radius:9px;font-size:13.5px}
+    .result{display:none;padding:0 26px 26px}
+    .result.show{display:block}
+    .result-inner{background:var(--mist);border:1px solid var(--line);border-radius:12px;padding:20px}
+    .result h3{margin:0 0 6px;color:var(--navy);font-size:18px}
+    .stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0}
+    .stat{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center}
+    .stat b{display:block;font-size:18px;color:var(--navy)}
+    .stat span{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+    .chips{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0}
+    .chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12px;color:var(--navy)}
+    .pkg{background:var(--navy);color:#fff;border-radius:10px;padding:14px 16px;margin:12px 0}
+    .pkg b{color:var(--gold-2)}
+    .hiw-title{font-size:13px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;margin:16px 0 9px}
+    .hiw{display:grid;gap:8px}
+    .hiw-step{display:flex;gap:11px;align-items:flex-start;background:#fff;border:1px solid var(--line);
+      border-radius:10px;padding:11px 13px}
+    .hiw-n{flex:0 0 24px;width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--gold-2));
+      color:#231a06;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center}
+    .hiw-step b{display:block;color:var(--navy);font-size:13.5px;margin-bottom:2px}
+    .hiw-step span{font-size:12.5px;color:var(--muted);line-height:1.4}
+    .outs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .out{display:flex;gap:8px;align-items:flex-start;background:#f0f9f4;border:1px solid #cbe8d6;border-radius:9px;
+      padding:10px 12px;font-size:12.5px;color:var(--navy)}
+    .out span{color:#3ba776;font-weight:800}
+    .adv{background:#fff;border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:8px;padding:10px 12px}
+    .adv b{display:block;color:var(--navy);font-size:13px;margin-bottom:2px}
+    .adv span{font-size:12px;color:var(--muted);line-height:1.4}
+    .net{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+    .net-card{background:var(--navy);border-radius:10px;padding:12px 13px;color:#fff}
+    .net-fmt{font-weight:800;font-size:12.5px;color:var(--gold-2);margin-bottom:5px}
+    .net-v{font-size:12px;color:#e7edf6;line-height:1.4;margin-bottom:7px}
+    .net-when{font-size:11px;color:#a9b8d4;font-weight:600}
+    @media(max-width:560px){.outs,.net{grid-template-columns:1fr}}
+    .dl{display:inline-block;margin-top:12px;background:var(--navy);color:#fff;text-decoration:none;
+      padding:11px 18px;border-radius:9px;font-weight:700;font-size:14px}
+
+    /* Seasonal pacing bars (screen version of the PDF's PacingBars) */
+    .pace{display:grid;gap:8px;margin:6px 0 4px}
+    .pace-row{display:flex;align-items:center;gap:10px}
+    .pace-lbl{flex:0 0 66px;font-size:12px;font-weight:800;color:var(--navy)}
+    .pace-track{flex:1;height:14px;background:#fff;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+    .pace-track i{display:block;height:100%;border-radius:7px}
+    .pace-peak{background:linear-gradient(90deg,var(--gold),var(--gold-2))}
+    .pace-shoulder{background:var(--blue)}
+    .pace-low{background:#9fb0cd}
+    .pace-val{flex:0 0 96px;font-size:12px;color:var(--muted);text-align:right}
+
+    /* On-screen report footer line */
+    .report-foot{margin:16px 0 0;padding-top:12px;border-top:1px solid var(--line);
+      font-size:12px;color:var(--muted);text-align:center}
+
+    /* Page-load overlay (SPEC §7a) — shown instantly, hidden on first paint */
+    #bootOverlay{position:fixed;inset:0;z-index:9999;background:var(--navy);display:flex;
+      align-items:center;justify-content:center;text-align:center;transition:opacity .35s ease}
+    #bootOverlay.hide{opacity:0;pointer-events:none}
+    .boot-brand{color:#fff;font-weight:800;letter-spacing:.22em;font-size:15px;margin-bottom:16px}
+    .boot-brand span{color:var(--blue)}
+    .boot-cap{color:#8ea1c4;font-size:12.5px;margin-top:14px}
+    .boot-cap::after{content:"";animation:dots 1.4s steps(4,end) infinite}
+    @media(prefers-reduced-motion:reduce){
+      #bootOverlay,.loader *,.spinner,.track > i{animation:none!important;transition:none!important}
+    }
+
+    footer{text-align:center;color:#9fb0cd;font-size:12px;margin-top:24px}
+    @media(max-width:560px){.grid,.stat-row{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <!-- Page-load overlay: navy + wordmark + simplified animated billboard; hidden on first paint -->
+  <div id="bootOverlay" aria-hidden="true">
+    <div>
+      <div class="boot-brand">SMART<span>1</span>MARKETING</div>
+      <svg viewBox="0 0 160 122" width="150" height="115" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="76" cy="48" r="14" fill="none" stroke="#009ED2" stroke-width="2" opacity="0">
+          <animate attributeName="r" values="14;56" dur="2s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="0.6;0" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="76" cy="48" r="14" fill="none" stroke="#009ED2" stroke-width="2" opacity="0">
+          <animate attributeName="r" values="14;56" dur="2s" begin="1s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="0.6;0" dur="2s" begin="1s" repeatCount="indefinite"/>
+        </circle>
+        <rect x="72" y="72" width="8" height="42" fill="#3a5578"/>
+        <rect x="30" y="22" width="92" height="52" rx="6" fill="#13355f"/>
+        <rect x="37" y="29" width="78" height="38" rx="3" fill="#009ED2" opacity="0.22"/>
+        <rect x="44" y="36" width="42" height="7" rx="3" fill="#d1a542">
+          <animate attributeName="opacity" values="1;0.3;1" dur="1.3s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="44" y="49" width="60" height="5" rx="2" fill="#8ea1c4"/>
+        <rect x="44" y="58" width="50" height="5" rx="2" fill="#8ea1c4" opacity="0.7"/>
+      </svg>
+      <div class="boot-cap">Loading your market plan builder</div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Smart 1 Marketing</div>
+      <h1>Legal Conquesting Market Plan</h1>
+      <p>Every screen format — highway boards, transit, gyms, waiting rooms, gas pumps — activated
+        <i>only</i> when context makes it relevant, then bridged to the prospect's phone. The leg up
+        static billboards can't give you.</p>
+    </header>
+
+    <div class="card">
+      <div class="steps">
+        <div class="step-tab active" data-tab="1"><span class="n">1</span><span class="lbl">Practice Area</span></div>
+        <div class="step-tab" data-tab="2"><span class="n">2</span><span class="lbl">Firm & Market</span></div>
+        <div class="step-tab" data-tab="3"><span class="n">3</span><span class="lbl">Send My Plan</span></div>
+      </div>
+
+      <form id="legalForm">
+        <!-- STEP 1 — Practice area (visual) -->
+        <section class="panel" data-step="1">
+          <h2>What does the firm practice?</h2>
+          <p class="sub">Pick the firm's primary practice area. We'll tailor the targeting, locations, and messaging to it.</p>
+          <div class="pa-grid" id="paGrid"></div>
+
+          <div class="sec-wrap">
+            <div class="sec-title">Also handle these? <span style="font-weight:500;color:var(--muted)">(optional — tap any that apply)</span></div>
+            <div class="sec-chips" id="secChips"></div>
+          </div>
+          <input type="hidden" name="practice_area" id="practiceArea" />
+          <input type="hidden" name="secondary_practice_areas" id="secondaryAreas" />
+          <!-- Honeypot: humans never see or fill this -->
+          <input type="text" name="fax" tabindex="-1" autocomplete="off" aria-hidden="true"
+                 style="position:absolute;left:-9999px;height:0;width:0;opacity:0" />
+          <div class="field-err" id="err1">Please choose a primary practice area to continue.</div>
+        </section>
+
+        <!-- STEP 2 — Firm & market -->
+        <section class="panel" data-step="2" style="display:none">
+          <h2>Tell us about the firm & market</h2>
+          <p class="sub">Just a ZIP and radius — we derive the city, region, and local high-intent targets from there.</p>
+          <div class="grid">
+            <div>
+              <label>Firm Name <span class="req">*</span></label>
+              <input name="firm_name" id="firm_name" placeholder="e.g. Morgan & Associates" />
+            </div>
+            <div>
+              <label>Website</label>
+              <input name="website" placeholder="https://" />
+            </div>
+            <div>
+              <label>Firm ZIP Code <span class="req">*</span></label>
+              <input name="firm_zip" id="firm_zip" inputmode="numeric" pattern="\d{5}(-\d{4})?" placeholder="e.g. 33101" />
+              <div class="hint">We build the whole market plan from this ZIP.</div>
+            </div>
+            <div>
+              <label>Target Radius</label>
+              <select name="target_radius">
+                <option value="15 miles">15 miles</option>
+                <option value="25 miles" selected>25 miles</option>
+                <option value="40 miles">40 miles</option>
+                <option value="60 miles">60 miles</option>
+                <option value="Countywide">Countywide</option>
+                <option value="Statewide">Statewide</option>
+              </select>
+            </div>
+            <div class="full">
+              <label>Primary Goal</label>
+              <input name="primary_goal" placeholder="e.g. More signed injury cases / booked consultations" />
+            </div>
+            <div class="full">
+              <label>Anything else we should know? <span style="font-weight:500;color:var(--muted)">(optional)</span></label>
+              <textarea name="notes" placeholder="Signature cases, competitors to conquest, no-go zones, etc."></textarea>
+            </div>
+          </div>
+          <div class="field-err" id="err2">Please add the firm name and a valid 5-digit ZIP code.</div>
+        </section>
+
+        <!-- STEP 3 — Contact + delivery -->
+        <section class="panel" data-step="3" style="display:none">
+          <h2>Where should we send the plan?</h2>
+          <p class="sub">We'll build the plan and deliver the full proposal PDF to the address you choose below.</p>
+          <div class="grid">
+            <div>
+              <label>Your Name <span class="req">*</span></label>
+              <input name="contact_name" id="contact_name" />
+            </div>
+            <div>
+              <label>Contact Phone</label>
+              <input name="contact_phone" />
+            </div>
+            <div class="full">
+              <label>Contact Email <span class="req">*</span></label>
+              <input name="contact_email" id="contact_email" type="email" placeholder="you@firm.com" />
+            </div>
+          </div>
+
+          <div class="send-box">
+            <div class="grid">
+              <div class="full">
+                <label>📩 Send my finished plan to <span class="req">*</span></label>
+                <input name="proposal_recipient_email" id="proposal_recipient_email" type="email" placeholder="Where should the proposal be delivered?" />
+                <div class="hint">Defaults to your contact email — change it to send the plan somewhere else (e.g. a partner or your marketing lead).</div>
+              </div>
+            </div>
+          </div>
+          <div class="field-err" id="err3">Please add your name and a valid email so we can send the plan.</div>
+        </section>
+
+        <div class="nav">
+          <button type="button" class="btn btn-ghost" id="backBtn" style="visibility:hidden">← Back</button>
+          <button type="button" class="btn btn-primary" id="nextBtn">Next →</button>
+          <button type="submit" class="btn btn-primary" id="submitBtn" style="display:none">Build My Plan</button>
+        </div>
+
+        <div class="status" id="status"></div>
+      </form>
+
+      <div class="result" id="result"><div class="result-inner" id="resultInner"></div></div>
+    </div>
+
+    <footer>Smart 1 Marketing · (614) 536-0768 · smart1marketing.com<br>
+      © Smart 1 Marketing · Estimates are AI planning projections for marketing use, not audited counts.</footer>
+  </div>
+
+  <script>
+    // ---- Page-load overlay (SPEC §7a): hide on first paint, signal embeds ----
+    (function(){
+      const ov = document.getElementById('bootOverlay');
+      let hidden = false;
+      function hideBoot(){
+        if(hidden) return; hidden = true;
+        if(ov){ ov.classList.add('hide'); setTimeout(()=>{ if(ov.parentNode) ov.parentNode.removeChild(ov); }, 450); }
+        try{ if(window.parent && window.parent !== window) window.parent.postMessage('app-ready','*'); }catch(e){}
+      }
+      if(document.readyState !== 'loading'){ setTimeout(hideBoot, 150); }
+      else { document.addEventListener('DOMContentLoaded', ()=> setTimeout(hideBoot, 150)); }
+      window.addEventListener('load', hideBoot);
+    })();
+
+    // ---- Practice areas (icon = simple inline SVG path set) ----
+    const ICON = {
+      injury:'<path d="M12 21s-7-4.5-9.5-9A5 5 0 0 1 12 6a5 5 0 0 1 9.5 6c-2.5 4.5-9.5 9-9.5 9z"/><path d="M9 12h2l1-2 1 4 1-2h2"/>',
+      auto:'<path d="M5 16l1.5-4.5A2 2 0 0 1 8.4 10h7.2a2 2 0 0 1 1.9 1.5L19 16"/><path d="M4 16h16v3H4z"/><circle cx="7.5" cy="18.5" r="1"/><circle cx="16.5" cy="18.5" r="1"/>',
+      crim:'<path d="M3 21h18"/><path d="M14 4l6 6-3 3-6-6z"/><path d="M11 7L4 14l3 3 7-7"/>',
+      dui:'<path d="M8 3h8l-1 8a3 3 0 0 1-6 0z"/><path d="M12 14v5"/><path d="M8 21h8"/>',
+      family:'<circle cx="8" cy="8" r="2.5"/><circle cx="16" cy="8" r="2.5"/><path d="M4 20c0-3 2-5 4-5s4 2 4 5"/><path d="M12 20c0-3 2-5 4-5s4 2 4 5"/>',
+      wc:'<path d="M5 10a7 7 0 0 1 14 0"/><path d="M4 10h16v2H4z"/><path d="M12 3v3"/>',
+      tort:'<circle cx="7" cy="7" r="2"/><circle cx="17" cy="7" r="2"/><circle cx="12" cy="9" r="2"/><path d="M3 20c0-3 2-4 4-4s4 1 4 4"/><path d="M13 20c0-3 2-4 4-4s4 1 4 4"/>',
+      med:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M12 9v6M9 12h6"/>',
+      emp:'<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>',
+      imm:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/>',
+      estate:'<path d="M6 3h9l3 3v15H6z"/><path d="M9 8h6M9 12h6M9 16h4"/>',
+      bank:'<path d="M4 9l8-5 8 5"/><path d="M5 9v9M19 9v9M9 9v9M15 9v9"/><path d="M3 20h18"/>'
+    };
+    const PRACTICE_AREAS = [
+      {v:"Personal Injury", i:"injury"},
+      {v:"Auto Accident", i:"auto"},
+      {v:"Criminal Defense", i:"crim"},
+      {v:"DUI / DWI", i:"dui"},
+      {v:"Family Law / Divorce", i:"family"},
+      {v:"Workers' Compensation", i:"wc"},
+      {v:"Mass Tort / Class Action", i:"tort"},
+      {v:"Medical Malpractice", i:"med"},
+      {v:"Employment / Labor", i:"emp"},
+      {v:"Immigration", i:"imm"},
+      {v:"Estate / Probate / Elder Law", i:"estate"},
+      {v:"Bankruptcy", i:"bank"}
+    ];
+
+    let primary = "";
+    const secondary = new Set();
+    const paGrid = document.getElementById('paGrid');
+    const secChips = document.getElementById('secChips');
+
+    function svg(name){ return '<svg viewBox="0 0 24 24">'+ICON[name]+'</svg>'; }
+
+    function renderSecondary(){
+      secChips.innerHTML = PRACTICE_AREAS
+        .filter(p => p.v !== primary)
+        .map(p => '<span class="sec-chip'+(secondary.has(p.v)?' sel':'')+'" data-v="'+p.v+'">'+p.v+'</span>').join('');
+      secChips.querySelectorAll('.sec-chip').forEach(el=>{
+        el.onclick = ()=>{ const v=el.dataset.v; secondary.has(v)?secondary.delete(v):secondary.add(v); renderSecondary(); };
+      });
+    }
+    PRACTICE_AREAS.forEach(p=>{
+      const d=document.createElement('div');
+      d.className='pa'; d.dataset.v=p.v;
+      d.innerHTML=svg(p.i)+'<div class="t">'+p.v+'</div>';
+      d.onclick=()=>{
+        primary=p.v;
+        secondary.delete(p.v);
+        document.querySelectorAll('.pa').forEach(x=>x.classList.toggle('sel', x.dataset.v===primary));
+        document.getElementById('err1').classList.remove('show');
+        renderSecondary();
+      };
+      paGrid.appendChild(d);
+    });
+    renderSecondary();
+
+    // ---- Step navigation ----
+    let step = 1;
+    const totalSteps = 3;
+    const tabs = document.querySelectorAll('.step-tab');
+    const panels = document.querySelectorAll('.panel');
+    const backBtn = document.getElementById('backBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const submitBtn = document.getElementById('submitBtn');
+
+    function showStep(n){
+      step=n;
+      panels.forEach(p=>p.style.display = (p.dataset.step==n)?'block':'none');
+      tabs.forEach(t=>{
+        const tn=+t.dataset.tab;
+        t.classList.toggle('active', tn===n);
+        t.classList.toggle('done', tn<n);
+      });
+      backBtn.style.visibility = n>1 ? 'visible' : 'hidden';
+      nextBtn.style.display = n<totalSteps ? 'inline-block' : 'none';
+      submitBtn.style.display = n===totalSteps ? 'inline-block' : 'none';
+      window.scrollTo({top:0,behavior:'smooth'});
+    }
+
+    function validEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+
+    function validateStep(n){
+      if(n===1){
+        if(!primary){ document.getElementById('err1').classList.add('show'); return false; }
+      }
+      if(n===2){
+        const name=document.getElementById('firm_name').value.trim();
+        const zip=document.getElementById('firm_zip').value.trim();
+        if(!name || !/^\d{5}(-\d{4})?$/.test(zip)){ document.getElementById('err2').classList.add('show'); return false; }
+        document.getElementById('err2').classList.remove('show');
+      }
+      if(n===3){
+        const cname=document.getElementById('contact_name').value.trim();
+        const cemail=document.getElementById('contact_email').value.trim();
+        const send=document.getElementById('proposal_recipient_email').value.trim();
+        if(!cname || !validEmail(cemail) || (send && !validEmail(send))){
+          document.getElementById('err3').classList.add('show'); return false;
+        }
+        document.getElementById('err3').classList.remove('show');
+      }
+      return true;
+    }
+
+    nextBtn.onclick = ()=>{
+      if(!validateStep(step)) return;
+      // Partial lead: fire once when the user advances from step 2 → 3
+      // (firm name / website / ZIP / practice area are known at this point).
+      if(step===2) sendPartial();
+      showStep(step+1);
+    };
+    backBtn.onclick = ()=> showStep(step-1);
+
+    // Prefill "send my plan to" with contact email as they type it.
+    document.getElementById('contact_email').addEventListener('input', function(){
+      const pr=document.getElementById('proposal_recipient_email');
+      if(!pr.dataset.touched){ pr.value=this.value; }
+    });
+    document.getElementById('proposal_recipient_email').addEventListener('input', function(){ this.dataset.touched="1"; });
+
+    // ---- Submit ----
+    const form = document.getElementById('legalForm');
+
+    // ---- Partial lead capture (SPEC §3) ----
+    const API_BASE = '';
+    const LEAD_ID = (crypto.randomUUID ? crypto.randomUUID() : Date.now()+'-'+Math.random().toString(16).slice(2));
+    const ATTR = (() => {
+      const q = new URLSearchParams(location.search);
+      const keys = ['utm_source','utm_medium','utm_campaign','utm_term','utm_content','gclid','fbclid'];
+      const o = {};
+      keys.forEach(k=>{ const v=q.get(k); if(v) o[k]=v.slice(0,200); });
+      o.referrer_url = (document.referrer||'').slice(0,300);
+      o.landing_page_url = (q.get('s1_ref')||location.href).slice(0,300);
+      return o;
+    })();
+    let partialSent = false;
+    let finalSubmitted = false;
+    function fieldVal(name){ const el = form.elements[name]; return el ? el.value.trim() : ''; }
+    function partialPayload(){
+      return {
+        firm_name: fieldVal('firm_name'),
+        website: fieldVal('website'),
+        firm_zip: fieldVal('firm_zip'),
+        target_radius: fieldVal('target_radius'),
+        practice_area: primary,
+        secondary_practice_areas: Array.from(secondary).join(', '),
+        primary_goal: fieldVal('primary_goal'),
+        notes: fieldVal('notes')
+      };
+    }
+    function sendPartial(){
+      if (partialSent || finalSubmitted) return;
+      const p = partialPayload();
+      if (!p.website && !p.firm_name) return; // need at least something identifying
+      partialSent = true;
+      const body = JSON.stringify({ ...p, ...ATTR, lead_id: LEAD_ID, lead_stage: 'partial' });
+      if (navigator.sendBeacon) navigator.sendBeacon(API_BASE + '/api/partial-lead', new Blob([body], {type:'application/json'}));
+      else fetch(API_BASE + '/api/partial-lead', {method:'POST', headers:{'Content-Type':'application/json'}, body, keepalive:true});
+    }
+    window.addEventListener('pagehide', sendPartial);
+    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') sendPartial(); });
+
+    const statusEl = document.getElementById('status');
+    const resultEl = document.getElementById('result');
+    const resultInner = document.getElementById('resultInner');
+
+    function fmt(n){ return (n==null)?'—':Number(n).toLocaleString('en-US'); }
+    function rng(a,b){ return fmt(a)+'–'+fmt(b); }
+
+    // ---- Animated SVG loader ----
+    const LOADER_SVG = `
+      <svg class="stage" viewBox="0 0 420 150" width="100%" xmlns="http://www.w3.org/2000/svg" aria-label="Building your plan">
+        <!-- radar rings from the screen -->
+        <g fill="none" stroke="#009ED2" stroke-width="2">
+          <circle cx="78" cy="64" r="10" opacity="0">
+            <animate attributeName="r" values="10;46" dur="2.2s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="0.5;0" dur="2.2s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="78" cy="64" r="10" opacity="0">
+            <animate attributeName="r" values="10;46" dur="2.2s" begin="1.1s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="0.5;0" dur="2.2s" begin="1.1s" repeatCount="indefinite"/>
+          </circle>
+        </g>
+        <!-- billboard pole -->
+        <rect x="74" y="86" width="8" height="46" fill="#c3ccdc"/>
+        <!-- billboard screen -->
+        <rect x="40" y="34" width="76" height="52" rx="6" fill="#0A2240"/>
+        <rect x="47" y="41" width="62" height="38" rx="3" fill="#123a63"/>
+        <rect x="52" y="47" width="34" height="6" rx="3" fill="#d1a542">
+          <animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="52" y="57" width="52" height="4" rx="2" fill="#8ea1c4"/>
+        <rect x="52" y="65" width="44" height="4" rx="2" fill="#8ea1c4"/>
+        <!-- connecting path -->
+        <path id="bridge" d="M118,60 C186,18 250,120 316,74" fill="none" stroke="#d9dfea" stroke-width="2" stroke-dasharray="4 5"/>
+        <!-- traveling signal dot -->
+        <circle r="6" fill="#B8892B">
+          <animateMotion dur="1.8s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" calcMode="ease">
+            <mpath href="#bridge"/>
+          </animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0" dur="1.8s" repeatCount="indefinite"/>
+        </circle>
+        <!-- scales-of-justice motif (legal industry accent) -->
+        <g transform="translate(206,112)" stroke="#B8892B" stroke-width="2" fill="none" stroke-linecap="round">
+          <g>
+            <animateTransform attributeName="transform" type="rotate" values="-7 0 -10;7 0 -10;-7 0 -10" dur="3.2s" repeatCount="indefinite"/>
+            <path d="M-18,-10 L18,-10"/>
+            <path d="M-18,-10 L-24,3 M-18,-10 L-12,3"/>
+            <path d="M-24,3 a6 6 0 0 0 12 0"/>
+            <path d="M18,-10 L12,3 M18,-10 L24,3"/>
+            <path d="M12,3 a6 6 0 0 0 12 0"/>
+          </g>
+          <path d="M0,-10 L0,16"/>
+          <path d="M-9,18 L9,18"/>
+          <circle cx="0" cy="-14" r="2.6" fill="#B8892B" stroke="none"/>
+        </g>
+        <!-- phone -->
+        <rect x="300" y="40" width="54" height="80" rx="9" fill="#0A2240"/>
+        <rect x="306" y="48" width="42" height="60" rx="3" fill="#eaf0f8"/>
+        <circle cx="327" cy="114" r="3" fill="#8ea1c4"/>
+        <!-- phone glow pulse -->
+        <rect x="300" y="40" width="54" height="80" rx="9" fill="none" stroke="#3ba776" stroke-width="2" opacity="0">
+          <animate attributeName="opacity" values="0;0.9;0" dur="1.8s" begin="0.9s" repeatCount="indefinite"/>
+        </rect>
+        <!-- tiny incoming-ad lines on the phone -->
+        <rect x="312" y="56" width="30" height="5" rx="2" fill="#B8892B">
+          <animate attributeName="opacity" values="0;1" dur="1.8s" begin="0.9s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="312" y="66" width="24" height="4" rx="2" fill="#c3ccdc"/>
+        <rect x="312" y="74" width="28" height="4" rx="2" fill="#c3ccdc"/>
+      </svg>`;
+
+    const LOADER_CAPS = [
+      "Mapping your market",
+      "Locating high-intent screens",
+      "Layering in-market intent data",
+      "Building the mobile retargeting bridge",
+      "Assembling your month-by-month plan",
+      "Finalizing your proposal"
+    ];
+    let capTimer = null;
+    function startLoader(){
+      statusEl.className='status show';
+      statusEl.innerHTML =
+        '<div class="loader">'+ LOADER_SVG +
+        '<div class="cap" id="loadCap">'+ LOADER_CAPS[0] +'<span class="dots"></span></div>'+
+        '<div class="track"><i></i></div>'+
+        '<div class="sub">Analyzing your ZIP, radius, and local high-intent locations…</div>'+
+        '</div>';
+      let idx = 0;
+      const capEl = document.getElementById('loadCap');
+      capTimer = setInterval(()=>{
+        idx = (idx+1) % LOADER_CAPS.length;
+        if(capEl) capEl.innerHTML = LOADER_CAPS[idx] + '<span class="dots"></span>';
+      }, 2600);
+    }
+    function stopLoader(){ if(capTimer){ clearInterval(capTimer); capTimer=null; } }
+
+    form.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      if(!validateStep(3)) return;
+
+      document.getElementById('practiceArea').value = primary;
+      document.getElementById('secondaryAreas').value = Array.from(secondary).join(', ');
+
+      resultEl.classList.remove('show'); resultInner.innerHTML='';
+      startLoader();
+      submitBtn.disabled=true; backBtn.disabled=true;
+
+      const data = Object.fromEntries(new FormData(form).entries());
+      // Attribution passthrough + the same lead_id as the partial ping so GHL merges records.
+      Object.assign(data, ATTR);
+      data.lead_id = LEAD_ID;
+      finalSubmitted = true; // suppress the abandon-partial once the full lead is submitted
+      try {
+        const res = await fetch('/api/analyze', {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)
+        });
+        const json = await res.json();
+        if(!json.ok){
+          const detail = json.detail ? '<br><small style="opacity:.8">'+json.detail+'</small>' : '';
+          throw new Error((json.error || 'Something went wrong.') + detail);
+        }
+        statusEl.className='status';
+        if(json.queued){
+          statusEl.className='status show';
+          statusEl.innerHTML='<div style="color:#1d5c3d;background:#f0f9f4;border:1px solid #cbe8d6;padding:14px 16px;border-radius:9px;font-size:14px"><b>✓ You\'re all set!</b> '+(json.message||'Your plan is being finished and will be emailed to you shortly.')+'</div>';
+          return;
+        }
+        renderResult(json);
+      } catch(err){
+        statusEl.className='status show';
+        statusEl.innerHTML='<div class="err">'+ (err.message||'Request failed.') +'</div>';
+      } finally {
+        stopLoader();
+        submitBtn.disabled=false; backBtn.disabled=false;
+      }
+    });
+
+    function renderResult(json){
+      const r = json.report || {};
+      const m = r.market_profile || {};
+      const rp = r.recommended_package || {};
+      const sendTo = document.getElementById('proposal_recipient_email').value.trim()
+                   || document.getElementById('contact_email').value.trim();
+      const chans = (r.media_channels||[]).map(c=>'<span class="chip">'+c+'</span>').join('');
+      const cvl = (m.case_volume_label||'Est. Annual Cases');
+      let html = '';
+      html += '<h3>'+ (r.market_type||'Your Market Plan') +'</h3>';
+      html += '<p style="margin:2px 0 0;color:#687386;font-size:13px">'+ (r.market_summary||'') +'</p>';
+      html += '<div class="stat-row">'+
+        '<div class="stat"><b>'+rng(m.estimated_population_low,m.estimated_population_high)+'</b><span>Population</span></div>'+
+        '<div class="stat"><b>'+rng(m.estimated_households_low,m.estimated_households_high)+'</b><span>Households</span></div>'+
+        '<div class="stat"><b>'+rng(m.estimated_annual_cases_low,m.estimated_annual_cases_high)+'</b><span>'+cvl+'</span></div>'+
+      '</div>';
+      html += '<div class="pkg"><b>'+ (rp.monthly_investment||'') +' — '+ (rp.package_name||'') +'</b><br>'+
+              '<span style="font-size:13px;color:#c8d2e6">'+ (rp.description||'') +'</span></div>';
+
+      // Good / Better / Best pricing scenarios
+      const scen = r.pricing_scenarios||[];
+      if(scen.length){
+        html += '<div class="hiw-title">Good · Better · Best — sized to your market</div><div class="net">';
+        scen.forEach(s=>{
+          const rec = (s.package_name||'').toLowerCase() === (rp.package_name||'').toLowerCase();
+          html += '<div class="net-card"'+(rec?' style="outline:2px solid var(--gold)"':'')+'>'+
+                  '<div class="net-fmt">'+(s.tier||'')+(rec?' ★ Recommended':'')+'</div>'+
+                  '<div style="font-size:17px;font-weight:800;color:#fff;margin-bottom:4px">'+(s.monthly_investment||'')+'</div>'+
+                  '<div class="net-v"><b>'+(s.package_name||'')+'</b><br>'+(s.coverage||'')+'</div></div>';
+        });
+        html += '</div><p style="font-size:11.5px;color:#687386;margin:8px 0 0"><i>Suggested starting budgets based on your market\'s size — in a free consultation we\'ll tailor a budget that works for your firm.</i></p>';
+      }
+
+      // Why DOOH beats a static billboard — advantages
+      const advs = r.dooh_advantages||[];
+      if(advs.length){
+        html += '<div class="hiw-title">Why DOOH beats a static billboard</div><div class="outs">';
+        advs.forEach(a=>{ html += '<div class="adv"><b>'+(a.title||'')+'</b><span>'+(a.detail||'')+'</span></div>'; });
+        html += '</div>';
+      }
+
+      // The full screen network — every board, only when it works
+      const net = r.screen_network||[];
+      if(net.length){
+        html += '<div class="hiw-title">The full screen network — every board, only when it works</div><div class="net">';
+        net.forEach(n=>{
+          html += '<div class="net-card"><div class="net-fmt">'+(n.format||'')+'</div>'+
+                  '<div class="net-v">'+(n.venues||'')+'</div>'+
+                  '<div class="net-when">⚡ '+(n.when_it_runs||'')+'</div></div>';
+        });
+        html += '</div>';
+      }
+
+      // How it works — numbered steps
+      const steps = r.how_it_works||[];
+      if(steps.length){
+        html += '<div class="hiw-title">How your campaign works</div><div class="hiw">';
+        steps.forEach((s,i)=>{
+          html += '<div class="hiw-step"><span class="hiw-n">'+(i+1)+'</span><div><b>'+
+                  (s.title||'')+'</b><span>'+(s.detail||'')+'</span></div></div>';
+        });
+        html += '</div>';
+      }
+
+      // What to expect — outcomes
+      const outs = r.expected_outcomes||[];
+      if(outs.length){
+        html += '<div class="hiw-title">What to expect</div><div class="outs">';
+        outs.forEach(o=>{ html += '<div class="out"><span>✓</span>'+o+'</div>'; });
+        html += '</div>';
+      }
+
+      // Seasonal pacing — Peak / Shoulder / Low budget bars (screen version of the PDF's PacingBars)
+      const plan = r.monthly_plan||[];
+      if(plan.length){
+        const tiers = {};
+        plan.forEach(mo=>{
+          const pac = mo.pacing||'';
+          const tm = pac.match(/^\s*(Peak|Shoulder|Low)/i);
+          const dm = pac.match(/\$([\d,]+)/);
+          if(tm && dm){
+            const t = tm[1].charAt(0).toUpperCase()+tm[1].slice(1).toLowerCase();
+            if(!(t in tiers)) tiers[t] = parseInt(dm[1].replace(/,/g,''),10);
+          }
+        });
+        const tierRows = ['Peak','Shoulder','Low'].filter(t=>tiers[t]!=null);
+        if(tierRows.length){
+          const maxd = Math.max.apply(null, tierRows.map(t=>tiers[t])) || 1;
+          html += '<div class="hiw-title">Seasonal pacing — spend flexes with demand</div><div class="pace">';
+          tierRows.forEach(t=>{
+            const pct = Math.max(Math.round(tiers[t]/maxd*100), 4);
+            html += '<div class="pace-row"><span class="pace-lbl">'+t+'</span>'+
+                    '<span class="pace-track"><i class="pace-'+t.toLowerCase()+'" style="width:'+pct+'%"></i></span>'+
+                    '<span class="pace-val">$'+tiers[t].toLocaleString('en-US')+'/mo</span></div>';
+          });
+          html += '</div>';
+        }
+      }
+
+      html += '<div class="chips">'+chans+'</div>';
+      const pdfHref = json.report_pdf_download_url || json.report_pdf_url;
+      if (pdfHref){
+        html += '<a class="dl" href="'+pdfHref+'" target="_blank" rel="noopener">⬇ Download Full Proposal PDF</a>';
+      }
+      if (sendTo){
+        html += '<p style="font-size:12.5px;color:#687386;margin:12px 0 0">A copy is on its way to <b>'+sendTo+'</b>.</p>';
+      }
+      html += '<p class="report-foot">Smart 1 Marketing · (614) 536-0768 · smart1marketing.com</p>';
+      resultInner.innerHTML = html;
+      resultEl.classList.add('show');
+    }
+  </script>
+</body>
+</html>

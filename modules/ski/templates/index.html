@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Smart 1 Ski Resort Growth & Weather Trigger Plan</title>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root{--navy:#0A2240;--blue:#009ED2;--blue2:#3a95e0;--ice:#eaf6ff;--green:#26a269;--text:#172033;--muted:#637083;--line:#dbe3ec;--white:#fff;--cta:#ff6b3d}
+    *{box-sizing:border-box} body{margin:0;background:#f4f7fb;color:var(--text);font-family:Montserrat,Arial,sans-serif}
+    .shell{max-width:980px;margin:auto;padding:22px}.hero{background:linear-gradient(135deg,var(--navy),#274a82);color:#fff;padding:30px;border-radius:18px 18px 0 0}
+    .hero h1{margin:0 0 8px;font-size:clamp(25px,4vw,42px)}.hero p{margin:0;max-width:760px;line-height:1.55}
+    .card{background:#fff;padding:26px;border-radius:0 0 18px 18px;box-shadow:0 18px 45px rgba(20,42,77,.12)}
+    .progress{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:25px}.step-dot{height:7px;background:#e3e8ef;border-radius:10px}.step-dot.on{background:var(--blue)}
+    .step{display:none}.step.active{display:block}.step h2{color:var(--navy);margin-top:0}.hint{color:var(--muted);font-size:14px;line-height:1.5}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px}.full{grid-column:1/-1}
+    label{font-size:13px;font-weight:700;color:var(--navy);display:block;margin-bottom:7px}
+    input,select,textarea{width:100%;padding:13px;border:1px solid var(--line);border-radius:9px;font:inherit;background:#fff}textarea{min-height:92px;resize:vertical}
+    input:focus,select:focus,textarea:focus{outline:3px solid rgba(22,119,200,.12);border-color:var(--blue)}
+    .actions{display:flex;justify-content:space-between;gap:12px;margin-top:24px}.btn{border:0;padding:13px 20px;border-radius:9px;font-weight:800;cursor:pointer}
+    .primary{background:var(--blue);color:#fff}.secondary{background:#e9eef5;color:var(--navy)}.btn:disabled{opacity:.55;cursor:not-allowed}
+    .error{display:none;background:#fff1f1;border:1px solid #efb5b5;color:#8a1c1c;padding:12px;border-radius:9px;margin:15px 0}
+    #results{display:none}.score{display:flex;align-items:center;gap:18px;background:var(--ice);padding:18px;border-radius:12px;margin:18px 0}.score strong{font-size:42px;color:var(--blue)}
+    .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.metric{background:#f5f7fa;padding:14px;border-radius:10px}.metric b{display:block;font-size:20px;color:var(--navy)}.metric span{font-size:12px;color:var(--muted)}
+    .section{margin:26px 0}.section h3{color:var(--navy);border-bottom:2px solid var(--ice);padding-bottom:8px}
+    .trigger{border-left:4px solid var(--blue);padding:10px 13px;margin:10px 0;background:#f8fafc}.trigger b{color:var(--navy)}
+    .allocation{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.allocation div{padding:12px;background:#f5f7fa;border-radius:9px;text-align:center}.allocation b{display:block;color:var(--navy)}
+    .notice{font-size:12px;color:var(--muted);line-height:1.5}.print{float:right}.pdfbtn{float:right;margin-right:10px;background:var(--blue);color:#fff;text-decoration:none;display:inline-block}
+    /* Smart 1 wordmark lockup + footer */
+    .wordmark{font-weight:900;letter-spacing:.14em;font-size:14px;margin-bottom:10px}
+    .wordmark .one{color:var(--blue)}
+    .hero .wordmark{color:#fff}
+    .site-foot{text-align:center;color:var(--muted);font-size:12.5px;padding:18px 10px 26px}
+    .site-foot b{color:var(--navy)}
+    /* honeypot: visually hidden but present in the form */
+    .hp-field{position:absolute!important;left:-9999px!important;top:-9999px!important;height:1px;width:1px;overflow:hidden;opacity:0}
+    /* horizontal budget allocation bars */
+    .allocbars{margin:14px 0}
+    .allocbar{display:grid;grid-template-columns:170px 1fr 90px;gap:10px;align-items:center;margin:8px 0;font-size:13px}
+    .allocbar .track{background:#eef3f8;border-radius:999px;height:16px;overflow:hidden}
+    .allocbar .fill{height:100%;border-radius:999px}
+    .allocbar .amt{font-weight:800;color:var(--navy);text-align:right}
+    @media(max-width:640px){.allocbar{grid-template-columns:110px 1fr 80px}}
+    /* page-load overlay reusing the ski loader */
+    #pageLoader{position:fixed;inset:0;background:#f4f7fb;z-index:1000;display:flex;align-items:center;justify-content:center;transition:opacity .35s}
+    #pageLoader.hide{opacity:0;pointer-events:none}
+    #pageLoader .inner{text-align:center;padding:20px}
+    /* visual option cards (radio) */
+    .optcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+    .optcard{position:relative;cursor:pointer}
+    .optcard input{position:absolute;opacity:0;pointer-events:none}
+    .optcard span{display:flex;flex-direction:column;gap:4px;height:100%;border:1.5px solid var(--line);border-radius:12px;padding:14px 12px;background:#fff;transition:.15s;text-align:center;align-items:center}
+    .optcard .oi{font-size:1.6rem;line-height:1}
+    .optcard strong{font-size:13px;color:var(--navy)}
+    .optcard small{font-size:11px;color:var(--muted);line-height:1.35}
+    .optcard input:checked+span{border-color:var(--blue);background:var(--ice);box-shadow:0 0 0 2px rgba(22,119,200,.12)}
+    /* market picker + chip choices */
+    .mp-row{display:grid;grid-template-columns:220px 1fr;gap:12px;align-items:start}
+    @media(max-width:640px){.mp-row{grid-template-columns:1fr}}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+    .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer;color:var(--navy);transition:.15s}
+    .chip:hover{border-color:var(--blue)}
+    .chip.sel{background:var(--navy);border-color:var(--navy);color:#fff}
+    .selbar{border:1px dashed var(--line);border-radius:10px;padding:12px;min-height:52px;background:#fbfdff}
+    .selchip{display:inline-flex;align-items:center;gap:7px;background:var(--ice);border:1px solid #cfe3f5;color:var(--navy);border-radius:999px;padding:6px 10px;font-size:12.5px;font-weight:700;margin:3px}
+    .selchip b{cursor:pointer;color:var(--blue)}
+    .selempty{color:var(--muted);font-size:13px}
+    /* branded SVG loader */
+    .loading{display:none;text-align:center;padding:34px 20px}
+    .ski-svg{width:200px;height:132px;display:block;margin:0 auto 6px}
+    .ll-sweep{transform-origin:100px 74px;animation:llspin 2.8s linear infinite}
+    @keyframes llspin{to{transform:rotate(360deg)}}
+    .ll-pulse{animation:llpulse 1.9s ease-out infinite}
+    @keyframes llpulse{0%{r:5;opacity:.9}100%{r:24;opacity:0}}
+    .ll-sf{animation:llfall linear infinite}@keyframes llfall{0%{transform:translateY(-8px);opacity:0}15%{opacity:1}100%{transform:translateY(120px);opacity:.1}}
+    .ll-sf.a{animation-duration:3s}.ll-sf.b{animation-duration:2.3s;animation-delay:.5s}.ll-sf.c{animation-duration:3.4s;animation-delay:.9s}.ll-sf.d{animation-duration:2.7s;animation-delay:1.3s}
+    .loading h2{color:var(--navy);margin:12px 0 6px}
+    .lbar{height:8px;width:min(340px,80%);background:#e3ecf5;border-radius:999px;overflow:hidden;margin:16px auto 6px}
+    .lbar i{display:block;height:100%;width:8%;background:linear-gradient(90deg,var(--blue),var(--green));border-radius:999px;transition:width .4s ease}
+    @media(prefers-reduced-motion:reduce){.ll-sweep,.ll-pulse,.ll-sf{animation:none}}
+    @media(max-width:720px){.grid,.metrics,.allocation{grid-template-columns:1fr}.shell{padding:0}.hero,.card{border-radius:0}.progress{gap:4px}.print,.pdfbtn{float:none;margin-bottom:10px}}
+    @media print{body{background:#fff}.hero,.card{box-shadow:none}.print,.pdfbtn,.restart{display:none!important}.shell{max-width:none;padding:0}}
+  </style>
+</head>
+<body>
+<div id="pageLoader" aria-hidden="true">
+  <div class="inner">
+    <div class="wordmark" style="color:var(--navy)">SMART <span class="one">1</span> MARKETING</div>
+    <svg class="ski-svg" viewBox="0 0 200 132" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs><linearGradient id="swp" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a95e0" stop-opacity=".55"/><stop offset="1" stop-color="#3a95e0" stop-opacity="0"/></linearGradient></defs>
+      <g class="ll-sweep"><path d="M100 74 L100 -8 A82 82 0 0 1 168 26 Z" fill="url(#swp)"/></g>
+      <path d="M0 120 L46 60 L78 94 L116 46 L150 88 L200 42 L200 132 L0 132 Z" fill="#16324f"/>
+      <path d="M0 132 L38 86 L74 114 L112 80 L150 110 L200 76 L200 132 Z" fill="#22496f"/>
+      <circle class="ll-pulse" cx="116" cy="46" r="5" fill="none" stroke="#ff6b3d" stroke-width="2"/>
+      <circle cx="116" cy="46" r="5" fill="#ff6b3d"/>
+      <circle class="ll-sf a" cx="34" cy="8" r="2" fill="#cfe6f4"/><circle class="ll-sf b" cx="92" cy="6" r="1.6" fill="#cfe6f4"/>
+      <circle class="ll-sf c" cx="150" cy="10" r="2.2" fill="#cfe6f4"/><circle class="ll-sf d" cx="120" cy="4" r="1.5" fill="#cfe6f4"/>
+    </svg>
+    <p class="hint">Loading the ski resort planner…</p>
+  </div>
+</div>
+<div class="shell">
+  <header class="hero">
+    <div class="wordmark">SMART <span class="one">1</span> MARKETING</div>
+    <h1>Ski Resort Growth & Weather Trigger Plan</h1>
+    <p>Answer a few quick questions about your resort and markets. We estimate the rest — feeder-market size, audiences, weather triggers and media — and suggest the right package.</p>
+  </header>
+  <main class="card">
+    <div id="formArea">
+      <div class="progress"><div class="step-dot on"></div><div class="step-dot"></div><div class="step-dot"></div><div class="step-dot"></div></div>
+      <div class="error" id="error"></div>
+      <form id="skiForm">
+        <!-- fields we estimate / assume automatically -->
+        <input type="hidden" name="operating_months" value="November–March">
+        <input type="hidden" name="minimum_activation_share" value="35">
+        <!-- honeypot: humans never see or fill this -->
+        <div class="hp-field" aria-hidden="true"><label>Leave this field empty</label><input type="text" name="s1_hp" tabindex="-1" autocomplete="off"></div>
+
+        <section class="step active">
+          <h2>1. Resort Information</h2>
+          <div class="grid">
+            <div><label>Resort Name *</label><input name="resort_name" required></div>
+            <div><label>Website</label><input type="url" name="website" placeholder="https://"></div>
+            <div><label>Resort ZIP Code *</label><input name="zip_code" required inputmode="numeric" pattern="\d{5}(-\d{4})?" maxlength="10"></div>
+            <div><label>Does the resort make snow?</label><select name="snowmaking"><option value="yes">Yes</option><option value="limited">Limited</option><option value="no">No</option></select></div>
+            <div><label>Ski Season Starts</label><select name="season_start_month"><option value="10">October</option><option value="11" selected>November</option><option value="12">December</option></select></div>
+            <div><label>Ski Season Ends</label><select name="season_end_month"><option value="2">February</option><option value="3" selected>March</option><option value="4">April</option><option value="5">May</option></select></div>
+          </div>
+          <div style="margin-top:16px"><label>Primary Resort Type</label>
+            <div class="optcards" id="resortTypeCards">
+              <label class="optcard"><input type="radio" name="resort_type" value="Day-trip ski area" checked><span><span class="oi">🎿</span><strong>Day-trip ski area</strong><small>Local, drive-in visits</small></span></label>
+              <label class="optcard"><input type="radio" name="resort_type" value="Destination mountain resort"><span><span class="oi">🏔️</span><strong>Destination resort</strong><small>Overnight &amp; travel guests</small></span></label>
+              <label class="optcard"><input type="radio" name="resort_type" value="Family ski and tubing area"><span><span class="oi">👨‍👩‍👧</span><strong>Family &amp; tubing</strong><small>Beginners &amp; families</small></span></label>
+              <label class="optcard"><input type="radio" name="resort_type" value="Luxury resort"><span><span class="oi">⭐</span><strong>Luxury resort</strong><small>Premium experience</small></span></label>
+              <label class="optcard"><input type="radio" name="resort_type" value="Community/nonprofit ski area"><span><span class="oi">🤝</span><strong>Community / nonprofit</strong><small>Local hill</small></span></label>
+            </div>
+          </div>
+          <div style="margin-top:16px"><label>Main Revenue Products</label><textarea name="revenue_products" placeholder="Lift tickets, season passes, lodging, lessons, rentals, food and beverage, tubing, events..."></textarea></div>
+        </section>
+
+        <section class="step">
+          <h2>2. Your Feeder Markets</h2>
+          <p class="hint">Pick the metro markets your skiers travel from. Choose a state, then click the markets — add as many as you like across multiple states. We estimate population, households and audiences from these.</p>
+          <label>Target Markets *</label>
+          <div class="mp-row">
+            <select id="stateSel"><option value="">Choose a state…</option></select>
+            <div><div class="chips" id="metroChips"><span class="selempty">Select a state to see its major markets.</span></div></div>
+          </div>
+          <div class="selbar" id="selBar" style="margin-top:12px"><span class="selempty" id="selEmpty">No markets selected yet.</span></div>
+          <input type="hidden" name="target_markets" id="marketsHidden" required>
+          <div class="grid" style="margin-top:16px">
+            <div><label>Named Competitor Resorts <span style="font-weight:500;color:var(--muted)">(optional)</span></label><input name="competitors" placeholder="e.g. Cascade Mountain, Tyrol Basin"></div>
+            <div><label>Typical Guest Drive Time</label><select name="drive_time"><option>Under 90 minutes</option><option selected>1.5–3 hours</option><option>3–5 hours</option><option>5+ hours / fly market</option></select></div>
+          </div>
+        </section>
+
+        <section class="step">
+          <h2>3. Campaign Goals</h2>
+          <div class="grid">
+            <div><label>Primary Objective</label><select name="campaign_objective"><option value="season_passes">Season Pass Sales</option><option value="lift_tickets" selected>Lift Tickets &amp; Weekend Visits</option><option value="lodging">Lodging &amp; Destination Packages</option><option value="local_visits">Local Day Trips / Tubing</option></select></div>
+            <div><label>Monthly Media Budget <span style="font-weight:500;color:var(--muted)">(optional)</span></label><select name="monthly_budget"><option value="3000">About $3,000 / month</option><option value="6000" selected>About $6,000 / month</option><option value="10000">About $10,000 / month</option><option value="15000">$15,000+ / month</option></select></div>
+          </div>
+          <div style="margin-top:16px"><label>Primary Booking Window</label>
+            <div class="optcards" id="bookingCards">
+              <label class="optcard"><input type="radio" name="booking_window" value="Same day–3 days"><span><span class="oi">⚡</span><strong>Same day–3 days</strong><small>Last-minute</small></span></label>
+              <label class="optcard"><input type="radio" name="booking_window" value="3–14 days" checked><span><span class="oi">📅</span><strong>3–14 days</strong><small>Short lead</small></span></label>
+              <label class="optcard"><input type="radio" name="booking_window" value="2–6 weeks"><span><span class="oi">🗓️</span><strong>2–6 weeks</strong><small>Planned trips</small></span></label>
+              <label class="optcard"><input type="radio" name="booking_window" value="Seasonal / advance purchase"><span><span class="oi">🎟️</span><strong>Seasonal / advance</strong><small>Passes &amp; early buy</small></span></label>
+            </div>
+          </div>
+          <div style="margin-top:16px"><label>Current Paid Media <span style="font-weight:500;color:var(--muted)">(select all you run)</span></label>
+            <div class="chips" id="mediaChips"></div>
+            <input type="hidden" name="current_media" id="mediaHidden">
+          </div>
+          <div class="grid" style="margin-top:16px">
+            <div class="full"><label>Key Offers or Operational Constraints <span style="font-weight:500;color:var(--muted)">(optional)</span></label><textarea name="offers_constraints" placeholder="Dynamic pricing, blackout dates, lodging capacity, lift limits, beginner focus, special events..."></textarea></div>
+            <div class="full"><label>Exclusions or Other Notes <span style="font-weight:500;color:var(--muted)">(optional)</span></label><textarea name="exclusions"></textarea></div>
+          </div>
+        </section>
+
+        <section class="step">
+          <h2>4. Contact Information</h2>
+          <div class="grid">
+            <div><label>Contact Name *</label><input name="contact_name" required></div>
+            <div><label>Work Email *</label><input type="email" name="contact_email" required></div>
+            <div><label>Phone</label><input type="tel" name="contact_phone"></div>
+            <div><label>Role</label><input name="contact_role" placeholder="General Manager, Marketing Director..."></div>
+            <div class="full"><label><input type="checkbox" required style="width:auto;margin-right:8px"> I understand this is a directional marketing estimate and not a snow, weather or revenue guarantee.</label></div>
+          </div>
+        </section>
+
+        <div class="actions">
+          <button type="button" class="btn secondary" id="back" style="visibility:hidden">Back</button>
+          <button type="button" class="btn primary" id="next">Next</button>
+          <button type="submit" class="btn primary" id="submit" style="display:none">Generate Plan</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="loading" id="loading">
+      <svg class="ski-svg" viewBox="0 0 200 132" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs><linearGradient id="sw" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a95e0" stop-opacity=".55"/><stop offset="1" stop-color="#3a95e0" stop-opacity="0"/></linearGradient></defs>
+        <g class="ll-sweep"><path d="M100 74 L100 -8 A82 82 0 0 1 168 26 Z" fill="url(#sw)"/></g>
+        <path d="M0 120 L46 60 L78 94 L116 46 L150 88 L200 42 L200 132 L0 132 Z" fill="#16324f"/>
+        <path d="M0 132 L38 86 L74 114 L112 80 L150 110 L200 76 L200 132 Z" fill="#22496f"/>
+        <circle class="ll-pulse" cx="116" cy="46" r="5" fill="none" stroke="#ff6b3d" stroke-width="2"/>
+        <circle cx="116" cy="46" r="5" fill="#ff6b3d"/>
+        <circle class="ll-sf a" cx="34" cy="8" r="2" fill="#cfe6f4"/><circle class="ll-sf b" cx="92" cy="6" r="1.6" fill="#cfe6f4"/>
+        <circle class="ll-sf c" cx="150" cy="10" r="2.2" fill="#cfe6f4"/><circle class="ll-sf d" cx="120" cy="4" r="1.5" fill="#cfe6f4"/>
+      </svg>
+      <h2>Building your ski market plan…</h2>
+      <p class="hint" id="loadStatus">Analyzing your resort location and historical winter conditions…</p>
+      <div class="lbar"><i id="loadBar"></i></div>
+    </div>
+    <div id="results"></div>
+  </main>
+  <footer class="site-foot"><b>Smart 1 Marketing</b> · (614) 536-0768 · smart1marketing.com</footer>
+</div>
+<script>
+/* ---- page-load overlay: hide when the app is ready ---- */
+(function(){
+  function ready(){
+    const pl=document.getElementById("pageLoader");
+    if(pl){pl.classList.add("hide");setTimeout(()=>pl.remove(),450);}
+    try{parent.postMessage("app-ready","*");}catch(e){}
+  }
+  if(document.readyState==="complete")setTimeout(ready,150);
+  else window.addEventListener("load",()=>setTimeout(ready,150));
+  setTimeout(ready,4000); // safety: never trap the user behind the overlay
+})();
+
+/* ---- partial lead capture ---- */
+const LEAD_ID=(crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(16).slice(2));
+const ATTR=(()=>{const q=new URLSearchParams(location.search);const keys=["utm_source","utm_medium","utm_campaign","utm_term","utm_content","gclid","fbclid"];const o={};keys.forEach(k=>{const v=q.get(k);if(v)o[k]=v.slice(0,200);});o.referrer_url=(document.referrer||"").slice(0,300);o.landing_page_url=(q.get("s1_ref")||location.href).slice(0,300);return o;})();
+let partialSent=false,finalSent=false;
+function partialPayload(){
+  const f=document.getElementById("skiForm");if(!f)return{};
+  const d=Object.fromEntries(new FormData(f).entries());
+  return{resort_name:(d.resort_name||"").trim(),website:(d.website||"").trim(),zip_code:(d.zip_code||"").trim(),target_markets:(d.target_markets||"").trim(),s1_hp:(d.s1_hp||"").trim()};
+}
+function sendPartial(){
+  if(partialSent||finalSent)return;
+  const p=partialPayload();
+  if(!p.website&&!p.resort_name)return; // need at least something identifying
+  partialSent=true;
+  const body=JSON.stringify({...p,...ATTR,lead_id:LEAD_ID,lead_stage:"partial"});
+  if(navigator.sendBeacon)navigator.sendBeacon("/api/partial-lead",new Blob([body],{type:"application/json"}));
+  else fetch("/api/partial-lead",{method:"POST",headers:{"Content-Type":"application/json"},body,keepalive:true});
+}
+window.addEventListener("pagehide",sendPartial);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")sendPartial();});
+
+/* ---- state → major markets (multi-select, grouped by state) ---- */
+const STATES={
+ "Colorado":{ab:"CO",m:["Denver","Colorado Springs","Fort Collins","Boulder","Grand Junction","Pueblo"]},
+ "Utah":{ab:"UT",m:["Salt Lake City","Provo","Ogden","St. George"]},
+ "California":{ab:"CA",m:["Los Angeles","San Francisco","Sacramento","San Diego","San Jose","Fresno"]},
+ "Vermont":{ab:"VT",m:["Burlington","Montpelier","Rutland"]},
+ "New York":{ab:"NY",m:["New York City","Buffalo","Albany","Rochester","Syracuse"]},
+ "New Hampshire":{ab:"NH",m:["Manchester","Nashua","Concord"]},
+ "Maine":{ab:"ME",m:["Portland","Bangor","Lewiston"]},
+ "Massachusetts":{ab:"MA",m:["Boston","Worcester","Springfield"]},
+ "Michigan":{ab:"MI",m:["Detroit","Grand Rapids","Lansing","Traverse City","Ann Arbor"]},
+ "Wisconsin":{ab:"WI",m:["Milwaukee","Madison","Green Bay","Wausau","Eau Claire"]},
+ "Minnesota":{ab:"MN",m:["Minneapolis","St. Paul","Duluth","Rochester"]},
+ "Illinois":{ab:"IL",m:["Chicago","Rockford","Peoria","Springfield"]},
+ "Pennsylvania":{ab:"PA",m:["Philadelphia","Pittsburgh","Allentown","Scranton","Harrisburg"]},
+ "Ohio":{ab:"OH",m:["Columbus","Cleveland","Cincinnati","Toledo","Akron"]},
+ "Indiana":{ab:"IN",m:["Indianapolis","Fort Wayne","South Bend","Evansville"]},
+ "Washington":{ab:"WA",m:["Seattle","Spokane","Tacoma","Bellingham"]},
+ "Oregon":{ab:"OR",m:["Portland","Bend","Eugene","Salem"]},
+ "Idaho":{ab:"ID",m:["Boise","Idaho Falls","Coeur d'Alene","Twin Falls"]},
+ "Montana":{ab:"MT",m:["Billings","Bozeman","Missoula","Great Falls","Kalispell"]},
+ "Wyoming":{ab:"WY",m:["Cheyenne","Casper","Jackson"]},
+ "New Mexico":{ab:"NM",m:["Albuquerque","Santa Fe","Las Cruces"]},
+ "Arizona":{ab:"AZ",m:["Phoenix","Tucson","Flagstaff","Mesa"]},
+ "Nevada":{ab:"NV",m:["Las Vegas","Reno","Carson City"]},
+ "New Jersey":{ab:"NJ",m:["Newark","Jersey City","Trenton"]},
+ "Connecticut":{ab:"CT",m:["Hartford","New Haven","Bridgeport","Stamford"]},
+ "Virginia":{ab:"VA",m:["Richmond","Virginia Beach","Arlington","Roanoke"]},
+ "North Carolina":{ab:"NC",m:["Charlotte","Raleigh","Greensboro","Asheville"]},
+ "Tennessee":{ab:"TN",m:["Nashville","Memphis","Knoxville","Chattanooga"]},
+ "West Virginia":{ab:"WV",m:["Charleston","Morgantown","Huntington"]},
+ "Maryland":{ab:"MD",m:["Baltimore","Rockville","Frederick"]},
+ "Missouri":{ab:"MO",m:["St. Louis","Kansas City","Springfield","Columbia"]},
+ "Iowa":{ab:"IA",m:["Des Moines","Cedar Rapids","Davenport"]},
+ "Georgia":{ab:"GA",m:["Atlanta","Savannah","Augusta"]},
+ "Texas":{ab:"TX",m:["Dallas","Houston","Austin","San Antonio","Fort Worth"]},
+ "Alaska":{ab:"AK",m:["Anchorage","Fairbanks","Juneau"]}
+};
+const MEDIA=["Connected TV / OTT","Programmatic display","Digital audio / streaming radio","YouTube / online video","Paid search","Paid social","Broadcast / cable TV","Terrestrial radio","Print / newspaper","Billboards / out-of-home","Direct mail","Email","None yet"];
+
+const form=document.getElementById("skiForm"),steps=[...document.querySelectorAll(".step")],dots=[...document.querySelectorAll(".step-dot")];
+const next=document.getElementById("next"),back=document.getElementById("back"),submit=document.getElementById("submit"),errorBox=document.getElementById("error");
+let current=0;
+
+/* market picker */
+const stateSel=document.getElementById("stateSel"),metroChips=document.getElementById("metroChips"),selBar=document.getElementById("selBar"),marketsHidden=document.getElementById("marketsHidden");
+const selected=[]; // {label, key}
+Object.keys(STATES).sort().forEach(name=>{const o=document.createElement("option");o.value=name;o.textContent=name;stateSel.appendChild(o);});
+function renderMetros(){
+  const st=STATES[stateSel.value];
+  if(!st){metroChips.innerHTML='<span class="selempty">Select a state to see its major markets.</span>';return;}
+  metroChips.innerHTML="";
+  st.m.forEach(city=>{
+    const label=city+" ("+st.ab+")";
+    const c=document.createElement("span");c.className="chip"+(selected.some(s=>s.label===label)?" sel":"");c.textContent=city;
+    c.onclick=()=>{const i=selected.findIndex(s=>s.label===label); if(i>=0)selected.splice(i,1); else selected.push({label}); renderMetros(); renderSelected();};
+    metroChips.appendChild(c);
+  });
+}
+function renderSelected(){
+  marketsHidden.value=selected.map(s=>s.label).join(", ");
+  if(!selected.length){selBar.innerHTML='<span class="selempty" id="selEmpty">No markets selected yet.</span>';return;}
+  selBar.innerHTML=selected.map((s,i)=>`<span class="selchip">${s.label} <b data-i="${i}">✕</b></span>`).join("");
+  selBar.querySelectorAll("b").forEach(b=>b.onclick=()=>{selected.splice(+b.dataset.i,1);renderMetros();renderSelected();});
+}
+stateSel.onchange=renderMetros;
+
+/* current media chips */
+const mediaChips=document.getElementById("mediaChips"),mediaHidden=document.getElementById("mediaHidden");const media=new Set();
+MEDIA.forEach(m=>{const c=document.createElement("span");c.className="chip";c.textContent=m;c.onclick=()=>{if(media.has(m))media.delete(m);else media.add(m);c.classList.toggle("sel");mediaHidden.value=[...media].join(", ");};mediaChips.appendChild(c);});
+
+const money=n=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(n||0);
+const number=n=>n==null?"Unavailable":new Intl.NumberFormat("en-US").format(n);
+function showStep(i){current=i;steps.forEach((s,x)=>s.classList.toggle("active",x===i));dots.forEach((d,x)=>d.classList.toggle("on",x<=i));back.style.visibility=i?"visible":"hidden";next.style.display=i===steps.length-1?"none":"inline-block";submit.style.display=i===steps.length-1?"inline-block":"none";errorBox.style.display="none";}
+function validStep(){
+  if(steps[current].contains(marketsHidden) && !marketsHidden.value){errorBox.textContent="Please choose at least one target market.";errorBox.style.display="block";return false;}
+  const required=[...steps[current].querySelectorAll("[required]")];
+  for(const el of required){if(el.offsetParent===null&&el.type==="hidden")continue; if(!el.checkValidity()){el.reportValidity();return false}}
+  return true;
+}
+next.onclick=()=>{if(validStep()){if(current===0)sendPartial();showStep(current+1);}};back.onclick=()=>showStep(current-1);
+
+/* loader status cycle */
+let loadTimer=null;
+function startLoader(){
+  const steps=["Analyzing your resort location and historical winter conditions…","Sizing your feeder markets and skiing households…","Modeling weather triggers and budget protection…","Building your media plan and packages…"];
+  let i=0;const bar=document.getElementById("loadBar"),st=document.getElementById("loadStatus");let p=8;bar.style.width="8%";
+  loadTimer=setInterval(()=>{i=(i+1)%steps.length;st.textContent=steps[i];p=Math.min(92,p+9);bar.style.width=p+"%";},1400);
+}
+function stopLoader(){clearInterval(loadTimer);const bar=document.getElementById("loadBar");if(bar)bar.style.width="100%";}
+
+form.addEventListener("submit",async e=>{
+ e.preventDefault(); if(!validStep())return;
+ document.getElementById("formArea").style.display="none";document.getElementById("loading").style.display="block";startLoader();
+ const payload={...Object.fromEntries(new FormData(form).entries()),...ATTR,lead_id:LEAD_ID};
+ try{
+  const response=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.details||data.error||"Request failed");
+  finalSent=true;stopLoader();render(data.report,data.webhook,data.report_pdf_url);
+ }catch(err){
+  stopLoader();document.getElementById("loading").style.display="none";document.getElementById("formArea").style.display="block";
+  errorBox.textContent=err.message;errorBox.style.display="block";
+ }
+});
+function render(r,webhook,pdfUrl){
+ const c=r.climate,a=r.audience,b=r.budget_plan,s=r.savings_model,w=r.historical_weekly_plan||[];
+ const metric=(v,label)=>`<div class="metric"><b>${v}</b><span>${label}</span></div>`;
+ const escapeHtml=t=>String(t||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+ const summaryHtml=r.market_summary?`<section class="section"><h3>Market assessment</h3>${String(r.market_summary).split(/\n\n+/).map(p=>`<p>${escapeHtml(p)}</p>`).join("")}</section>`:"";
+ const allocTotal=(b.allocation.ctv||0)+(b.allocation.display||0)+(b.allocation.audio||0)||1;
+ const allocBar=(label,val,color)=>`<div class="allocbar"><span>${label}</span><div class="track"><div class="fill" style="width:${Math.max(4,Math.round(val/allocTotal*100))}%;background:${color}"></div></div><span class="amt">${money(val)}</span></div>`;
+ const weekRows=w.map(x=>`<tr>
+   <td style="padding:8px;border-bottom:1px solid #e5e9ef">Week ${x.week_number}</td>
+   <td style="padding:8px;border-bottom:1px solid #e5e9ef">${x.avg_qualified_ad_days}</td>
+   <td style="padding:8px;border-bottom:1px solid #e5e9ef">${x.avg_snowfall_inches}"</td>
+   <td style="padding:8px;border-bottom:1px solid #e5e9ef">${x.avg_snowmaking_days}</td>
+   <td style="padding:8px;border-bottom:1px solid #e5e9ef">${x.avg_suppressed_days}</td>
+   <td style="padding:8px;border-bottom:1px solid #e5e9ef">${x.activation_confidence}%</td>
+   <td style="padding:8px;border-bottom:1px solid #e5e9ef">${x.recommendation}</td>
+ </tr>`).join("");
+
+ document.getElementById("loading").style.display="none";
+ const el=document.getElementById("results");el.style.display="block";
+ el.innerHTML=`
+ <button class="btn secondary print" onclick="window.print()">Print / Save PDF</button>
+ ${pdfUrl?`<a class="btn pdfbtn" href="${pdfUrl}" target="_blank" rel="noopener">Download PDF</a>`:""}
+ <div class="wordmark" style="color:var(--navy)">SMART <span class="one">1</span> MARKETING</div>
+ <h2 style="margin-top:4px">${r.resort.name}: Ski Resort Marketing Plan</h2>
+ <p class="hint">${r.resort.location} · ZIP ${r.resort.zip_code} · Approx. elevation ${number(r.resort.elevation_feet_estimate)} ft</p>
+
+ <div class="score"><strong>${r.weather_marketing_readiness_score}</strong><div><b>Weather-Marketing Readiness Score</b><br><span class="hint">A directional planning score based on historical cold, snowfall, bluebird, rain and wind patterns.</span></div></div>
+
+ ${summaryHtml}
+
+ <section class="section"><h3>Estimated Targeted Skiing Households</h3>
+  <div class="metrics">
+   ${metric(number(a.feeder_households_used),"Feeder households")}
+   ${metric(number(a.broad_skiing_households),"Broad skiing households")}
+   ${metric(number(a.estimated_targeted_skiing_households),"Estimated targeted skiing households")}
+   ${metric(number(a.estimated_targeted_skiers_and_riders),"Estimated skiers and riders")}
+  </div>
+  <p class="notice">${a.methodology_note}</p>
+ </section>
+
+ <section class="section"><h3>Historical Weather-Based Savings Model</h3>
+  <div class="metrics">
+   ${metric(money(s.always_on_season_spend),"Modeled always-on season spend")}
+   ${metric(money(s.modeled_trigger_controlled_spend),"Modeled trigger-controlled spend")}
+   ${metric(money(s.estimated_budget_protected),"Estimated budget protected")}
+   ${metric(s.estimated_budget_protected_percent+"%","Estimated protection rate")}
+  </div>
+  <p><b>How this could save money:</b> Instead of spending evenly during every week of the ski season, the campaign increases activity during historically strong snowmaking, powder and bluebird windows and reduces acquisition spending during warm, rainy or high-wind periods. This model identified <b>${s.historically_strong_activation_weeks}</b> historically strong weeks and <b>${s.historically_weak_or_suppressed_weeks}</b> weaker or suppressed weeks.</p>
+  <p class="notice">${s.methodology_note}</p>
+ </section>
+
+ <section class="section"><h3>Week-by-Week Historical Ski Season Plan</h3>
+  <div style="overflow-x:auto">
+   <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="background:#eef5fb">
+     <th style="padding:9px;text-align:left">Season Week</th>
+     <th style="padding:9px;text-align:left">Qualified Ad Days</th>
+     <th style="padding:9px;text-align:left">Snowfall</th>
+     <th style="padding:9px;text-align:left">Snowmaking Days</th>
+     <th style="padding:9px;text-align:left">Suppressed Days</th>
+     <th style="padding:9px;text-align:left">Activation Score</th>
+     <th style="padding:9px;text-align:left">Recommendation</th>
+    </tr></thead>
+    <tbody>${weekRows}</tbody>
+   </table>
+  </div>
+  <p class="notice">Each row averages the same numbered week across the historical seasons analyzed. Live activation should also use current forecasts, snow reports, lift status, road conditions and inventory.</p>
+ </section>
+
+ <div class="metrics">
+  ${metric(number(c.avg_snowmaking_days),"Avg. snowmaking-condition days")}
+  ${metric(number(c.avg_powder_days),"Avg. 4+ inch powder days")}
+  ${metric(number(c.avg_bluebird_days),"Avg. post-snow bluebird days")}
+  ${metric(number(c.avg_natural_snowfall_inches),"Avg. natural snowfall inches")}
+ </div>
+
+ <section class="section"><h3>Recommended Geofencing & Target Sources</h3>
+  <ul>${r.recommended_targets.geofence_categories.map(x=>`<li>${x}</li>`).join("")}</ul>
+  ${r.recommended_targets.named_competitors.length?`<p><b>Named competitors:</b> ${r.recommended_targets.named_competitors.join(", ")}</p>`:""}
+  <p class="hint">${r.recommended_targets.lookback_recommendation}</p>
+ </section>
+
+ <section class="section"><h3>Weather Trigger Playbook</h3>
+  ${r.trigger_plan.map(t=>`<div class="trigger"><b>${t.name}</b> — ${t.condition}<br><span class="hint">${t.action}</span></div>`).join("")}
+ </section>
+
+ <section class="section"><h3>Recommended Monthly Media Plan: ${money(b.budget)}</h3>
+  <div class="allocation" style="grid-template-columns:repeat(3,1fr)">
+   <div><b>${money(b.allocation.ctv)}</b>Connected TV</div>
+   <div><b>${money(b.allocation.display)}</b>Programmatic Display</div>
+   <div><b>${money(b.allocation.audio)}</b>Digital Audio</div>
+  </div>
+  <div class="allocbars">
+   ${allocBar("Connected TV",b.allocation.ctv,"var(--navy)")}
+   ${allocBar("Programmatic Display",b.allocation.display,"var(--blue)")}
+   ${allocBar("Digital Audio",b.allocation.audio,"#2DBB72")}
+  </div>
+  <p class="hint">Estimated monthly delivery: ${number(b.impressions.ctv)} CTV impressions, ${number(b.impressions.display)} display impressions, and ${number(b.impressions.audio)} digital audio impressions.</p>
+  <div class="trigger"><b>Connected TV</b><br><span class="hint">Awareness and urgency among targeted skiing households during powder, cold, opening, and bluebird windows.</span></div>
+  <div class="trigger"><b>Programmatic Display</b><br><span class="hint">High-frequency lift-ticket, lodging, snow-condition, event, and retargeting messaging across premium websites and apps.</span></div>
+  <div class="trigger"><b>Digital Audio</b><br><span class="hint">Localized audio messages for commuters, travelers, and outdoor audiences, supported by clickable companion banners.</span></div>
+  <p class="notice">${b.note} A Smart 1 strategist will confirm the right package for your market.</p>
+ </section>
+
+ <section class="section"><h3>Seasonal Campaign Structure</h3>
+  ${r.campaign_phases.map(p=>`<div class="trigger"><b>${p.phase}</b> (${p.timing})<br><span class="hint">${p.focus}</span></div>`).join("")}
+ </section>
+
+ <p class="notice">${r.disclaimer}</p>
+ <p class="notice">Smart 1 Suite delivery: ${webhook.configured?(webhook.delivered?"successful":"not delivered"):"webhook not configured on Render"}.</p>
+ <button class="btn secondary restart" onclick="location.reload()">Start Another Plan</button>`;
+}
+</script>
+</body>
+</html>
