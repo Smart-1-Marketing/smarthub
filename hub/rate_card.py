@@ -215,3 +215,162 @@ def check_drift(io_template: str | None = None) -> dict:
                  f"the IO template. A proposal and its IO will quote different "
                  f"numbers until this is resolved."),
     }
+
+
+# ---------------------------------------------------------------------------
+# Proposal tiers, built from this card
+#
+# The Proposal Builder used to quote Good/Better/Best from a hardcoded table in
+# modules/proposal_builder/industries.py — nine industries, three fixed prices
+# each, invented independently of what we actually sell. So a proposal could
+# promise a "$2,500 Good package" that mapped to no product on this card, and
+# the IO builder would then refuse or restructure it. The client had already
+# seen the number by then.
+#
+# Tiers are therefore assembled from real products at real card rates, and run
+# through the same guardrails() the IO enforces. If a tier cannot be built
+# within the minimums, that is a fact worth surfacing rather than papering
+# over with a rounder number.
+# ---------------------------------------------------------------------------
+
+# The channel names the proposal industries use, mapped onto categories on this
+# card. A channel with no sensible category is left out rather than pointed at
+# something approximate — quoting the wrong product is worse than quoting
+# fewer of them.
+CHANNEL_CATEGORIES = {
+    "geofenced display":        ["LOCATION LOOKBACK", "MOBILE ONLY", "DISPLAY"],
+    "connected tv":             ["OTT"],
+    "ctv":                      ["OTT"],
+    "streaming audio":          ["DIGITAL RADIO"],
+    "digital out-of-home":      ["SMART 1 SIGNAGE"],
+    "weather-triggered ads":    ["DISPLAY", "OTT"],
+    "snow-triggered ads":       ["DISPLAY", "OTT"],
+    "mobile retargeting":       ["RETARGETING", "MOBILE ONLY"],
+    "website retargeting":      ["RETARGETING"],
+    "retargeting":              ["RETARGETING"],
+    "youtube":                  ["YOUTUBE"],
+    "online video":             ["YOUTUBE", "OTT"],
+    "fan-audience display":     ["DATA TARGETED DISPLAY", "DISPLAY"],
+    "paid search":              ["SEARCH ENGINE MARKETING / PAY PER CLICK"],
+    "search":                   ["SEARCH ENGINE MARKETING / PAY PER CLICK"],
+    "seo":                      ["SEARCH ENGINE OPTIMIZATION"],
+    "social":                   ["SOCIAL ADS", "META"],
+    "meta":                     ["META"],
+    "email":                    ["EMAIL MARKETING"],
+    "ip targeting":             ["IP TARGETS"],
+}
+
+# What each tier is trying to be. The budgets are entry points, not prices —
+# the tier costs what its products cost once the minimums are honoured.
+TIER_SHAPE = [
+    {"name": "Good",   "target": 2500,  "channels": 2,
+     "tagline": "Cover the essentials well"},
+    {"name": "Better", "target": 5500,  "channels": 3,
+     "tagline": "Add reach and frequency"},
+    {"name": "Best",   "target": 10000, "channels": 5,
+     "tagline": "Full coverage of the market"},
+]
+
+
+def categories_for_channels(channels: list) -> list[str]:
+    """Rate-card categories behind a proposal's channel list, in order."""
+    out, seen = [], set()
+    have = set(categories())
+    for ch in channels or []:
+        for cat in CHANNEL_CATEGORIES.get(str(ch).strip().lower(), []):
+            if cat in have and cat not in seen:
+                seen.add(cat)
+                out.append(cat)
+    return out
+
+
+def _cheapest_in(category: str) -> dict | None:
+    """The product that carries a category at the lowest commitment.
+
+    A proposal names the channel; which specific product fulfils it is a
+    trafficking decision. Leading with the lowest minimum keeps a tier
+    buildable at its budget rather than blowing it on one line.
+    """
+    rows = [p for p in products() if p.get("category") == category]
+    if not rows:
+        return None
+    rows.sort(key=lambda p: (float(p.get("rate_value") or 0) or 9e9,
+                             len(p.get("label", ""))))
+    return rows[0]
+
+
+def tiers_for(channels: list, budget: float = 0,
+              targets: list | None = None) -> list[dict]:
+    """Good / Better / Best built from this card for a set of channels.
+
+    Every line is a real product at its card rate, and every tier is checked
+    against the same guardrails the IO builder runs, so a tier that cannot be
+    written as an insertion order says so instead of being quoted.
+
+    `targets` is what each tier is aiming to cost, and the caller should pass
+    the price points its own market already uses. The first version of this
+    ignored that and applied one set of targets to everything, which quoted a
+    restaurant and a law firm the same $2,500 entry package — flattening a real
+    difference in what those markets spend. What the card decides is which
+    products fill a tier and what they cost per unit; how much a given industry
+    can spend is not something a rate card knows.
+    """
+    cats = categories_for_channels(channels)
+    if not cats:
+        return []
+
+    shapes = list(TIER_SHAPE)
+    if targets:
+        for i, t in enumerate(targets[: len(shapes)]):
+            try:
+                shapes[i] = {**shapes[i], "target": float(t)}
+            except (TypeError, ValueError):
+                pass
+
+    out = []
+    for shape in shapes:
+        picked = cats[: max(1, shape["channels"])]
+        if not picked:
+            continue
+        # Spread the target across the chosen categories, but never below the
+        # minimum the IO enforces for each — that minimum is the reason a
+        # cheaper "package price" was undeliverable in the first place.
+        per = shape["target"] / float(len(picked))
+        items, lines, monthly = [], [], 0.0
+        for cat in picked:
+            p = _cheapest_in(cat)
+            if not p:
+                continue
+            floor = MIN_BY_CATEGORY.get(cat, MIN_MONTHLY_DEFAULT)
+            spend = round(max(per, floor), 2)
+            monthly += spend
+            items.append({"product": p["label"], "monthly": spend})
+            lines.append({
+                "product": p["label"], "category": cat,
+                "monthly": spend, "listed_rate": p.get("listed_rate", ""),
+                "delivery": estimate_delivery(p, spend),
+                "requirements": p.get("requirements", ""),
+            })
+        if not lines:
+            continue
+        checks = guardrails(items)
+        out.append({
+            "name": shape["name"],
+            "tagline": shape["tagline"],
+            "price": round(monthly, 2),
+            "monthly": round(monthly, 2),
+            "annual": round(monthly * 12, 2),
+            "lines": lines,
+            # What the tier actually buys, in the words the proposal will use.
+            "features": [f"{l['product']} — {l['delivery'].get('note') or l['listed_rate']}"
+                         for l in lines],
+            "guardrails": checks,
+            "blocked": any(c["level"] == "block" for c in checks),
+        })
+
+    # The recommended tier is the cheapest that clears the client's stated
+    # budget, not the middle one by convention.
+    if budget:
+        for t in out:
+            t["recommended"] = t["monthly"] <= float(budget)
+    return out
