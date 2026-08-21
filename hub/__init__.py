@@ -1305,6 +1305,26 @@ def create_hub_app() -> Flask:
         return render_template("seo_webmaster.html", user=current_user(),
                                modules=MODULES, active="seo")
 
+    @app.route("/api/seo/tasks")
+    def api_seo_tasks():
+        """What has been raised for this client, and whether it can be."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo_tasks, knack_api as _k
+        client = (request.args.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        return jsonify({
+            "counts": seo_tasks.status(client),
+            "enabled": seo_tasks.enabled(),
+            "knack_configured": _k.configured(),
+            "due_field": seo_tasks.due_field(),
+            "rules": {"faq_days": seo_tasks.DUE_DAYS_FAQ,
+                      "schema_days": seo_tasks.DUE_DAYS_SCHEMA,
+                      "blog_lead_days": seo_tasks.BLOG_LEAD_DAYS},
+        })
+
     @app.route("/api/seo/webmaster")
     def api_seo_webmaster():
         """The roster only. Numbers arrive per row from /google — see
@@ -1421,6 +1441,11 @@ def create_hub_app() -> Flask:
         out["total"] = len(store.get("sitemap", []))
         audit.log("hub", "seo_generate", actor=current_user(),
                   detail=f"{client}: {len(urls)} pages")
+        # One ticket per page that actually got schema, not per page asked for.
+        from . import seo_tasks
+        done = [pg.get("url") for pg in (out.get("pages") or []) if pg.get("url")]
+        out["tasks"] = seo_tasks.for_pages(client, done or urls[:10],
+                                           kind="schema", actor=current_user())
         return jsonify(out)
 
     @app.route("/api/seo/page", methods=["POST"])
@@ -1862,6 +1887,9 @@ def create_hub_app() -> Flask:
             return jsonify({"error": str(exc)})
         audit.log("hub", "seo_blog_plan", actor=current_user(),
                   detail=f"{client}: {len(out['posts'])} posts")
+        from . import seo_tasks
+        out["tasks"] = seo_tasks.for_posts(client, out.get("posts") or [],
+                                           actor=current_user())
         return jsonify(out)
 
     @app.route("/api/seo/blogs/write", methods=["POST"])
@@ -2162,7 +2190,13 @@ def create_hub_app() -> Flask:
             return jsonify({"error": str(exc)}), 400
         audit.log("hub", "faq_page_saved", actor=current_user(), detail=client,
                   url=url, questions=len(page.get("questions", [])))
-        return jsonify({"ok": True, "page": page, "pages": faq.list_pages(client)})
+        # The FAQ exists in the Hub; somebody still has to put it on the page.
+        # Raising the ticket must not be able to fail the save that earned it.
+        from . import seo_tasks
+        task = seo_tasks.for_faq(client, url, body.get("title", ""),
+                                 actor=current_user())
+        return jsonify({"ok": True, "page": page, "pages": faq.list_pages(client),
+                        "task": task})
 
     @app.route("/api/seo/faq/page", methods=["POST"])
     def api_faq_page_update():

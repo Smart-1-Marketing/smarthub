@@ -1211,7 +1211,8 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     post('/api/seo/generate',{client:CLIENT}).then(function(d){
       $('btnGen').disabled=false;
       if(d.error){setGenMsg(d.error);return;}
-      setGenMsg(d.ai?'Generated with AI.':'Generated from page content'+(d.ai_error?' (AI unavailable: '+d.ai_error+')':' (no OPENAI_API_KEY — template mode)')+'.');
+      setGenMsg((d.ai?'Generated with AI.':'Generated from page content'+(d.ai_error?' (AI unavailable: '+d.ai_error+')':' (no OPENAI_API_KEY — template mode)')+'.')
+                + (taskLine(d.tasks) ? '  ' + taskLine(d.tasks) : ''));
       (d.pages||[]).forEach(addPageCard);
       renderQuestions(d.questions||[]);
       if(d.questions&&d.questions.length){$('qPanel').style.display='block';}
@@ -1715,6 +1716,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       if(d.error){$('blogPlanMsg').textContent=d.error;return;}
       blogPosts=d.posts||[];
       $('blogPlanMsg').textContent=(d.ai?'Topics planned with AI.':'Topics planned (template mode'+(d.ai_error?' — AI error: '+d.ai_error:'')+').');
+      appendTask('blogPlanMsg', d.tasks);
       renderBlogQs(d.questions||[]);
       renderBlogTable();
     });
@@ -1867,6 +1869,45 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   /* This rendered mm/dd/yyyy while every other page rendered mm-dd-yy, so
      the same date looked like two different fields depending on where you
      read it. One helper now. */
+  /* What happened to the web tickets, said in one line.
+
+     Raising them is a side effect of work the user just did, so it has to
+     report itself: silence would leave someone wondering whether the queue
+     had been filled twice or not at all. Failures are named individually —
+     "10 raised" when three of them were rejected is worse than saying
+     nothing. */
+  function taskLine(t){
+    if(!t) return '';
+    if(t.skipped) return '';                 // switched off, or Knack absent
+    /* Two shapes arrive here: a batch, where created/existing/failed are
+       arrays, and a single result, where `existing: true` means this one item
+       already had a ticket. Counting `.length` on the boolean gave 0, so
+       re-saving an FAQ said nothing at all — which reads as "no ticket", the
+       opposite of what happened. Count the array when there is one, the flag
+       when there is not. */
+    function n(v, flag){
+      if(Array.isArray(v)) return v.length;
+      return flag ? 1 : 0;
+    }
+    var bits = [];
+    var made = n(t.created,  t.ok === true && !t.existing);
+    var had  = n(t.existing, t.existing === true);
+    var bad  = n(t.failed,   t.ok === false && !!t.error);
+    if(made) bits.push(made + ' web ticket' + (made === 1 ? '' : 's') + ' raised');
+    if(had)  bits.push(had + ' already had one');
+    if(bad)  bits.push(bad + ' could not be raised');
+    var out = bits.join(' · ');
+    if(t.error) out += (out ? ' — ' : '') + t.error;
+    if(t.note)  out += (out ? ' — ' : '') + t.note;
+    return out;
+  }
+  function appendTask(elId, t){
+    var line = taskLine(t);
+    if(!line) return;
+    var el = $(elId);
+    if(el) el.textContent = (el.textContent ? el.textContent + '  ' : '') + line;
+  }
+
   function fmtDate(s){
     if(!s) return '<span class="seoc-muted">—</span>';
     var out = S1Date.fmt(s, '');
@@ -2096,6 +2137,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         btn.disabled=false;
         if(d.error){ $('faqSaveMsg').textContent=d.error; return; }
         $('faqSaveMsg').textContent='Saved to '+CLIENT+' ✓';
+        appendTask('faqSaveMsg', d.task);
         renderFaqTable(d.pages||[]);
         setTimeout(function(){ $('btnFaqCancel').onclick=null; draft={url:'',title:'',style:null,items:[]};
           $('faqReview').style.display='none'; $('faqStart').style.display='block';
