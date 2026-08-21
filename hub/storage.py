@@ -43,7 +43,13 @@ _configured = False
 # Cloudinary treats these as deliverable images. Everything else — PDF, DOC,
 # JSON, SVG, ZIP — must be uploaded raw or delivery is blocked.
 _IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif"}
-_VIDEO_EXT = {".mp4", ".mov", ".webm", ".m4v"}
+# Audio counts as "video" to Cloudinary — it has no separate audio type, and
+# an .mp3 uploaded as "raw" is stored but not transformable or streamable.
+# Radio Promo and Fan Radio both knew this and said so at their own call
+# sites; the shared function did not, so deriving the type here would have
+# quietly downgraded every spot they upload.
+_AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".flac", ".weba"}
+_VIDEO_EXT = {".mp4", ".mov", ".webm", ".m4v"} | _AUDIO_EXT
 
 
 class StorageError(RuntimeError):

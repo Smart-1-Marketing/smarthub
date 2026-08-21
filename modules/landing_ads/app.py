@@ -282,10 +282,14 @@ def api_art(sid):
     name = store.slugify(concept.get("name") or "concept", "concept")
     if cloud_ready():
         try:
-            up = cloudinary.uploader.upload(
-                io.BytesIO(data), folder=store.cloud_folder(row), public_id=name,
-                resource_type="image", overwrite=False, unique_filename=True)
-            url = up.get("secure_url")
+            # Through hub.storage. Same folder and id, so existing art stays
+            # where it is; the type comes from the filename instead of being
+            # asserted as "image" regardless of what was actually generated.
+            from hub import storage
+            url = storage.put("landing_ads", f"{name}.png", data,
+                              folder=store.cloud_folder(row),
+                              public_id=f"{store.cloud_folder(row)}/{name}",
+                              overwrite=False).url
         except Exception as exc:                             # noqa: BLE001
             print("landing_ads cloudinary upload failed:", exc)
             url = ""

@@ -278,17 +278,19 @@ def store_audio(project: dict, spot: dict, audio: bytes) -> dict:
                     api_key=os.environ["CLOUDINARY_API_KEY"],
                     api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
                     secure=True)
-            res = cloudinary.uploader.upload(
-                audio,
-                # 'video' is Cloudinary's resource type for audio. Uploading
-                # audio as 'image' is what made PDF links 403 across the
-                # Suite; the same class of mistake, avoided.
-                resource_type="video",
-                public_id=public_id, overwrite=False, unique_filename=True,
+            # Through hub.storage. The note this call site carried — that
+            # Cloudinary types audio as 'video' — is now encoded in
+            # hub.storage.resource_type_for, so it holds for every module
+            # rather than only the two that wrote it down.
+            from hub import storage
+            asset = storage.put(
+                "fan_radio", f"{public_id}.mp3",
+                audio if isinstance(audio, bytes) else audio.read(),
+                public_id=public_id, overwrite=False,
                 context={"project": project.get("id") or "",
                          "daypart": spot.get("daypart") or ""})
-            return {"url": res.get("secure_url"), "where": "cloudinary",
-                    "public_id": res.get("public_id")}
+            return {"url": asset.url, "where": "cloudinary",
+                    "public_id": asset.public_id}
         except Exception as exc:                      # noqa: BLE001
             # Fall through to disk — a render that cost money is never
             # thrown away because the upload failed.

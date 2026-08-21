@@ -113,12 +113,17 @@ def upload_asset(data: bytes, folder: str, public_id: str, kind: str) -> dict:
     """
     if cloud_ready():
         try:
-            result = cloudinary.uploader.upload(
-                io.BytesIO(data), folder=folder, public_id=public_id,
-                resource_type="video" if kind == "audio" else "image",
-                overwrite=False, unique_filename=True, invalidate=True)
-            return {"url": result.get("secure_url"),
-                    "public_id": result.get("public_id"), "store": "cloudinary"}
+            # Through hub.storage. The "video for audio" rule this call site
+            # knew about now lives in hub.storage.resource_type_for, so it is
+            # applied everywhere rather than only where someone remembered.
+            from hub import storage
+            ext = "mp3" if kind == "audio" else "png"
+            asset = storage.put("radio_promo", f"{public_id}.{ext}", data,
+                                folder=folder,
+                                public_id=f"{folder}/{public_id}",
+                                overwrite=False)
+            return {"url": asset.url, "public_id": asset.public_id,
+                    "store": "cloudinary"}
         except Exception as exc:                             # noqa: BLE001
             print("radio_promo cloudinary upload failed:", exc)
     ext = "mp3" if kind == "audio" else "png"

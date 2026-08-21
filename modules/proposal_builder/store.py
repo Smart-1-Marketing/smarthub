@@ -57,13 +57,14 @@ def _local_write(name, obj):
 def _cloud_upload(name, obj):
     if not CLOUD_READY:
         return None
-    import base64
-    data_uri = "data:application/json;base64," + base64.b64encode(
-        json.dumps(obj).encode()).decode()
-    res = cloudinary.uploader.upload(
-        data_uri, resource_type="raw",
-        public_id=f"{FOLDER}/data/{name}.json", overwrite=True, invalidate=True)
-    return res.get("secure_url")
+    # Through hub.storage, keeping the same public_id so nothing moves. The
+    # .json on the id is what the shared uploader derives "raw" from, rather
+    # than the call site asserting it. hub.storage builds the data URI itself,
+    # so the base64 step here is gone.
+    from hub import storage
+    pid = f"{FOLDER}/data/{name}.json"
+    return storage.put("proposals", pid, json.dumps(obj).encode("utf-8"),
+                       public_id=pid, overwrite=True).url
 
 
 def _cloud_fetch(name):
