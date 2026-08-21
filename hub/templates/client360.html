@@ -51,6 +51,7 @@ else runFromUrl();
 {% endblock %}
 
 {% block scripts %}
+<script src="/ask-analytics.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const user_name={{ (user or '')|tojson }};
@@ -201,7 +202,7 @@ function render(g,q){
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span></div><div class="card-b" id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
@@ -1265,17 +1266,44 @@ function showTrafficAttach(clientName){
   $('ta-go').onclick=go;
   $('ta-q').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
 }
+/* Ask AI — the full Ask Analytics widget, not a cut-down version of it.
+   Same endpoint and same renderer as the Google tools page: any metric, any
+   dimension, any date range, and it asks a question back when the question as
+   put has no defensible answer. */
+function c360AskReady(){
+  const link=$('c-traffic-ask'); if(!link||!window.__c360GA) return;
+  link.style.display='';
+  if(link.dataset.wired) return;
+  link.dataset.wired='1';
+  link.onclick=()=>{
+    const box=$('c-traffic-askbox');
+    if(box.dataset.open==='1'){ box.style.display='none'; box.dataset.open='0';
+      link.textContent='✨ Ask AI about this data'; return; }
+    box.style.display=''; box.dataset.open='1';
+    link.textContent='Hide Ask AI';
+    if(!box.dataset.mounted && window.Smart1Ask){
+      box.dataset.mounted='1';
+      window.Smart1Ask.mount(box,{
+        propertyId:()=>(window.__c360GA||{}).property||'',
+        login:()=>(window.__c360GA||{}).login||'',
+        label:(document.getElementById('c-traffic-meta')||{}).textContent||'',
+        placeholder:'Ask anything about this client’s analytics…'
+      });
+    }
+    box.scrollIntoView({behavior:'smooth',block:'nearest'});
+  };
+}
+
 function c360Traffic(propertyId,googleLogin){
+  /* Ask AI needs the same property this card just resolved. Holding it here
+     means the button works whether the property came from an attachment, a
+     name match, or a manual attach a moment ago. */
+  window.__c360GA={property:propertyId,login:googleLogin};
+  c360AskReady();
   $('c-traffic').innerHTML='<div class="empty">Pulling last month vs the previous period… <span class="spin"></span></div>';
   fetch('/google/api/ga4/monthly-summary',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({property_id:propertyId,google_login:googleLogin})})
     .then(r=>r.json()).then(d=>{
-      if(d.needs_reauth){
-        // A revoked Google token is fixable in one click — say so, rather than
-        // leaving the reader with an error they can't act on.
-        $('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+
-          ' <a class="btn-primary" style="margin-left:8px;padding:6px 14px;font-size:13px;text-decoration:none" href="'+esc(d.reconnect_url||'/google/login')+
-          '">Reconnect Google</a></div>';return}
       if(d.needs_reauth){
         // A revoked Google token is fixable in one click — say so, rather than
         // leaving the reader with an error they can't act on.

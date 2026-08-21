@@ -59,6 +59,17 @@ def static_accordion_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/ask-analytics.js")
+def static_ask_analytics_js():
+    """Served from the hub root so mounted modules can use it too.
+
+    DispatcherMiddleware routes by prefix, so a module page under /google can
+    still load a root-level script — which is the point: one Ask Analytics
+    widget, not one per page that wants it."""
+    return send_from_directory(_STATIC, "ask-analytics.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-crumbs.js")
 def static_crumbs_js():
     return send_from_directory(_STATIC, "hub-crumbs.js",

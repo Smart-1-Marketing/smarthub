@@ -580,46 +580,31 @@ if (gtmGenBtn && gtmGenUrlInput) {
 }
 
 // "Ask Analytics" Natural Language Query Handler
-const askBtn = document.getElementById('ask-btn');
-const askInput = document.getElementById('ask-q');
-const askResults = document.getElementById('ask-results');
-
-if (askBtn && askInput) {
-  askBtn.addEventListener('click', async () => {
-    const question = askInput.value.trim();
-    const property_id = document.getElementById('comp-property-id').value.trim();
-    const google_login = document.getElementById('comp-login').value.trim();
-
-    if (!property_id || !google_login) {
-      showToast("Please enter a GA4 Property ID and Login email first.", "error");
-      return;
+/* Ask Analytics now runs on the shared widget in hub/static/ask-analytics.js.
+   The handler that lived here rendered data.answer as a paragraph, which was
+   all the old keyword-matching endpoint returned. The endpoint plans a real
+   report now — table, comparison, and sometimes a question back — and keeping
+   a second renderer here is how this codebase ended up with two rate cards and
+   two proposal engines. */
+(function mountAsk() {
+  var host = document.getElementById('ask-results');
+  var oldInput = document.getElementById('ask-q');
+  var oldBtn = document.getElementById('ask-btn');
+  if (!host || !window.Smart1Ask) return;
+  /* The widget brings its own input, so the original row goes. */
+  if (oldInput && oldInput.parentNode) oldInput.parentNode.style.display = 'none';
+  if (oldBtn && oldBtn.parentNode) oldBtn.parentNode.style.display = 'none';
+  window.Smart1Ask.mount(host, {
+    propertyId: function () {
+      var el = document.getElementById('comp-property-id');
+      return el ? el.value.trim() : '';
+    },
+    login: function () {
+      var el = document.getElementById('comp-login');
+      return el ? el.value.trim() : '';
     }
-    if (!question) {
-      showToast("Please enter a question.", "error");
-      return;
-    }
-
-    askResults.innerHTML = renderSkeletonCard();
-
-    const resp = await fetch('/google/api/ga4/ask', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ property_id, google_login, question })
-    });
-
-    const data = await resp.json();
-    if (!resp.ok) {
-      askResults.innerHTML = `<span style="font-size:13px; color:#c5221f;">Error: ${esc(data.error || 'Failed to query GA4.')}</span>`;
-      return;
-    }
-
-    askResults.innerHTML = `
-      <div style="padding:12px; background:#fff; border:1px solid #d8e0eb; border-radius:8px; font-size:13px; color:#1a2e58; line-height:1.5;">
-        ${data.answer.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')}
-      </div>
-    `;
   });
-}
+})();
 
 function applyPresetDates(presetKey) {
   const now = new Date();
