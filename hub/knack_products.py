@@ -262,6 +262,13 @@ def refresh() -> dict:
             "clients": len({r["client"] for r in rows if r["client"]})}
 
 
+def _running(rec) -> bool:
+    """Deferred import: knack_data reads this module, so importing it at the
+    top would be a cycle."""
+    from hub.knack_data import is_running
+    return is_running(rec)
+
+
 def rows(max_age_minutes: int | None = None) -> dict:
     """Cached products, refreshing if stale. Falls back to the export."""
     ttl = max_age_minutes if max_age_minutes is not None else int(
@@ -327,7 +334,7 @@ def for_client(client: str) -> dict:
     mine = [r for r in data["rows"]
             if _norm(r.get("client")) == want or _norm(r.get("organization")) == want]
     mine.sort(key=lambda r: str(r.get("start") or ""), reverse=True)
-    live = [r for r in mine if str(r.get("status", "")).lower() == "live"]
+    live = [r for r in mine if _running(r)]
     return {
         "client": client, "products": mine, "count": len(mine),
         "live": len(live),
@@ -382,7 +389,7 @@ def scan_domains(client: str = "") -> dict:
     for r in data["rows"]:
         if want and _norm(r.get("client")) != want and _norm(r.get("organization")) != want:
             continue
-        if str(r.get("status", "")).lower() != "live":
+        if not _running(r):
             continue            # a finished campaign's landing page may be gone
         name = r.get("client") or r.get("organization") or ""
         for field in ("display_url", "url"):

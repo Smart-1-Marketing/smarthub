@@ -71,7 +71,7 @@ def _client_groups() -> dict:
         if r.get("lastM"):
             g["lastM"] = True
             g["last_total"] += m
-        if str(r.get("status", "")).strip().lower() == "live":
+        if knack_data.is_running(r):
             g["live"].append(r)
             g["live_total"] += m
             if isinstance(r.get("dash"), str) and r["dash"].startswith("http"):
@@ -249,12 +249,21 @@ def active_clients() -> dict:
             "partner": (partner or "").lower(),
             "ends": g.get("last_end"),
             "name": name.lower(),
+            # With nothing running, the last end date is not when this client
+            # ends — it is when they stopped. Printing it bare under "Ends"
+            # reads as something upcoming, next to a live monthly of $0. Say
+            # which it is, and say what they actually billed, because that
+            # billing is the only reason the row is here at all.
             "row": [
                 _c360_link(name),
                 partner,
-                len(g["live"]),
-                _money(g["live_total"]),
-                _dates.fmt(g.get("last_end")),
+                len(g["live"]) if g["live"] else {
+                    "text": "none running", "muted": True},
+                _money(g["live_total"]) if g["live"] else {
+                    "text": _money(g.get("this_total") or 0) + " billed this month",
+                    "muted": True},
+                (_dates.fmt(g.get("last_end")) if g["live"]
+                 else {"text": "ended " + _dates.fmt(g.get("last_end")), "muted": True}),
                 "Yes" if g["has_dash"] else "No",
             ],
         })
@@ -696,7 +705,7 @@ def no_gtm() -> dict:
             found_on_site += 1
             cov["scan_gtm"] = scan_gtm
         active_products = {str(r.get("product") or "").lower() for r in g["rows"]
-                           if str(r.get("status", "")).strip().lower() == "live" or r.get("thisM")}
+                           if knack_data.is_running(r) or r.get("thisM")}
         is_priority = any(any(k in p for k in GTM_PRIORITY_KEYWORDS) for p in active_products)
         row = [
             _c360_link(name),

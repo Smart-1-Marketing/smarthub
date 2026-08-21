@@ -7,6 +7,7 @@ newer file) is picked up automatically.
 """
 import json
 import os
+import datetime as _dt
 import threading
 
 BASE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "clients_app", "data")
@@ -78,8 +79,53 @@ def _num(v) -> float:
     return 0.0
 
 
-def _is_live(rec: dict) -> bool:
-    return str(rec.get("status", "")).strip().lower() == "live"
+# Statuses that mean the row is over, whatever its dates say. Everything else
+# is judged on its term. These two are unambiguous: 8,400 Complete rows and 70
+# Revised rows, not one of which covers today.
+_FINISHED_STATUSES = {"complete", "revised"}
+
+
+def is_running(rec: dict) -> bool:
+    """Is this insertion order delivering right now?
+
+    The test used to be `status == "live"`, and it missed about a third of the
+    work actually running. Knack's status vocabulary is wider than that:
+    Assigned, Scheduled, Pending Assets, In Process, Needs Cancelled, Paused
+    and Cancelled rows sit inside their dates and bill this month. A client
+    whose only current products were two of those reported "0 products, $0"
+    beside an end date — a row that says the client is both ending and has
+    nothing, which is the fastest way to make a renewal queue stop being
+    trusted.
+
+    So either signal counts: the term covers today, or somebody has marked it
+    Live. Deliberately a union rather than a swap. Judging on dates alone
+    dropped 173 rows that Knack still calls Live but whose end date has passed
+    — month-to-month arrangements, and IOs nobody has closed out — and that
+    took Hern Marine from four products and $6,500 to "0 products, $0 beside
+    an end date", which is the very row this was meant to remove. Widening a
+    definition can only add work to a queue; narrowing it hides work, and the
+    hidden kind is the expensive kind.
+
+    Complete and Revised never count — finished and superseded — so a stray
+    date on one cannot resurrect it.
+    """
+    status = str(rec.get("status", "")).strip().lower()
+    if status in _FINISHED_STATUSES:
+        return False
+    if status == "live":
+        return True
+
+    from hub import dates as _dates
+    start = _dates.to_date(rec.get("start"))
+    end = _dates.to_date(rec.get("end"))
+    if not (start and end):
+        return False
+    return start <= _dt.date.today() <= end
+
+
+# The old name, kept because renaming a predicate across six modules in the
+# same change as redefining it makes the redefinition impossible to review.
+_is_live = is_running
 
 
 def _period_label(yyyymm) -> str:
@@ -410,10 +456,10 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
     # clients with most live products first
     out.sort(key=lambda g: (-len(g["products"]), str(g["client"]).lower()))
     for g in out:
-        g["products"].sort(key=lambda p: (0 if str(p.get("status", "")).lower() == "live" else 1, str(p.get("product") or "")))
+        g["products"].sort(key=lambda p: (0 if is_running(p) else 1, str(p.get("product") or "")))
 
         # ---- header extras: billing, dashboard link, Smart 1 Site flag ----
-        live = [p for p in g["products"] if str(p.get("status", "")).lower() == "live"]
+        live = [p for p in g["products"] if is_running(p)]
         g["billing_monthly"] = round(sum(_num(p.get("monthly")) for p in live))
         g["dash_url"] = next(
             (p.get("dash") for p in live if isinstance(p.get("dash"), str) and p["dash"].startswith("http")),

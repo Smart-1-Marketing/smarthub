@@ -172,7 +172,7 @@ def all_clients(refresh: bool = False) -> list[dict]:
         pname = str(r.get("product") or "")
         if pname:
             entry["products"].add(pname)
-        if str(r.get("status") or "").strip().lower() == "live":
+        if knack_data.is_running(r):
             entry["live"] = True
             if "seo" in pname.lower():
                 entry["is_seo"] = True

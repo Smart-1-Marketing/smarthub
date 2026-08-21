@@ -161,7 +161,8 @@ def check_insites() -> Check:
         finally:
             db.close()
         if last is not None and last.completed_at:
-            when = last.completed_at.strftime("%Y-%m-%d")
+            from hub import dates as _dates
+            when = _dates.fmt(last.completed_at)
             msg = f"Key works — last audit completed {when} ({last.domain_key})."
             if (failed is not None and failed.created_at
                     and failed.created_at > last.completed_at):

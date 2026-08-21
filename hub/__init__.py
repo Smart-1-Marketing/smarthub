@@ -1359,7 +1359,9 @@ def create_hub_app() -> Flask:
             return jsonify({"error": f"Could not scan the site: {exc}"})
         if client:                      # cache the result on the client store
             import datetime as _dt
-            out["at"] = _dt.datetime.now().strftime("%m/%d/%Y %I:%M %p")
+            from . import dates as _dates
+            _now = _dt.datetime.now()
+            out["at"] = _dates.fmt(_now) + _now.strftime(" %I:%M %p")
             store = seo.load_store(client)
             store["last_scan"] = out
             seo.save_store(client, store)

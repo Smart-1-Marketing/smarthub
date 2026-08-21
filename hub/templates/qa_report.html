@@ -1,153 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ title }} — QA — Smart 1 Hub
-<script>
-/* Report actions. Delegated, because rows redraw. */
-document.addEventListener('click', function(ev){
-  var b = ev.target.closest('.qa-act');
-  if(!b) return;
-  var action = b.dataset.action, client = b.dataset.client;
-  if(b.dataset.confirm && !confirm(b.dataset.confirm)) return;
-
-  if(action === 'add-dashboard'){
-    var url = prompt('Dashboard URL for ' + client + '\n\n' +
-                     'This writes to every live product for this client, so the ' +
-                     'client stops appearing on the report.');
-    if(!url) return;
-    b.disabled = true; b.textContent = 'Saving…';
-    fetch('/api/qa/dashboard/add', {method:'POST', credentials:'same-origin',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({client: client, url: url})})
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        if(!d.ok){ alert(d.error || 'Could not save.'); b.disabled=false; b.textContent='Add dashboard'; return; }
-        alert(d.note || 'Saved.');
-        b.closest('tr').style.opacity = '.4';
-        b.textContent = 'Added ✓';
-      })
-      .catch(function(){ alert('Could not save.'); b.disabled=false; b.textContent='Add dashboard'; });
-    return;
-  }
-
-  if(action === 'form-summary'){
-    /* Was a native alert(). Two problems with that: it is the one piece of UI
-       we cannot style, and a browser that has been told "prevent this page
-       from creating more dialogs" swallows it silently — which reads as the
-       button doing nothing at all. A real panel can't be suppressed and can
-       show an empty state rather than an empty box. */
-    b.disabled = true; b.textContent = 'Loading…';
-    fetch('/api/qa/form-summary/' + encodeURIComponent(client), {credentials:'same-origin'})
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        b.disabled = false; b.textContent = 'Summary';
-        var title = document.getElementById('qaSumTitle');
-        var body  = document.getElementById('qaSumBody');
-        if(d.error){
-          title.textContent = 'Could not load this request';
-          body.innerHTML = '<p style="color:#b42318">'+esc(d.error)+'</p>';
-          document.getElementById('qaSumModal').classList.add('open');
-          return;
-        }
-        title.textContent = d.name || 'Request';
-        var h = '';
-        if(d.contact && (d.contact.name || d.contact.email || d.contact.company)){
-          h += '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;'
-            +  'padding:10px 12px;margin-bottom:12px">'
-            +  '<b>'+esc(d.contact.name||'—')+'</b>'
-            +  (d.contact.company? ' <span class="muted">· '+esc(d.contact.company)+'</span>':'')
-            +  '<div style="font-size:12.5px;color:#64748b;margin-top:2px">'
-            +  esc(d.contact.email||'') + (d.contact.phone? ' · '+esc(d.contact.phone):'')
-            +  '</div></div>';
-        }
-        var meta = [];
-        if(d.created) meta.push('Submitted ' + esc(d.created));
-        if(d.status)  meta.push('Status ' + esc(d.status));
-        if(meta.length) h += '<div style="font-size:12px;color:#64748b;margin-bottom:12px">'
-                          + meta.join(' &middot; ') + '</div>';
-        if((d.fields||[]).length){
-          h += '<table style="width:100%;border-collapse:collapse">';
-          d.fields.forEach(function(f){
-            h += '<tr><td style="vertical-align:top;padding:6px 10px 6px 0;color:#64748b;'
-              +  'font-size:12px;white-space:nowrap">'+esc(f.label)+'</td>'
-              +  '<td style="padding:6px 0;white-space:pre-wrap">'+esc(f.value)+'</td></tr>';
-          });
-          h += '</table>';
-        } else {
-          h += '<p class="muted">'+esc(d.note || 'No form fields were recorded for this request.')+'</p>';
-        }
-        body.innerHTML = h;
-        document.getElementById('qaSumModal').classList.add('open');
-      })
-      .catch(function(){
-        b.disabled=false; b.textContent='Summary';
-        document.getElementById('qaSumTitle').textContent = 'Could not load this request';
-        document.getElementById('qaSumBody').innerHTML =
-          '<p style="color:#b42318">The request could not be fetched. '
-        + 'Smart 1 Suite may be unreachable.</p>';
-        document.getElementById('qaSumModal').classList.add('open');
-      });
-    return;
-  }
-
-  if(action === 'skip-dashboard' || action === 'unskip-dashboard'){
-    var verb = action === 'skip-dashboard' ? 'skip' : 'unskip';
-    b.disabled = true;
-    fetch('/api/qa/dashboard/' + verb, {method:'POST', credentials:'same-origin',
-      headers:{'Content-Type':'application/json'}, body: JSON.stringify({client: client})})
-      .then(function(r){ return r.json(); })
-      .then(function(){ b.closest('tr').style.display = 'none'; if(window.loadSkips) loadSkips(); })
-      .catch(function(){ b.disabled = false; });
-  }
-});
-
-/* The skipped list, collapsed. A skip made months ago should be reviewable —
-   otherwise it's indistinguishable from the report being wrong. */
-(function(){
-  if(!/no-dashboards/.test(location.pathname)) return;
-  var wrap = document.createElement('div');
-  wrap.style.margin = '26px 0 0';
-  wrap.innerHTML = '<button class="qa-act" id="showSkips">Show skipped clients</button>' +
-                   '<div id="skipBox" hidden style="margin-top:12px"></div>';
-  (document.querySelector('.qa-wrap') || document.body).appendChild(wrap);
-  document.getElementById('showSkips').onclick = function(){
-    var box = document.getElementById('skipBox');
-    box.hidden = !box.hidden;
-    this.textContent = box.hidden ? 'Show skipped clients' : 'Hide skipped clients';
-    if(!box.hidden) loadSkips();
-  };
-  window.loadSkips = function(){
-    var box = document.getElementById('skipBox');
-    if(!box || box.hidden) return;
-    fetch('/api/qa/dashboard-skips', {credentials:'same-origin'})
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        if(!d.rows || !d.rows.length){
-          box.innerHTML = '<p class="muted">' + esc(d.note || 'Nothing skipped.') + '</p>';
-          return;
-        }
-        box.innerHTML = '<p class="muted" style="font-size:12.5px">' + esc(d.note) + '</p>' +
-          '<table class="qa-t"><thead><tr>' +
-          d.columns.map(function(h){ return '<th>' + esc(h) + '</th>'; }).join('') +
-          '</tr></thead><tbody>' +
-          d.rows.map(function(r){
-            return '<tr>' + r.map(function(c){ return '<td>' + cellHtml(c) + '</td>'; }).join('') + '</tr>';
-          }).join('') + '</tbody></table>';
-      });
-  };
-})();
-</script>
-<style>
-/* Matches .qa-btn.qa-sec — the Hub's secondary button — rather than the
-   one-off blue this used to be. Two button styles on one page reads as two
-   different systems bolted together. */
-.qa-act{border:1px solid #e2e8f0;background:#fff;color:#1e293b;border-radius:8px;
-  padding:5px 11px;font:600 12px 'Segoe UI',system-ui,sans-serif;cursor:pointer;
-  white-space:nowrap}
-.qa-act:hover{background:#f8fafc;border-color:#cbd5e1}
-.qa-assign-btn:hover{background:#f8fafc}
-.qa-act:disabled{opacity:.5;cursor:default}
-</style>
-
-{% endblock %}
+{% block title %}{{ title }} — QA — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head qa-head">
   <div>
@@ -306,6 +158,11 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
         +'<button class="qa-assign-btn">&#128269; Search &amp; attach</button></div>';
     if(c && typeof c==='object' && c.href)
       return '<a href="'+esc(c.href)+'" target="'+(c.href.charAt(0)==='/'?'_self':'_blank')+'">'+esc(c.text)+'</a>';
+    /* A cell that says why it is empty rather than showing a zero. "none
+       running" and "ended 08-08-26" are not the same thing as 0 and a date,
+       and a reader scanning the column needs to be able to tell. */
+    if(c && typeof c==='object' && c.muted)
+      return '<span style="color:#94a3b8;font-style:italic">'+esc(c.text||'')+'</span>';
     var s = String(c==null?'':c);
     if(s.indexOf('▼')===0) return '<span class="qa-neg">'+esc(s)+'</span>';
     if(s.indexOf('▲')===0) return '<span class="qa-pos">'+esc(s)+'</span>';
@@ -494,4 +351,155 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
   load();
 })();
 </script>
+
+<!-- Everything below was inside the page title block, which base.html renders
+     between <title> and </title>. The browser treated all of it as the tab's
+     text: the styles never applied and the scripts never ran. Moved here so
+     they do. -->
+<script>
+/* Report actions. Delegated, because rows redraw. */
+document.addEventListener('click', function(ev){
+  var b = ev.target.closest('.qa-act');
+  if(!b) return;
+  var action = b.dataset.action, client = b.dataset.client;
+  if(b.dataset.confirm && !confirm(b.dataset.confirm)) return;
+
+  if(action === 'add-dashboard'){
+    var url = prompt('Dashboard URL for ' + client + '\n\n' +
+                     'This writes to every live product for this client, so the ' +
+                     'client stops appearing on the report.');
+    if(!url) return;
+    b.disabled = true; b.textContent = 'Saving…';
+    fetch('/api/qa/dashboard/add', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({client: client, url: url})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d.ok){ alert(d.error || 'Could not save.'); b.disabled=false; b.textContent='Add dashboard'; return; }
+        alert(d.note || 'Saved.');
+        b.closest('tr').style.opacity = '.4';
+        b.textContent = 'Added ✓';
+      })
+      .catch(function(){ alert('Could not save.'); b.disabled=false; b.textContent='Add dashboard'; });
+    return;
+  }
+
+  if(action === 'form-summary'){
+    /* Was a native alert(). Two problems with that: it is the one piece of UI
+       we cannot style, and a browser that has been told "prevent this page
+       from creating more dialogs" swallows it silently — which reads as the
+       button doing nothing at all. A real panel can't be suppressed and can
+       show an empty state rather than an empty box. */
+    b.disabled = true; b.textContent = 'Loading…';
+    fetch('/api/qa/form-summary/' + encodeURIComponent(client), {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        b.disabled = false; b.textContent = 'Summary';
+        var title = document.getElementById('qaSumTitle');
+        var body  = document.getElementById('qaSumBody');
+        if(d.error){
+          title.textContent = 'Could not load this request';
+          body.innerHTML = '<p style="color:#b42318">'+esc(d.error)+'</p>';
+          document.getElementById('qaSumModal').classList.add('open');
+          return;
+        }
+        title.textContent = d.name || 'Request';
+        var h = '';
+        if(d.contact && (d.contact.name || d.contact.email || d.contact.company)){
+          h += '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;'
+            +  'padding:10px 12px;margin-bottom:12px">'
+            +  '<b>'+esc(d.contact.name||'—')+'</b>'
+            +  (d.contact.company? ' <span class="muted">· '+esc(d.contact.company)+'</span>':'')
+            +  '<div style="font-size:12.5px;color:#64748b;margin-top:2px">'
+            +  esc(d.contact.email||'') + (d.contact.phone? ' · '+esc(d.contact.phone):'')
+            +  '</div></div>';
+        }
+        var meta = [];
+        if(d.created) meta.push('Submitted ' + esc(d.created));
+        if(d.status)  meta.push('Status ' + esc(d.status));
+        if(meta.length) h += '<div style="font-size:12px;color:#64748b;margin-bottom:12px">'
+                          + meta.join(' &middot; ') + '</div>';
+        if((d.fields||[]).length){
+          h += '<table style="width:100%;border-collapse:collapse">';
+          d.fields.forEach(function(f){
+            h += '<tr><td style="vertical-align:top;padding:6px 10px 6px 0;color:#64748b;'
+              +  'font-size:12px;white-space:nowrap">'+esc(f.label)+'</td>'
+              +  '<td style="padding:6px 0;white-space:pre-wrap">'+esc(f.value)+'</td></tr>';
+          });
+          h += '</table>';
+        } else {
+          h += '<p class="muted">'+esc(d.note || 'No form fields were recorded for this request.')+'</p>';
+        }
+        body.innerHTML = h;
+        document.getElementById('qaSumModal').classList.add('open');
+      })
+      .catch(function(){
+        b.disabled=false; b.textContent='Summary';
+        document.getElementById('qaSumTitle').textContent = 'Could not load this request';
+        document.getElementById('qaSumBody').innerHTML =
+          '<p style="color:#b42318">The request could not be fetched. '
+        + 'Smart 1 Suite may be unreachable.</p>';
+        document.getElementById('qaSumModal').classList.add('open');
+      });
+    return;
+  }
+
+  if(action === 'skip-dashboard' || action === 'unskip-dashboard'){
+    var verb = action === 'skip-dashboard' ? 'skip' : 'unskip';
+    b.disabled = true;
+    fetch('/api/qa/dashboard/' + verb, {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({client: client})})
+      .then(function(r){ return r.json(); })
+      .then(function(){ b.closest('tr').style.display = 'none'; if(window.loadSkips) loadSkips(); })
+      .catch(function(){ b.disabled = false; });
+  }
+});
+
+/* The skipped list, collapsed. A skip made months ago should be reviewable —
+   otherwise it's indistinguishable from the report being wrong. */
+(function(){
+  if(!/no-dashboards/.test(location.pathname)) return;
+  var wrap = document.createElement('div');
+  wrap.style.margin = '26px 0 0';
+  wrap.innerHTML = '<button class="qa-act" id="showSkips">Show skipped clients</button>' +
+                   '<div id="skipBox" hidden style="margin-top:12px"></div>';
+  (document.querySelector('.qa-wrap') || document.body).appendChild(wrap);
+  document.getElementById('showSkips').onclick = function(){
+    var box = document.getElementById('skipBox');
+    box.hidden = !box.hidden;
+    this.textContent = box.hidden ? 'Show skipped clients' : 'Hide skipped clients';
+    if(!box.hidden) loadSkips();
+  };
+  window.loadSkips = function(){
+    var box = document.getElementById('skipBox');
+    if(!box || box.hidden) return;
+    fetch('/api/qa/dashboard-skips', {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d.rows || !d.rows.length){
+          box.innerHTML = '<p class="muted">' + esc(d.note || 'Nothing skipped.') + '</p>';
+          return;
+        }
+        box.innerHTML = '<p class="muted" style="font-size:12.5px">' + esc(d.note) + '</p>' +
+          '<table class="qa-t"><thead><tr>' +
+          d.columns.map(function(h){ return '<th>' + esc(h) + '</th>'; }).join('') +
+          '</tr></thead><tbody>' +
+          d.rows.map(function(r){
+            return '<tr>' + r.map(function(c){ return '<td>' + cellHtml(c) + '</td>'; }).join('') + '</tr>';
+          }).join('') + '</tbody></table>';
+      });
+  };
+})();
+</script>
+<style>
+/* Matches .qa-btn.qa-sec — the Hub's secondary button — rather than the
+   one-off blue this used to be. Two button styles on one page reads as two
+   different systems bolted together. */
+.qa-act{border:1px solid #e2e8f0;background:#fff;color:#1e293b;border-radius:8px;
+  padding:5px 11px;font:600 12px 'Segoe UI',system-ui,sans-serif;cursor:pointer;
+  white-space:nowrap}
+.qa-act:hover{background:#f8fafc;border-color:#cbd5e1}
+.qa-assign-btn:hover{background:#f8fafc}
+.qa-act:disabled{opacity:.5;cursor:default}
+</style>
 {% endblock %}

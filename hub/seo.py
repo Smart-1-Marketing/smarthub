@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 
 import requests
 
+from . import dates
 from . import knack_data
 
 _lock = threading.Lock()
@@ -499,7 +500,8 @@ def add_note(client: str, text: str, author: str = "") -> dict:
     store = load_store(client)
     prof = store.setdefault("profile", {})
     notes = prof.setdefault("notes", [])
-    notes.insert(0, {"time": _dt.datetime.now().strftime("%m/%d/%Y %I:%M %p"),
+    _now = _dt.datetime.now()
+    notes.insert(0, {"time": dates.fmt(_now) + _now.strftime(" %I:%M %p"),
                      "author": author or "Team", "text": str(text or "").strip()[:2000]})
     del notes[100:]                       # keep the latest 100
     save_store(client, store)
@@ -621,7 +623,7 @@ def seo_clients() -> list[dict]:
         pname = str(r.get("product", "")).lower()
         if "seo" not in pname:
             continue
-        if str(r.get("status", "")).strip().lower() != "live":
+        if not knack_data.is_running(r):
             continue
         client = str(r.get("client", "")).strip()
         if client:
@@ -733,7 +735,7 @@ def _client_base(client: str) -> dict:
     rows = [r for r in knack_data.products()
             if str(r.get("client", "")).strip().lower() == client.lower()
             and "seo" in str(r.get("product", "")).lower()
-            and str(r.get("status", "")).strip().lower() == "live"]
+            and knack_data.is_running(r)]
     products, billing, blogs = set(), 0.0, False
 
     def _current(r):

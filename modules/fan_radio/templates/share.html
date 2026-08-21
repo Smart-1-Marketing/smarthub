@@ -129,6 +129,7 @@
 <p class="foot">Smart 1 Marketing · Scripts are drafts until you approve them.<br>
    Not affiliated with, endorsed by, or sponsored by any team, league or school.</p>
 
+<script src="/hub-dates.js"></script>
 <script>
 (function(){
   var TOKEN = {{ token|tojson }};
@@ -203,7 +204,7 @@
         return '<div class="one"><b>' + esc(c.name) + '</b> '
              + (c.action === "approve" ? "approved this" : "asked for changes")
              + (c.comment ? ': ' + esc(c.comment) : '')
-             + ' <span class="when">' + esc((c.at || "").slice(0,10))
+             + ' <span class="when">' + esc(S1Date.fmt(c.at, ""))
              + '</span></div>';
       }).join("");
 
@@ -234,7 +235,7 @@
 
     var general = (data.general || []).map(function(c){
       return '<div class="one"><b>' + esc(c.name) + '</b>: ' + esc(c.comment)
-           + ' <span class="when">' + esc((c.at || "").slice(0,10))
+           + ' <span class="when">' + esc(S1Date.fmt(c.at, ""))
            + '</span></div>';
     }).join("");
     el("gensaid").innerHTML = general;

@@ -48,6 +48,7 @@
   </div>
   <p class="foot">Smart 1 Hub · {{ version }}</p>
 </div>
+<script src="/hub-dates.js"></script>
 <script>
 const MOUNT = {{ mount|tojson }};
 let scope = 'all';
@@ -70,7 +71,7 @@ async function load(){
       <td>${esc(p.project_name||'—')}</td>
       <td>${p.spec?'<span class="tag spec">spec</span>':'<span class="tag client">'+esc(p.client)+'</span>'}</td>
       <td>${p.spots}</td><td>${esc(p.status)}</td>
-      <td>${esc((p.updated_at||'').slice(0,10))}</td>
+      <td>${esc(S1Date.fmt(p.updated_at))}</td>
       <td style="white-space:nowrap">
         <a class="btn sec" href="./#p=${esc(p.id)}">Open</a>
         <button class="btn danger" onclick="del('${esc(p.id)}')">Delete</button></td>

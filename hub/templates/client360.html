@@ -1,29 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Client 360 — Smart 1 Hub
-<script>
-/* The topbar search posts to /client360?q=… but nothing here read it, so it
-   navigated and then sat there — which is why it looked broken. The page also
-   carried its own search box, so there were two on screen doing different
-   things. One search now, in the topbar, and it runs on arrival. */
-function runFromUrl(){
-  var q = new URLSearchParams(location.search).get('q');
-  if(!q) return;
-  var box = document.getElementById('q');
-  if(box) box.value = q;
-  if(window.run) run();
-}
-if(document.readyState === 'loading')
-  document.addEventListener('DOMContentLoaded', runFromUrl);
-else runFromUrl();
-</script>
-
-<style>
-/* Site Health summary: two columns above 640px, stacked below. */
-.health-cols{display:grid;grid-template-columns:1fr;gap:0 28px}
-@media(min-width:640px){.health-cols{grid-template-columns:1fr 1fr}}
-.health-cols dl{margin:0}
-</style>
-{% endblock %}
+{% block title %}Client 360 — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
 
@@ -1439,15 +1415,11 @@ function pushBrand(){
 }
 
 // ------------------------------------------------------------- work log card
-function fmtDate(v){
-  /* mm-dd-yy. ISO reads as ambiguous to anyone scanning a list quickly, and
-     this column is scanned rather than read. */
-  if(!v) return '';
-  var d = new Date(v);
-  if(isNaN(d)) return String(v).slice(0,10);
-  var p = function(n){ return (n<10?'0':'')+n; };
-  return p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+String(d.getFullYear()).slice(2);
-}
+/* mm-dd-yy, from the shared helper. This was a local copy that built the
+   string off `new Date(v)` — which parses a date-only ISO string as midnight
+   UTC and renders the day before anywhere west of Greenwich, so a renewal
+   ending on the 31st read as the 30th. */
+function fmtDate(v){ return v ? S1Date.fmt(v, '') : ''; }
 
 function renderWork(d){
   const el=document.getElementById('c-work'); if(!el) return;
@@ -1657,4 +1629,31 @@ function loadBrandAndWork(name){
     .then(r=>r.json()).then(renderWork).catch(()=>{});
 }
 </script>
+
+<!-- Everything below was inside the page title block, which base.html renders
+     between <title> and </title>. The browser treated all of it as the tab's
+     text: the styles never applied and the scripts never ran. Moved here so
+     they do. -->
+<script>
+/* The topbar search posts to /client360?q=… but nothing here read it, so it
+   navigated and then sat there — which is why it looked broken. The page also
+   carried its own search box, so there were two on screen doing different
+   things. One search now, in the topbar, and it runs on arrival. */
+function runFromUrl(){
+  var q = new URLSearchParams(location.search).get('q');
+  if(!q) return;
+  var box = document.getElementById('q');
+  if(box) box.value = q;
+  if(window.run) run();
+}
+if(document.readyState === 'loading')
+  document.addEventListener('DOMContentLoaded', runFromUrl);
+else runFromUrl();
+</script>
+<style>
+/* Site Health summary: two columns above 640px, stacked below. */
+.health-cols{display:grid;grid-template-columns:1fr;gap:0 28px}
+@media(min-width:640px){.health-cols{grid-template-columns:1fr 1fr}}
+.health-cols dl{margin:0}
+</style>
 {% endblock %}

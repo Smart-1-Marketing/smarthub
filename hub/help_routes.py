@@ -59,6 +59,17 @@ def static_accordion_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/hub-dates.js")
+def static_hub_dates_js():
+    """mm-dd-yy for the browser, the counterpart to hub/dates.py.
+
+    Root-level so mounted modules can load it too — the uploads gallery and
+    the radio library are not hub pages and were each formatting dates their
+    own way."""
+    return send_from_directory(_STATIC, "hub-dates.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/ask-analytics.js")
 def static_ask_analytics_js():
     """Served from the hub root so mounted modules can use it too.

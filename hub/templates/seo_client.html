@@ -1,411 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ client }} — SEO — Smart 1 Hub
-
-<div class="card" id="card-schemaq" style="grid-column:1 / -1">
-  <div class="card-h"><span class="src-tag" style="background:#ede9fe;color:#5b21b6">SCHEMA</span>
-    <h3>Schema questions</h3>
-    <div class="right">
-      <span id="schemaQCount" class="muted" style="font-size:12px"></span>
-      <button class="seoc-btn" onclick="loadSchemaQ()">Build answers</button>
-    </div>
-  </div>
-  <div class="card-b">
-    <p class="muted" style="font-size:12.8px;line-height:1.6;margin:0 0 10px">
-      Thirty-odd questions, answered from the client record first, then their
-      site, then AI. Anything that can't be found is marked
-      <b>NEED ANSWER</b> and blocks approval &mdash; structured data is read by
-      search engines as fact, so a plausible guess is worse than a blank.
-    </p>
-    <div id="schemaQ"><span class="muted">Not built yet.</span></div>
-  </div>
-</div>
-<div class="card" id="card-llms" style="grid-column:1 / -1">
-  <div class="card-h"><span class="src-tag" style="background:#ede9fe;color:#5b21b6">AI</span>
-    <h3>llms.txt</h3>
-    <div class="right"><button class="seoc-btn" onclick="buildLlms()">Build from Hub data</button></div>
-  </div>
-  <div class="card-b">
-    <p class="muted" style="font-size:12.8px;line-height:1.6;margin:0 0 10px">
-      A plain-text brief written for AI systems rather than crawlers: who this
-      business is, what it offers, and which pages are authoritative. It belongs
-      at <code>/llms.txt</code> on the client's own domain &mdash; that's where
-      models look. Until Smart 1 Sites can host one, the Hub serves it at a
-      public URL you can point to.
-    </p>
-    <div id="llmsStatus" class="muted" style="font-size:12.5px"></div>
-    <textarea id="llmsTxt" style="width:100%;min-height:300px;margin-top:10px;
-      font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;padding:11px;
-      border:1px solid #cfd7df;border-radius:8px" placeholder="Click Build to draft one."></textarea>
-    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
-      <button class="seoc-btn" onclick="saveLlms()">Save &amp; publish</button>
-      <button class="seoc-btn" onclick="copyLlms()">Copy</button>
-      <button class="seoc-btn" onclick="publishLlms()">Publish to Smart 1 Suite</button>
-      <a class="seoc-btn" id="llmsPublic" href="#" target="_blank" style="display:none">View public file &#8599;</a>
-      <a class="seoc-btn" id="llmsSuite" href="#" target="_blank" style="display:none">View on Suite &#8599;</a>
-      <span id="llmsMsg" class="muted" style="font-size:12px"></span>
-    </div>
-  </div>
-</div>
-
-
-<script>
-function llmsClient(){ return (window.CURRENT_SEO_CLIENT || document.title.split(" — ")[0] || "").trim(); }
-function buildLlms(){
-  var st=document.getElementById('llmsStatus'); st.textContent='Building from client record, last scan and brand data…';
-  fetch('/api/seo/llms-txt?client='+encodeURIComponent(llmsClient()),{credentials:'same-origin'})
-    .then(function(r){return r.json();}).then(function(d){
-      if(d.error){ st.textContent=d.error; return; }
-      document.getElementById('llmsTxt').value=d.text||'';
-      st.innerHTML = (d.needs_answer
-        ? '<b style="color:#a06a00">'+d.needs_answer+' placeholder(s) marked NEED</b> — '
-        : '<b style="color:#147d52">Ready.</b> ')
-        + (d.note||'') + ' · ' + (d.page_count||0) + ' pages from the last scan · ' + (d.bytes||0) + ' bytes';
-    }).catch(function(){ st.textContent='Could not build it.'; });
-}
-function saveLlms(){
-  var t=document.getElementById('llmsTxt').value, m=document.getElementById('llmsMsg');
-  m.textContent='Saving…';
-  fetch('/api/seo/llms-txt',{method:'POST',credentials:'same-origin',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({client:llmsClient(),text:t})})
-   .then(function(r){return r.json();}).then(function(d){
-     if(d.error){ m.textContent=d.error; m.style.color='#b42318'; return; }
-     m.style.color='#147d52'; m.textContent='Saved ('+d.bytes+' bytes).';
-     var slug=llmsClient().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-     var a=document.getElementById('llmsPublic');
-     a.href='/llms/'+slug+'.txt'; a.style.display='inline-block';
-   }).catch(function(){ m.textContent='Could not save.'; });
-}
-function publishLlms(){
-  var m=document.getElementById('llmsMsg');
-  m.style.color=''; m.textContent='Publishing to Suite…';
-  fetch('/api/suite/blog/publish-llms',{method:'POST',credentials:'same-origin',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({client:llmsClient(),text:document.getElementById('llmsTxt').value})})
-   .then(function(r){return r.json();}).then(function(d){
-     if(d.error){ m.style.color='#b42318'; m.textContent=d.error; return; }
-     m.style.color='#147d52';
-     m.textContent='Published as "'+(d.title||'')+'".'+(d.note?' '+d.note:'');
-     if(d.url){ var a=document.getElementById('llmsSuite'); a.href=d.url; a.style.display='inline-block'; }
-   }).catch(function(){ m.style.color='#b42318'; m.textContent='Could not publish.'; });
-}
-
-function copyLlms(){
-  var t=document.getElementById('llmsTxt');
-  t.select(); navigator.clipboard.writeText(t.value).catch(function(){document.execCommand('copy');});
-  document.getElementById('llmsMsg').textContent='Copied.';
-}
-</script>
-
-
-<script>
-var SCHEMA_Q = null;
-function schemaClient(){ return (window.CURRENT_SEO_CLIENT || document.title.split(" — ")[0] || "").trim(); }
-
-function loadSchemaQ(){
-  var el=document.getElementById('schemaQ');
-  el.innerHTML='<span class="muted">Answering from the client record, their site, then AI…</span>';
-  fetch('/api/seo/schema-questions?client='+encodeURIComponent(schemaClient()),{credentials:'same-origin'})
-    .then(function(r){return r.json();}).then(function(d){ SCHEMA_Q=d; renderSchemaQ(); })
-    .catch(function(){ el.innerHTML='<span class="muted">Could not build the questions.</span>'; });
-}
-
-function renderSchemaQ(){
-  var d=SCHEMA_Q, el=document.getElementById('schemaQ');
-  if(!d || !d.questions) return;
-  document.getElementById('schemaQCount').textContent =
-    d.answered+' of '+d.total+' answered'+(d.need_answer?' · '+d.need_answer+' need you':'');
-  var pill={known:'#e7f6ef|#147d52', ai:'#fff4d7|#a06a00', needed:'#feeceb|#b42318',
-            site:'#e0f2fe|#075985', search:'#e0f2fe|#075985'};
-  var groups={};
-  d.questions.forEach(function(q){ (groups[q.group]=groups[q.group]||[]).push(q); });
-
-  var html = '<div style="padding:9px 12px;border-radius:8px;margin-bottom:12px;font-size:12.8px;'+
-    (d.can_approve ? 'background:#e7f6ef;color:#11633f">&#10003; ' :
-                     'background:#feeceb;color:#8e2018">&#9888; ') + esc(d.note) + '</div>';
-
-  Object.keys(groups).forEach(function(g){
-    html += '<div style="font:700 11px system-ui;text-transform:uppercase;letter-spacing:.06em;'+
-            'color:#94a3b8;margin:14px 0 6px">'+esc(g)+'</div>';
-    groups[g].forEach(function(q){
-      var col=(pill[q.confidence]||pill.needed).split('|');
-      html += '<div class="sq-row" data-key="'+esc(q.key)+'" style="border:1px solid #eef2f6;'+
-        'border-radius:9px;padding:10px 12px;margin-bottom:8px">'+
-        '<div style="font-size:12.8px;color:#41525f;margin-bottom:5px">'+esc(q.question)+'</div>'+
-        '<div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">'+
-        '<span style="background:'+col[0]+';color:'+col[1]+';border-radius:20px;padding:2px 9px;'+
-        'font-size:10.5px;font-weight:700;white-space:nowrap">'+esc(q.confidence)+'</span>'+
-        '<textarea class="sq-ans" rows="1" style="flex:1;min-width:220px;padding:6px 9px;'+
-        'border:1px solid '+(q.confidence==="needed"?'#fca5a5':'#cfd7df')+';border-radius:7px;'+
-        'font:13px inherit;resize:vertical'+
-        (q.confidence==="needed"?';background:#fff7f6;font-weight:600':'')+'">'+
-        esc(q.answer)+'</textarea></div>'+
-        '<div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;align-items:center">'+
-        '<button class="sq-b" onclick="sqApprove(this)">Approve</button>'+
-        '<button class="sq-b" onclick="sqEdit(this)">Edit</button>'+
-        '<button class="sq-b sq-bad" onclick="sqRemove(this)">Remove</button>'+
-        '<button class="sq-b" onclick="sqRegen(this)">New AI</button>'+
-        '<span class="muted sq-note" style="font-size:11.5px">'+esc(q.source||'')+'</span>'+
-        '</div></div>';
-    });
-  });
-  html += '<div style="margin-top:14px;display:flex;gap:8px;align-items:center">'+
-    '<button class="seoc-btn" onclick="saveSchemaQ()">Save all answers</button>'+
-    '<span id="sqMsg" class="muted" style="font-size:12px"></span></div>';
-  el.innerHTML = html;
-}
-
-function sqRow(btn){ return btn.closest('.sq-row'); }
-function sqApprove(btn){
-  var r=sqRow(btn), t=r.querySelector('.sq-ans');
-  if(!t.value.trim() || t.value.trim().toUpperCase()==='NEED ANSWER'){
-    r.querySelector('.sq-note').textContent='Type an answer first — this one blocks approval.';
-    t.focus(); return;
-  }
-  t.readOnly=true; t.style.background='#f7fbf9'; t.style.borderColor='#86efac';
-  r.querySelector('.sq-note').textContent='Approved.';
-}
-function sqEdit(btn){
-  var t=sqRow(btn).querySelector('.sq-ans');
-  t.readOnly=false; t.style.background=''; t.focus();
-  sqRow(btn).querySelector('.sq-note').textContent='Editing — remember to save.';
-}
-function sqRemove(btn){
-  /* Clearing writes NEED ANSWER back rather than leaving it blank, so the
-     approval gate still catches it. A silently empty field is how a schema
-     ships with a hole in it. */
-  var r=sqRow(btn), t=r.querySelector('.sq-ans');
-  t.value='NEED ANSWER'; t.readOnly=false;
-  t.style.background='#fff7f6'; t.style.borderColor='#fca5a5'; t.style.fontWeight='600';
-  r.querySelector('.sq-note').textContent='Cleared — this now blocks approval until answered.';
-}
-function sqRegen(btn){
-  var r=sqRow(btn), note=r.querySelector('.sq-note');
-  note.textContent='Asking again…';
-  fetch('/api/seo/schema-questions/regenerate',{method:'POST',credentials:'same-origin',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({client:schemaClient(), key:r.dataset.key})})
-   .then(function(x){return x.json();}).then(function(d){
-     if(d.error){ note.textContent=d.error; return; }
-     var t=r.querySelector('.sq-ans');
-     t.value=d.answer; t.readOnly=false;
-     var need = d.confidence==='needed';
-     t.style.background=need?'#fff7f6':''; t.style.borderColor=need?'#fca5a5':'#cfd7df';
-     note.textContent=d.source||'';
-   }).catch(function(){ note.textContent='Could not regenerate.'; });
-}
-function saveSchemaQ(){
-  var answers={};
-  document.querySelectorAll('.sq-row').forEach(function(r){
-    answers[r.dataset.key]=r.querySelector('.sq-ans').value;
-  });
-  var m=document.getElementById('sqMsg'); m.textContent='Saving…';
-  fetch('/api/seo/schema-questions',{method:'POST',credentials:'same-origin',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({client:schemaClient(), answers:answers})})
-   .then(function(r){return r.json();}).then(function(d){
-     if(d.error){ m.textContent=d.error; return; }
-     m.style.color = d.can_approve ? '#147d52' : '#b42318';
-     m.textContent = d.can_approve
-       ? 'Saved. All questions answered — schema can be approved.'
-       : 'Saved. '+d.need_answer+' still marked NEED ANSWER, so approval stays blocked.';
-     loadSchemaQ();
-   }).catch(function(){ m.textContent='Could not save.'; });
-}
-</script>
-<style>
-.sq-b{border:1px solid #d7dfe8;background:#fff;border-radius:6px;padding:3px 10px;
-  font:600 11.5px system-ui;color:#41525f;cursor:pointer}
-.sq-b:hover{background:#f1f5f9}
-.sq-b.sq-bad{border-color:#f3b8b3;color:#b42318}
-</style>
-
-
-<script>
-/* ---- Blog featured images ------------------------------------------ */
-function blogThumb(p){
-  var im = p.image || null;
-  if(!im || !im.url){
-    return '<span class="seoc-muted" style="font-size:11px">—</span>';
-  }
-  var ring = im.status === 'pending' ? '#f59e0b' : '#86efac';
-  return '<img src="'+esc(im.url)+'" alt="" loading="lazy" '+
-    'onclick="openImageModal('+p.id+')" '+
-    'title="'+(im.status==='pending'?'Awaiting approval':'Approved')+'" '+
-    'style="width:64px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;'+
-    'border:2px solid '+ring+'">';
-}
-
-var IMG_POST = null;
-function openImageModal(id){
-  IMG_POST = blogPosts.find(function(x){ return x.id === id; });
-  if(!IMG_POST) return;
-  var im = IMG_POST.image || null;
-  var host = document.getElementById('imgModal');
-  host.querySelector('.im-title').textContent = IMG_POST.title;
-  var body = host.querySelector('.im-body');
-  body.innerHTML = im && im.url
-    ? '<img src="'+esc(im.url)+'" alt="" style="max-width:100%;border-radius:9px">'+
-      '<p class="seoc-muted" style="font-size:11.5px;margin:8px 0 0">'+
-      (im.status==='pending'
-        ? 'Awaiting approval. Check the details — generated people and storefronts '+
-          'are where these go wrong.'
-        : 'Approved and filed under Blogs in the client gallery.')+
-      (im.bytes? ' · '+Math.round(im.bytes/1024)+' KB':'')+'</p>'
-    : '<p class="seoc-muted">No image yet. Generate one from the post\'s title and content.</p>';
-  host.querySelector('.im-extra').value = '';
-  var pending = !!(im && im.status === 'pending');
-  host.querySelector('[data-act="approve"]').style.display = pending ? '' : 'none';
-  host.querySelector('[data-act="reject"]').style.display = pending ? '' : 'none';
-  host.querySelector('[data-act="delete"]').style.display = (im && !pending) ? '' : 'none';
-  host.querySelector('[data-act="generate"]').textContent = im ? 'Regenerate' : 'Generate';
-  host.querySelector('.im-msg').textContent = '';
-  host.hidden = false;
-}
-function closeImageModal(){ document.getElementById('imgModal').hidden = true; }
-
-/* How many blog images are waiting on a person.
-   /api/seo/blogs/image-status existed and nothing called it, so the one number
-   that says "somebody needs to look at these" was never shown anywhere. It
-   goes on the Blogs section head, which is collapsed by default — a section
-   that hides its own backlog is worse than one that is merely long. */
-function refreshImageStatus(){
-  if(!window.CLIENT) return;
-  fetch('/api/seo/blogs/image-status?client=' + encodeURIComponent(CLIENT),
-        {credentials:'same-origin'})
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var head = document.querySelector('#cardBlogs .seoc-sectionhead')
-              || document.querySelector('#cardBlogs .seoc-cardhead');
-      if(!head) return;
-      var b = head.querySelector('.seoc-imgbadge');
-      if(!b){
-        b = document.createElement('span');
-        b.className = 'seoc-badge seoc-imgbadge';
-        head.appendChild(b);
-      }
-      if(d.pending){
-        b.className = 'seoc-badge due seoc-imgbadge';
-        b.textContent = d.pending + ' image' + (d.pending===1?'':'s') + ' to approve';
-      }else if(d.without_image){
-        b.className = 'seoc-badge seoc-imgbadge';
-        b.textContent = d.without_image + ' without an image';
-      }else{
-        b.className = 'seoc-badge none seoc-imgbadge';
-        b.textContent = '';
-      }
-      b.title = d.note || '';
-    })
-    .catch(function(){});
-}
-document.addEventListener('DOMContentLoaded', function(){ setTimeout(refreshImageStatus, 1500); });
-
-function imgAction(act){
-  if(!IMG_POST) return;
-  var host = document.getElementById('imgModal');
-  var msg = host.querySelector('.im-msg');
-  var extra = host.querySelector('.im-extra').value;
-  if(act === 'delete' && !confirm('Delete this image? The post itself is kept.')) return;
-  /* Rejecting is not a destructive decision the way deleting is — it is one
-     step of making the image — so it does not stop to ask. */
-  msg.textContent = act === 'generate'
-    ? 'Generating — this takes a few seconds…' : 'Working…';
-  post('/api/seo/blogs/image', {client: CLIENT, id: IMG_POST.id, action: act, extra: extra})
-    .then(function(d){
-      if(d.error){ msg.style.color = '#b42318'; msg.textContent = d.error; return; }
-      msg.style.color = '#147d52';
-      msg.textContent = d.note || 'Done.';
-      loadBlogs();                       // refresh the table thumbnails
-      if(act === 'delete'){ closeImageModal(); refreshImageStatus(); return; }
-      if(act === 'reject'){
-        /* Stay on this post with the notes intact: the reason it was rejected
-           is what the next attempt needs, and retyping it is how people give
-           up and accept a bad image. */
-        var keep = host.querySelector('.im-extra').value;
-        IMG_POST.image = null;
-        openImageModal(IMG_POST.id);
-        host.querySelector('.im-extra').value = keep;
-        host.querySelector('.im-msg').textContent =
-          'Rejected. Add what to change, then Generate.';
-        refreshImageStatus();
-        return;
-      }
-      refreshImageStatus();
-      if(d.image){ IMG_POST.image = d.image; openImageModal(IMG_POST.id); }
-    })
-    .catch(function(){ msg.style.color = '#b42318'; msg.textContent = 'That did not go through.'; });
-}
-</script>
-
-<div id="imgModal" hidden style="position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.6);
-  display:flex;align-items:center;justify-content:center;padding:18px">
-  <div style="background:#fff;border-radius:13px;padding:20px;width:min(40rem,100%);
-    max-height:88vh;overflow:auto">
-    <h3 class="im-title" style="margin:0 0 4px;font-size:16px;color:#0d2340"></h3>
-    <p class="seoc-muted" style="font-size:12px;margin:0 0 12px">Featured image</p>
-    <div class="im-body"></div>
-    <label style="display:block;margin:14px 0 4px;font-size:12.5px;font-weight:600">
-      Anything to change? (optional)</label>
-    <textarea class="im-extra" rows="2" placeholder="e.g. show a technician outdoors, warmer light, wider shot"
-      style="width:100%;padding:8px 10px;border:1px solid #cfd7df;border-radius:8px;font:13px inherit"></textarea>
-    <p class="seoc-muted" style="font-size:11.5px;margin:5px 0 0">
-      Added to the prompt on the next generate. The image is always made from the
-      post's own title and content — no text or logos are ever requested.</p>
-    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-      <button class="seoc-btn" data-act="approve" onclick="imgAction('approve')">Approve</button>
-      <button class="seoc-btn" data-act="generate" onclick="imgAction('generate')">Generate</button>
-      <!-- Reject and Delete call the same thing server-side, because both drop
-           the image and keep the post. They are separate buttons because they
-           are separate decisions: rejecting a pending image means "not this
-           one, try again", and it clears the box so the next generate starts
-           from the notes you just typed. Deleting an approved image is
-           removing something already in use. Showing one button labelled
-           "Delete" next to a pending image asks the wrong question. -->
-      <button class="seoc-btn" data-act="reject" onclick="imgAction('reject')"
-        style="border-color:#f3d4a8;color:#8a5a12">Reject &amp; try again</button>
-      <button class="seoc-btn" data-act="delete" onclick="imgAction('delete')"
-        style="border-color:#f3b8b3;color:#b42318">Delete</button>
-      <button class="seoc-btn" onclick="closeImageModal()">Close</button>
-      <span class="im-msg seoc-muted" style="font-size:12px;align-self:center"></span>
-    </div>
-  </div>
-</div>
-
-
-<script>
-/* The FAQ export already matches the source page's fonts and colours. The
-   Hub preview didn't, so what you approved looked nothing like what shipped —
-   and a preview that misrepresents the output is worse than no preview. This
-   applies the same palette here, scoped to the list so it can't leak into the
-   rest of the page. */
-function applyFaqPalette(style){
-  var el = document.getElementById('faqPalette');
-  if(!style){ if(el) el.remove(); return; }
-  if(!el){ el = document.createElement('style'); el.id='faqPalette'; document.head.appendChild(el); }
-  var f = function(v, fallback){ return v || fallback; };
-  el.textContent =
-    '#faqList{font-family:'+f(style.font,'inherit')+';'+
-      'color:'+f(style.text,'#1b2733')+'}'+
-    '#faqList .seoc-faqq{border:1px solid '+f(style.border,'#e2e8f0')+';'+
-      'background:'+f(style.panel,'#fff')+'}'+
-    '#faqList .seoc-faqq b,#faqList h4{font-family:'+f(style.heading_font, f(style.font,'inherit'))+';'+
-      'color:'+f(style.heading,'#0d2340')+'}'+
-    '#faqList a{color:'+f(style.accent,'#1769AA')+'}';
-  var note = document.getElementById('faqPaletteNote');
-  if(note){
-    note.textContent = 'Preview is using this page\'s own fonts and colours — '+
-      'the same ones the export applies.';
-  }
-}
-</script>
-
-<style>
-/* Two columns above 720px, one below — a phone doesn't have room for two
-   label/value columns without the values wrapping to nothing. */
-.site-cols{display:grid;grid-template-columns:1fr;gap:0 26px}
-@media(min-width:720px){.site-cols{grid-template-columns:1fr 1fr}}
-</style>
-{% endblock %}
+{% block title %}{{ client }} — SEO — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head seoc-head">
   <div>
@@ -1028,6 +622,109 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
 .seoc-pill.warn { background:#FEF7E7; color:#94620A; }
 .seoc-pill.bad { background:#FDECEC; color:#B01919; }
 </style>
+
+<!-- Schema questions, llms.txt and the image modal. These were inside
+     the page title block and so were never on the page at all. They join the end
+     of the grid rather than the start, so nothing people already know how to
+     find has moved. -->
+<div class="card" id="card-schemaq" style="grid-column:1 / -1">
+  <div class="card-h"><span class="src-tag" style="background:#ede9fe;color:#5b21b6">SCHEMA</span>
+    <h3>Schema questions</h3>
+    <div class="right">
+      <span id="schemaQCount" class="muted" style="font-size:12px"></span>
+      <button class="seoc-btn" onclick="loadSchemaQ()">Build answers</button>
+    </div>
+  </div>
+  <div class="card-b">
+    <p class="muted" style="font-size:12.8px;line-height:1.6;margin:0 0 10px">
+      Thirty-odd questions, answered from the client record first, then their
+      site, then AI. Anything that can't be found is marked
+      <b>NEED ANSWER</b> and blocks approval &mdash; structured data is read by
+      search engines as fact, so a plausible guess is worse than a blank.
+    </p>
+    <div id="schemaQ"><span class="muted">Not built yet.</span></div>
+  </div>
+</div>
+<div class="card" id="card-llms" style="grid-column:1 / -1">
+  <div class="card-h"><span class="src-tag" style="background:#ede9fe;color:#5b21b6">AI</span>
+    <h3>llms.txt</h3>
+    <div class="right"><button class="seoc-btn" onclick="buildLlms()">Build from Hub data</button></div>
+  </div>
+  <div class="card-b">
+    <p class="muted" style="font-size:12.8px;line-height:1.6;margin:0 0 10px">
+      A plain-text brief written for AI systems rather than crawlers: who this
+      business is, what it offers, and which pages are authoritative. It belongs
+      at <code>/llms.txt</code> on the client's own domain &mdash; that's where
+      models look. Until Smart 1 Sites can host one, the Hub serves it at a
+      public URL you can point to.
+    </p>
+    <div id="llmsStatus" class="muted" style="font-size:12.5px"></div>
+    <textarea id="llmsTxt" style="width:100%;min-height:300px;margin-top:10px;
+      font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;padding:11px;
+      border:1px solid #cfd7df;border-radius:8px" placeholder="Click Build to draft one."></textarea>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
+      <button class="seoc-btn" onclick="saveLlms()">Save &amp; publish</button>
+      <button class="seoc-btn" onclick="copyLlms()">Copy</button>
+      <button class="seoc-btn" onclick="publishLlms()">Publish to Smart 1 Suite</button>
+      <a class="seoc-btn" id="llmsPublic" href="#" target="_blank" style="display:none">View public file &#8599;</a>
+      <a class="seoc-btn" id="llmsSuite" href="#" target="_blank" style="display:none">View on Suite &#8599;</a>
+      <span id="llmsMsg" class="muted" style="font-size:12px"></span>
+    </div>
+  </div>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+<!-- The centring used to be inline, next to `hidden`. An inline display beats
+     the browser's [hidden]{display:none}, so the moment this markup started
+     rendering the modal covered the page on load — the JS only ever toggles
+     `.hidden`. It stayed invisible for as long as it did because the whole
+     block was inside the page title and never rendered at all. Rules below. -->
+<style>
+#imgModal{display:flex;align-items:center;justify-content:center}
+#imgModal[hidden]{display:none}   /* id+attribute beats id, so no !important */
+</style>
+<div id="imgModal" hidden style="position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.6);
+  padding:18px">
+  <div style="background:#fff;border-radius:13px;padding:20px;width:min(40rem,100%);
+    max-height:88vh;overflow:auto">
+    <h3 class="im-title" style="margin:0 0 4px;font-size:16px;color:#0d2340"></h3>
+    <p class="seoc-muted" style="font-size:12px;margin:0 0 12px">Featured image</p>
+    <div class="im-body"></div>
+    <label style="display:block;margin:14px 0 4px;font-size:12.5px;font-weight:600">
+      Anything to change? (optional)</label>
+    <textarea class="im-extra" rows="2" placeholder="e.g. show a technician outdoors, warmer light, wider shot"
+      style="width:100%;padding:8px 10px;border:1px solid #cfd7df;border-radius:8px;font:13px inherit"></textarea>
+    <p class="seoc-muted" style="font-size:11.5px;margin:5px 0 0">
+      Added to the prompt on the next generate. The image is always made from the
+      post's own title and content — no text or logos are ever requested.</p>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="seoc-btn" data-act="approve" onclick="imgAction('approve')">Approve</button>
+      <button class="seoc-btn" data-act="generate" onclick="imgAction('generate')">Generate</button>
+      <!-- Reject and Delete call the same thing server-side, because both drop
+           the image and keep the post. They are separate buttons because they
+           are separate decisions: rejecting a pending image means "not this
+           one, try again", and it clears the box so the next generate starts
+           from the notes you just typed. Deleting an approved image is
+           removing something already in use. Showing one button labelled
+           "Delete" next to a pending image asks the wrong question. -->
+      <button class="seoc-btn" data-act="reject" onclick="imgAction('reject')"
+        style="border-color:#f3d4a8;color:#8a5a12">Reject &amp; try again</button>
+      <button class="seoc-btn" data-act="delete" onclick="imgAction('delete')"
+        style="border-color:#f3b8b3;color:#b42318">Delete</button>
+      <button class="seoc-btn" onclick="closeImageModal()">Close</button>
+      <span class="im-msg seoc-muted" style="font-size:12px;align-self:center"></span>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="/ask-analytics.js"></script>
@@ -2167,10 +1864,13 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   // =====================================================================
   //  Saved schema pages table
   // =====================================================================
+  /* This rendered mm/dd/yyyy while every other page rendered mm-dd-yy, so
+     the same date looked like two different fields depending on where you
+     read it. One helper now. */
   function fmtDate(s){
     if(!s) return '<span class="seoc-muted">—</span>';
-    var p=String(s).slice(0,10).split('-');
-    return p.length===3 ? esc(p[1]+'/'+p[2]+'/'+p[0]) : esc(s);
+    var out = S1Date.fmt(s, '');
+    return out ? esc(out) : esc(s);
   }
   function shortUrl(u){
     return String(u||'').replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'');
@@ -2575,7 +2275,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         $('auditMeta').innerHTML=
           (a.score!=null?'<b>'+esc(a.score)+'</b>/100 ':'')
           +(a.tier?'<span class="seoc-pill">'+esc(a.tier)+'</span> ':'')
-          +(a.scanned_at?'· scanned '+esc(String(a.scanned_at).slice(0,10)):'');
+          +(a.scanned_at?'· scanned '+esc(S1Date.fmt(a.scanned_at)):'');
         $('auditBody').innerHTML='Built from the site audit of <b>'+esc(dom)+'</b>. '
           +'<a href="'+esc(a.scan_url)+'">See the raw scan &rarr;</a>';
         renderFixes(a);
@@ -2874,4 +2574,325 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
 })();
 </script>
 
+
+<!-- Recovered from the page title block. base.html renders that block inside
+     <title>, so all of this was the tab's text: none of it ever ran, and the
+     buttons in the cards above that call loadSchemaQ / buildLlms / imgAction
+     were calling functions that did not exist. -->
+<script>
+function llmsClient(){ return (window.CURRENT_SEO_CLIENT || document.title.split(" — ")[0] || "").trim(); }
+function buildLlms(){
+  var st=document.getElementById('llmsStatus'); st.textContent='Building from client record, last scan and brand data…';
+  fetch('/api/seo/llms-txt?client='+encodeURIComponent(llmsClient()),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.error){ st.textContent=d.error; return; }
+      document.getElementById('llmsTxt').value=d.text||'';
+      st.innerHTML = (d.needs_answer
+        ? '<b style="color:#a06a00">'+d.needs_answer+' placeholder(s) marked NEED</b> — '
+        : '<b style="color:#147d52">Ready.</b> ')
+        + (d.note||'') + ' · ' + (d.page_count||0) + ' pages from the last scan · ' + (d.bytes||0) + ' bytes';
+    }).catch(function(){ st.textContent='Could not build it.'; });
+}
+function saveLlms(){
+  var t=document.getElementById('llmsTxt').value, m=document.getElementById('llmsMsg');
+  m.textContent='Saving…';
+  fetch('/api/seo/llms-txt',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:llmsClient(),text:t})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(d.error){ m.textContent=d.error; m.style.color='#b42318'; return; }
+     m.style.color='#147d52'; m.textContent='Saved ('+d.bytes+' bytes).';
+     var slug=llmsClient().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+     var a=document.getElementById('llmsPublic');
+     a.href='/llms/'+slug+'.txt'; a.style.display='inline-block';
+   }).catch(function(){ m.textContent='Could not save.'; });
+}
+function publishLlms(){
+  var m=document.getElementById('llmsMsg');
+  m.style.color=''; m.textContent='Publishing to Suite…';
+  fetch('/api/suite/blog/publish-llms',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:llmsClient(),text:document.getElementById('llmsTxt').value})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(d.error){ m.style.color='#b42318'; m.textContent=d.error; return; }
+     m.style.color='#147d52';
+     m.textContent='Published as "'+(d.title||'')+'".'+(d.note?' '+d.note:'');
+     if(d.url){ var a=document.getElementById('llmsSuite'); a.href=d.url; a.style.display='inline-block'; }
+   }).catch(function(){ m.style.color='#b42318'; m.textContent='Could not publish.'; });
+}
+
+function copyLlms(){
+  var t=document.getElementById('llmsTxt');
+  t.select(); navigator.clipboard.writeText(t.value).catch(function(){document.execCommand('copy');});
+  document.getElementById('llmsMsg').textContent='Copied.';
+}
+</script>
+<script>
+var SCHEMA_Q = null;
+function schemaClient(){ return (window.CURRENT_SEO_CLIENT || document.title.split(" — ")[0] || "").trim(); }
+
+function loadSchemaQ(){
+  var el=document.getElementById('schemaQ');
+  el.innerHTML='<span class="muted">Answering from the client record, their site, then AI…</span>';
+  fetch('/api/seo/schema-questions?client='+encodeURIComponent(schemaClient()),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){ SCHEMA_Q=d; renderSchemaQ(); })
+    .catch(function(){ el.innerHTML='<span class="muted">Could not build the questions.</span>'; });
+}
+
+function renderSchemaQ(){
+  var d=SCHEMA_Q, el=document.getElementById('schemaQ');
+  if(!d || !d.questions) return;
+  document.getElementById('schemaQCount').textContent =
+    d.answered+' of '+d.total+' answered'+(d.need_answer?' · '+d.need_answer+' need you':'');
+  var pill={known:'#e7f6ef|#147d52', ai:'#fff4d7|#a06a00', needed:'#feeceb|#b42318',
+            site:'#e0f2fe|#075985', search:'#e0f2fe|#075985'};
+  var groups={};
+  d.questions.forEach(function(q){ (groups[q.group]=groups[q.group]||[]).push(q); });
+
+  var html = '<div style="padding:9px 12px;border-radius:8px;margin-bottom:12px;font-size:12.8px;'+
+    (d.can_approve ? 'background:#e7f6ef;color:#11633f">&#10003; ' :
+                     'background:#feeceb;color:#8e2018">&#9888; ') + esc(d.note) + '</div>';
+
+  Object.keys(groups).forEach(function(g){
+    html += '<div style="font:700 11px system-ui;text-transform:uppercase;letter-spacing:.06em;'+
+            'color:#94a3b8;margin:14px 0 6px">'+esc(g)+'</div>';
+    groups[g].forEach(function(q){
+      var col=(pill[q.confidence]||pill.needed).split('|');
+      html += '<div class="sq-row" data-key="'+esc(q.key)+'" style="border:1px solid #eef2f6;'+
+        'border-radius:9px;padding:10px 12px;margin-bottom:8px">'+
+        '<div style="font-size:12.8px;color:#41525f;margin-bottom:5px">'+esc(q.question)+'</div>'+
+        '<div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">'+
+        '<span style="background:'+col[0]+';color:'+col[1]+';border-radius:20px;padding:2px 9px;'+
+        'font-size:10.5px;font-weight:700;white-space:nowrap">'+esc(q.confidence)+'</span>'+
+        '<textarea class="sq-ans" rows="1" style="flex:1;min-width:220px;padding:6px 9px;'+
+        'border:1px solid '+(q.confidence==="needed"?'#fca5a5':'#cfd7df')+';border-radius:7px;'+
+        'font:13px inherit;resize:vertical'+
+        (q.confidence==="needed"?';background:#fff7f6;font-weight:600':'')+'">'+
+        esc(q.answer)+'</textarea></div>'+
+        '<div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;align-items:center">'+
+        '<button class="sq-b" onclick="sqApprove(this)">Approve</button>'+
+        '<button class="sq-b" onclick="sqEdit(this)">Edit</button>'+
+        '<button class="sq-b sq-bad" onclick="sqRemove(this)">Remove</button>'+
+        '<button class="sq-b" onclick="sqRegen(this)">New AI</button>'+
+        '<span class="muted sq-note" style="font-size:11.5px">'+esc(q.source||'')+'</span>'+
+        '</div></div>';
+    });
+  });
+  html += '<div style="margin-top:14px;display:flex;gap:8px;align-items:center">'+
+    '<button class="seoc-btn" onclick="saveSchemaQ()">Save all answers</button>'+
+    '<span id="sqMsg" class="muted" style="font-size:12px"></span></div>';
+  el.innerHTML = html;
+}
+
+function sqRow(btn){ return btn.closest('.sq-row'); }
+function sqApprove(btn){
+  var r=sqRow(btn), t=r.querySelector('.sq-ans');
+  if(!t.value.trim() || t.value.trim().toUpperCase()==='NEED ANSWER'){
+    r.querySelector('.sq-note').textContent='Type an answer first — this one blocks approval.';
+    t.focus(); return;
+  }
+  t.readOnly=true; t.style.background='#f7fbf9'; t.style.borderColor='#86efac';
+  r.querySelector('.sq-note').textContent='Approved.';
+}
+function sqEdit(btn){
+  var t=sqRow(btn).querySelector('.sq-ans');
+  t.readOnly=false; t.style.background=''; t.focus();
+  sqRow(btn).querySelector('.sq-note').textContent='Editing — remember to save.';
+}
+function sqRemove(btn){
+  /* Clearing writes NEED ANSWER back rather than leaving it blank, so the
+     approval gate still catches it. A silently empty field is how a schema
+     ships with a hole in it. */
+  var r=sqRow(btn), t=r.querySelector('.sq-ans');
+  t.value='NEED ANSWER'; t.readOnly=false;
+  t.style.background='#fff7f6'; t.style.borderColor='#fca5a5'; t.style.fontWeight='600';
+  r.querySelector('.sq-note').textContent='Cleared — this now blocks approval until answered.';
+}
+function sqRegen(btn){
+  var r=sqRow(btn), note=r.querySelector('.sq-note');
+  note.textContent='Asking again…';
+  fetch('/api/seo/schema-questions/regenerate',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:schemaClient(), key:r.dataset.key})})
+   .then(function(x){return x.json();}).then(function(d){
+     if(d.error){ note.textContent=d.error; return; }
+     var t=r.querySelector('.sq-ans');
+     t.value=d.answer; t.readOnly=false;
+     var need = d.confidence==='needed';
+     t.style.background=need?'#fff7f6':''; t.style.borderColor=need?'#fca5a5':'#cfd7df';
+     note.textContent=d.source||'';
+   }).catch(function(){ note.textContent='Could not regenerate.'; });
+}
+function saveSchemaQ(){
+  var answers={};
+  document.querySelectorAll('.sq-row').forEach(function(r){
+    answers[r.dataset.key]=r.querySelector('.sq-ans').value;
+  });
+  var m=document.getElementById('sqMsg'); m.textContent='Saving…';
+  fetch('/api/seo/schema-questions',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:schemaClient(), answers:answers})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(d.error){ m.textContent=d.error; return; }
+     m.style.color = d.can_approve ? '#147d52' : '#b42318';
+     m.textContent = d.can_approve
+       ? 'Saved. All questions answered — schema can be approved.'
+       : 'Saved. '+d.need_answer+' still marked NEED ANSWER, so approval stays blocked.';
+     loadSchemaQ();
+   }).catch(function(){ m.textContent='Could not save.'; });
+}
+</script>
+<style>
+.sq-b{border:1px solid #d7dfe8;background:#fff;border-radius:6px;padding:3px 10px;
+  font:600 11.5px system-ui;color:#41525f;cursor:pointer}
+.sq-b:hover{background:#f1f5f9}
+.sq-b.sq-bad{border-color:#f3b8b3;color:#b42318}
+</style>
+<script>
+/* ---- Blog featured images ------------------------------------------ */
+function blogThumb(p){
+  var im = p.image || null;
+  if(!im || !im.url){
+    return '<span class="seoc-muted" style="font-size:11px">—</span>';
+  }
+  var ring = im.status === 'pending' ? '#f59e0b' : '#86efac';
+  return '<img src="'+esc(im.url)+'" alt="" loading="lazy" '+
+    'onclick="openImageModal('+p.id+')" '+
+    'title="'+(im.status==='pending'?'Awaiting approval':'Approved')+'" '+
+    'style="width:64px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;'+
+    'border:2px solid '+ring+'">';
+}
+
+var IMG_POST = null;
+function openImageModal(id){
+  IMG_POST = blogPosts.find(function(x){ return x.id === id; });
+  if(!IMG_POST) return;
+  var im = IMG_POST.image || null;
+  var host = document.getElementById('imgModal');
+  host.querySelector('.im-title').textContent = IMG_POST.title;
+  var body = host.querySelector('.im-body');
+  body.innerHTML = im && im.url
+    ? '<img src="'+esc(im.url)+'" alt="" style="max-width:100%;border-radius:9px">'+
+      '<p class="seoc-muted" style="font-size:11.5px;margin:8px 0 0">'+
+      (im.status==='pending'
+        ? 'Awaiting approval. Check the details — generated people and storefronts '+
+          'are where these go wrong.'
+        : 'Approved and filed under Blogs in the client gallery.')+
+      (im.bytes? ' · '+Math.round(im.bytes/1024)+' KB':'')+'</p>'
+    : '<p class="seoc-muted">No image yet. Generate one from the post\'s title and content.</p>';
+  host.querySelector('.im-extra').value = '';
+  var pending = !!(im && im.status === 'pending');
+  host.querySelector('[data-act="approve"]').style.display = pending ? '' : 'none';
+  host.querySelector('[data-act="reject"]').style.display = pending ? '' : 'none';
+  host.querySelector('[data-act="delete"]').style.display = (im && !pending) ? '' : 'none';
+  host.querySelector('[data-act="generate"]').textContent = im ? 'Regenerate' : 'Generate';
+  host.querySelector('.im-msg').textContent = '';
+  host.hidden = false;
+}
+function closeImageModal(){ document.getElementById('imgModal').hidden = true; }
+
+/* How many blog images are waiting on a person.
+   /api/seo/blogs/image-status existed and nothing called it, so the one number
+   that says "somebody needs to look at these" was never shown anywhere. It
+   goes on the Blogs section head, which is collapsed by default — a section
+   that hides its own backlog is worse than one that is merely long. */
+function refreshImageStatus(){
+  if(!window.CLIENT) return;
+  fetch('/api/seo/blogs/image-status?client=' + encodeURIComponent(CLIENT),
+        {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var head = document.querySelector('#cardBlogs .seoc-sectionhead')
+              || document.querySelector('#cardBlogs .seoc-cardhead');
+      if(!head) return;
+      var b = head.querySelector('.seoc-imgbadge');
+      if(!b){
+        b = document.createElement('span');
+        b.className = 'seoc-badge seoc-imgbadge';
+        head.appendChild(b);
+      }
+      if(d.pending){
+        b.className = 'seoc-badge due seoc-imgbadge';
+        b.textContent = d.pending + ' image' + (d.pending===1?'':'s') + ' to approve';
+      }else if(d.without_image){
+        b.className = 'seoc-badge seoc-imgbadge';
+        b.textContent = d.without_image + ' without an image';
+      }else{
+        b.className = 'seoc-badge none seoc-imgbadge';
+        b.textContent = '';
+      }
+      b.title = d.note || '';
+    })
+    .catch(function(){});
+}
+document.addEventListener('DOMContentLoaded', function(){ setTimeout(refreshImageStatus, 1500); });
+
+function imgAction(act){
+  if(!IMG_POST) return;
+  var host = document.getElementById('imgModal');
+  var msg = host.querySelector('.im-msg');
+  var extra = host.querySelector('.im-extra').value;
+  if(act === 'delete' && !confirm('Delete this image? The post itself is kept.')) return;
+  /* Rejecting is not a destructive decision the way deleting is — it is one
+     step of making the image — so it does not stop to ask. */
+  msg.textContent = act === 'generate'
+    ? 'Generating — this takes a few seconds…' : 'Working…';
+  post('/api/seo/blogs/image', {client: CLIENT, id: IMG_POST.id, action: act, extra: extra})
+    .then(function(d){
+      if(d.error){ msg.style.color = '#b42318'; msg.textContent = d.error; return; }
+      msg.style.color = '#147d52';
+      msg.textContent = d.note || 'Done.';
+      loadBlogs();                       // refresh the table thumbnails
+      if(act === 'delete'){ closeImageModal(); refreshImageStatus(); return; }
+      if(act === 'reject'){
+        /* Stay on this post with the notes intact: the reason it was rejected
+           is what the next attempt needs, and retyping it is how people give
+           up and accept a bad image. */
+        var keep = host.querySelector('.im-extra').value;
+        IMG_POST.image = null;
+        openImageModal(IMG_POST.id);
+        host.querySelector('.im-extra').value = keep;
+        host.querySelector('.im-msg').textContent =
+          'Rejected. Add what to change, then Generate.';
+        refreshImageStatus();
+        return;
+      }
+      refreshImageStatus();
+      if(d.image){ IMG_POST.image = d.image; openImageModal(IMG_POST.id); }
+    })
+    .catch(function(){ msg.style.color = '#b42318'; msg.textContent = 'That did not go through.'; });
+}
+</script>
+<script>
+/* The FAQ export already matches the source page's fonts and colours. The
+   Hub preview didn't, so what you approved looked nothing like what shipped —
+   and a preview that misrepresents the output is worse than no preview. This
+   applies the same palette here, scoped to the list so it can't leak into the
+   rest of the page. */
+function applyFaqPalette(style){
+  var el = document.getElementById('faqPalette');
+  if(!style){ if(el) el.remove(); return; }
+  if(!el){ el = document.createElement('style'); el.id='faqPalette'; document.head.appendChild(el); }
+  var f = function(v, fallback){ return v || fallback; };
+  el.textContent =
+    '#faqList{font-family:'+f(style.font,'inherit')+';'+
+      'color:'+f(style.text,'#1b2733')+'}'+
+    '#faqList .seoc-faqq{border:1px solid '+f(style.border,'#e2e8f0')+';'+
+      'background:'+f(style.panel,'#fff')+'}'+
+    '#faqList .seoc-faqq b,#faqList h4{font-family:'+f(style.heading_font, f(style.font,'inherit'))+';'+
+      'color:'+f(style.heading,'#0d2340')+'}'+
+    '#faqList a{color:'+f(style.accent,'#1769AA')+'}';
+  var note = document.getElementById('faqPaletteNote');
+  if(note){
+    note.textContent = 'Preview is using this page\'s own fonts and colours — '+
+      'the same ones the export applies.';
+  }
+}
+</script>
+<style>
+/* Two columns above 720px, one below — a phone doesn't have room for two
+   label/value columns without the values wrapping to nothing. */
+.site-cols{display:grid;grid-template-columns:1fr;gap:0 26px}
+@media(min-width:720px){.site-cols{grid-template-columns:1fr 1fr}}
+</style>
 {% endblock %}
