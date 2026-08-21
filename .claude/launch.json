@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "smarthub",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-u", "devserve.py"],
+      "port": 5055
+    }
+  ]
+}

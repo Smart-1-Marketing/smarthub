@@ -690,6 +690,41 @@ def seo_clients() -> list[dict]:
     return out
 
 
+
+# ------------------------------------------------------- webmaster dashboard
+def webmaster_roster() -> list[dict]:
+    """Every SEO client with the Analytics property their numbers come from.
+
+    Only the roster — no Google call happens here. The page renders the whole
+    list at once and fills the numbers in per row, because a single request
+    that fetches forty properties before it answers is a request that either
+    times out on Render or leaves the reader staring at a spinner with no idea
+    how far along it is.
+
+    A client with nothing attached is reported as such, with somewhere to go
+    and fix it. It is never reported as zero traffic: a clean-looking zero is
+    a wrong answer presented confidently, and on this page it would read as a
+    client whose SEO has died.
+    """
+    out = []
+    for row in seo_clients():
+        client = row["client"]
+        analytics = (get_links(client).get("analytics") or [])
+        prop = next((a for a in analytics
+                     if str(a.get("resource_id") or "").strip()), None)
+        out.append({
+            "client": client,
+            "slug": row["slug"],
+            "url": row.get("url", ""),
+            "partner": row.get("partner", ""),
+            "billing": row.get("billing", 0),
+            "property_id": str((prop or {}).get("resource_id") or ""),
+            "property_name": str((prop or {}).get("name") or ""),
+            "google_login": str((prop or {}).get("google_login") or ""),
+        })
+    return out
+
+
 def _client_base(client: str) -> dict:
     """The seo_clients() row for ONE client without building the whole list —
     keeps /api/seo/detail fast."""

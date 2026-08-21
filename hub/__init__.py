@@ -1296,6 +1296,27 @@ def create_hub_app() -> Flask:
         return render_template("seo_client.html", user=current_user(), modules=MODULES,
                                active="seo", client=name)
 
+    @app.route("/seo/webmaster")
+    def seo_webmaster_page():
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("seo_webmaster.html", user=current_user(),
+                               modules=MODULES, active="seo")
+
+    @app.route("/api/seo/webmaster")
+    def api_seo_webmaster():
+        """The roster only. Numbers arrive per row from /google — see
+        hub/seo.webmaster_roster for why this route makes no Google call."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        try:
+            return jsonify({"clients": seo.webmaster_roster()})
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"clients": [], "error": str(exc)})
+
     @app.route("/api/seo/clients")
     def api_seo_clients():
         gate = _require_api()

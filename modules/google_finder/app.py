@@ -1120,6 +1120,17 @@ def api_ga4_anomalies():
         return jsonify({"error": f"Anomaly detection failed: {exc}"}), 500
 
 
+# What counts as an AI engine sending traffic. One definition: the SEO client
+# page and the Webmaster dashboard both filter on this, and if they each kept
+# their own copy the two pages would quietly disagree about the same client.
+AI_SOURCE_REGEX = (r"chatgpt|chat\.openai|openai\.com|perplexity|gemini\.google|"
+                   r"bard\.google|copilot|edgeservices|claude\.ai|anthropic|"
+                   r"deepseek|you\.com|poe\.com|meta\.ai|mistral|grok|x\.ai")
+
+# Organic is the GA4 channel group, not a source pattern — same reason.
+ORGANIC_CHANNEL = "Organic Search"
+
+
 @app.route("/api/ga4/seo-snapshot", methods=["POST"])
 def api_ga4_seo_snapshot():
     """This-month organic metrics + AI-engine referral traffic for one
@@ -1159,7 +1170,7 @@ def api_ga4_seo_snapshot():
             "metrics": metrics,
             "dimensionFilter": {"filter": {
                 "fieldName": "sessionDefaultChannelGroup",
-                "stringFilter": {"matchType": "EXACT", "value": "Organic Search"}}},
+                "stringFilter": {"matchType": "EXACT", "value": ORGANIC_CHANNEL}}},
         }
         organic_rows = google_post(access_token, url, organic_req).get("rows", [])
         organic = _vals(organic_rows[0]) if organic_rows else {
@@ -1174,9 +1185,7 @@ def api_ga4_seo_snapshot():
                 "fieldName": "sessionSource",
                 "stringFilter": {
                     "matchType": "PARTIAL_REGEXP",
-                    "value": (r"chatgpt|chat\.openai|openai\.com|perplexity|gemini\.google|"
-                              r"bard\.google|copilot|edgeservices|claude\.ai|anthropic|"
-                              r"deepseek|you\.com|poe\.com|meta\.ai|mistral|grok|x\.ai"),
+                    "value": AI_SOURCE_REGEX,
                     "caseSensitive": False}}},
             "orderBys": [{"metric": {"metricName": "sessions"}, "desc": True}],
             "limit": 25,
@@ -1205,6 +1214,159 @@ def api_ga4_seo_snapshot():
                         "ai_sources": ai_sources, "ai_total": ai_total})
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"GA4 snapshot failed: {exc}"}), 500
+
+
+def _month_ranges(today=None):
+    """Month to date, the same days of last month, and all of last month.
+
+    Three ranges rather than two because "this month so far vs all of last
+    month" is not a comparison — on the 3rd it reports that every client
+    collapsed. The dashboard shows the full previous month because that is the
+    number people put in a report, and works the arrow off the same days of
+    it, which is the number that actually means something.
+    """
+    import datetime as _dt
+    today = today or _dt.date.today()
+    this_first = today.replace(day=1)
+    prev_last = this_first - _dt.timedelta(days=1)
+    prev_first = prev_last.replace(day=1)
+    # Feb has no 30th: a month-end day clamps to the shorter month's last day.
+    same_end = prev_first + _dt.timedelta(days=min(today.day, prev_last.day) - 1)
+    return [
+        {"startDate": this_first.isoformat(), "endDate": today.isoformat()},
+        {"startDate": prev_first.isoformat(), "endDate": same_end.isoformat()},
+        {"startDate": prev_first.isoformat(), "endDate": prev_last.isoformat()},
+    ]
+
+
+_WM_METRICS = [{"name": "sessions"}, {"name": "totalUsers"}, {"name": "keyEvents"}]
+
+# One row of the dashboard is worth two GA4 calls at most, so results are held
+# briefly: a page of 40 clients reloaded twice in a minute should not be 80
+# round trips. Per worker, which means a miss costs one extra fetch and never
+# a wrong number — the key carries the day, so it cannot serve yesterday.
+_WM_CACHE: dict = {}
+_WM_TTL = 900
+
+
+def _wm_cache_get(key):
+    import time
+    hit = _WM_CACHE.get(key)
+    if hit and time.time() - hit[0] < _WM_TTL:
+        return hit[1]
+    return None
+
+
+def _wm_cache_put(key, value):
+    import time
+    if len(_WM_CACHE) > 500:
+        _WM_CACHE.clear()
+    _WM_CACHE[key] = (time.time(), value)
+
+
+def _wm_series(report, ranges):
+    """Fold GA4's one-row-per-date-range answer into three named buckets.
+
+    With several date ranges and no dimensions, GA4 returns a row per range
+    tagged date_range_N. Reading them positionally works right up until a
+    range returns nothing and the rows shift, so the tag is what is trusted
+    and position is only the fallback.
+    """
+    names = ("mtd", "same_last_month", "last_month")
+    out = {n: {"sessions": 0, "users": 0, "key_events": 0} for n in names}
+    for i, row in enumerate(report.get("rows") or []):
+        which = i
+        for dv in row.get("dimensionValues") or []:
+            val = str(dv.get("value") or "")
+            if val.startswith("date_range_"):
+                try:
+                    which = int(val.rsplit("_", 1)[1])
+                except ValueError:
+                    pass
+                break
+        if which >= len(names):
+            continue
+        vals = row.get("metricValues") or []
+
+        def num(idx):
+            try:
+                return int(float(vals[idx]["value"]))
+            except (IndexError, KeyError, TypeError, ValueError):
+                return 0
+
+        out[names[which]] = {"sessions": num(0), "users": num(1),
+                             "key_events": num(2)}
+    return out
+
+
+@app.route("/api/ga4/webmaster-row", methods=["POST"])
+def api_ga4_webmaster_row():
+    """Organic and AI-engine traffic for one property, three periods each.
+
+    Powers one row of the Hub's Webmaster Report Dashboard. Both filters come
+    from the constants above, so this and the SEO client page cannot drift on
+    what "organic" or "an AI engine" means.
+    """
+    data = request.json or {}
+    property_id = str(data.get("property_id", "")).strip()
+    google_login = str(data.get("google_login", "")).strip().lower()
+    if not property_id or not google_login:
+        return jsonify({"error": "Missing Property ID or Login Email."}), 400
+
+    account = next((a for a in connected_accounts() if a["email"] == google_login), None)
+    if not account:
+        return jsonify({"error": f"Account {google_login} is not connected."}), 404
+
+    ranges = _month_ranges()
+    cache_key = (property_id, google_login, ranges[0]["endDate"])
+    hit = _wm_cache_get(cache_key)
+    if hit is not None:
+        return jsonify(dict(hit, cached=True))
+
+    organic_req = {
+        "dateRanges": ranges,
+        "metrics": _WM_METRICS,
+        "dimensionFilter": {"filter": {
+            "fieldName": "sessionDefaultChannelGroup",
+            "stringFilter": {"matchType": "EXACT", "value": ORGANIC_CHANNEL}}},
+    }
+    ai_req = {
+        "dateRanges": ranges,
+        "metrics": _WM_METRICS,
+        "dimensionFilter": {"filter": {
+            "fieldName": "sessionSource",
+            "stringFilter": {"matchType": "PARTIAL_REGEXP",
+                             "value": AI_SOURCE_REGEX, "caseSensitive": False}}},
+    }
+
+    try:
+        access_token = refresh_access_token(google_login, account["refresh_token"])
+    except ReauthRequired as exc:
+        return jsonify({"error": str(exc), "needs_reauth": True,
+                        "reconnect_url": "/google/login"}), 401
+
+    url = ("https://analyticsdata.googleapis.com/v1beta/properties/"
+           f"{property_id}:batchRunReports")
+    try:
+        # One HTTP call for both reports. A dashboard of forty clients is forty
+        # round trips this way instead of eighty.
+        got = google_post(access_token, url, {"requests": [organic_req, ai_req]})
+        reports = got.get("reports") or []
+        payload = {
+            "property_id": property_id,
+            "periods": {"mtd": ranges[0], "same_last_month": ranges[1],
+                        "last_month": ranges[2]},
+            "organic": _wm_series(reports[0] if len(reports) > 0 else {}, ranges),
+            "ai": _wm_series(reports[1] if len(reports) > 1 else {}, ranges),
+        }
+    except Exception as exc:  # noqa: BLE001
+        # Say which property failed. "GA4 request failed" against a table of
+        # forty rows is not something anyone can act on.
+        return jsonify({"error": f"GA4 request failed for property "
+                                 f"{property_id}: {exc}"}), 502
+
+    _wm_cache_put(cache_key, payload)
+    return jsonify(payload)
 
 
 @app.route("/api/ga4/monthly-summary", methods=["POST"])
