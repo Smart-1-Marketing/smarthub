@@ -584,6 +584,38 @@ def api_bulk_run():
     return jsonify(payload), code
 
 
+def latest_payload_for_domain(url_or_host: str) -> dict:
+    """The stored Insites payload for a domain's most recent complete scan.
+
+    Used by Client 360 to pull social profiles a scan found. Returns {} rather
+    than raising: a client with no scan is the normal case, not an error, and
+    the caller only wants to add to what it already has.
+    """
+    key = domain_key(url_or_host or "")
+    if not key:
+        return {}
+    try:
+        db = SessionLocal()
+    except Exception:                                   # noqa: BLE001
+        return {}
+    try:
+        row = (db.query(Scan)
+                 .filter(Scan.domain_key == key, Scan.status == "complete")
+                 .order_by(Scan.id.desc())
+                 .first())
+        if not row or not row.raw_report:
+            return {}
+        import json as _json
+        return _json.loads(row.raw_report) or {}
+    except Exception:                                   # noqa: BLE001
+        return {}
+    finally:
+        try:
+            db.close()
+        except Exception:                               # noqa: BLE001
+            pass
+
+
 def _callback_url(public_id: str):
     """Where Insites should POST the finished audit, or None if we have no
     public URL to be called back on (local dev)."""
