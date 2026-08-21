@@ -1345,10 +1345,27 @@ def api_ga4_monthly_summary():
 
 @app.route("/api/ga4/ask", methods=["POST"])
 def api_ga4_ask():
+    """A plain-English question about a property, answered from GA4.
+
+    This used to match keywords — "device" meant group by device, anything
+    else meant source/medium, always the last 30 days. "How did conversions do
+    in July versus June?" and "which cities converted best last quarter?" both
+    returned the same 30-day source/medium table, which is worse than refusing:
+    it answers confidently with the wrong report.
+
+    Now the model plans the report and hub.analytics_ask validates the plan
+    field by field before anything reaches Google, so a name it invented
+    becomes "I don't know how to ask that" rather than a 400 or, worse, a
+    plausible table of the wrong thing. The property id comes from the caller
+    and never from the question.
+    """
+    from hub import analytics_ask
+
     data = request.json or {}
-    property_id = data.get("property_id", "").strip()
-    google_login = data.get("google_login", "").strip().lower()
-    question = data.get("question", "").strip().lower()
+    property_id = str(data.get("property_id", "")).strip()
+    google_login = str(data.get("google_login", "")).strip().lower()
+    question = str(data.get("question", "")).strip()
+    history = data.get("history") if isinstance(data.get("history"), list) else []
 
     if not property_id or not google_login or not question:
         return jsonify({"error": "Missing Property ID, Login Email, or Question."}), 400
@@ -1358,50 +1375,62 @@ def api_ga4_ask():
         return jsonify({"error": f"Account {google_login} is not connected."}), 404
 
     try:
+        planned = analytics_ask.plan(
+            question, history=history,
+            property_label=str(data.get("property_label") or ""))
+    except Exception as exc:                            # noqa: BLE001
+        app.logger.warning("analytics ask: planning failed: %s", exc)
+        return jsonify({"error": "The analytics assistant is unavailable right "
+                                 "now. Try again shortly."}), 503
+
+    # A question with no defensible default gets asked back rather than
+    # guessed at.
+    if planned.get("clarify"):
+        return jsonify({"clarify": planned["clarify"], "question": question})
+
+    req = planned["request"]
+    try:
         access_token = refresh_access_token(google_login, account["refresh_token"])
-        
-        if "device" in question or "mobile" in question or "desktop" in question:
-            dimension = "deviceCategory"
-        elif "landing" in question or "page" in question or "url" in question:
-            dimension = "pagePath"
-        elif "city" in question or "location" in question or "geo" in question:
-            dimension = "city"
-        elif "country" in question:
-            dimension = "country"
-        else:
-            dimension = "sessionSourceMedium"
+        url = (f"https://analyticsdata.googleapis.com/v1beta/"
+               f"properties/{property_id}:runReport")
+        report = google_post(access_token, url, req)
+    except ReauthRequired as exc:
+        return jsonify({"error": str(exc), "needs_reauth": True,
+                        "reconnect_url": "/google/login",
+                        "account": exc.email}), 401
+    except Exception as exc:                            # noqa: BLE001
+        app.logger.warning("analytics ask: GA4 call failed: %s", exc)
+        return jsonify({"error": "Google refused that report. It may be a "
+                                 "measure this property doesn't collect."}), 502
 
-        req_body = {
-            "dateRanges": [{"startDate": "30daysAgo", "endDate": "yesterday"}],
-            "dimensions": [{"name": dimension}],
-            "metrics": [
-                {"name": "sessions"},
-                {"name": "activeUsers"},
-                {"name": "keyEvents"}
-            ],
-            "limit": 10
-        }
+    shaped = analytics_ask.shape(report, req)
+    answer = analytics_ask.narrate(question, planned["title"], shaped)
 
-        url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
-        report = google_post(access_token, url, req_body)
+    try:
+        from hub import audit as _audit_mod
+        _audit_mod.log("google_finder", "analytics_ask",
+                       question=question[:160], rows=shaped["row_count"])
+    except Exception:                                   # noqa: BLE001
+        pass
 
-        rows = report.get("rows", [])
-        if not rows:
-            return jsonify({"answer": "No traffic records were found for that query in the last 30 days."})
+    return jsonify({
+        "title": planned["title"],
+        "explain": planned["explain"],
+        "answer": answer,
+        "result": shaped,
+        # Returned so the page can show what was actually run. A number nobody
+        # can trace back to a query is a number nobody trusts.
+        "query": {"metrics": [m["name"] for m in req["metrics"]],
+                  "dimensions": [d["name"] for d in req.get("dimensions", [])],
+                  "dateRanges": req["dateRanges"], "limit": req["limit"]},
+    })
 
-        results = []
-        for r in rows:
-            dim_val = r["dimensionValues"][0]["value"]
-            sess = int(r["metricValues"][0]["value"])
-            users = int(r["metricValues"][1]["value"])
-            convs = int(r["metricValues"][2]["value"])
-            results.append(f"• **{dim_val}**: {sess:,} sessions ({users:,} users, {convs:,} key events)")
 
-        answer_text = f"**Query Results (Last 30 Days by {dimension}):**\n" + "\n".join(results)
-        return jsonify({"answer": answer_text})
-    except Exception as exc:
-        logger.warning("Ask Analytics failed: %s", exc)
-        return jsonify({"error": f"Failed to execute question lookup: {exc}"}), 500
+@app.route("/api/ga4/ask/catalogue")
+def api_ga4_ask_catalogue():
+    """What can be asked for — used by the page for its examples."""
+    from hub import analytics_ask
+    return jsonify(analytics_ask.catalogue())
 
 
 @app.route("/api/ga4/channels", methods=["POST"])

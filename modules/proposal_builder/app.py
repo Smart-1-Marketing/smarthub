@@ -28,6 +28,14 @@ PUBLIC_DIR = Path(__file__).parent / "public"
 AUTH_TOKEN = hashlib.sha256((os.environ.get("PANEL_PASSWORD") or "smart1-dev").encode()).hexdigest()
 
 
+def _num(v) -> float:
+    """A budget as a number, from whatever the form sent."""
+    try:
+        return float(str(v).replace("$", "").replace(",", "").strip() or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -115,9 +123,47 @@ def _ai_blocks(industry_key, customer):
         "7-10 blocks total."
     )
     import json as _json
+
+    # Tiers come from the rate card, not from the table in industries.py.
+    #
+    # Those tiers were invented independently of what we sell: nine industries
+    # with three round prices each. A proposal could therefore promise a
+    # "$2,500 Good package" that mapped to no product on the card, and the IO
+    # builder would refuse or restructure it — after the client had seen the
+    # number. Every tier below is real products at real card rates, checked
+    # against the same minimums the IO enforces.
+    #
+    # The hardcoded tiers remain the fallback for the case where the card
+    # cannot be read or an industry's channels map to nothing on it, because a
+    # proposal with no packages at all is worse than one with generic ones.
+    tiers, tier_source = ind["tiers"], "industries.py (fallback)"
+    guardrail_notes = []
+    try:
+        from hub import rate_card as _rc
+        # The industry's own price points are kept — the card decides which
+        # products fill a tier and what they cost per unit, not what this
+        # market can afford.
+        built = _rc.tiers_for(
+            ind["channels"],
+            budget=_num(customer.get("budget")) if isinstance(customer, dict) else 0,
+            targets=[t.get("price") for t in ind["tiers"]])
+        if built:
+            tiers, tier_source = built, "rate card"
+            for t in built:
+                for g in t.get("guardrails", []):
+                    if g.get("level") == "block":
+                        guardrail_notes.append(f"{t['name']}: {g.get('message')}")
+    except Exception:                                   # noqa: BLE001
+        pass
+
     user_prompt = _json.dumps({
         "industry": ind["label"], "industry_intro": ind["intro"], "channels": ind["channels"],
-        "demand_triggers": ind["triggers"], "package_tiers": ind["tiers"], "prospect": customer,
+        "demand_triggers": ind["triggers"], "package_tiers": tiers, "prospect": customer,
+        "tier_source": tier_source,
+        # Named so the model quotes the product, not a paraphrase of it.
+        "rules": ("Every price and product name in package_tiers is from the "
+                  "Smart 1 rate card. Use them exactly as given. Do not round "
+                  "a price, rename a product, or invent a package."),
     })
     r = requests.post(
         "https://api.openai.com/v1/chat/completions",
