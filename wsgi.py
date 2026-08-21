@@ -457,6 +457,13 @@ try:
 except Exception as _exc_tour:  # noqa: BLE001
     tourism_app, tourism_fb = None, _fallback_app("Tourism Landing", str(_exc_tour))
 
+try:
+    import importlib as _il_rv
+    rv_app = _il_rv.import_module("modules.rv.app")
+    rv_fb = None
+except Exception as _exc_rv:  # noqa: BLE001
+    rv_app, rv_fb = None, _fallback_app("RV Landing", str(_exc_rv))
+
 # Public (login-exempt) routes under /scans, read from the module itself so the
 # mount and the module can never disagree about what is public.
 _SCANS_PUBLIC = tuple(getattr(scans, "PUBLIC_PREFIXES", ("/api/callback",))) \
@@ -484,6 +491,8 @@ application = DispatcherMiddleware(hub_app, {
     # its lead endpoints are public, which is what public_prefixes=("/",) says.
     "/land/boat": (AuthGuard(boat.app, "/land/boat", public_prefixes=("/",))
                    if boat else boat_fb),
+    "/land/rv": (AuthGuard(rv_app.app, "/land/rv", public_prefixes=("/",))
+                 if rv_app else rv_fb),
     "/land/tourism": (AuthGuard(tourism_app.app, "/land/tourism", public_prefixes=("/",))
                       if tourism_app else tourism_fb),
     "/land/recruit": (AuthGuard(recruit_app.app, "/land/recruit", public_prefixes=("/",))

@@ -1,0 +1,432 @@
+<!--
+Smart RV Demand Package - Multi-Part Smart 1 Suite Embed
+Paste this entire file into a Smart 1 Suite / Smart 1 Sites HTML code block.
+
+IMPORTANT:
+1. Replace https://YOUR-RENDER-APP.onrender.com with your actual Render URL.
+2. In Render, temporarily set ALLOWED_ORIGINS=* while testing, then lock it to your domain.
+3. This version uses inline display styles so only one step appears at a time inside Smart 1 code blocks.
+-->
+
+<div id="smart1rv-widget" class="smart1rv-widget">
+  <div class="smart1rv-card">
+    <div class="smart1rv-progress-wrap" aria-hidden="true">
+      <div class="smart1rv-progress-bar" id="smart1rvProgressBar" style="width:14%;"></div>
+    </div>
+
+    <form id="smart1rvForm">
+      <!-- Step 1 -->
+      <div class="smart1rv-step" data-step="1" style="display:block;">
+        <p class="smart1rv-eyebrow">Smart RV Demand Package</p>
+        <h2>Let’s Build Your RV Demand Plan</h2>
+        <p class="smart1rv-helper">Answer a few quick questions. We’ll estimate your weather-triggered campground market opportunity.</p>
+
+        <label>Dealership Name
+          <input name="dealership_name" placeholder="Example RV Center" required>
+        </label>
+        <label>Contact Name
+          <input name="contact_name" placeholder="First and Last Name" required>
+        </label>
+        <label>Email Address
+          <input name="email" type="email" placeholder="name@example.com" required>
+        </label>
+        <label>Phone Number
+          <input name="phone" placeholder="555-555-5555" required>
+        </label>
+
+        <div class="smart1rv-actions">
+          <button type="button" class="smart1rv-next">Continue</button>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="smart1rv-step" data-step="2" style="display:none;">
+        <p class="smart1rv-eyebrow">Dealer Location</p>
+        <h2>Where is your dealership located?</h2>
+
+        <label>Street Address
+          <input name="address" placeholder="123 Main Street" required>
+        </label>
+        <label>City
+          <input name="city" placeholder="City" required>
+        </label>
+        <label>State
+          <input name="state" placeholder="State" required>
+        </label>
+        <label>ZIP Code
+          <input name="zip" placeholder="ZIP Code" required>
+        </label>
+
+        <div class="smart1rv-actions">
+          <button type="button" class="smart1rv-back">Back</button>
+          <button type="button" class="smart1rv-next">Continue</button>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="smart1rv-step" data-step="3" style="display:none;">
+        <p class="smart1rv-eyebrow">Website + Geography</p>
+        <h2>How far do customers travel to you?</h2>
+
+        <label>Dealership Website URL
+          <input name="website_url" type="url" placeholder="https://yourdealership.com" required>
+        </label>
+        <label>How far do customers travel to buy from you?
+          <select name="sales_radius_miles" required>
+            <option value="">Select buyer radius</option>
+            <option value="25">25 miles</option>
+            <option value="50">50 miles</option>
+            <option value="75">75 miles</option>
+            <option value="100">100 miles</option>
+            <option value="150">150 miles</option>
+          </select>
+        </label>
+        <label>How far do customers travel for service?
+          <select name="service_radius_miles" required>
+            <option value="">Select service radius</option>
+            <option value="15">15 miles</option>
+            <option value="25">25 miles</option>
+            <option value="40">40 miles</option>
+            <option value="60">60 miles</option>
+            <option value="75">75 miles</option>
+          </select>
+        </label>
+        <label>Do you have more than one location?
+          <select name="multiple_locations" required>
+            <option value="">Select one</option>
+            <option value="No">No</option>
+            <option value="Yes">Yes</option>
+          </select>
+        </label>
+
+        <div class="smart1rv-actions">
+          <button type="button" class="smart1rv-back">Back</button>
+          <button type="button" class="smart1rv-next">Continue</button>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="smart1rv-step" data-step="4" style="display:none;">
+        <p class="smart1rv-eyebrow">Campaign Focus</p>
+        <h2>What should this campaign drive?</h2>
+
+        <label>Primary Goal
+          <select name="primary_goal" required>
+            <option value="">Select primary goal</option>
+            <option>New RV sales</option>
+            <option>Used RV sales</option>
+            <option>Trade-ins</option>
+            <option>Service appointments</option>
+            <option>All of the above</option>
+          </select>
+        </label>
+        <label>Main Service Opportunity
+          <select name="main_service_opportunity" required>
+            <option value="">Select service focus</option>
+            <option>De-winterization</option>
+            <option>Winterization</option>
+            <option>A/C service</option>
+            <option>Roof/seal inspection</option>
+            <option>General RV service</option>
+            <option>Not sure</option>
+          </select>
+        </label>
+        <label>Preferred Package Level
+          <select name="package_level" required>
+            <option value="">Select package</option>
+            <option value="$3,500/month Climate Safeguard Fund">$3,500/month Climate Safeguard Fund</option>
+            <option value="$5,000/month Climate Safeguard Fund">$5,000/month Climate Safeguard Fund</option>
+            <option value="$7,500/month Climate Safeguard Fund">$7,500/month Climate Safeguard Fund</option>
+            <option value="Help me choose">Help me choose</option>
+          </select>
+        </label>
+        <label>Preferred Start
+          <select name="preferred_start" required>
+            <option value="">Select timing</option>
+            <option>Next month</option>
+            <option>In 30–60 days</option>
+            <option>Before peak season</option>
+            <option>Not sure</option>
+          </select>
+        </label>
+
+        <div class="smart1rv-actions">
+          <button type="button" class="smart1rv-back">Back</button>
+          <button type="button" class="smart1rv-next">Continue</button>
+        </div>
+      </div>
+
+      <!-- Step 5 -->
+      <div class="smart1rv-step" data-step="5" style="display:none;">
+        <p class="smart1rv-eyebrow">Weather Triggers</p>
+        <h2>Choose the weather moments that should activate your ads.</h2>
+        <p class="smart1rv-helper">Choose at least one trigger. These will be used to build the estimate and proposal plan.</p>
+
+        <fieldset class="smart1rv-fieldset">
+          <legend>Warm Weather Triggers</legend>
+          <label><input type="checkbox" name="weather_triggers" value="60+ forecast"> 60°+ forecast</label>
+          <label><input type="checkbox" name="weather_triggers" value="70+ weekend"> 70°+ weekend</label>
+          <label><input type="checkbox" name="weather_triggers" value="Sunny weekend"> Sunny weekend</label>
+          <label><input type="checkbox" name="weather_triggers" value="Holiday weekend forecast"> Holiday weekend forecast</label>
+        </fieldset>
+
+        <fieldset class="smart1rv-fieldset">
+          <legend>Rain / Storm Triggers</legend>
+          <label><input type="checkbox" name="weather_triggers" value="Heavy rain"> Heavy rain</label>
+          <label><input type="checkbox" name="weather_triggers" value="Thunderstorms"> Thunderstorms</label>
+          <label><input type="checkbox" name="weather_triggers" value="High wind"> High wind</label>
+          <label><input type="checkbox" name="weather_triggers" value="Severe storm watch"> Severe storm watch</label>
+        </fieldset>
+
+        <fieldset class="smart1rv-fieldset">
+          <legend>Heat / Cold Triggers</legend>
+          <label><input type="checkbox" name="weather_triggers" value="85+ forecast"> 85°+ forecast</label>
+          <label><input type="checkbox" name="weather_triggers" value="Heat advisory"> Heat advisory</label>
+          <label><input type="checkbox" name="weather_triggers" value="First frost"> First frost</label>
+          <label><input type="checkbox" name="weather_triggers" value="Freeze warning"> Freeze warning</label>
+        </fieldset>
+
+        <div class="smart1rv-actions">
+          <button type="button" class="smart1rv-back">Back</button>
+          <button type="button" id="smart1rvBuildEstimate">Build My Market Estimate</button>
+        </div>
+      </div>
+
+      <!-- Step 6 -->
+      <div class="smart1rv-step" data-step="6" style="display:none;">
+        <p class="smart1rv-eyebrow">Market Estimate</p>
+        <h2>Your Smart RV Demand Market Estimate</h2>
+
+        <div id="smart1rvEstimateBox" class="smart1rv-estimate-card">
+          <p>Building your campground market estimate...</p>
+        </div>
+
+        <div class="smart1rv-actions">
+          <button type="button" class="smart1rv-back">Back</button>
+          <button type="button" class="smart1rv-next">Continue to Proposal Request</button>
+        </div>
+      </div>
+
+      <!-- Step 7 -->
+      <div class="smart1rv-step" data-step="7" style="display:none;">
+        <p class="smart1rv-eyebrow">Proposal Request</p>
+        <h2>Send My Smart RV Demand Proposal Request</h2>
+
+        <label>Who should receive the proposal?
+          <select name="proposal_recipient" id="smart1rvProposalRecipient" required>
+            <option value="same">Send proposal to the same email address</option>
+            <option value="other">Enter another email address</option>
+          </select>
+        </label>
+        <label id="smart1rvAlternateEmailWrap" style="display:none;">Alternate Email Address
+          <input name="alternate_email" id="smart1rvAlternateEmail" type="email" placeholder="alternate@example.com">
+        </label>
+        <label>Would you like a Smart 1 strategist to review this with you?
+          <select name="review_request" required>
+            <option value="">Select one</option>
+            <option>Yes, schedule a review</option>
+            <option>Email me the proposal first</option>
+          </select>
+        </label>
+        <label>Any notes for our team?
+          <textarea name="notes" placeholder="Optional notes"></textarea>
+        </label>
+
+        <div class="smart1rv-actions">
+          <button type="button" class="smart1rv-back">Back</button>
+          <button type="submit" id="smart1rvSubmitButton">Submit My Proposal Request</button>
+        </div>
+        <p id="smart1rvSubmitStatus" class="smart1rv-helper"></p>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+  #smart1rv-widget { font-family: Arial, Helvetica, sans-serif; color:#172033; }
+  #smart1rv-widget * { box-sizing: border-box; }
+  #smart1rv-widget .smart1rv-card { max-width: 780px; margin: 40px auto; background: #fff; padding: 34px; border-radius: 18px; box-shadow: 0 14px 45px rgba(26,46,88,.12); }
+  #smart1rv-widget h2 { color:#1A2E58; margin:0 0 14px; font-size: clamp(26px,4vw,38px); line-height:1.08; }
+  #smart1rv-widget .smart1rv-eyebrow { color:#28477f; font-weight:700; text-transform:uppercase; letter-spacing:.08em; font-size:13px; margin:0 0 10px; }
+  #smart1rv-widget .smart1rv-helper { color:#687386; line-height:1.5; }
+  #smart1rv-widget label { display:block; margin-bottom:14px; font-weight:700; color:#1A2E58; }
+  #smart1rv-widget input, #smart1rv-widget select, #smart1rv-widget textarea { width:100%; padding:14px 15px; margin-top:7px; border:1px solid #dce4f2; border-radius:10px; font-size:16px; color:#172033; background:#fff; font-weight:400; }
+  #smart1rv-widget textarea { min-height:110px; resize:vertical; }
+  #smart1rv-widget button { background:#1A2E58; color:#fff; border:0; padding:14px 22px; border-radius:10px; cursor:pointer; font-size:16px; font-weight:700; }
+  #smart1rv-widget button:hover { background:#28477f; }
+  #smart1rv-widget button:disabled { opacity:.65; cursor:not-allowed; }
+  #smart1rv-widget .smart1rv-back { background:#687386; }
+  #smart1rv-widget .smart1rv-back:hover { background:#535d6e; }
+  #smart1rv-widget .smart1rv-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  #smart1rv-widget .smart1rv-progress-wrap { width:100%; background:#edf0f5; border-radius:999px; margin-bottom:28px; overflow:hidden; }
+  #smart1rv-widget .smart1rv-progress-bar { height:9px; background:#1A2E58; transition:width .25s ease; }
+  #smart1rv-widget .smart1rv-fieldset { border:1px solid #dce4f2; border-radius:14px; padding:16px; margin:0 0 16px; background:#f9fbff; }
+  #smart1rv-widget .smart1rv-fieldset legend { color:#1A2E58; font-weight:800; padding:0 8px; }
+  #smart1rv-widget .smart1rv-fieldset label { color:#172033; font-weight:400; margin:10px 0; }
+  #smart1rv-widget .smart1rv-fieldset input { width:auto; margin:0 8px 0 0; }
+  #smart1rv-widget .smart1rv-estimate-card { background:#f5f8ff; border:1px solid #dce4f2; padding:22px; border-radius:14px; margin-bottom:18px; }
+  #smart1rv-widget .smart1rv-estimate-card p { line-height:1.55; }
+  #smart1rv-widget .smart1rv-number { display:inline-block; color:#1A2E58; font-size:clamp(28px,5vw,42px); font-weight:800; margin-top:8px; }
+  #smart1rv-widget .smart1rv-disclaimer { font-size:13px; color:#687386; }
+  @media (max-width:680px) { #smart1rv-widget .smart1rv-card { margin:0; border-radius:0; padding:24px; } }
+</style>
+
+<script>
+(function () {
+  // REQUIRED: replace with your actual Render service URL.
+  const API_BASE = 'https://YOUR-RENDER-APP.onrender.com';
+
+  const widget = document.getElementById('smart1rv-widget');
+  const form = document.getElementById('smart1rvForm');
+  const steps = Array.from(widget.querySelectorAll('.smart1rv-step'));
+  const progressBar = document.getElementById('smart1rvProgressBar');
+  const buildButton = document.getElementById('smart1rvBuildEstimate');
+  const estimateBox = document.getElementById('smart1rvEstimateBox');
+  const proposalRecipient = document.getElementById('smart1rvProposalRecipient');
+  const altWrap = document.getElementById('smart1rvAlternateEmailWrap');
+  const altEmail = document.getElementById('smart1rvAlternateEmail');
+  const submitStatus = document.getElementById('smart1rvSubmitStatus');
+  const submitButton = document.getElementById('smart1rvSubmitButton');
+
+  let currentStep = 1;
+  let estimateData = null;
+  let submitCompleted = false;
+
+  function showStep(step) {
+    currentStep = Math.max(1, Math.min(step, steps.length));
+    steps.forEach(function (section) {
+      section.style.display = Number(section.getAttribute('data-step')) === currentStep ? 'block' : 'none';
+    });
+    progressBar.style.width = Math.min((currentStep / steps.length) * 100, 100) + '%';
+    try { widget.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+  }
+
+  function validateCurrentStep() {
+    const activeStep = widget.querySelector('.smart1rv-step[data-step="' + currentStep + '"]');
+    const requiredFields = activeStep.querySelectorAll('[required]');
+    for (const field of requiredFields) {
+      if (!field.value) {
+        field.reportValidity();
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function getPayload() {
+    const data = new FormData(form);
+    const payload = Object.fromEntries(data.entries());
+    payload.weather_triggers = Array.from(widget.querySelectorAll('input[name="weather_triggers"]:checked')).map(function (item) { return item.value; });
+    payload.selected_weather_triggers_text = payload.weather_triggers.join(', ');
+    payload.proposal_recipient_email = payload.proposal_recipient === 'other' && payload.alternate_email ? payload.alternate_email : payload.email;
+    payload.form_page_url = window.location.href;
+    payload.embed_type = 'smart1_suite_multipart_code_block';
+    return payload;
+  }
+
+  function formatNumber(value) {
+    return Number(value || 0).toLocaleString();
+  }
+
+  function renderEstimate(estimate) {
+    estimateBox.innerHTML = '' +
+      '<p>Based on your dealership location, selected buyer radius, and regional campground density, your market may include approximately:</p>' +
+      '<p><span class="smart1rv-number">' + formatNumber(estimate.campground_count_low) + '–' + formatNumber(estimate.campground_count_high) + '</span><br>campgrounds and RV parks</p>' +
+      '<p><span class="smart1rv-number">' + formatNumber(estimate.estimated_site_count_low) + '–' + formatNumber(estimate.estimated_site_count_high) + '</span><br>estimated RV/camping sites</p>' +
+      '<p><span class="smart1rv-number">' + formatNumber(estimate.estimated_peak_season_reach_low) + '–' + formatNumber(estimate.estimated_peak_season_reach_high) + '</span><br>estimated peak-season camper reach</p>' +
+      '<p>' + (estimate.dealer_summary || 'Smart RV Demand can help your dealership activate advertising when local weather creates RV sales, service, and travel demand.') + '</p>' +
+      '<p class="smart1rv-disclaimer">' + (estimate.estimate_disclaimer || 'This is a planning estimate based on geography, market density, and standard campground capacity assumptions. It is not an audited count.') + '</p>';
+  }
+
+  async function estimateAndSubmit() {
+    if (!API_BASE || API_BASE.indexOf('YOUR-RENDER-APP') !== -1) {
+      throw new Error('Render URL has not been configured. Replace https://YOUR-RENDER-APP.onrender.com with your actual Render URL.');
+    }
+
+    const response = await fetch(API_BASE + '/api/rv-demand/estimate-and-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(getPayload())
+    });
+
+    let result = {};
+    try { result = await response.json(); }
+    catch (e) { throw new Error('The server did not return JSON. Check Render logs and CORS settings.'); }
+
+    if (!response.ok || !result.ok) {
+      throw new Error(result.detail || result.error || 'Submission failed.');
+    }
+    return result;
+  }
+
+  widget.querySelectorAll('.smart1rv-next').forEach(function (button) {
+    button.addEventListener('click', function () {
+      if (!validateCurrentStep()) return;
+      showStep(currentStep + 1);
+    });
+  });
+
+  widget.querySelectorAll('.smart1rv-back').forEach(function (button) {
+    button.addEventListener('click', function () {
+      showStep(currentStep - 1);
+    });
+  });
+
+  proposalRecipient.addEventListener('change', function () {
+    const showAlt = proposalRecipient.value === 'other';
+    altWrap.style.display = showAlt ? 'block' : 'none';
+    altEmail.required = showAlt;
+  });
+
+  buildButton.addEventListener('click', async function () {
+    if (!validateCurrentStep()) return;
+
+    const selectedTriggers = widget.querySelectorAll('input[name="weather_triggers"]:checked');
+    if (selectedTriggers.length === 0) {
+      alert('Please choose at least one weather trigger.');
+      return;
+    }
+
+    showStep(6);
+    buildButton.disabled = true;
+    estimateBox.innerHTML = '<p>Building your campground market estimate and sending your lead into Smart 1 Suite...</p>';
+
+    try {
+      const result = await estimateAndSubmit();
+      estimateData = result.estimate || result.data || result;
+      submitCompleted = true;
+      renderEstimate(estimateData);
+    } catch (error) {
+      estimateBox.innerHTML = '<p>We could not complete the automated estimate right now.</p><p><strong>Error:</strong> ' + error.message + '</p>';
+      console.error(error);
+    } finally {
+      buildButton.disabled = false;
+    }
+  });
+
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    if (!validateCurrentStep()) return;
+
+    if (submitCompleted) {
+      submitStatus.textContent = 'Your request has been submitted. Smart 1 Suite will handle the proposal document and follow-up email.';
+      submitButton.disabled = true;
+      return;
+    }
+
+    try {
+      submitStatus.textContent = 'Submitting your request...';
+      submitButton.disabled = true;
+      const result = await estimateAndSubmit();
+      estimateData = result.estimate || result.data || result;
+      submitCompleted = true;
+      submitStatus.textContent = 'Your request has been submitted. Smart 1 Suite will handle the proposal document and follow-up email.';
+    } catch (error) {
+      submitButton.disabled = false;
+      submitStatus.textContent = 'Submission failed: ' + error.message;
+    }
+  });
+
+  showStep(1);
+})();
+</script>

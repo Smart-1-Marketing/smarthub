@@ -9,9 +9,9 @@ Bump VERSION whenever code is deployed. BUILD_DATE is the date of that bump.
 import os
 import subprocess
 
-VERSION = "1.48.0"
-BUILD_DATE = "2026-08-20"
-CODENAME = "Tourism + Scan Widget"
+VERSION = "1.49.0"
+BUILD_DATE = "2026-08-21"
+CODENAME = "RV Ported to Flask"
 
 _sha_cache: str | None = None
 
