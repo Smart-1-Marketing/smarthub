@@ -212,7 +212,6 @@ function render(g,q){
     </div></div>
     <div class="card-b">
       <div id="c-props-uploadbox" style="display:none;margin-bottom:10px"></div>
-      <div id="c-props-saved"></div>
       <div id="c-props"><div class="empty">Searching… <span class="spin"></span></div></div>
     </div></div>`;
 
@@ -419,52 +418,109 @@ function render(g,q){
   const propPrefill='/sales/proposals/?prefill=1&business_name='+encodeURIComponent(name)+
     (web0&&web0.domain?'&website='+encodeURIComponent('https://'+web0.domain):'');
   const propNew=document.getElementById('c-props-new'); if(propNew)propNew.href=propPrefill;
-  fetch('/sales/proposals/api/proposals?q='+encodeURIComponent(term)+'&limit=6',
-        {headers:{'Accept':'application/json'}}).then(async r=>{
-    if(!r.ok){$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>';return}
-    const d=await r.json();
-    const res=d.results||[];
-    if(!res.length){$('c-props').innerHTML='<div class="empty">No proposals yet for this client. <a href="'+propPrefill+'">Create one (pre-filled) →</a></div>';return}
-    $('c-props').innerHTML='<table><thead><tr><th>Business</th><th>Industry</th><th>Monthly</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>'+
-      res.map(p=>`<tr><td><b>${esc(p.business||'—')}</b><div class="muted" style="font-size:12px">${esc(p.salesperson||'')}</div></td><td>${esc(p.industry_label||'')}</td><td>${p.monthly?money(p.monthly)+'/mo':'—'}</td><td><span class="pill ${p.status==='saved'?'ok':'neutral'}">${esc(p.status||'')} · v${p.versions||1}</span></td><td class="muted">${esc(String(p.updated_at||'').slice(0,10))}</td><td>${p.pdf_url?'<a class="gbtn" href="'+esc(p.pdf_url)+'" target="_blank" rel="noopener">PDF →</a> ':''}<a class="gbtn" href="/sales/proposals/">Open →</a></td></tr>`).join('')+'</tbody></table>';
-  }).catch(()=>{$('c-props').innerHTML='<div class="empty">Proposal Builder unavailable.</div>'});
+  /* One proposals table, not two.
+     A proposal we built and a proposal we uploaded are the same thing to the
+     person looking at this screen — the document that went to this client —
+     and they were in separate tables with different columns and different
+     actions, so "recent proposals" showed only half of them. They are merged
+     here and sorted by date, whichever way they arrived. */
+  var BUILT = [], UPLOADED = [];
 
-  // ---------- Uploaded proposals: the PDFs and Word docs we sent ----------
-  // Stored in client gallery and attached to the client for good, with the date
-  // the proposal went to them.
-  const todayISO=()=>new Date().toISOString().slice(0,10);
-  function renderUploaded(list){
-    const host=$('c-props-saved'); if(!host)return;
-    if(!list||!list.length){host.innerHTML='';return}
-    host.innerHTML='<div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;margin:2px 0 6px">Sent to client</div>'
-      +'<table><thead><tr><th>Proposal</th><th>Date sent</th><th>Uploaded by</th><th></th></tr></thead><tbody>'
-      +list.map(p=>`<tr data-pid="${esc(p.id)}">
-        <td><b>${esc(p.title||p.filename)}</b>
-          <div class="muted" style="font-size:11.5px">${esc(p.filename)}${p.note?' · '+esc(p.note):''}</div></td>
-        <td><input type="date" class="up-date" value="${esc(p.date_sent||'')}"
-             style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;font:12px inherit"></td>
-        <td class="muted">${esc(p.uploaded_by||'—')}<div style="font-size:11px">${esc(p.uploaded_at||'')}</div></td>
-        <td style="white-space:nowrap">
-          <a class="gbtn" href="${esc(p.url)}" target="_blank" rel="noopener">${p.kind==='pdf'?'PDF':'DOC'} →</a>
-          <a class="gbtn up-del" style="cursor:pointer;color:#b91c1c" title="Remove this proposal">✕</a>
-        </td></tr>`).join('')+'</tbody></table>';
-    host.querySelectorAll('tr[data-pid]').forEach(tr=>{
-      const pid=tr.dataset.pid;
-      tr.querySelector('.up-date').onchange=function(){
+  function propDate(p){ return String(p.date_sent || p.updated_at || p.uploaded_at || '').slice(0,10); }
+
+  function renderProposals(){
+    var host = $('c-props'); if(!host) return;
+    var rows = BUILT.map(function(p){ return {kind:'built', p:p, d:propDate(p)}; })
+      .concat(UPLOADED.map(function(p){ return {kind:'sent', p:p, d:propDate(p)}; }));
+    if(!rows.length){
+      host.innerHTML = '<div class="empty">No proposals yet for this client. '
+        + '<a href="'+propPrefill+'">Create one (pre-filled) &rarr;</a></div>';
+      return;
+    }
+    rows.sort(function(a,b){ return (b.d||'').localeCompare(a.d||''); });
+
+    host.innerHTML =
+      '<table><thead><tr><th>Proposal</th><th>Where from</th><th>Monthly</th>'
+      + '<th>Status</th><th>Date</th><th></th></tr></thead><tbody>'
+      + rows.map(function(r){
+          var p = r.p;
+          if(r.kind === 'built'){
+            return '<tr>'
+              + '<td><b>'+esc(p.business||'—')+'</b>'
+              + '<div class="muted" style="font-size:11.5px">'+esc(p.industry_label||'')
+              + (p.salesperson? ' · '+esc(p.salesperson):'')+'</div></td>'
+              + '<td><span class="pill neutral">Built here</span></td>'
+              + '<td>'+(p.monthly? money(p.monthly)+'/mo':'—')+'</td>'
+              + '<td><span class="pill '+(p.status==='saved'?'ok':'neutral')+'">'
+              + esc(p.status||'')+' · v'+(p.versions||1)+'</span></td>'
+              + '<td class="muted">'+esc(r.d||'')+'</td>'
+              + '<td style="white-space:nowrap">'
+              + (p.pdf_url? '<a class="gbtn" href="'+esc(p.pdf_url)+'" target="_blank" rel="noopener">PDF</a> ':'')
+              + '<a class="gbtn" href="/sales/proposals/">Open</a></td></tr>';
+          }
+          /* Uploaded. The date is editable because it is the date the proposal
+             actually went to the client, which only a person knows. */
+          return '<tr data-pid="'+esc(p.id)+'">'
+            + '<td><b>'+esc(p.title||p.filename)+'</b>'
+            + '<div class="muted" style="font-size:11.5px">'+esc(p.filename)
+            + (p.note? ' · '+esc(p.note):'')+'</div></td>'
+            + '<td><span class="pill ok">Sent to client</span>'
+            + '<div class="muted" style="font-size:11px">'+esc(p.uploaded_by||'—')+'</div></td>'
+            + '<td class="muted">—</td>'
+            + '<td><input type="date" class="up-date" value="'+esc(p.date_sent||'')+'"'
+            + ' style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;font:12px inherit"></td>'
+            + '<td class="muted">'+esc(r.d||'')+'</td>'
+            + '<td style="white-space:nowrap">'
+            + '<a class="gbtn" href="'+esc(p.url)+'" target="_blank" rel="noopener">'
+            + (p.kind==='pdf'?'PDF':'DOC')+'</a> '
+            + '<a class="gbtn to-io" style="cursor:pointer" title="Read this proposal and start an insertion order from it">To IO</a> '
+            + '<a class="gbtn up-del" style="cursor:pointer;color:#b91c1c" title="Remove from the client record">Delete</a>'
+            + '</td></tr>';
+        }).join('')
+      + '</tbody></table>';
+
+    host.querySelectorAll('tr[data-pid]').forEach(function(tr){
+      var pid = tr.dataset.pid;
+      var rec = UPLOADED.filter(function(x){ return String(x.id) === String(pid); })[0] || {};
+      tr.querySelector('.up-date').onchange = function(){
         fetch('/api/client/proposals/update',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({client:name,id:pid,date_sent:this.value})})
-          .then(r=>r.json()).then(d=>{if(d.error)alert(d.error);else renderUploaded(d.proposals)});
+          .then(function(r){return r.json();})
+          .then(function(d){ if(d.error) alert(d.error); else { UPLOADED=d.proposals||[]; renderProposals(); } });
       };
-      tr.querySelector('.up-del').onclick=()=>{
-        if(!confirm('Remove this proposal from the client record?'))return;
+      tr.querySelector('.up-del').onclick = function(){
+        if(!confirm('Remove this proposal from the client record?')) return;
         fetch('/api/client/proposals/update',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({client:name,id:pid,delete:true})})
-          .then(r=>r.json()).then(d=>renderUploaded(d.proposals||[]));
+          .then(function(r){return r.json();})
+          .then(function(d){ UPLOADED=d.proposals||[]; renderProposals(); });
       };
+      tr.querySelector('.to-io').onclick = function(){ proposalToIO(rec); };
     });
   }
-  fetch('/api/client/proposals?client='+encodeURIComponent(name)).then(r=>r.json())
-    .then(d=>renderUploaded(d.proposals||[])).catch(()=>{});
+
+  /* Start an IO from a proposal we already sent.
+     The proposal is the agreement; the IO is what makes it real. Retyping it
+     is where the two drift apart, so this hands the document to the IO builder
+     and lets it read what it can. */
+  function proposalToIO(rec){
+    if(!rec || !rec.url){ alert('That proposal has no file to read.'); return; }
+    var q = '/tools/io/?from_proposal=' + encodeURIComponent(rec.url)
+          + '&client=' + encodeURIComponent(name)
+          + '&proposal_id=' + encodeURIComponent(rec.id || '');
+    window.open(q, '_blank', 'noopener');
+  }
+
+  fetch('/sales/proposals/api/proposals?q='+encodeURIComponent(term)+'&limit=6',
+        {headers:{'Accept':'application/json'}})
+    .then(function(r){ return r.ok ? r.json() : {results:[]}; })
+    .then(function(d){ BUILT = d.results||[]; renderProposals(); })
+    .catch(function(){ BUILT = []; renderProposals(); });
+
+  fetch('/api/client/proposals?client='+encodeURIComponent(name))
+    .then(function(r){ return r.json(); })
+    .then(function(d){ UPLOADED = d.proposals||[]; renderProposals(); })
+    .catch(function(){});
 
   // ---------- Client images: what the SEO Image Pipeline has saved ----------
   const imgBase = '/tools/seo-images/';
@@ -622,7 +678,7 @@ function render(g,q){
         $('up-go').disabled=false;
         if(d.error){$('up-msg').textContent=d.error;return}
         $('up-msg').textContent='Saved ✓';
-        renderUploaded(d.proposals||[]);
+        UPLOADED = d.proposals||[]; renderProposals();
         setTimeout(()=>{box.style.display='none'},900);
       }).catch(e=>{$('up-go').disabled=false;$('up-msg').textContent='Upload failed: '+e});
     };

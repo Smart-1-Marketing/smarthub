@@ -2190,6 +2190,147 @@ def create_hub_app() -> Flask:
         return resp
 
     # ------------------ uploaded proposals (Client 360) ------------------
+    @app.route("/api/proposal-to-io", methods=["POST"])
+    def api_proposal_to_io():
+        """Read a proposal we already sent and pull the IO fields out of it.
+
+        The proposal is the agreement; the insertion order is what makes it
+        real. Retyping one into the other is where the two drift apart — the
+        proposal promises a package at a price and the IO ends up saying
+        something slightly different, and nobody notices until billing.
+
+        This extracts what it can and says how confident it is. It does not
+        create the IO: the builder still asks for everything, and a field this
+        could not find arrives empty rather than guessed, because a wrong
+        number that looks filled in is worse than a blank one.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+
+        body = request.get_json(silent=True) or {}
+        url = str(body.get("url") or "").strip()
+        client = str(body.get("client") or "").strip()
+        if not url.startswith("https://"):
+            return jsonify({"error": "That proposal has no readable file."}), 400
+
+        # Only our own storage. This fetches a URL, so without the check it is
+        # an SSRF hole that reads anything the server can reach.
+        from urllib.parse import urlparse
+        host = (urlparse(url).hostname or "").lower()
+        if not (host.endswith("cloudinary.com") or host.endswith("res.cloudinary.com")
+                or host == (urlparse(request.url_root).hostname or "").lower()):
+            return jsonify({"error": "That file isn't stored with us, so it "
+                                     "can't be read."}), 400
+
+        import requests as _rq
+        try:
+            r = _rq.get(url, timeout=20)
+            r.raise_for_status()
+            raw = r.content
+        except Exception as exc:                        # noqa: BLE001
+            return jsonify({"error": f"Couldn't fetch the proposal "
+                                     f"({type(exc).__name__})."}), 502
+
+        text = ""
+        if raw[:5] == b"%PDF-":
+            try:
+                import io as _io
+                from pypdf import PdfReader
+                pages = PdfReader(_io.BytesIO(raw)).pages
+                # First 12 pages: the plan and pricing are near the front, and
+                # a 60-page appendix is cost without content.
+                text = "\n".join((p.extract_text() or "") for p in pages[:12])
+            except Exception as exc:                    # noqa: BLE001
+                return jsonify({"error": f"That PDF couldn't be read "
+                                         f"({type(exc).__name__})."}), 422
+        else:
+            try:
+                text = raw.decode("utf-8", "ignore")
+            except Exception:                           # noqa: BLE001
+                text = ""
+
+        text = " ".join(text.split())[:24000]
+        if len(text) < 40:
+            return jsonify({"error": "There's no readable text in that file — "
+                                     "it may be a scan rather than a document.",
+                            "fields": {}, "questions": []}), 200
+
+        from . import ai as _ai, rate_card as _rc
+        if not _ai.ready():
+            return jsonify({"error": "AI isn't configured, so the proposal "
+                                     "can't be read automatically.",
+                            "fields": {}, "questions": []}), 200
+
+        # The rate card is given to the model so a line it reads as "OTT" is
+        # matched against what we actually sell, rather than invented.
+        catalogue = [p.get("label", "") for p in (_rc.products() or [])][:120]
+
+        schema_hint = {
+            "client": "business name the proposal is addressed to",
+            "monthly_total": "total monthly media spend as a number, or null",
+            "term_months": "campaign length in months, or null",
+            "start_date": "YYYY-MM-DD if stated, else null",
+            "end_date": "YYYY-MM-DD if stated, else null",
+            "products": "array of {product, monthly, notes} — product must be "
+                        "one of the catalogue labels, or the closest match",
+            "geography": "markets or radius named, else null",
+            "notes": "anything a trafficker would need that has no field",
+        }
+        try:
+            out = _ai.chat_json(
+                [{"role": "system", "content":
+                  "You read media proposals and extract the facts needed to "
+                  "write an insertion order. Never invent a number: if the "
+                  "proposal does not state something, return null for it. "
+                  "Match products to the supplied catalogue; if nothing is a "
+                  "reasonable match, use the proposal's own wording and say so "
+                  "in notes. Return JSON only."},
+                 {"role": "user", "content":
+                  f"Catalogue: {catalogue}\n\nReturn JSON with these keys: "
+                  f"{schema_hint}\n\nProposal text:\n{text}"}],
+                module="io_builder", purpose="proposal_to_io")
+        except Exception as exc:                        # noqa: BLE001
+            return jsonify({"error": f"The proposal couldn't be read "
+                                     f"({type(exc).__name__})."}), 502
+
+        fields = out if isinstance(out, dict) else {}
+        if client and not fields.get("client"):
+            fields["client"] = client
+
+        # What the IO needs and the proposal did not say. These become the
+        # questions the builder asks, so the gap is explicit rather than a
+        # blank field someone has to notice.
+        asks = []
+        if not fields.get("start_date"):
+            asks.append({"key": "start_date", "q": "What date does the campaign start?"})
+        if not fields.get("term_months"):
+            asks.append({"key": "term_months", "q": "How many months does it run?"})
+        if not fields.get("monthly_total"):
+            asks.append({"key": "monthly_total", "q": "What is the monthly media spend?"})
+        if not (fields.get("products") or []):
+            asks.append({"key": "products", "q": "Which products should the IO carry?"})
+        if not fields.get("geography"):
+            asks.append({"key": "geography", "q": "Which markets or radius does it cover?"})
+
+        # Run what was extracted past the same guardrails the IO enforces, so a
+        # proposal that promises something unwritable is caught here rather
+        # than at the end of the builder.
+        checks = []
+        try:
+            items = [{"product": p.get("product", ""),
+                      "monthly": p.get("monthly") or 0}
+                     for p in (fields.get("products") or [])]
+            if items:
+                checks = _rc.guardrails(items)
+        except Exception:                               # noqa: BLE001
+            checks = []
+
+        return jsonify({"fields": fields, "questions": asks,
+                        "guardrails": checks,
+                        "note": ("Read from the proposal. Anything it didn't "
+                                 "state is left blank rather than guessed.")})
+
     @app.route("/api/client/proposals")
     def api_client_proposals():
         gate = _require_api()
