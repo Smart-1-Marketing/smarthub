@@ -254,13 +254,51 @@ function openImageModal(id){
       (im.bytes? ' · '+Math.round(im.bytes/1024)+' KB':'')+'</p>'
     : '<p class="seoc-muted">No image yet. Generate one from the post\'s title and content.</p>';
   host.querySelector('.im-extra').value = '';
-  host.querySelector('[data-act="approve"]').style.display = (im && im.status==='pending') ? '' : 'none';
-  host.querySelector('[data-act="delete"]').style.display = im ? '' : 'none';
+  var pending = !!(im && im.status === 'pending');
+  host.querySelector('[data-act="approve"]').style.display = pending ? '' : 'none';
+  host.querySelector('[data-act="reject"]').style.display = pending ? '' : 'none';
+  host.querySelector('[data-act="delete"]').style.display = (im && !pending) ? '' : 'none';
   host.querySelector('[data-act="generate"]').textContent = im ? 'Regenerate' : 'Generate';
   host.querySelector('.im-msg').textContent = '';
   host.hidden = false;
 }
 function closeImageModal(){ document.getElementById('imgModal').hidden = true; }
+
+/* How many blog images are waiting on a person.
+   /api/seo/blogs/image-status existed and nothing called it, so the one number
+   that says "somebody needs to look at these" was never shown anywhere. It
+   goes on the Blogs section head, which is collapsed by default — a section
+   that hides its own backlog is worse than one that is merely long. */
+function refreshImageStatus(){
+  if(!window.CLIENT) return;
+  fetch('/api/seo/blogs/image-status?client=' + encodeURIComponent(CLIENT),
+        {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var head = document.querySelector('#cardBlogs .seoc-sectionhead')
+              || document.querySelector('#cardBlogs .seoc-cardhead');
+      if(!head) return;
+      var b = head.querySelector('.seoc-imgbadge');
+      if(!b){
+        b = document.createElement('span');
+        b.className = 'seoc-badge seoc-imgbadge';
+        head.appendChild(b);
+      }
+      if(d.pending){
+        b.className = 'seoc-badge due seoc-imgbadge';
+        b.textContent = d.pending + ' image' + (d.pending===1?'':'s') + ' to approve';
+      }else if(d.without_image){
+        b.className = 'seoc-badge seoc-imgbadge';
+        b.textContent = d.without_image + ' without an image';
+      }else{
+        b.className = 'seoc-badge none seoc-imgbadge';
+        b.textContent = '';
+      }
+      b.title = d.note || '';
+    })
+    .catch(function(){});
+}
+document.addEventListener('DOMContentLoaded', function(){ setTimeout(refreshImageStatus, 1500); });
 
 function imgAction(act){
   if(!IMG_POST) return;
@@ -268,6 +306,8 @@ function imgAction(act){
   var msg = host.querySelector('.im-msg');
   var extra = host.querySelector('.im-extra').value;
   if(act === 'delete' && !confirm('Delete this image? The post itself is kept.')) return;
+  /* Rejecting is not a destructive decision the way deleting is — it is one
+     step of making the image — so it does not stop to ask. */
   msg.textContent = act === 'generate'
     ? 'Generating — this takes a few seconds…' : 'Working…';
   post('/api/seo/blogs/image', {client: CLIENT, id: IMG_POST.id, action: act, extra: extra})
@@ -276,7 +316,21 @@ function imgAction(act){
       msg.style.color = '#147d52';
       msg.textContent = d.note || 'Done.';
       loadBlogs();                       // refresh the table thumbnails
-      if(act === 'delete'){ closeImageModal(); return; }
+      if(act === 'delete'){ closeImageModal(); refreshImageStatus(); return; }
+      if(act === 'reject'){
+        /* Stay on this post with the notes intact: the reason it was rejected
+           is what the next attempt needs, and retyping it is how people give
+           up and accept a bad image. */
+        var keep = host.querySelector('.im-extra').value;
+        IMG_POST.image = null;
+        openImageModal(IMG_POST.id);
+        host.querySelector('.im-extra').value = keep;
+        host.querySelector('.im-msg').textContent =
+          'Rejected. Add what to change, then Generate.';
+        refreshImageStatus();
+        return;
+      }
+      refreshImageStatus();
       if(d.image){ IMG_POST.image = d.image; openImageModal(IMG_POST.id); }
     })
     .catch(function(){ msg.style.color = '#b42318'; msg.textContent = 'That did not go through.'; });
@@ -300,6 +354,15 @@ function imgAction(act){
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
       <button class="seoc-btn" data-act="approve" onclick="imgAction('approve')">Approve</button>
       <button class="seoc-btn" data-act="generate" onclick="imgAction('generate')">Generate</button>
+      <!-- Reject and Delete call the same thing server-side, because both drop
+           the image and keep the post. They are separate buttons because they
+           are separate decisions: rejecting a pending image means "not this
+           one, try again", and it clears the box so the next generate starts
+           from the notes you just typed. Deleting an approved image is
+           removing something already in use. Showing one button labelled
+           "Delete" next to a pending image asks the wrong question. -->
+      <button class="seoc-btn" data-act="reject" onclick="imgAction('reject')"
+        style="border-color:#f3d4a8;color:#8a5a12">Reject &amp; try again</button>
       <button class="seoc-btn" data-act="delete" onclick="imgAction('delete')"
         style="border-color:#f3b8b3;color:#b42318">Delete</button>
       <button class="seoc-btn" onclick="closeImageModal()">Close</button>
