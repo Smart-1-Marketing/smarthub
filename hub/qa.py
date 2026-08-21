@@ -193,6 +193,9 @@ def _norm_client(v: str) -> str:
 
 
 # ------------------------------------------------------------------ reports
+from hub import dates as _dates
+
+
 def _end_bucket(end) -> str:
     """This month / next month / other, from the product end date.
 
@@ -222,7 +225,7 @@ def active_clients() -> dict:
     buckets = {"Ending this month": [], "Ending next month": [], "Other": []}
     skipped_empty = 0
 
-    for name in sorted(groups, key=str.lower):
+    for name in groups:
         g = groups[name]
         if not _is_active(g):
             continue
@@ -233,33 +236,71 @@ def active_clients() -> dict:
         if not g["live"] and not (g.get("this_total") or 0):
             skipped_empty += 1
             continue
-        rows_ = buckets[_end_bucket(g.get("last_end"))]
-        rows_.append([
-            _c360_link(name),
-            _join(g["partners"]),
-            len(g["live"]),
-            _money(g["live_total"]),
-            (g["last_end"].isoformat() if hasattr(g.get("last_end"), "isoformat")
-             else (g.get("last_end") or "—")),
-            "Yes" if g["has_dash"] else "No",
-        ])
 
+        # A client with nothing live cannot be "ending" — whatever they had has
+        # already stopped. Filing them under Ending this month put rows reading
+        # "0 products" next to renewals that genuinely need a call, which is
+        # the fastest way to make a queue stop being trusted. They still appear,
+        # under Other, because they are billing and that is worth seeing.
+        bucket = _end_bucket(g.get("last_end")) if g["live"] else "Other"
+
+        partner = _join(g["partners"])
+        buckets[bucket].append({
+            "partner": (partner or "").lower(),
+            "ends": g.get("last_end"),
+            "name": name.lower(),
+            "row": [
+                _c360_link(name),
+                partner,
+                len(g["live"]),
+                _money(g["live_total"]),
+                _dates.fmt(g.get("last_end")),
+                "Yes" if g["has_dash"] else "No",
+            ],
+        })
+
+    # Ending buckets group the work by who we call about it. Other is a
+    # watch-list, so it leads with whatever expires soonest — sorted on the
+    # real date, not the formatted string, or 01-05-27 would sort above
+    # 12-31-26.
+    for label in ("Ending this month", "Ending next month"):
+        buckets[label].sort(key=lambda r: (r["partner"], _dates.sort_key(r["ends"]), r["name"]))
+    # "Next to expire" means the next one, not the oldest one. A plain
+    # ascending sort put July dates at the top of a list read in August —
+    # those have already ended, so they are not what anyone is watching for.
+    # Upcoming first, then the already-ended most-recent-first, then unknown.
+    import datetime as _d
+    _today = _d.date.today()
+
+    def _other_key(r):
+        d = _dates.to_date(r["ends"])
+        if d is None:
+            return (2, _d.date.max, r["partner"], r["name"])
+        if d >= _today:
+            return (0, d, r["partner"], r["name"])
+        return (1, _d.date.max - (d - _d.date.min), r["partner"], r["name"])
+
+    buckets["Other"].sort(key=_other_key)
+
+    tones = {"Ending this month": "now", "Ending next month": "soon", "Other": "later"}
     rows = []
     for label in ("Ending this month", "Ending next month", "Other"):
         if not buckets[label]:
             continue
         rows.append([{"text": f"{label} ({len(buckets[label])})",
-                      "group": True}, "", "", "", "", ""])
-        rows.extend(buckets[label])
+                      "group": True, "tone": tones[label]}, "", "", "", "", ""])
+        rows.extend(r["row"] for r in buckets[label])
 
     total = sum(len(v) for v in buckets.values())
     return {
         "columns": ["Client", "Partner", "Live products", "Live monthly",
                     "Ends", "Dashboard"],
         "rows": rows,
-        "note": (f"{total} active clients, grouped by when their last product "
-                 f"ends." + (f" {skipped_empty} excluded with no live product "
-                             f"and no billing." if skipped_empty else "")),
+        "note": (f"{total} active clients. Ending this month and next are "
+                 f"grouped by partner; everything else leads with whatever "
+                 f"expires soonest."
+                 + (f" {skipped_empty} excluded with no live product and no "
+                    f"billing." if skipped_empty else "")),
     }
 
 
@@ -347,7 +388,7 @@ def stale_90() -> dict:
             partner if partner != "—" else "(no partner)",
             _c360_link(name),
             _join(g["sales"]),
-            g["last_end"].strftime("%m/%d/%Y"),
+            _dates.fmt(g["last_end"]),
             days,
             _money(last_total),
         ]))
@@ -785,8 +826,7 @@ def _ghl_custom_value(o: dict, *needles) -> str:
 def _mmddyy(iso: str) -> str:
     s = str(iso or "")[:10]
     try:
-        d = _dt.date.fromisoformat(s)
-        return d.strftime("%m/%d/%y")
+        return _dates.fmt(s)
     except ValueError:
         return s
 

@@ -340,10 +340,13 @@ def _load_knack_creative():
         return []
 
     out = []
+    from hub.knack_data import creative_kind
     for r in rows:
-        url = r.get("url")
-        kind = (r.get("kind") or "").strip().lower()
-        if not url or kind in ("", "none"):
+        # Same rule as Client 360: the URL decides, because `kind` means the
+        # link type in the export and the product type in the live rows. Left
+        # on `kind`, this counted a client's own homepage as creative.
+        url = r.get("creative_url") or r.get("url")
+        if not creative_kind(url, r.get("kind")):
             continue
         product = str(r.get("product") or "")
         if any(x in product.lower() for x in CREATIVE_EXCLUDE):

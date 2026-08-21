@@ -194,14 +194,58 @@ def summary() -> dict:
 CREATIVE_EXCLUDE = ("sem", "website seo", "listings", "email blast")
 
 
+
+# Creative links are recognised by the shape of the URL, not by a `kind` field.
+#
+# That field means two different things depending on where the row came from:
+# in the committed export `kind` is the link type (gdrive, pdf, dropbox), but
+# in the live rows from hub.knack_products it is the *product* type ("OTT",
+# "Paid Search"). Filtering on it therefore worked against the export and, once
+# products were read live, let every row through — and the `url` on a live row
+# is the click-thru to the client's own website, not a piece of creative. The
+# report would have counted landing pages as artwork.
+#
+# A Drive/Dropbox/PDF address is unmistakable; a client's homepage is not. So
+# the URL decides.
+_CREATIVE_HOSTS = ("drive.google.com", "docs.google.com", "dropbox.com",
+                   "box.com", "wetransfer.com", "cloudinary.com",
+                   "sharepoint.com", "onedrive.live.com", "vimeo.com",
+                   "youtube.com", "youtu.be")
+_CREATIVE_EXT = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4",
+                 ".mov", ".psd", ".ai", ".zip", ".eps", ".tif", ".tiff")
+
+
+def creative_kind(url: str, declared: str = "") -> str:
+    """The link type, or "" when this is not a creative link.
+
+    `declared` is honoured only when it is one of the export's own link types;
+    a product name arriving in that slot is ignored rather than trusted.
+    """
+    u = str(url or "").strip().lower()
+    if not u.startswith(("http://", "https://")):
+        return ""
+    d = str(declared or "").strip().lower()
+    if d in ("gdrive", "gdoc", "pdf", "dropbox", "file", "image", "video"):
+        return d
+    for host in _CREATIVE_HOSTS:
+        if host in u:
+            return "gdrive" if "google.com" in host else host.split(".")[0]
+    path = u.split("?")[0]
+    for ext in _CREATIVE_EXT:
+        if path.endswith(ext):
+            return "pdf" if ext == ".pdf" else "file"
+    return ""
+
+
 def _creative_items(prod_records: list[dict]) -> list[dict]:
     """Creative file links (PDF / Drive / Dropbox / file) grouped for display,
     newest year first — mirrors the Clients module's creative section."""
     seen = set()
     items = []
     for r in prod_records:
-        url, kind = r.get("url"), (r.get("kind") or "none")
-        if not url or kind == "none":
+        url = r.get("url") or r.get("creative_url")
+        kind = creative_kind(url, r.get("kind"))
+        if not kind:
             continue
         pname = str(r.get("product", "")).lower()
         if any(x in pname for x in CREATIVE_EXCLUDE):

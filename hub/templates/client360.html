@@ -17,6 +17,12 @@ if(document.readyState === 'loading')
 else runFromUrl();
 </script>
 
+<style>
+/* Site Health summary: two columns above 640px, stacked below. */
+.health-cols{display:grid;grid-template-columns:1fr;gap:0 28px}
+@media(min-width:640px){.health-cols{grid-template-columns:1fr 1fr}}
+.health-cols dl{margin:0}
+</style>
 {% endblock %}
 {% block content %}
 <div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
@@ -473,12 +479,12 @@ function render(g,q){
   fetch(imgBase+'api/gallery?company='+encodeURIComponent(name)+'&limit=12')
     .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
       const rows=d.gallery||[];
-      if(!rows.length){
+      if(!rows.length && !(window.BRAND_LOGOS||[]).length){
         $('c-images').innerHTML='<div class="empty">No images saved for this client yet. '
           +'<a href="'+optimizeHref+'">Optimize their first batch →</a></div>';
         return;
       }
-      const total=d.total||rows.length;
+      const total=(d.total||0)+(window.BRAND_LOGOS?BRAND_LOGOS.length:0);
       $('c-images').innerHTML=
         '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">'
         + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff">
@@ -537,16 +543,23 @@ function render(g,q){
           ? pill(s.severity,(s.score!=null?s.score+'/100':'measured'))
             +' <span class="muted">'+esc(s.headline)+'</span>'
           : '<span class="muted">'+esc(s.headline||'Speed not measured.')+'</span>';
+        /* Two columns: what needs fixing on the left, what the scan
+           concluded on the right. One tall list made the card the longest
+           thing above the fold for four facts. */
         host.innerHTML=
-          '<dl class="kv" style="margin-bottom:10px">'
-          +'<dt>Broken</dt><dd>'+fixLine+'</dd>'
-          +'<dt>Speed</dt><dd>'+speedLine+'</dd>'
-          +'<dt>Overall</dt><dd>'+(d.score!=null?esc(d.score)+'/100':'—')
-            +(d.tier?' <span class="pill neutral">'+esc(d.tier)+'</span>':'')+'</dd>'
+          '<div class="health-cols">'
+          + '<dl class="kv">'
+            +'<dt>Broken</dt><dd>'+fixLine+'</dd>'
+            +'<dt>Speed</dt><dd>'+speedLine+'</dd>'
           +'</dl>'
-          +'<div class="muted" style="font-size:12px">Scanned '
-          +(d.scanned_at?esc(String(d.scanned_at).slice(0,10)):'—')
-          +' · <a href="'+scanHref+'">see the full scan, the URLs to fix and the speed detail →</a></div>';
+          + '<dl class="kv">'
+            +'<dt>Overall</dt><dd>'+(d.score!=null?esc(d.score)+'/100':'—')
+              +(d.tier?' <span class="pill neutral">'+esc(d.tier)+'</span>':'')+'</dd>'
+            +'<dt>Scanned</dt><dd>'+(d.scanned_at?esc(fmtDate(d.scanned_at)):'—')+'</dd>'
+          +'</dl>'
+          +'</div>'
+          +'<div class="muted" style="font-size:12px;margin-top:10px">'
+          +'<a href="'+scanHref+'">see the full scan, the URLs to fix and the speed detail →</a></div>';
         renderAudits(d);
       }).catch(()=>{
         host.innerHTML='<div class="empty">Site Scans unavailable. '
@@ -1065,7 +1078,15 @@ function render(g,q){
             <b style="width:74px;flex:none;font-size:12px;color:var(--muted);text-transform:capitalize">${k==='gbp'?'Google Biz':esc(k)}</b>
             <input data-sk="${k}" value="${esc(v)}" placeholder="https://…" style="flex:1;min-width:0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit">
             ${v?`<a href="${esc(v)}" target="_blank" rel="noopener" style="flex:none">↗</a>`:''}
-          </div>`;}).join('')+'</div>';
+          </div>`;}).join('')+'</div>'
+        /* Say where the extra ones came from. A URL that appears without
+           explanation looks like something a person typed and forgot. */
+        + (d.from_scan && d.from_scan.length
+            ? '<div class="muted" style="font-size:11.5px;margin-top:8px">'
+              + d.from_scan.length + ' found by the last site scan ('
+              + d.from_scan.join(', ') + ') — Brandfetch didn\'t have '
+              + (d.from_scan.length>1?'them':'it') + '. Save to keep.</div>'
+            : '');
       const saveBtn=document.getElementById('c-social-save');
       if(saveBtn) saveBtn.onclick=()=>{
         const soc={};
@@ -1197,6 +1218,12 @@ function c360Traffic(propertyId,googleLogin){
         $('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+
           ' <a class="btn-primary" style="margin-left:8px;padding:6px 14px;font-size:13px;text-decoration:none" href="'+esc(d.reconnect_url||'/google/login')+
           '">Reconnect Google</a></div>';return}
+      if(d.needs_reauth){
+        // A revoked Google token is fixable in one click — say so, rather than
+        // leaving the reader with an error they can't act on.
+        $('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+
+          ' <a class="btn-primary" style="margin-left:8px;padding:6px 14px;font-size:13px;text-decoration:none" href="'+esc(d.reconnect_url||'/google/login')+
+          '">Reconnect Google</a></div>';return}
       if(d.error){$('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
       const cur=d.current||{},prev=d.previous||{},del=d.deltas||{};
       const rows=[
@@ -1239,7 +1266,42 @@ function c360Traffic(propertyId,googleLogin){
 {% if q %}run();{% endif %}
 
 // ---------------------------------------------------------------- brand card
+function addLogosToImages(){
+  if(!window.BRAND_LOGOS || !BRAND_LOGOS.length) return;
+  var host = document.getElementById('c-images');
+  if(!host) return;
+  if(host.querySelector('.brand-logo-tile')) return;      // already added
+  var grid = host.querySelector('div[style*="grid-template-columns"]');
+  var tiles = BRAND_LOGOS.map(function(l){
+    return '<div class="brand-logo-tile" style="border:1px solid var(--line);'+
+      'border-radius:9px;overflow:hidden;background:#fff">'+
+      '<a href="'+esc(l.url)+'" target="_blank" rel="noopener" '+
+      'style="display:block;aspect-ratio:4/3;background:#f8fafc;padding:14px;'+
+      'box-sizing:border-box">'+
+      '<img src="'+esc(l.url)+'" alt="Brand logo" loading="lazy" '+
+      'style="width:100%;height:100%;object-fit:contain;display:block"></a>'+
+      '<div style="padding:7px 9px"><span class="pill neutral" '+
+      'style="font-size:10.5px">Brand logo</span></div></div>';
+  }).join('');
+  if(grid){
+    grid.insertAdjacentHTML('afterbegin', tiles);
+  } else {
+    // The card is showing its empty state — replace it, a logo IS an image.
+    host.innerHTML = '<div style="display:grid;grid-template-columns:'+
+      'repeat(auto-fill,minmax(150px,1fr));gap:12px">'+tiles+'</div>';
+  }
+}
+
 function renderBrand(d){
+  // Kept so the Client Images card can show them; the two cards load
+  // independently, so whichever finishes second does the redraw.
+  /* The logo is a client image; it just lives in Brandfetch rather than the
+     gallery, so it never appeared there. The two cards load independently and
+     the gallery fetch isn't in a named function, so rather than re-running it
+     the logo is inserted into whatever the images card has already drawn. */
+  window.BRAND_LOGOS = (d.logos||[]).filter(function(l){ return l.url; }).slice(0,2);
+  addLogosToImages();
+
   const el=document.getElementById('c-brand'); if(!el) return;
   const acts=document.getElementById('c-brand-acts');
   if(!d || !d.found){
@@ -1265,19 +1327,42 @@ function renderBrand(d){
     (logos?`<div style="margin-bottom:10px"><div class="lbl">Logos</div>${logos}</div>`:'')+
     (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
     (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'');
-  if(acts) acts.innerHTML='<a class="gbtn" href="#" onclick="pushBrand();return false">Send to Suite</a>';
+  /* Once the guide is in Suite the button is a trap: pressing it again just
+     overwrites what's there. Show the state instead. */
+  if(acts) acts.innerHTML = d.suite_brand_guide
+    ? '<span class="pill ok" title="Pushed '+esc(d.suite_brand_guide)+'">Brand Guide setup in Suite</span>'
+    : '<a class="gbtn" href="#" onclick="pushBrand();return false">Send to Suite Brand Guide</a>';
 }
 function pushBrand(){
+  var acts = document.querySelector('#card-brand .right');
+
   fetch('/api/client/brand/push-to-suite',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({name:CURRENT_CLIENT})})
    .then(r=>r.json()).then(d=>{
      if(d.error){alert(d.error);return;}
-     alert(d.delivered ? 'Brand guide sent to Smart 1 Suite.'
-       : 'No GHL_BRAND_WEBHOOK_URL set, so nothing was sent. The payload is ready in the response.');
+     if(d.delivered){
+       // Replace the button rather than leaving it pressable — pressing it
+       // again would silently overwrite the guide already in Suite.
+       if(acts) acts.innerHTML='<span class="pill ok">Brand Guide setup in Suite</span>';
+       alert('Brand guide sent to Smart 1 Suite.');
+     } else {
+       alert('No GHL_BRAND_WEBHOOK_URL set, so nothing was sent. '+
+             'The payload is ready in the response.');
+     }
    }).catch(()=>alert('Could not send the brand guide.'));
 }
 
 // ------------------------------------------------------------- work log card
+function fmtDate(v){
+  /* mm-dd-yy. ISO reads as ambiguous to anyone scanning a list quickly, and
+     this column is scanned rather than read. */
+  if(!v) return '';
+  var d = new Date(v);
+  if(isNaN(d)) return String(v).slice(0,10);
+  var p = function(n){ return (n<10?'0':'')+n; };
+  return p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+String(d.getFullYear()).slice(2);
+}
+
 function renderWork(d){
   const el=document.getElementById('c-work'); if(!el) return;
   const sum=document.getElementById('c-work-sum');
@@ -1289,7 +1374,7 @@ function renderWork(d){
   el.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
     d.items.map(i=>`<tr>
       <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;color:#94a3b8">
-        ${esc((i.when||'').slice(0,10))}</td>
+        ${esc(fmtDate(i.when))}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9"><b>${esc(i.kind)}</b></td>
       <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#64748b">${esc(i.source)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#64748b">${esc(i.detail||'')}</td>
@@ -1385,6 +1470,25 @@ function loadForms(name){
     .then(function(r){return r.json();}).then(renderForms).catch(function(){});
 }
 
+
+
+function clientRequest(kind){
+  var name = CURRENT_CLIENT || '';
+  if(!name){ alert('Open a client first.'); return; }
+  if(kind === 'ticket'){
+    window.open('/tools/tickets/?client=' + encodeURIComponent(name) + '&new=1', '_blank');
+    return;
+  }
+  var label = kind === 'change' ? 'Campaign / Budget Change' : 'Campaign Support / Issue';
+  var subject = prompt(label + ' for ' + name + '\n\nWhat is the request?');
+  if(!subject) return;
+  post('/api/client/campaign-request', {kind: kind, client: name, subject: subject})
+    .then(function(d){
+      alert(d.error ? d.error : (label + ' submitted for ' + name + '.'));
+      if(!d.error && window.loadWorkLog) loadWorkLog(name);
+    })
+    .catch(function(){ alert('That did not go through.'); });
+}
 
 function ioStart(mode){
   /* Hand the IO builder what we already know rather than opening a blank
