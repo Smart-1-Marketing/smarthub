@@ -1435,7 +1435,29 @@ def create_hub_app() -> Flask:
         from . import seo
         name = (request.args.get("name") or "").strip()
         domain = (request.args.get("domain") or "").strip()
-        return jsonify({"social": seo.get_social(name, domain) if name else {}})
+        social = seo.get_social(name, domain) if name else {}
+        # Merge anything a site scan found. Brandfetch returns what a brand
+        # publishes about itself — usually two or three profiles. A scan reads
+        # the client's own pages and routinely finds more: a TikTok in the
+        # footer, a LinkedIn nobody registered with Brandfetch.
+        #
+        # Saved values win. Someone who corrected a URL by hand should not
+        # have it overwritten by the next scan.
+        found_by_scan = []
+        try:
+            from modules.scans.app import latest_payload_for_domain
+            from modules.scans.reports import social_profiles
+            payload = latest_payload_for_domain(domain or name)
+            for key, url in (social_profiles(payload or {}) or {}).items():
+                if not str(social.get(key) or "").strip():
+                    social[key] = url
+                    found_by_scan.append(key)
+        except Exception:  # noqa: BLE001
+            pass
+        return jsonify({"social": social, "from_scan": found_by_scan,
+                        "note": (f"{len(found_by_scan)} profile(s) came from "
+                                 f"the last site scan rather than Brandfetch."
+                                 if found_by_scan else "")})
 
     @app.route("/api/client/social", methods=["POST"])
     def api_client_social_set():

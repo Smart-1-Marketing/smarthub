@@ -2000,3 +2000,51 @@ def available(payload: dict) -> list[dict]:
             "measured": bool(r["measured_sections"]),
         })
     return out
+
+
+# ---------------------------------------------------------------------------
+# Social profiles found by a scan
+# ---------------------------------------------------------------------------
+
+# (payload namespace, the key we use on a client record, the link field)
+SOCIAL_LINK_FIELDS = (
+    ("facebook_page",        "facebook",  "page_link"),
+    ("instagram_account",    "instagram", "instagram_link"),
+    ("linkedin",             "linkedin",  "linkedin_profile_url"),
+    ("youtube",              "youtube",   "youtube_link"),
+    ("x_(formerly_twitter)", "twitter",   "account_link"),
+    ("tiktok_account",       "tiktok",    "tiktok_link"),
+    ("pinterest",            "pinterest", "pinterest_link"),
+)
+
+
+def social_profiles(payload: dict) -> dict:
+    """Social URLs an Insites scan actually found.
+
+    Brandfetch returns whatever a brand publishes about itself, which is often
+    two or three profiles. A site scan reads the client's own pages and
+    frequently finds more — a TikTok in the footer, a LinkedIn nobody
+    registered with Brandfetch. Both are worth having; neither is complete on
+    its own.
+
+    Only real URLs are returned. A section that reports "found" without a link
+    is left out: a platform name with no address is a fact, not something the
+    card can link to, and filling it with a guessed URL would be worse.
+    """
+    out: dict[str, str] = {}
+    for ns, key, link_key in SOCIAL_LINK_FIELDS:
+        sec = _sec(payload, ns)
+        if not sec:
+            continue
+        url = _s(sec, link_key)
+        if not url:
+            # A few namespaces use a differently-named link field depending on
+            # the plan; try the obvious alternatives before giving up.
+            for alt in ("link", "url", "profile_url", "page_url"):
+                url = _s(sec, alt)
+                if url:
+                    break
+        url = (url or "").strip()
+        if url.startswith("http"):
+            out[key] = url
+    return out

@@ -126,7 +126,11 @@ def brand_kit(client: str, domain: str = "") -> dict:
         "domain": payload.get("domain") or domain,
         "name": payload.get("name") or client,
         "logos": logos[:8], "colors": colors[:10], "fonts": fonts[:6],
-        "description": (payload.get("description") or "")[:280],
+        # Was cut at 280 characters, which lands mid-sentence on most
+        # Brandfetch descriptions — the card looked like it had rendered a
+        # broken string rather than a shortened one. 1200 is generous enough
+        # that a real description arrives whole, and still bounded.
+        "description": (payload.get("description") or "")[:1200],
     }
 
 
