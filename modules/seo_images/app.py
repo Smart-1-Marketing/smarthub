@@ -574,6 +574,25 @@ def api_finalize():
             errors.append(f"{name}: {exc}")
             continue
 
+        # Into the client's main gallery, under SEO images. These used to stop
+        # at Cloudinary, which meant the optimised images made for a client's
+        # own pages were not visible on the one page the client is sent to.
+        # Filing never raises and is not allowed to fail the save — the image
+        # is already stored and the page already has its URL.
+        try:
+            from modules.image_picker import filing
+            filing.file_asset(
+                client_name=company, public_id=result.get("public_id", ""),
+                url=result.get("secure_url", ""), kind="seo_image",
+                key=(page or project or "")[:80],
+                label=f"SEO images — {page or project}" if (page or project)
+                      else "SEO images",
+                filename=f"{name}.webp", alt=alt, resource_type="image",
+                size_bytes=result.get("bytes"), provider="seo_image",
+                saved_by=actor_name())
+        except Exception:                 # noqa: BLE001
+            pass
+
         saved.append({
             "id": secrets.token_hex(8),
             "public_id": result.get("public_id", ""),

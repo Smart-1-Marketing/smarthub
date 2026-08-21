@@ -108,10 +108,15 @@
       dropbox: "From Dropbox", instagram: "From Instagram",
       facebook: "From Facebook", image_search: "From image search",
       shutterstock: "Shutterstock", getty: "Getty", istock: "iStock",
-      unsplash: "Unsplash", pexels: "Pexels", pixabay: "Pixabay"
+      unsplash: "Unsplash", pexels: "Pexels", pixabay: "Pixabay",
+      /* Work Smart 1 produced for this client, filed here automatically by the
+         pipeline that made it rather than left in a Cloudinary folder. */
+      io_creative: "Creative for their insertion orders",
+      blog: "Blog images", seo_image: "SEO images"
     };
     var CLIENT_SENT = ["local","camera","google_drive","dropbox","instagram",
                        "facebook","url"];
+    var WE_MADE = ["io_creative","blog","seo_image"];
     var order = [], buckets = {};
     images.forEach(function(im){
       var k = im.provider || "other";
@@ -119,16 +124,17 @@
       buckets[k].push(im);
     });
     /* Their own files first — those are the ones we were waiting on. */
-    order.sort(function(a,b){
-      var ca = CLIENT_SENT.indexOf(a) === -1 ? 1 : 0;
-      var cb = CLIENT_SENT.indexOf(b) === -1 ? 1 : 0;
-      return ca - cb || a.localeCompare(b);
-    });
+    function tier(k){
+      if (CLIENT_SENT.indexOf(k) !== -1) return 0;   /* theirs */
+      if (WE_MADE.indexOf(k) !== -1)     return 1;   /* made for them */
+      return 2;                                      /* stock */
+    }
+    order.sort(function(a,b){ return tier(a) - tier(b) || a.localeCompare(b); });
 
     var html = "";
     order.forEach(function(k){
       var rows = buckets[k];
-      var theirs = CLIENT_SENT.indexOf(k) !== -1;
+      var theirs = tier(k) === 0;
       html += '<tr class="src-head"><td colspan="8">' +
         '<span class="src-pill' + (theirs ? ' theirs' : '') + '">' +
         esc(LABELS[k] || k) + '</span> ' +
@@ -138,6 +144,22 @@
     });
     document.getElementById("rows").innerHTML = html;
     refreshSel();
+  }
+
+  /* Whether the file met the 2025 spec kit, decided when it was delivered.
+     Absent on anything filed before the check existed, and on stock, which is
+     not bought against a unit — those show no badge rather than a false pass. */
+  var SPEC = {
+    pass:    ['on',   'Spec pass'],
+    warn:    ['pend', 'Spec warning'],
+    fail:    ['err',  'Spec fail'],
+    unknown: ['off',  'Not checked']
+  };
+
+  /* mm-dd-yy, the Hub's format everywhere. */
+  function mdy(iso){
+    var d = String(iso || "").slice(0,10).split("-");
+    return d.length === 3 ? d[1] + "-" + d[2] + "-" + d[0].slice(2) : "";
   }
 
   function rowHtml(im){
@@ -156,7 +178,11 @@
           '</a></td>' +
         '<td><strong>' + esc(im.filename) + '</strong><br>' +
           '<span style="color:var(--ink-3);font-size:.8rem">' + esc(im.alt_text || "—") + '</span></td>' +
-        '<td>' + esc(im.collection_label || im.collection_kind || "—") + '</td>' +
+        '<td>' + esc(im.collection_label || im.collection_kind || "—") +
+          (im.spec_result
+            ? '<br><span class="pill ' + SPEC[im.spec_result][0] + '" title="' +
+              esc(im.spec_summary || "") + '">' + SPEC[im.spec_result][1] + '</span>'
+            : '') + '</td>' +
         '<td>' + (im.source_url
             ? '<a href="' + esc(im.source_url) + '" target="_blank" rel="noopener">' + esc(im.provider) + '</a>'
             : esc(im.provider)) +
@@ -167,7 +193,7 @@
           (im.ghl_error ? '<br><span style="color:var(--ink-3);font-size:.72rem">' +
               esc(im.ghl_error.slice(0,90)) + '</span>' : '') + '</td>' +
         '<td style="color:var(--ink-3);font-size:.8rem">' +
-          esc((im.created_at || "").slice(0,10)) + '<br>' + esc(dims) + ' ' + esc(kb) + '</td>' +
+          esc(mdy(im.created_at)) + '<br>' + esc(dims) + ' ' + esc(kb) + '</td>' +
         '<td><button class="btn quiet small del" type="button">Remove</button></td>' +
       '</tr>';
     }
@@ -208,14 +234,15 @@
   });
   document.getElementById("selDelete").addEventListener("click", function(){
     var ids = selected(); if (!ids.length) return;
+    /* The line breaks here were written as real newlines inside the string
+       literal, which JavaScript does not allow. That made the whole <script>
+       block a syntax error, so nothing on this page ran: no images rendered,
+       no delete, no retry. The gallery loaded as an empty shell whatever the
+       client had in it. They are escapes now. */
     if (!confirm(
-      "Delete " + ids.length + " file" + (ids.length === 1 ? "" : "s") + " from this gallery?
-
-" +
+      "Delete " + ids.length + " file" + (ids.length === 1 ? "" : "s") + " from this gallery?\n\n" +
       "These are not saved anywhere else — for anything the client uploaded, this " +
-      "is the only copy and it cannot be recovered.
-
-Are you sure?")) return;
+      "is the only copy and it cannot be recovered.\n\nAre you sure?")) return;
     var btn = this; btn.disabled = true;
     fetch(BASE + "/api/saved/bulk-delete?client_id=" + CLIENT_ID, {
       method: "POST", credentials: "same-origin",

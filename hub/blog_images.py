@@ -147,10 +147,46 @@ def approve(client: str, post_id, actor: str = "") -> dict:
         img["url"] = saved["url"]               # serve the optimised one
         img.pop("b64", None)                    # don't keep the raw payload
     seo.save_store(client, store)
+    filed = _file_in_gallery(client, post, img, saved)
+    if filed:
+        img["gallery_folder"] = filed
     audit.log("seo", "blog_image_approved", actor=actor or None,
               client=client, post=post_id, folder=FOLDER)
     return {"ok": True, "image": img, "stored": saved,
-            "note": saved.get("note", "")}
+            "gallery": filed, "note": saved.get("note", "")}
+
+
+def _file_in_gallery(client: str, post: dict, img: dict, saved: dict) -> str:
+    """Put an approved blog image into the client's gallery, under Blogs.
+
+    Approved images were written to a Cloudinary folder called Blogs and left
+    there. The gallery the client is actually pointed at never learned they
+    existed, so the images they were most likely to want — the ones made for
+    their own posts — were the ones they could not find.
+
+    Labelled with the post it belongs to, because "blog-image-4.webp" in a grid
+    of forty tells nobody which article it illustrates.
+    """
+    url = saved.get("url") or img.get("url") or ""
+    public_id = saved.get("public_id") or img.get("public_id") or ""
+    if not url or not public_id:
+        return ""
+    title = str(post.get("title") or "").strip()
+    try:
+        from modules.image_picker import filing
+        out = filing.file_asset(
+            client_name=client, public_id=public_id, url=url,
+            kind="blog", key=str(post.get("id") or "")[:80],
+            label=f"Blog — {title}" if title else "Blog images",
+            filename=(public_id.rsplit("/", 1)[-1] + ".webp"),
+            alt=str(img.get("alt") or title or "")[:500],
+            resource_type="image", provider="blog",
+            saved_by="blog images")
+        return out.get("gallery_url", "") if out.get("ok") else ""
+    except Exception:                                   # noqa: BLE001
+        # A gallery that is unavailable must not fail an approval that has
+        # already been written to the store.
+        return ""
 
 
 def reject(client: str, post_id, actor: str = "") -> dict:

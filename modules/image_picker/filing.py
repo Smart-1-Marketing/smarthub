@@ -1,0 +1,156 @@
+"""Put an already-stored asset into a client's gallery.
+
+Four pipelines produce work for a client: images picked from a stock provider,
+files the client uploads themselves, creative attached to an insertion order,
+blog featured images, and the SEO image optimiser. Until now only the first two
+ended up in the gallery. The rest wrote to Cloudinary and stopped there, so the
+one page a client is pointed at showed a fraction of what had been made for
+them — and staff answering "what have we produced for this account?" had to
+know which of five folders to look in.
+
+This is the single way in. It takes an asset that already exists in Cloudinary
+and records it, because every caller has already uploaded by the time it has
+anything worth filing; re-uploading here would double the storage and break the
+public_id the caller is holding.
+
+Deliberately not an HTTP call. The route in app.py is a thin wrapper around
+this, so a background job filing a blog image does not need a session cookie to
+talk to its own process.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from sqlalchemy import select
+
+from . import ghl, taxonomy
+from .models import PickerClient, SavedImage, new_token, session, slugify, unique_slug
+
+logger = logging.getLogger(__name__)
+
+# What a folder is called in the gallery. The kind is stored on the row and the
+# label is what a person reads, so renaming the label later does not orphan the
+# rows filed under the old one.
+KIND_LABELS = {
+    "upload": "Client upload",
+    "io_creative": "IO creative",
+    "blog": "Blog images",
+    "seo_image": "SEO images",
+}
+
+
+def gallery_for_name(db, name: str, *, create: bool = False) -> PickerClient | None:
+    """The gallery for a client name. None when there isn't one.
+
+    Name matching is a known source of false positives in this codebase —
+    "Riverside HVAC" and "Riverside HVAC LLC" are different records — so this is
+    deliberately narrow: an exact slug match, and creation only when the caller
+    explicitly asks. A near-miss returns nothing rather than filing one client's
+    work into another client's gallery.
+    """
+    name = str(name or "").strip()[:200]
+    if not name:
+        return None
+    found = db.execute(
+        select(PickerClient).where(PickerClient.slug == slugify(name))
+    ).scalar_one_or_none()
+    if found or not create:
+        return found
+    client = PickerClient(
+        name=name,
+        slug=unique_slug(db, name),
+        industry_key=taxonomy.guess_industry(name),
+        kind="prospect",
+        share_token=new_token(),
+    )
+    db.add(client)
+    db.commit()
+    return client
+
+
+def file_asset(*, client_name: str, public_id: str, url: str,
+               kind: str = "upload", label: str = "", key: str = "",
+               filename: str = "", alt: str = "", resource_type: str = "image",
+               width=None, height=None, size_bytes=None,
+               spec: dict | None = None, provider: str = "",
+               saved_by: str = "system", create_client: bool = True,
+               push_to_suite: bool = True) -> dict:
+    """Record one asset in a client's gallery.
+
+    Returns a dict with `ok`, and on success the `image` row and `gallery_url`.
+    Never raises: every caller is finishing a piece of work that already
+    succeeded, and losing a generated blog image because the gallery write
+    failed would be a worse outcome than the image not appearing in the gallery.
+    """
+    public_id = str(public_id or "").strip()
+    url = str(url or "").strip()
+    if not public_id or not url.startswith("https://"):
+        return {"ok": False, "error": "That asset has no stored URL."}
+
+    kind = (kind or "upload").strip().lower()[:20]
+    provider = (provider or kind).strip().lower()[:40]
+    spec = spec if isinstance(spec, dict) else {}
+
+    try:
+        db = session()
+        client = gallery_for_name(db, client_name, create=create_client)
+        if client is None:
+            return {"ok": False, "error": "No gallery for that client."}
+
+        existing = db.execute(
+            select(SavedImage).where(SavedImage.client_id == client.id,
+                                     SavedImage.provider == provider,
+                                     SavedImage.provider_image_id == public_id)
+        ).scalar_one_or_none()
+        if existing:
+            return {"ok": True, "duplicate": True, "image": existing.to_dict(),
+                    "gallery_url": f"/tools/image-picker/gallery/{client.id}"}
+
+        rtype = (resource_type or "image").strip().lower()
+        img = SavedImage(
+            client_id=client.id,
+            provider=provider,
+            provider_image_id=public_id,
+            source_url=url,
+            filename=str(filename or "")[:300] or None,
+            alt_text=str(alt or "")[:500] or None,
+            resource_type="raw" if rtype not in ("image", "video") else rtype,
+            cloudinary_public_id=public_id,
+            cloudinary_url=url,
+            width=width or None,
+            height=height or None,
+            bytes=size_bytes or None,
+            collection_kind=kind,
+            collection_key=str(key or "")[:80] or None,
+            collection_label=str(label or KIND_LABELS.get(kind, "") or "")[:200] or None,
+            spec_result=str(spec.get("result") or "")[:10] or None,
+            spec_summary=str(spec.get("summary") or "") or None,
+            spec_unit=str(((spec.get("unit") or {}).get("id")) or "")[:60] or None,
+            ghl_status="pending",
+            saved_by=str(saved_by or "system")[:200],
+        )
+        db.add(img)
+        db.commit()
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("gallery filing failed for %s: %s", client_name, exc)
+        return {"ok": False, "error": str(exc)}
+
+    if push_to_suite:
+        # Straight on to Suite where the gallery has a location, skipped where
+        # it doesn't — the normal case for a prospect, and the reason the row is
+        # committed before this runs rather than after. push_image never raises.
+        try:
+            pushed = ghl.push_image(
+                client, file_url=img.cloudinary_url,
+                name=(img.filename or public_id.rsplit("/", 1)[-1]))
+            img.ghl_status = pushed["status"]
+            img.ghl_file_id = pushed["file_id"] or None
+            img.ghl_url = pushed["url"] or None
+            img.ghl_error = pushed["error"] or None
+            db.commit()
+        except Exception:                               # noqa: BLE001
+            db.rollback()
+
+    return {"ok": True, "image": img.to_dict(),
+            "gallery_url": f"/tools/image-picker/gallery/{client.id}"}

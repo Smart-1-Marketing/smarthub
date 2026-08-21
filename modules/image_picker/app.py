@@ -40,9 +40,9 @@ from flask import (
     Blueprint, abort, current_app, g, jsonify, redirect,
     render_template, request, url_for,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from . import cloudinary_sink, ghl, providers, taxonomy
+from . import cloudinary_sink, filing, ghl, providers, taxonomy
 from .models import (
     DB_BOOT_ERROR, PickerClient, SavedImage, already_saved, get_client,
     get_client_by_token, init_db, new_token, session, slugify, unique_slug,
@@ -1015,36 +1015,13 @@ def _client_from_token_or_staff(token):
 # asked for. A near-miss returns nothing rather than the wrong client's photos.
 # --------------------------------------------------------------------------- #
 
-def _gallery_for_name(db, name: str, *, create: bool = False):
-    """The gallery for a client name. None when there isn't one."""
-    name = str(name or "").strip()[:200]
-    if not name:
-        return None
-    slug = slugify(name)
-    found = db.execute(
-        select(PickerClient).where(PickerClient.slug == slug)
-    ).scalar_one_or_none()
-    if found or not create:
-        return found
-    client = PickerClient(
-        name=name,
-        slug=unique_slug(db, name),
-        industry_key=taxonomy.guess_industry(name),
-        kind="prospect",
-        share_token=new_token(),
-    )
-    db.add(client)
-    db.commit()
-    return client
-
-
 @bp.route("/api/staff/gallery")
 @staff_only
 @db_guard
 def api_staff_gallery():
     """One client's gallery, for a tool that only knows their name."""
     db = session()
-    client = _gallery_for_name(db, request.args.get("client"))
+    client = filing.gallery_for_name(db, request.args.get("client"))
     if client is None:
         return jsonify({"ok": True, "client": None, "images": [],
                         "note": "No gallery exists for that client yet."})
@@ -1052,7 +1029,7 @@ def api_staff_gallery():
         limit = int(request.args.get("limit") or 60)
     except (TypeError, ValueError):
         limit = 60
-    limit = max(1, min(200, limit))     # clamp both ends
+    limit = max(1, min(200, limit))     # clamp BOTH ends
 
     q = select(SavedImage).where(SavedImage.client_id == client.id)
     kind = str(request.args.get("kind") or "").strip()
@@ -1061,10 +1038,21 @@ def api_staff_gallery():
     rows = db.execute(
         q.order_by(SavedImage.created_at.desc()).limit(limit)
     ).scalars().all()
+
+    # What folders this gallery actually has, so a caller can offer them
+    # without guessing which of the five pipelines has run for this client.
+    folders = db.execute(
+        select(SavedImage.collection_kind, func.count(SavedImage.id))
+        .where(SavedImage.client_id == client.id)
+        .group_by(SavedImage.collection_kind)
+    ).all()
     return jsonify({
         "ok": True,
         "client": client.to_dict(include_secrets=True),
         "gallery_url": f"/tools/image-picker/gallery/{client.id}",
+        "folders": [{"kind": k or "upload",
+                     "label": filing.KIND_LABELS.get(k or "upload", k or "Other"),
+                     "count": n} for k, n in folders],
         "images": [r.to_dict() for r in rows],
     })
 
@@ -1075,79 +1063,32 @@ def api_staff_gallery():
 def api_staff_file():
     """File an already-uploaded asset into a client's gallery.
 
-    Used by the IO builder after it uploads creative, and by the SEO and blog
-    image pipelines, so that everything produced for a client collects in the
-    one place they already look. The caller supplies the spec verdict rather
-    than having it recomputed here — it is a record of how the file was judged
-    when it was delivered.
+    A thin wrapper: the work is in filing.file_asset, which the blog and SEO
+    pipelines call directly rather than making an HTTP request to their own
+    process.
     """
     body = request.get_json(silent=True) or {}
-    db = session()
-    client = _gallery_for_name(db, body.get("client"), create=True)
-    if client is None:
+    if not str(body.get("client") or "").strip():
         return jsonify({"ok": False, "error": "Give the client a name."}), 400
-
-    public_id = str(body.get("public_id") or "").strip()
-    url = str(body.get("url") or "").strip()
-    if not public_id or not url.startswith("https://"):
-        return jsonify({"ok": False, "error": "That upload didn't complete."}), 400
-
-    kind = str(body.get("collection_kind") or "upload").strip().lower()[:20]
-    provider = str(body.get("provider") or kind or "upload").strip().lower()[:40]
-
-    existing = db.execute(
-        select(SavedImage).where(SavedImage.client_id == client.id,
-                                 SavedImage.provider == provider,
-                                 SavedImage.provider_image_id == public_id)
-    ).scalar_one_or_none()
-    if existing:
-        return jsonify({"ok": True, "duplicate": True,
-                        "image": existing.to_dict(),
-                        "gallery_url": f"/tools/image-picker/gallery/{client.id}"})
-
-    rtype = str(body.get("resource_type") or "image").strip().lower()
-    verdict = body.get("spec") if isinstance(body.get("spec"), dict) else {}
-    img = SavedImage(
-        client_id=client.id,
-        provider=provider,
-        provider_image_id=public_id,
-        source_url=url,
-        filename=str(body.get("filename") or "")[:300] or None,
-        alt_text=str(body.get("alt") or "")[:500] or None,
-        resource_type="raw" if rtype not in ("image", "video") else rtype,
-        cloudinary_public_id=public_id,
-        cloudinary_url=url,
-        width=body.get("width") or None,
-        height=body.get("height") or None,
-        bytes=body.get("bytes") or None,
-        collection_kind=kind,
-        collection_key=str(body.get("collection_key") or "")[:80] or None,
-        collection_label=str(body.get("collection_label") or "")[:200] or None,
-        spec_result=str(verdict.get("result") or "")[:10] or None,
-        spec_summary=str(verdict.get("summary") or "") or None,
-        spec_unit=str(((verdict.get("unit") or {}).get("id")) or "")[:60] or None,
-        ghl_status="pending",
-        saved_by=(g.get("hub_user") or "system"),
-    )
-    db.add(img)
-    db.commit()
-
-    # Same as a client upload: straight on to Suite where a location exists,
-    # skipped where it doesn't. push_image never raises.
-    pushed = ghl.push_image(client, file_url=img.cloudinary_url,
-                            name=(img.filename or public_id.rsplit("/", 1)[-1]))
-    img.ghl_status = pushed["status"]
-    img.ghl_file_id = pushed["file_id"] or None
-    img.ghl_url = pushed["url"] or None
-    img.ghl_error = pushed["error"] or None
-    try:
-        db.commit()
-    except Exception:                                   # noqa: BLE001
-        db.rollback()
-    _audit(kind or "gallery_file", client=client.name,
-           filename=img.filename or public_id)
-    return jsonify({"ok": True, "image": img.to_dict(),
-                    "gallery_url": f"/tools/image-picker/gallery/{client.id}"})
+    out = filing.file_asset(
+        client_name=body.get("client"),
+        public_id=body.get("public_id"), url=body.get("url"),
+        kind=body.get("collection_kind") or "upload",
+        label=body.get("collection_label") or "",
+        key=body.get("collection_key") or "",
+        filename=body.get("filename") or "", alt=body.get("alt") or "",
+        resource_type=body.get("resource_type") or "image",
+        width=body.get("width"), height=body.get("height"),
+        size_bytes=body.get("bytes"), spec=body.get("spec"),
+        provider=body.get("provider") or "",
+        saved_by=(g.get("hub_user") or "system"))
+    if not out.get("ok"):
+        return jsonify(out), 400
+    if not out.get("duplicate"):
+        _audit(out["image"].get("collection_kind") or "gallery_file",
+               client=str(body.get("client")),
+               filename=out["image"].get("filename") or "")
+    return jsonify(out)
 
 
 @bp.route("/api/clients", methods=["POST"])
