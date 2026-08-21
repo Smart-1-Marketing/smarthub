@@ -560,11 +560,14 @@ def api_finalize():
         try:
             # Through hub.storage. The bytes are already WebP by this point
             # (the pipeline converts before saving), so the .webp name carries
-            # what format= used to assert.
+            # what format= used to assert, and the resource type is derived
+            # rather than stated. Folder and id are unchanged, so nothing moves.
             from hub import storage
-            _asset = storage.put("seo_images", f"{name}.webp", src["data"],
-                                 folder=folder, public_id=f"{folder}/{name}",
-                                 overwrite=False)
+            _asset = storage.put(
+                "seo_images", f"{name}.webp", src["data"],
+                folder=folder, public_id=f"{folder}/{name}", overwrite=False,
+                context={"company": company, "url": web_url, "project": project,
+                         "page": page or "N/A", "alt": alt})
             result = {"secure_url": _asset.url, "public_id": _asset.public_id,
                       "bytes": _asset.bytes, "format": "webp"}
         except Exception as exc:          # noqa: BLE001
@@ -613,6 +616,70 @@ def api_finalize():
 # =====================================================================
 # Clients — search what we already have, or add a house site
 # =====================================================================
+@app.route("/api/save-one", methods=["POST"])
+def api_save_one():
+    """Save a single already-processed image into a client's gallery.
+
+    Used by the Image Optimizer, which does its own resizing and just needs
+    somewhere to put the result. Deliberately does not re-encode: the file
+    arriving here has already been sized and converted by the tool the person
+    was using, and running it through WebP again would undo their choices.
+    """
+    company = (request.form.get("company") or "").strip()
+    upload = request.files.get("file")
+    if not company:
+        return jsonify({"error": "A client is required."}), 400
+    if not upload or not upload.filename:
+        return jsonify({"error": "No file received."}), 400
+    if not cloud_ready():
+        return jsonify({"error": "The client gallery isn't configured "
+                                 "(CLOUDINARY_URL is not set)."}), 400
+
+    data = upload.read(25 * 1024 * 1024)
+    if not data:
+        return jsonify({"error": "That file was empty."}), 400
+
+    base = re.sub(r"[^a-z0-9]+", "-",
+                  os.path.splitext(upload.filename)[0].lower()).strip("-") or "image"
+    folder = f"{FOLDER_ROOT}/{slugify(company, 'client')}/optimized"
+    try:
+        # Same shared uploader as the pipeline above. This save is new in
+        # v1.54; routing it through hub.storage from the start keeps the module
+        # on one path rather than reintroducing a second one.
+        from hub import storage
+        _ext = (os.path.splitext(upload.filename)[1] or ".png").lower()
+        _asset = storage.put(
+            "seo_images", f"{base}{_ext}", data,
+            folder=folder, public_id=f"{folder}/{base}", overwrite=False,
+            context={"company": company, "source": "image-optimizer"})
+        result = {"secure_url": _asset.url, "public_id": _asset.public_id,
+                  "bytes": _asset.bytes}
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"The gallery rejected it "
+                                 f"({type(exc).__name__})."}), 502
+
+    url = result.get("secure_url", "")
+    try:
+        # Same archive the pipeline writes, so it shows in the client gallery
+        # alongside everything else rather than only existing in Cloudinary.
+        rows = load_archive()
+        rows.insert(0, {
+            "company": company, "url": url,
+            "public_id": result.get("public_id", ""),
+            "filename": upload.filename, "alt_text": "",
+            "project": "Optimized", "page": "",
+            "bytes": result.get("bytes", len(data)),
+            "saved_by": actor_name(), "saved_at": _version_label(),
+        })
+        save_archive(rows)
+        _log("optimizer_saved", company=company)
+    except Exception:  # noqa: BLE001
+        pass          # the image is stored; the index entry is a convenience
+
+    return jsonify({"ok": True, "url": url,
+                    "note": f"Saved to {company}'s gallery."})
+
+
 @app.route("/api/clients")
 def api_clients():
     """Type-ahead over every client the Hub knows: Knack, website records

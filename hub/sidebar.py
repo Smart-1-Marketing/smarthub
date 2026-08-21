@@ -39,7 +39,10 @@ _CSS = """
      .main{margin-left:224px}, so applying it to <body> as well pushed the
      content 448px right. :not(:has(.main)) leaves those pages alone and
      still offsets every module page, which has no such rule. */
-  body:not(:has(.main)) { margin-left: 224px; }
+  body:not(:has(.main)) { margin-left: 224px; --s1hub-offset: 224px; }
+  /* Published so full-height tools (Image Creator) can size themselves
+     against the space the sidebar actually took, rather than guessing. */
+  body.s1hub-collapsed:not(:has(.main)) { --s1hub-offset: 56px; }
   .s1hub-chip { display: none !important; }
 }
 /* Below 950px the sidebar becomes a slide-out drawer rather than vanishing.

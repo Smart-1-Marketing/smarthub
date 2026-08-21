@@ -1596,6 +1596,9 @@ function openSizeModal(first){
     $('cw').value = el.dataset.w; $('ch').value = el.dataset.h;
   });
   $('sizeWarn').textContent = first ? '' : 'Resizing keeps your objects where they are.';
+  // Only ask on a NEW image; resizing an open canvas shouldn't re-ask.
+  var ncRow = $('newClientRow');
+  if(ncRow) ncRow.style.display = first ? '' : 'none';
   $('sizeModal').classList.add('open');
   $('sizeApply').onclick = () => {
     const w = Math.max(40, Math.min(+$('cw').value||1080, 6000));
@@ -1605,6 +1608,53 @@ function openSizeModal(first){
            $('canvasLabel').textContent = w+' × '+h; fitZoom(); pushHistory(); }
     $('sizeModal').classList.remove('open');
   };
+}
+
+/* Same lookup the save dialog uses, on the new-image step. Whatever is picked
+   here pre-selects the client at save time, so the attach isn't a second
+   thing to remember. */
+var newClientTimer = null;
+(function(){
+  var box = $('newClient');
+  if(!box) return;
+  box.addEventListener('input', function(){
+    clearTimeout(newClientTimer);
+    newClientTimer = setTimeout(searchNewClient, 220);
+  });
+  box.addEventListener('blur', function(){
+    setTimeout(function(){ var d=$('newClientDrop'); if(d) d.style.display='none'; }, 150);
+  });
+})();
+
+async function searchNewClient(){
+  var q = $('newClient').value.trim();
+  var drop = $('newClientDrop');
+  if(q.length < 2){ drop.style.display='none'; return; }
+  try{
+    var d = await fetch('api/clients?q='+encodeURIComponent(q)).then(function(r){return r.json();});
+    if(!d.clients || !d.clients.length){
+      drop.innerHTML = '<div style="padding:8px 10px;color:var(--muted)">No client matches — '
+        + 'leave blank to save it unattached.</div>';
+      drop.style.display='block'; return;
+    }
+    drop.innerHTML = d.clients.map(function(c){
+      return '<div data-c=\''+esc(JSON.stringify(c))+'\'><b>'+esc(c.name)+'</b>'
+        + '<div style="color:var(--muted);font-size:11px">'+esc(c.domain||'')+'</div></div>';
+    }).join('');
+    drop.style.display='block';
+    drop.querySelectorAll('[data-c]').forEach(function(el){
+      el.onmousedown = function(ev){
+        ev.preventDefault();
+        chosenClient = JSON.parse(el.dataset.c);
+        $('newClient').value = chosenClient.name;
+        $('newClientTag').textContent = 'This image will be filed under ' + chosenClient.name + '.';
+        drop.style.display = 'none';
+        // Carry it to the save dialog so it isn't asked twice.
+        if($('svClient')) $('svClient').value = chosenClient.name;
+        if($('svClientTag')) $('svClientTag').textContent = 'Saved against ' + chosenClient.name;
+      };
+    });
+  }catch(e){ drop.style.display='none'; }
 }
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = () =>
   b.closest('.modal').classList.remove('open'));
