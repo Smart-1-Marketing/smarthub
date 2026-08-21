@@ -1,6 +1,16 @@
 # Runtime data written by the app — never belongs in the repo
 data/
 modules/*/data/
+# ...but hub/data holds source data that ships with the code, not runtime
+# output. Without this the rate card JSON is silently never committed and the
+# rate card is simply empty in production, with nothing to say why.
+!hub/data/
+!hub/data/**
+# ...but hub/data holds source data that ships with the code, not runtime
+# output. Without this the rate card JSON is silently never committed and the
+# rate card is simply empty in production, with nothing to say why.
+!hub/data/
+!hub/data/**
 _attic/
 
 # SQLite. image_picker.db reached the repo root because models.py opens it

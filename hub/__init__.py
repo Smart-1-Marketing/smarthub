@@ -879,6 +879,57 @@ def create_hub_app() -> Flask:
         from . import leads
         return jsonify(leads.retry_undelivered())
 
+    @app.route("/api/rate-card")
+    def api_rate_card():
+        """The rate card, so the proposal quotes what the IO enforces."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import rate_card as rc
+        term = request.args.get("q", "")
+        if term:
+            return jsonify({"products": rc.search(term)})
+        return jsonify({"products": rc.products(),
+                        "categories": rc.categories(),
+                        "drift": rc.check_drift(),
+                        # So a caller can tell "no products" from "couldn't
+                        # read the card" — they look the same otherwise.
+                        "source": rc.status()})
+
+    @app.route("/api/rate-card/plan", methods=["POST"])
+    def api_rate_card_plan():
+        """Cost a set of products: delivery per line, plus the IO's guardrails.
+
+        This is what makes the proposal show a live breakdown instead of a
+        blank page until Generate.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import rate_card as rc
+        items = (request.get_json(silent=True) or {}).get("items") or []
+        lines, monthly = [], 0.0
+        for i in items:
+            p = rc.find(str(i.get("product") or "")) or {}
+            budget = float(i.get("monthly") or 0)
+            monthly += budget
+            lines.append({**i, "listed_rate": p.get("listed_rate", ""),
+                          "category": p.get("category", ""),
+                          "requirements": p.get("requirements", ""),
+                          "timeline": p.get("timeline", ""),
+                          "delivery": rc.estimate_delivery(p, budget)})
+        checks = rc.guardrails(items)
+        return jsonify({
+            "lines": lines,
+            "monthly_total": round(monthly, 2),
+            "annual_total": round(monthly * 12, 2),
+            "guardrails": checks,
+            "blocked": any(c["level"] == "block" for c in checks),
+            "note": ("This plan can't be written as an IO as it stands."
+                     if any(c["level"] == "block" for c in checks) else
+                     "Within the rate card."),
+        })
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.
