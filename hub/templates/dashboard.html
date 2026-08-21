@@ -3,16 +3,66 @@
 {% block content %}
 <div class="page-head"><h2>Dashboard</h2><p>Live rollup across all modules</p></div>
 
+<style>
+/* Movement under each headline number. Green up, red down, grey for a period
+   we have no snapshot of — never a 0% that claims we measured no change. */
+.k-trend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;
+  font:600 11.5px/1.35 system-ui,-apple-system,Segoe UI,sans-serif}
+.k-trend span{white-space:nowrap}
+.t-up{color:var(--ok)}
+.t-down{color:var(--danger)}
+.t-flat{color:var(--muted)}
+.t-none{color:#b6c0cc;font-weight:500}
+
+/* Partner resources. These five are what a partner actually gets sent to, so
+   they are one row of real buttons rather than links buried in a menu. */
+.partner-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+  gap:12px;margin:0 0 22px}
+.partner-btn{display:flex;flex-direction:column;gap:5px;padding:15px 16px 14px;
+  border-radius:var(--radius);text-decoration:none;color:#fff;
+  box-shadow:0 1px 3px rgba(15,23,42,.10);
+  transition:transform .12s ease,box-shadow .12s ease}
+.partner-btn:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(15,23,42,.18)}
+.partner-btn .pb-ico{font-size:21px;line-height:1}
+.partner-btn .pb-name{font-weight:800;font-size:14.5px;letter-spacing:.01em}
+.partner-btn .pb-sub{font-size:11.5px;font-weight:500;opacity:.88;line-height:1.35}
+.pb-rate{background:linear-gradient(135deg,#12335c,#1d5b96)}
+.pb-spec{background:linear-gradient(135deg,#0a6178,#0f92b0)}
+.pb-kit{background:linear-gradient(135deg,#166148,#1f9169)}
+.pb-learn{background:linear-gradient(135deg,#5c3286,#8a4fc4)}
+.pb-new{background:linear-gradient(135deg,#8a5a12,#c08018)}
+.partner-btn.pb-soon{opacity:.62;cursor:default;box-shadow:none}
+.partner-btn.pb-soon:hover{transform:none;box-shadow:none}
+</style>
+
+<div class="partner-row">
+  <a class="partner-btn pb-rate" href="/partner/rate-card-universal">
+    <span class="pb-ico">&#128181;</span><span class="pb-name">Rate Card</span>
+    <span class="pb-sub">Every product and its rate</span></a>
+  <a class="partner-btn pb-spec" href="/partner/creative-specs">
+    <span class="pb-ico">&#128208;</span><span class="pb-name">Design Specs</span>
+    <span class="pb-sub">Sizes, weights and file rules</span></a>
+  <a class="partner-btn pb-kit" href="/partner/sales-kit">
+    <span class="pb-ico">&#128188;</span><span class="pb-name">Product Sales Kit</span>
+    <span class="pb-sub">How to sell each product</span></a>
+  <a class="partner-btn pb-learn" href="/partner/learning-library">
+    <span class="pb-ico">&#127891;</span><span class="pb-name">Learning Library</span>
+    <span class="pb-sub">Lessons and the dictionary</span></a>
+  <span class="partner-btn pb-new pb-soon" title="Page not filed yet">
+    <span class="pb-ico">&#10133;</span><span class="pb-name">New Partner</span>
+    <span class="pb-sub">Page coming</span></span>
+</div>
+
 <div class="kpi-row" id="kpis">
   <div class="kpi"><div class="k-label">Active Clients</div><div class="k-value" id="k-clients"><span class="spin"></span></div><div class="k-sub" id="k-clients-sub"></div></div>
   <div class="kpi"><div class="k-label">Live Products</div><div class="k-value" id="k-live">—</div><div class="k-sub" id="k-live-sub"></div></div>
-  <div class="kpi"><div class="k-label">Live Budget / mo</div><div class="k-value" id="k-budget">—</div><div class="k-sub">across live IOs</div></div>
+  <div class="kpi"><div class="k-label">Live Budget / mo</div><div class="k-value" id="k-budget">—</div><div class="k-sub" id="k-budget-sub">across live IOs</div></div>
   <div class="kpi"><div class="k-label">Active Websites</div><div class="k-value" id="k-webs">—</div><div class="k-sub" id="k-webs-sub"></div></div>
-  <div class="kpi"><div class="k-label">H&amp;M Billing / mo</div><div class="k-value" id="k-hm">—</div><div class="k-sub">active sites</div></div>
+  <div class="kpi"><div class="k-label">H&amp;M Billing / mo</div><div class="k-value" id="k-hm">—</div><div class="k-sub" id="k-hm-sub">active sites</div></div>
 </div>
 
 <div class="kpi-row">
-  <div class="kpi"><div class="k-label">Est. Total Billing / mo</div><div class="k-value" id="k-total">—</div><div class="k-sub">live budget + H&amp;M</div></div>
+  <div class="kpi"><div class="k-label">Est. Total Billing / mo</div><div class="k-value" id="k-total">—</div><div class="k-sub" id="k-total-sub">live budget + H&amp;M</div></div>
   <div class="kpi"><div class="k-label">New Customers</div><div class="k-value" id="k-new">—</div><div class="k-sub" id="k-new-sub">vs last month</div></div>
   <div class="kpi"><div class="k-label">Increased Budgets</div><div class="k-value" id="k-up">—</div><div class="k-sub" id="k-up-sub">customers up vs last month</div></div>
   <div class="kpi"><div class="k-label">Decreased Budgets</div><div class="k-value" id="k-down">—</div><div class="k-sub" id="k-down-sub">customers down vs last month</div></div>
@@ -38,8 +88,33 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt=n=>Number(n||0).toLocaleString();
 
+/* Two comparisons, because they answer different questions: last month is
+   "is this moving now", the same month last year is "is this moving at all"
+   — the one that survives a seasonal business. A period we hold no snapshot
+   for renders as a dash, not a flat 0%: absent history is not no change. */
+function trendHtml(t,money){
+  if(!t) return '';
+  const one=(d,label)=>{
+    if(!d||!d.available)
+      return '<span class="t-none" title="No '+esc(label.slice(3))+' snapshot yet">– '+esc(label)+'</span>';
+    const arrow=d.dir==='up'?'&#9650;':d.dir==='down'?'&#9660;':'&#9644;';
+    const cls=d.dir==='up'?'t-up':d.dir==='down'?'t-down':'t-flat';
+    const n=(money?'$':'')+fmt(Math.abs(d.diff));
+    const pct=(d.pct===null||d.pct===undefined)?'':' ('+Math.abs(d.pct)+'%)';
+    return '<span class="'+cls+'" title="was '+(money?'$':'')+fmt(d.from)+'">'
+      +arrow+' '+n+pct+' '+esc(label)+'</span>';
+  };
+  return '<div class="k-trend">'+one(t.last_month,'vs last mo')
+    +one(t.last_year,'vs last yr')+'</div>';
+}
+
 fetch('/api/summary').then(r=>r.json()).then(s=>{
   if(s.error){$('k-clients').textContent='—';return}
+  const T=s.trends||{};
+  const trend=(id,key,money)=>{
+    const host=$(id);
+    if(host&&T[key]) host.insertAdjacentHTML('beforeend',trendHtml(T[key],money));
+  };
   $('k-clients').textContent=fmt(s.clients_live);
   $('k-clients-sub').textContent=fmt(s.clients_total)+' total in Smart 1 Team';
   $('k-live').textContent=fmt(s.live_products);
@@ -48,9 +123,16 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
   $('k-webs-sub').textContent=fmt(s.websites_total)+' total';
   $('k-hm').textContent='$'+fmt(s.hm_monthly);
 
+  trend('k-clients-sub','clients_live');
+  trend('k-live-sub','live_products');
+  trend('k-budget-sub','live_budget_monthly',true);
+  trend('k-webs-sub','websites_active');
+  trend('k-hm-sub','hm_monthly',true);
+
   // ---- second row: billing rollup + month-over-month movement ----
   const vs=s.last_period?('vs '+s.last_period):'vs last month';
   $('k-total').textContent='$'+fmt(s.estimated_total_monthly);
+  trend('k-total-sub','estimated_total_monthly',true);
   $('k-new').textContent=fmt(s.new_customers);
   $('k-new-sub').innerHTML=esc(vs)+(s.lost_customers?' · <span class="down" style="color:var(--danger);font-weight:600">'+fmt(s.lost_customers)+' lost</span>':'');
   $('k-up').textContent=fmt(s.increased_customers);

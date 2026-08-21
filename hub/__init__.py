@@ -3177,6 +3177,19 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Partner resource pages ----------------
+    # Static, self-contained pages served behind the login. Same defensive
+    # registration as everything else here: a page that fails to load must
+    # cost the dashboard a button, not the Hub a boot.
+    try:
+        from .partner import register as register_partner
+        register_partner(app)
+    except Exception as _pp_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _pp_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- Stale Creative audit ----------------
     # Same defensive registration as the help layer below: an audit that fails
     # to load must not take the Hub with it.
