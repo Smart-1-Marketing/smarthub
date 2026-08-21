@@ -236,6 +236,29 @@ def _parse_gtm(value) -> dict | None:
     return {"login": "", "id": s}
 
 
+def _product_source() -> tuple[list[dict], str, int | None]:
+    """The product records to build Client 360 from, live if we can get them.
+
+    Client 360 read these from the static export in clients_app/data, which is
+    only ever as current as the last manual refresh — so a client's insertion
+    orders showed last month's line-up while the Knack pull reported success,
+    because the two are different sources and only one of them was live.
+
+    hub.knack_products reads object_135 from the API and emits rows with the
+    same field names, so it can be swapped in here. The export stays as the
+    fallback: stale beats empty, because a client record showing no products
+    reads as "this client has none" rather than "we couldn't reach Knack".
+    """
+    try:
+        from hub import knack_products
+        data = knack_products.rows()
+        if data.get("source") == "knack" and data.get("rows"):
+            return data["rows"], "knack", data.get("age_minutes")
+    except Exception:                                   # noqa: BLE001
+        pass
+    return products(), "export", None
+
+
 def search_client(q: str, limit: int = 8) -> list[dict]:
     """Group products + website records by client for Client 360."""
     ql = (q or "").strip().lower()
@@ -245,9 +268,20 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
 
     raw_by_group: dict[str, list[dict]] = {}
 
-    for r in products():
+    product_rows, product_source, product_age = _product_source()
+    for r in product_rows:
+        # Knack holds both a client and an organisation and a product is filed
+        # under whichever the salesperson used, so match either — the live rows
+        # carry both where the export only ever had one.
         client = str(r.get("client", "")).strip()
-        if not client or ql not in client.lower():
+        org = str(r.get("organization", "")).strip()
+        if ql in client.lower():
+            pass
+        elif org and ql in org.lower():
+            client = client or org
+        else:
+            continue
+        if not client:
             continue
         g = groups.setdefault(client.lower(), {"client": client, "products": [], "websites": []})
         raw_by_group.setdefault(client.lower(), []).append(r)
@@ -355,4 +389,13 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
                 parsed["site"] = w.get("name") or w.get("domain")
                 gtms.append(parsed)
         g["gtm_containers"] = gtms
+        # Say where the products came from and how old they are. A stale export
+        # that looks identical to live data is how last month's insertion
+        # orders got read as this month's.
+        g["products_source"] = product_source
+        g["products_age_minutes"] = product_age
+        g["products_note"] = (
+            f"Live from Knack, {product_age} min old." if product_source == "knack"
+            else "From the committed export in clients_app/data — nothing "
+                 "refreshes it, so this may be out of date.")
     return out[:limit]
