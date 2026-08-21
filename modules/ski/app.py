@@ -694,15 +694,20 @@ def build_report_pdf(report):
 
 
 def upload_report_pdf(pdf_bytes, public_id):
-    result = cloudinary.uploader.upload(
-        io.BytesIO(pdf_bytes),
-        resource_type="raw",
-        public_id=public_id,
-        overwrite=True,
-        unique_filename=False,
-        use_filename=False,
-    )
-    return result.get("secure_url", "")
+    """Store the plan through the Hub's shared uploader.
+
+    public_id is passed through unchanged, so the file lands exactly where it
+    always has — the code path moved, the storage layout did not. That matters
+    because report URLs are already in client inboxes.
+
+    resource_type is no longer stated here: hub.storage derives it from the
+    filename, which is what stops a PDF being uploaded as an image and then
+    refusing to deliver. That bug has shipped in this codebase three times.
+    """
+    from hub import storage
+    asset = storage.put("landing_reports", f"{public_id}.pdf", pdf_bytes,
+                        public_id=public_id, overwrite=True)
+    return asset.url
 
 
 # ---------------------------------------------------------------------------

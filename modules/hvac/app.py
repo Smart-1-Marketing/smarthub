@@ -546,15 +546,13 @@ def _store_report_pdf(pdf_bytes: bytes, company: str, base_url: str) -> str:
         try:
             # Stored as raw so the PDF is served/downloaded as-is (no image-delivery block).
             public_id = f"{REPORT_ASSET_NAME}/{slug}-{stamp}.pdf"
-            res = cloudinary.uploader.upload(
-                io.BytesIO(pdf_bytes),
-                resource_type="raw",
-                public_id=public_id,
-                overwrite=True,
-                unique_filename=False,
-                use_filename=False,
-            )
-            url = res.get("secure_url", "")
+            # Through hub.storage: same public_id, so the file lands where it
+            # always has, but the resource type is derived from the filename
+            # rather than asserted here — the mistake that has 403'd PDF links
+            # in three other modules.
+            from hub import storage
+            url = storage.put("landing_reports", public_id, pdf_bytes,
+                              public_id=public_id, overwrite=True).url
             if url:
                 return url
         except Exception:

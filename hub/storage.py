@@ -101,12 +101,21 @@ def _disk_root(kind: str) -> str:
 
 def put(kind: str, filename: str, data: bytes, *, client: str = "",
         subpath: str = "", context: dict | None = None,
-        overwrite: bool = False) -> StoredAsset:
+        overwrite: bool = False, tags: list | tuple | None = None,
+        public_id: str = "", folder: str = "") -> StoredAsset:
     """Store bytes and return where they went.
 
     ``kind`` is a logical bucket ("seo_images", "proposals", …) resolved to a
     folder by hub.config, not a raw folder string — that is what stops two
     features colliding in one namespace.
+
+    tags, public_id and folder exist so a module that already has
+    assets in Cloudinary can move onto this function without moving its files.
+    A module that has been writing to its own folder for a year has URLs in
+    client inboxes and listing code that walks that folder; changing the layout
+    to adopt a shared uploader would be a migration disguised as a refactor.
+    Pass the existing folder (or a full public_id) and only the *code path*
+    changes — where the bytes land does not.
     """
     if not data:
         raise StorageError("Refusing to store an empty file.")
@@ -122,8 +131,8 @@ def put(kind: str, filename: str, data: bytes, *, client: str = "",
         parts.append(slug(client, "client"))
     if subpath:
         parts.append(slug(subpath, "batch"))
-    folder = "/".join(parts)
-    public_id = f"{folder}/{slug(base, 'file')}"
+    folder = folder or "/".join(parts)
+    public_id = public_id or f"{folder}/{slug(base, 'file')}"
 
     if ready():
         _configure()
@@ -137,6 +146,7 @@ def put(kind: str, filename: str, data: bytes, *, client: str = "",
             unique_filename=not overwrite,
             invalidate=True,
             context=context or None,
+            tags=list(tags) if tags else None,
         )
         return StoredAsset(
             public_id=res.get("public_id", public_id),

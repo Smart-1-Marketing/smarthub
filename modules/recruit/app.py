@@ -651,16 +651,16 @@ def upload_pdf_to_cloudinary(path: str, company: str) -> str:
     try:
         # Timestamp suffix keeps the public_id unique so two leads from the same
         # company never overwrite each other's report.
-        result = cloudinary.uploader.upload(
-            path,
-            resource_type="raw",             # keep the .pdf intact and directly linkable
-            folder=CLOUDINARY_FOLDER,
-            public_id=f"{report_display_name(company)}-{int(time.time())}",
-            use_filename=False,
-            unique_filename=False,
-            overwrite=True,
-        )
-        return result.get("secure_url", "") or result.get("url", "")
+        # Same folder and id as before — hub.storage takes the full public_id
+        # so nothing moves — but the resource type now comes from the filename
+        # rather than being asserted here, which is the part that has gone
+        # wrong repeatedly across these modules.
+        from hub import storage
+        pid = f"{CLOUDINARY_FOLDER}/{report_display_name(company)}-{int(time.time())}"
+        with open(path, "rb") as fh:
+            data = fh.read()
+        return storage.put("landing_reports", f"{pid}.pdf", data,
+                           public_id=pid, overwrite=True).url
     except Exception:
         app.logger.exception("Cloudinary upload failed")
         return ""

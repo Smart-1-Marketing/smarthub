@@ -1256,20 +1256,15 @@ def upload_pdf_to_cloudinary(pdf_bytes: bytes, firm: str):
         import cloudinary.uploader
         cloudinary.config(secure=True)
         public_id = f"{REPORT_NAME}/{_slug(firm)}-{int(time.time())}.pdf"
-        result = cloudinary.uploader.upload(
-            io.BytesIO(pdf_bytes),
-            # "raw", not "image". Cloudinary accepts a PDF as an image asset
-            # and then refuses to deliver it unless the account has PDF
-            # delivery switched on — the upload succeeds, the link 403s, and
-            # the failure only shows up when a client clicks Download. The
-            # other three landing pages already use "raw"/"auto"; this was the
-            # odd one out. The .pdf on the public_id keeps the extension,
-            # which raw delivery takes from the id rather than from `format`.
-            resource_type="raw",
-            public_id=public_id,
-            overwrite=False,
-            tags=["smart1legal", REPORT_NAME],
-        )
+        # Through hub.storage. Same public_id and tags, so the asset lands
+        # where it always has; the resource type now comes from the .pdf on the
+        # id rather than being asserted, which is the check that keeps a PDF
+        # from being stored as an image and then refusing to deliver.
+        from hub import storage
+        asset = storage.put("legal_reports", public_id, pdf_bytes,
+                            public_id=public_id, overwrite=False,
+                            tags=["smart1legal", REPORT_NAME])
+        result = {"secure_url": asset.url, "public_id": asset.public_id}
     except Exception:
         app.logger.exception("Cloudinary upload failed")
         return None

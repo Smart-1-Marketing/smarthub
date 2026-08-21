@@ -578,15 +578,14 @@ def upload_report_pdf(path: str, dealer_name: str, rid: str) -> str:
     if not (cloudinary and CLOUDINARY_READY):
         return ""
     public_id = f"boat-reports/{slugify(dealer_name)}-boat-report-{rid}"
-    res = cloudinary.uploader.upload(
-        path,
-        public_id=public_id,
-        resource_type="auto",
-        overwrite=True,
-        use_filename=False,
-        unique_filename=False,
-    )
-    return res.get("secure_url", "")
+    # Through hub.storage: same public_id, so nothing moves. "auto" is
+    # replaced by the type hub.storage derives from the filename, which for a
+    # PDF is raw — the delivery that actually works.
+    from hub import storage
+    with open(path, "rb") as fh:
+        data = fh.read()
+    return storage.put("landing_reports", f"{public_id}.pdf", data,
+                       public_id=public_id, overwrite=True).url
 
 
 SYSTEM_PROMPT = """

@@ -587,20 +587,22 @@ def _cloud_name() -> str:
 
 
 def _cloudinary_upload(data: bytes, public_id: str, resource_type: str, fmt: str = "") -> dict:
-    import cloudinary
-    import cloudinary.uploader
+    """Store through hub.storage, keeping this module's own public_ids.
 
-    cloudinary.config(secure=True)  # reads CLOUDINARY_URL from env
-    kwargs = dict(
-        resource_type=resource_type,
-        public_id=public_id,
-        overwrite=True,
-        unique_filename=False,
-        use_filename=False,
-    )
-    if fmt:
-        kwargs["format"] = fmt
-    return cloudinary.uploader.upload(io.BytesIO(data), **kwargs)
+    The `resource_type` argument is now advisory: hub.storage derives the real
+    one from the filename, so the caller cannot ask for a PDF to be stored as
+    an image. That request is exactly what this module used to default to, and
+    it produces a link that 403s when a customer clicks Download.
+
+    The return shape stays a dict with secure_url, because callers read it.
+    """
+    from hub import storage
+    name = public_id if "." in public_id.rsplit("/", 1)[-1] else \
+        f"{public_id}.{(fmt or resource_type or 'bin').lstrip('.')}"
+    asset = storage.put("restaurant_reports", name, data,
+                        public_id=public_id, overwrite=True)
+    return {"secure_url": asset.url, "public_id": asset.public_id,
+            "resource_type": asset.resource_type}
 
 
 def _store_report_json(report: dict, report_id: str) -> bool:
