@@ -366,7 +366,7 @@ function applyFaqPalette(style){
   </div>
 </div>
 
-<div class="seoc-grid">
+<div class="seoc-row6040">
   <div class="card seoc-card" id="cardAccounts"><h3>Accounts</h3><div id="accBody">Loading&hellip;</div></div>
   <div class="card seoc-card" id="cardSite">
   <div class="seoc-cardhead"><h3>Website</h3><div class="right"></div></div>
@@ -2416,4 +2416,164 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
 
 })();
 </script>
+
+<style>
+/* Collapsible sections.
+   The page had grown to twelve stacked cards, most of which a person is not
+   using on any given visit — so the ones they came for were below the fold
+   behind the ones they did not. Collapsing is per-section and remembered, and
+   a collapsed header still reports what is waiting inside it, because a
+   section that hides its own backlog is worse than one that is merely long. */
+.seoc-collapsible > .seoc-cardhead,
+.seoc-collapsible > .seoc-sectionhead { cursor: pointer; user-select: none; }
+.seoc-toggle{
+  border:0; background:none; padding:0 8px 0 0; cursor:pointer; color:var(--seoc-ink-3,#7C8B9C);
+  font:600 13px system-ui; line-height:1; flex:0 0 auto;
+}
+.seoc-toggle::before{ content:"\25BE"; display:inline-block; transition:transform .15s ease; }
+.seoc-collapsed .seoc-toggle::before{ transform:rotate(-90deg); }
+.seoc-collapsed > .seoc-body{ display:none !important; }
+.seoc-badge{
+  display:inline-block; margin-left:8px; padding:2px 9px; border-radius:999px;
+  font:700 11px system-ui; letter-spacing:.02em; background:#e8eef4; color:#46586E;
+  vertical-align:middle;
+}
+.seoc-badge.due{ background:#FBF1DF; color:#8F5D0E; }
+.seoc-badge.late{ background:#FBEBE9; color:#A33327; }
+.seoc-badge.none{ display:none; }
+.seoc-sectionhead{ display:flex; align-items:center; gap:6px; }
+/* Accounts and Website side by side: they are read together — which accounts
+   we have, and the site they point at — and each was a full-width row. */
+.seoc-row6040{ display:grid; grid-template-columns:1fr; gap:14px; }
+@media(min-width:900px){ .seoc-row6040{ grid-template-columns:60fr 40fr; } }
+.seoc-row6040 > .card{ margin:0; }
+</style>
+
+<script>
+(function () {
+  "use strict";
+  var KEY = "s1seo_collapsed_v1";
+
+  /* Which sections collapse, and which start collapsed.
+     The five that start closed are the ones that are tools rather than
+     readouts — you open them when you intend to build something. The audit and
+     check cards stay open because they are what the page is for. */
+  var SECTIONS = [
+    { sel: "#cardAudit",       label: "Site Audits",        closed: false },
+    { sel: "#cardScan",        label: "Schema Check",       closed: false },
+    { sel: "#cardBuilder",     label: "Schema Builder",     closed: true  },
+    { sel: "#schemaTableWrap", label: "Saved schema pages", closed: true,  sub: true },
+    { sel: "#cardFAQ",         label: "FAQ Builder",        closed: true  },
+    { sel: "#faqTableWrap",    label: "Saved FAQ pages",    closed: true,  sub: true },
+    { sel: "#cardBlogs",       label: "Blogs",              closed: true  },
+    { sel: "#blogTableWrap",   label: "Saved blogs",        closed: true,  sub: true }
+  ];
+
+  function readState() {
+    try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { return {}; }
+  }
+  function writeState(s) {
+    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {}
+  }
+
+  /* What is waiting inside a collapsed section.
+     Counted from the section's own rendered rows rather than a separate API,
+     so the number cannot disagree with what opening it would show. */
+  function countFor(el) {
+    var rows = el.querySelectorAll("tbody tr");
+    var total = 0, due = 0, late = 0;
+    Array.prototype.forEach.call(rows, function (tr) {
+      if (!tr.offsetParent && !tr.querySelector("td")) return;
+      total++;
+      var t = (tr.textContent || "").toLowerCase();
+      if (/past due|overdue/.test(t)) { late++; }
+      else if (/needs? (answer|review|update)|not posted|draft|pending|to post/.test(t)) { due++; }
+    });
+    return { total: total, due: due, late: late };
+  }
+
+  function badgeFor(el, holder) {
+    var c = countFor(el);
+    var b = holder.querySelector(".seoc-badge");
+    if (!b) {
+      b = document.createElement("span");
+      b.className = "seoc-badge";
+      holder.appendChild(b);
+    }
+    if (c.late) { b.className = "seoc-badge late"; b.textContent = c.late + " past due"; }
+    else if (c.due) { b.className = "seoc-badge due"; b.textContent = c.due + " to do"; }
+    else if (c.total) { b.className = "seoc-badge"; b.textContent = String(c.total); }
+    else { b.className = "seoc-badge none"; b.textContent = ""; }
+  }
+
+  function setup(cfg) {
+    var el = document.querySelector(cfg.sel);
+    if (!el || el.dataset.collapsible) return;
+    el.dataset.collapsible = "1";
+    el.classList.add("seoc-collapsible");
+
+    /* The head is whatever the section already uses as its heading, so the
+       existing status text stays where it was rather than being replaced. */
+    var head = el.querySelector(":scope > .seoc-cardhead")
+            || el.querySelector(":scope > .seoc-tablehead")
+            || el.querySelector(":scope > h3");
+    if (!head) return;
+    if (head.tagName === "H3") {
+      var wrap = document.createElement("div");
+      wrap.className = "seoc-sectionhead";
+      head.parentNode.insertBefore(wrap, head);
+      wrap.appendChild(head);
+      head = wrap;
+    } else {
+      head.classList.add("seoc-sectionhead");
+    }
+
+    /* Everything that is not the head becomes the collapsible body. */
+    var body = document.createElement("div");
+    body.className = "seoc-body";
+    var node = head.nextSibling;
+    while (node) {
+      var next = node.nextSibling;
+      body.appendChild(node);
+      node = next;
+    }
+    el.appendChild(body);
+
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "seoc-toggle";
+    btn.setAttribute("aria-label", "Show or hide " + cfg.label);
+    head.insertBefore(btn, head.firstChild);
+
+    var saved = readState();
+    var closed = (cfg.sel in saved) ? saved[cfg.sel] : cfg.closed;
+    if (closed) el.classList.add("seoc-collapsed");
+    btn.setAttribute("aria-expanded", String(!closed));
+
+    head.addEventListener("click", function (ev) {
+      if (ev.target.closest("a, button:not(.seoc-toggle), input, select")) return;
+      var nowClosed = el.classList.toggle("seoc-collapsed");
+      btn.setAttribute("aria-expanded", String(!nowClosed));
+      var st = readState(); st[cfg.sel] = nowClosed; writeState(st);
+    });
+
+    badgeFor(el, head);
+    /* These sections fill in from fetches well after load, so the count is
+       recomputed as their contents change rather than read once. */
+    var mo = new MutationObserver(function () { badgeFor(el, head); });
+    mo.observe(body, { childList: true, subtree: true, characterData: true });
+  }
+
+  function apply() { SECTIONS.forEach(setup); }
+
+  if (document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", apply);
+  else apply();
+  /* Sub-sections are created by their card's own render, so a later pass
+     catches the ones that did not exist yet. */
+  setTimeout(apply, 1200);
+  setTimeout(apply, 4000);
+})();
+</script>
+
 {% endblock %}
