@@ -1,5 +1,112 @@
 {% extends "base.html" %}
-{% block title %}{{ title }} — QA — Smart 1 Hub{% endblock %}
+{% block title %}{{ title }} — QA — Smart 1 Hub
+<script>
+/* Report actions. Delegated, because rows redraw. */
+document.addEventListener('click', function(ev){
+  var b = ev.target.closest('.qa-act');
+  if(!b) return;
+  var action = b.dataset.action, client = b.dataset.client;
+  if(b.dataset.confirm && !confirm(b.dataset.confirm)) return;
+
+  if(action === 'add-dashboard'){
+    var url = prompt('Dashboard URL for ' + client + '\n\n' +
+                     'This writes to every live product for this client, so the ' +
+                     'client stops appearing on the report.');
+    if(!url) return;
+    b.disabled = true; b.textContent = 'Saving…';
+    fetch('/api/qa/dashboard/add', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({client: client, url: url})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d.ok){ alert(d.error || 'Could not save.'); b.disabled=false; b.textContent='Add dashboard'; return; }
+        alert(d.note || 'Saved.');
+        b.closest('tr').style.opacity = '.4';
+        b.textContent = 'Added ✓';
+      })
+      .catch(function(){ alert('Could not save.'); b.disabled=false; b.textContent='Add dashboard'; });
+    return;
+  }
+
+  if(action === 'form-summary'){
+    b.disabled = true; b.textContent = 'Loading…';
+    fetch('/api/qa/form-summary/' + encodeURIComponent(client), {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        b.disabled = false; b.textContent = 'Summary';
+        if(d.error){ alert(d.error); return; }
+        var lines = [];
+        if(d.contact && (d.contact.name || d.contact.email)){
+          lines.push((d.contact.name||'') +
+            (d.contact.company ? ' · ' + d.contact.company : '') +
+            (d.contact.email ? '\n' + d.contact.email : '') +
+            (d.contact.phone ? ' · ' + d.contact.phone : ''));
+        }
+        if(d.created) lines.push('Submitted ' + d.created);
+        lines.push('');
+        (d.fields||[]).forEach(function(f){ lines.push(f.label + ':\n  ' + f.value); });
+        if(!(d.fields||[]).length) lines.push(d.note || 'No form fields recorded.');
+        alert((d.name || 'Request') + '\n\n' + lines.join('\n'));
+      })
+      .catch(function(){ b.disabled=false; b.textContent='Summary'; alert('Could not load it.'); });
+    return;
+  }
+
+  if(action === 'skip-dashboard' || action === 'unskip-dashboard'){
+    var verb = action === 'skip-dashboard' ? 'skip' : 'unskip';
+    b.disabled = true;
+    fetch('/api/qa/dashboard/' + verb, {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({client: client})})
+      .then(function(r){ return r.json(); })
+      .then(function(){ b.closest('tr').style.display = 'none'; if(window.loadSkips) loadSkips(); })
+      .catch(function(){ b.disabled = false; });
+  }
+});
+
+/* The skipped list, collapsed. A skip made months ago should be reviewable —
+   otherwise it's indistinguishable from the report being wrong. */
+(function(){
+  if(!/no-dashboards/.test(location.pathname)) return;
+  var wrap = document.createElement('div');
+  wrap.style.margin = '26px 0 0';
+  wrap.innerHTML = '<button class="qa-act" id="showSkips">Show skipped clients</button>' +
+                   '<div id="skipBox" hidden style="margin-top:12px"></div>';
+  (document.querySelector('.qa-wrap') || document.body).appendChild(wrap);
+  document.getElementById('showSkips').onclick = function(){
+    var box = document.getElementById('skipBox');
+    box.hidden = !box.hidden;
+    this.textContent = box.hidden ? 'Show skipped clients' : 'Hide skipped clients';
+    if(!box.hidden) loadSkips();
+  };
+  window.loadSkips = function(){
+    var box = document.getElementById('skipBox');
+    if(!box || box.hidden) return;
+    fetch('/api/qa/dashboard-skips', {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d.rows || !d.rows.length){
+          box.innerHTML = '<p class="muted">' + esc(d.note || 'Nothing skipped.') + '</p>';
+          return;
+        }
+        box.innerHTML = '<p class="muted" style="font-size:12.5px">' + esc(d.note) + '</p>' +
+          '<table class="qa-t"><thead><tr>' +
+          d.columns.map(function(h){ return '<th>' + esc(h) + '</th>'; }).join('') +
+          '</tr></thead><tbody>' +
+          d.rows.map(function(r){
+            return '<tr>' + r.map(function(c){ return '<td>' + cellHtml(c) + '</td>'; }).join('') + '</tr>';
+          }).join('') + '</tbody></table>';
+      });
+  };
+})();
+</script>
+<style>
+.qa-act{border:1px solid #cfe2f2;background:#eef5fb;color:#1769AA;border-radius:6px;
+  padding:3px 10px;font:600 11.5px system-ui;cursor:pointer;white-space:nowrap}
+.qa-act:hover{background:#e2eef8}
+.qa-act:disabled{opacity:.5;cursor:default}
+</style>
+
+{% endblock %}
 {% block content %}
 <div class="page-head qa-head">
   <div>
@@ -90,6 +197,40 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
   function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
 
   function cellHtml(c){
+    /* A coloured status bubble, e.g. "GTM Found". */
+    if(c && typeof c==='object' && c.pill){
+      var bg = c.pill==='ok' ? '#e7f6ef' : c.pill==='warn' ? '#fff4d7' : '#feeceb';
+      var fg = c.pill==='ok' ? '#147d52' : c.pill==='warn' ? '#a06a00' : '#b42318';
+      return '<span style="background:'+bg+';color:'+fg+';border-radius:20px;'+
+        'padding:2px 10px;font-size:11.5px;font-weight:700;white-space:nowrap"'+
+        (c.title?' title="'+esc(c.title)+'"':'')+'>'+esc(c.text||'')+'</span>';
+    }
+    /* A number with its change against the previous period. */
+    if(c && typeof c==='object' && c.delta!==undefined){
+      var d = Number(c.delta)||0;
+      var col = d>0 ? '#147d52' : d<0 ? '#b42318' : '#94a3b8';
+      var arrow = d>0 ? '\u25B2' : d<0 ? '\u25BC' : '\u25AC';
+      return '<b>'+esc(c.text!=null?c.text:'')+'</b> '+
+        '<span style="color:'+col+';font-size:11.5px;white-space:nowrap"'+
+        (c.title?' title="'+esc(c.title)+'"':'')+'>'+arrow+
+        (d?' '+Math.abs(d):'')+'</span>';
+    }
+    /* Action buttons in a cell. The report is where someone notices the
+       problem, so it should also be where they fix it — sending them to
+       another screen is how a list stays unactioned. */
+    if(c && typeof c==='object' && c.actions){
+      return c.actions.map(function(a){
+        return '<button class="qa-act" data-action="'+esc(a.action)+'" '+
+          'data-client="'+esc(a.client||'')+'" '+
+          (a.confirm?'data-confirm="'+esc(a.confirm)+'" ':'')+
+          '>'+esc(a.label)+'</button>';
+      }).join(' ');
+    }
+    /* A group heading row, e.g. "Ending this month (12)". */
+    if(c && typeof c==='object' && c.group){
+      return '<b style="font-size:12px;text-transform:uppercase;letter-spacing:.5px;'+
+             'color:#64748b">'+esc(c.text||'')+'</b>';
+    }
     if(c && typeof c==='object' && c.assign!==undefined)
       return '<div class="qa-assign-host" data-cust="'+esc(c.assign)+'"><button class="qa-assign-btn">+ Add to partner</button></div>';
     if(c && typeof c==='object' && c.status_select!==undefined){

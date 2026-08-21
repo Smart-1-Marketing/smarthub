@@ -11,6 +11,7 @@ when it isn't connected.
 import datetime as _dt
 import json
 import os
+import re
 
 from . import knack_data
 
@@ -118,27 +119,147 @@ def _norm_name(s: str) -> str:
     return " ".join(words)
 
 
+# ------------------------------------------------- dashboard skip list
+#
+# Some clients genuinely don't need a dashboard — a one-off creative job, a
+# partner who reports themselves. Without somewhere to record that, the same
+# names sit on the report forever and people stop reading it.
+
+def _skip_path() -> str:
+    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, "dashboard_skips.json")
+
+
+def _load_skips() -> dict:
+    try:
+        with open(_skip_path(), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def _dash_skipped(client: str) -> bool:
+    return _norm_client(client) in _load_skips()
+
+
+def skip_dashboard(client: str, actor: str = "", reason: str = "") -> dict:
+    from datetime import datetime, timezone
+    data = _load_skips()
+    data[_norm_client(client)] = {
+        "client": client, "by": actor,
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "reason": reason,
+    }
+    tmp = _skip_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    os.replace(tmp, _skip_path())
+    return {"ok": True, "skipped": len(data)}
+
+
+def unskip_dashboard(client: str) -> dict:
+    data = _load_skips()
+    data.pop(_norm_client(client), None)
+    tmp = _skip_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    os.replace(tmp, _skip_path())
+    return {"ok": True, "skipped": len(data)}
+
+
+def skipped_dashboards() -> dict:
+    """The skip list, so a decision made months ago is reviewable."""
+    rows = []
+    for rec in sorted(_load_skips().values(), key=lambda r: r.get("client", "")):
+        rows.append([
+            _c360_link(rec.get("client", "")),
+            rec.get("by") or "—",
+            (rec.get("at") or "")[:10],
+            rec.get("reason") or "—",
+            {"actions": [{"label": "Un-skip", "action": "unskip-dashboard",
+                          "client": rec.get("client", "")}]},
+        ])
+    return {"columns": ["Client", "Skipped by", "When", "Reason", ""],
+            "rows": rows,
+            "note": (f"{len(rows)} client(s) deliberately excluded from the "
+                     f"No Dashboards report."
+                     if rows else "Nothing skipped.")}
+
+
+def _norm_client(v: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(v or "").lower())
+
+
 # ------------------------------------------------------------------ reports
+def _end_bucket(end) -> str:
+    """This month / next month / other, from the product end date.
+
+    A renewal conversation is driven by when something stops, so the report is
+    organised the way the work is: what ends now, what ends next, everything
+    else.
+    """
+    import datetime as _dt
+    if not end:
+        return "Other"
+    if isinstance(end, str):
+        try:
+            end = _dt.date.fromisoformat(end[:10])
+        except ValueError:
+            return "Other"
+    today = _dt.date.today()
+    if end.year == today.year and end.month == today.month:
+        return "Ending this month"
+    nxt_y, nxt_m = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+    if end.year == nxt_y and end.month == nxt_m:
+        return "Ending next month"
+    return "Other"
+
+
 def active_clients() -> dict:
     groups = _client_groups()
-    rows = []
+    buckets = {"Ending this month": [], "Ending next month": [], "Other": []}
+    skipped_empty = 0
+
     for name in sorted(groups, key=str.lower):
         g = groups[name]
         if not _is_active(g):
             continue
-        rows.append([
+        # `thisM` is a boolean, so a client flagged as billed this month at
+        # $0.00 with no live product still passed _is_active — which is why
+        # rows showing "0 products, $0" were appearing. A client with neither
+        # a live product nor actual billing is not an active client.
+        if not g["live"] and not (g.get("this_total") or 0):
+            skipped_empty += 1
+            continue
+        rows_ = buckets[_end_bucket(g.get("last_end"))]
+        rows_.append([
             _c360_link(name),
             _join(g["partners"]),
-            _join(g["sales"]),
             len(g["live"]),
             _money(g["live_total"]),
+            (g["last_end"].isoformat() if hasattr(g.get("last_end"), "isoformat")
+             else (g.get("last_end") or "—")),
             "Yes" if g["has_dash"] else "No",
         ])
+
+    rows = []
+    for label in ("Ending this month", "Ending next month", "Other"):
+        if not buckets[label]:
+            continue
+        rows.append([{"text": f"{label} ({len(buckets[label])})",
+                      "group": True}, "", "", "", "", ""])
+        rows.extend(buckets[label])
+
+    total = sum(len(v) for v in buckets.values())
     return {
-        "columns": ["Client", "Partner", "Salesperson", "Live products",
-                    "Live monthly", "Dashboard"],
+        "columns": ["Client", "Partner", "Live products", "Live monthly",
+                    "Ends", "Dashboard"],
         "rows": rows,
-        "note": f"{len(rows)} clients with a live product or billing this month.",
+        "note": (f"{total} active clients, grouped by when their last product "
+                 f"ends." + (f" {skipped_empty} excluded with no live product "
+                             f"and no billing." if skipped_empty else "")),
     }
 
 
@@ -150,6 +271,14 @@ def no_dashboards() -> dict:
         g = groups[name]
         if not _is_active(g) or g["has_dash"]:
             continue
+        # At least one LIVE product. A client billed this month with nothing
+        # running doesn't need a dashboard — there's nothing to report on, so
+        # chasing one is busywork that makes the list look longer than the
+        # actual job.
+        if not g["live"]:
+            continue
+        if _dash_skipped(name):
+            continue
         total += 1
         prods = sorted({str(r.get("product") or "") for r in g["live"]} or
                        {str(r.get("product") or "") for r in g["rows"] if r.get("thisM")})
@@ -157,10 +286,16 @@ def no_dashboards() -> dict:
         by_partner.setdefault(partner, []).append([
             partner if partner != "—" else "(no partner)",
             _c360_link(name),
-            _join(g["sales"]),
             len(g["live"]),
             ", ".join(p for p in prods if p)[:120] or "—",
             _money(g["live_total"] or g["this_total"]),
+            {"actions": [
+                {"label": "Add dashboard", "action": "add-dashboard",
+                 "client": name},
+                {"label": "Skip", "action": "skip-dashboard", "client": name,
+                 "confirm": f"Skip {name}? It leaves this list until you "
+                            f"un-skip it at the bottom of the page."},
+            ]},
         ])
     rows, styles = [], []
     # Fold any remaining case-only duplicate GROUP keys into one bucket, so
@@ -177,7 +312,7 @@ def no_dashboards() -> dict:
             rows.append(r)
             styles.append(None)
     return {
-        "columns": ["Partner", "Client", "Salesperson", "Live products",
+        "columns": ["Partner", "Client", "Live products",
                     "Products", "Monthly"],
         "rows": rows,
         "row_styles": styles,
@@ -198,7 +333,10 @@ def stale_90() -> dict:
         if not g["last_end"]:
             continue
         days = (today - g["last_end"]).days
-        if days < 90 or days > 730:          # gone quiet 3–24 months ago
+        # 90 days quiet is the flag; 180 is the ceiling. Beyond six months
+        # they aren't a lapsed client to chase, they're a former one, and
+        # mixing the two makes the list too long to work through.
+        if days < 90 or days > 180:
             continue
         total += 1
         last_total = max(g["last_total"], max(
@@ -332,6 +470,8 @@ def _scorecard(field: str, month: str = "") -> dict:
     ym = month if month in {m["ym"] for m in months} else months[0]["ym"]
     cur = _month_rollup(field, ym)
     prev = _month_rollup(field, _prev_ym(ym))
+    totals = {"clients": 0, "prev_clients": 0, "products": 0,
+              "prev_products": 0, "revenue": 0.0}
 
     rows, styles = [], []
     for who in sorted(cur, key=lambda k: -cur[k]["revenue"]):
@@ -345,19 +485,41 @@ def _scorecard(field: str, month: str = "") -> dict:
                  if c in p["clients"] and v > p["clients"][c] + 0.5)
         down = sum(1 for c, v in s["clients"].items()
                    if c in p["clients"] and v < p["clients"][c] - 0.5)
-        rows.append([who, len(s["clients"]), s["products"], _money(s["revenue"]),
-                     new, lost, up, down])
+        # New/Lost/Increased/Decreased were four columns saying what two
+        # numbers already imply. The change now sits beside the number it
+        # describes, which is where you read it.
+        rows.append([
+            who,
+            {"text": len(s["clients"]), "delta": len(s["clients"]) - len(p["clients"]),
+             "title": f"{new} new, {lost} lost vs last month"},
+            {"text": s["products"], "delta": s["products"] - p.get("products", 0),
+             "title": f"{up} increased, {down} decreased vs last month"},
+            _money(s["revenue"]),
+        ])
         diff = s["revenue"] - p["revenue"]
         styles.append("green" if diff > 0.5 else ("red" if diff < -0.5 else "yellow"))
+        totals["clients"] += len(s["clients"])
+        totals["prev_clients"] += len(p["clients"])
+        totals["products"] += s["products"]
+        totals["prev_products"] += p.get("products", 0)
+        totals["revenue"] += s["revenue"]
 
     label = "salespeople" if field == "sales" else "partners"
     mlabel = next(m["label"] for m in months if m["ym"] == ym)
     return {
         "columns": [("Salesperson" if field == "sales" else "Partner"),
-                    "Active clients", "Active products", "Monthly revenue",
-                    "New", "Lost", "Increased", "Decreased"],
-        "rows": rows,
-        "row_styles": styles,
+                    "Active clients", "Active products", "Monthly revenue"],
+        "rows": rows + ([[
+            {"text": "TOTAL", "group": True},
+            {"text": totals["clients"],
+             "delta": totals["clients"] - totals["prev_clients"]},
+            {"text": totals["products"],
+             "delta": totals["products"] - totals["prev_products"]},
+            _money(totals["revenue"]),
+        ]] if rows else []),
+        # One style per row including the totals row, or the colouring shifts
+        # by one and every partner shows the row above's verdict.
+        "row_styles": styles + ([None] if rows else []),
         "month": ym,
         "month_options": months,
         "note": (f"{len(rows)} {label} active in {mlabel}, ranked by monthly revenue. "
@@ -378,6 +540,21 @@ def partner_scorecard(month: str = "") -> dict:
 GTM_PRIORITY_KEYWORDS = ("display", "radio", "podcast", "audio", "seo",
                          "search engine marketing", "pay per click", "sem",
                          "paid search", "retargeting")
+
+
+def _active_within(g: dict, days: int = 60) -> bool:
+    """Has this client had a product running in the last `days`?
+
+    Analytics and GTM only matter for a site we're currently driving traffic
+    to. A client who stopped four months ago will show as missing forever, and
+    every one of those makes the report less likely to be read.
+    """
+    if g["live"] or g["thisM"]:
+        return True
+    end = g.get("last_end")
+    if not end:
+        return False
+    return (_dt.date.today() - end).days <= days
 
 
 def _google_coverage(name: str, g: dict) -> dict:
@@ -404,7 +581,7 @@ def no_analytics() -> dict:
     rows, styles = [], []
     for name in sorted(groups, key=str.lower):
         g = groups[name]
-        if not _is_active(g):
+        if not _active_within(g, 60):
             continue
         cov = _google_coverage(name, g)
         if cov["has_ga"]:
@@ -430,16 +607,53 @@ def no_analytics() -> dict:
     }
 
 
+def _gtm_from_scan(domain: str) -> str:
+    """A GTM container the site scan actually saw on the page.
+
+    Our records can be wrong or simply blank while the tag is live. Reporting
+    a client as missing GTM when the scan found one on their homepage sends
+    someone to install a second container — which then double-counts every
+    event. The page is the authority here, not the record.
+    """
+    if not domain:
+        return ""
+    try:
+        from modules.scans.app import latest_payload_for_domain
+        payload = latest_payload_for_domain(domain) or {}
+    except Exception:                                   # noqa: BLE001
+        return ""
+    for ns in ("google_tag_manager", "tag_manager", "analytics"):
+        sec = payload.get(ns)
+        if not isinstance(sec, dict):
+            continue
+        for key in ("container_id", "gtm_id", "gtm_container", "id"):
+            val = str(sec.get(key) or "").strip()
+            if val.upper().startswith("GTM-"):
+                return val
+    blob = json.dumps(payload)[:400000]
+    m = re.search(r"GTM-[A-Z0-9]{4,10}", blob)
+    return m.group(0) if m else ""
+
+
 def no_gtm() -> dict:
     groups = _client_groups()
     priority, suggested = [], []
+    found_on_site = 0
     for name in sorted(groups, key=str.lower):
         g = groups[name]
-        if not _is_active(g):
+        # Only clients running something in the last 60 days. A tag on a site
+        # we aren't driving traffic to isn't work worth chasing.
+        if not _active_within(g, 60):
             continue
         cov = _google_coverage(name, g)
         if cov["has_gtm"]:
             continue
+        scan_gtm = _gtm_from_scan(cov.get("domain") or "")
+        if scan_gtm:
+            # It IS installed — our record just doesn't know. Show it rather
+            # than listing them as missing.
+            found_on_site += 1
+            cov["scan_gtm"] = scan_gtm
         active_products = {str(r.get("product") or "").lower() for r in g["rows"]
                            if str(r.get("status", "")).strip().lower() == "live" or r.get("thisM")}
         is_priority = any(any(k in p for k in GTM_PRIORITY_KEYWORDS) for p in active_products)
@@ -448,7 +662,12 @@ def no_gtm() -> dict:
             _join(g["partners"]),
             ", ".join(sorted({str(r.get("product") or "") for r in g["live"]}))[:100] or "—",
             _money(g["live_total"] or g["this_total"]),
-            {"search_attach": name, "kind": "gtm", "q": cov["domain"] or name},
+            ({"pill": "ok", "text": f"GTM Found · {cov['scan_gtm']}",
+              "title": "The site scan saw this container on the page — our "
+                       "record just doesn't have it. Copy it onto the website "
+                       "record rather than installing a second one."}
+             if cov.get("scan_gtm") else
+             {"search_attach": name, "kind": "gtm", "q": cov["domain"] or name}),
         ]
         (priority if is_priority else suggested).append(row)
     rows, styles = [], []
@@ -576,7 +795,7 @@ GHL_STATUSES = ("open", "won", "lost", "abandoned")
 
 
 def accounting_requests() -> dict:
-    columns = ["Request", "Company", "Created", "Status", "Stage"]
+    columns = ["Request", "Company", "Detail", "Created", "Status", "Stage"]
     try:
         loc_id, loc_name = _accounting_location()
         pipe = _accounting_pipeline(loc_id)
@@ -621,6 +840,11 @@ def accounting_requests() -> dict:
              "href": f"{os.environ.get('GHL_APP_BASE', 'https://app.gohighlevel.com')}"
                      f"/v2/location/{loc_id}/opportunities/list"},
             organization,
+            # The request line is a one-liner; the form behind it holds the
+            # detail. Rather than widening every row for the few people who
+            # need it, put it behind a button.
+            {"actions": [{"label": "Summary", "action": "form-summary",
+                          "client": str(o.get("id") or "")}]},
             _mmddyy(o.get("createdAt")),
             {"status_select": o.get("id"),
              "current": str(o.get("status") or "open").lower()},

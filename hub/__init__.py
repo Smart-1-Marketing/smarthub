@@ -930,6 +930,85 @@ def create_hub_app() -> Flask:
                      "Within the rate card."),
         })
 
+    @app.route("/api/qa/dashboard/<action>", methods=["POST"])
+    def api_qa_dashboard(action):
+        """Add a dashboard URL, or skip a client that doesn't need one."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import qa
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        actor = current_user() or ""
+        if action == "skip":
+            audit.log("qa", "dashboard_skipped", actor=actor, client=client,
+                      reason=str(body.get("reason") or ""))
+            return jsonify(qa.skip_dashboard(client, actor,
+                                             str(body.get("reason") or "")))
+        if action == "unskip":
+            audit.log("qa", "dashboard_unskipped", actor=actor, client=client)
+            return jsonify(qa.unskip_dashboard(client))
+        if action == "add":
+            from . import knack_api
+            url = str(body.get("url") or "").strip()
+            out = knack_api.set_dashboard_url(client, url)
+            audit.log("qa", "dashboard_added", actor=actor, client=client,
+                      ok=out.get("ok"), updated=out.get("updated"))
+            return jsonify(out)
+        return jsonify({"error": "Unknown action."}), 400
+
+    @app.route("/api/qa/dashboard-skips")
+    def api_qa_dashboard_skips():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import qa
+        return jsonify(qa.skipped_dashboards())
+
+    @app.route("/api/qa/form-summary/<opp_id>")
+    def api_qa_form_summary(opp_id):
+        """Everything the submitter actually filled in, for one request.
+
+        The report shows one line per request because a queue has to be
+        scannable. This returns the whole form for the moment someone needs
+        the detail, without sending them into GoHighLevel to find it.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        try:
+            from modules.suite_panel.app import ghl
+            data = ghl(f"/opportunities/{opp_id}") or {}
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"Couldn't reach Smart 1 Suite "
+                                     f"({type(exc).__name__})."}), 200
+        opp = data.get("opportunity") or data
+        contact = opp.get("contact") or {}
+        fields = []
+        for cf in (opp.get("customFields") or []):
+            label = str(cf.get("name") or cf.get("id") or "").strip()
+            value = cf.get("fieldValue")
+            if isinstance(value, list):
+                value = ", ".join(str(v) for v in value)
+            value = str(value or "").strip()
+            if label and value:
+                fields.append({"label": label, "value": value[:2000]})
+        return jsonify({
+            "name": opp.get("name", ""),
+            "contact": {"name": contact.get("name", ""),
+                        "email": contact.get("email", ""),
+                        "phone": contact.get("phone", ""),
+                        "company": contact.get("companyName", "")},
+            "status": opp.get("status", ""),
+            "created": str(opp.get("createdAt") or "")[:10],
+            "fields": fields,
+            "note": ("" if fields else
+                     "This request has no custom form fields recorded — the "
+                     "submitter may have used a different form."),
+        })
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.

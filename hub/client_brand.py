@@ -131,7 +131,30 @@ def brand_kit(client: str, domain: str = "") -> dict:
         # broken string rather than a shortened one. 1200 is generous enough
         # that a real description arrives whole, and still bounded.
         "description": (payload.get("description") or "")[:1200],
+        # When the guide was last pushed, so the card can show the state
+        # instead of a button that would overwrite it.
+        "suite_brand_guide": _pushed_at(client),
     }
+
+
+def _pushed_at(client: str) -> str:
+    try:
+        from hub import seo
+        return str((seo.load_store(client) or {}).get("suite_brand_guide") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def mark_pushed(client: str) -> None:
+    """Record that the brand guide reached Suite."""
+    from datetime import datetime, timezone
+    try:
+        from hub import seo
+        store = seo.load_store(client) or {}
+        store["suite_brand_guide"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        seo.save_store(client, store)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def brand_guide_payload(client: str, domain: str = "") -> dict:
