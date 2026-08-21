@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smart RV Demand Package</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+  <!-- Page-load overlay: navy + Smart 1 wordmark + campfire animation, hidden once the page is ready. -->
+  <div id="srvPageLoader" class="srv-pageloader" aria-hidden="true">
+    <div class="srv-pageloader-mark">SMART<span>1</span>MARKETING</div>
+    <svg class="cf-svg" viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg">
+      <ellipse class="cf-glow" cx="80" cy="118" rx="52" ry="20" fill="#F0A93B"/>
+      <g><rect x="40" y="120" width="80" height="12" rx="6" fill="#7a4a24" transform="rotate(-11 80 126)"/>
+      <rect x="40" y="120" width="80" height="12" rx="6" fill="#98622f" transform="rotate(11 80 126)"/></g>
+      <path class="cf-flame cf-f1" d="M80 44 C58 80,58 106,80 124 C102 106,102 80,80 44 Z" fill="#E8532B"/>
+      <path class="cf-flame cf-f2" d="M80 64 C67 88,67 106,80 120 C93 106,93 88,80 64 Z" fill="#F5A623"/>
+      <path class="cf-flame cf-f3" d="M80 82 C73 96,73 108,80 118 C87 108,87 96,80 82 Z" fill="#FFD65A"/>
+      <circle class="cf-spark cf-s1" cx="66" cy="86" r="2.4"/><circle class="cf-spark cf-s2" cx="94" cy="80" r="2"/>
+      <circle class="cf-spark cf-s3" cx="80" cy="74" r="2.6"/><circle class="cf-spark cf-s4" cx="72" cy="92" r="1.8"/>
+    </svg>
+    <p class="srv-pageloader-text">Loading…</p>
+  </div>
+
+  <main id="smart-rv-demand-form">
+    <div class="srv-progress" aria-hidden="true">
+      <div class="srv-progress-bar" id="srvProgressBar"></div>
+    </div>
+
+    <form id="rvDemandForm">
+      <input name="primary_goal" type="hidden" value="All RV sales goals: new RV sales, used RV sales, trade-ins, and financing">
+      <input name="main_service_opportunity" type="hidden" value="All RV service goals: service appointments, A/C service, roof/seal inspections, generator checks, de-winterization, winterization, and seasonal maintenance">
+
+      <!-- Step 1: Name + Contact + ZIP -->
+      <section class="srv-step active" data-step="1">
+        <p class="eyebrow">Smart RV Demand Package</p>
+        <h2>Build Your Free RV Demand Report</h2>
+        <p class="helper">Just three quick details to start — we’ll estimate your local campground market and recommend your plan.</p>
+        <input name="dealership_name" placeholder="Dealership Name" required />
+        <input name="contact_name" placeholder="Contact Name" required />
+        <input name="zip" inputmode="numeric" placeholder="Dealership ZIP Code" required />
+        <button type="button" class="next-btn">Continue</button>
+      </section>
+
+      <!-- Step 2: Geography -->
+      <section class="srv-step" data-step="2">
+        <p class="eyebrow">Your Market</p>
+        <h2>How far do customers travel to you?</h2>
+        <p class="helper">We’ll assume the full RV demand funnel and recommend the right weather triggers, targeting, and budget for you.</p>
+        <input name="website_url" type="url" placeholder="Dealership Website URL" required />
+
+        <p class="srv-field-label">How far do customers travel to <strong>buy</strong> from you?</p>
+        <div class="srv-pillgroup" data-name="sales_radius_miles" data-required="true">
+          <button type="button" class="srv-pill" data-value="25">25 mi</button>
+          <button type="button" class="srv-pill" data-value="50">50 mi</button>
+          <button type="button" class="srv-pill" data-value="75">75 mi</button>
+          <button type="button" class="srv-pill" data-value="100">100 mi</button>
+          <button type="button" class="srv-pill" data-value="150">150 mi</button>
+        </div>
+        <input type="hidden" name="sales_radius_miles" />
+
+        <p class="srv-field-label">How far do customers travel for <strong>service</strong>?</p>
+        <div class="srv-pillgroup" data-name="service_radius_miles" data-required="true">
+          <button type="button" class="srv-pill" data-value="15">15 mi</button>
+          <button type="button" class="srv-pill" data-value="25">25 mi</button>
+          <button type="button" class="srv-pill" data-value="40">40 mi</button>
+          <button type="button" class="srv-pill" data-value="60">60 mi</button>
+          <button type="button" class="srv-pill" data-value="75">75 mi</button>
+        </div>
+        <input type="hidden" name="service_radius_miles" />
+
+        <p class="srv-field-label">Do you have more than one location?</p>
+        <div class="srv-pillgroup" data-name="multiple_locations" data-required="true">
+          <button type="button" class="srv-pill" data-value="No">No</button>
+          <button type="button" class="srv-pill" data-value="Yes">Yes</button>
+        </div>
+        <input type="hidden" name="multiple_locations" />
+        <p class="srv-pill-error" id="srvPillError" hidden>Please make a selection for each question above.</p>
+
+        <div class="button-row">
+          <button type="button" class="prev-btn">Back</button>
+          <button type="button" id="buildOpportunityBtn">Build My Market Estimate</button>
+        </div>
+      </section>
+
+      <!-- Step 3: Results (campfire -> preview -> email gate -> full) -->
+      <section class="srv-step" data-step="3">
+        <p class="eyebrow">Market Estimate</p>
+        <h2>Your Smart RV Demand Market Estimate</h2>
+        <div id="marketOpportunityResult" class="opportunity-card"></div>
+
+        <div id="srvUnlock" class="srv-unlock" style="display:none;">
+          <p class="srv-unlock-title">Unlock your full report</p>
+          <p class="srv-unlock-sub">Enter your email to see your complete plan, budget, and month-by-month campaign — we’ll send you a copy too. Phone is optional.</p>
+          <input name="email" id="srvEmail" type="email" placeholder="Email Address" />
+          <input name="phone" id="srvPhone" placeholder="Phone Number (optional)" />
+          <button type="button" id="srvUnlockBtn" class="srv-unlock-cta">Unlock My Full Report →</button>
+          <p id="srvUnlockErr" class="srv-pill-error" hidden>Please enter a valid email to see your full report.</p>
+          <p class="srv-unlock-fine">No obligation. We’ll never share your information.</p>
+        </div>
+
+        <div class="button-row" id="srvResultActions" style="display:none;">
+          <button type="button" class="prev-btn">Back</button>
+          <button type="button" id="downloadReportBtn" class="srv-secondary-btn">Download Proposal (PDF)</button>
+          <a href="https://smart1marketing.com/free-consultation" target="_blank" rel="noopener" class="srv-cta-link">Schedule a Free Strategy Review →</a>
+        </div>
+      </section>
+    </form>
+  </main>
+
+  <script src="/script.js"></script>
+  <script>
+    (function(){
+      var loader = document.getElementById('srvPageLoader');
+      if (!loader) return;
+      function hide(){
+        if (!loader.parentNode) return;
+        loader.classList.add('is-hidden');
+        setTimeout(function(){ if (loader.parentNode) loader.parentNode.removeChild(loader); }, 450);
+      }
+      if (document.readyState === 'complete') hide();
+      else window.addEventListener('load', hide);
+      setTimeout(hide, 4000); // safety: never trap the visitor behind the overlay
+    })();
+  </script>
+</body>
+</html>
