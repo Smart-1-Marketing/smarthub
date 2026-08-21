@@ -61,15 +61,26 @@ def upload_asset(file_path_or_url, client_slug, category, public_id=None, resour
 
     _ensure_configured()
     try:
-        result = cloudinary.uploader.upload(
-            file_path_or_url,
-            folder=client_folder(client_slug, category),
-            public_id=public_id,
-            resource_type=resource_type,
-            overwrite=True,
-        )
-        return {"secure_url": result.get("secure_url"), "public_id": result.get("public_id"),
-                "folder": client_folder(client_slug, category)}
+        # Through hub.storage. A local path is read and stored as bytes; a URL
+        # is still fetched by Cloudinary rather than pulled through this
+        # process. Folder and id are unchanged, so existing assets stay put.
+        from hub import storage
+        folder = client_folder(client_slug, category)
+        name = os.path.basename(str(file_path_or_url).split("?")[0]) or public_id
+        src = str(file_path_or_url)
+        if src.startswith(("http://", "https://")):
+            asset = storage.put_remote("commercials", src, filename=name,
+                                       folder=folder,
+                                       public_id=f"{folder}/{public_id}",
+                                       overwrite=True, unique=False)
+        else:
+            with open(src, "rb") as fh:
+                asset = storage.put("commercials", name, fh.read(),
+                                    folder=folder,
+                                    public_id=f"{folder}/{public_id}",
+                                    overwrite=True)
+        return {"secure_url": asset.url, "public_id": asset.public_id,
+                "folder": folder}
     except Exception as e:
         return {"secure_url": None, "public_id": None, "error": str(e)}
 

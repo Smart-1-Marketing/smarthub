@@ -171,6 +171,55 @@ def put(kind: str, filename: str, data: bytes, *, client: str = "",
                        folder=folder, checksum=checksum)
 
 
+def put_remote(kind: str, url: str, *, filename: str = "", client: str = "",
+               subpath: str = "", public_id: str = "", folder: str = "",
+               overwrite: bool = False, unique: bool = True,
+               context: dict | None = None,
+               tags: list | tuple | None = None) -> StoredAsset:
+    """Store an asset Cloudinary fetches itself, from a URL.
+
+    Image Picker and Commercial Builder hand Cloudinary a URL rather than
+    bytes. Making them download first so they could call put() would be slower,
+    would double the bandwidth, and would fail in cases where Cloudinary's own
+    fetch succeeds — a worse module in exchange for a tidier call site. So the
+    shared layer learns the remote case instead.
+
+    Requires Cloudinary: there is no sensible disk fallback for "have someone
+    else fetch this", and silently downloading it here would reintroduce the
+    behaviour this exists to avoid.
+    """
+    if not url:
+        raise StorageError("put_remote needs a URL.")
+    if not ready():
+        raise StorageError("Cloudinary is not configured; cannot fetch a "
+                           "remote asset.")
+    _configure()
+    name = filename or os.path.basename(url.split("?")[0]) or "asset"
+    rtype = resource_type_for(name)
+    parts = [settings.folder(kind)]
+    if client:
+        parts.append(slug(client, "client"))
+    if subpath:
+        parts.append(slug(subpath, "batch"))
+    folder = folder or "/".join(parts)
+    res = cloudinary.uploader.upload(
+        url,
+        public_id=public_id or f"{folder}/{slug(os.path.splitext(name)[0], 'file')}",
+        resource_type=rtype,
+        overwrite=overwrite,
+        unique_filename=unique,
+        use_filename=False,
+        invalidate=True,
+        context=context or None,
+        tags=list(tags) if tags else None,
+    )
+    return StoredAsset(
+        public_id=res.get("public_id", ""),
+        url=res.get("secure_url") or res.get("url", ""),
+        resource_type=rtype, bytes=int(res.get("bytes") or 0),
+        backend="cloudinary", folder=folder, checksum="")
+
+
 def delete(kind: str, public_id: str, resource_type: str = "raw") -> bool:
     """Remove an asset. Never raises — a failed delete must not break a page."""
     try:

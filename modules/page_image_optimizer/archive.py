@@ -62,18 +62,16 @@ def upload(image_bytes, *, filename, company, project, page_name, page_url,
     import cloudinary.uploader
 
     cloudinary.config(secure=True)
-    result = cloudinary.uploader.upload(
-        image_bytes,
-        folder=folder,
-        public_id=filename,
-        resource_type="image",
-        format="webp",
-        overwrite=False,
-        unique_filename=True,
-        use_filename=True,
-        context=context,
-        tags=["page-image-optimizer", slug(company, "house"), slug(project, "general")],
-    )
+    # Through hub.storage. The bytes handed in are already WebP (the module
+    # converts before archiving), so the .webp name gives the shared derivation
+    # what it needs and format= is no longer asserted here.
+    from hub import storage
+    _asset = storage.put("page_images", f"{filename}.webp", image_bytes,
+                         folder=folder,
+                         public_id=f"{folder}/{filename}",
+                         overwrite=False)
+    result = {"secure_url": _asset.url, "public_id": _asset.public_id,
+              "bytes": _asset.bytes, "format": "webp"}
     return {
         "url": result.get("secure_url", ""),
         "public_id": result.get("public_id", ""),

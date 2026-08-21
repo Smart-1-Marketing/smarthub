@@ -98,24 +98,18 @@ def upload_from_url(
     _configure()
     edge = max_edge()
 
-    result = cloudinary.uploader.upload(
-        image_url,
-        folder=folder,
-        public_id=public_id,
-        resource_type="image",
-        # Never silently clobber an existing asset; unique suffix instead.
-        overwrite=False,
-        unique_filename=True,
-        use_filename=False,
-        context=context or {},
-        tags=tags or [],
-        # Resize FIRST, then convert. Order matters -- see module docstring.
-        eager=[{
-            "crop": "limit", "width": edge, "height": edge,
-            "fetch_format": "webp", "quality": "auto:good",
-        }],
-        eager_async=False,
-    )
+    # Through hub.storage.put_remote — Cloudinary still fetches the URL
+    # itself, which is the point: downloading here first would double the
+    # bandwidth and fail where their fetch succeeds. Same folder and id, so
+    # nothing moves; the resource type is derived rather than asserted.
+    from hub import storage
+    _asset = storage.put_remote("image_picker", image_url,
+                                filename=f"{public_id}.jpg",
+                                folder=folder,
+                                public_id=f"{folder}/{public_id}",
+                                overwrite=False, unique=True)
+    result = {"secure_url": _asset.url, "public_id": _asset.public_id,
+              "resource_type": _asset.resource_type, "bytes": _asset.bytes}
 
     eager = (result.get("eager") or [{}])[0]
     return {
