@@ -137,13 +137,41 @@ def check_insites() -> Check:
     if not settings.insites_key:
         return _off("insites", "Insites", "INSITES_API_KEY",
                     "Site Scans cannot start an audit.")
-    # No documented free endpoint that doesn't risk consuming a credit, so we
-    # deliberately do not call one. Spending a credit to check whether we can
-    # spend credits would be a poor trade.
-    return Check("insites", "Insites", "unverified",
-                 "Key is set. Not pinged — Insites has no free endpoint, and a "
-                 "test audit would spend a credit. Verified by the next real scan.",
-                 0, fix="Run one scan to confirm end to end.")
+    # Still no free endpoint to ping — spending a credit to check whether we
+    # can spend credits would be a poor trade. But this used to say "verified
+    # by the next real scan" and then never look, so it read as unverified
+    # forever no matter how many scans had succeeded. A completed scan is that
+    # proof, already paid for, so ask the scans table instead of the API.
+    def go():
+        try:
+            from modules.scans.app import Scan, SessionLocal
+        except Exception:                               # noqa: BLE001
+            return ("unverified", "Key is set. The Scans module isn't loaded "
+                                  "here, so no completed audit can confirm it.")
+        db = SessionLocal()
+        try:
+            last = (db.query(Scan)
+                    .filter(Scan.status == "complete")
+                    .order_by(Scan.completed_at.desc())
+                    .first())
+            failed = (db.query(Scan)
+                      .filter(Scan.status == "error")
+                      .order_by(Scan.created_at.desc())
+                      .first())
+        finally:
+            db.close()
+        if last is not None and last.completed_at:
+            when = last.completed_at.strftime("%Y-%m-%d")
+            msg = f"Key works — last audit completed {when} ({last.domain_key})."
+            if (failed is not None and failed.created_at
+                    and failed.created_at > last.completed_at):
+                return ("warn", msg + " A later scan errored; check Site Scans.")
+            return ("ok", msg)
+        return ("unverified", "Key is set, but no audit has completed yet — "
+                              "nothing has proved it end to end.")
+    (state, detail), ms = _timed(go)
+    return Check("insites", "Insites", state, detail, ms,
+                 fix="Run one scan to confirm end to end.")
 
 
 def check_removebg() -> Check:

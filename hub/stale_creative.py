@@ -316,6 +316,64 @@ def _load_source(src):
     return out
 
 
+from hub.knack_data import CREATIVE_EXCLUDE   # one list, not two
+
+
+def _load_knack_creative():
+    """Creative recorded against a client's products in Knack.
+
+    This is the one that mattered and was missing. The Hub tools below are
+    where *we* make creative; Knack is where creative actually gets filed
+    against an insertion order — the Drive and PDF links the Clients module and
+    Client 360 both show. A client whose creative arrived that way had none of
+    it counted, so the report said "never uploaded anything" about clients with
+    years of creative on file.
+
+    Products are read live where the API is reachable and from the committed
+    export otherwise, the same order Client 360 uses, so the two agree.
+    """
+    try:
+        from hub import knack_data
+        rows, _source, _age = knack_data._product_source()
+    except Exception as exc:                            # noqa: BLE001
+        current_app.logger.warning("stale_creative: knack read failed: %s", exc)
+        return []
+
+    out = []
+    for r in rows:
+        url = r.get("url")
+        kind = (r.get("kind") or "").strip().lower()
+        if not url or kind in ("", "none"):
+            continue
+        product = str(r.get("product") or "")
+        if any(x in product.lower() for x in CREATIVE_EXCLUDE):
+            continue
+        # ts is YYYYMMDD; start is MM/DD/YYYY. Either dates the creative.
+        when = _as_utc(_knack_date(r.get("ts")) or r.get("start"))
+        if not when:
+            continue
+        out.append({
+            "source": "knack",
+            "source_label": "Knack (IO creative)",
+            "client_raw": _text(r.get("client") or r.get("organization"), 200),
+            "uploaded_at": when,
+            "title": _text(product, 160) or "Untitled",
+            "note": _text(r.get("campaign"), 160),
+            "alt": "",
+            "url": _text(url, 600),
+            "thumb": _thumb(_text(url, 600)),
+        })
+    return out
+
+
+def _knack_date(ts):
+    """YYYYMMDD, as Knack stores it, to something _as_utc understands."""
+    s = str(ts or "").strip()
+    if len(s) == 8 and s.isdigit():
+        return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+    return None
+
+
 def _load_cloudinary():
     """Fallback: list assets by folder prefix. Used only when no model resolved."""
     try:
@@ -441,6 +499,13 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
         (sources_live if got else sources_dead).append(src["label"])
         records.extend(got)
 
+    # Knack last, but it is the one that decides most rows: it is where
+    # creative is filed against an insertion order, which is how most of it
+    # reaches a client at all.
+    knack = _load_knack_creative()
+    (sources_live if knack else sources_dead).append("Knack (IO creative)")
+    records.extend(knack)
+
     used_fallback = False
     if not records:
         records = _load_cloudinary()
@@ -500,10 +565,14 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
             } for r in recs[:items_per_client]],
         })
 
-    # Active clients first, then the rest. A former client with no creative
-    # isn't a gap in our work — listing them alongside live accounts buried
-    # the ones that actually need something, and made the headline count read
-    # as "clients we have ever had" rather than "clients owed creative".
+    # Inactive clients are dropped outright, not merely sorted below. A former
+    # client with no recent creative is not a gap in our work, and listing them
+    # made "no creative on file" read as an indictment when it was mostly
+    # accounts we no longer serve. Sorting alone still left them in the counts
+    # and in every export of this page.
+    inactive_dropped = sum(1 for r in rows if not r.get("active", True))
+    rows = [r for r in rows if r.get("active", True)]
+
     rows.sort(key=lambda r: (not r.get("active", True),
                              r["days_since"] is not None,
                              -(r["days_since"] or 0), r["client"].lower()))
@@ -539,7 +608,9 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
         "totals": {
             "clients": len(active_rows),
             "all_clients": len(rows),
-            "inactive": len(rows) - len(active_rows),
+            # Inactive clients are excluded before this point; reported so the
+            # page can say how many were left out rather than silently shrinking.
+            "inactive": inactive_dropped,
             "creatives": len(records),
             "needs_attention": sum(
                 g["count"] for g in groups if g["key"] not in ("fresh",)

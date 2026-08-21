@@ -365,6 +365,14 @@ def estimate_and_submit():
                     "estimate_source": estimate.get("estimate_source", ""),
                     "zip": body.get("zip", "")},
             pdf_url=pdf_url, client=body.get("dealership_name", ""))
+        # Attribute the report to the client, so the work shows on
+        # their 360 record rather than only in the lead panel.
+        try:
+            from hub import audit as _audit
+            _audit.log("rv", "rv_report",
+                       client=body.get("dealership_name", "") or None)
+        except Exception:  # noqa: BLE001 — logging never breaks a lead
+            pass
     except Exception:                                   # noqa: BLE001
         app.logger.exception("RV lead capture failed")
 
