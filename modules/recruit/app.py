@@ -700,6 +700,14 @@ def send_webhook(payload: dict, report: Any, status: str, pdf_url: str = "") -> 
             },
             pdf_url=pdf_url or "",
             client=payload.get("company_name", ""))
+        # Attribute the report to the client, so the work shows on
+        # their 360 record rather than only in the lead panel.
+        try:
+            from hub import audit as _audit
+            _audit.log("recruit", "recruit_report",
+                       client=payload.get("company_name", "") or None)
+        except Exception:  # noqa: BLE001 — logging never breaks a lead
+            pass
         return
     except Exception:  # noqa: BLE001
         pass

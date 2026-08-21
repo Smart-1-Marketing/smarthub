@@ -269,6 +269,11 @@ def submit():
                     "category": body.get("category", ""),
                     "zip": body.get("zip", "")},
             pdf_url=pdf_url, client=body.get("business", ""))
+        # Attribute the plan to the client, so the work shows on their 360
+        # record rather than only in the lead panel.
+        from hub import audit as _audit
+        _audit.log("tourism", "tourism_report",
+                   client=body.get("business", "") or None)
     except Exception:                                   # noqa: BLE001
         app.logger.exception("Tourism lead capture failed")
 

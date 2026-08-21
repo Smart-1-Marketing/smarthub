@@ -982,6 +982,14 @@ def send_webhook(payload: dict, report: Any, status: str, report_url: str = "", 
             pdf_url=report_pdf_url or "",
             client=payload.get("dealer_name", ""),
             meta={"market_summary": (rep_.get("market_summary") or "")[:600]})
+        # Attribute the report to the client, so the work shows on
+        # their 360 record rather than only in the lead panel.
+        try:
+            from hub import audit as _audit
+            _audit.log("boat", "boat_report",
+                       client=payload.get("dealer_name", "") or None)
+        except Exception:  # noqa: BLE001 — logging never breaks a lead
+            pass
         return
     except Exception:                                   # noqa: BLE001
         pass          # fall through to the original webhook
