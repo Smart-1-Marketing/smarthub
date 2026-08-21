@@ -1,0 +1,685 @@
+"""The 2025 Creative Spec Kit, as data.
+
+Every number here is transcribed from S1M CREATIVE SPEC KIT 2025. When the kit
+is revised, this file is what changes — not a regex inside a template.
+
+Why it lives in hub/ rather than in the IO builder: the same question ("does
+this file meet spec?") is asked when creative is attached to an insertion
+order, when it lands in a client's gallery, and by diagnostics looking for
+creative that will be rejected downstream. Those were three different answers.
+The IO builder carried a hand-written approximation of this table in
+JavaScript — nine display sizes, one shared 150 KB cap, and no notion of what a
+DOOH billboard, a Snapchat story or a LinkedIn InMail banner requires.
+
+## pass, fail and warn are different things
+
+A publisher rejects a 151 KB display banner. It does not reject a Meta image at
+1000x1000 — that is under the recommended 1080x1080, and it will run, slightly
+soft. Collapsing those into one "warning", as the old check did, taught people
+to ignore the warning, which meant the real rejections went out too.
+
+    fail     the platform will refuse this file
+    warn     it will run, but it is outside what the kit recommends
+    pass     nothing to flag
+    unknown  no spec is mapped for this product — say so, do not imply pass
+
+`unknown` is deliberately not `pass`. A clean result on an unmapped product is
+a wrong answer presented confidently.
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+import re
+from typing import Any
+
+KB = 1024
+MB = 1024 * KB
+GB = 1024 * MB
+
+# --------------------------------------------------------------------------
+# The catalogue
+#
+# Each unit is one row of one table in the kit. Fields, all optional except
+# id/channel/name/kind:
+#
+#   size / sizes   exact pixel dimensions the unit is sold at
+#   min_size       (w, h) floor for units the kit gives as a recommendation
+#   ratios         acceptable width:height ratios, as (w, h) pairs
+#   ratio_range    (low, high) ratio pair, for units given as a span
+#   width_range    (low, high) acceptable pixel widths
+#   min_width      hard floor on width
+#   max_width      hard ceiling on width
+#   max_height     hard ceiling on height
+#   max_bytes      hard ceiling — over it is a fail
+#   min_bytes      floor, where the kit states one
+#   formats        accepted extensions; anything else is a fail
+#   duration       (min_seconds, max_seconds) for video and audio
+#   max_anim       animation ceiling in seconds, with max_loops alongside
+#   border         pixel border the kit requires
+#   text           character limits, {field: max or (min, max)}
+#   notes          what a human needs to know that no check can decide
+# --------------------------------------------------------------------------
+
+_DISPLAY_COMMON: dict[str, Any] = {
+    "kind": "image",
+    "formats": ["gif", "jpg", "jpeg", "png"],
+    "max_bytes": 150 * KB,
+    "max_anim": 15,
+    "max_loops": 3,
+    "border": 1,
+}
+
+# HTML5 display is packaged rather than sized, so it gets its own ceiling.
+_HTML5: dict[str, Any] = {
+    "kind": "package",
+    "formats": ["zip"],
+    "max_bytes": 200 * KB,
+    "notes": [
+        "200 KB applies to font, image, audio, video, CSS and HTML combined.",
+        "Max 15 host-initiated file requests during initial and sub-load; "
+        "unlimited after user interaction.",
+        "Clicks must open in a new window or tab.",
+        "Must not use any element designed to misleadingly generate a click, "
+        "and must not lead to malware, spyware or viruses.",
+    ],
+}
+
+UNITS: list[dict[str, Any]] = [
+    # ---- Desktop display -------------------------------------------------
+    {"id": "leaderboard", "channel": "desktop_display", "name": "Leaderboard",
+     "size": (728, 90), **_DISPLAY_COMMON},
+    {"id": "medium_rectangle", "channel": "desktop_display", "name": "Medium Rectangle",
+     "size": (300, 250), **_DISPLAY_COMMON},
+    {"id": "wide_skyscraper", "channel": "desktop_display", "name": "Wide Skyscraper",
+     "size": (160, 600), **_DISPLAY_COMMON},
+    {"id": "half_page", "channel": "desktop_display", "name": "Half Page",
+     "size": (300, 600), **_DISPLAY_COMMON},
+    {"id": "rising_star", "channel": "desktop_display", "name": "Rising Star",
+     "size": (970, 250), **_DISPLAY_COMMON},
+    {"id": "desktop_html5", "channel": "desktop_display", "name": "HTML5 package",
+     **_HTML5},
+
+    # ---- Mobile display --------------------------------------------------
+    {"id": "mobile_banner_320", "channel": "mobile_display", "name": "Mobile Banner",
+     "size": (320, 50), **_DISPLAY_COMMON},
+    {"id": "mobile_banner_300", "channel": "mobile_display", "name": "Mobile Banner",
+     "size": (300, 50), **_DISPLAY_COMMON},
+    {"id": "mobile_interstitial", "channel": "mobile_display", "name": "Mobile Interstitial",
+     "size": (320, 480), **_DISPLAY_COMMON},
+    {"id": "mobile_rectangle", "channel": "mobile_display", "name": "Mobile Rectangle",
+     "size": (300, 250), **_DISPLAY_COMMON},
+    {"id": "mobile_html5", "channel": "mobile_display", "name": "HTML5 package", **_HTML5},
+
+    # ---- Tablet display --------------------------------------------------
+    {"id": "tablet_rectangle", "channel": "tablet_display", "name": "Tablet Rectangle",
+     "size": (300, 250), **_DISPLAY_COMMON},
+    {"id": "tablet_leaderboard", "channel": "tablet_display", "name": "Tablet Leaderboard",
+     "size": (728, 90), **_DISPLAY_COMMON},
+    {"id": "tablet_interstitial", "channel": "tablet_display", "name": "Tablet Interstitial",
+     "size": (1024, 768), **_DISPLAY_COMMON},
+    {"id": "tablet_html5", "channel": "tablet_display", "name": "HTML5 package", **_HTML5},
+
+    # ---- Native display --------------------------------------------------
+    {"id": "native_image", "channel": "native_display", "name": "Native Image",
+     "kind": "image", "size": (1200, 628), "max_bytes": 750 * KB,
+     "formats": ["gif", "jpg", "jpeg", "png"],
+     "text": {"headline": (15, 55), "description": (25, 120)}},
+    {"id": "native_logo", "channel": "native_display", "name": "Brand Logo",
+     "kind": "image", "size": (200, 200), "max_bytes": 750 * KB,
+     "formats": ["gif", "jpg", "jpeg", "png"]},
+
+    # ---- Video -----------------------------------------------------------
+    {"id": "standard_video", "channel": "standard_video", "name": "Standard Video",
+     "kind": "video", "formats": ["mp4"], "ratios": [(16, 9), (4, 3)],
+     "max_bytes": 10 * GB, "duration": (15, 60), "bitrate_kbps": (15000, 30000),
+     "notes": ["VAST 2.0 / 3.0 compliant.",
+               "Third-party VAST must contain MP4 and FLV format videos."]},
+    {"id": "youtube_trueview", "channel": "youtube", "name": "TrueView",
+     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(16, 9)],
+     "max_bytes": 10 * MB, "duration": (12, 180),
+     "notes": ["Video asset must be loaded to YouTube as a public video."]},
+    {"id": "youtube_bumper", "channel": "youtube", "name": "Bumper",
+     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(16, 9)],
+     "max_bytes": 10 * MB, "duration": (0, 6),
+     "notes": ["Video asset must be loaded to YouTube as a public video."]},
+    {"id": "ctv", "channel": "ctv", "name": "Connected TV / OTT",
+     "kind": "video", "formats": ["mp4"], "size": (1920, 1080),
+     "max_bytes": 10 * GB, "duration": (15, 30), "bitrate_kbps": (15000, 30000),
+     "fps": [23.98, 29.97], "audio_khz": 48,
+     "notes": ["VAST 2.0 / 3.0 compliant.",
+               "Connected TV devices are not clickable by nature."]},
+    {"id": "native_video", "channel": "native_video", "name": "Native Video",
+     "kind": "video", "formats": ["mp4"], "ratios": [(16, 9)],
+     "max_bytes": 150 * MB, "duration": (5, 300),
+     "notes": ["VAST 2.0 / 3.0 compliant."]},
+
+    # ---- Digital radio ---------------------------------------------------
+    {"id": "radio_audio", "channel": "digital_radio", "name": "Audio Spot",
+     "kind": "audio", "formats": ["mp3"], "duration": (15, 60),
+     "bitrate_kbps": (160, 160)},
+    {"id": "radio_companion", "channel": "digital_radio", "name": "Companion Banner",
+     "kind": "image", "formats": ["jpg", "jpeg"], "size": (300, 250),
+     "notes": ["HTML is not accepted for the companion banner.",
+               "A companion banner is highly recommended — it lowers cost and "
+               "opens more inventory."]},
+
+    # ---- Digital out of home --------------------------------------------
+    {"id": "dooh_1400x400", "channel": "dooh", "name": "Billboard",
+     "kind": "image", "size": (1400, 400), "min_bytes": 40 * KB,
+     "max_bytes": 750 * KB, "formats": ["jpg", "jpeg", "png"]},
+    {"id": "dooh_840x400", "channel": "dooh", "name": "Billboard",
+     "kind": "image", "size": (840, 400), "min_bytes": 40 * KB,
+     "max_bytes": 750 * KB, "formats": ["jpg", "jpeg", "png"]},
+    {"id": "dooh_1080x1920", "channel": "dooh", "name": "Billboard",
+     "kind": "image", "size": (1080, 1920), "min_bytes": 40 * KB,
+     "max_bytes": 750 * KB, "formats": ["jpg", "jpeg", "png"]},
+    {"id": "dooh_1920x1080", "channel": "dooh", "name": "Billboard",
+     "kind": "image", "size": (1920, 1080), "min_bytes": 40 * KB,
+     "max_bytes": 750 * KB, "formats": ["jpg", "jpeg", "png"]},
+
+    # ---- Email -----------------------------------------------------------
+    {"id": "email_image", "channel": "email", "name": "Email Creative",
+     "kind": "image", "formats": ["jpg", "jpeg"],
+     "width_range": (600, 750), "max_height": 1728,
+     "notes": ["Also required: subject line (50 characters recommended), "
+               "sender, seed list, send date and send time."]},
+    {"id": "email_html", "channel": "email", "name": "Email HTML Package",
+     "kind": "package", "formats": ["zip", "html"],
+     "notes": ["Table-based layout with inline CSS; absolute image URLs with "
+               "alt text; mobile responsive.",
+               "Header, body with CTA, footer with unsubscribe link and "
+               "address; subject, preheader and text-only version.",
+               "CAN-SPAM compliant, tested across clients and devices.",
+               "If no HTML file is provided, Smart 1 can create one for an "
+               "additional fee."]},
+
+    # ---- Meta ------------------------------------------------------------
+    {"id": "facebook_image", "channel": "facebook", "name": "Facebook Display",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"], "ratios": [(1, 1)],
+     "max_bytes": 30 * MB, "min_size": (1080, 1080),
+     "text": {"headline": 40, "description": 30, "primary_text": 125},
+     "notes": ["Image text overlay must be less than 20%."]},
+    {"id": "instagram_image", "channel": "instagram", "name": "Instagram Display",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "ratio_range": ((400, 500), (191, 100)), "max_bytes": 1 * GB,
+     "min_size": (1080, 1080), "text": {"two_rows": 90},
+     "notes": ["Image text overlay must be less than 20%."]},
+    {"id": "facebook_video", "channel": "facebook_video", "name": "Facebook Video",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratio_range": ((9, 16), (16, 9)), "min_bytes": 1 * MB,
+     "max_bytes": 26 * GB, "duration": (1, 600),
+     "text": {"headline": 25, "description": 30}},
+    {"id": "facebook_carousel_image", "channel": "facebook_carousel",
+     "name": "Carousel Image", "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "max_bytes": 1 * GB, "min_size": (1080, 1080),
+     "text": {"primary_text": 125, "headline": 25, "description": 20},
+     "notes": ["2 cards minimum, 10 maximum. One landing page per card.",
+               "Showcase up to 10 images or videos within a single ad."]},
+    {"id": "facebook_carousel_video", "channel": "facebook_carousel",
+     "name": "Carousel Video", "kind": "video", "formats": ["mp4", "mov"],
+     "max_bytes": 10 * GB, "min_size": (1080, 1080),
+     "notes": ["2 cards minimum, 10 maximum. One landing page per card."]},
+    {"id": "stories_image", "channel": "stories", "name": "Stories Display",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "ratios": [(9, 16), (16, 9)], "min_width": 500,
+     "notes": ["The kit lists 1920x1080 as the image resolution and 9:16 & "
+               "16:9 as the ratios; ratio is treated as the rule so a "
+               "1080x1920 story is not failed for being vertical.",
+               "Leave 14% of the top and bottom free to avoid covering key "
+               "elements."]},
+    {"id": "stories_video", "channel": "stories", "name": "Stories Video",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratio_range": ((90, 160), (191, 100)), "max_bytes": 4 * GB,
+     "duration": (0, 120), "min_width": 500,
+     "notes": ["Leave 14% of the top and bottom free.",
+               "A 1080x1080 image ad can run in essentially any ad format."]},
+
+    # ---- X (formerly Twitter) -------------------------------------------
+    {"id": "x_image_website_card", "channel": "x", "name": "Image Website Card",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "sizes": [(800, 418), (800, 800)], "max_bytes": 3 * MB,
+     "text": {"total": 280, "final": 256}},
+    {"id": "x_multi_image_mobile", "channel": "x", "name": "Multi Image Tweet — Mobile",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (600, 335),
+     "max_bytes": 1048 * KB, "text": {"total": 280}},
+    {"id": "x_multi_image_desktop", "channel": "x", "name": "Multi Image Tweet — Desktop",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (600, 600),
+     "max_bytes": 1048 * KB, "text": {"total": 280}},
+    {"id": "x_video_website_card", "channel": "x", "name": "Video Website Card",
+     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(16, 9), (1, 1)],
+     "max_bytes": 1 * GB, "text": {"total": 280}},
+    {"id": "x_conversational", "channel": "x", "name": "Conversational Ad",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (800, 320),
+     "max_bytes": 3 * MB,
+     "text": {"total": 256, "hashtag": 21, "pre_populated_tweet": 256,
+              "headline": 23, "thank_you": 23}},
+    {"id": "x_direct_message", "channel": "x", "name": "Direct Message Card",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"], "min_width": 800,
+     "max_bytes": 3 * MB, "text": {"total": 256, "cta_button": 24},
+     "notes": ["Emoji are supported in the call-to-action button text."]},
+    {"id": "x_single_image_mobile", "channel": "x", "name": "Single Image Tweet — Mobile",
+     "kind": "image", "formats": ["jpg", "jpeg", "png", "gif"],
+     "size": (1200, 675), "max_bytes": 3 * MB, "text": {"total": 280}},
+    {"id": "x_single_image_desktop", "channel": "x", "name": "Single Image Tweet — Desktop",
+     "kind": "image", "formats": ["jpg", "jpeg", "png", "gif"],
+     "min_width": 600, "max_bytes": 3 * MB, "text": {"total": 280}},
+
+    # ---- LinkedIn --------------------------------------------------------
+    {"id": "li_single_image", "channel": "linkedin",
+     "name": "Sponsored Content — Single Image", "kind": "image",
+     "formats": ["jpg", "jpeg", "png"], "size": (1200, 627),
+     "max_bytes": 5 * MB,
+     "text": {"intro": 150, "headline": 70, "description": 100}},
+    {"id": "li_video", "channel": "linkedin", "name": "Sponsored Content — Video",
+     "kind": "video", "formats": ["mp4"], "max_width": 1080,
+     "min_bytes": 75 * KB, "max_bytes": 200 * MB, "duration": (3, 1800),
+     "text": {"intro": 600, "headline": 70}},
+    {"id": "li_carousel", "channel": "linkedin",
+     "name": "Sponsored Content — Carousel", "kind": "image",
+     "formats": ["jpg", "jpeg", "png"], "size": (1080, 1080),
+     "max_bytes": 10 * MB,
+     "text": {"intro": 150, "headline": 45, "description": 30},
+     "notes": ["2 to 10 cards. Headline links to a URL, description to a form."]},
+    {"id": "li_text_ad", "channel": "linkedin", "name": "Text Ad",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (100, 100),
+     "max_bytes": 2 * MB, "text": {"headline": 25, "description": 75}},
+    {"id": "li_inmail", "channel": "linkedin", "name": "Sponsored InMail",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (300, 250),
+     "max_bytes": 40 * KB,
+     "text": {"subject": 60, "message": 1500, "custom_terms": 2500,
+              "call_to_action": 20},
+     "notes": ["Up to 3 click links."]},
+
+    # ---- Snapchat --------------------------------------------------------
+    {"id": "snap_image", "channel": "snapchat", "name": "Single Image Ad",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (1080, 1920),
+     "max_bytes": 5 * MB, "text": {"brand_name": 25, "headline": 34}},
+    {"id": "snap_video", "channel": "snapchat", "name": "Video Ad",
+     "kind": "video", "formats": ["mp4", "mov"], "size": (1080, 1920),
+     "max_bytes": 1 * GB, "duration": (3, 30),
+     "text": {"brand_name": 25, "headline": 34}},
+
+    # ---- TikTok ----------------------------------------------------------
+    {"id": "tiktok_video", "channel": "tiktok", "name": "In-Feed Video Ad",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratios": [(9, 16), (16, 9), (1, 1)], "max_bytes": 500 * MB,
+     "duration": (5, 60),
+     "text": {"brand_name": (2, 20), "description": (12, 100)},
+     "notes": ["Emojis cannot appear in the brand name.",
+               "Emojis, {} and # cannot appear in the description.",
+               "Punctuation and spaces occupy characters."]},
+    {"id": "tiktok_image", "channel": "tiktok", "name": "In-Feed Image Ad",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (1200, 628),
+     "max_bytes": 500 * KB,
+     "text": {"brand_name": (2, 20), "description": (12, 100)}},
+    {"id": "tiktok_profile", "channel": "tiktok", "name": "Profile Image",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"], "ratios": [(1, 1)],
+     "max_bytes": 50 * KB},
+]
+
+BY_ID = {u["id"]: u for u in UNITS}
+
+CHANNEL_LABELS = {
+    "desktop_display": "Desktop Display",
+    "mobile_display": "Mobile Display",
+    "tablet_display": "Tablet Display",
+    "native_display": "Native Display",
+    "standard_video": "Standard Video",
+    "youtube": "YouTube Video",
+    "ctv": "Connected TV / OTT",
+    "native_video": "Native Video",
+    "digital_radio": "Digital Radio",
+    "dooh": "Digital Out of Home",
+    "email": "Standard Email",
+    "facebook": "Facebook Display",
+    "instagram": "Instagram Display",
+    "facebook_video": "Facebook Video",
+    "facebook_carousel": "Facebook Carousel",
+    "stories": "Facebook & Instagram Stories",
+    "x": "X, formerly Twitter",
+    "linkedin": "LinkedIn",
+    "snapchat": "Snapchat",
+    "tiktok": "TikTok",
+}
+
+# Product text -> channels, most specific pattern first. A product can map to
+# several channels: a display buy legitimately accepts desktop, mobile and
+# tablet units, and a file only has to satisfy one of them.
+_PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
+    (r"native.*video", ["native_video"]),
+    (r"native", ["native_display"]),
+    (r"you\s*tube|trueview|bumper", ["youtube"]),
+    (r"connected tv|advanced tv|\bott\b|streaming tv", ["ctv"]),
+    (r"tik\s*tok", ["tiktok"]),
+    (r"snap\s*chat", ["snapchat"]),
+    (r"linked\s*in", ["linkedin"]),
+    (r"\btwitter\b|\bx ads\b", ["x"]),
+    (r"stor(y|ies)", ["stories"]),
+    (r"carousel", ["facebook_carousel"]),
+    (r"instagram", ["instagram", "stories"]),
+    (r"facebook|\bmeta\b|social ads?", ["facebook", "instagram",
+                                        "facebook_video", "facebook_carousel",
+                                        "stories"]),
+    (r"radio|podcast|audio", ["digital_radio"]),
+    (r"signage|out of home|\bdooh\b|billboard", ["dooh"]),
+    (r"e-?mail|admail", ["email"]),
+    (r"online video|pre-?roll|\bvideo\b", ["standard_video"]),
+    (r"display|programmatic|retarget|geo-?fenc|location lookback|"
+     r"ip target|data targeted", ["desktop_display", "mobile_display",
+                                  "tablet_display"]),
+    (r"mobile", ["mobile_display"]),
+]
+
+
+def channels_for_product(product: str = "", category: str = "") -> list[str]:
+    """Which spec-kit channels a product's creative is judged against."""
+    blob = f"{category} {product}".lower()
+    for pattern, channels in _PRODUCT_CHANNELS:
+        if re.search(pattern, blob):
+            return channels
+    return []
+
+
+def units_for_product(product: str = "", category: str = "") -> list[dict]:
+    chans = set(channels_for_product(product, category))
+    return [u for u in UNITS if u["channel"] in chans]
+
+
+def _ratio(w: int, h: int) -> float:
+    return float(w) / float(h) if h else 0.0
+
+
+def _sizes_of(unit: dict) -> list[tuple[int, int]]:
+    return unit.get("sizes") or ([unit["size"]] if unit.get("size") else [])
+
+
+def _fmt_bytes(n: float) -> str:
+    for unit, size in (("GB", GB), ("MB", MB), ("KB", KB)):
+        if n >= size:
+            v = n / size
+            return f"{v:.0f} {unit}" if v >= 10 else f"{v:.1f} {unit}"
+    return f"{int(n)} bytes"
+
+
+def _kind_of(fmt: str) -> str:
+    fmt = (fmt or "").lower().lstrip(".")
+    if fmt in ("mp4", "mov", "webm", "flv", "m4v"):
+        return "video"
+    if fmt in ("mp3", "wav", "m4a", "aac"):
+        return "audio"
+    if fmt in ("zip", "html", "htm"):
+        return "package"
+    return "image"
+
+
+def _score(unit: dict, width: int, height: int, fmt: str,
+           duration: float | None = None) -> tuple:
+    """How well a file fits a unit, for picking which unit to judge it against.
+
+    Higher is better. Dimension agreement dominates: a 300x250 file is being
+    offered as a Medium Rectangle even if it is 400 KB, and telling the user it
+    is 250 KB over the cap is far more useful than telling them it is not a
+    Leaderboard.
+
+    Length matters for the same reason. On YouTube, TrueView and Bumper differ
+    almost entirely by length — a six-second cut is a Bumper, and reporting it
+    as a TrueView that is too short inverts the actual finding.
+    """
+    s = 0
+    if _kind_of(fmt) == unit.get("kind"):
+        s += 8
+    if fmt and fmt in (unit.get("formats") or []):
+        s += 2
+    if duration and unit.get("duration"):
+        lo, hi = unit["duration"]
+        s += 25 if lo <= duration <= hi else 0
+    if width and height:
+        if any(w == width and h == height for w, h in _sizes_of(unit)):
+            s += 100
+        elif unit.get("ratios"):
+            r = _ratio(width, height)
+            if any(abs(r - _ratio(w, h)) < 0.03 for w, h in unit["ratios"]):
+                s += 40
+        elif unit.get("ratio_range"):
+            lo, hi = unit["ratio_range"]
+            if _ratio(*lo) - 0.03 <= _ratio(width, height) <= _ratio(*hi) + 0.03:
+                s += 30
+        if unit.get("width_range") and \
+                unit["width_range"][0] <= width <= unit["width_range"][1]:
+            s += 40
+        if unit.get("min_width") and width >= unit["min_width"]:
+            s += 10
+    return (s,)
+
+
+def _check_one(unit: dict, *, width, height, size_bytes, fmt, duration) -> list[dict]:
+    """Every rule this unit imposes, evaluated. Order is presentation order."""
+    out: list[dict] = []
+
+    def add(status, label, detail):
+        out.append({"status": status, "label": label, "detail": detail})
+
+    formats = unit.get("formats") or []
+    if fmt and formats:
+        if fmt in formats:
+            add("pass", "File type", f".{fmt} is accepted")
+        else:
+            add("fail", "File type",
+                f".{fmt} is not accepted — {unit['name']} takes "
+                + " / ".join("." + f for f in formats))
+
+    sizes = _sizes_of(unit)
+    if width and height:
+        if sizes:
+            if any(w == width and h == height for w, h in sizes):
+                add("pass", "Dimensions", f"{width}x{height} matches {unit['name']}")
+            else:
+                add("fail", "Dimensions",
+                    f"{width}x{height} is not a {unit['name']} size — "
+                    + " or ".join(f"{w}x{h}" for w, h in sizes))
+        if unit.get("ratios"):
+            r = _ratio(width, height)
+            if any(abs(r - _ratio(w, h)) < 0.03 for w, h in unit["ratios"]):
+                add("pass", "Aspect ratio", f"{width}x{height} is an accepted ratio")
+            else:
+                add("fail", "Aspect ratio",
+                    f"{width}x{height} is not "
+                    + " or ".join(f"{w}:{h}" for w, h in unit["ratios"]))
+        if unit.get("ratio_range"):
+            lo, hi = unit["ratio_range"]
+            if _ratio(*lo) - 0.03 <= _ratio(width, height) <= _ratio(*hi) + 0.03:
+                add("pass", "Aspect ratio", f"{width}x{height} is in range")
+            else:
+                add("fail", "Aspect ratio",
+                    f"{width}x{height} is outside {lo[0]}x{lo[1]} to {hi[0]}x{hi[1]}")
+        if unit.get("min_size"):
+            mw, mh = unit["min_size"]
+            if width >= mw and height >= mh:
+                add("pass", "Resolution",
+                    f"{width}x{height} meets the recommended minimum")
+            else:
+                # Recommended, not required. It runs; it just runs soft.
+                add("warn", "Resolution",
+                    f"{width}x{height} is below the recommended {mw}x{mh} minimum")
+        if unit.get("min_width"):
+            if width >= unit["min_width"]:
+                add("pass", "Width", f"{width}px meets the {unit['min_width']}px minimum")
+            else:
+                add("fail", "Width",
+                    f"{width}px is under the {unit['min_width']}px minimum")
+        if unit.get("max_width") and width > unit["max_width"]:
+            add("fail", "Width", f"{width}px exceeds the {unit['max_width']}px maximum")
+        if unit.get("width_range"):
+            lo, hi = unit["width_range"]
+            if lo <= width <= hi:
+                add("pass", "Width", f"{width}px is within {lo}-{hi}px")
+            else:
+                add("fail", "Width", f"{width}px is outside the {lo}-{hi}px range")
+        if unit.get("max_height") and height > unit["max_height"]:
+            add("fail", "Height",
+                f"{height}px exceeds the {unit['max_height']}px single-image maximum")
+
+    if size_bytes:
+        if unit.get("max_bytes"):
+            if size_bytes <= unit["max_bytes"]:
+                add("pass", "File size",
+                    f"{_fmt_bytes(size_bytes)} is within "
+                    f"{_fmt_bytes(unit['max_bytes'])}")
+            else:
+                add("fail", "File size",
+                    f"{_fmt_bytes(size_bytes)} exceeds the "
+                    f"{_fmt_bytes(unit['max_bytes'])} maximum")
+        if unit.get("min_bytes") and size_bytes < unit["min_bytes"]:
+            add("fail", "File size",
+                f"{_fmt_bytes(size_bytes)} is under the "
+                f"{_fmt_bytes(unit['min_bytes'])} minimum")
+
+    if duration and unit.get("duration"):
+        lo, hi = unit["duration"]
+        if lo <= duration <= hi:
+            add("pass", "Length", f"{duration:.1f}s is within {lo}-{hi}s")
+        else:
+            add("fail", "Length",
+                f"{duration:.1f}s is outside the {lo}-{hi}s the kit allows")
+
+    return out
+
+
+def check(*, width: int = 0, height: int = 0, size_bytes: int = 0,
+          fmt: str = "", duration: float | None = None,
+          product: str = "", category: str = "",
+          unit_id: str = "") -> dict:
+    """Judge one file against the kit.
+
+    Pass `unit_id` to test a specific unit, or `product`/`category` to let the
+    product decide which channels apply. With a product, the file is judged
+    against the unit it best fits — see `_score`.
+    """
+    fmt = (fmt or "").lower().lstrip(".")
+    width, height = int(width or 0), int(height or 0)
+    size_bytes = int(size_bytes or 0)
+
+    if unit_id:
+        candidates = [BY_ID[unit_id]] if unit_id in BY_ID else []
+    else:
+        candidates = units_for_product(product, category)
+
+    if not candidates:
+        return {
+            "result": "unknown",
+            "summary": ("No specification is mapped for this product. "
+                        "Check the creative against the spec kit by hand."),
+            "unit": None, "channel": None, "checks": [], "alternatives": [],
+        }
+
+    # Judge against the closest unit, but only among units of the right media
+    # kind where one exists — a video should never be reported as failing to be
+    # a 300x250 banner.
+    kind = _kind_of(fmt) if fmt else ""
+    same_kind = [u for u in candidates if not kind or u.get("kind") == kind]
+    pool = same_kind or candidates
+    best = max(pool, key=lambda u: _score(u, width, height, fmt, duration))
+
+    checks = _check_one(best, width=width, height=height,
+                        size_bytes=size_bytes, fmt=fmt, duration=duration)
+
+    # A file that matches no unit in the buy gets judged against whichever one
+    # scored highest, which is close to arbitrary. Naming that one unit —
+    # "301x250 is not a Leaderboard size" — answers a question nobody asked.
+    # What the designer needs is every size this buy will actually take.
+    if width and height and not any(
+            w == width and h == height for u in pool for w, h in _sizes_of(u)):
+        every = sorted({s for u in pool for s in _sizes_of(u)},
+                       key=lambda s: (-s[0] * s[1], s))
+        if every:
+            for c in checks:
+                if c["label"] == "Dimensions" and c["status"] == "fail":
+                    c["detail"] = (
+                        f"{width}x{height} is not a size this buy accepts — "
+                        + ", ".join(f"{w}x{h}" for w, h in every))
+
+    failed = [c for c in checks if c["status"] == "fail"]
+    warned = [c for c in checks if c["status"] == "warn"]
+
+    result = "fail" if failed else ("warn" if warned else "pass")
+    if result == "fail":
+        summary = (failed[0]["detail"] if len(failed) == 1
+                   else f"{len(failed)} problems: "
+                        + "; ".join(c["detail"] for c in failed))
+    elif result == "warn":
+        summary = warned[0]["detail"]
+    else:
+        label = CHANNEL_LABELS.get(best["channel"], best["channel"])
+        summary = f"Meets {label} spec as {best['name']}"
+
+    # When a file fails on dimensions, the useful next question is "what would
+    # it pass as?" — often it is already a valid unit on another channel in the
+    # same buy.
+    alternatives = []
+    if failed and width and height:
+        for u in candidates:
+            if u is best:
+                continue
+            if any(w == width and h == height for w, h in _sizes_of(u)):
+                alternatives.append({
+                    "id": u["id"], "name": u["name"],
+                    "channel": CHANNEL_LABELS.get(u["channel"], u["channel"])})
+
+    return {
+        "result": result,
+        "summary": summary,
+        "unit": {"id": best["id"], "name": best["name"],
+                 "channel": best["channel"],
+                 "channel_label": CHANNEL_LABELS.get(best["channel"], best["channel"]),
+                 "notes": best.get("notes") or []},
+        "channel": best["channel"],
+        "checks": checks,
+        "alternatives": alternatives,
+    }
+
+
+def _slug(v: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "_", str(v or "").lower().strip()).strip("_")
+    return s[:80] or "unknown"
+
+
+def tags_for(verdict: dict, *, product: str = "", client: str = "",
+             width: int = 0, height: int = 0, size_bytes: int = 0,
+             when: _dt.date | None = None) -> list[str]:
+    """Cloudinary tags recording what was uploaded and whether it passed.
+
+    The gallery filters on these, so creative can be found later by client, by
+    product, by date or by whether it passed spec — which is the whole reason
+    for tagging rather than trusting a filename. Dates are mm-dd-yy, matching
+    the rest of the hub.
+    """
+    when = when or _dt.date.today()
+    tags = [
+        f"client_{_slug(client)}" if client else "",
+        f"product_{_slug(product)}" if product else "",
+        f"date_{when.strftime('%m-%d-%y')}",
+        f"spec_{verdict.get('result', 'unknown')}",
+    ]
+    if width and height:
+        tags.append(f"dim_{width}x{height}")
+    if size_bytes:
+        tags.append(f"size_{max(1, round(size_bytes / KB))}kb")
+    unit = (verdict.get("unit") or {})
+    if unit.get("id"):
+        tags.append(f"unit_{unit['id']}")
+    return [t for t in tags if t]
+
+
+def catalogue() -> dict:
+    """The whole kit, shaped for the browser."""
+    chans: dict[str, dict] = {}
+    for u in UNITS:
+        c = chans.setdefault(u["channel"], {
+            "id": u["channel"],
+            "label": CHANNEL_LABELS.get(u["channel"], u["channel"]),
+            "units": [],
+        })
+        c["units"].append({k: v for k, v in u.items() if k != "channel"})
+    return {"channels": list(chans.values()),
+            "source": "S1M Creative Spec Kit 2025"}

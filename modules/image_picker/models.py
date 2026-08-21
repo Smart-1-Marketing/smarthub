@@ -75,6 +75,9 @@ def _add_missing_columns() -> None:
         "DEFAULT 'prospect'",
         "ALTER TABLE image_picker_images ADD COLUMN resource_type VARCHAR(20) "
         "DEFAULT 'image'",
+        "ALTER TABLE image_picker_images ADD COLUMN spec_result VARCHAR(10)",
+        "ALTER TABLE image_picker_images ADD COLUMN spec_summary TEXT",
+        "ALTER TABLE image_picker_images ADD COLUMN spec_unit VARCHAR(60)",
     ]
     for sql in stmts:
         try:
@@ -224,6 +227,14 @@ class SavedImage(Base):
     ghl_url = Column(Text, nullable=True)
     ghl_error = Column(Text, nullable=True)
 
+    # Whether this file met the 2025 Creative Spec Kit, decided at upload time
+    # by hub.creative_specs. Stored rather than recomputed because the verdict
+    # belongs to the file as it was delivered: re-running the check later, after
+    # the kit is revised, would silently rewrite history on work already sent.
+    spec_result = Column(String(10), nullable=True)     # pass|warn|fail|unknown
+    spec_summary = Column(Text, nullable=True)
+    spec_unit = Column(String(60), nullable=True)       # e.g. medium_rectangle
+
     saved_by = Column(String(200), nullable=True)   # hub user email, or "client"
     created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
 
@@ -254,6 +265,9 @@ class SavedImage(Base):
             "ghl_file_id": self.ghl_file_id,
             "ghl_url": self.ghl_url,
             "ghl_error": self.ghl_error,
+            "spec_result": self.spec_result,
+            "spec_summary": self.spec_summary or "",
+            "spec_unit": self.spec_unit,
             "saved_by": self.saved_by,
             "created_at": iso(self.created_at),
         }

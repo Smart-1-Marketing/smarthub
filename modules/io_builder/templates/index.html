@@ -99,6 +99,11 @@ td{padding:7px;border:1px solid var(--line);vertical-align:top}
 .asset-list{margin-top:16px}.asset-item{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:9px}.asset-top{display:flex;justify-content:space-between;gap:12px}.ok{color:#157347;font-weight:700}.warn{color:#a15c00;font-weight:700}.pending{color:#66758a;font-weight:700}
 .progress-line{height:7px;background:#e8edf3;border-radius:9px;overflow:hidden;margin-top:8px}.progress-line div{height:100%;background:var(--blue);width:0}.tiny{font-size:11px;color:var(--muted);line-height:1.4}.url-field{display:flex;gap:6px;margin-top:7px}.url-field input{flex:1}.brand-colors{display:flex;flex-wrap:wrap;gap:8px}.brand-color{display:inline-flex;align-items:center;gap:5px;font-size:11px}.brand-swatch{width:18px;height:18px;border:1px solid #9aa7b5;border-radius:3px}.brand-logo-img{max-width:180px;max-height:80px;display:block;margin:4px 0}.creative-thumb{width:64px;height:48px;object-fit:contain;border:1px solid #d5dee9;border-radius:4px;background:#fff;margin-bottom:4px}
 @media(max-width:780px){.upload-grid{grid-template-columns:1fr}.upload-box.wide{grid-column:auto}}
+.gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:10px;max-height:330px;overflow-y:auto}
+.gallery-item{border:1px solid var(--line);border-radius:7px;padding:7px;text-align:center}
+.gallery-item img{width:100%;height:78px;object-fit:cover;border-radius:5px}
+.gallery-item button{margin-top:6px;width:100%;padding:5px;font-size:11px}
+.gallery-file{height:78px;display:flex;align-items:center;justify-content:center;background:#eef3f8;border-radius:5px;font-weight:700;color:var(--navy)}
 
 .creative-checklist{border:1px solid var(--line);border-top:0;padding:12px}.check-product{margin-bottom:16px}.check-product h3{font-size:13px;color:var(--navy);margin:0 0 8px}.check-item{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid #edf1f5;font-size:12px}.check-item input{margin-top:2px}.check-item.done span{text-decoration:line-through;color:var(--muted)}
 @media(max-width:980px){.toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.app{display:block;height:auto}.chat-panel{height:calc(100dvh - 61px);min-height:560px;position:relative;top:auto}.output-panel{padding:16px}.cards{grid-template-columns:repeat(2,1fr)}}
@@ -349,7 +354,15 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
 // runs on Render, set  window.SMART1_API_BASE = "https://<your-app>.onrender.com"
 // BEFORE this script loads. All /api/* calls are then sent to that origin.
 // Leave it unset when the page is served directly by the app (default behavior).
-const API_BASE=(typeof window!=="undefined"&&window.SMART1_API_BASE)?String(window.SMART1_API_BASE).replace(/\/+$/,""):"";
+//
+// When served by the hub, this builder is mounted at /tools/io by
+// DispatcherMiddleware, so its routes live at /tools/io/api/*. Every fetch
+// below is written as an absolute /api/* path, which resolves against the hub
+// app instead and 404s. That is why creative upload failed with "Unable to
+// create secure upload signature" — /api/cloudinary-signature exists, but only
+// under the mount. The default base is therefore the script root, not "".
+const MOUNT_ROOT=String({{ (request.script_root or "")|tojson }}).replace(/\/+$/,"");
+const API_BASE=(typeof window!=="undefined"&&window.SMART1_API_BASE)?String(window.SMART1_API_BASE).replace(/\/+$/,""):MOUNT_ROOT;
 
 // --- Resilient fetch wrapper for all /api/* calls ---
 // Centralizes: API base rewrite, a request timeout, a single retry for idempotent
@@ -364,7 +377,7 @@ if(typeof window!=="undefined"&&window.fetch){
     return typeof u==="string"&&u.indexOf("/api/")===0;
   }
   function withBase(input){
-    if(!API_BASE)return input;
+    if(!API_BASE)return input;   // served at the root; the path is already right
     try{
       if(typeof input==="string"&&input.indexOf("/api/")===0)return API_BASE+input;
       if(input&&typeof input.url==="string"&&input.url.indexOf("/api/")===0)return new Request(API_BASE+input.url,input);
@@ -1717,34 +1730,6 @@ function requirementsPacketHTML(){
  }).join("");
  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;color:#1d2a3a;max-width:950px;margin:28px auto;padding:0 25px;line-height:1.42}h1{color:#14284b;border-bottom:4px solid #14284b;padding-bottom:10px}h2{color:#14284b;margin-top:28px}h3{font-size:14px;color:#1f63ae;margin-bottom:5px}section{border-bottom:1px solid #d5dee9;padding-bottom:18px}.meta{background:#eef3f8;padding:12px 15px;border-radius:7px}li{margin-bottom:5px}.alert{background:#fff4dd;border-left:5px solid #e5a323;padding:10px 13px}</style></head><body><h1>${esc(title)}</h1><div class="meta"><strong>IO:</strong> ${esc(state.ioType||"")}<br><strong>Sales / Contact:</strong> ${esc(state.salesContact||"")} - ${esc(state.salesEmail||"")}<br><strong>Creative:</strong> ${esc(state.creativeSource||"Not selected")}<br><strong>Campaign dates:</strong> ${esc(state.sameDates?state.start:"Product-specific")} to ${esc(state.sameDates?state.end:"Product-specific")}</div><p class="alert"><strong>Display file limit:</strong> All display creative must be 150 KB or smaller per file.</p>${state.landingPageReviews.length?`<section><h2>Landing Page Review — Internal Needs</h2>${state.landingPageReviews.map(r=>`<h3>${esc(r.product)}</h3><p><a href="${esc(r.url)}">${esc(r.url)}</a></p><p>${esc(r.review)}</p>`).join("")}</section>`:""}
  ${sections||"<p>No products have been selected.</p>"}
-<div class="creative-modal" id="creativeModal">
- <div class="creative-card">
-  <div class="creative-head">
-   <div><h2>Creative Upload Manager</h2><div class="tiny">Upload multiple files, connect each file to a product, and validate it against SMART1 creative specifications.</div></div>
-   <button class="close-btn" onclick="closeCreativeManager()">Close</button>
-  </div>
-  <div class="upload-grid">
-   <div class="upload-box">
-    <label>Product</label><select id="creativeProduct"></select>
-    <label>Creative Status</label>
-    <select id="creativeStatus" onchange="toggleUploadFields()"><option value="upload">Upload creative now</option><option value="later">Creative is coming later</option></select>
-    <div id="uploadFields">
-     <label>Select one or more files</label><input id="creativeFiles" type="file" multiple accept="image/*,video/*,.pdf,.zip,.html,.mp3,.wav">
-     <label>Optional note</label><textarea id="creativeNote" rows="2" placeholder="Version, placement, language, approval note, etc."></textarea>
-    </div>
-    <div class="upload-actions"><button class="upload-primary" onclick="handleCreativeAction()">Add Creative</button><button class="upload-secondary" onclick="clearCreativeForm()">Clear</button></div>
-    <div class="tiny" style="margin-top:10px">Files are tagged with the customer name and campaign start date. Uploads require the secure SMART1 server package included with this builder.</div>
-   </div>
-   <div class="upload-box">
-    <strong>Validation behavior</strong>
-    <p class="tiny">The file will still upload when it does not match a known specification, but the order will show a warning. Display files larger than 150 KB are always flagged.</p><div id="smart1snapValidationWarning" class="callout" style="display:none;margin-top:8px"><strong>SMART1Snap warning:</strong> <span></span></div>
-    <div id="uploadConnection" class="callout">Checking secure Cloudinary connection…</div>
-   </div>
-   <div class="upload-box wide asset-list"><strong>Creative added to this IO</strong><div id="creativeAssetList"></div></div>
-  </div>
- </div>
-</div>
-
 </body></html>`;
 }
 function downloadRequirements(){
@@ -1791,34 +1776,6 @@ function customerRequirementsHTML(){
  const title=`${state.client||"Client"} - What Smart 1 Needs to Get Started`;
  const sections=state.selected.map(key=>{const cfg=productConfig[key]||{};const item=state.items.find(i=>i.product===key);return `<section><h2>${esc(cfg.product||key)}</h2><p><strong>Landing page:</strong> ${esc((item&&item.landingUrl)||state.landingUrl||"To be supplied")}</p><ul>${customerFriendlyNeeds(key).map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section>`}).join("");
  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>@page{size:letter;margin:.55in}body{font-family:Arial,sans-serif;color:#253247;line-height:1.45;margin:0}h1{font-size:26px;color:#14284b;border-bottom:5px solid #1f63ae;padding-bottom:12px;margin-bottom:18px}h2{font-size:18px;color:#14284b;margin:24px 0 8px}.intro,.contact,.note{padding:12px 15px;border-radius:7px}.intro{background:#eef4fa}.contact{background:#14284b;color:white;margin:12px 0}.note{background:#fff5df;border-left:5px solid #e5a323;margin:15px 0}li{margin:0 0 7px}section{break-inside:avoid;border-bottom:1px solid #d7e0ea;padding-bottom:12px}.footer{font-size:11px;color:#65758a;margin-top:25px}@media print{button{display:none}}</style></head><body><h1>${esc(title)}</h1><div class="contact"><strong>Your Smart 1 contact:</strong> ${esc(state.salesContact||"")}${state.salesEmail?" | "+esc(state.salesEmail):""}<br><strong>Campaign dates:</strong> ${esc(state.sameDates?(state.start+" to "+state.end):"Dates vary by product")}<br><strong>Creative:</strong> ${esc(state.creativeSource||"To be confirmed")}<br><strong>Business website:</strong> ${esc(state.url||"")}<br><strong>Landing pages:</strong> ${esc(state.landingMode==="One landing page"?(state.landingUrl||"To be supplied"):"Listed by product below")}</div>${brandfetchSummaryText()?`<div class="intro"><strong>Brand profile</strong><pre style="white-space:pre-wrap;font-family:Arial,sans-serif">${esc(brandfetchSummaryText())}</pre></div>`:""}<div class="intro"><strong>Thank you for partnering with Smart 1 Marketing.</strong><p>To keep your project moving, please gather the items below. Your list only includes the products selected for your campaign.</p></div><h2>Items Needed for Every Campaign</h2><ul><li>Approved logo, brand colors/guidelines and your best photos or videos</li><li>Main offer/message, call to action, destination link and phone number to promote</li><li>Expiration dates, restrictions, legal wording or required disclaimers</li><li>One person who can approve creative and the contacts who should receive reports or leads</li><li>Competitors, negative keywords, locations, websites, audiences or topics to avoid</li><li>Preferred days or hours for the campaign to run</li></ul><div class="note"><strong>Account security:</strong> Please use official partner or manager permissions when giving Smart 1 access. Do not email personal passwords.<br><br><strong>Display files:</strong> Every display ad file must be 150 KB or smaller.</div>${sections||"<p>No products have been selected.</p>"}<div class="footer">Once the required items and access are received, your Smart 1 contact will confirm timing and next steps.</div><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script>
-<div class="creative-modal" id="creativeModal">
- <div class="creative-card">
-  <div class="creative-head">
-   <div><h2>Creative Upload Manager</h2><div class="tiny">Upload multiple files, connect each file to a product, and validate it against SMART1 creative specifications.</div></div>
-   <button class="close-btn" onclick="closeCreativeManager()">Close</button>
-  </div>
-  <div class="upload-grid">
-   <div class="upload-box">
-    <label>Product</label><select id="creativeProduct"></select>
-    <label>Creative Status</label>
-    <select id="creativeStatus" onchange="toggleUploadFields()"><option value="upload">Upload creative now</option><option value="later">Creative is coming later</option></select>
-    <div id="uploadFields">
-     <label>Select one or more files</label><input id="creativeFiles" type="file" multiple accept="image/*,video/*,.pdf,.zip,.html,.mp3,.wav">
-     <label>Optional note</label><textarea id="creativeNote" rows="2" placeholder="Version, placement, language, approval note, etc."></textarea>
-    </div>
-    <div class="upload-actions"><button class="upload-primary" onclick="handleCreativeAction()">Add Creative</button><button class="upload-secondary" onclick="clearCreativeForm()">Clear</button></div>
-    <div class="tiny" style="margin-top:10px">Files are tagged with the customer name and campaign start date. Uploads require the secure SMART1 server package included with this builder.</div>
-   </div>
-   <div class="upload-box">
-    <strong>Validation behavior</strong>
-    <p class="tiny">The file will still upload when it does not match a known specification, but the order will show a warning. Display files larger than 150 KB are always flagged.</p><div id="smart1snapValidationWarning" class="callout" style="display:none;margin-top:8px"><strong>SMART1Snap warning:</strong> <span></span></div>
-    <div id="uploadConnection" class="callout">Checking secure Cloudinary connection…</div>
-   </div>
-   <div class="upload-box wide asset-list"><strong>Creative added to this IO</strong><div id="creativeAssetList"></div></div>
-  </div>
- </div>
-</div>
-
 </body></html>`;
 }
 function printCustomerRequirements(){
@@ -1831,38 +1788,65 @@ async function copyCustomerRequirements(){
 }
 
 const CLOUDINARY_CLOUD_NAME="smart1snap";
-const CREATIVE_SPECS={
- display:{sizes:[[728,90],[300,250],[160,600],[300,600],[320,50],[970,250],[300,50],[320,480],[1024,768]],maxBytes:150*1024,formats:["jpg","jpeg","png","gif"]},
- native:{sizes:[[1200,628],[200,200]],formats:["jpg","jpeg","png","gif"]},
- meta:{sizes:[[1080,1080],[1200,628],[1080,1920]],formats:["jpg","jpeg","png","mp4","mov"]},
- linkedin:{sizes:[[1200,627],[1080,1080],[100,100]],formats:["jpg","jpeg","png","mp4"]},
- vertical:{sizes:[[1080,1920]],formats:["jpg","jpeg","png","mp4","mov"]},
- youtube:{ratios:[16/9],formats:["mp4","mov","webm"]},
- ctv:{sizes:[[1920,1080]],formats:["mp4","mov"]},
- audio:{sizes:[[300,250]],formats:["mp3","jpg","jpeg","png"]},
- email:{widthRange:[600,750],formats:["jpg","jpeg","png","gif","html","zip"]},
- signage:{sizes:[[1080,1920],[1920,1080],[1024,768],[1400,400],[840,400],[728,90],[300,250]],formats:["jpg","jpeg","png","mp4"]}
-};
-function specForProduct(key){
- const c=productConfig[key]||{},s=((c.category||"")+" "+(c.product||"")).toLowerCase();
- if(/native/.test(s))return CREATIVE_SPECS.native;
- if(/facebook|instagram|meta/.test(s))return CREATIVE_SPECS.meta;
- if(/linkedin/.test(s))return CREATIVE_SPECS.linkedin;
- if(/tiktok|snapchat|pinterest/.test(s))return CREATIVE_SPECS.vertical;
- if(/youtube/.test(s))return CREATIVE_SPECS.youtube;
- if(/connected tv|advanced tv|ott/.test(s))return CREATIVE_SPECS.ctv;
- if(/radio|podcast|audio/.test(s))return CREATIVE_SPECS.audio;
- if(/email|admail/.test(s))return CREATIVE_SPECS.email;
- if(/signage|out of home|dooh/.test(s))return CREATIVE_SPECS.signage;
- if(/display|programmatic|retarget|mobile|geo-fence|location lookback|ip target/.test(s))return CREATIVE_SPECS.display;
- return null;
+// --- Creative specifications ---
+// The spec tables used to live here: nine display sizes with one shared 150 KB
+// cap, and a guess for everything else. They are now hub/creative_specs.py,
+// transcribed from the 2025 Creative Spec Kit, so the IO builder, the client
+// gallery and diagnostics all answer "does this meet spec?" the same way.
+let SPEC_CATALOGUE=null;
+async function loadSpecCatalogue(){
+ if(SPEC_CATALOGUE)return SPEC_CATALOGUE;
+ try{const r=await fetch('/api/creative-specs');if(r.ok)SPEC_CATALOGUE=await r.json()}catch(e){}
+ return SPEC_CATALOGUE;
+}
+// Judged on the server. A network failure returns "unknown" rather than a pass
+// — a clean verdict nobody actually checked is the worst of the four outcomes.
+async function checkCreative(file,meta,product){
+ const cfg=productConfig[product]||{};
+ try{
+  const r=await fetch('/api/creative-check',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({width:meta.width,height:meta.height,bytes:file.size,format:meta.format,
+    duration:meta.duration,product:cfg.product||product,category:cfg.category||"",client:state.client})});
+  if(!r.ok)throw new Error('spec service unavailable');
+  return await r.json();
+ }catch(e){
+  return {result:"unknown",checks:[],unit:null,alternatives:[],tags:[],
+   summary:"The specification check could not run ("+e.message+"). Review this file against the spec kit by hand."};
+ }
+}
+function specClass(v){return v==="pass"?"ok":(v==="fail"||v==="warn")?"warn":""}
+function specLabel(v){return v==="pass"?"PASS":v==="fail"?"FAIL":v==="warn"?"WARNING":"NOT CHECKED"}
+// What this product accepts, shown before anyone picks a file — cheaper than
+// finding out afterwards that the buy takes no 300x250.
+async function renderSpecSheet(){
+ const el=document.getElementById("specSheet");if(!el)return;
+ const key=document.getElementById("creativeProduct")?.value;
+ if(!key){el.textContent="Choose a product to see the sizes it accepts.";return}
+ const cfg=productConfig[key]||{};
+ const cat=await loadSpecCatalogue();
+ if(!cat){el.textContent="Spec sheet unavailable.";return}
+ try{
+  const r=await fetch('/api/creative-check',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({product:cfg.product||key,category:cfg.category||""})});
+  const v=await r.json();
+  if(!v.unit){el.innerHTML='<span class="warn">No spec is mapped for this product — check it by hand.</span>';return}
+  const chan=(cat.channels||[]).find(c=>c.id===v.unit.channel);
+  const rows=((chan&&chan.units)||[]).map(u=>{
+   const sizes=(u.sizes||(u.size?[u.size]:[])).map(x=>x[0]+"x"+x[1]).join(", ");
+   const bits=[sizes,u.max_bytes?("max "+Math.round(u.max_bytes/1024)+" KB"):"",
+               (u.formats||[]).map(f=>"."+f).join(" / "),
+               u.duration?(u.duration[0]+"-"+u.duration[1]+"s"):""].filter(Boolean);
+   return "<li><strong>"+esc(u.name)+"</strong> — "+esc(bits.join(" · "))+"</li>";
+  });
+  el.innerHTML='<div><strong>'+esc(v.unit.channel_label)+'</strong></div><ul style="margin:6px 0 0 16px">'+rows.join("")+'</ul>';
+ }catch(e){el.textContent="Spec sheet unavailable."}
 }
 function slugTag(v){return String(v||"unknown").toLowerCase().trim().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"").slice(0,80)||"unknown"}
 function campaignStartForProduct(key){const i=state.items.find(x=>x.product===key);return state.sameDates?state.start:(i?i.start:state.start)}
 function openCreativeManager(){
  const sel=document.getElementById("creativeProduct");
  sel.innerHTML=state.selected.length?state.selected.map(k=>`<option value="${esc(k)}">${esc((productConfig[k]||{}).product||k)}</option>`).join(""):'<option value="">Select products in the IO first</option>';
- renderCreativeAssets();document.getElementById("creativeModal").classList.add("open");if(typeof openModalA11y==="function")openModalA11y(document.getElementById("creativeModal"));checkUploadConnection()
+ renderCreativeAssets();renderSpecSheet();document.getElementById("creativeModal").classList.add("open");if(typeof openModalA11y==="function")openModalA11y(document.getElementById("creativeModal"));checkUploadConnection()
 }
 function closeCreativeManager(){document.getElementById("creativeModal").classList.remove("open");if(typeof closeModalA11y==="function")closeModalA11y()}
 function toggleUploadFields(){document.getElementById("uploadFields").style.display=document.getElementById("creativeStatus").value==="later"?"none":"block"}
@@ -1879,44 +1863,111 @@ function inspectMedia(file){return new Promise(resolve=>{
  if(file.type.startsWith('video/')){const v=document.createElement('video'),u=URL.createObjectURL(file);v.preload='metadata';v.onloadedmetadata=()=>{base.width=v.videoWidth;base.height=v.videoHeight;base.duration=v.duration;URL.revokeObjectURL(u);resolve(base)};v.onerror=()=>resolve(base);v.src=u;return}
  resolve(base)
 })}
-function validateCreative(file,meta,product){
- const spec=specForProduct(product),issues=[],matches=[];
- if(file.size>150*1024 && spec===CREATIVE_SPECS.display)issues.push(`Display file is ${Math.round(file.size/1024)} KB; maximum is 150 KB.`);
- if(!spec)return{status:"warning",message:"No automated specification is mapped for this product. Please review manually."};
- if(spec.formats && !spec.formats.includes(meta.format))issues.push(`File type .${meta.format} is not among the recommended formats.`);
- if(meta.width&&meta.height){
-  if(spec.sizes){const hit=spec.sizes.some(([w,h])=>w===meta.width&&h===meta.height);if(hit)matches.push(`${meta.width}×${meta.height} matches an approved size`);else issues.push(`${meta.width}×${meta.height} does not match a listed size.`)}
-  if(spec.widthRange && (meta.width<spec.widthRange[0]||meta.width>spec.widthRange[1]))issues.push(`Width ${meta.width}px is outside the recommended ${spec.widthRange[0]}–${spec.widthRange[1]}px range.`)
-  if(spec.ratios){const ratio=meta.width/meta.height,hit=spec.ratios.some(r=>Math.abs(ratio-r)<.03);if(!hit)issues.push(`Aspect ratio does not match the recommended 16:9 format.`);else matches.push('Aspect ratio matches 16:9')}
- }
- if(spec===CREATIVE_SPECS.ctv && meta.duration && ![15,30].some(d=>Math.abs(meta.duration-d)<1))issues.push(`Video is ${meta.duration.toFixed(1)} seconds; CTV should normally be 15 or 30 seconds.`)
- if(issues.length)return{status:"warning",message:issues.join(" ")+(matches.length?` ${matches.join('. ')}.`:"")};
- return{status:"ok",message:matches.join('. ')||"File matches the known format requirements."}
-}
 async function getSignature(params){
  const r=await fetch('/api/cloudinary-signature',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)});
  if(!r.ok)throw new Error((await r.text())||'Unable to create secure upload signature');return r.json()
 }
 async function uploadOneCreative(file,product,note){
- const meta=await inspectMedia(file),validation=validateCreative(file,meta,product),start=campaignStartForProduct(product)||"no_start_date";const evergreen=!!document.getElementById("creativeEvergreen")?.checked;
- const tags=[slugTag(state.client),slugTag(start),slugTag((productConfig[product]||{}).product||product),"smart1_io_creative"];
+ const meta=await inspectMedia(file);
+ const spec=await checkCreative(file,meta,product);
+ const start=campaignStartForProduct(product)||"no_start_date";
+ const evergreen=!!document.getElementById("creativeEvergreen")?.checked;
+ // Tags come from the server so the gallery, Cloudinary and the order all
+ // carry the same date, product, dimensions, size and verdict.
+ const tags=[...new Set([...(spec.tags||[]),slugTag(state.client),slugTag(start),
+             slugTag((productConfig[product]||{}).product||product),"smart1_io_creative"])];
  const folder=`smart1_campaigns/${slugTag(state.client)}/${slugTag(start)}`;
- const pending={id:`asset_${Date.now()}_${Math.random().toString(36).slice(2)}`,product,fileName:file.name,status:"uploading",validation:validation.message,validationStatus:validation.status,url:"",bytes:file.size,width:meta.width,height:meta.height,note,tags,evergreen};
+ const pending={id:`asset_${Date.now()}_${Math.random().toString(36).slice(2)}`,product,fileName:file.name,
+  status:"uploading",spec,validation:spec.summary,validationStatus:spec.result,url:"",bytes:file.size,
+  width:meta.width,height:meta.height,duration:meta.duration,note,tags,evergreen};
  state.creativeAssets.push(pending);
- if(validation.status==="warning"){
-  const warning=`${(productConfig[product]||{}).product||product}: ${file.name} — ${validation.message}`;
+ // A failure is carried onto the order itself, not just shown in the modal —
+ // the person approving the IO is rarely the person who uploaded the file.
+ if(spec.result==="fail"||spec.result==="warn"||spec.result==="unknown"){
+  const warning=`${(productConfig[product]||{}).product||product}: ${file.name} — ${specLabel(spec.result)}. ${spec.summary}`;
   if(!state.internalWarnings.includes(warning))state.internalWarnings.push(warning);
   const box=document.getElementById("smart1snapValidationWarning");
   if(box){box.style.display="block";box.querySelector("span").textContent=warning}
  }
  renderCreativeAssets();render();
- const params={timestamp:Math.floor(Date.now()/1000),folder,tags:tags.join(','),context:`client=${slugTag(state.client)}|campaign_start=${slugTag(start)}|product=${slugTag((productConfig[product]||{}).product||product)}`};
+ const params={timestamp:Math.floor(Date.now()/1000),folder,tags:tags.join(','),
+  context:`client=${slugTag(state.client)}|campaign_start=${slugTag(start)}|product=${slugTag((productConfig[product]||{}).product||product)}|spec=${spec.result||"unknown"}`};
  try{
-  const signed=await getSignature(params),form=new FormData();form.append('file',file);form.append('api_key',signed.api_key);form.append('timestamp',params.timestamp);form.append('signature',signed.signature);form.append('folder',folder);form.append('tags',params.tags);form.append('context',params.context);
-  const res=await fetch(`https://api.cloudinary.com/v1_1/${signed.cloud_name||CLOUDINARY_CLOUD_NAME}/auto/upload`,{method:'POST',body:form});const data=await res.json();if(!res.ok)throw new Error(data.error?.message||'Cloudinary upload failed');
-  Object.assign(pending,{status:"uploaded",url:data.secure_url,publicId:data.public_id,resourceType:data.resource_type,bytes:data.bytes||file.size,width:data.width||meta.width,height:data.height||meta.height});
- }catch(e){pending.status="error";pending.validation=`${pending.validation} Upload error: ${e.message}`;pending.validationStatus="warning"}
+  const signed=await getSignature(params),form=new FormData();
+  form.append('file',file);form.append('api_key',signed.api_key);form.append('timestamp',params.timestamp);
+  form.append('signature',signed.signature);form.append('folder',folder);form.append('tags',params.tags);form.append('context',params.context);
+  const res=await fetch(`https://api.cloudinary.com/v1_1/${signed.cloud_name||CLOUDINARY_CLOUD_NAME}/auto/upload`,{method:'POST',body:form});
+  const data=await res.json();if(!res.ok)throw new Error(data.error?.message||'Cloudinary upload failed');
+  Object.assign(pending,{status:"uploaded",url:data.secure_url,publicId:data.public_id,resourceType:data.resource_type,
+   bytes:data.bytes||file.size,width:data.width||meta.width,height:data.height||meta.height});
+  await fileToGallery(pending,product);
+ }catch(e){pending.status="error";pending.validation=`${pending.validation} Upload error: ${e.message}`}
  renderCreativeAssets();render()
+}
+// Creative attached to an IO used to land in Cloudinary and nowhere else, so
+// the gallery the client actually looks at never learned it existed.
+async function fileToGallery(asset,product){
+ if(!state.client||!asset.publicId)return;
+ const label=(productConfig[product]||{}).product||product;
+ try{
+  const r=await fetch('/tools/image-picker/api/staff/file',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({client:state.client,public_id:asset.publicId,url:asset.url,filename:asset.fileName,
+    resource_type:asset.resourceType,width:asset.width,height:asset.height,bytes:asset.bytes,
+    provider:"io_creative",collection_kind:"io_creative",collection_key:slugTag(label),
+    collection_label:`IO creative — ${label}`,spec:asset.spec})});
+  const d=await r.json();
+  asset.galleryStatus=d.ok?(d.duplicate?"already in gallery":"added to gallery"):"gallery: "+(d.error||"failed");
+  if(d.ok&&d.gallery_url)asset.galleryUrl=d.gallery_url;
+ }catch(e){asset.galleryStatus="gallery: "+e.message}
+}
+// Attach something already on file. It still goes through the spec check,
+// because a file that passed for one product can fail for another.
+async function attachFromGallery(imageId){
+ const img=(GALLERY_CACHE.images||[]).find(i=>String(i.id)===String(imageId));
+ const product=document.getElementById("creativeProduct")?.value;
+ if(!img||!product){alert('Select a product first.');return}
+ const cfg=productConfig[product]||{};
+ const fmt=(img.filename||img.url||"").split('.').pop().toLowerCase().split(/[?#]/)[0];
+ let spec={result:"unknown",summary:"Not checked.",checks:[],unit:null,alternatives:[],tags:[]};
+ try{
+  const r=await fetch('/api/creative-check',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({width:img.width,height:img.height,bytes:img.bytes,format:fmt,
+    product:cfg.product||product,category:cfg.category||"",client:state.client})});
+  if(r.ok)spec=await r.json();
+ }catch(e){}
+ state.creativeAssets.push({id:`gallery_${img.id}_${Date.now()}`,product,fileName:img.filename||`Gallery image ${img.id}`,
+  status:"uploaded",spec,validation:spec.summary,validationStatus:spec.result,url:img.url,publicId:img.public_id,
+  resourceType:img.resource_type,bytes:img.bytes,width:img.width,height:img.height,
+  note:"Attached from the client gallery",tags:spec.tags||[],evergreen:false,
+  galleryStatus:"already in gallery",galleryUrl:GALLERY_CACHE.gallery_url||""});
+ if(spec.result==="fail"){
+  const warning=`${cfg.product||product}: ${img.filename||"gallery file"} — FAIL. ${spec.summary}`;
+  if(!state.internalWarnings.includes(warning))state.internalWarnings.push(warning);
+ }
+ renderCreativeAssets();render()
+}
+let GALLERY_CACHE={images:[],gallery_url:""};
+async function loadClientGallery(){
+ const el=document.getElementById("galleryPanel");if(!el)return;
+ if(!state.client){el.textContent="Enter the client name first.";return}
+ el.textContent="Loading…";
+ try{
+  const r=await fetch('/tools/image-picker/api/staff/gallery?limit=60&client='+encodeURIComponent(state.client));
+  const d=await r.json();
+  GALLERY_CACHE={images:d.images||[],gallery_url:d.gallery_url||""};
+  const link=document.getElementById("galleryOpenLink");
+  if(link&&d.gallery_url){link.href=d.gallery_url;link.style.display="inline"}
+  if(!d.client){el.textContent="No gallery exists for this client yet. Anything uploaded here will create one.";return}
+  if(!GALLERY_CACHE.images.length){el.textContent="This client's gallery is empty.";return}
+  el.innerHTML='<div class="gallery-grid">'+GALLERY_CACHE.images.map(i=>{
+   const isImg=(i.resource_type||"image")==="image";
+   const dims=(i.width&&i.height)?`${i.width}x${i.height}`:"";
+   const badge=i.spec_result?`<span class="${specClass(i.spec_result)}">${specLabel(i.spec_result)}</span>`:"";
+   return `<div class="gallery-item">${isImg?`<img src="${esc(i.url)}" alt="">`:`<div class="gallery-file">${esc((i.filename||"file").split('.').pop().toUpperCase())}</div>`}
+    <div class="tiny">${esc(i.filename||"")}</div><div class="tiny">${esc(dims)} ${badge}</div>
+    <button class="upload-secondary" onclick="attachFromGallery('${esc(String(i.id))}')">Attach to IO</button></div>`;
+  }).join("")+'</div>';
+ }catch(e){el.textContent="Could not load the gallery: "+e.message}
 }
 async function handleCreativeAction(){
  const product=document.getElementById("creativeProduct").value,status=document.getElementById("creativeStatus").value,note=document.getElementById("creativeNote").value.trim();if(!product){alert('Select a product.');return}
@@ -1929,8 +1980,14 @@ async function handleCreativeAction(){
 function renderCreativeAssets(){
  const list=document.getElementById("creativeAssetList"),rows=document.getElementById("creativeRows");if(!list||!rows)return;
  if(!state.creativeAssets.length){list.innerHTML='<p class="tiny">No creative has been added.</p>';rows.innerHTML='<tr><td colspan="5" class="empty">No creative assets uploaded yet.</td></tr>';return}
- list.innerHTML=state.creativeAssets.map(a=>`<div class="asset-item"><div class="asset-top"><div><strong>${esc(a.fileName)}</strong><div class="tiny">${esc((productConfig[a.product]||{}).product||a.product)}</div></div><span class="${a.status==='uploaded'?'ok':a.status==='error'?'warn':'pending'}">${esc(a.status)}</span></div><div class="tiny"><strong>Evergreen:</strong> ${a.evergreen?"Yes":"No"}</div><div class="tiny ${a.validationStatus==='warning'?'warn':a.validationStatus==='ok'?'ok':''}">${esc(a.validation||'')}</div>${a.validationStatus==="warning"?`<div class="callout" style="margin-top:7px"><strong>SMART1Snap validation warning:</strong> ${esc(a.validation)}</div>`:""}${a.url?`<div class="url-field"><input readonly value="${esc(a.url)}"><button class="upload-secondary" onclick="navigator.clipboard.writeText('${esc(a.url)}')">Copy URL</button></div>`:''}</div>`).join('');
- rows.innerHTML=state.creativeAssets.map(a=>{const isImage=a.resourceType==='image'||/\.(png|jpe?g|gif|webp)$/i.test(a.fileName||'');const preview=a.url&&isImage?`<a href="${esc(a.url)}" target="_blank"><img class="creative-thumb" src="${esc(a.url)}" alt="Creative thumbnail"></a>`:'';return `<tr><td>${esc((productConfig[a.product]||{}).product||a.product)}</td><td>${preview}${esc(a.fileName)}</td><td>${esc(a.status)}</td><td class="${a.validationStatus==='warning'?'warn':a.validationStatus==='ok'?'ok':''}">${esc(a.validation)}</td><td>${a.url?`<a href="${esc(a.url)}" target="_blank">Open asset</a><br><small>${esc(a.url)}</small>`:'—'}</td></tr>`}).join('')
+ list.innerHTML=state.creativeAssets.map(a=>{
+  const v=a.validationStatus||"unknown";
+  const detail=((a.spec&&a.spec.checks)||[]).map(c=>`<div class="tiny ${c.status==='fail'?'warn':c.status==='pass'?'ok':''}">${esc(c.label)}: ${esc(c.detail)}</div>`).join("");
+  const alts=((a.spec&&a.spec.alternatives)||[]).map(x=>esc(x.name)+" ("+esc(x.channel)+")").join(", ");
+  const notes=((a.spec&&a.spec.unit&&a.spec.unit.notes)||[]).map(n=>`<div class="tiny">${esc(n)}</div>`).join("");
+  return `<div class="asset-item"><div class="asset-top"><div><strong>${esc(a.fileName)}</strong><div class="tiny">${esc((productConfig[a.product]||{}).product||a.product)}${a.spec&&a.spec.unit?" · "+esc(a.spec.unit.name):""}</div></div><span class="${specClass(v)}">${specLabel(v)}</span></div><div class="tiny"><strong>Evergreen:</strong> ${a.evergreen?"Yes":"No"}${a.width&&a.height?" · "+a.width+"x"+a.height:""}${a.bytes?" · "+Math.round(a.bytes/1024)+" KB":""}${a.galleryStatus?" · "+esc(a.galleryStatus):""}</div><div class="tiny ${specClass(v)}">${esc(a.validation||'')}</div>${detail?`<details style="margin-top:6px"><summary class="tiny">Every check</summary>${detail}${notes}</details>`:""}${alts?`<div class="tiny">This file would pass as: ${alts}</div>`:""}${a.url?`<div class="url-field"><input readonly value="${esc(a.url)}"><button class="upload-secondary" onclick="navigator.clipboard.writeText('${esc(a.url)}')">Copy URL</button></div>`:''}</div>`;
+ }).join('');
+ rows.innerHTML=state.creativeAssets.map(a=>{const isImage=a.resourceType==='image'||/\.(png|jpe?g|gif|webp)$/i.test(a.fileName||'');const preview=a.url&&isImage?`<a href="${esc(a.url)}" target="_blank"><img class="creative-thumb" src="${esc(a.url)}" alt="Creative thumbnail"></a>`:'';return `<tr><td>${esc((productConfig[a.product]||{}).product||a.product)}</td><td>${preview}${esc(a.fileName)}</td><td>${esc(a.status)}</td><td class="${specClass(a.validationStatus)}"><strong>${specLabel(a.validationStatus)}</strong><br><small>${esc(a.validation)}</small></td><td>${a.url?`<a href="${esc(a.url)}" target="_blank">Open asset</a><br><small>${esc(a.url)}</small>`:'—'}</td></tr>`}).join('')
 }
 
 function customerRequirementItems(){
@@ -2398,7 +2455,7 @@ async function submitCompletedIO(){
   </div>
   <div class="upload-grid">
    <div class="upload-box">
-    <label>Product</label><select id="creativeProduct"></select>
+    <label>Product</label><select id="creativeProduct" onchange="renderSpecSheet()"></select>
     <label>Creative Status</label>
     <select id="creativeStatus" onchange="toggleUploadFields()"><option value="upload">Upload creative now</option><option value="later">Creative is coming later</option></select>
     <div id="uploadFields">
@@ -2409,9 +2466,23 @@ async function submitCompletedIO(){
     <div class="tiny" style="margin-top:10px">Files are tagged with the customer name and campaign start date. Uploads require the secure SMART1 server package included with this builder.</div>
    </div>
    <div class="upload-box">
-    <strong>Validation behavior</strong>
-    <p class="tiny">The file will still upload when it does not match a known specification, but the order will show a warning. Display files larger than 150 KB are always flagged.</p><div id="smart1snapValidationWarning" class="callout" style="display:none;margin-top:8px"><strong>SMART1Snap warning:</strong> <span></span></div>
+    <strong>Specification check</strong>
+    <p class="tiny">Every file is checked against the 2025 Creative Spec Kit before it uploads. <strong>Fail</strong> means the platform will refuse it. <strong>Warning</strong> means it will run but is outside what the kit recommends. Files upload either way — the verdict travels with the order.</p>
+    <div id="smart1snapValidationWarning" class="callout" style="display:none;margin-top:8px"><strong>Spec warning:</strong> <span></span></div>
     <div id="uploadConnection" class="callout">Checking secure Cloudinary connection…</div>
+    <label style="margin-top:10px">Spec sheet for this product</label>
+    <div id="specSheet" class="tiny">Choose a product to see the sizes it accepts.</div>
+   </div>
+   <div class="upload-box wide">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+     <strong>Client gallery</strong>
+     <div style="display:flex;gap:8px">
+      <button class="upload-secondary" onclick="loadClientGallery()">Load gallery</button>
+      <a id="galleryOpenLink" class="tiny" href="#" target="_blank" style="display:none;align-self:center">Open full gallery</a>
+     </div>
+    </div>
+    <p class="tiny">Creative already on file for this client. Attach an existing file to this IO instead of re-uploading it, and anything uploaded here is filed back into the gallery automatically.</p>
+    <div id="galleryPanel" class="tiny">Not loaded.</div>
    </div>
    <div class="upload-box wide asset-list"><strong>Creative added to this IO</strong><div id="creativeAssetList"></div></div>
   </div>

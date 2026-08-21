@@ -270,6 +270,51 @@ def generate_business_description():
             detail = (exc.response.text or '')[:500]
         return jsonify({'error': 'OpenAI description request failed', 'detail': detail or str(exc)}), 502
 
+@app.get('/api/creative-specs')
+def creative_specs_catalogue():
+    """The whole 2025 spec kit, for the browser to render.
+
+    Served rather than duplicated in JavaScript: the builder used to carry its
+    own approximation of these tables, which drifted from the kit and had no
+    way of being corrected in one place.
+    """
+    from hub import creative_specs
+    return jsonify(creative_specs.catalogue())
+
+
+@app.post('/api/creative-check')
+def creative_check():
+    """Judge one file against the kit. Pass/fail, with the reasons."""
+    from hub import creative_specs
+    d = request.get_json(silent=True) or {}
+
+    def _int(v):
+        try:
+            return int(float(v or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    duration = None
+    if d.get('duration') not in (None, ''):
+        try:
+            duration = float(d['duration'])
+        except (TypeError, ValueError):
+            duration = None
+
+    verdict = creative_specs.check(
+        width=_int(d.get('width')), height=_int(d.get('height')),
+        size_bytes=_int(d.get('bytes')), fmt=str(d.get('format') or ''),
+        duration=duration, product=str(d.get('product') or ''),
+        category=str(d.get('category') or ''),
+        unit_id=str(d.get('unit_id') or ''))
+    verdict['tags'] = creative_specs.tags_for(
+        verdict, product=str(d.get('product') or ''),
+        client=str(d.get('client') or ''),
+        width=_int(d.get('width')), height=_int(d.get('height')),
+        size_bytes=_int(d.get('bytes')))
+    return jsonify(verdict)
+
+
 @app.post('/api/cloudinary-signature')
 def cloudinary_signature():
     cfg = cloudinary.config()
