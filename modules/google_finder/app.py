@@ -1131,10 +1131,117 @@ AI_SOURCE_REGEX = (r"chatgpt|chat\.openai|openai\.com|perplexity|gemini\.google|
 ORGANIC_CHANNEL = "Organic Search"
 
 
+_SNAP_METRICS = [{"name": "totalUsers"}, {"name": "sessions"},
+                 {"name": "engagementRate"}, {"name": "eventCount"},
+                 {"name": "averageSessionDuration"}]
+
+
+def _snap_vals(row):
+    v = row.get("metricValues", [])
+
+    def g(i, cast=float):
+        try:
+            return cast(v[i]["value"])
+        except (IndexError, KeyError, TypeError, ValueError):
+            return 0
+
+    return {"users": int(g(0)), "sessions": int(g(1)),
+            "engagement_rate": round(g(2) * 100, 1),
+            "events": int(g(3)), "avg_session_seconds": round(g(4))}
+
+
+_SNAP_ZERO = {"users": 0, "sessions": 0, "engagement_rate": 0,
+              "events": 0, "avg_session_seconds": 0}
+
+
+def _range_index(row, dim_count):
+    """Which date range this row belongs to.
+
+    GA4 appends the range as an extra dimension value when more than one is
+    asked for. Reading it by position breaks the moment a range returns no
+    rows, so the date_range_N tag is what decides and position is the
+    fallback."""
+    dvals = [d.get("value", "") for d in row.get("dimensionValues", [])]
+    for val in dvals:
+        if str(val).startswith("date_range_"):
+            try:
+                return int(str(val).rsplit("_", 1)[1]), dvals[:dim_count]
+            except ValueError:
+                break
+    return 0, dvals[:dim_count]
+
+
+def _change(now, was):
+    """Percent change, or None when there is nothing to measure against.
+
+    Not 100%: a first month is not growth of one hundred per cent, and
+    reporting it that way puts a client with three sessions at the top of
+    anything sorted by improvement."""
+    out = {}
+    for key in ("users", "sessions", "engagement_rate", "events",
+                "avg_session_seconds"):
+        before = was.get(key) or 0
+        after = now.get(key) or 0
+        out[key] = round((after - before) / before * 100, 1) if before else None
+    return out
+
+
+def _snapshot_ranges(data):
+    """The two periods a snapshot compares, from the request or by default.
+
+    The default is month to date against the same days of last month, not
+    against all of last month. Comparing three days to a full month reports a
+    collapse that has not happened."""
+    import datetime as _dt
+
+    def clean(v):
+        try:
+            return _dt.date.fromisoformat(str(v or "")[:10]).isoformat()
+        except ValueError:
+            return None
+
+    start, end = clean(data.get("start")), clean(data.get("end"))
+    cstart, cend = clean(data.get("compare_start")), clean(data.get("compare_end"))
+
+    if start and end:
+        if end < start:
+            start, end = end, start
+        if cstart and cend:
+            if cend < cstart:
+                cstart, cend = cend, cstart
+        else:
+            # No comparison given: take the period immediately before, of the
+            # same length, so the two are the same size.
+            s = _dt.date.fromisoformat(start)
+            e = _dt.date.fromisoformat(end)
+            span = (e - s).days
+            cend = (s - _dt.timedelta(days=1)).isoformat()
+            cstart = (s - _dt.timedelta(days=span + 1)).isoformat()
+        return ([{"startDate": start, "endDate": end, "name": "current"},
+                 {"startDate": cstart, "endDate": cend, "name": "previous"}],
+                "custom")
+
+    mtd, same, _full = _month_ranges()
+    return ([{"startDate": mtd["startDate"], "endDate": mtd["endDate"], "name": "current"},
+             {"startDate": same["startDate"], "endDate": same["endDate"], "name": "previous"}],
+            "mtd")
+
+
 @app.route("/api/ga4/seo-snapshot", methods=["POST"])
 def api_ga4_seo_snapshot():
-    """This-month organic metrics + AI-engine referral traffic for one
-    property. Used by the Hub's SEO client page."""
+    """Organic and AI-engine traffic for one property, over two periods.
+
+    Used by the Hub's SEO client page. It used to answer for a single period —
+    month to date — which meant the page could show numbers but never say
+    whether they were good ones. Both periods come back with the change
+    already worked out, so the page and anything else that reads this cannot
+    arrive at different percentages from the same figures.
+
+    Defaults to month to date against the same days of last month. Pass
+    start/end (and optionally compare_start/compare_end) for any other pair;
+    without an explicit comparison the period immediately before, of the same
+    length, is used.
+    """
     data = request.json or {}
     property_id = str(data.get("property_id", "")).strip()
     google_login = str(data.get("google_login", "")).strip().lower()
@@ -1144,76 +1251,107 @@ def api_ga4_seo_snapshot():
     if not account:
         return jsonify({"error": f"Account {google_login} is not connected."}), 404
 
-    from datetime import date
-    start = date.today().replace(day=1).isoformat()
-    metrics = [{"name": "totalUsers"}, {"name": "sessions"},
-               {"name": "engagementRate"}, {"name": "eventCount"},
-               {"name": "averageSessionDuration"}]
+    ranges, mode = _snapshot_ranges(data)
 
-    def _vals(row):
-        v = row.get("metricValues", [])
-        def g(i, cast=float):
-            try:
-                return cast(v[i]["value"])
-            except (IndexError, KeyError, ValueError):
-                return 0
-        return {"users": int(g(0)), "sessions": int(g(1)),
-                "engagement_rate": round(g(2) * 100, 1),
-                "events": int(g(3)), "avg_session_seconds": round(g(4))}
+    organic_req = {
+        "dateRanges": ranges,
+        "metrics": _SNAP_METRICS,
+        "dimensionFilter": {"filter": {
+            "fieldName": "sessionDefaultChannelGroup",
+            "stringFilter": {"matchType": "EXACT", "value": ORGANIC_CHANNEL}}},
+    }
+    ai_req = {
+        "dateRanges": ranges,
+        "dimensions": [{"name": "sessionSource"}],
+        "metrics": _SNAP_METRICS,
+        "dimensionFilter": {"filter": {
+            "fieldName": "sessionSource",
+            "stringFilter": {"matchType": "PARTIAL_REGEXP",
+                             "value": AI_SOURCE_REGEX, "caseSensitive": False}}},
+        "orderBys": [{"metric": {"metricName": "sessions"}, "desc": True}],
+        "limit": 25,
+    }
 
     try:
         access_token = refresh_access_token(google_login, account["refresh_token"])
-        url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
+    except ReauthRequired as exc:
+        return jsonify({"error": str(exc), "needs_reauth": True,
+                        "reconnect_url": "/google/login"}), 401
 
-        organic_req = {
-            "dateRanges": [{"startDate": start, "endDate": "today"}],
-            "metrics": metrics,
-            "dimensionFilter": {"filter": {
-                "fieldName": "sessionDefaultChannelGroup",
-                "stringFilter": {"matchType": "EXACT", "value": ORGANIC_CHANNEL}}},
-        }
-        organic_rows = google_post(access_token, url, organic_req).get("rows", [])
-        organic = _vals(organic_rows[0]) if organic_rows else {
-            "users": 0, "sessions": 0, "engagement_rate": 0, "events": 0,
-            "avg_session_seconds": 0}
-
-        ai_req = {
-            "dateRanges": [{"startDate": start, "endDate": "today"}],
-            "dimensions": [{"name": "sessionSource"}],
-            "metrics": metrics,
-            "dimensionFilter": {"filter": {
-                "fieldName": "sessionSource",
-                "stringFilter": {
-                    "matchType": "PARTIAL_REGEXP",
-                    "value": AI_SOURCE_REGEX,
-                    "caseSensitive": False}}},
-            "orderBys": [{"metric": {"metricName": "sessions"}, "desc": True}],
-            "limit": 25,
-        }
-        ai_rows = google_post(access_token, url, ai_req).get("rows", [])
-        ai_sources, ai_total = [], {"users": 0, "sessions": 0, "events": 0,
-                                    "engagement_rate": 0.0, "avg_session_seconds": 0.0}
-        for row in ai_rows:
-            src = (row.get("dimensionValues") or [{}])[0].get("value", "")
-            m = _vals(row)
-            m["source"] = src
-            ai_sources.append(m)
-            ai_total["users"] += m["users"]
-            ai_total["sessions"] += m["sessions"]
-            ai_total["events"] += m["events"]
-            ai_total["engagement_rate"] += m["engagement_rate"] * m["sessions"]
-            ai_total["avg_session_seconds"] += m["avg_session_seconds"] * m["sessions"]
-        if ai_total["sessions"]:
-            ai_total["engagement_rate"] = round(ai_total["engagement_rate"] / ai_total["sessions"], 1)
-            ai_total["avg_session_seconds"] = round(ai_total["avg_session_seconds"] / ai_total["sessions"])
-        else:
-            ai_total["engagement_rate"] = 0
-            ai_total["avg_session_seconds"] = 0
-
-        return jsonify({"month_start": start, "organic": organic,
-                        "ai_sources": ai_sources, "ai_total": ai_total})
+    url = ("https://analyticsdata.googleapis.com/v1beta/properties/"
+           f"{property_id}:batchRunReports")
+    try:
+        got = google_post(access_token, url, {"requests": [organic_req, ai_req]})
     except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": f"GA4 snapshot failed: {exc}"}), 500
+        return jsonify({"error": f"GA4 snapshot failed: {exc}"}), 502
+
+    reports = got.get("reports") or []
+
+    # ---- organic: one figure per period ---------------------------------
+    organic, organic_prev = dict(_SNAP_ZERO), dict(_SNAP_ZERO)
+    for row in (reports[0] if reports else {}).get("rows") or []:
+        which, _ = _range_index(row, 0)
+        if which == 0:
+            organic = _snap_vals(row)
+        elif which == 1:
+            organic_prev = _snap_vals(row)
+
+    # ---- AI: per source, per period --------------------------------------
+    by_source: dict = {}
+    for row in (reports[1] if len(reports) > 1 else {}).get("rows") or []:
+        which, dims = _range_index(row, 1)
+        src = (dims[0] if dims else "") or "(not set)"
+        slot = by_source.setdefault(src, {"source": src, "cur": dict(_SNAP_ZERO),
+                                          "prev": dict(_SNAP_ZERO)})
+        slot["cur" if which == 0 else "prev"] = _snap_vals(row)
+
+    def totalled(pick):
+        """Sum sessions/users/events; average the rates by session weight.
+
+        An unweighted mean of engagement rates says a source with two
+        sessions counts as much as one with two thousand."""
+        tot = {"users": 0, "sessions": 0, "events": 0,
+               "engagement_rate": 0.0, "avg_session_seconds": 0.0}
+        for slot in by_source.values():
+            m = slot[pick]
+            tot["users"] += m["users"]
+            tot["sessions"] += m["sessions"]
+            tot["events"] += m["events"]
+            tot["engagement_rate"] += m["engagement_rate"] * m["sessions"]
+            tot["avg_session_seconds"] += m["avg_session_seconds"] * m["sessions"]
+        if tot["sessions"]:
+            tot["engagement_rate"] = round(tot["engagement_rate"] / tot["sessions"], 1)
+            tot["avg_session_seconds"] = round(tot["avg_session_seconds"] / tot["sessions"])
+        else:
+            tot["engagement_rate"] = 0
+            tot["avg_session_seconds"] = 0
+        return tot
+
+    ai_total, ai_total_prev = totalled("cur"), totalled("prev")
+
+    ai_sources = []
+    for slot in sorted(by_source.values(),
+                       key=lambda s: -s["cur"]["sessions"]):
+        item = dict(slot["cur"])
+        item["source"] = slot["source"]
+        item["previous"] = slot["prev"]
+        item["change"] = _change(slot["cur"], slot["prev"])
+        ai_sources.append(item)
+
+    return jsonify({
+        "mode": mode,
+        "period": {"start": ranges[0]["startDate"], "end": ranges[0]["endDate"]},
+        "compare": {"start": ranges[1]["startDate"], "end": ranges[1]["endDate"]},
+        # kept so an older caller still finds the field it expects
+        "month_start": ranges[0]["startDate"],
+        "organic": organic,
+        "organic_previous": organic_prev,
+        "organic_change": _change(organic, organic_prev),
+        "ai_sources": ai_sources,
+        "ai_total": ai_total,
+        "ai_total_previous": ai_total_prev,
+        "ai_total_change": _change(ai_total, ai_total_prev),
+    })
 
 
 def _month_ranges(today=None):

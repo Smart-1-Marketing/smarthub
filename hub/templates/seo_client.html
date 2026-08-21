@@ -443,15 +443,32 @@ function applyFaqPalette(style){
 </div>
 
 <div class="card seoc-card" id="cardTraffic" style="display:none">
-  <div class="seoc-cardhead"><h3 id="trafficTitle">Organic Traffic This Month</h3>
+  <div class="seoc-cardhead"><h3 id="trafficTitle">Organic Traffic</h3>
     <div class="seoc-muted" id="trafficMeta"></div></div>
   <div id="trafficBody" class="seoc-muted">Looking up this client&rsquo;s Analytics property&hellip;</div>
+  <div class="seoc-trafbar" id="trafficBar" style="display:none">
+    <button class="seoc-btn seoc-sec seoc-small seoc-rangebtn is-on"
+            data-range="mtd" type="button">Month to date</button>
+    <button class="seoc-btn seoc-sec seoc-small seoc-rangebtn"
+            data-range="custom" type="button">Custom compare</button>
+    <button class="seoc-btn seoc-sec seoc-small" id="btnAskAnalytics" type="button">&#10024; Ask Analytics</button>
+  </div>
+  <div id="customRangeOrganic"><div id="customRange" class="seoc-customrange" style="display:none"></div></div>
+  <div id="askPanel" style="display:none;margin-top:12px"></div>
 </div>
 
 <div class="card seoc-card" id="cardAI" style="display:none">
-  <div class="seoc-cardhead"><h3>AI Engine Traffic This Month</h3>
+  <div class="seoc-cardhead"><h3>AI Engine Traffic</h3>
     <div class="seoc-muted">ChatGPT, Perplexity, Gemini, Copilot, Claude &amp; other AI referrals</div></div>
   <div id="aiBody" class="seoc-muted">Waiting for Analytics&hellip;</div>
+  <div class="seoc-trafbar" id="aiBar" style="display:none">
+    <button class="seoc-btn seoc-sec seoc-small seoc-rangebtn is-on"
+            data-range="mtd" type="button">Month to date</button>
+    <button class="seoc-btn seoc-sec seoc-small seoc-rangebtn"
+            data-range="custom" type="button">Custom compare</button>
+    <span class="seoc-muted" style="font-size:12px">Both cards read the same period</span>
+  </div>
+  <div id="customRangeAI"></div>
 </div>
 
 <!-- ---- Site Audits: the last Insites scan, the fix list, and the reports ---- -->
@@ -895,6 +912,30 @@ table.seoc-blogt input[type=checkbox]{width:auto}
 .seoc-socialgrid .srow b{width:76px;font-size:12px;color:#475569;text-transform:capitalize;flex:none}
 .seoc-socialgrid .srow input{flex:1;padding:7px 9px;border:1px solid #e2e8f0;border-radius:8px;font:12.5px 'Segoe UI',system-ui,sans-serif;min-width:0}
 .seoc-socialgrid .srow a{flex:none;color:#2563eb;text-decoration:none;font-size:13px}
+/* Traffic cards: a number with no direction is not a report.
+   Tiles carry the change against the comparison period, tinted by direction,
+   so the answer to "is this good?" is on the tile rather than in someone's
+   head. Every metric here is one where more is better — if a bounce-rate-like
+   metric is ever added, it needs its own direction, not this default. */
+.seoc-trafbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;
+  padding-top:12px;border-top:1px solid #eef2f7}
+.seoc-btn.seoc-rangebtn.is-on{background:#1a2e58;color:#fff;border-color:#1a2e58}
+.seoc-customrange{margin-top:10px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;
+  border-radius:10px}
+.seoc-customrange .rr{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+.seoc-customrange label{display:block;font:700 10.5px system-ui;text-transform:uppercase;
+  letter-spacing:.5px;color:#64748b;margin-bottom:3px}
+.seoc-customrange input{padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;
+  font:13px system-ui;background:#fff}
+.seoc-tile.up{background:#f0fdf4;border-color:#bbf7d0}
+.seoc-tile.down{background:#fef2f2;border-color:#fecaca}
+.seoc-tile .d{font-size:12px;font-weight:700;margin-top:4px}
+.seoc-tile .p{font-size:11px;color:#94a3b8;margin-top:1px}
+.seoc-up{color:#15803d}
+.seoc-down{color:#b91c1c}
+.seoc-nochg{color:#64748b}
+table.seoc-ait td.up{background:#f0fdf4}
+table.seoc-ait td.down{background:#fef2f2}
 .seoc-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
 .seoc-tile{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}
 .seoc-tile .v{font-size:22px;font-weight:800;color:#1a2e58}
@@ -989,6 +1030,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
 </style>
 {% endblock %}
 {% block scripts %}
+<script src="/ask-analytics.js"></script>
 <script>
 (function(){
   var CLIENT = {{ client|tojson }};
@@ -1605,6 +1647,122 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     return Math.floor(sec/60)+'m '+(sec%60)+'s';
   }
   function tile(v,l){return '<div class="seoc-tile"><div class="v">'+v+'</div><div class="l">'+l+'</div></div>';}
+
+  /* ---- traffic: shared state for both cards -----------------------------
+     One request answers Organic and AI together, so the range belongs to the
+     page, not to a card. Two independent range pickers would let the two
+     cards show different periods side by side and say so nowhere. */
+  var trafficProp=null, trafficRange={mode:'mtd'};
+
+  function pctText(v){
+    if(v===null||v===undefined) return '<span class="seoc-nochg">no earlier data</span>';
+    var cls=v>0?'seoc-up':(v<0?'seoc-down':'seoc-nochg');
+    var arrow=v>0?'\u25B2':(v<0?'\u25BC':'\u2192');
+    return '<span class="'+cls+'">'+arrow+' '+Math.abs(v).toFixed(1)+'%</span>';
+  }
+  function dirClass(v){ return v>0?'up':(v<0?'down':''); }
+
+  function ctile(value,label,change,prev){
+    return '<div class="seoc-tile '+dirClass(change)+'">'
+      +'<div class="v">'+value+'</div><div class="l">'+label+'</div>'
+      +'<div class="d">'+pctText(change)+'</div>'
+      +'<div class="p">was '+prev+'</div></div>';
+  }
+
+  function rangeLabel(d){
+    var p=d.period||{}, c=d.compare||{};
+    return esc(p.start)+' \u2192 '+esc(p.end)+'  vs  '+esc(c.start)+' \u2192 '+esc(c.end);
+  }
+
+  function setRangeButtons(mode){
+    document.querySelectorAll('.seoc-rangebtn').forEach(function(b){
+      if(b.dataset.range===mode) b.classList.add('is-on'); else b.classList.remove('is-on');
+    });
+  }
+
+  /* One picker, moved to whoever asked for it.
+
+     There is one period — both cards read the same request — so there is one
+     set of date inputs. But the picker started life inside the Organic card,
+     which put it several hundred pixels above the Custom compare button in
+     the AI card: pressing that button appeared to do nothing at all. Scrolling
+     to it was the first fix and it is the weaker one, because it moves the
+     reader away from the thing they just pressed. Moving the picker instead
+     keeps one set of inputs and always puts them under the button. */
+  function showCustomRange(fromBar){
+    var box=$('customRange');
+    var target=(fromBar==='ai') ? $('customRangeAI') : $('customRangeOrganic');
+
+    if(box.dataset.open==='1' && box.parentNode===target){
+      box.style.display='none'; box.dataset.open='0'; return;   // same button: close
+    }
+    target.appendChild(box);            // a DOM move keeps values and handlers
+    box.style.display=''; box.dataset.open='1';
+
+    if(box.dataset.built) return;
+    box.dataset.built='1';
+    var today=new Date().toISOString().slice(0,10);
+    box.innerHTML='<div class="rr">'
+      +'<div><label>Period start</label><input type="date" id="crStart" value="'+today.slice(0,8)+'01"></div>'
+      +'<div><label>Period end</label><input type="date" id="crEnd" value="'+today+'"></div>'
+      +'<div><label>Compare start</label><input type="date" id="crCStart"></div>'
+      +'<div><label>Compare end</label><input type="date" id="crCEnd"></div>'
+      +'<button class="seoc-btn seoc-small" id="crApply" type="button">Apply</button>'
+      +'</div><div class="seoc-muted" style="font-size:12px;margin-top:8px">'
+      +'Leave the compare dates empty and the period immediately before, of the same length, '
+      +'is used \u2014 so the two are never different sizes.</div>';
+    $('crApply').onclick=function(){
+      var st=$('crStart').value, en=$('crEnd').value;
+      if(!st||!en){ alert('Pick a period start and end.'); return; }
+      trafficRange={mode:'custom',start:st,end:en,
+                    compare_start:$('crCStart').value||'',compare_end:$('crCEnd').value||''};
+      setRangeButtons('custom');
+      renderSnapshot(trafficProp.id, trafficProp.login);
+    };
+  }
+
+  function closeCustomRange(){
+    var box=$('customRange');
+    box.style.display='none'; box.dataset.open='0';
+  }
+
+  function wireTrafficButtons(){
+    document.querySelectorAll('.seoc-rangebtn').forEach(function(b){
+      if(b.dataset.wired) return;
+      b.dataset.wired='1';
+      b.onclick=function(){
+        if(b.dataset.range==='mtd'){
+          closeCustomRange();
+          trafficRange={mode:'mtd'};
+          setRangeButtons('mtd');
+          renderSnapshot(trafficProp.id, trafficProp.login);
+        } else {
+          showCustomRange(b.closest('#aiBar') ? 'ai' : 'organic');
+        }
+      };
+    });
+    var ask=$('btnAskAnalytics');
+    if(ask && !ask.dataset.wired){
+      ask.dataset.wired='1';
+      ask.onclick=function(){
+        var box=$('askPanel');
+        if(box.dataset.open==='1'){ box.style.display='none'; box.dataset.open='0';
+          ask.innerHTML='\u2728 Ask Analytics'; return; }
+        box.style.display=''; box.dataset.open='1';
+        ask.textContent='Hide Ask Analytics';
+        if(!box.dataset.mounted && window.Smart1Ask){
+          box.dataset.mounted='1';
+          window.Smart1Ask.mount(box,{
+            propertyId:function(){return trafficProp?trafficProp.id:'';},
+            login:function(){return trafficProp?trafficProp.login:'';},
+            label:$('trafficMeta').textContent||'',
+            placeholder:'Ask anything about this client\u2019s analytics\u2026'
+          });
+        }
+      };
+    }
+  }
+
   function loadTraffic(){
     $('cardTraffic').style.display='block';
     $('cardAI').style.display='block';
@@ -1645,33 +1803,78 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       .catch(function(e){$('trafficBody').innerHTML='<span class="seoc-bad">'+esc(e)+'</span>';});
   }
   function renderSnapshot(property_id, google_login){
-    $('trafficBody').innerHTML='Pulling this month&rsquo;s data&hellip;';
-    post('/google/api/ga4/seo-snapshot',{property_id:property_id,google_login:google_login})
-          .then(function(d){
-            if(d.error){$('trafficBody').innerHTML='<span class="seoc-bad">'+esc(d.error)+'</span>';$('aiBody').textContent='—';return;}
-            var o=d.organic||{};
-            $('trafficBody').innerHTML='<div class="seoc-tiles">'
-              +tile(Number(o.users||0).toLocaleString(),'Users')
-              +tile(Number(o.sessions||0).toLocaleString(),'Sessions')
-              +tile((o.engagement_rate||0)+'%','Engagement rate')
-              +tile(Number(o.events||0).toLocaleString(),'Events')
-              +tile(fmtTime(o.avg_session_seconds),'Time on site')
-              +'</div><div class="seoc-muted" style="margin-top:8px">Organic Search channel · '+esc(d.month_start)+' to today</div>';
-            var srcs=d.ai_sources||[], t=d.ai_total||{};
-            if(!srcs.length){
-              $('aiBody').innerHTML='No visits from AI engines recorded this month yet.';
-              return;
-            }
-            var h='<table class="seoc-ait"><thead><tr><th>Source</th><th>Users</th><th>Sessions</th><th>Engagement</th><th>Events</th><th>Time on site</th></tr></thead><tbody>';
-            srcs.forEach(function(s){
-              h+='<tr><td><b>'+esc(s.source)+'</b></td><td>'+s.users.toLocaleString()+'</td><td>'+s.sessions.toLocaleString()
-                +'</td><td>'+s.engagement_rate+'%</td><td>'+s.events.toLocaleString()+'</td><td>'+fmtTime(s.avg_session_seconds)+'</td></tr>';
-            });
-            h+='<tr class="tot"><td>All AI engines</td><td>'+Number(t.users||0).toLocaleString()+'</td><td>'+Number(t.sessions||0).toLocaleString()
-              +'</td><td>'+(t.engagement_rate||0)+'%</td><td>'+Number(t.events||0).toLocaleString()+'</td><td>'+fmtTime(t.avg_session_seconds)+'</td></tr>';
-            h+='</tbody></table>';
-            $('aiBody').innerHTML=h;
-          })
+    trafficProp={id:property_id, login:google_login};
+    $('trafficBody').innerHTML='Pulling the numbers&hellip;';
+    $('aiBody').innerHTML='Pulling the numbers&hellip;';
+    var body={property_id:property_id, google_login:google_login};
+    if(trafficRange.mode==='custom'){
+      body.start=trafficRange.start; body.end=trafficRange.end;
+      if(trafficRange.compare_start&&trafficRange.compare_end){
+        body.compare_start=trafficRange.compare_start;
+        body.compare_end=trafficRange.compare_end;
+      }
+    }
+    post('/google/api/ga4/seo-snapshot',body)
+      .then(function(d){
+        if(d.needs_reauth){
+          $('trafficBody').innerHTML='<span class="seoc-bad">'+esc(d.error)+'</span> '
+            +'<a class="seoc-btn seoc-small" href="'+esc(d.reconnect_url||'/google/login')+'">Reconnect Google</a>';
+          $('aiBody').textContent='\u2014'; return;
+        }
+        if(d.error){
+          $('trafficBody').innerHTML='<span class="seoc-bad">'+esc(d.error)+'</span>';
+          $('aiBody').textContent='\u2014'; return;
+        }
+        $('trafficBar').style.display='flex';
+        $('aiBar').style.display='flex';
+        wireTrafficButtons();
+
+        var o=d.organic||{}, prev=d.organic_previous||{}, ch=d.organic_change||{};
+        var num=function(v){return Number(v||0).toLocaleString();};
+        $('trafficBody').innerHTML='<div class="seoc-tiles">'
+          +ctile(num(o.users),'Users',ch.users,num(prev.users))
+          +ctile(num(o.sessions),'Sessions',ch.sessions,num(prev.sessions))
+          +ctile((o.engagement_rate||0)+'%','Engagement rate',ch.engagement_rate,(prev.engagement_rate||0)+'%')
+          +ctile(num(o.events),'Events',ch.events,num(prev.events))
+          +ctile(fmtTime(o.avg_session_seconds),'Time on site',ch.avg_session_seconds,fmtTime(prev.avg_session_seconds))
+          +'</div><div class="seoc-muted" style="margin-top:8px">Organic Search channel &middot; '
+          +rangeLabel(d)
+          +(d.mode==='mtd'?' <span title="Month to date against the same days of last month, not against the whole of it \u2014 comparing part of a month to all of one reports a collapse that has not happened.">(same days last month)</span>':'')
+          +'</div>';
+
+        var srcs=d.ai_sources||[], t=d.ai_total||{}, tp=d.ai_total_previous||{}, tc=d.ai_total_change||{};
+        if(!srcs.length){
+          $('aiBody').innerHTML='No visits from AI engines in this period.'
+            +'<div class="seoc-muted" style="margin-top:6px">'+rangeLabel(d)+'</div>';
+          return;
+        }
+        var cell=function(v,chg,prevv){
+          return '<td class="'+dirClass(chg)+'">'+v
+            +'<div style="font-size:11.5px;font-weight:700">'+pctText(chg)+'</div>'
+            +'<div style="font-size:10.5px;color:#94a3b8">was '+prevv+'</div></td>';
+        };
+        var h='<table class="seoc-ait"><thead><tr><th>Source</th><th>Users</th><th>Sessions</th>'
+          +'<th>Engagement</th><th>Events</th><th>Time on site</th></tr></thead><tbody>';
+        srcs.forEach(function(sc){
+          var pv=sc.previous||{}, cg=sc.change||{};
+          h+='<tr><td><b>'+esc(sc.source)+'</b></td>'
+            +cell(num(sc.users),cg.users,num(pv.users))
+            +cell(num(sc.sessions),cg.sessions,num(pv.sessions))
+            +cell((sc.engagement_rate||0)+'%',cg.engagement_rate,(pv.engagement_rate||0)+'%')
+            +cell(num(sc.events),cg.events,num(pv.events))
+            +cell(fmtTime(sc.avg_session_seconds),cg.avg_session_seconds,fmtTime(pv.avg_session_seconds))
+            +'</tr>';
+        });
+        h+='<tr class="tot"><td>All AI engines</td>'
+          +cell(num(t.users),tc.users,num(tp.users))
+          +cell(num(t.sessions),tc.sessions,num(tp.sessions))
+          +cell((t.engagement_rate||0)+'%',tc.engagement_rate,(tp.engagement_rate||0)+'%')
+          +cell(num(t.events),tc.events,num(tp.events))
+          +cell(fmtTime(t.avg_session_seconds),tc.avg_session_seconds,fmtTime(tp.avg_session_seconds))
+          +'</tr></tbody></table>'
+          +'<div class="seoc-muted" style="margin-top:8px">'+rangeLabel(d)+'</div>';
+        $('aiBody').innerHTML=h;
+      })
       .catch(function(e){$('trafficBody').innerHTML='<span class="seoc-bad">'+esc(e)+'</span>';});
   }
 
