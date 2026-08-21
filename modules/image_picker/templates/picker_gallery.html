@@ -3,6 +3,12 @@
 
 {% block body %}
 <style>
+.selbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 2px 12px}
+.selbar label{display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer}
+.btn.danger{color:#A33327;border-color:#f0cfcb}
+.btn.danger:hover:not([disabled]){background:#FBEBE9}
+</style>
+<style>
 .src-head td{background:var(--paper);border-top:1px solid var(--line);padding:9px 10px}
 .src-pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;
   font-weight:700;text-transform:uppercase;letter-spacing:.5px;
@@ -35,13 +41,20 @@
 
   <section class="panel">
     <div class="panel-head"><h2>Library</h2><span class="hint" id="count"></span></div>
+    <div class="selbar">
+      <label><input type="checkbox" id="selAll"> Select all</label>
+      <span class="hint" id="selCount">None selected</span>
+      <span style="flex:1"></span>
+      <button class="btn quiet small" id="selDownload" type="button" disabled>Download selected</button>
+      <button class="btn quiet small danger" id="selDelete" type="button" disabled>Delete selected</button>
+    </div>
     <div style="overflow-x:auto">
       <table>
         <thead><tr>
-          <th style="width:76px"></th><th>Filename &amp; alt text</th><th>Picked from</th>
+          <th style="width:30px"></th><th style="width:76px"></th><th>Filename &amp; alt text</th><th>Picked from</th>
           <th>Source</th><th>Suite</th><th>Saved</th><th></th>
         </tr></thead>
-        <tbody id="rows"><tr><td colspan="7" style="color:var(--ink-3)">Loading…</td></tr></tbody>
+        <tbody id="rows"><tr><td colspan="8" style="color:var(--ink-3)">Loading…</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -116,7 +129,7 @@
     order.forEach(function(k){
       var rows = buckets[k];
       var theirs = CLIENT_SENT.indexOf(k) !== -1;
-      html += '<tr class="src-head"><td colspan="7">' +
+      html += '<tr class="src-head"><td colspan="8">' +
         '<span class="src-pill' + (theirs ? ' theirs' : '') + '">' +
         esc(LABELS[k] || k) + '</span> ' +
         '<span style="color:var(--ink-3);font-size:.78rem">' + rows.length +
@@ -124,6 +137,7 @@
       html += rows.map(rowHtml).join("");
     });
     document.getElementById("rows").innerHTML = html;
+    refreshSel();
   }
 
   function rowHtml(im){
@@ -132,6 +146,7 @@
       var dims = (im.width && im.height) ? im.width + "×" + im.height : "";
       var kb = im.bytes ? Math.round(im.bytes/1024) + " KB" : "";
       return '<tr data-id="' + im.id + '">' +
+        '<td><input type="checkbox" class="rowSel" value="' + im.id + '"></td>' +
         '<td><a href="' + esc(im.url) + '" target="_blank" rel="noopener">' +
           (im.resource_type === "raw"
             ? '<span style="display:flex;width:64px;height:48px;align-items:center;' +
@@ -157,6 +172,64 @@
       '</tr>';
     }
   }
+
+  /* Selecting files to take out or throw away.
+     Download opens a zip rather than a tab per file, because a popup blocker
+     stops everything after the first one. Delete warns first and says the
+     specific thing that makes it irreversible: for a file the client uploaded,
+     our copy is very often the only copy. */
+  function selected(){
+    return Array.prototype.slice.call(
+      document.querySelectorAll(".rowSel:checked")).map(function(c){ return c.value; });
+  }
+  function refreshSel(){
+    var n = selected().length;
+    document.getElementById("selCount").textContent =
+      n ? (n + " selected") : "None selected";
+    document.getElementById("selDownload").disabled = !n;
+    document.getElementById("selDelete").disabled = !n;
+    var all = document.querySelectorAll(".rowSel");
+    var box = document.getElementById("selAll");
+    box.checked = all.length > 0 && n === all.length;
+    box.indeterminate = n > 0 && n < all.length;
+  }
+  document.addEventListener("change", function(e){
+    if (e.target.classList && e.target.classList.contains("rowSel")) refreshSel();
+  });
+  document.getElementById("selAll").addEventListener("change", function(){
+    var on = this.checked;
+    document.querySelectorAll(".rowSel").forEach(function(c){ c.checked = on; });
+    refreshSel();
+  });
+  document.getElementById("selDownload").addEventListener("click", function(){
+    var ids = selected(); if (!ids.length) return;
+    window.location = BASE + "/api/saved/download.zip?client_id=" + CLIENT_ID +
+      "&ids=" + encodeURIComponent(ids.join(","));
+  });
+  document.getElementById("selDelete").addEventListener("click", function(){
+    var ids = selected(); if (!ids.length) return;
+    if (!confirm(
+      "Delete " + ids.length + " file" + (ids.length === 1 ? "" : "s") + " from this gallery?
+
+" +
+      "These are not saved anywhere else — for anything the client uploaded, this " +
+      "is the only copy and it cannot be recovered.
+
+Are you sure?")) return;
+    var btn = this; btn.disabled = true;
+    fetch(BASE + "/api/saved/bulk-delete?client_id=" + CLIENT_ID, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: ids })
+    }).then(function(r){ return r.json(); })
+      .then(function(d){
+        btn.disabled = false;
+        if (!d.ok){ note("bad", "Couldn't delete", d.error || ""); return; }
+        note("ok", "Deleted", d.note || "");
+        load();
+      })
+      .catch(function(){ btn.disabled = false; note("bad", "Couldn't delete", ""); });
+  });
 
   function load(){
     api("/api/saved?limit=200").then(function(d){
