@@ -464,19 +464,17 @@ try:
 except Exception as _exc_rv:  # noqa: BLE001
     rv_app, rv_fb = None, _fallback_app("RV Landing", str(_exc_rv))
 
-<<<<<<< main
-# Public (login-exempt) routes under /scans, read from the module itself so the
-# mount and the module can never disagree about what is public.
-_SCANS_PUBLIC = tuple(getattr(scans, "PUBLIC_PREFIXES", ("/api/callback",))) \
-    if scans else ("/api/callback",)
-=======
 try:
     import importlib as _il_std
     stadium_app = _il_std.import_module("modules.stadium.app")
     stadium_fb = None
 except Exception as _exc_std:  # noqa: BLE001
     stadium_app, stadium_fb = None, _fallback_app("Stadium Landing", str(_exc_std))
->>>>>>> v55
+
+# Public (login-exempt) routes under /scans, read from the module itself so the
+# mount and the module can never disagree about what is public.
+_SCANS_PUBLIC = tuple(getattr(scans, "PUBLIC_PREFIXES", ("/api/callback",))) \
+    if scans else ("/api/callback",)
 
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
