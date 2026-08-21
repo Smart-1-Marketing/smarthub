@@ -69,27 +69,56 @@ def _find_field(*label_keywords, types=None) -> str | None:
 # Environment overrides exist for each so a Knack restructure doesn't need a
 # code change.
 TICKET_FIELDS = {
-    "title":          "field_1895",   # Ticket title
-    "client":         "field_1784",   # Client organization
-    "website":        "field_2965",   # Client website URL
-    "type":           "field_2973",   # Type of ticket
-    "billable":       "field_3160",   # Revision requires billing
-    "description":    "field_1923",   # Describe the changes
-    "assigner":       "field_1653",   # Assigner
-    "status":         "field_1657",   # Status
-    "developer":      "field_1729",   # Developer
+    "title":            "field_1895",   # Ticket title
+    "client":           "field_1784",   # Client organization
+    "media_partner":    "field_1785",   # Media Partner
+    "partner_contact":  "field_2481",   # Partner Contact
+    "notify_partner":   "field_1761",   # Should Partner receive Notifications?
+    "website":          "field_2965",   # Client Website URL
+    "type":             "field_2973",   # Type of ticket
+    "billable":         "field_3160",   # Revision Requires Billing
+    "pause_reason":     "field_2968",   # Pause Reason
+    "cancel_reason":    "field_2969",   # Cancellation Reason
+    "cancel_date":      "field_2970",   # Cancellation Date
+    "resume_date":      "field_3010",   # Resume Date
+    "web_services":     "field_3099",   # Web Services
+    "new_website_url":  "field_1675",   # New Website URL
+    "build_website":    "field_3262",   # Build Website
+    "hosting_maint":    "field_3264",   # Hosting and Maintenance
+    "hourly_maint":     "field_3266",   # Hourly Maintenance
+    "purchase_domain":  "field_3263",   # Purchase Domain
+    "hosting_only":     "field_3265",   # Hosting Only
+    "ecommerce":        "field_3267",   # Ecommerce
+    "description":      "field_1923",   # Describe the changes
+    "assigner":         "field_1653",   # Assigner
+    "status":           "field_1657",   # Status
+    "developer":        "field_1729",   # Developer
 }
 
 # Fields written when CREATING a ticket. Status, Assigner and Developer are
 # deliberately absent: a new ticket's status is set by Knack's own workflow,
 # and assigning to a person is a decision made in the Manage step, not at
 # submission. Writing them here would overwrite that workflow.
-TICKET_CREATE_FIELDS = ("title", "client", "website", "type", "billable",
-                        "description", "assigner")
+TICKET_CREATE_FIELDS = (
+    "title", "client", "website", "type", "billable", "description",
+    "assigner", "media_partner", "partner_contact", "notify_partner",
+    "web_services", "new_website_url",
+    # The web-service checkboxes. Set at submission because they describe
+    # what's being asked for, not how it gets handled.
+    "build_website", "hosting_maint", "hourly_maint", "purchase_domain",
+    "hosting_only", "ecommerce",
+)
 
 # Fields editable in the Manage Ticket section.
-TICKET_MANAGE_FIELDS = ("client", "website", "type", "billable",
-                        "description", "status", "assigner", "developer")
+TICKET_MANAGE_FIELDS = (
+    "client", "website", "type", "billable", "description", "status",
+    "assigner", "developer", "media_partner", "partner_contact",
+    "notify_partner", "web_services", "new_website_url",
+    # Lifecycle fields — only meaningful once a ticket is being worked.
+    "pause_reason", "cancel_reason", "cancel_date", "resume_date",
+    "build_website", "hosting_maint", "hourly_maint", "purchase_domain",
+    "hosting_only", "ecommerce",
+)
 
 
 def field_map() -> dict:
@@ -394,3 +423,78 @@ def update_ticket(record_id: str, **values) -> dict:
         return {"ok": False, "error": f"Knack returned HTTP {r.status_code}.",
                 "rejected": rejected}
     return {"ok": True, "updated": list(payload), "rejected": rejected}
+
+
+# --- object_135 IO products: writing a dashboard URL ----------------------
+
+PRODUCTS_OBJECT = os.environ.get("KNACK_PRODUCTS_OBJECT", "object_135")
+F_DASHBOARD_URL = os.environ.get("KNACK_DASHBOARD_FIELD", "field_2820")
+F_CLIENT_NAME = os.environ.get("KNACK_PRODUCT_CLIENT_FIELD", "field_2308")
+
+
+def set_dashboard_url(client: str, url: str, live_only: bool = True) -> dict:
+    """Write a dashboard URL onto a client's product records.
+
+    Writes to every matching product rather than one, because the report asks
+    "does this client have a dashboard on ANY live product" — setting it on a
+    single row would leave the client on the list.
+
+    Returns what it changed. Never partial-silent: if some rows fail, the
+    count says so rather than reporting success.
+    """
+    if not configured():
+        return {"ok": False, "error": "Knack API credentials aren't set."}
+    if not str(url or "").strip().startswith("http"):
+        return {"ok": False, "error": "That doesn't look like a URL."}
+
+    import re as _re
+    want = _re.sub(r"[^a-z0-9]+", "", str(client or "").lower())
+    if not want:
+        return {"ok": False, "error": "No client given."}
+
+    try:
+        r = requests.get(
+            f"{BASE}/objects/{PRODUCTS_OBJECT}/records",
+            headers=_headers(),
+            params={"rows_per_page": 1000, "page": 1},
+            timeout=45)
+        r.raise_for_status()
+        records = (r.json() or {}).get("records") or []
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": f"Couldn't read products ({type(exc).__name__})."}
+
+    targets = []
+    for rec in records:
+        raw = rec.get(f"{F_CLIENT_NAME}_raw") or rec.get(F_CLIENT_NAME) or ""
+        if isinstance(raw, list):
+            raw = " ".join(str((x or {}).get("identifier", x)) for x in raw)
+        if isinstance(raw, dict):
+            raw = raw.get("identifier") or ""
+        name = _re.sub(r"<[^>]+>", " ", str(raw))
+        if _re.sub(r"[^a-z0-9]+", "", name.lower()) != want:
+            continue
+        if live_only and str(rec.get("field_2300") or "").lower() != "live":
+            continue
+        targets.append(rec.get("id"))
+
+    if not targets:
+        return {"ok": False,
+                "error": f"No {'live ' if live_only else ''}products found for "
+                         f"{client} in Knack."}
+
+    updated, failed = 0, []
+    for rid in targets:
+        try:
+            resp = requests.put(
+                f"{BASE}/objects/{PRODUCTS_OBJECT}/records/{rid}",
+                headers=_headers(), json={F_DASHBOARD_URL: url}, timeout=25)
+            if resp.ok:
+                updated += 1
+            else:
+                failed.append(f"{rid}: HTTP {resp.status_code}")
+        except Exception as exc:                        # noqa: BLE001
+            failed.append(f"{rid}: {type(exc).__name__}")
+
+    return {"ok": updated > 0, "updated": updated, "failed": failed,
+            "note": (f"Dashboard URL written to {updated} product(s)."
+                     + (f" {len(failed)} failed." if failed else ""))}
