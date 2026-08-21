@@ -298,6 +298,32 @@ form.addEventListener("submit", async e => {
       throw new Error(payload.error || "Processing failed.");
     }
     const blob = await response.blob();
+
+    // Save to the client's gallery instead of downloading, if asked.
+    const target = document.querySelector('input[name="saveTarget"]:checked');
+    if (target && target.value === "gallery") {
+      const client = (document.getElementById("optClient") || {}).value || "";
+      if (!client.trim()) {
+        throw new Error("Pick a client, or choose Download instead.");
+      }
+      const fd = new FormData();
+      fd.append("file", blob, (outputName.value || "image") + "." + format.value.toLowerCase());
+      fd.append("company", client.trim());
+      const up = await fetch("/tools/seo-images/api/save-one", {method:"POST", body: fd});
+      const res = await up.json().catch(() => ({}));
+      if (!up.ok || res.error) {
+        // Don't lose the work — hand them the file rather than an error.
+        const fallback = document.createElement("a");
+        fallback.href = URL.createObjectURL(blob);
+        fallback.download = (outputName.value || "image") + "." + format.value.toLowerCase();
+        document.body.appendChild(fallback); fallback.click(); fallback.remove();
+        throw new Error((res.error || "Could not save to the gallery") +
+                        " — downloaded it instead so nothing is lost.");
+      }
+      status.textContent = `Complete · ${(blob.size / 1024).toFixed(1)} KB saved to ${client}'s gallery`;
+      return;
+    }
+
     const disposition = response.headers.get("Content-Disposition") || "";
     const match = disposition.match(/filename="?([^"]+)"?/i);
     const filename = match ? match[1] : `smart1-image.${format.value.toLowerCase()}`;
@@ -316,3 +342,54 @@ form.addEventListener("submit", async e => {
     submit.disabled = false;
   }
 });
+
+
+/* Show the client box only when saving to a gallery, and reuse the Hub's
+   client lookup rather than a second list that can drift. */
+(function () {
+  var radios = document.querySelectorAll('input[name="saveTarget"]');
+  var row = document.getElementById("galleryRow");
+  var box = document.getElementById("optClient");
+  var drop = document.getElementById("optClientDrop");
+  if (!radios.length || !row) return;
+
+  radios.forEach(function (r) {
+    r.addEventListener("change", function () {
+      row.hidden = r.value !== "gallery" || !r.checked;
+      var btn = document.getElementById("submit");
+      if (btn) btn.textContent = (r.value === "gallery" && r.checked)
+        ? "Resize & Save to gallery" : "Resize & Optimize";
+    });
+  });
+
+  var timer = null;
+  if (!box) return;
+  box.addEventListener("input", function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      var q = box.value.trim();
+      if (q.length < 2) { drop.style.display = "none"; return; }
+      fetch("/tools/io/api/clients?q=" + encodeURIComponent(q), {credentials:"same-origin"})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var list = d.clients || [];
+          if (!list.length) { drop.style.display = "none"; return; }
+          drop.innerHTML = list.map(function (c) {
+            return '<div data-n="' + (c.name || "").replace(/"/g, "&quot;") +
+              '" style="padding:8px 10px;cursor:pointer">' + (c.name || "") + "</div>";
+          }).join("");
+          drop.style.display = "block";
+          drop.querySelectorAll("[data-n]").forEach(function (el) {
+            el.onmousedown = function (ev) {
+              ev.preventDefault();
+              box.value = el.dataset.n;
+              drop.style.display = "none";
+            };
+          });
+        }).catch(function () { drop.style.display = "none"; });
+    }, 220);
+  });
+  box.addEventListener("blur", function () {
+    setTimeout(function () { drop.style.display = "none"; }, 150);
+  });
+})();

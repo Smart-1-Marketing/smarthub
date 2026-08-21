@@ -17,6 +17,13 @@
        overflow:hidden}
   button{font:inherit}
   .app{display:flex;flex-direction:column;height:100vh}
+  /* The Hub sidebar pushes <body> right by 224px. A 100vh/100vw editor then
+     runs 224px wider than the viewport, so the right-hand properties panel
+     is cut off and the rail can't be scrolled to. Subtract the offset the
+     sidebar actually applied — 0 when it isn't there (embedded, or logged
+     out), 56px when the rail is collapsed. */
+  .app{width:calc(100vw - var(--s1hub-offset, 0px));
+       max-width:calc(100vw - var(--s1hub-offset, 0px))}
 
   /* ---------- top bar ---------- */
   .top{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--navy);
@@ -254,6 +261,19 @@
   <div class="mbox">
     <div class="mhead"><b>Canvas size</b><button class="x" data-close>&times;</button></div>
     <div class="mbody" id="sizeBody"></div>
+    <!-- Asked here rather than at save time. Attaching at the end means
+         remembering to; attaching at the start means the work is filed
+         correctly even if the tab is closed halfway through. -->
+    <div class="mbody" id="newClientRow" style="border-top:1px solid var(--line);padding-top:12px">
+      <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:5px">
+        Attach to a client (optional)</label>
+      <div style="position:relative">
+        <input id="newClient" placeholder="Start typing a client name…" autocomplete="off"
+               style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font:13px inherit">
+        <div id="newClientDrop" class="cdrop" style="display:none"></div>
+      </div>
+      <div class="hint" id="newClientTag" style="margin-top:5px"></div>
+    </div>
     <div class="mfoot">
       <span class="hint" style="margin-right:auto" id="sizeWarn"></span>
       <button class="btn sec sm" data-close>Cancel</button>
