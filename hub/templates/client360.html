@@ -136,6 +136,16 @@ function render(g,q){
   const liveProds=g.products.filter(p=>String(p.status||'').toLowerCase()==='live');
   const doneProds=g.products.filter(p=>String(p.status||'').toLowerCase()!=='live');
   if(g.products.length){
+    // Say which source these came from. A stale export looks exactly like live
+    // data on screen, which is how last month's insertion orders got read as
+    // this month's.
+    if(g.products_source==='export'){
+      html+='<div class="pill warn" style="margin-bottom:8px;display:inline-block">Committed export &mdash; may be out of date</div>';
+    } else if(g.products_source==='knack'){
+      const mins=g.products_age_minutes;
+      html+='<div class="muted" style="font-size:12px;margin-bottom:8px">Live from Knack'
+        + (mins===0||mins ? ' &middot; '+esc(String(mins))+' min old' : '') + '</div>';
+    }
     html+='<table><thead><tr><th>Product</th><th>Campaign</th><th>Status</th><th>Monthly</th></tr></thead><tbody>';
     html+=liveProds.slice(0,15).map(prodRow).join('');
     if(!liveProds.length)html+='<tr><td colspan="3" class="empty">No live products right now.</td></tr>';

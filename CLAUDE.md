@@ -75,16 +75,20 @@ is a wrong answer presented confidently.
 
 | Source | How it's read | Freshness |
 |---|---|---|
-| Knack products / campaigns / websites | static JSON in `clients_app/data/` | **stale — nothing refreshes these** |
+| Knack products (IOs) | live API, `hub/knack_products.py` (object_135), export as fallback | current |
+| Knack campaigns / websites | static JSON in `clients_app/data/` | **stale — nothing refreshes these** |
 | Knack object_153 (website registry) | live API, `hub/knack_websites.py` | current |
 | Knack tickets | live API, `hub/knack_api.py` | current |
 | Insites scans | own SQLite/Postgres tables | current |
 | GoHighLevel | live API | current |
 
-**The static JSON exports are the biggest known problem.** Insertion-order
-data on Client 360 is only as fresh as the last manual export. Moving products
-and campaigns onto the live API is the highest-value outstanding work; it needs
-their Knack object IDs.
+**The static JSON exports are the biggest known problem.** Products are now
+read live: `hub/knack_data.search_client()` prefers `hub.knack_products`
+(object_135) and falls back to the export, and Client 360 labels which source
+it used — before that, a client's insertion orders showed the last export's
+line-up while the Knack pull reported success, because the two are different
+sources and only one was live. **Campaigns and websites still come from the
+export**, so the same trap remains for them; both need their Knack object IDs.
 
 **The URL is the join key, not the name.** Eleven field names hold a URL
 across this codebase (`url`, `domain`, `website`, `web_url`, `site_url`…).
