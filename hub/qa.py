@@ -1337,7 +1337,106 @@ def invoice_off() -> dict:
 
 
 # ------------------------------------------------------------------ registry
+def uploads_not_in_suite() -> dict:
+    """Galleries holding client files that never reached Smart 1 Suite.
+
+    A client who has gone to the trouble of sending their photos has done the
+    hard part. If those files then sit in our gallery and never reach their
+    Suite media library, the work is invisible at the moment someone builds
+    their page — and nobody finds out until they go looking for an image that
+    "should be there".
+
+    Three different reasons land here and they need different actions, so the
+    report says which rather than lumping them together:
+
+      no Suite location   the gallery was made for a prospect, or nobody has
+                          attached the location yet — expected for a prospect,
+                          a gap for a live client
+      sync is off         someone turned it off deliberately
+      failed              it tried and Suite refused; the error is shown
+    """
+    try:
+        from modules.image_picker.models import PickerClient, SavedImage, session
+    except Exception as exc:                            # noqa: BLE001
+        return {"columns": ["Client"], "rows": [],
+                "note": f"Client Image Uploads isn't available here ({type(exc).__name__})."}
+
+    try:
+        db = session()
+        rows_ = db.query(SavedImage, PickerClient).join(
+            PickerClient, SavedImage.client_id == PickerClient.id).all()
+    except Exception as exc:                            # noqa: BLE001
+        return {"columns": ["Client"], "rows": [],
+                "note": f"Couldn't read the uploads database ({type(exc).__name__})."}
+
+    by_client: dict = {}
+    for img, client in rows_:
+        # Only files the client sent us. Stock we picked for them is a
+        # different question and has its own answer in the gallery.
+        if (img.collection_kind or "") != "upload":
+            continue
+        b = by_client.setdefault(client.id, {
+            "client": client, "total": 0, "waiting": 0,
+            "reasons": {}, "last": None, "last_error": "",
+        })
+        b["total"] += 1
+        if img.created_at and (b["last"] is None or img.created_at > b["last"]):
+            b["last"] = img.created_at
+        if img.ghl_status == "sent":
+            continue
+        b["waiting"] += 1
+        if img.ghl_status == "error":
+            reason = "Failed"
+            b["last_error"] = (img.ghl_error or "")[:120]
+        elif not (client.ghl_location_id or "").strip():
+            reason = "No Suite location"
+        elif not client.ghl_enabled:
+            reason = "Sync is off"
+        else:
+            reason = "Queued"
+        b["reasons"][reason] = b["reasons"].get(reason, 0) + 1
+
+    rows = []
+    for b in by_client.values():
+        if not b["waiting"]:
+            continue
+        c = b["client"]
+        reason = ", ".join(f"{k} ({v})" for k, v in sorted(b["reasons"].items()))
+        rows.append([
+            _c360_link(c.name) if getattr(c, "kind", "") == "client" else c.name,
+            "Client" if getattr(c, "kind", "") == "client" else "Prospect",
+            b["waiting"],
+            b["total"],
+            reason,
+            _dates.fmt(b["last"]),
+            b["last_error"] or "",
+        ])
+
+    # Most files waiting first — that is the biggest pile of work sitting
+    # invisible — then the most recently active gallery.
+    rows.sort(key=lambda r: (-r[2], r[0] if isinstance(r[0], str) else ""))
+
+    waiting = sum(r[2] for r in rows)
+    return {
+        "columns": ["Client", "Type", "Not in Suite", "Uploaded", "Why",
+                    "Last upload", "Last error"],
+        "rows": rows,
+        "note": (f"{waiting} uploaded file(s) across {len(rows)} galler"
+                 f"{'y' if len(rows) == 1 else 'ies'} have not reached Smart 1 "
+                 f"Suite. A prospect with no Suite location is expected; a "
+                 f"client with one is not."
+                 if rows else
+                 "Every uploaded file has reached Smart 1 Suite."),
+    }
+
+
 REPORTS = {
+    "uploads-not-in-suite": {
+        "title": "Uploads Not In Suite",
+        "desc": "Client files uploaded to a gallery that never reached their Smart 1 Suite media library — with the reason for each.",
+        "ico": "&#8593;",
+        "fn": uploads_not_in_suite,
+    },
     "active-clients": {
         "title": "Active Clients",
         "desc": "Every client with a live product or billing this month — partner, salesperson, live monthly and dashboard status.",

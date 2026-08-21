@@ -243,10 +243,12 @@ def _creative_items(prod_records: list[dict]) -> list[dict]:
     seen = set()
     items = []
     for r in prod_records:
-        url = r.get("url") or r.get("creative_url")
-        kind = creative_kind(url, r.get("kind"))
-        if not kind:
+        # All four External Creative Link fields, not just the first.
+        candidates = [u for u in (r.get("creative_urls") or []) if u]             or [r.get("url") or r.get("creative_url")]
+        url = next((u for u in candidates if creative_kind(u, r.get("kind"))), None)
+        if not url:
             continue
+        kind = creative_kind(url, r.get("kind"))
         pname = str(r.get("product", "")).lower()
         if any(x in pname for x in CREATIVE_EXCLUDE):
             continue

@@ -342,17 +342,33 @@ def _load_knack_creative():
     out = []
     from hub.knack_data import creative_kind
     for r in rows:
+        # Knack holds up to four External Creative Links per product, so a
+        # product with a proof and two revisions contributes several. Each is
+        # counted, because "when did we last make something for this client"
+        # is answered by the newest of them, not by the first field that
+        # happened to be filled.
+        links = [u for u in (r.get("creative_urls") or []) if u]
+        if not links:
+            legacy = r.get("creative_url") or r.get("url")
+            if legacy:
+                links = [legacy]
         # Same rule as Client 360: the URL decides, because `kind` means the
         # link type in the export and the product type in the live rows. Left
         # on `kind`, this counted a client's own homepage as creative.
-        url = r.get("creative_url") or r.get("url")
-        if not creative_kind(url, r.get("kind")):
+        links = [u for u in links if creative_kind(u, r.get("kind"))]
+        if not links:
             continue
+        url = links[0]
         product = str(r.get("product") or "")
         if any(x in product.lower() for x in CREATIVE_EXCLUDE):
             continue
-        # ts is YYYYMMDD; start is MM/DD/YYYY. Either dates the creative.
-        when = _as_utc(_knack_date(r.get("ts")) or r.get("start"))
+        # ts is YYYYMMDD in the export; the live rows have only start, as
+        # MM/DD/YYYY. _as_utc parses ISO and nothing else, so the live rows
+        # silently produced no date and every one of them was dropped —
+        # hub.dates handles both shapes and is the one parser now.
+        from hub import dates as _d
+        _day = _d.to_date(r.get("ts")) or _d.to_date(r.get("start"))
+        when = _as_utc(datetime(_day.year, _day.month, _day.day)) if _day else None
         if not when:
             continue
         out.append({

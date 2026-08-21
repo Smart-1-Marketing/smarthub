@@ -697,9 +697,27 @@ def api_retry_suite(image_id: int):
 # Everything the widget can offer. "local" and "url" always work; the rest
 # light up as each is connected in the Cloudinary console, and a source that
 # isn't connected is simply not shown, so listing them all costs nothing.
-WIDGET_SOURCES = ["local", "url", "camera", "google_drive", "dropbox",
-                  "instagram", "facebook", "image_search", "shutterstock",
-                  "getty", "istock", "unsplash"]
+# Deliberately just these three.
+#
+# The widget can also offer Google Drive, Dropbox, Instagram and Facebook, but
+# each works by having the *client* sign into their personal account through
+# our Cloudinary application — we become the middleman holding an OAuth
+# relationship to a customer's private Drive, for the sake of a file they
+# could have dragged in. That is a liability we do not want and a support
+# burden when a token lapses.
+#
+# The stock tabs (Shutterstock, Getty, iStock) are worse: they bill our
+# Cloudinary account for anything a client clicks. The search half of this
+# module already covers licensed stock, deliberately, through providers we
+# chose.
+#
+# Local, camera and URL need no account, no consent screen and no billing
+# relationship, and between them cover every way a small business actually has
+# a photo: on the computer, on the phone, or already on a page somewhere. Set
+# PICKER_UPLOAD_SOURCES to override if that ever changes.
+WIDGET_SOURCES = [s.strip() for s in (
+    os.environ.get("PICKER_UPLOAD_SOURCES") or "local,camera,url"
+).split(",") if s.strip()]
 
 # Images plus the documents a client sends alongside them. A brochure PDF is
 # part of "their pictures" as far as they are concerned, and refusing it means
@@ -820,13 +838,31 @@ def api_record_upload():
         width=body.get("width") or None,
         height=body.get("height") or None,
         bytes=body.get("bytes") or None,
-        ghl_status="skipped",
+        ghl_status="pending",
         saved_by=(g.get("hub_user") or "client"),
         collection_kind="upload",
         collection_label="Client upload",
     )
     db.add(img)
     db.commit()
+
+    # Straight on to Suite, same as a picked image. A file the client sent is
+    # the one most likely to be wanted in their media library, and leaving it
+    # only in our gallery means someone has to move it by hand later.
+    #
+    # push_image never raises and returns "skipped" when the gallery has no
+    # Suite location — which is the normal case for a prospect, and why the
+    # upload is committed before this runs rather than after.
+    pushed = ghl.push_image(client, file_url=img.cloudinary_url,
+                            name=(img.filename or public_id.rsplit("/", 1)[-1]))
+    img.ghl_status = pushed["status"]
+    img.ghl_file_id = pushed["file_id"] or None
+    img.ghl_url = pushed["url"] or None
+    img.ghl_error = pushed["error"] or None
+    try:
+        db.commit()
+    except Exception:                                   # noqa: BLE001
+        db.rollback()
     _audit("client_upload", client=client.name, source=source,
            filename=img.filename or public_id)
     return jsonify({"ok": True, "image": img.to_dict()})

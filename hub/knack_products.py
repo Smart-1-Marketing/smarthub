@@ -65,7 +65,12 @@ F_CLICK_THRU       = "field_2413"   # Click Thru URL
 # live. Set KNACK_CREATIVE_FIELD to the real field id to switch it on; until
 # then the row carries no creative link and the report falls back to the
 # export, rather than mistaking the click-thru URL for artwork.
-F_CREATIVE_URL     = os.environ.get("KNACK_CREATIVE_FIELD", "")
+# External Creative Link 1-4. Knack holds up to four per product, so a product
+# with a proof, a cutdown and two revisions is four rows here rather than one
+# — which is also why the newest of them dates the creative, not the first.
+F_CREATIVE_URLS    = [f.strip() for f in (
+    os.environ.get("KNACK_CREATIVE_FIELDS")
+    or "field_3422,field_3425,field_3426,field_3427").split(",") if f.strip()]
 F_DISPLAY_CLICK    = "field_2414"   # Display Click Thru URL
 F_GEO              = "field_2546"   # Geographic Target
 
@@ -159,8 +164,9 @@ def _row(rec: dict) -> dict:
         "dash": (_href(rec.get(F_DASHBOARD_URL))
                  or _href(rec.get(F_DASH_VALUE))),
         "url": _href(rec.get(F_CLICK_THRU)) or _text(rec.get(F_CLICK_THRU)),
-        "creative_url": (_href(rec.get(F_CREATIVE_URL))
-                         or _text(rec.get(F_CREATIVE_URL))) if F_CREATIVE_URL else "",
+        "creative_urls": [u for u in (
+            (_href(rec.get(f)) or _text(rec.get(f))) for f in F_CREATIVE_URLS
+        ) if u],
         "display_url": (_href(rec.get(F_DISPLAY_CLICK))
                         or _text(rec.get(F_DISPLAY_CLICK))),
         "geo": _text(rec.get(F_GEO)),
