@@ -1,0 +1,186 @@
+"""Display Ad Builder, reachable through the Hub.
+
+The ad builder is a Node service — roughly ten thousand lines of TypeScript
+with a native image pipeline that a Python port would have to re-derive, and
+re-deriving a layout engine changes the creative clients already receive. So it
+runs as a second process in the same container and this proxies to it.
+
+## What this buys
+
+One login. The ad builder has its own admin token, which is the right weight
+for a standalone service but wrong inside the Hub: staff would have a second
+password for one tool. Everything under ``/tools/display-ads`` sits behind the
+Hub session like every other module, and the token is added here, server-side,
+where the browser never sees it.
+
+## What to watch
+
+Two processes in one container is a real cost and it was taken deliberately.
+If Render builds start timing out or memory gets tight, the ad builder ships
+its own ``render.yaml`` and can move to its own service without touching its
+code — only ``AD_BUILDER_URL`` below changes, from loopback to that service's
+address. Nothing else in the Hub knows the difference.
+"""
+from __future__ import annotations
+
+import os
+
+import requests
+from flask import Response, request, stream_with_context
+
+# Loopback by default: the renderer binds to 127.0.0.1 inside the container, so
+# it is reachable through this proxy and not from outside. Point this at a URL
+# to split the service out later.
+AD_BUILDER_URL = (os.environ.get("AD_BUILDER_URL")
+                  or f"http://127.0.0.1:{os.environ.get('ADBUILDER_PORT', '8791')}").rstrip("/")
+
+# The ad builder refuses its internal routes unless a token is set, which is
+# the behaviour we want — it fails closed. Inside the Hub the token is an
+# implementation detail: this proxy holds it and the browser never does.
+ADMIN_TOKEN = (os.environ.get("ADBUILDER_ADMIN_TOKEN")
+               or os.environ.get("ADMIN_TOKEN") or "").strip()
+
+# Hop-by-hop headers must not be forwarded — passing Connection or
+# Transfer-Encoding through a proxy produces responses the browser cannot
+# parse, and passing Host makes the upstream build wrong absolute URLs.
+_DROP_REQUEST = {"host", "content-length", "connection", "keep-alive",
+                 "proxy-authenticate", "proxy-authorization", "te",
+                 "trailer", "transfer-encoding", "upgrade", "cookie"}
+_DROP_RESPONSE = {"content-length", "connection", "keep-alive",
+                  "proxy-authenticate", "proxy-authorization", "te",
+                  "trailer", "transfer-encoding", "upgrade",
+                  "content-encoding"}
+
+TIMEOUT = (10, 180)          # connect, read — a full ad package takes a while
+
+
+def available() -> bool:
+    """Is the renderer answering? Used by the tile and by diagnostics."""
+    try:
+        r = requests.get(f"{AD_BUILDER_URL}/healthz", timeout=3)
+        return r.ok
+    except requests.RequestException:
+        return False
+
+
+def status() -> dict:
+    """Plain-language state, for /status and the proxy's own error page."""
+    if not ADMIN_TOKEN:
+        return {"ok": False, "detail":
+                "ADBUILDER_ADMIN_TOKEN is not set, so the ad builder refuses "
+                "its own internal routes. Set it (16+ characters) and redeploy."}
+    if not available():
+        return {"ok": False, "detail":
+                f"No answer from the renderer at {AD_BUILDER_URL}. It runs as a "
+                f"second process in this container; check the deploy log for "
+                f"lines beginning [adbuilder]."}
+    return {"ok": True, "detail": f"Renderer answering at {AD_BUILDER_URL}."}
+
+
+def register(app, url_prefix: str = "/tools/display-ads") -> None:
+    """Mount the proxy on the Hub app.
+
+    A blueprint on the hub app rather than a DispatcherMiddleware mount,
+    because there is no WSGI app to mount — the upstream is a separate process
+    reached over HTTP.
+    """
+    from flask import Blueprint
+
+    bp = Blueprint("display_ads", __name__, url_prefix=url_prefix)
+
+    @bp.route("/", defaults={"path": ""},
+              methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    @bp.route("/<path:path>",
+              methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    def proxy(path: str):
+        # Hub login. Imported here rather than at module scope because
+        # hub/__init__ imports this module while it is still being defined.
+        from hub import current_user
+        if not current_user():
+            from flask import redirect, url_for
+            return redirect(f"/login?next={request.path}")
+
+        if not ADMIN_TOKEN:
+            return _explain(
+                "The Display Ad Builder isn't configured yet",
+                "ADBUILDER_ADMIN_TOKEN is not set, so the renderer refuses "
+                "every internal request. Set it to a random string of at least "
+                "16 characters and redeploy."), 503
+
+        # The renderer's own root is a JSON status document, which is the
+        # right thing for a service being health-checked and the wrong thing
+        # for someone who just clicked a tile. Send them to the builder.
+        if not path:
+            from flask import redirect
+            return redirect(f"{url_prefix}/build")
+
+        target = f"{AD_BUILDER_URL}/{path}"
+        headers = {k: v for k, v in request.headers.items()
+                   if k.lower() not in _DROP_REQUEST}
+        # The token is added here, not carried by the browser. It never reaches
+        # the page, so it cannot leak through the address bar, history or a
+        # referrer header.
+        headers["X-Admin-Token"] = ADMIN_TOKEN
+        # The intake code guards the client-facing form; staff coming through
+        # the Hub have already authenticated, so supply it for them.
+        intake = os.environ.get("INTAKE_CODE", "").strip()
+        if intake:
+            headers["X-Intake-Code"] = intake
+        # So the upstream builds links back through the Hub rather than to
+        # its own loopback address.
+        headers["X-Forwarded-Prefix"] = url_prefix
+
+        try:
+            upstream = requests.request(
+                request.method, target,
+                params=request.args,
+                data=request.get_data(),
+                headers=headers,
+                timeout=TIMEOUT,
+                stream=True,
+                allow_redirects=False,
+            )
+        except requests.ConnectionError:
+            return _explain(
+                "The Display Ad Builder isn't running",
+                "It runs as a second process in this container and is not "
+                "answering. Everything else in the Hub is unaffected. The "
+                "deploy log records why, on lines beginning [adbuilder]."), 503
+        except requests.Timeout:
+            return _explain(
+                "That took too long",
+                "Rendering a full ad package can take a couple of minutes. If "
+                "this keeps happening the renderer may be short of memory — "
+                "see the note in hub/ad_builder_proxy.py about splitting it "
+                "into its own service."), 504
+
+        out = Response(
+            stream_with_context(upstream.iter_content(chunk_size=64 * 1024)),
+            status=upstream.status_code,
+        )
+        for k, v in upstream.headers.items():
+            if k.lower() in _DROP_RESPONSE:
+                continue
+            # Rewrite upstream redirects so they stay inside the Hub instead of
+            # sending the browser to a loopback address it cannot reach.
+            if k.lower() == "location" and v.startswith("/"):
+                v = f"{url_prefix}{v}"
+            out.headers[k] = v
+        return out
+
+    app.register_blueprint(bp)
+
+
+def _explain(title: str, body: str) -> str:
+    """A readable page rather than a bare 502.
+
+    A proxy failure is the one error where the user has no way to guess the
+    cause, so it says which process is missing and where to look.
+    """
+    return (
+        "<html><body style=\"font-family:system-ui;padding:40px;max-width:760px\">"
+        f"<h2 style='color:#1a2e58'>{title}</h2>"
+        f"<p style='line-height:1.6;color:#41525f'>{body}</p>"
+        "<p><a href='/tools'>Back to Tools</a> &middot; "
+        "<a href='/status'>System Status</a></p></body></html>"
+    )

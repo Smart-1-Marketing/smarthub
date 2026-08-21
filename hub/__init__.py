@@ -2962,6 +2962,18 @@ def create_hub_app() -> Flask:
             if (os.environ.get("CLOUDINARY_URL") or "").startswith("cloudinary://")
             else "CLOUDINARY_URL not set — proposals persist to the local disk only.")
 
+        # --- Display Ad Builder (second process in this container) ---
+        # Asked here rather than inferred from config, because "the token is
+        # set" and "the renderer is answering" are different failures with
+        # different fixes, and only one of them is visible from the outside.
+        try:
+            from hub import ad_builder_proxy
+            ab = ad_builder_proxy.status()
+            add("Display Ad Builder", "ok" if ab.get("ok") else "warn", ab.get("detail", ""))
+        except Exception as _ab_exc:  # noqa: BLE001
+            add("Display Ad Builder", "warn",
+                f"Could not be checked: {_ab_exc}")
+
         # --- binaries for the PDF optimizer ---
         gs, qpdf = shutil.which("gs"), shutil.which("qpdf")
         if gs and qpdf:
@@ -3073,6 +3085,15 @@ def create_hub_app() -> Flask:
         ("Image Picker", "modules.image_picker", "register_image_picker", "/tools/image-picker"),
         ("Page Image Optimizer", "modules.page_image_optimizer", "register", "/tools/page-images"),
         ("Web Tickets", "modules.tickets", "register_tickets", "/tools/tickets"),
+        # The Display Ad Builder is a Node service in the same container; this
+        # registers the proxy that puts it behind the Hub login. Same wrapper
+        # as the rest, so a renderer that will not start costs the Hub nothing.
+        ("Display Ad Builder", "hub.ad_builder_proxy", "register", "/tools/display-ads"),
+        # The client and proposal joins. Registered separately from the
+        # proxy so a fault in one does not take the other down: the
+        # builder is still usable without attach, and attach still
+        # explains itself if the renderer is down.
+        ("Display Ad Builder links", "hub.ad_builder_link", "register", "/tools/display-ads"),
     ):
         try:
             _m = __import__(_mod, fromlist=[_fn])

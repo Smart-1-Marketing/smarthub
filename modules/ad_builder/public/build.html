@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ad Builder — Smart 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /*
+   * The build screen is the operator's workbench, not the client's proof.
+   * Different job, so a deliberately different room: the proof screen is a
+   * light neutral gallery, this is a dark studio. Dark because the operator
+   * spends an hour here judging brand colour against a backdrop, and a bright
+   * white surround skews that judgement all day.
+   *
+   * Layout is a fixed three-column bench: controls left, live canvas centre,
+   * every size and its QA state right. Nothing moves as you type — the preview
+   * is the only thing that changes, which is what makes small edits legible.
+   */
+  :root {
+    --bg: #16181D;
+    --panel: #1E2128;
+    --panel-2: #262A33;
+    --line: #333844;
+    --ink: #EEF0F4;
+    --ink-2: #98A1B0;
+    --signal: #5B8DEF;
+    --pass: #35C089;
+    --warn: #E0A72B;
+    --fail: #EF6B62;
+    /* The canvas surround is a neutral mid-grey, not the panel colour: brand
+       colours must be judged against something that does not tint them. */
+    --stage: #8A8F98;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  h1, h2, h3, .lockup { font-family: Poppins, "Avenir Next", "Segoe UI", system-ui, sans-serif; }
+  .mono, .spec, .dim { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; }
+
+  /* ---------- top bar ---------- */
+  .bar {
+    display: flex; align-items: center; gap: 12px; flex: none;
+    padding: 0 16px; height: 56px; background: var(--panel);
+    border-bottom: 1px solid var(--line); white-space: nowrap; overflow-x: auto;
+  }
+  .bar .btn, .bar select { flex: none; }
+  .lockup { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
+  .lockup span { color: var(--ink-2); font-weight: 500; }
+  .bar select, .bar button { font: inherit; }
+  select, input[type=text], textarea {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 10px; font: inherit; width: 100%;
+  }
+  select:focus, input:focus, textarea:focus, button:focus-visible {
+    outline: 2px solid var(--signal); outline-offset: 1px;
+  }
+  .bar .grow { flex: 1; }
+  .btn {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px 14px; cursor: pointer; font: inherit;
+  }
+  .btn:hover { border-color: var(--ink-2); }
+  .btn.primary { background: var(--signal); border-color: var(--signal); color: #0B1220; font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+  .saved { color: var(--pass); font-size: 12.5px; opacity: 0; transition: opacity .2s; }
+
+  /* ---- shared app nav ---- */
+  .appnav { display: flex; align-items: center; gap: 2px; margin-right: 8px; }
+  .appnav a {
+    color: var(--ink-2); text-decoration: none; font-size: 13px; font-weight: 600;
+    padding: 6px 11px; border-radius: 6px;
+  }
+  .appnav a:hover { color: var(--ink); background: var(--panel-2); }
+  .appnav a.here { color: var(--ink); background: var(--panel-2); }
+  .health { display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+    font-size: 12px; color: var(--ink-2); padding: 5px 10px; border-radius: 6px; }
+  .health:hover { background: var(--panel-2); }
+  .health .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .health.healthy .dot { background: var(--pass); }
+  .health.degraded .dot { background: var(--warn); }
+  .health.broken .dot { background: var(--fail); animation: pulse 1.2s ease infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .pill { font-size: 11.5px; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
+  .pill.revision { background: rgba(224,167,43,.16); color: var(--warn); }
+  .pill.approved { background: rgba(53,192,137,.16); color: var(--pass); }
+  .saved.on { opacity: 1; }
+
+  /* ---------- bench ---------- */
+  .bench { flex: 1; display: grid; grid-template-columns: 320px 1fr 300px; min-height: 0; }
+  .col { overflow-y: auto; min-height: 0; }
+  .col.left { border-right: 1px solid var(--line); background: var(--panel); }
+  .col.right { border-left: 1px solid var(--line); background: var(--panel); }
+
+  .group { border-bottom: 1px solid var(--line); padding: 16px 18px; }
+  .group h3 {
+    margin: 0 0 12px; font-size: 11px; letter-spacing: .13em; text-transform: uppercase;
+    color: var(--ink-2); font-weight: 600;
+  }
+  .field { margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
+  label { display: block; font-size: 12px; color: var(--ink-2); margin-bottom: 5px; }
+  .count { float: right; font-size: 11px; }
+  .count.over { color: var(--warn); }
+  textarea { min-height: 58px; resize: vertical; }
+
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .swatch { text-align: center; }
+  .swatch input[type=color] {
+    width: 44px; height: 32px; padding: 0; border: 1px solid var(--line);
+    border-radius: 5px; background: none; cursor: pointer;
+  }
+  .swatch span { display: block; font-size: 10px; color: var(--ink-2); margin-top: 3px; }
+
+  /* ---------- stage ---------- */
+  .stage {
+    background: var(--stage); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 26px; gap: 16px;
+    position: relative; overflow: auto;
+  }
+  /* A faint checker so a transparent or white-on-white creative is visible
+     as an object rather than blending into the surround. */
+  .stage::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .16;
+    background-image: linear-gradient(45deg, #000 25%, transparent 25%, transparent 75%, #000 75%),
+                      linear-gradient(45deg, #000 25%, transparent 25%, transparent 75%, #000 75%);
+    background-size: 22px 22px; background-position: 0 0, 11px 11px;
+  }
+  .canvas {
+    position: relative; background: #fff; box-shadow: 0 10px 34px rgba(0,0,0,.34);
+    max-width: 100%; line-height: 0;
+  }
+  .canvas img { display: block; max-width: 100%; height: auto; }
+  .canvas.busy { opacity: .55; }
+  .stagebar {
+    position: relative; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    justify-content: center;
+  }
+  .chip {
+    background: rgba(0,0,0,.34); color: #fff; border: 1px solid rgba(255,255,255,.22);
+    border-radius: 5px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: #101318; border-color: #101318; }
+  .dim { position: relative; color: #22262C; font-size: 12px; }
+
+  /* ---------- size rail ---------- */
+  .size {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: none; border: 0; border-bottom: 1px solid var(--line);
+    padding: 11px 16px; color: var(--ink); cursor: pointer; font: inherit;
+  }
+  .size:hover { background: var(--panel-2); }
+  .size.on { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--signal); }
+  .size .nm { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; }
+  .size .st { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+  .size .st.pass { background: var(--pass); }
+  .size .st.warn { background: var(--warn); }
+  .size .st.fail { background: var(--fail); }
+  .size .words { font-size: 11px; color: var(--ink-2); }
+
+  .qa { padding: 14px 16px; }
+  .qa h3 { margin: 0 0 10px; font-size: 11px; letter-spacing: .13em; text-transform: uppercase; color: var(--ink-2); }
+  .qa ul { list-style: none; margin: 0; padding: 0; }
+  .qa li {
+    font-size: 12.5px; line-height: 1.45; padding: 9px 11px; border-radius: 6px;
+    margin-bottom: 7px; background: var(--panel-2); border-left: 3px solid var(--line);
+  }
+  .qa li.warn { border-left-color: var(--warn); }
+  .qa li.fail { border-left-color: var(--fail); }
+  .qa li b { display: block; font-family: "IBM Plex Mono", monospace; font-size: 11px;
+             color: var(--ink-2); margin-bottom: 2px; font-weight: 500; }
+  .qa .clean { color: var(--pass); font-size: 12.5px; }
+  .fix {
+    margin-top: 7px; background: none; border: 1px solid var(--line); color: var(--ink);
+    border-radius: 5px; padding: 4px 9px; font: inherit; font-size: 11.5px; cursor: pointer;
+  }
+  .fix:hover { border-color: var(--signal); color: var(--signal); }
+
+  .notes { padding: 14px 16px; border-top: 1px solid var(--line); }
+  .notes li { font-size: 12px; color: var(--ink-2); margin-bottom: 7px; line-height: 1.45; }
+
+  .empty { padding: 40px 22px; color: var(--ink-2); text-align: center; }
+  .empty h2 { font-size: 15px; margin: 0 0 6px; color: var(--ink); }
+
+  @media (max-width: 1100px) {
+    .bench { grid-template-columns: 280px 1fr; }
+    .col.right { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="lockup" style="flex:none">Ad Builder</div><span id="who" style="display:none"></span>
+  <nav class="appnav">
+    <a href="/build" class="here">Build</a>
+    <a href="/projects">Projects</a>
+    <a href="/diagnostics">Diagnostics</a>
+  </nav>
+  <a class="health" id="health" href="/diagnostics" title="Checking…"><span class="dot"></span><span class="lbl">…</span></a>
+  <select id="campaignPick" style="width:auto;min-width:230px"></select>
+  <select id="conceptPick" style="width:auto"></select>
+  <select id="platformPick" style="width:auto">
+    <option value="google">Google Display</option>
+    <option value="amazon">Amazon DSP</option>
+  </select>
+  <span class="pill" id="statusPill" style="display:none"></span>
+  <span class="grow"></span>
+  <span class="saved" id="saved">Saved</span>
+  <button class="btn" id="save">Save</button>
+  <a class="btn" id="proofLink" href="#" target="_blank" style="display:none">Open proof</a>
+  <button class="btn" id="deliver" style="display:none;border-color:var(--pass);color:var(--pass)">Deliver final files</button>
+  <!-- Only when this is running inside the Smart 1 Hub. Standalone there is no
+       client registry to attach anything to, so the button would lead nowhere. -->
+  <a class="btn" id="attachClient" href="#" style="display:none">Attach to client</a>
+  <div id="deliveries" style="display:none;margin-top:10px;font-size:13px"></div>
+  <button class="btn primary" id="renderAll">Render all sizes</button>
+</div>
+
+<div class="bench" id="bench">
+  <div class="col left" id="controls"></div>
+  <div class="stage">
+    <div class="canvas" id="canvas"><img id="preview" alt="Preview"></div>
+    <div class="dim mono" id="dims">—</div>
+    <div class="stagebar">
+      <button class="chip" id="squint" aria-pressed="false">Squint</button>
+      <button class="chip" id="onDark" aria-pressed="false">Dark page</button>
+      <button class="chip" id="onLight" aria-pressed="true">Light page</button>
+      <button class="chip" id="overrideBtn" title="Ship a hand-edited file for this size instead of the rendered one">Replace with edited file…</button>
+      <input type="file" id="overrideInput" accept="image/png,image/jpeg" style="display:none">
+    </div>
+    <div class="dim mono" id="overrideNote" style="display:none;color:#7A4E00;background:rgba(224,167,43,.14);padding:4px 10px;border-radius:5px"></div>
+  </div>
+  <div class="col right" id="rail"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var state = {
+    requestId: null,
+    doc: null,        // { campaign, notes, assetSources }
+    conceptId: null,
+    size: '300x250',
+    platform: 'google',
+    templates: [],
+    dirty: false,
+    sizeStatus: {},   // size -> { status, words }
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function concept() {
+    if (!state.doc) return null;
+    var cs = state.doc.campaign.concepts;
+    return cs.filter(function (c) { return c.conceptId === state.conceptId; })[0] || cs[0];
+  }
+  /* Copy is stored as a default plus per-size overrides. The editor always
+     shows the effective value for the size on screen, and writes to the
+     override for that size — editing the 320x50 must not rewrite the 300x600. */
+  function effective(field) {
+    var c = concept(); if (!c) return '';
+    var d = c.copy['default'] || {};
+    var o = c.copy[state.size] || {};
+    return o[field] !== undefined ? o[field] : (d[field] || '');
+  }
+  function setCopy(field, value) {
+    var c = concept(); if (!c) return;
+    if (!c.copy[state.size]) c.copy[state.size] = {};
+    c.copy[state.size][field] = value;
+    state.dirty = true;
+  }
+
+  /* ------------------------------------------------------------ controls */
+  var WORD_BUDGET = {
+    '300x250': 18, '336x280': 20, '728x90': 13, '160x600': 18,
+    '300x600': 26, '320x50': 9, '970x250': 22, '414x125': 12
+  };
+
+  function drawControls() {
+    var c = concept();
+    if (!c) { $('controls').innerHTML = ''; return; }
+    var b = state.doc.campaign.brand;
+    var fams = state.templates.map(function (t) {
+      return '<option value="' + esc(t.id) + '"' + (t.id === c.layoutFamily ? ' selected' : '') +
+        '>' + esc(t.id) + ' — ' + esc(t.name) + '</option>';
+    }).join('');
+
+    var fields = [
+      ['headline', 'Headline', 'textarea'],
+      ['support', 'Supporting line', 'textarea'],
+      ['offer', 'Offer', 'text'],
+      ['cta', 'Call to action', 'text'],
+      ['trust', 'Proof point', 'text']
+    ].map(function (f) {
+      var v = effective(f[0]);
+      var input = f[2] === 'textarea'
+        ? '<textarea data-copy="' + f[0] + '">' + esc(v) + '</textarea>'
+        : '<input type="text" data-copy="' + f[0] + '" value="' + esc(v) + '">';
+      return '<div class="field"><label>' + f[1] +
+        '<span class="count" data-count="' + f[0] + '"></span></label>' + input + '</div>';
+    }).join('');
+
+    $('controls').innerHTML =
+      '<div class="group"><h3>Copy for ' + esc(state.size) + '</h3>' + fields +
+        '<div style="font-size:11.5px;color:var(--ink-2);margin-top:4px">' +
+        'Edits apply to this size only. Clear a field to fall back to the default copy.</div></div>' +
+      '<div class="group"><h3>Layout</h3>' +
+        '<div class="field"><label>Layout family</label><select id="family">' + fams + '</select></div>' +
+        '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div></div>' +
+      '<div class="group"><h3>Brand colours</h3><div class="swatches">' +
+        ['primary','secondary','accent','light','dark'].map(function (k) {
+          return '<div class="swatch"><input type="color" data-color="' + k + '" value="' + esc(b.colors[k]) + '"><span>' + k + '</span></div>';
+        }).join('') +
+      '</div></div>' +
+      '<div class="group"><h3>Type</h3>' +
+        '<div class="field"><label>Headline face</label><input type="text" data-font="headline" value="' + esc(b.fonts.headline) + '"></div>' +
+        '<div class="field"><label>Body face</label><input type="text" data-font="body" value="' + esc(b.fonts.body) + '"></div>' +
+        '<div style="font-size:11.5px;color:var(--ink-2)">Only installed families render. An unknown name falls back and is flagged in checks.</div>' +
+      '</div>';
+
+    updateCounts();
+    describeFamily();
+
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-copy]'), function (el) {
+      el.addEventListener('input', function () {
+        setCopy(el.dataset.copy, el.value);
+        updateCounts();
+        schedule();
+      });
+    });
+    $('family').addEventListener('change', function () {
+      concept().layoutFamily = this.value;
+      state.dirty = true;
+      describeFamily();
+      drawRail();
+      preview();
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-color]'), function (el) {
+      el.addEventListener('input', function () {
+        state.doc.campaign.brand.colors[el.dataset.color] = el.value.toUpperCase();
+        state.dirty = true;
+        schedule();
+      });
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-font]'), function (el) {
+      el.addEventListener('change', function () {
+        state.doc.campaign.brand.fonts[el.dataset.font] = el.value;
+        state.dirty = true;
+        preview();
+      });
+    });
+  }
+
+  function describeFamily() {
+    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
+    if (!t) return;
+    var has = t.sizes.indexOf(state.size) >= 0;
+    $('famNote').innerHTML = esc(t.description) +
+      (has ? '' : '<br><b style="color:var(--warn)">No ' + esc(state.size) + ' layout in this family.</b>');
+  }
+
+  function updateCounts() {
+    var total = 0;
+    ['headline','support','offer','cta','trust'].forEach(function (f) {
+      var v = effective(f).trim();
+      var n = v ? v.split(/\s+/).length : 0;
+      total += n;
+      var el = $('controls').querySelector('[data-count="' + f + '"]');
+      if (el) el.textContent = n ? n + 'w' : '';
+    });
+    var budget = WORD_BUDGET[state.size] || 20;
+    var head = $('controls').querySelector('[data-count="headline"]');
+    if (head) head.parentNode.parentNode.parentNode.firstChild;
+    var note = $('controls').querySelector('.group');
+    if (note) {
+      var h3 = note.querySelector('h3');
+      h3.innerHTML = 'Copy for ' + esc(state.size) +
+        ' <span style="float:right;text-transform:none;letter-spacing:0" class="count ' +
+        (total > budget ? 'over' : '') + '">' + total + ' / ' + budget + ' words</span>';
+    }
+  }
+
+  /* -------------------------------------------------------------- preview */
+  var timer = null;
+  function schedule() { clearTimeout(timer); timer = setTimeout(preview, 320); }
+
+  var inflight = 0;
+  function preview() {
+    var c = concept(); if (!c) return;
+    var mine = ++inflight;
+    $('canvas').classList.add('busy');
+    fetch('/api/preview', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        campaign: state.doc.campaign, conceptId: c.conceptId,
+        size: state.size, platform: state.platform
+      })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (mine !== inflight) return;               // a newer edit already won
+        $('canvas').classList.remove('busy');
+        if (!res.ok) { drawQa([{ check: 'preview', status: 'fail', detail: res.b.error }]); return; }
+        $('preview').src = res.b.image;
+        $('dims').textContent = res.b.width + ' x ' + res.b.height + ' · ' + res.b.wordCount + ' words';
+        state.sizeStatus[state.size] = { status: res.b.status, words: res.b.wordCount };
+        drawQa(res.b.qa);
+        markRail();
+      })
+      .catch(function () { $('canvas').classList.remove('busy'); });
+  }
+
+  /* ----------------------------------------------------------- size rail */
+  function drawRail() {
+    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
+    var sizes = t ? t.sizes : [];
+    $('rail').innerHTML =
+      '<div style="padding:14px 16px 4px"><h3 style="margin:0 0 4px;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)">Sizes</h3></div>' +
+      sizes.map(function (s) {
+        return '<button class="size' + (s === state.size ? ' on' : '') + '" data-size="' + esc(s) + '">' +
+          '<span class="nm">' + esc(s) + '</span><span class="words" data-words="' + esc(s) + '"></span>' +
+          '<span class="st" data-st="' + esc(s) + '"></span></button>';
+      }).join('') +
+      '<div class="qa" id="qa"></div>' +
+      (state.doc.notes && state.doc.notes.length
+        ? '<div class="notes"><h3 style="margin:0 0 10px;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)">From intake</h3><ul style="margin:0;padding-left:16px">' +
+          state.doc.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul></div>'
+        : '');
+
+    Array.prototype.forEach.call($('rail').querySelectorAll('.size'), function (el) {
+      el.addEventListener('click', function () {
+        state.size = el.dataset.size;
+        drawControls(); drawRail(); preview();
+        refreshOverrideNote();
+      });
+    });
+    markRail();
+  }
+
+  function markRail() {
+    Object.keys(state.sizeStatus).forEach(function (s) {
+      var dot = $('rail').querySelector('[data-st="' + s + '"]');
+      var w = $('rail').querySelector('[data-words="' + s + '"]');
+      if (dot) dot.className = 'st ' + state.sizeStatus[s].status;
+      if (w) w.textContent = state.sizeStatus[s].words + 'w';
+    });
+  }
+
+  function drawQa(list) {
+    var el = $('qa'); if (!el) return;
+    if (!list || !list.length) { el.innerHTML = '<h3>Checks</h3><div class="clean">All checks pass.</div>'; return; }
+    el.innerHTML = '<h3>Checks</h3><ul>' + list.map(function (f, i) {
+      var fixBtn = f.fix && f.fix.action === 'shorten'
+        ? '<button class="fix" data-fix="' + i + '">Shorten ' + esc(f.fix.role) +
+          (f.fix.maxWords ? ' to ' + f.fix.maxWords + ' words' : '') + '</button>'
+        : '';
+      return '<li class="' + esc(f.status) + '"><b>' + esc(f.check) + '</b>' + esc(f.detail) + fixBtn + '</li>';
+    }).join('') + '</ul>';
+
+    Array.prototype.forEach.call(el.querySelectorAll('[data-fix]'), function (btn) {
+      btn.addEventListener('click', function () {
+        // Apply the machine-readable fix QA already emits, rather than making
+        // the operator work out what "does not fit" means in words.
+        var f = list[Number(btn.dataset.fix)];
+        var current = effective(f.fix.role).trim().split(/\s+/);
+        var max = f.fix.maxWords || Math.max(2, current.length - 1);
+        setCopy(f.fix.role, current.slice(0, max).join(' '));
+        drawControls(); preview();
+      });
+    });
+  }
+
+  /* ---------------------------------------------------------- stage view */
+  $('squint').addEventListener('click', function () {
+    var on = this.getAttribute('aria-pressed') !== 'true';
+    this.setAttribute('aria-pressed', on ? 'true' : 'false');
+    $('preview').style.filter = on ? 'blur(4px)' : '';
+  });
+  function surround(dark) {
+    $('onDark').setAttribute('aria-pressed', dark ? 'true' : 'false');
+    $('onLight').setAttribute('aria-pressed', dark ? 'false' : 'true');
+    document.querySelector('.stage').style.background = dark ? '#15171B' : '#8A8F98';
+  }
+  $('onDark').addEventListener('click', function () { surround(true); });
+  $('onLight').addEventListener('click', function () { surround(false); });
+
+  /* ------------------------------------------------------------- loading */
+  function loadCampaign(id) {
+    fetch('/api/campaign/' + encodeURIComponent(id))
+      .then(function (r) { return r.json(); })
+      .then(function (doc) {
+        state.requestId = id;
+        state.doc = doc;
+        state.conceptId = doc.campaign.concepts[0].conceptId;
+        state.sizeStatus = {};
+        $('who').textContent = '— ' + doc.campaign.brand.name + ' · ' + doc.campaign.campaignName;
+        var listEntry = (window.__campaignList || []).filter(function (c) { return c.requestId === id; })[0];
+        var pill = $('statusPill');
+        if (listEntry && listEntry.status === 'proof-sent') {
+          pill.textContent = 'Needs revision'; pill.className = 'pill revision'; pill.style.display = '';
+        } else if (listEntry && listEntry.status === 'approved') {
+          pill.textContent = 'Approved'; pill.className = 'pill approved'; pill.style.display = '';
+        } else {
+          pill.style.display = 'none';
+        }
+        var proofBtn = $('proofLink');
+        if (doc.reportUrl) { proofBtn.href = doc.reportUrl; proofBtn.style.display = ''; }
+        else proofBtn.style.display = 'none';
+        $('conceptPick').innerHTML = doc.campaign.concepts.map(function (c) {
+          return '<option value="' + esc(c.conceptId) + '">Concept ' + esc(c.conceptId) + ' — ' + esc(c.name) + '</option>';
+        }).join('');
+        var t = state.templates.filter(function (x) { return x.id === doc.campaign.concepts[0].layoutFamily; })[0];
+        if (t && t.sizes.indexOf(state.size) < 0) state.size = t.sizes[0];
+        drawControls(); drawRail(); preview();
+        refreshDeliver(); refreshOverrideNote(); refreshAttachLink();
+      });
+  }
+
+  $('campaignPick').addEventListener('change', function () { loadCampaign(this.value); });
+  $('conceptPick').addEventListener('change', function () {
+    state.conceptId = this.value;
+    state.sizeStatus = {};
+    drawControls(); drawRail(); preview();
+  });
+  $('platformPick').addEventListener('change', function () {
+    state.platform = this.value; state.sizeStatus = {}; preview();
+  });
+
+  $('save').addEventListener('click', function () {
+    fetch('/api/campaign/' + encodeURIComponent(state.requestId), {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(state.doc)
+    }).then(function () {
+      state.dirty = false;
+      $('saved').classList.add('on');
+      setTimeout(function () { $('saved').classList.remove('on'); }, 1600);
+    });
+  });
+
+  $('renderAll').addEventListener('click', function () {
+    var btn = this; btn.disabled = true; btn.textContent = 'Rendering…';
+    fetch('/api/campaign/' + encodeURIComponent(state.requestId), {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(state.doc)
+    })
+      .then(function () {
+        return fetch('/api/render', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ campaign: state.doc.campaign, platforms: [state.platform] })
+        });
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (b) {
+        btn.textContent = b.jobId ? 'Queued ' + b.jobId : 'Render all sizes';
+        setTimeout(function () { btn.disabled = false; btn.textContent = 'Render all sizes'; }, 2600);
+      })
+      .catch(function () { btn.disabled = false; btn.textContent = 'Render all sizes'; });
+  });
+
+  /* ------------------------------------------------------- delivery */
+  function projectIdOf() {
+    var le = (window.__campaignList || []).filter(function (c) { return c.requestId === state.requestId; })[0];
+    return le && le.projectId;
+  }
+  function refreshDeliver() {
+    var le = (window.__campaignList || []).filter(function (c) { return c.requestId === state.requestId; })[0];
+    var btn = $('deliver');
+    btn.style.display = le && (le.status === 'approved' || le.status === 'complete') ? '' : 'none';
+    btn.textContent = le && le.status === 'complete' ? 'Deliver again' : 'Deliver final files';
+    // Every delivered package stays one click away, right here.
+    var box = $('deliveries');
+    if (le && le.delivered && le.delivered.length) {
+      box.style.display = '';
+      box.innerHTML = '<strong>Delivered packages</strong><br>' + le.delivered.map(function (d) {
+        var when = new Date(d.at);
+        return '<a href="' + d.zipUrl + '" download style="color:var(--accent,#1F5FC0);font-weight:600;text-decoration:none">\u2B07 ' +
+          (d.fileCount || '?') + ' files</a> <span style="color:#8a97a4">\u2014 ' +
+          when.toLocaleDateString() + ' ' + when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + '</span>';
+      }).reverse().join('<br>');
+    } else {
+      box.style.display = 'none';
+    }
+  }
+  /* --------------------------------------------- attach to a Hub client */
+  // window.S1_BASE is set by the server only when the page is served under a
+  // mount prefix, which is exactly the case where the Hub is in front of us.
+  function refreshAttachLink() {
+    var link = $('attachClient');
+    if (!link) return;
+    var pid = projectIdOf();
+    if (!window.S1_BASE || !pid) { link.style.display = 'none'; return; }
+    link.href = window.S1_BASE + '/_hub/attach?project=' + encodeURIComponent(pid);
+    link.style.display = '';
+  }
+
+  $('deliver').addEventListener('click', function () {
+    var pid = projectIdOf();
+    if (!pid) { alert('No project record found for this campaign.'); return; }
+    var btn = this; btn.disabled = true; btn.textContent = 'Packaging…';
+    fetch('/api/project/' + encodeURIComponent(pid) + '/deliver', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ concept: state.conceptId })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        btn.disabled = false;
+        if (!res.ok) { btn.textContent = 'Deliver final files'; alert(res.b.error || 'Delivery failed'); return; }
+        btn.textContent = 'Delivered ✓';
+        var a = document.createElement('a');
+        a.href = res.b.zipUrl; a.download = '';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { btn.textContent = 'Deliver again'; }, 2400);
+      })
+      .catch(function () { btn.disabled = false; btn.textContent = 'Deliver final files'; });
+  });
+
+  /* ------------------------------------------------- manual override */
+  function refreshOverrideNote() {
+    var pid = projectIdOf();
+    var note = $('overrideNote');
+    if (!pid) { note.style.display = 'none'; return; }
+    fetch('/api/project/' + encodeURIComponent(pid))
+      .then(function (r) { return r.json(); })
+      .then(function (p) {
+        var o = (p.overrides || []).filter(function (o) {
+          return o.conceptId === state.conceptId && o.size === state.size && o.platform === state.platform;
+        })[0];
+        if (o) {
+          note.style.display = '';
+          note.innerHTML = 'This size ships a manually edited file: <b>' + o.originalName +
+            '</b> &nbsp;<a href="#" id="dropOverride" style="color:inherit">remove</a>';
+          note.querySelector('#dropOverride').addEventListener('click', function (e) {
+            e.preventDefault();
+            fetch('/api/project/' + encodeURIComponent(pid) + '/override', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ conceptId: state.conceptId, platform: state.platform, size: state.size, remove: true })
+            }).then(function () { refreshOverrideNote(); });
+          });
+        } else {
+          note.style.display = 'none';
+        }
+      })
+      .catch(function () { note.style.display = 'none'; });
+  }
+
+  $('overrideBtn').addEventListener('click', function () { $('overrideInput').click(); });
+  $('overrideInput').addEventListener('change', function () {
+    var file = this.files[0]; this.value = '';
+    if (!file) return;
+    var pid = projectIdOf();
+    if (!pid) { alert('No project record found for this campaign.'); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var b64 = String(reader.result).split(',')[1];
+      fetch('/api/project/' + encodeURIComponent(pid) + '/override', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          conceptId: state.conceptId, platform: state.platform, size: state.size,
+          filename: file.name, dataBase64: b64
+        })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          if (!res.ok) { alert(res.b.error || 'That file was rejected.'); return; }
+          refreshOverrideNote();
+        });
+    };
+    reader.readAsDataURL(file);
+  });
+
+  window.addEventListener('beforeunload', function (e) {
+    if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  /* --------------------------------------------------------------- start */
+  Promise.all([
+    fetch('/api/build/options').then(function (r) { return r.json(); }),
+    fetch('/api/campaigns').then(function (r) { return r.json(); })
+  ]).then(function (out) {
+    state.templates = out[0].templates || [];
+    var list = out[1].campaigns || [];
+    window.__campaignList = list;
+    if (!list.length) {
+      document.getElementById('bench').innerHTML =
+        '<div class="empty" style="grid-column:1/-1"><h2>No campaigns yet</h2>' +
+        '<p>A campaign appears here as soon as someone submits the request form.</p></div>';
+      return;
+    }
+    $('campaignPick').innerHTML = list.map(function (c) {
+      var flag = c.status === 'proof-sent' ? '⚠ NEEDS REVISION — ' : c.status === 'approved' ? '✓ ' : '';
+      return '<option value="' + esc(c.requestId) + '">' + flag + esc(c.client) + ' — ' + esc(c.campaignName) + '</option>';
+    }).join('');
+    var pre = new URLSearchParams(location.search).get('request');
+    loadCampaign(pre && list.some(function (c) { return c.requestId === pre; }) ? pre : list[0].requestId);
+  });
+})();
+
+  /* ---- health dot: quiet poll of diagnostics, click through when off ---- */
+  (function () {
+    var el = document.getElementById('health');
+    if (!el) return;
+    function check() {
+      fetch('/api/diagnostics', { headers: { accept: 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          el.className = 'health ' + d.verdict;
+          el.title = d.summary.fail + ' failing, ' + d.summary.warn + ' warning';
+          el.querySelector('.lbl').textContent =
+            d.verdict === 'healthy' ? 'Healthy' : d.verdict === 'degraded' ? 'Degraded' : 'Broken';
+        })
+        .catch(function () { /* leave the last state */ });
+    }
+    check();
+    setInterval(check, 5 * 60 * 1000);
+  })();
+</script>
+</body>
+</html>

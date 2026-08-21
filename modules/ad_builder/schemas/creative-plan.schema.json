@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Smart 1 creative plan",
+  "description": "The contract between the OpenAI creative director and the renderer. Use this as the response_format schema for Structured Outputs so the model cannot return prose the application then has to interpret. The model chooses a layout_family from the registry and writes copy per size; it never emits coordinates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["campaign_strategy", "concepts"],
+  "properties": {
+    "campaign_strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_message", "audience", "tone"],
+      "properties": {
+        "primary_message": { "type": "string", "maxLength": 120 },
+        "audience": { "type": "string", "maxLength": 120 },
+        "tone": { "type": "string", "maxLength": 80 }
+      }
+    },
+    "concepts": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["concept_id", "name", "layout_family", "visual_direction", "copy"],
+        "properties": {
+          "concept_id": { "type": "string", "enum": ["A", "B", "C"] },
+          "name": { "type": "string", "maxLength": 40 },
+          "layout_family": {
+            "type": "string",
+            "enum": ["T01", "T02", "T03", "T04", "T05", "T06", "T07", "T08", "T09", "T10"],
+            "description": "Must exist in src/templates. T04 and T09 require an offer or price."
+          },
+          "visual_direction": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["subject", "image_prompt"],
+            "properties": {
+              "subject": { "type": "string", "maxLength": 120 },
+              "image_prompt": {
+                "type": "string",
+                "maxLength": 800,
+                "description": "Must end with an explicit prohibition on text: no logos, no lettering, no signage, no text. Headlines, logos and CTAs are composited by the renderer, never generated into the image."
+              },
+              "orientations_needed": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["landscape", "square", "vertical"] },
+                "description": "One master image will not crop well into both 970x250 and 160x600. Request separate compositions."
+              }
+            }
+          },
+          "copy": {
+            "type": "object",
+            "description": "Copy written per canvas, not shrunk from one master. `default` is the fallback; a size key overrides it field by field.",
+            "additionalProperties": false,
+            "required": ["default"],
+            "properties": {
+              "default": { "$ref": "#/$defs/copySet" },
+              "300x250": { "$ref": "#/$defs/copySet" },
+              "336x280": { "$ref": "#/$defs/copySet" },
+              "728x90": { "$ref": "#/$defs/copySet" },
+              "160x600": { "$ref": "#/$defs/copySet" },
+              "300x600": { "$ref": "#/$defs/copySet" },
+              "320x50": { "$ref": "#/$defs/copySet" },
+              "970x250": { "$ref": "#/$defs/copySet" },
+              "414x125": { "$ref": "#/$defs/copySet" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "copySet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headline": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "3-9 words depending on canvas. 3-6 for 728x90 and 320x50."
+        },
+        "support": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "One short sentence. Omit entirely on 320x50."
+        },
+        "cta": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "1-3 words, specific to the next step. Prefer 'Get Estimate' over 'Learn More' for lead generation. Omitted for placements where the platform inserts its own CTA."
+        },
+        "offer": { "type": "string", "maxLength": 40 },
+        "trust": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "One proof point only, and only where the size can carry it."
+        }
+      }
+    }
+  }
+}

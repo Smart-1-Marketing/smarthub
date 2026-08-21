@@ -1,0 +1,106 @@
+{
+  "requestId": "AD-2026-002138",
+  "campaignName": "Summer Solar",
+  "brand": {
+    "name": "Icon Solar",
+    "domain": "iconsolar.com",
+    "colors": {
+      "primary": "#123456",
+      "secondary": "#2F6BA8",
+      "accent": "#FFC400",
+      "light": "#FFFFFF",
+      "dark": "#10233A"
+    },
+    "fonts": {
+      "headline": "Montserrat",
+      "body": "Open Sans"
+    },
+    "logos": {
+      "primary": "assets/brand/icon-solar-primary.png",
+      "reverse": "assets/brand/icon-solar-reverse.png"
+    }
+  },
+  "concepts": [
+    {
+      "conceptId": "A",
+      "name": "Savings",
+      "layoutFamily": "T01",
+      "hero": {
+        "landscape": "assets/hero/hero-landscape.jpg",
+        "square": "assets/hero/hero-square.jpg",
+        "vertical": "assets/hero/hero-vertical.jpg"
+      },
+      "copy": {
+        "default": {
+          "headline": "Take Control of Your Electric Bill",
+          "support": "See how much solar could save your home.",
+          "cta": "Get Estimate"
+        },
+        "320x50": {
+          "headline": "Cut Your Electric Bill",
+          "support": "",
+          "cta": "Estimate"
+        },
+        "728x90": {
+          "headline": "Take Control of Your Electric Bill",
+          "support": "Discover what solar could save.",
+          "cta": "Get Estimate"
+        },
+        "300x250": {
+          "support": "See how much solar could save your home.",
+          "offer": "Free Estimate"
+        },
+        "336x280": {
+          "support": "See how much solar could save your home.",
+          "offer": "Free Estimate"
+        },
+        "160x600": {
+          "headline": "Ready for a Lower Power Bill?",
+          "support": "See what solar could save.",
+          "offer": "Free Estimate"
+        },
+        "300x600": {
+          "support": "Generate your own electricity and find out how much solar could save your household.",
+          "offer": "Free Savings Estimate"
+        },
+        "970x250": {
+          "support": "Local installation, 25-year warranty, no subcontractors.",
+          "trust": "4.9 stars, 320 reviews",
+          "cta": "Get Estimate"
+        },
+        "414x125": {
+          "headline": "Cut Your Electric Bill",
+          "support": "Free savings estimate"
+        }
+      }
+    },
+    {
+      "conceptId": "C",
+      "name": "Offer",
+      "layoutFamily": "T04",
+      "useReverseLogo": true,
+      "hero": {},
+      "copy": {
+        "default": {
+          "offer": "$0 Down",
+          "headline": "Solar Installation for Your Home",
+          "support": "Financing available to qualified buyers.",
+          "cta": "Get Offer"
+        },
+        "320x50": {
+          "offer": "$0 Down",
+          "headline": "Home Solar",
+          "support": "",
+          "cta": "Get Offer"
+        },
+        "728x90": {
+          "headline": "Home Solar Installation",
+          "support": "Financing available."
+        },
+        "300x600": {
+          "trust": "Locally owned since 1998"
+        }
+      }
+    }
+  ]
+}

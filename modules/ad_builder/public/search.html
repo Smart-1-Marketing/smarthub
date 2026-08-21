@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search campaigns — Smart 1</title>
+<style>
+  :root { --ink:#17242F; --ink-2:#5B6B7A; --line:#D8DEE6; --line-2:#EEF1F5; --signal:#1F5FC0; --bg:#F5F7FA; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.55 'Segoe UI',system-ui,-apple-system,sans-serif; color:var(--ink); background:var(--bg); }
+  .wrap { max-width:820px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { margin:0 0 4px; font-size:22px; }
+  .sub { color:var(--ink-2); margin:0 0 18px; font-size:14px; }
+  .bar { display:flex; gap:8px; }
+  .bar input { flex:1; padding:12px 14px; border:1px solid var(--line); border-radius:9px; font-size:15px; }
+  .bar button { padding:12px 22px; border:0; border-radius:9px; background:var(--signal); color:#fff; font-weight:600; font-size:15px; cursor:pointer; white-space:nowrap; }
+  .hint { color:var(--ink-2); font-size:14px; }
+  .spinner { display:inline-block; width:15px; height:15px; border:2px solid rgba(0,0,0,.15); border-top-color:var(--signal); border-radius:50%; animation:spin .7s linear infinite; vertical-align:-3px; margin-right:6px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .results { margin-top:18px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:11px; padding:14px 16px; margin-bottom:10px; display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; }
+  .card .name { font-weight:600; font-size:15px; }
+  .card .meta { color:var(--ink-2); font-size:12.5px; margin-top:2px; }
+  .card .acts { display:flex; gap:6px; flex-wrap:wrap; }
+  .card a.btn { font-size:12.5px; font-weight:600; color:var(--signal); text-decoration:none; border:1px solid var(--line); border-radius:7px; padding:6px 11px; background:#fff; }
+  .card a.btn:hover { background:var(--line-2); }
+  .back { display:inline-block; margin-bottom:16px; color:var(--signal); text-decoration:none; font-size:14px; font-weight:600; }
+  .gate { background:#fff; border:1px solid var(--line); border-radius:11px; padding:20px; }
+  .gate input { padding:11px 14px; border:1px solid var(--line); border-radius:9px; font-size:15px; width:220px; max-width:100%; }
+  .gate button { padding:11px 18px; border:0; border-radius:9px; background:var(--signal); color:#fff; font-weight:600; cursor:pointer; margin-left:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a href="/embed" class="back">← Back to the ad builder</a>
+  <h1>Search campaigns</h1>
+  <p class="sub">Find a past campaign by company name, website, project name, campaign name, or campaign number.</p>
+
+  <div id="gate" class="gate" style="display:none">
+    <p class="hint" style="margin:0 0 10px">Enter your team access code to search campaigns.</p>
+    <input type="password" id="gateCode" placeholder="Access code">
+    <button id="gateGo">Continue</button>
+    <p id="gateErr" class="hint" style="color:#C0392B;display:none;margin:10px 0 0">That code was not accepted.</p>
+  </div>
+
+  <div id="searchUi" style="display:none">
+    <div class="bar">
+      <input type="text" id="q" placeholder="Company, URL, project name, campaign name, or number">
+      <button id="go">Search</button>
+    </div>
+    <div class="results" id="results"></div>
+  </div>
+</div>
+
+<script>
+  var API = '';
+  var params = new URLSearchParams(location.search);
+  var code = '';
+  try { code = sessionStorage.getItem('smart1code') || ''; } catch (e) {}
+  // A new tab opened from the intake page starts with empty sessionStorage.
+  // Inherit the code from the opener (same origin) so staff don't re-enter it.
+  if (!code) {
+    try {
+      if (window.opener && window.opener.sessionStorage) {
+        code = window.opener.sessionStorage.getItem('smart1code') || '';
+        if (code) sessionStorage.setItem('smart1code', code);
+      }
+    } catch (e) { /* cross-origin or blocked — fall back to the gate */ }
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+  function headers(h) { h = h || {}; if (code) h['x-intake-code'] = code; return h; }
+  function $(id) { return document.getElementById(id); }
+
+  function showSearch() { $('gate').style.display = 'none'; $('searchUi').style.display = ''; $('q').focus(); }
+  function showGate() { $('searchUi').style.display = 'none'; $('gate').style.display = ''; $('gateCode').focus(); }
+
+  function run() {
+    var q = ($('q').value || '').trim();
+    if (!q) { $('results').innerHTML = ''; return; }
+    // Keep the query in the URL so the results page is shareable/refreshable.
+    history.replaceState(null, '', '/search?q=' + encodeURIComponent(q));
+    $('results').innerHTML = '<p class="hint"><span class="spinner"></span> Searching…</p>';
+    fetch(API + '/api/campaign-search?q=' + encodeURIComponent(q), { headers: headers({}) })
+      .then(function (r) { if (r.status === 401) { showGate(); throw new Error('code'); } return r.json(); })
+      .then(function (data) {
+        var rows = data.results || [];
+        if (!rows.length) { $('results').innerHTML = '<p class="hint">No campaigns match “' + esc(q) + '”.</p>'; return; }
+        $('results').innerHTML = rows.map(function (p) {
+          var when = p.updatedAt ? new Date(p.updatedAt).toLocaleDateString() : '';
+          return '<div class="card">' +
+            '<div><div class="name">' + esc(p.client || '') + ' — ' + esc(p.campaignName || '') + '</div>' +
+            '<div class="meta">' + esc(p.requestId) + ' · ' + esc(p.status) + (when ? ' · ' + when : '') +
+              (p.projectName ? ' · ' + esc(p.projectName) : '') + '</div></div>' +
+            '<div class="acts">' +
+              '<a class="btn" href="' + API + p.overviewUrl + '">Overview</a>' +
+              '<a class="btn" href="' + API + p.proofUrl + '">View / edit ads</a>' +
+              (p.delivered ? '<a class="btn" href="' + API + p.delivered.zipUrl + '" download>Download</a>' : '') +
+            '</div></div>';
+        }).join('');
+      })
+      .catch(function (e) {
+        if (e && e.message === 'code') return;
+        $('results').innerHTML = '<p class="hint">Could not search right now. Please try again.</p>';
+      });
+  }
+
+  $('go').addEventListener('click', run);
+  $('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+  $('gateGo').addEventListener('click', function () {
+    var v = ($('gateCode').value || '').trim();
+    if (!v) return;
+    fetch(API + '/api/intake/verify', { method: 'POST', headers: { 'x-intake-code': v } })
+      .then(function (r) {
+        if (!r.ok) { $('gateErr').style.display = ''; return; }
+        code = v; try { sessionStorage.setItem('smart1code', v); } catch (e) {}
+        showSearch();
+        if ($('q').value.trim()) run();
+      })
+      .catch(function () { $('gateErr').style.display = ''; });
+  });
+
+  // Boot: prefill from ?q= and decide whether we need the code first.
+  var initialQ = params.get('q') || '';
+  $('q').value = initialQ;
+  fetch(API + '/api/intake/verify', { method: 'POST', headers: headers({}) })
+    .then(function (r) {
+      if (r.ok) { showSearch(); if (initialQ) run(); }
+      else showGate();
+    })
+    .catch(function () { showGate(); });
+</script>
+</body>
+</html>

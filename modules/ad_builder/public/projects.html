@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects — Smart 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Same dark studio as the build screen — this is staff tooling, opened in
+     the same session, and switching palette between the two would read as
+     leaving the app rather than moving within it. */
+  :root {
+    --bg:#16181D; --panel:#1E2128; --panel-2:#262A33; --line:#333844; --ink:#EEF0F4; --ink-2:#98A1B0;
+    --signal:#5B8DEF; --pass:#35C089; --warn:#E0A72B; --fail:#EF6B62;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  h1,.lockup{font-family:Poppins,"Avenir Next","Segoe UI",system-ui,sans-serif}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+
+  .bar{display:flex;align-items:center;gap:14px;padding:0 20px;height:56px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .lockup{font-weight:600;font-size:15px}
+  .lockup a{color:var(--ink);text-decoration:none}
+  .lockup span{color:var(--ink-2);font-weight:500}
+
+
+  /* ---- shared app nav ---- */
+  .appnav { display: flex; align-items: center; gap: 2px; margin-right: 8px; }
+  .appnav a {
+    color: var(--ink-2); text-decoration: none; font-size: 13px; font-weight: 600;
+    padding: 6px 11px; border-radius: 6px;
+  }
+  .appnav a:hover { color: var(--ink); background: var(--panel-2); }
+  .appnav a.here { color: var(--ink); background: var(--panel-2); }
+  .health { display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+    font-size: 12px; color: var(--ink-2); padding: 5px 10px; border-radius: 6px; }
+  .health:hover { background: var(--panel-2); }
+  .health .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .health.healthy .dot { background: var(--pass); }
+  .health.degraded .dot { background: var(--warn); }
+  .health.broken .dot { background: var(--fail); animation: pulse 1.2s ease infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .wrap{max-width:1100px;margin:0 auto;padding:26px 20px 80px}
+
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+  .search{flex:1 1 260px;position:relative}
+  .search input{
+    width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:11px 14px 11px 38px;font:inherit;font-size:14px;
+  }
+  .search::before{content:"";position:absolute;left:13px;top:50%;width:14px;height:14px;
+    transform:translateY(-50%);border:2px solid var(--ink-2);border-radius:50%;
+    box-shadow:6px 6px 0 -3px var(--ink-2)}
+  select{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:11px 12px;font:inherit;font-size:13.5px}
+  select:focus,input:focus{outline:2px solid var(--signal);outline-offset:1px}
+
+  .count{color:var(--ink-2);font-size:12.5px;margin:0 0 12px}
+
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  thead th{
+    text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);
+    font-weight:600;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel-2);
+  }
+  tbody tr{cursor:pointer;transition:background .1s}
+  tbody tr:hover{background:var(--panel-2)}
+  tbody tr:not(:last-child) td{border-bottom:1px solid var(--line)}
+  td{padding:13px 14px;vertical-align:top}
+  .name{font-weight:600;font-size:13.5px}
+  .client{color:var(--ink-2);font-size:12.5px;margin-top:2px}
+  .pill{display:inline-block;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px}
+  .pill.draft{background:rgba(152,161,176,.14);color:var(--ink-2)}
+  .pill.in-build{background:rgba(91,141,239,.15);color:var(--signal)}
+  .pill.proof-sent{background:rgba(224,167,43,.16);color:var(--warn)}
+  .pill.approved,.pill.complete{background:rgba(53,192,137,.16);color:var(--pass)}
+  .pill.archived{background:rgba(152,161,176,.1);color:var(--ink-2)}
+  .date{font-size:12px;color:var(--ink-2)}
+  .ads{font-size:12.5px;color:var(--ink-2)}
+
+  .empty{padding:60px 20px;text-align:center;color:var(--ink-2)}
+  .empty h2{color:var(--ink);font-size:16px;margin:0 0 6px}
+
+  .skel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:40px;text-align:center;color:var(--ink-2)}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="lockup"><a href="/build">Ad Builder</a></div>
+  <nav class="appnav">
+    <a href="/build">Build</a>
+    <a href="/projects" class="here">Projects</a>
+    <a href="/diagnostics">Diagnostics</a>
+  </nav>
+  <a class="health" id="health" href="/diagnostics" title="Checking…"><span class="dot"></span><span class="lbl">…</span></a>
+</div>
+
+<div class="wrap">
+  <div class="toolbar">
+    <div class="search"><input type="text" id="q" placeholder="Search client, project, campaign, landing page…"></div>
+    <select id="status">
+      <option value="">Any status</option>
+      <option value="draft">Draft</option>
+      <option value="in-build">In build</option>
+      <option value="proof-sent">Needs revision</option>
+      <option value="approved">Approved</option>
+      <option value="complete">Complete</option>
+      <option value="archived">Archived</option>
+    </select>
+  </div>
+
+  <div class="count" id="count"></div>
+  <div id="results"><div class="skel">Loading…</div></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function fmtDate(iso) {
+    var d = new Date(iso);
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+  var STATUS_LABEL = {
+    draft: 'Draft', 'in-build': 'In build', 'proof-sent': 'Needs revision',
+    approved: 'Approved', complete: 'Complete', archived: 'Archived',
+  };
+
+  var timer = null;
+  function schedule() { clearTimeout(timer); timer = setTimeout(load, 220); }
+
+  function load() {
+    var params = new URLSearchParams();
+    var q = $('q').value.trim();
+    var status = $('status').value;
+    if (q) params.set('q', q);
+    if (status) params.set('status', status);
+
+    fetch('/api/projects?' + params.toString())
+      .then(function (r) { return r.json(); })
+      .then(function (data) { render(data.projects || []); })
+      .catch(function () {
+        $('results').innerHTML = '<div class="empty"><h2>Could not load projects</h2><p>Check the admin token and try again.</p></div>';
+      });
+  }
+
+  function render(list) {
+    if (!list.length) {
+      $('count').textContent = '';
+      $('results').innerHTML =
+        '<div class="empty"><h2>No projects found</h2><p>' +
+        ($('q').value || $('status').value ? 'Try a different search.' : 'A project appears here as soon as someone submits the request form.') +
+        '</p></div>';
+      return;
+    }
+    $('count').textContent = list.length + (list.length === 1 ? ' project' : ' projects');
+
+    var rows = list.map(function (p) {
+      var adCount = p.batches ? p.batches.reduce(function (n, b) { return n + b.ads.length; }, 0) : (p.adCount || 0);
+      // Everything lives here in the dashboard: the latest delivered zip is
+      // one click, no email required.
+      var lastDel = (p.delivered && p.delivered.length) ? p.delivered[p.delivered.length - 1] : null;
+      var filesCell = lastDel
+        ? '<a class="dl" href="' + esc(lastDel.zipUrl) + '" download onclick="event.stopPropagation()">\u2B07 ' + (lastDel.fileCount || '') + ' files</a>'
+        : '<span class="nofiles">\u2014</span>';
+      return '<tr data-request="' + esc(p.requestId) + '">' +
+        '<td><div class="name">' + esc(p.projectName) + '</div><div class="client">' + esc(p.client) + ' — ' + esc(p.campaignName) + '</div></td>' +
+        '<td><span class="pill ' + esc(p.status) + '">' + esc(STATUS_LABEL[p.status] || p.status) + '</span></td>' +
+        '<td class="ads">' + adCount + (adCount === 1 ? ' ad' : ' ads') + '</td>' +
+        '<td class="files">' + filesCell + '</td>' +
+        '<td class="date">' + fmtDate(p.createdAt) + '</td>' +
+        '<td class="date">' + fmtDate(p.updatedAt) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    $('results').innerHTML =
+      '<table><thead><tr><th>Project</th><th>Status</th><th>Creative</th><th>Files</th><th>Created</th><th>Updated</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>';
+
+    Array.prototype.forEach.call($('results').querySelectorAll('tr[data-request]'), function (tr) {
+      tr.addEventListener('click', function () {
+        // S1_BASE is set when this page is served under a mount prefix (the Hub
+        // proxies it at /tools/display-ads). An assignment to location cannot be
+        // patched the way fetch is, so this one call site says it explicitly.
+        location.href = (window.S1_BASE || '') + '/build?request=' + encodeURIComponent(tr.dataset.request);
+      });
+    });
+  }
+
+  $('q').addEventListener('input', schedule);
+  $('status').addEventListener('change', load);
+  load();
+})();
+
+  /* ---- health dot: quiet poll of diagnostics, click through when off ---- */
+  (function () {
+    var el = document.getElementById('health');
+    if (!el) return;
+    function check() {
+      fetch('/api/diagnostics', { headers: { accept: 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          el.className = 'health ' + d.verdict;
+          el.title = d.summary.fail + ' failing, ' + d.summary.warn + ' warning';
+          el.querySelector('.lbl').textContent =
+            d.verdict === 'healthy' ? 'Healthy' : d.verdict === 'degraded' ? 'Degraded' : 'Broken';
+        })
+        .catch(function () { /* leave the last state */ });
+    }
+    check();
+    setInterval(check, 5 * 60 * 1000);
+  })();
+</script>
+</body>
+</html>

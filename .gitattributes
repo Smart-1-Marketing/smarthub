@@ -1,0 +1,9 @@
+# Shell scripts must keep LF endings.
+#
+# This repo is edited on Windows and runs on Linux. A CRLF checkout puts a
+# carriage return on the shebang line, and the container then fails to start
+# with "/usr/bin/env: bash\r: No such file or directory" -- which takes the
+# whole Hub down, not just the tool whose script it is, and reads like a
+# missing interpreter rather than a line-ending problem.
+*.sh text eol=lf
+Dockerfile text eol=lf

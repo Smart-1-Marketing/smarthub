@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Start a display ad build — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Start a display ad build</h2>
+  <p>Opens a build in the Display Ad Builder with the account already filled in.
+     Works for a client we have, or a prospect who does not exist yet.</p>
+</div>
+
+{% if error %}
+  <div class="card"><div class="card-b" style="color:#b3261e">{{ error }}</div></div>
+{% endif %}
+
+<div class="card">
+  <div class="card-h"><h3>Who is it for?</h3></div>
+  <div class="card-b">
+    <form method="post" action="{{ url_prefix }}/_hub/start">
+      <div class="field">
+        <label for="client">Client or prospect</label>
+        <input id="client" name="client" list="client-list" autocomplete="off"
+               value="{{ client }}" placeholder="Start typing a client name" required>
+        <datalist id="client-list"></datalist>
+        <p style="font-size:12.5px;color:var(--muted);margin-top:5px">
+          A name we do not have yet is fine — it becomes a prospect, and the
+          gallery is created when the first creative is attached.</p>
+      </div>
+
+      <div class="field">
+        <label for="campaign">Campaign name</label>
+        <input id="campaign" name="campaign" required
+               placeholder="Spring Service Promo">
+      </div>
+
+      <div class="field">
+        <label for="promoting">What is being promoted</label>
+        <input id="promoting" name="promoting"
+               placeholder="Free system check, booked online">
+      </div>
+
+      <div class="field">
+        <label for="website">Website <span style="text-transform:none;font-weight:400">(optional — filled from the client record when we have one)</span></label>
+        <input id="website" name="website" placeholder="https://example.com">
+      </div>
+
+      {% if proposals %}
+      <div class="field">
+        <label for="proposal">Build from a proposal</label>
+        <select id="proposal" name="proposal"
+                style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px">
+          <option value="">Not from a proposal</option>
+          {% for p in proposals %}
+            <option value="{{ p.id }}" data-title="{{ p.title }}">
+              {{ p.title }} — {{ p.date_sent }}{% if p.status %} ({{ p.status }}){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+        <p style="font-size:12.5px;color:var(--muted);margin-top:5px">
+          Picking one names the campaign after the proposal and records the link
+          on the client's activity, so the creative and the pitch stay together.</p>
+      </div>
+      {% endif %}
+
+      <button class="btn-primary" type="submit">Open the builder</button>
+      <a class="btn-ghost" href="{{ url_prefix }}/projects" style="margin-left:8px">All builds</a>
+    </form>
+  </div>
+</div>
+
+<script>
+// Type-ahead from the one client registry, so a build is started against the
+// same spelling of the name the rest of the Hub uses. Name drift is what puts
+// one account's creative in another account's gallery.
+(function () {
+  var box = document.getElementById('client');
+  var list = document.getElementById('client-list');
+  var timer = null;
+  var known = {};
+
+  box.addEventListener('input', function () {
+    // Filling the website from the client record is a convenience; the field
+    // stays editable because a campaign sometimes points at a landing page
+    // rather than the main site.
+    var site = document.getElementById('website');
+    if (known[box.value] && !site.value) site.value = known[box.value];
+
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      fetch('{{ url_prefix }}/_hub/clients?q=' + encodeURIComponent(box.value))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          list.innerHTML = '';
+          (d.clients || []).forEach(function (c) {
+            known[c.name] = c.domain || '';
+            var o = document.createElement('option');
+            o.value = c.name;
+            if (c.domain) o.label = c.domain;
+            list.appendChild(o);
+          });
+        })
+        .catch(function () { /* type-ahead is optional; typing still works */ });
+    }, 200);
+  });
+
+  var sel = document.getElementById('proposal');
+  if (sel) {
+    sel.addEventListener('change', function () {
+      var opt = sel.options[sel.selectedIndex];
+      var camp = document.getElementById('campaign');
+      if (opt && opt.dataset.title && !camp.value) camp.value = opt.dataset.title;
+    });
+  }
+})();
+</script>
+{% endblock %}

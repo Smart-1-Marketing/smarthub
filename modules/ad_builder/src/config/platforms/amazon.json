@@ -1,0 +1,150 @@
+{
+  "platform": "amazon",
+  "label": "Amazon DSP",
+  "sizes": {
+    "728x90": {
+      "w": 728,
+      "h": 90,
+      "maxFileBytes": 40960,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        7,
+        13
+      ],
+      "minFontPx": 11,
+      "notes": "Desktop. 40 KB static maximum.",
+      "source": "doc",
+      "_verifiedAgainst": "https://advertising.amazon.com/resources/ad-specs/dsp/desktop, fetched 2026-08-02"
+    },
+    "160x600": {
+      "w": 160,
+      "h": 600,
+      "maxFileBytes": 40960,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        9,
+        18
+      ],
+      "minFontPx": 11,
+      "notes": "Desktop. 40 KB static maximum.",
+      "source": "doc",
+      "_verifiedAgainst": "https://advertising.amazon.com/resources/ad-specs/dsp/desktop, fetched 2026-08-02"
+    },
+    "300x600": {
+      "w": 300,
+      "h": 600,
+      "maxFileBytes": 51200,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        14,
+        26
+      ],
+      "minFontPx": 12,
+      "notes": "Desktop. 50 KB static maximum.",
+      "source": "doc",
+      "_verifiedAgainst": "https://advertising.amazon.com/resources/ad-specs/dsp/desktop, fetched 2026-08-02"
+    },
+    "320x50": {
+      "w": 320,
+      "h": 50,
+      "maxFileBytes": 51200,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 2,
+      "words": [
+        5,
+        9
+      ],
+      "minFontPx": 22,
+      "notes": "Must be submitted at 640x100 (2x). 50 KB static maximum.",
+      "source": "doc",
+      "_verifiedAgainst": "https://advertising.amazon.com/resources/ad-specs/dsp/desktop, fetched 2026-08-02"
+    },
+    "970x250": {
+      "w": 970,
+      "h": 250,
+      "maxFileBytes": 204800,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 2,
+      "words": [
+        12,
+        20
+      ],
+      "minFontPx": 36,
+      "notes": "1940x500 required onsite in North America. Amazon's custom below-the-fold billboard spec is stricter: max 20 words, max three typography variations, headline and body no smaller than 36 points.",
+      "source": "doc",
+      "_verifiedAgainst": "https://advertising.amazon.com/resources/ad-specs/dsp/desktop, fetched 2026-08-02"
+    },
+    "414x125": {
+      "w": 414,
+      "h": 125,
+      "maxFileBytes": 102400,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 2,
+      "words": [
+        4,
+        12
+      ],
+      "minFontPx": 22,
+      "noBakedCta": false,
+      "notes": "Amazon mobile shopping format. Supply at 828x250 with a 640x250 safe zone. Amazon may supply the CTA separately, so the safe zone prioritises product, brand and headline. (CTA baked in per Smart 1 request; Amazon may also overlay its own.)",
+      "source": "doc",
+      "_verifiedAgainst": "https://advertising.amazon.com/resources/ad-specs/dsp/desktop, fetched 2026-08-02"
+    },
+    "300x250": {
+      "w": 300,
+      "h": 250,
+      "maxFileBytes": 40960,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        18
+      ],
+      "minFontPx": 11,
+      "notes": "VERIFY: the background research does not give an Amazon static limit for this size. 40 KB is assumed by analogy with 728x90 and 160x600 \u2014 confirm against Amazon's current creative spec sheet before first live delivery.",
+      "source": "doc",
+      "_verifiedAgainst": "https://advertising.amazon.com/resources/ad-specs/dsp/desktop, fetched 2026-08-02"
+    },
+    "250x250": {
+      "w": 250,
+      "h": 250,
+      "maxFileBytes": 51200,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        16
+      ],
+      "minFontPx": 12,
+      "notes": "Square. Logo and CTA centered.",
+      "source": "doc"
+    }
+  }
+}

@@ -37,6 +37,7 @@ KIND_LABELS = {
     "io_creative": "IO creative",
     "blog": "Blog images",
     "seo_image": "SEO images",
+    "display_ad": "Display ads",
 }
 
 

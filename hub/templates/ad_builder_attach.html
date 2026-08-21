@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Attach creative to a client — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Attach creative to a client</h2>
+  <p>Files the finished ads into that client's gallery, tagged with the date,
+     size, weight and whether they meet the spec. The files are not copied —
+     the gallery points at the ones the builder already produced.</p>
+</div>
+
+{% if error %}
+  <div class="card"><div class="card-b" style="color:#b3261e">{{ error }}</div></div>
+  <a class="btn-ghost" href="{{ url_prefix }}/projects">All builds</a>
+{% else %}
+
+<div class="card">
+  <div class="card-h">
+    <h3>{{ project.campaignName or project.projectName }}</h3>
+    <div class="right"><a class="btn-ghost"
+      href="{{ url_prefix }}/build?request={{ project.requestId }}">Back to the build</a></div>
+  </div>
+  <div class="card-b">
+    <div class="field">
+      <label for="client">Attach to</label>
+      <input id="client" list="client-list" autocomplete="off"
+             value="{{ project.client }}" required>
+      <datalist id="client-list"></datalist>
+      <p style="font-size:12.5px;color:var(--muted);margin-top:5px">
+        Prefilled from the build. A name with no gallery yet gets one — which is
+        the normal case for a prospect.</p>
+    </div>
+
+    {% if ads %}
+      <table>
+        <thead>
+          <tr>
+            <th style="width:34px"><input type="checkbox" id="all" checked></th>
+            <th>Size</th><th>Weight</th><th>Concept</th><th>Rendered</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ad in ads %}
+          <tr>
+            <td><input type="checkbox" class="pick" value="{{ ad.size }}" checked></td>
+            <td>{{ ad.size }}</td>
+            <td>{{ (ad.bytes / 1024) | round(1) }} KB</td>
+            <td>{{ ad.concept or '—' }}</td>
+            <td>{{ ad.rendered_at[:10] if ad.rendered_at else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div style="margin-top:16px">
+        <button class="btn-primary" id="go">Attach to the gallery</button>
+        <span id="msg" style="margin-left:12px;font-size:13px"></span>
+      </div>
+    {% else %}
+      <p style="color:var(--muted)">
+        Nothing to attach yet — this build has no finished ads. Render a concept
+        on the build screen first, then come back.</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function () {
+  var box = document.getElementById('client');
+  var list = document.getElementById('client-list');
+  var timer = null;
+  box.addEventListener('input', function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      fetch('{{ url_prefix }}/_hub/clients?q=' + encodeURIComponent(box.value))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          list.innerHTML = '';
+          (d.clients || []).forEach(function (c) {
+            var o = document.createElement('option'); o.value = c.name;
+            list.appendChild(o);
+          });
+        })
+        .catch(function () {});
+    }, 200);
+  });
+
+  var all = document.getElementById('all');
+  if (all) {
+    all.addEventListener('change', function () {
+      document.querySelectorAll('.pick').forEach(function (c) { c.checked = all.checked; });
+    });
+  }
+
+  var go = document.getElementById('go');
+  if (!go) return;
+  go.addEventListener('click', function () {
+    var sizes = Array.prototype.slice.call(document.querySelectorAll('.pick:checked'))
+                     .map(function (c) { return c.value; });
+    var msg = document.getElementById('msg');
+    if (!sizes.length) { msg.textContent = 'Pick at least one size.'; return; }
+    if (!box.value.trim()) { msg.textContent = 'A client is required.'; return; }
+
+    go.disabled = true;
+    msg.style.color = '';
+    msg.textContent = 'Filing…';
+    fetch('{{ url_prefix }}/_hub/attach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project: {{ project.projectId | tojson }},
+        client: box.value.trim(),
+        sizes: sizes
+      })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        go.disabled = false;
+        if (!d.ok) { msg.style.color = '#b3261e'; msg.textContent = d.error || 'That did not work.'; return; }
+        // Say what happened to each file rather than just "done" — a run where
+        // six filed and two were already there is not the same as eight filing.
+        var parts = [d.filed + ' filed'];
+        if (d.duplicates) parts.push(d.duplicates + ' already in the gallery');
+        msg.innerHTML = parts.join(', ') +
+          (d.gallery_url ? ' — <a href="' + d.gallery_url + '">open the gallery</a>' : '');
+      })
+      .catch(function () {
+        go.disabled = false;
+        msg.style.color = '#b3261e';
+        msg.textContent = 'The Hub could not be reached. Nothing was filed.';
+      });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

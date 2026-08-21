@@ -1,0 +1,67 @@
+# Render blueprint.
+#
+# NOTE: this file lives in a subdirectory of a monorepo. Render only reads
+# render.yaml at the REPOSITORY ROOT, so this file is documentation, not live
+# configuration — the service is configured in the Render dashboard. Keep the
+# two in sync by hand, and set the service's Root Directory to this folder.
+#
+# The worker is commented out on purpose. The job queue is currently in-memory,
+# so a separate worker process cannot see jobs enqueued by the web service —
+# they would be two independent queues. Run single-process (WORKER_MODE unset)
+# until the queue is backed by Render Key Value, then uncomment.
+
+services:
+  - type: web
+    name: adbuilder
+    runtime: node
+    plan: starter          # sharp + font parsing need more than free tier gives
+    region: ohio
+    branch: main
+    # devDependencies are needed at build time (typescript), and Render sets
+    # NODE_ENV=production, which would otherwise make npm skip them.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: OUTPUT_DIR
+        value: /var/data/out
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_ROOT_FOLDER
+        value: smart1-ads
+      - key: CLOUDINARY_FOLDER_MODE
+        value: fixed
+      # Origins permitted to iframe /embed. Without the Simvoly hostname here,
+      # the browser blocks the frame and the visitor sees an empty box.
+      - key: ALLOWED_FRAME_ANCESTORS
+        value: "'self' https://smart1marketing.com https://www.smart1marketing.com"
+      - key: ALLOWED_ORIGINS
+        sync: false
+    # Rendered files are written to disk before upload. Without a disk they
+    # vanish on every deploy, and /files/ 404s for anything from a prior boot.
+    disk:
+      name: ad-output
+      mountPath: /var/data
+      sizeGB: 10
+
+  # - type: worker
+  #   name: smart1-ad-worker
+  #   runtime: node
+  #   plan: starter
+  #   region: ohio
+  #   branch: main
+  #   buildCommand: npm ci --include=dev && npm run build
+  #   startCommand: npm run worker
+  #   envVars:
+  #     - key: NODE_VERSION
+  #       value: "22"
+  #     - fromGroup: cloudinary

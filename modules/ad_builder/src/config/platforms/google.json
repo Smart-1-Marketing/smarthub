@@ -1,0 +1,150 @@
+{
+  "platform": "google",
+  "label": "Google Display Network",
+  "sizes": {
+    "300x250": {
+      "w": 300,
+      "h": 250,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png",
+        "gif"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        18
+      ],
+      "minFontPx": 11,
+      "notes": "Universal rectangle. Recommended standard is roughly 18 words maximum.",
+      "source": "doc"
+    },
+    "336x280": {
+      "w": 336,
+      "h": 280,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png",
+        "gif"
+      ],
+      "deliverScale": 1,
+      "words": [
+        10,
+        20
+      ],
+      "minFontPx": 11,
+      "notes": "In-content and end-of-content inventory. Extra space should improve image and typography, not add copy.",
+      "source": "doc"
+    },
+    "728x90": {
+      "w": 728,
+      "h": 90,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png",
+        "gif"
+      ],
+      "deliverScale": 1,
+      "words": [
+        7,
+        13
+      ],
+      "minFontPx": 11,
+      "notes": "Design as one horizontal sentence, not a compressed 300x250.",
+      "source": "doc"
+    },
+    "160x600": {
+      "w": 160,
+      "h": 600,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png",
+        "gif"
+      ],
+      "deliverScale": 1,
+      "words": [
+        9,
+        18
+      ],
+      "minFontPx": 11,
+      "notes": "Desktop sidebar. CTA belongs in the bottom 15-20%.",
+      "source": "doc"
+    },
+    "300x600": {
+      "w": 300,
+      "h": 600,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png",
+        "gif"
+      ],
+      "deliverScale": 1,
+      "words": [
+        14,
+        26
+      ],
+      "minFontPx": 12,
+      "notes": "The only core size where a second supporting sentence stays readable.",
+      "source": "doc"
+    },
+    "320x50": {
+      "w": 320,
+      "h": 50,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png",
+        "gif"
+      ],
+      "deliverScale": 1,
+      "words": [
+        5,
+        9
+      ],
+      "minFontPx": 11,
+      "notes": "One idea in about one second. Usually omit supporting copy entirely.",
+      "source": "doc"
+    },
+    "970x250": {
+      "w": 970,
+      "h": 250,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png",
+        "gif"
+      ],
+      "deliverScale": 1,
+      "words": [
+        12,
+        22
+      ],
+      "minFontPx": 14,
+      "notes": "Premium desktop. Strong demand in preferred deals and private auctions.",
+      "source": "doc"
+    },
+    "250x250": {
+      "w": 250,
+      "h": 250,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png",
+        "gif"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        16
+      ],
+      "minFontPx": 12,
+      "notes": "Square. Logo and CTA centered.",
+      "source": "doc"
+    }
+  }
+}

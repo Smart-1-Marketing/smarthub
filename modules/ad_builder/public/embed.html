@@ -1,0 +1,1554 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Display Ad Request — Smart 1 Marketing</title>
+<style>
+  /* No fixed height anywhere: the parent page is told how tall this is via
+     postMessage and the iframe resizes to match. A scrollbar inside an
+     embedded form is the fastest way to lose a submission.
+
+     Readability was the brief here: darker ink, a larger base size, 16px
+     inputs (which also stops iOS zooming on focus), and generous spacing. The
+     form is split into four named steps with a progress bar, so a first-time
+     visitor meets a short screen, not a wall of fields. */
+  :root {
+    --ink: #16222E;        /* near-black slate — high contrast on white */
+    --ink-2: #51606D;      /* secondary text, still AA on white */
+    --line: #CED8E2;
+    --accent: #1F5FC0;     /* progress, active, primary button */
+    --accent-dark: #164a99;
+    --accent-tint: #EDF3FC;
+    --card: #FFFFFF;
+    --panel: #F5F8FC;
+    --err: #C02617; --ok: #16794A;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body {
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--ink);
+  }
+  /* The form is a solid white card, whatever the host page looks like. The
+     first embed relied on a transparent background and inherited the page
+     behind it — which made the near-black text unreadable the moment the
+     Simvoly section behind it was dark. A form embedded on someone else's
+     page cannot assume anything about that page. */
+  .form {
+    max-width: 720px; margin: 0 auto; padding: 28px 26px 30px;
+    background: #FFFFFF; border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 2px 6px rgba(16,34,46,.06), 0 12px 32px rgba(16,34,46,.07);
+  }
+  @media (max-width: 560px) { .form { padding: 20px 16px 24px; border-radius: 10px; } }
+  h1 { font-size: 23px; line-height: 1.25; margin: 0 0 4px; letter-spacing: -.01em; }
+  .lede { color: var(--ink-2); font-size: 15px; margin: 0 0 20px; }
+
+  /* ---- progress stepper ---- */
+  .steps { display: flex; gap: 6px; margin: 0 0 6px; }
+  .steps .seg { flex: 1; }
+  .steps .bar { height: 5px; border-radius: 3px; background: var(--line); transition: background .25s; }
+  .steps .seg.done .bar, .steps .seg.active .bar { background: var(--accent); }
+  .steps .lbl {
+    margin-top: 7px; font-size: 12px; font-weight: 600; color: var(--ink-2);
+    display: flex; align-items: center; gap: 5px;
+  }
+  .steps .seg.active .lbl { color: var(--accent); }
+  .steps .seg.done .lbl { color: var(--ink); }
+  .steps .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%; font-size: 11px; flex: none;
+    background: var(--line); color: #fff;
+  }
+  .steps .seg.active .num { background: var(--accent); }
+  .steps .seg.done .num { background: var(--accent); }
+  .steps .seg.done .num::after { content: "\2713"; }
+  .steps .seg.done .num .n { display: none; }
+  .steps .seg { cursor: default; }
+  .steps .seg.clickable { cursor: pointer; }
+  @media (max-width: 560px) {
+    .steps .lbl span.t { display: none; }   /* keep just the numbered dots on phones */
+  }
+
+  .stepcount { font-size: 12.5px; color: var(--ink-2); margin: 18px 0 14px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em; }
+
+  /* ---- panels ---- */
+  .step { display: none; }
+  .step.on { display: block; animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .steptitle { font-size: 18px; margin: 0 0 2px; }
+  .stepsub { color: var(--ink-2); font-size: 14px; margin: 0 0 18px; }
+
+  .row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .row > .field { flex: 1 1 240px; }
+  .field { margin-bottom: 16px; }
+  label { display: block; font-size: 14.5px; font-weight: 600; margin-bottom: 6px; }
+  .req::after { content: " *"; color: var(--err); font-weight: 400; }
+  .hint { font-weight: 400; color: var(--ink-2); font-size: 13px; margin-top: 5px; }
+  input[type=text], input[type=email], input[type=url], input[type=tel], select, textarea {
+    width: 100%; padding: 12px 13px; border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; font-size: 16px; color: var(--ink); background: var(--card);
+  }
+  input::placeholder, textarea::placeholder { color: #93A0AC; }
+  textarea { min-height: 82px; resize: vertical; }
+  input:focus, select:focus, textarea:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent);
+  }
+
+  /* ---- radio / checkbox option cards ---- */
+  .optcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 9px; }
+  .optcard {
+    position: relative; border: 1.5px solid var(--line); border-radius: 9px; padding: 12px 13px 12px 40px;
+    cursor: pointer; font-size: 14.5px; font-weight: 500; background: var(--card); line-height: 1.35;
+    transition: border-color .12s, background .12s;
+  }
+  .optcard:hover { border-color: #A9BBCD; }
+  .optcard input { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+  .optcard.on { border-color: var(--accent); background: var(--accent-tint); }
+  .optcard .sub { display: block; font-weight: 400; color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
+
+  .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 9px; }
+  .check {
+    display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 500;
+    border: 1.5px solid var(--line); border-radius: 9px; padding: 12px 14px; cursor: pointer; background: var(--card);
+  }
+  .check:hover { border-color: #A9BBCD; }
+  .check input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+  .check.on { border-color: var(--accent); background: var(--accent-tint); }
+
+  /* ---- step nav ---- */
+  .stepnav { display: flex; gap: 12px; align-items: center; margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--line); }
+  .stepnav .spacer { flex: 1; }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 13px 26px; font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: var(--accent-dark); }
+  button[disabled] { opacity: .55; cursor: not-allowed; }
+  .ghost { background: transparent; color: var(--accent); border: 1.5px solid var(--line); }
+  .ghost:hover { background: var(--panel); }
+
+  .error { color: var(--err); font-size: 13.5px; margin-top: 6px; font-weight: 600; }
+  .field.invalid input, .field.invalid textarea, .field.invalid select { border-color: var(--err); }
+  .banner { padding: 14px 16px; border-radius: 8px; margin-bottom: 18px; font-size: 14.5px; }
+  .banner.bad { background: #FBE7E4; color: var(--err); }
+  .banner.good { background: #E3F3EA; color: var(--ok); }
+
+  .done { text-align: center; padding: 42px 16px; }
+  .done h2 { margin: 0 0 10px; font-size: 22px; }
+  .done p { color: var(--ink-2); margin: 0 0 6px; font-size: 15px; }
+  .ref {
+    display: inline-block; margin-top: 14px; padding: 8px 14px; background: var(--panel);
+    border-radius: 6px; font-family: ui-monospace, Menlo, monospace; font-size: 14px;
+  }
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+  /* ---- brand / logo card ---- */
+  .brandcard { border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 16px; background: var(--card); }
+  .brandcard h3 { margin: 0 0 6px; font-size: 16px; }
+  .brandcard .lead { margin: 0 0 14px; color: var(--ink-2); font-size: 14px; }
+  .foundlogo {
+    display: flex; align-items: center; gap: 16px; padding: 16px; border: 1px solid var(--line);
+    border-radius: 9px; background: var(--panel); margin-bottom: 14px;
+  }
+  .foundlogo .art {
+    width: 150px; height: 84px; background: #fff; border: 1px solid var(--line); border-radius: 7px;
+    display: flex; align-items: center; justify-content: center; flex: none; padding: 8px;
+  }
+  .foundlogo .art img { max-width: 100%; max-height: 100%; display: block; }
+  .foundlogo .meta { font-size: 14px; }
+  .foundlogo .meta b { display: block; font-size: 15px; margin-bottom: 2px; }
+  .alts { margin: 4px 0 0; }
+  .alts .cap { font-size: 12.5px; color: var(--ink-2); margin-bottom: 7px; }
+  .logopick { display: flex; gap: 10px; flex-wrap: wrap; }
+  .logopick label {
+    border: 2px solid var(--line); border-radius: 7px; padding: 8px; cursor: pointer;
+    background: #fff; display: flex; align-items: center; justify-content: center;
+    min-width: 92px; min-height: 52px; margin: 0;
+  }
+  .logopick label.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .logopick img { max-width: 104px; max-height: 42px; display: block; }
+  .logopick input { position: absolute; opacity: 0; pointer-events: none; }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .sw { text-align: center; font-size: 11px; color: var(--ink-2); }
+  .sw i { display: block; width: 46px; height: 32px; border-radius: 5px; border: 1px solid rgba(0,0,0,.12); margin-bottom: 3px; }
+  .warn { background: #FCF0D8; color: #7A4E00; border-radius: 8px; padding: 11px 13px; font-size: 13.5px; margin-top: 12px; }
+  .warn ul { margin: 6px 0 0; padding-left: 18px; }
+  .muted-btn { background: transparent; color: var(--accent); border: 1.5px solid var(--line); padding: 10px 15px; font-size: 14.5px; }
+  .bg-choices { display: flex; gap: 10px; flex-wrap: wrap; }
+  .bg-opt { display: flex; flex-direction: column; align-items: center; gap: 8px; background: #fff; border: 2px solid var(--line); border-radius: 10px; padding: 12px; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; flex: 1; min-width: 96px; }
+  .bg-opt.on { border-color: var(--accent); }
+  .bg-swatch { width: 100%; height: 46px; border-radius: 6px; }
+  .bg-swatch.solid { background: linear-gradient(135deg, #1F3A5F, #4A6E9B); }
+  .bg-swatch.photo { background: linear-gradient(135deg, #6b8e5a, #c9a86a); }
+  .bg-swatch.ai { background: linear-gradient(135deg, #7b4bc0, #c04b9b); }
+  .bg-thumb { display:inline-block; width: 120px; height: 68px; border-radius: 8px; border: 2px solid var(--line); object-fit: cover; cursor: pointer; margin: 4px; }
+  .bg-thumb.on { border-color: var(--accent); }
+  .muted-btn:hover { background: var(--panel); }
+  .spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid rgba(0,0,0,.15);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -3px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .aicap { text-align: center; font-size: 13px; color: var(--ink-2); margin: 4px 0 0; min-height: 18px; }
+  .ai-actions { display: flex; gap: 10px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+  .ai-actions button { padding: 10px 18px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; border: 1px solid var(--line); background: #fff; }
+  .ai-actions button.primary { background: var(--accent, #1F5FC0); color: #fff; border-color: var(--accent, #1F5FC0); }
+  .ai-modal { position: fixed; inset: 0; background: rgba(16,34,46,.5); display: none; align-items: center; justify-content: center; z-index: 60; padding: 20px; }
+  .ai-modal.on { display: flex; }
+  .ai-modal .box { background: #fff; border-radius: 12px; padding: 22px; width: 100%; max-width: 440px; box-shadow: 0 12px 40px rgba(16,34,46,.3); }
+  .ai-modal h3 { margin: 0 0 4px; font-size: 16px; }
+  .ai-modal textarea { width: 100%; min-height: 84px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font: inherit; box-sizing: border-box; resize: vertical; }
+  .ai-modal .row { display: flex; gap: 10px; margin-top: 14px; }
+  .ai-modal .row button { flex: 1; padding: 11px; border-radius: 8px; font-weight: 600; cursor: pointer; border: 1px solid var(--line); background: #fff; }
+  .ai-modal .row button.primary { background: var(--accent, #1F5FC0); color: #fff; border-color: var(--accent, #1F5FC0); }
+
+  /* ---- upload dropzones ---- */
+  .drop {
+    border: 2px dashed var(--line); border-radius: 9px; padding: 20px 16px; text-align: center;
+    color: var(--ink-2); font-size: 14px; cursor: pointer; background: var(--panel);
+  }
+  .drop.over { border-color: var(--accent); background: var(--accent-tint); }
+  .drop strong { color: var(--ink); display: block; font-size: 15px; margin-bottom: 3px; }
+  .drop input[type=file] { display: none; }
+  .files { list-style: none; margin: 10px 0 0; padding: 0; }
+  .files li {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 7px; margin-bottom: 7px; font-size: 13.5px; background: #fff;
+  }
+  .files img { width: 42px; height: 32px; object-fit: contain; background: var(--panel); border-radius: 4px; }
+  .files .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .files .st { font-size: 12.5px; color: var(--ink-2); }
+  .files .st.ok { color: var(--ok); }
+  .files .st.bad { color: var(--err); }
+  .files button { background: none; border: 0; color: var(--ink-2); cursor: pointer; font-size: 19px; padding: 0 4px; }
+</style>
+</head>
+<body>
+<div class="form" id="root">
+  <h1>Request Your Display Ads</h1>
+  <div id="searchBar" style="max-width:620px;margin:12px auto 0">
+    <div style="display:flex;gap:8px">
+      <input type="text" id="campSearch" placeholder="Search past campaigns — company, URL, project name, campaign name, or number"
+        style="flex:1;padding:11px 14px;border:1px solid var(--line,#D8DEE6);border-radius:9px;font-size:14px;box-sizing:border-box">
+      <button type="button" id="campSearchGo" style="padding:11px 20px;white-space:nowrap">Search</button>
+    </div>
+  </div>
+  <p class="lede">A few short steps. We handle the sizes, layouts and platform requirements from here.</p>
+
+  <!-- team access gate: shown only when the server has INTAKE_CODE set -->
+  <div id="gate" style="display:none;max-width:380px;margin:8px auto 0;text-align:center">
+    <p style="color:var(--ink-2);font-size:15px;margin:6px 0 16px">This tool is for the Smart 1 team. Enter the access code to continue.</p>
+    <input type="password" id="gateCode" autocomplete="off" placeholder="Team access code"
+      style="text-align:center;font-size:18px;letter-spacing:.08em">
+    <div class="error" id="gateErr" style="display:none;margin-top:8px">That code isn't right.</div>
+    <button type="button" id="gateGo" style="width:100%;margin-top:14px">Continue</button>
+  </div>
+
+  <!-- progress stepper -->
+  <div class="steps" id="steps">
+    <div class="seg" data-goto="0"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">1</span></span><span class="t">Your Business</span></div></div>
+    <div class="seg" data-goto="1"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">2</span></span><span class="t">The Campaign</span></div></div>
+    <div class="seg" data-goto="2"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">3</span></span><span class="t">Logo &amp; Images</span></div></div>
+    <div class="seg" data-goto="3"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">4</span></span><span class="t">Where Ads Run</span></div></div>
+    <div class="seg" data-goto="4"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">5</span></span><span class="t">Review Message</span></div></div>
+  </div>
+
+  <div id="banner"></div>
+
+  <form id="f" novalidate>
+    <div class="hp" aria-hidden="true">
+      <label>Leave this field empty<input type="text" name="company_url_confirm" tabindex="-1" autocomplete="off" aria-hidden="true"></label>
+    </div>
+    <!-- Second honeypot signal: a timestamp stamped when the form loads. A
+         human takes at least a few seconds to fill this out; a bot posts
+         instantly. The server treats a sub-2-second submit as suspicious
+         rather than trusting the text trap alone, which browser autofill can
+         trip for a real person. -->
+    <input type="hidden" id="loadedAt" value="">
+
+    <!-- ============================ STEP 1 ============================ -->
+    <section class="step on" data-step="0">
+      <h2 class="steptitle">Your business</h2>
+      <p class="stepsub">So we can find your brand and reach you about the ads.</p>
+
+      <div class="field" data-field="business">
+        <label class="req" for="business">Business name</label>
+        <input type="text" id="business" name="business" autocomplete="organization" required>
+      </div>
+      <div class="field" data-field="website">
+        <label class="req" for="website">Website</label>
+        <input type="text" id="website" name="website" placeholder="yourbusiness.com" autocomplete="url" required>
+        <div class="hint">We look up your logo and brand colours from this automatically.</div>
+      </div>
+      <div class="row">
+        <div class="field" data-field="contact">
+          <label class="req" for="contact">Your name</label>
+          <input type="text" id="contact" name="contact" autocomplete="name" required>
+        </div>
+        <div class="field" data-field="email">
+          <label class="req" for="email">Email</label>
+          <input type="email" id="email" name="email" autocomplete="email" required>
+        </div>
+        <div class="field" data-field="phone">
+          <label for="phone">Phone</label>
+          <input type="tel" id="phone" name="phone" autocomplete="tel">
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ STEP 2 ============================ -->
+    <section class="step" data-step="1">
+      <h2 class="steptitle">The campaign</h2>
+      <p class="stepsub">What you are advertising, and what a click should do.</p>
+
+      <div class="row">
+        <div class="field" data-field="campaignName">
+          <label class="req" for="campaignName">Campaign name</label>
+          <input type="text" id="campaignName" name="campaignName" placeholder="Summer Promotion" required>
+        </div>
+        <div class="field" data-field="projectName">
+          <label class="req" for="projectName">Project name</label>
+          <input type="text" id="projectName" name="projectName" placeholder="Spring Solar Push 2026" required>
+          <div class="hint">How you will look this up later. Add the season or year if you run it more than once.</div>
+        </div>
+      </div>
+
+      <div class="field" data-field="landingPage">
+        <label class="req" for="landingPage">Landing page</label>
+        <input type="text" id="landingPage" name="landingPage" placeholder="yourbusiness.com/offer" required>
+        <div class="hint">The page the ad clicks through to. We read it to suggest wording.</div>
+      </div>
+
+      <!-- suggestions from the landing page appear here -->
+      <div id="landingSection" style="display:none"><div id="landingCard"></div></div>
+
+      <div class="field" data-field="promoting">
+        <label class="req" for="promoting">What are you promoting?</label>
+        <textarea id="promoting" name="promoting" required
+          placeholder="A short description of the product, service, or offer."></textarea>
+      </div>
+
+      <div class="field" data-field="objective">
+        <label class="req">Primary goal</label>
+        <div class="hint" style="margin:-2px 0 9px">Pick the one that matters most.</div>
+        <div class="optcards" id="objectiveCards">
+          <label class="optcard"><input type="radio" name="objective" value="Generate leads">Generate leads</label>
+          <label class="optcard"><input type="radio" name="objective" value="Generate phone calls">Generate phone calls</label>
+          <label class="optcard"><input type="radio" name="objective" value="Increase website traffic">Increase website traffic</label>
+          <label class="optcard"><input type="radio" name="objective" value="Increase online sales">Increase online sales</label>
+          <label class="optcard"><input type="radio" name="objective" value="Promote a specific product">Promote a product</label>
+          <label class="optcard"><input type="radio" name="objective" value="Promote a specific service">Promote a service</label>
+          <label class="optcard"><input type="radio" name="objective" value="Promote an event">Promote an event</label>
+          <label class="optcard"><input type="radio" name="objective" value="Increase store visits">Increase store visits</label>
+          <label class="optcard"><input type="radio" name="objective" value="Increase brand awareness">Brand awareness</label>
+          <label class="optcard"><input type="radio" name="objective" value="Introduce a new product or service">Launch something new</label>
+          <label class="optcard"><input type="radio" name="objective" value="Retarget previous website visitors">Retarget past visitors</label>
+        </div>
+      </div>
+
+      <div class="field" data-field="cta">
+        <label class="req">What should people do?</label>
+        <div class="hint" style="margin:-2px 0 9px">The button on the ad.</div>
+        <div class="optcards" id="ctaCards">
+          <label class="optcard"><input type="radio" name="cta" value="Get Estimate">Get Estimate</label>
+          <label class="optcard"><input type="radio" name="cta" value="Request Pricing">Request Pricing</label>
+          <label class="optcard"><input type="radio" name="cta" value="Learn More">Learn More</label>
+          <label class="optcard"><input type="radio" name="cta" value="Shop Now">Shop Now</label>
+          <label class="optcard"><input type="radio" name="cta" value="View Inventory">View Inventory</label>
+          <label class="optcard"><input type="radio" name="cta" value="Schedule Now">Schedule Now</label>
+          <label class="optcard"><input type="radio" name="cta" value="Book Today">Book Today</label>
+          <label class="optcard"><input type="radio" name="cta" value="Call Now">Call Now</label>
+          <label class="optcard"><input type="radio" name="cta" value="Register Now">Register Now</label>
+          <label class="optcard"><input type="radio" name="cta" value="Get Offer">Get Offer</label>
+          <label class="optcard"><input type="radio" name="cta" value="Check Availability">Check Availability</label>
+          <label class="optcard"><input type="radio" name="cta" value="Visit Us">Visit Us</label>
+          <label class="optcard"><input type="radio" name="cta" value="Smart 1 should recommend">Not sure — recommend<span class="sub">We'll choose the best fit</span></label>
+        </div>
+      </div>
+
+      <div class="field" data-field="benefit">
+        <label class="req" for="benefit">Main customer benefit</label>
+        <input type="text" id="benefit" name="benefit" required
+          placeholder="The single best reason to choose you.">
+      </div>
+      <div class="field" data-field="offer">
+        <label for="offer">Offer or promotion</label>
+        <input type="text" id="offer" name="offer" placeholder="Free estimate, 15% off, $0 down — leave blank if none">
+      </div>
+      <div class="field" data-field="audience">
+        <label for="audience">Who is this for?</label>
+        <textarea id="audience" name="audience"
+          placeholder="Optional. Homeowners, new movers, a particular age or interest…"></textarea>
+      </div>
+    </section>
+
+    <!-- ============================ STEP 3 ============================ -->
+    <section class="step" data-step="2">
+      <h2 class="steptitle">Logo &amp; images</h2>
+      <p class="stepsub">We grab what we can from your site. Add or replace anything here.</p>
+
+      <!-- discovered brand + logo, or manual entry, lands here -->
+      <div id="brandSection" style="display:none"><div id="brandCard"></div></div>
+
+      <div id="manualBrand" style="display:none">
+        <div class="row">
+          <div class="field">
+            <label for="mbName">Business name as it should appear</label>
+            <input type="text" id="mbName" placeholder="Northside Dental">
+          </div>
+          <div class="field">
+            <label for="mbHeadFont">Headline font</label>
+            <select id="mbHeadFont">
+              <option value="Montserrat">Montserrat</option>
+              <option value="Poppins">Poppins</option>
+              <option value="Open Sans">Open Sans</option>
+            </select>
+            <div class="hint">Using a different brand font? Tell us in the notes and we'll add it.</div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Brand colours</label>
+          <div class="checks" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr))">
+            <span class="check" style="cursor:default"><input type="color" id="mbPrimary" value="#1F3A5F" style="width:40px;height:30px;padding:0;border:1px solid var(--line);border-radius:5px"> Main</span>
+            <span class="check" style="cursor:default"><input type="color" id="mbAccent" value="#F2B705" style="width:40px;height:30px;padding:0;border:1px solid var(--line);border-radius:5px"> Button</span>
+            <span class="check" style="cursor:default"><input type="color" id="mbSecondary" value="#4A6E9B" style="width:40px;height:30px;padding:0;border:1px solid var(--line);border-radius:5px"> Secondary</span>
+          </div>
+          <div class="hint">Not sure? Upload your logo below and we'll take the colours from it.</div>
+        </div>
+      </div>
+
+      <div class="field" data-field="logo" style="margin-top:4px">
+        <label for="logoDrop">Upload a logo <span style="font-weight:400;color:var(--ink-2)">(use your own instead of the one above)</span></label>
+        <div class="drop" id="logoDrop" tabindex="0" role="button" aria-label="Upload a logo">
+          <strong>Drop a logo here, or tap to choose</strong>
+          PNG or SVG with a transparent background works best
+          <input type="file" id="logoInput" accept="image/png,image/svg+xml,image/jpeg">
+        </div>
+        <ul class="files" id="logoFiles"></ul>
+      </div>
+
+      <div class="field" data-field="image">
+        <label for="imageDrop">Photos or product images <span style="font-weight:400;color:var(--ink-2)">(optional)</span></label>
+        <div class="drop" id="imageDrop" tabindex="0" role="button" aria-label="Upload images">
+          <strong>Drop images here, or tap to choose</strong>
+          High-resolution photos of your work, product, or team
+          <input type="file" id="imageInput" accept="image/png,image/jpeg,image/webp" multiple>
+        </div>
+        <ul class="files" id="imageFiles"></ul>
+        <div class="hint" style="margin-top:8px">
+          We'll automatically optimize images to meet the 150&nbsp;KB ad limit. Need to crop or edit one first?
+          Use our <a href="https://smart1marketing.com/image-optimizer" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">image optimizer</a>.
+        </div>
+      </div>
+
+      <label class="check" style="max-width:none" id="stockRow">
+        <input type="checkbox" id="stockOk" name="stockOk" checked>
+        No photos to share? Let Smart 1 use suitable stock imagery.
+      </label>
+    </section>
+
+    <!-- ============================ STEP 4 ============================ -->
+    <section class="step" data-step="3">
+      <h2 class="steptitle">Where ads run</h2>
+      <p class="stepsub">The platforms and the area you want to reach.</p>
+
+      <div class="field" data-field="platforms">
+        <label class="req">Advertising platforms</label>
+        <div class="checks" id="platformChecks">
+          <label class="check"><input type="checkbox" name="platforms" value="google" checked> Google Display</label>
+          <label class="check"><input type="checkbox" name="platforms" value="amazon"> Amazon DSP</label>
+          <label class="check"><input type="checkbox" name="platforms" value="unsure"> Not sure — recommend</label>
+        </div>
+      </div>
+
+      <div class="field" data-field="geography">
+        <label for="geography">Area to target</label>
+        <input type="text" id="geography" name="geography" placeholder="Central Ohio, 25-mile radius of Dublin, nationwide…">
+      </div>
+
+      <div class="field" data-field="notes">
+        <label for="notes">Anything else?</label>
+        <textarea id="notes" name="notes"
+          placeholder="Brand fonts we should add, must-have wording, things to avoid…"></textarea>
+      </div>
+
+      <p class="hint" style="margin-top:6px">
+        Next we'll suggest your ad wording for you to approve before anything is built.
+      </p>
+    </section>
+
+    <!-- ============================ STEP 5: copy approval ============================ -->
+    <section class="step" data-step="4">
+      <h2 class="steptitle">Review your message</h2>
+      <p class="stepsub">We drafted this from your answers. Edit anything, then approve — nothing is built until you do.</p>
+
+      <div id="copyLoading" style="padding:24px 0;color:var(--ink-2)"><span class="spinner"></span> Writing your ad copy…</div>
+
+      <div id="copyReview" style="display:none">
+        <div class="field" data-field="approvedHeadline">
+          <label class="req" for="approvedHeadline">Headline</label>
+          <input type="text" id="approvedHeadline" maxlength="60">
+          <div class="hint">The big line. 3–7 words works best.</div>
+        </div>
+        <div class="field" data-field="approvedSupport">
+          <label for="approvedSupport">Supporting line</label>
+          <input type="text" id="approvedSupport" maxlength="90">
+          <div class="hint">One short sentence that adds a second point.</div>
+        </div>
+        <div class="field" data-field="approvedCta">
+          <label class="req" for="approvedCta">Button text</label>
+          <input type="text" id="approvedCta" maxlength="24">
+        </div>
+
+        <div id="copyWarnings" style="display:none;background:#FCF0D8;color:#7A4E00;border-radius:8px;padding:12px 14px;font-size:13.5px;margin-bottom:14px"></div>
+
+        <button type="button" class="muted-btn" id="regenCopy" style="font-size:13.5px">Suggest different wording</button>
+
+        <div style="margin-top:22px;border-top:1px solid var(--line);padding-top:18px">
+          <label style="font-weight:600;display:block;margin-bottom:4px">Background for your offer ad</label>
+          <p class="hint" style="margin:0 0 12px">One of your concepts can use a photo background. Pick a direction — we'll keep the text readable automatically.</p>
+          <div id="bgChoices" class="bg-choices">
+            <button type="button" class="bg-opt on" data-bg="solid">
+              <span class="bg-swatch solid"></span>
+              <span>Solid brand colour</span>
+            </button>
+            <button type="button" class="bg-opt" data-bg="pixabay">
+              <span class="bg-swatch photo"></span>
+              <span>Suggested photos</span>
+            </button>
+            <button type="button" class="bg-opt" data-bg="ai">
+              <span class="bg-swatch ai"></span>
+              <span>AI-generated from your page</span>
+            </button>
+          </div>
+          <div id="bgResults" style="display:none;margin-top:12px"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- step navigation -->
+    <div class="stepnav">
+      <button type="button" class="ghost" id="back" style="display:none">Back</button>
+      <div class="spacer"></div>
+      <span id="stepOf" class="hint" style="margin:0 4px 0 0"></span>
+      <button type="button" id="next">Next</button>
+      <button type="submit" id="submit" style="display:none">Approve &amp; build my ads</button>
+    </div>
+  </form>
+</div>
+
+<div class="ai-modal" id="aiModal">
+  <div class="box">
+    <h3>What would you like to change?</h3>
+    <p class="hint" style="margin:0 0 12px">Describe it in plain words — for example "make the sky darker", "move the player to the left", or "add more space on the right for text".</p>
+    <textarea id="ai-change-text" placeholder="Tell us what to change…"></textarea>
+    <div class="row">
+      <button id="ai-cancel">Cancel</button>
+      <button class="primary" id="ai-apply">Apply changes</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* --------------------------------------------------- height reporting */
+  var lastHeight = 0;
+  function reportHeight() {
+    var h = Math.ceil(document.getElementById('root').getBoundingClientRect().height) + 8;
+    if (h === lastHeight) return;
+    lastHeight = h;
+    parent.postMessage({ type: 'smart1:height', height: h }, '*');
+  }
+  if (window.ResizeObserver) new ResizeObserver(reportHeight).observe(document.getElementById('root'));
+  window.addEventListener('load', reportHeight);
+  setInterval(reportHeight, 700);
+  reportHeight();
+
+  /* ------------------------------------------------------------ helpers */
+  var form = document.getElementById('f');
+  var banner = document.getElementById('banner');
+  var submit = document.getElementById('submit');
+  var API = (document.currentScript && document.currentScript.dataset.api) || '';
+  document.getElementById('loadedAt').value = String(Date.now());
+
+  /* ------------------------------------------------- team access gate */
+  // __NEEDS_CODE__ is replaced by the server when it serves this page.
+  var NEEDS_CODE = __NEEDS_CODE__;
+  var intakeCode = '';
+  try { intakeCode = sessionStorage.getItem('smart1code') || ''; } catch (e) {}
+
+  function codeHeaders(h) {
+    h = h || {};
+    if (intakeCode) h['x-intake-code'] = intakeCode;
+    return h;
+  }
+
+  var gate = document.getElementById('gate');
+  var stepsBar = document.getElementById('steps');
+
+  function lockForm(locked) {
+    form.style.display = locked ? 'none' : '';
+    stepsBar.style.display = locked ? 'none' : '';
+    gate.style.display = locked ? '' : 'none';
+    reportHeight();
+  }
+
+  if (NEEDS_CODE) {
+    if (intakeCode) {
+      // A stored code might be stale; verify quietly and fall back to the gate.
+      fetch(API + '/api/intake/verify', { method: 'POST', headers: codeHeaders() })
+        .then(function (r) { if (!r.ok) { intakeCode = ''; lockForm(true); } })
+        .catch(function () {});
+      lockForm(false);
+    } else {
+      lockForm(true);
+    }
+    document.getElementById('gateGo').addEventListener('click', function () {
+      var v = document.getElementById('gateCode').value.trim();
+      if (!v) return;
+      fetch(API + '/api/intake/verify', { method: 'POST', headers: { 'x-intake-code': v } })
+        .then(function (r) {
+          if (r.ok) {
+            intakeCode = v;
+            try { sessionStorage.setItem('smart1code', v); } catch (e) {}
+            document.getElementById('gateErr').style.display = 'none';
+            lockForm(false);
+          } else {
+            document.getElementById('gateErr').style.display = '';
+            reportHeight();
+          }
+        })
+        .catch(function () {
+          document.getElementById('gateErr').textContent = 'Could not check the code. Try again.';
+          document.getElementById('gateErr').style.display = '';
+        });
+    });
+    document.getElementById('gateCode').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('gateGo').click(); }
+    });
+  }
+
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function show(kind, msg) {
+    banner.innerHTML = '<div class="banner ' + kind + '">' + msg + '</div>';
+    reportHeight();
+  }
+  function fieldWrap(name) { return document.querySelector('[data-field="' + name + '"]'); }
+  function clearErrors(scope) {
+    var root = scope || form;
+    var e = root.querySelectorAll('.error');
+    for (var i = 0; i < e.length; i++) e[i].remove();
+    var inv = root.querySelectorAll('.field.invalid');
+    for (var j = 0; j < inv.length; j++) inv[j].classList.remove('invalid');
+  }
+  function fail(name, msg) {
+    var wrap = fieldWrap(name);
+    if (!wrap) return;
+    wrap.classList.add('invalid');
+    var d = document.createElement('div');
+    d.className = 'error';
+    d.textContent = msg;
+    wrap.appendChild(d);
+  }
+  function normalizeUrl(v) {
+    v = (v || '').trim();
+    if (!v) return '';
+    return /^https?:\/\//i.test(v) ? v : 'https://' + v;
+  }
+
+  /* --------------------------------------------- option-card highlighting */
+  // Radio/checkbox cards get an 'on' class so the selection reads at a glance.
+  function wireCards(containerId, single) {
+    var box = document.getElementById(containerId);
+    if (!box) return;
+    var cards = box.querySelectorAll('.optcard, .check');
+    function sync() {
+      for (var i = 0; i < cards.length; i++) {
+        var input = cards[i].querySelector('input');
+        cards[i].classList.toggle('on', !!(input && input.checked));
+      }
+    }
+    for (var i = 0; i < cards.length; i++) {
+      cards[i].querySelector('input').addEventListener('change', sync);
+    }
+    sync();
+  }
+  wireCards('objectiveCards', true);
+  wireCards('ctaCards', true);
+  wireCards('platformChecks', false);
+
+  /* ---------------------------------------------------- step navigation */
+  var STEPS = [
+    { required: ['business', 'website', 'contact', 'email'] },
+    { required: ['campaignName', 'projectName', 'landingPage', 'promoting', 'objective', 'cta', 'benefit'] },
+    { required: [] },
+    { required: ['platforms'] },
+    { required: ['approvedHeadline', 'approvedCta'] }
+  ];
+  var current = 0;
+  var reached = 0;
+  var panels = form.querySelectorAll('.step');
+  var segs = document.querySelectorAll('#steps .seg');
+  var backBtn = document.getElementById('back');
+  var nextBtn = document.getElementById('next');
+  var stepOf = document.getElementById('stepOf');
+
+  function val(name) {
+    var el = form.elements[name];
+    return el ? (el.value || '').trim() : '';
+  }
+
+  function validateStep(i) {
+    var wrap = panels[i];
+    clearErrors(wrap);
+    var firstBad = null;
+
+    STEPS[i].required.forEach(function (name) {
+      if (name === 'platforms') {
+        var any = form.querySelectorAll('input[name=platforms]:checked').length;
+        if (!any) { fail('platforms', 'Choose at least one'); if (!firstBad) firstBad = fieldWrap('platforms'); }
+        return;
+      }
+      if (!val(name)) {
+        fail(name, 'Required');
+        if (!firstBad) firstBad = fieldWrap(name);
+      }
+    });
+
+    if (i === 0) {
+      var em = val('email');
+      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) {
+        fail('email', 'That does not look like an email address');
+        if (!firstBad) firstBad = fieldWrap('email');
+      }
+    }
+
+    if (firstBad) {
+      firstBad.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      reportHeight();
+      return false;
+    }
+    return true;
+  }
+
+  function showStep(i) {
+    current = i;
+    reached = Math.max(reached, i);
+    for (var p = 0; p < panels.length; p++) panels[p].classList.toggle('on', p === i);
+
+    for (var s = 0; s < segs.length; s++) {
+      segs[s].classList.toggle('active', s === i);
+      segs[s].classList.toggle('done', s < i || (s <= reached && s !== i));
+      segs[s].classList.toggle('clickable', s <= reached);
+    }
+
+    backBtn.style.display = i === 0 ? 'none' : '';
+    var last = i === STEPS.length - 1;
+    nextBtn.style.display = last ? 'none' : '';
+    submit.style.display = last ? '' : 'none';
+    stepOf.textContent = 'Step ' + (i + 1) + ' of ' + STEPS.length;
+
+    banner.innerHTML = '';
+    if (i === 4) loadCopySuggestion();
+    document.getElementById('root').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    reportHeight();
+  }
+
+  /* ---------------------------------------- copy approval (step 5) */
+  var copyLoaded = false;
+  function renderCopyWarnings(warnings) {
+    var box = document.getElementById('copyWarnings');
+    if (warnings && warnings.length) {
+      box.style.display = '';
+      box.innerHTML = '<b>A couple of things to check:</b><ul style="margin:6px 0 0;padding-left:18px">' +
+        warnings.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul>';
+    } else {
+      box.style.display = 'none';
+    }
+    reportHeight();
+  }
+  function fillCopy(sug) {
+    document.getElementById('approvedHeadline').value = sug.headline || '';
+    document.getElementById('approvedSupport').value = sug.support || '';
+    document.getElementById('approvedCta').value = sug.cta || (form.elements.cta.value !== 'Smart 1 should recommend' ? form.elements.cta.value : 'Learn More');
+    renderCopyWarnings(sug.warnings);
+    document.getElementById('copyLoading').style.display = 'none';
+    document.getElementById('copyReview').style.display = '';
+    reportHeight();
+  }
+  function loadCopySuggestion(force) {
+    if (copyLoaded && !force) return;
+    document.getElementById('copyLoading').style.display = '';
+    document.getElementById('copyReview').style.display = 'none';
+    reportHeight();
+    fetch(API + '/api/copy/suggest', {
+      method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        business: val('business'), promoting: val('promoting'), benefit: val('benefit'),
+        offer: form.elements.offer.value.trim(), audience: form.elements.audience.value.trim(),
+        geography: form.elements.geography.value.trim(), objective: val('objective'),
+        cta: val('cta'), landingAnalysis: suggestions || undefined
+      })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (sug) { copyLoaded = true; fillCopy(sug); })
+      .catch(function () {
+        // Never block the build on a copy service hiccup — fall back to the
+        // form answers and let the person edit.
+        copyLoaded = true;
+        fillCopy({ headline: val('benefit') || val('promoting'), support: form.elements.offer.value.trim(), cta: val('cta'), warnings: [] });
+      });
+  }
+  // Re-run the client-side critique as they edit, so warnings stay honest.
+  ['approvedHeadline', 'approvedSupport', 'approvedCta'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', function () {
+      // lightweight local echo of the server critique for the truncation/label cases
+      var h = document.getElementById('approvedHeadline').value.trim();
+      var s = document.getElementById('approvedSupport').value.trim();
+      var w = [];
+      if (h && h.split(/\s+/).length < 2) w.push('The headline is a single word — it may read as a fragment.');
+      if (/(str|stre|adv|inc)$/i.test(h)) w.push('The headline looks truncated.');
+      if (s && /(str|stre|adv|inc)$/i.test(s)) w.push('The supporting line looks truncated.');
+      renderCopyWarnings(w);
+    });
+  });
+  document.getElementById('regenCopy').addEventListener('click', function () {
+    this.disabled = true; var b = this;
+    loadCopySuggestion(true);
+    setTimeout(function () { b.disabled = false; }, 1500);
+  });
+
+  /* -------------------------------------- background chooser (offer concept) */
+  var bgChoice = { mode: 'solid', url: null };
+  function selectBgMode(mode, btn) {
+    var opts = document.querySelectorAll('.bg-opt');
+    for (var i = 0; i < opts.length; i++) opts[i].classList.toggle('on', opts[i] === btn);
+    bgChoice = { mode: mode, url: null };
+    var results = document.getElementById('bgResults');
+    if (mode === 'solid') { results.style.display = 'none'; results.innerHTML = ''; return; }
+    results.style.display = '';
+    if (mode === 'ai') { runAiForge(results, null); return; }
+    results.innerHTML = '<span class="hint"><span class="spinner"></span> Finding photos that fit your campaign…</span>';
+
+    var endpoint = '/api/images/search';
+    fetch(API + endpoint, {
+      method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        business: val('business'), promoting: val('promoting'),
+        objective: val('objective'), landingAnalysis: suggestions || undefined,
+        benefit: val('benefit'), offer: val('offer'),
+        palette: (discovered.brand && discovered.brand.colors) ? {
+          primary: discovered.brand.colors.primary,
+          secondary: discovered.brand.colors.secondary,
+          accent: discovered.brand.colors.accent
+        } : undefined,
+        referenceImages: (uploaded.image || []).map(function (x) { return x.url; })
+      })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var cands = data.candidates || [];
+        if (!cands.length) {
+          results.innerHTML = '<span class="hint">' + esc(data.reason || 'No images available right now. Your ad will use a solid background.') + '</span>';
+          bgChoice = { mode: 'solid', url: null };
+          return;
+        }
+        results.innerHTML = '<p class="hint" style="margin:0 0 6px">Tap one to use it:</p>';
+        cands.forEach(function (c) {
+          var img = document.createElement('img');
+          img.src = API + c.url; img.className = 'bg-thumb'; img.alt = 'Background option';
+          img.addEventListener('click', function () {
+            var thumbs = results.querySelectorAll('.bg-thumb');
+            for (var t = 0; t < thumbs.length; t++) thumbs[t].classList.remove('on');
+            img.classList.add('on');
+            bgChoice = { mode: mode, url: c.url };
+          });
+          results.appendChild(img);
+        });
+      })
+      .catch(function () {
+        results.innerHTML = '<span class="hint">Could not load images. Your ad will use a solid background.</span>';
+        bgChoice = { mode: 'solid', url: null };
+      });
+  }
+
+  // ---- AI background: plain loading + use-or-change loop ----
+  var AI_CAPTIONS = ['Creating your image\\u2026', 'This can take a moment\\u2026'];
+  function aiForgeMarkup() {
+    return '<p class="hint" style="margin:8px 0"><span class="spinner"></span> <span id="aicap">' + AI_CAPTIONS[0] + '</span></p>';
+  }
+  // reviseText === null means a fresh generation; a string means revise the
+  // current image with that instruction.
+  function runAiForge(results, reviseText) {
+    results.innerHTML = aiForgeMarkup();
+    var capEl = document.getElementById('aicap');
+    var ci = 0;
+    var capTimer = setInterval(function () {
+      ci = (ci + 1) % AI_CAPTIONS.length;
+      if (capEl) capEl.textContent = AI_CAPTIONS[ci];
+    }, 1800);
+
+    fetch(API + '/api/images/generate', {
+      method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        business: val('business'), promoting: val('promoting'),
+        objective: val('objective'), landingAnalysis: suggestions || undefined,
+        benefit: val('benefit'), offer: val('offer'),
+        palette: (discovered.brand && discovered.brand.colors) ? {
+          primary: discovered.brand.colors.primary,
+          secondary: discovered.brand.colors.secondary,
+          accent: discovered.brand.colors.accent
+        } : undefined,
+        referenceImages: (uploaded.image || []).map(function (x) { return x.url; }),
+        reviseInstruction: reviseText || undefined,
+        previousUrl: reviseText && window.__aiCurrent ? window.__aiCurrent : undefined
+      })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        clearInterval(capTimer);
+        if (!data.candidate) {
+          results.innerHTML = '<span class="hint">' + esc(data.reason || 'The image could not be generated. Your ad will use a solid background.') + '</span>';
+          bgChoice = { mode: 'solid', url: null };
+          return;
+        }
+        window.__aiCurrent = data.candidate.url;
+        showAiResult(results, data.candidate.url);
+      })
+      .catch(function () {
+        clearInterval(capTimer);
+        results.innerHTML = '<span class="hint">Could not reach the image service. Your ad will use a solid background.</span>';
+        bgChoice = { mode: 'solid', url: null };
+      });
+  }
+  function showAiResult(results, url) {
+    // Selecting it also stages it as the chosen background straight away.
+    bgChoice = { mode: 'ai', url: url };
+    results.innerHTML =
+      '<img src="' + API + url + '" class="bg-thumb on" alt="Your AI background" style="max-width:320px;width:100%">' +
+      '<p class="hint" style="margin:8px 0 0">Happy with this image, or want changes?</p>' +
+      '<div class="ai-actions">' +
+      '<button type="button" class="primary" id="aiUse">Use this image</button>' +
+      '<button type="button" id="aiChange">Make changes</button>' +
+      '<button type="button" id="aiRedo">Start over</button></div>';
+    document.getElementById('aiUse').addEventListener('click', function () {
+      results.querySelector('.aicap') && results.querySelector('.aicap').remove();
+      var note = document.createElement('p'); note.className = 'hint';
+      note.style.cssText = 'margin:8px 0 0;color:var(--accent,#1F5FC0);font-weight:600';
+      note.textContent = '\\u2713 This image will be used as your background.';
+      results.appendChild(note);
+      bgChoice = { mode: 'ai', url: url };
+    });
+    document.getElementById('aiChange').addEventListener('click', function () { openAiModal(results); });
+    document.getElementById('aiRedo').addEventListener('click', function () { window.__aiCurrent = null; runAiForge(results, null); });
+  }
+  function openAiModal(results) {
+    var modal = document.getElementById('aiModal');
+    modal.classList.add('on');
+    var ta = document.getElementById('ai-change-text'); ta.value = ''; ta.focus();
+    document.getElementById('ai-cancel').onclick = function () { modal.classList.remove('on'); };
+    document.getElementById('ai-apply').onclick = function () {
+      var txt = (ta.value || '').trim();
+      if (!txt) { ta.focus(); return; }
+      modal.classList.remove('on');
+      runAiForge(results, txt); // regenerate with the change, loop repeats
+    };
+  }
+  var bgOpts = document.querySelectorAll('.bg-opt');
+  for (var bi = 0; bi < bgOpts.length; bi++) {
+    bgOpts[bi].addEventListener('click', function () { selectBgMode(this.dataset.bg, this); });
+  }
+
+  /* ---------------------------------- search past campaigns (main page) */
+  // Results open on their own page (/search), not inline on the intake form.
+  var campSearchInput = document.getElementById('campSearch');
+  var campSearchBtn = document.getElementById('campSearchGo');
+  function goToSearch() {
+    var q = (campSearchInput && campSearchInput.value || '').trim();
+    var url = '/search' + (q ? '?q=' + encodeURIComponent(q) : '');
+    // Same-origin staff tool; keep the opener link so the search page can
+    // inherit the already-entered access code from this tab.
+    window.open(url, '_blank');
+  }
+  if (campSearchBtn) campSearchBtn.addEventListener('click', goToSearch);
+  if (campSearchInput) campSearchInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); goToSearch(); } });
+
+  nextBtn.addEventListener('click', function () {
+    if (validateStep(current)) showStep(current + 1);
+  });
+  backBtn.addEventListener('click', function () { showStep(current - 1); });
+
+  for (var s = 0; s < segs.length; s++) {
+    (function (idx) {
+      segs[idx].addEventListener('click', function () {
+        if (idx <= current) { showStep(idx); return; }          // going back is always fine
+        if (idx <= reached && validateStep(current)) showStep(idx); // forward only if current validates
+      });
+    })(s);
+  }
+  showStep(0);
+
+  /* ------------------------------------------------- brand discovery */
+  var website = form.elements.website;
+  var brandSection = document.getElementById('brandSection');
+  var brandCard = document.getElementById('brandCard');
+  var manual = document.getElementById('manualBrand');
+  var discovered = null;
+  var lastLookedUp = '';
+
+  function showManual(reason) {
+    brandSection.style.display = '';
+    brandCard.innerHTML =
+      '<div class="brandcard"><h3>' + esc(reason) + '</h3>' +
+      '<p class="lead" style="margin:0">Enter your details below, or just upload a logo and we\'ll take the colours from it.</p></div>';
+    manual.style.display = '';
+    var nameField = document.getElementById('mbName');
+    if (!nameField.value) nameField.value = form.elements.business.value || '';
+    reportHeight();
+  }
+
+  function renderBrand(d) {
+    if (!d || !d.brand) { showManual('We could not find your brand automatically'); return; }
+    manual.style.display = 'none';
+    var b = d.brand;
+    var logos = (d.logoOptions || []).slice(0, 4);
+    var primary = logos[0];
+
+    var html = '<div class="brandcard"><h3>We found your brand</h3>' +
+      '<p class="lead">Here\'s what we pulled from your site. Use this logo, or upload your own below.</p>';
+
+    if (primary) {
+      html += '<div class="foundlogo">' +
+        '<div class="art"><img src="' + esc(primary.url) + '" alt="' + esc(b.name) + ' logo" ' +
+        'onerror="this.parentNode.parentNode.style.display=\'none\'"></div>' +
+        '<div class="meta"><b>' + esc(b.name) + '</b>' +
+        '<span style="color:var(--ink-2)">This is the logo we\'ll use unless you upload a different one.</span></div>' +
+        '</div>';
+    }
+
+    // Keep the selectable set so submit still records pickedLogoUrl, but present
+    // the extras quietly as alternates rather than a wall of choices.
+    html += '<div class="logopick" style="display:none">';
+    logos.forEach(function (l, i) {
+      html += '<label class="' + (i === 0 ? 'on' : '') + '">' +
+        '<input type="radio" name="pickedLogo" value="' + esc(l.url) + '"' + (i === 0 ? ' checked' : '') + '></label>';
+    });
+    html += '</div>';
+
+    if (logos.length > 1) {
+      html += '<div class="alts"><div class="cap">Other logo versions we found — tap to use one instead:</div><div class="logopick alt-visible">';
+      logos.forEach(function (l, i) {
+        html += '<label class="' + (i === 0 ? 'on' : '') + '" data-idx="' + i + '">' +
+          '<img src="' + esc(l.url) + '" alt="' + esc(l.kind || 'logo') + '" onerror="this.parentNode.style.display=\'none\'"></label>';
+      });
+      html += '</div></div>';
+    }
+
+    html += '<div class="swatches" style="margin-top:14px">';
+    ['primary', 'secondary', 'accent'].forEach(function (k) {
+      html += '<div class="sw"><i style="background:' + esc(b.colors[k]) + '"></i>' + esc(b.colors[k]) + '</div>';
+    });
+    html += '</div>';
+
+    if (d.warnings && d.warnings.length) {
+      html += '<div class="warn">A few things to check:<ul>';
+      d.warnings.forEach(function (w) { html += '<li>' + esc(w) + '</li>'; });
+      html += '</ul></div>';
+    }
+
+    html += '<div style="margin-top:16px"><button type="button" class="muted-btn" id="rejectBrand">This isn\'t my brand</button></div></div>';
+
+    brandSection.style.display = '';
+    brandCard.innerHTML = html;
+
+    // Clicking an alternate updates both the visible highlight and the hidden
+    // radio the submit handler reads.
+    var hidden = brandCard.querySelectorAll('.logopick:not(.alt-visible) input');
+    var alts = brandCard.querySelectorAll('.alt-visible label');
+    for (var i = 0; i < alts.length; i++) {
+      alts[i].addEventListener('click', function () {
+        var idx = Number(this.getAttribute('data-idx'));
+        for (var j = 0; j < alts.length; j++) alts[j].classList.remove('on');
+        this.classList.add('on');
+        if (hidden[idx]) hidden[idx].checked = true;
+      });
+    }
+    var reject = document.getElementById('rejectBrand');
+    if (reject) reject.addEventListener('click', function () {
+      discovered = null;
+      showManual('No problem — tell us about your brand');
+    });
+    reportHeight();
+  }
+
+  function lookupBrand() {
+    var v = normalizeUrl(website.value);
+    if (!v || v === lastLookedUp) return;
+    lastLookedUp = v;
+    brandSection.style.display = '';
+    brandCard.innerHTML = '<div class="brandcard"><span class="spinner"></span>Looking up your brand…</div>';
+    reportHeight();
+    fetch(API + '/api/brand/discover', {
+      method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ domain: v, business: form.elements.business.value || '' })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { discovered = d && d.brand ? d : null; renderBrand(d); })
+      .catch(function () { renderBrand(null); });
+  }
+  website.addEventListener('blur', lookupBrand);
+  website.addEventListener('change', lookupBrand);
+
+  /* ---------------------------------------------- landing suggestions */
+  var landing = form.elements.landingPage;
+  var landingSection = document.getElementById('landingSection');
+  var landingCard = document.getElementById('landingCard');
+  var lastPage = '';
+  var suggestions = null;
+
+  function applySuggestion(field, value) {
+    var el = form.elements[field];
+    if (!el) return;
+    el.value = value;
+    el.focus();
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function renderLanding(a) {
+    if (!a || (!a.suggestedHeadlines.length && !a.summary)) { landingSection.style.display = 'none'; return; }
+    var chips = function (list, field, label) {
+      if (!list || !list.length) return '';
+      return '<div style="margin-top:10px"><div style="font-size:12.5px;color:var(--ink-2);margin-bottom:6px">' + label + '</div>' +
+        list.map(function (v) {
+          return '<button type="button" class="muted-btn" style="margin:0 6px 6px 0;font-size:13.5px" ' +
+            'data-apply="' + field + '" data-value="' + esc(v) + '">' + esc(v) + '</button>';
+        }).join('') + '</div>';
+    };
+    landingSection.style.display = '';
+    landingCard.innerHTML =
+      '<div class="brandcard"><h3>Here\'s what your page says</h3>' +
+      '<p class="lead" style="margin:0 0 4px">' + esc(a.summary) + '</p>' +
+      (a.detectedOffer ? '<p style="margin:6px 0 0;font-size:13.5px;color:var(--ink-2)">Offer found: <b>' + esc(a.detectedOffer) + '</b></p>' : '') +
+      chips(a.suggestedHeadlines, 'benefit', 'Tap a headline to use it as your main benefit') +
+      (a.warnings && a.warnings.length ? '<div class="warn">' + a.warnings.map(esc).join('<br>') + '</div>' : '') +
+      '</div>';
+
+    Array.prototype.forEach.call(landingCard.querySelectorAll('[data-apply]'), function (btn) {
+      btn.addEventListener('click', function () { applySuggestion(btn.dataset.apply, btn.dataset.value); });
+    });
+    reportHeight();
+  }
+
+  function readLanding() {
+    var v = (landing.value || '').trim();
+    if (!v || v === lastPage || v.indexOf('.') < 0) return;
+    lastPage = v;
+    landingSection.style.display = '';
+    landingCard.innerHTML = '<div class="brandcard"><span class="spinner"></span>Reading your landing page…</div>';
+    reportHeight();
+    fetch(API + '/api/landing/analyze', {
+      method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ url: normalizeUrl(v) })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (a) { suggestions = a; renderLanding(a); })
+      .catch(function () { landingSection.style.display = 'none'; });
+  }
+  landing.addEventListener('blur', readLanding);
+  landing.addEventListener('change', readLanding);
+
+  /* --------------------------------------------------------- uploads */
+  var uploaded = { logo: [], image: [] };
+
+  function bindDrop(dropId, inputId, listId, kindFor) {
+    var drop = document.getElementById(dropId);
+    var input = document.getElementById(inputId);
+    var list = document.getElementById(listId);
+
+    drop.addEventListener('click', function () { input.click(); });
+    drop.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+    });
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+    });
+    drop.addEventListener('drop', function (e) {
+      if (e.dataTransfer && e.dataTransfer.files) handle(e.dataTransfer.files);
+    });
+    input.addEventListener('change', function () { handle(input.files); input.value = ''; });
+
+    function handle(files) { for (var i = 0; i < files.length; i++) queue(files[i]); }
+
+    function queue(file) {
+      var row = addRow(file, '', 'Uploading…');
+      var client = form.elements.business.value || 'client';
+      var campaign = form.elements.campaignName.value || 'campaign';
+      fetch(API + '/api/assets/upload-signature', {
+        method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({ client: client, campaign: campaign, kind: kindFor, filename: file.name })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          if (!res.ok) throw new Error(res.b.error || 'Could not prepare upload');
+          var s = res.b;
+          var fd = new FormData();
+          fd.append('file', file);
+          fd.append('api_key', s.apiKey);
+          fd.append('timestamp', s.timestamp);
+          fd.append('signature', s.signature);
+          fd.append('folder', s.folder);
+          fd.append('tags', s.tags);
+          return fetch(s.uploadUrl, { method: 'POST', body: fd }).then(function (r) { return r.json(); });
+        })
+        .then(function (out) {
+          if (!out || !out.public_id) throw new Error((out && out.error && out.error.message) || 'Upload rejected');
+          uploaded[kindFor === 'logo' ? 'logo' : 'image'].push({ publicId: out.public_id, url: out.secure_url, name: file.name });
+          setRow(row, 'ok', 'Uploaded');
+          // For a photo (not a logo), offer to use it as the ad background.
+          if (kindFor !== 'logo' && /^image\//.test(file.type) && file.type !== 'image/svg+xml') {
+            offerAsBackground(out.secure_url, file.name, row);
+          }
+        })
+        .catch(function (err) { setRow(row, 'bad', err.message || 'Upload failed'); });
+    }
+
+    // When someone uploads a photo, ask if they want it as the ad background.
+    // Their choice is remembered on window.__uploadedBg and sent at submit.
+    function offerAsBackground(url, name, row) {
+      if (!row) return;
+      var q = document.createElement('div');
+      q.style.cssText = 'margin-top:6px;font-size:13px;color:var(--ink-2)';
+      q.innerHTML = 'Use this photo as your ad background? ';
+      var yes = document.createElement('button');
+      yes.type = 'button'; yes.textContent = 'Yes, use it';
+      yes.style.cssText = 'font-size:12px;padding:3px 10px;margin-right:6px;border:1px solid var(--signal);border-radius:6px;background:#fff;color:var(--signal);font-weight:600;cursor:pointer';
+      var no = document.createElement('button');
+      no.type = 'button'; no.textContent = 'No';
+      no.style.cssText = 'font-size:12px;padding:3px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer';
+      yes.addEventListener('click', function () {
+        window.__uploadedBg = { url: url, name: name };
+        q.innerHTML = '<span style="color:var(--signal);font-weight:600">\\u2713 This photo will be used as your background.</span>';
+      });
+      no.addEventListener('click', function () {
+        if (window.__uploadedBg && window.__uploadedBg.url === url) window.__uploadedBg = null;
+        q.remove();
+      });
+      q.appendChild(yes); q.appendChild(no);
+      row.appendChild(q);
+    }
+
+    function addRow(file, cls, text) {
+      var li = document.createElement('li');
+      var thumb = '';
+      if (/^image\//.test(file.type) && file.type !== 'image/svg+xml') {
+        thumb = '<img src="' + URL.createObjectURL(file) + '" alt="">';
+      }
+      li.innerHTML = thumb + '<span class="nm">' + esc(file.name) + '</span>' +
+        '<span class="st ' + cls + '">' + esc(text) + '</span>' +
+        '<button type="button" title="Remove">&times;</button>';
+      li.querySelector('button').addEventListener('click', function () { li.remove(); reportHeight(); });
+      list.appendChild(li);
+      reportHeight();
+      return li;
+    }
+    function setRow(li, cls, text) {
+      var st = li.querySelector('.st');
+      st.className = 'st ' + cls;
+      st.textContent = text;
+      reportHeight();
+    }
+  }
+
+  bindDrop('logoDrop', 'logoInput', 'logoFiles', 'logo');
+  bindDrop('imageDrop', 'imageInput', 'imageFiles', 'product');
+
+  /* ---------------------------------------------------------- submit */
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    banner.innerHTML = '';
+
+    // Validate every step; on the first failure, jump to that step so the
+    // customer sees the problem rather than a silent dead end.
+    for (var i = 0; i < STEPS.length; i++) {
+      if (!validateStep(i)) {
+        if (current !== i) showStep(i);
+        show('bad', 'Please check the highlighted field.');
+        return;
+      }
+    }
+
+    var data = {};
+    ['business', 'website', 'projectName', 'contact', 'email', 'campaignName',
+     'landingPage', 'promoting', 'objective', 'cta', 'benefit'].forEach(function (n) {
+      data[n] = val(n);
+    });
+
+    var platforms = [];
+    var boxes = form.querySelectorAll('input[name=platforms]:checked');
+    for (var j = 0; j < boxes.length; j++) platforms.push(boxes[j].value);
+
+    data.website = normalizeUrl(data.website);
+    data.landingPage = normalizeUrl(data.landingPage);
+    data.platforms = platforms;
+    data.phone = form.elements.phone.value.trim();
+    data.offer = form.elements.offer.value.trim();
+    data.audience = form.elements.audience.value.trim();
+    data.geography = form.elements.geography.value.trim();
+    data.notes = form.elements.notes.value.trim();
+    data.stockOk = document.getElementById('stockOk').checked;
+    if (suggestions) data.landingAnalysis = suggestions;
+    // Human-approved copy is authoritative — the build uses it verbatim rather
+    // than re-suggesting, so what they approved is what renders.
+    data.approvedCopy = {
+      headline: document.getElementById('approvedHeadline').value.trim(),
+      support: document.getElementById('approvedSupport').value.trim(),
+      cta: document.getElementById('approvedCta').value.trim()
+    };
+    // Background direction chosen for the offer concept.
+    if (bgChoice && bgChoice.mode !== 'solid' && bgChoice.url) {
+      data.backgroundChoice = { mode: bgChoice.mode, url: bgChoice.url };
+    }
+
+    if (manual.style.display !== 'none') {
+      data.brandManual = true;
+      data.brand = {
+        name: document.getElementById('mbName').value.trim() || data.business,
+        domain: data.website,
+        colors: {
+          primary: document.getElementById('mbPrimary').value.toUpperCase(),
+          secondary: document.getElementById('mbSecondary').value.toUpperCase(),
+          accent: document.getElementById('mbAccent').value.toUpperCase(),
+          light: '#FFFFFF', dark: '#111111'
+        },
+        fonts: { headline: document.getElementById('mbHeadFont').value, body: 'Open Sans' },
+        logos: { primary: '' }
+      };
+    }
+    data.uploads = uploaded;
+    if (discovered && discovered.brand) {
+      var picked = form.querySelector('input[name=pickedLogo]:checked');
+      data.brand = discovered.brand;
+      data.brandSource = discovered.source;
+      data.brandWarnings = discovered.warnings || [];
+      data.pickedLogoUrl = picked ? picked.value : ((discovered.logoOptions || [])[0] || {}).url;
+    }
+    data.honeypot = form.elements.company_url_confirm.value;
+    // Every uploaded logo and photo (Cloudinary links only — the files live in
+    // Cloudinary, we store just the URL). Logged with the campaign server-side.
+    data.uploadedLogos = uploaded.logo || [];
+    data.uploadedImages = uploaded.image || [];
+    // If the person opted to use one of their uploaded photos as the ad
+    // background, pass that choice straight through.
+    if (window.__uploadedBg && window.__uploadedBg.url) {
+      data.backgroundChoice = { mode: 'upload', url: window.__uploadedBg.url };
+    }
+    var loadedAt = Number(document.getElementById('loadedAt').value) || 0;
+    data.elapsedMs = loadedAt ? (Date.now() - loadedAt) : null;
+    data.pageUrl = document.referrer || '';
+
+    submit.disabled = true;
+    submit.textContent = 'Submitting…';
+
+    fetch(API + '/api/requests', {
+      method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify(data)
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.body && res.body.error ? res.body.error : 'Submission failed');
+        // The server flags a spam-trapped submission rather than rendering it.
+        // Surface that honestly instead of showing a skeleton that never fills.
+        if (res.body.rejected) {
+          submit.disabled = false; submit.textContent = 'Submit request';
+          show('bad', 'We could not process this submission automatically (it tripped our spam filter). ' +
+            'Please email todd@smart1marketing.com and we\'ll build it for you right away.');
+          return;
+        }
+        var rid = res.body.requestId;
+        document.getElementById('root').innerHTML =
+          '<div class="done"><h2>Request received</h2>' +
+          '<p>Thanks, ' + esc(data.contact.split(' ')[0] || 'there') + '. A confirmation is on its way to ' + esc(data.email) + '.</p>' +
+          '<div class="ref">' + esc(rid) + '</div>' +
+          '<div id="buildwait" style="margin-top:26px">' +
+          '<div id="tplbox" style="display:none">' +
+          '<p style="font-weight:600;color:var(--ink);margin:0 0 4px">Pick the look you like best.</p>' +
+          '<p class="hint" style="margin:0 0 14px">This is your 250\u00d7250. The remaining sizes build in your chosen style \u2014 you can still edit everything after.</p>' +
+          '<div id="tplopts" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center"></div>' +
+          '<div id="tpledit" style="margin:18px auto 0;max-width:520px;text-align:left;background:#F7F9FC;border:1px solid var(--line);border-radius:10px;padding:16px">' +
+          '<p style="font-weight:600;margin:0 0 10px;font-size:14px">Want tweaks before we build the rest? Edit here \u2014 they apply to whichever style you pick.</p>' +
+          '<label class="hint" style="display:block;margin:0 0 2px;font-weight:600">Headline</label>' +
+          '<input type="text" id="tpl-headline" maxlength="60" style="width:100%;box-sizing:border-box;margin-bottom:10px">' +
+          '<label class="hint" style="display:block;margin:0 0 2px;font-weight:600">Supporting line</label>' +
+          '<input type="text" id="tpl-support" maxlength="90" style="width:100%;box-sizing:border-box;margin-bottom:10px">' +
+          '<div style="display:flex;gap:14px;align-items:flex-end">' +
+          '<div style="flex:1"><label class="hint" style="display:block;margin:0 0 2px;font-weight:600">Button text</label>' +
+          '<input type="text" id="tpl-cta" maxlength="24" style="width:100%;box-sizing:border-box"></div>' +
+          '<div><label class="hint" style="display:block;margin:0 0 2px;font-weight:600">Button colour</label>' +
+          '<input type="color" id="tpl-accent" style="width:52px;height:38px;padding:2px;border:1px solid var(--line);border-radius:7px;background:#fff"></div>' +
+          '</div></div></div>' +
+          '<div id="skelbox">' + '<svg id="adskel" width="300" height="250" viewBox="0 0 300 250" xmlns="http://www.w3.org/2000/svg" ' +
+  'style="border:1px solid var(--line);border-radius:8px;background:#fff;max-width:100%">' +
+  '<defs><linearGradient id="sh" x1="0" y1="0" x2="1" y2="0">' +
+  '<stop offset="0" stop-color="#E9EFF5"/><stop offset=".5" stop-color="#D6E1EC"/><stop offset="1" stop-color="#E9EFF5"/>' +
+  '<animateTransform attributeName="gradientTransform" type="translate" from="-1 0" to="1 0" dur="1.6s" repeatCount="indefinite"/>' +
+  '</linearGradient></defs>' +
+  '<circle cx="34" cy="32" r="14" fill="url(#sh)"/>' +
+  '<rect x="56" y="24" rx="4" width="90" height="16" fill="url(#sh)"/>' +
+  '<rect x="20" y="72" rx="5" width="170" height="24" fill="url(#sh)">' +
+  '<animate attributeName="width" values="0;170" dur="1.1s" fill="freeze"/></rect>' +
+  '<rect x="20" y="104" rx="5" width="130" height="16" fill="url(#sh)">' +
+  '<animate attributeName="width" values="0;130" dur="1.1s" begin=".35s" fill="freeze"/></rect>' +
+  '<rect x="200" y="60" rx="8" width="80" height="120" fill="url(#sh)"/>' +
+  '<rect x="20" y="176" rx="7" width="120" height="38" fill="#1F5FC0" opacity=".85">' +
+  '<animate attributeName="opacity" values=".35;.85;.35" dur="1.8s" repeatCount="indefinite"/></rect>' +
+  '<rect x="20" y="228" rx="3" width="86" height="8" fill="url(#sh)"/>' +
+  '</svg>' +
+          '<p style="color:var(--ink-2);margin:14px 0 0"><span class="spinner"></span> ' +
+          'Building your ads now — your first concept appears here in a moment.</p></div>' +
+          '<div id="firstbox" style="display:none">' +
+          '<img id="firstimg" alt="Your first ad concept" ' +
+          'style="border:1px solid var(--line);border-radius:8px;max-width:100%;box-shadow:0 4px 14px rgba(16,34,46,.12)">' +
+          '<p style="margin:14px 0 4px;font-weight:600;color:var(--ink)">Here\'s your first concept.</p>' +
+          '<p class="hint" id="progressline" style="margin:0">Building the rest of your sizes now…</p></div>' +
+          '<div id="readybox" style="display:none;margin-top:18px">' +
+          '<p style="color:var(--ok);font-weight:600">All sizes are ready.</p>' +
+          '<a id="prooflink" href="#" target="_blank" rel="noopener" ' +
+          'style="display:inline-block;background:var(--accent);color:#fff;text-decoration:none;' +
+          'padding:14px 30px;border-radius:8px;font-weight:600;font-size:16px">Review all your ads</a>' +
+          '<p class="hint" style="margin-top:12px">Approve them or request changes right on that page.</p></div>' +
+          '</div></div>';
+        parent.postMessage({ type: 'smart1:submitted', requestId: rid }, '*');
+        reportHeight();
+
+        // Stay on the page the whole time. The skeleton gives way to the real
+        // 300x250 the moment it exists (usually seconds); the full review link
+        // appears when every size is done. No email hand-off, no give-up
+        // timer — only genuinely terminal states end the wait: a failed
+        // render, or a submission that cannot render until assets arrive.
+        // Polling slows from 2.5s to 6s after the first minute to be polite.
+        var shownFirst = false;
+        var polls = 0;
+        function poll() {
+          polls++;
+          fetch(API + '/api/requests/' + encodeURIComponent(rid) + '/status')
+            .then(function (r) { return r.json(); })
+            .then(function (st) {
+              if (st.state === 'choose-template' && st.templatePreviews && st.templatePreviews.length && !document.getElementById('tplopts').childElementCount) {
+                var box = document.getElementById('tplopts');
+                var STYLE_NAMES = { T01: 'Style 1 \u2014 Centered', T02: 'Style 2 \u2014 Left aligned', T03: 'Style 3 \u2014 Panel' };
+                st.templatePreviews.forEach(function (tp, tpi) {
+                  var card = document.createElement('div');
+                  card.style.cssText = 'border:2px solid var(--line);border-radius:12px;padding:10px;background:#fff;max-width:280px';
+                  var lbl = document.createElement('div');
+                  lbl.textContent = STYLE_NAMES[tp.template] || ('Style ' + (tpi + 1));
+                  lbl.style.cssText = 'font-weight:600;font-size:14px;margin:0 0 8px;color:var(--ink)';
+                  card.appendChild(lbl);
+                  var img = document.createElement('img');
+                  img.src = API + tp.url; img.alt = tp.template;
+                  img.style.cssText = 'width:250px;height:250px;border-radius:8px;display:block';
+                  var btn = document.createElement('button');
+                  btn.type = 'button'; btn.textContent = 'Use this style';
+                  btn.style.cssText = 'width:100%;margin-top:10px';
+                  btn.addEventListener('click', function () {
+                    var all = document.querySelectorAll('#tplopts button');
+                    for (var q = 0; q < all.length; q++) { all[q].disabled = true; }
+                    btn.textContent = 'Building your sizes\u2026';
+                    window.__styleChosen = true;
+                    fetch(API + '/api/requests/' + encodeURIComponent(rid) + '/choose-template', {
+                      method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
+                      body: JSON.stringify({
+                        layoutFamily: tp.template,
+                        copy: {
+                          headline: (document.getElementById('tpl-headline').value || '').trim(),
+                          support: (document.getElementById('tpl-support').value || '').trim(),
+                          cta: (document.getElementById('tpl-cta').value || '').trim()
+                        },
+                        colors: document.getElementById('tpl-accent').dataset.touched
+                          ? { accent: document.getElementById('tpl-accent').value } : undefined
+                      })
+                    }).then(function () {
+                      document.getElementById('tplbox').style.display = 'none';
+                      var sk = document.getElementById('skelbox');
+                      sk.style.display = '';
+                      var note = document.createElement('p');
+                      note.style.cssText = 'font-weight:600;color:var(--ink);margin:0 0 8px';
+                      note.textContent = 'Building all your sizes in that style \u2014 your full proof will open here automatically.';
+                      sk.insertBefore(note, sk.firstChild);
+                      reportHeight();
+                    }).catch(function () {
+                      for (var q2 = 0; q2 < all.length; q2++) { all[q2].disabled = false; }
+                      btn.textContent = 'Use this style';
+                    });
+                  });
+                  card.appendChild(img); card.appendChild(btn); box.appendChild(card);
+                });
+                document.getElementById('tpl-accent').addEventListener('input', function () { this.dataset.touched = '1'; });
+                // Start the tweak fields from the copy they already approved.
+                var ph = document.getElementById('approvedHeadline');
+                var ps = document.getElementById('approvedSupport');
+                var pc = document.getElementById('approvedCta');
+                if (ph) document.getElementById('tpl-headline').value = ph.value || '';
+                if (ps) document.getElementById('tpl-support').value = ps.value || '';
+                if (pc) document.getElementById('tpl-cta').value = pc.value || '';
+                document.getElementById('skelbox').style.display = 'none';
+                document.getElementById('tplbox').style.display = '';
+                reportHeight();
+              }
+              if (st.firstLook && !shownFirst && !window.__styleChosen) {
+                shownFirst = true;
+                document.getElementById('firstimg').src = API + st.firstLook;
+                document.getElementById('skelbox').style.display = 'none';
+                document.getElementById('firstbox').style.display = '';
+                reportHeight();
+              }
+              if (st.progress && st.progress.total > 0 && !st.ready) {
+                document.getElementById('progressline').textContent =
+                  'Building the rest of your sizes… ' + st.progress.done + ' of ' + st.progress.total + ' done.';
+              }
+              if (st.ready && st.proofUrl) {
+                if (window.__styleChosen) {
+                  // Straight to the proof — no interstitial, no extra click.
+                  location.href = API + st.proofUrl;
+                  return;
+                }
+                document.getElementById('prooflink').href = API + st.proofUrl;
+                document.getElementById('readybox').style.display = '';
+                document.getElementById('progressline').textContent = '';
+                document.getElementById('skelbox').style.display = 'none';
+                reportHeight();
+                return; // stop polling
+              }
+              if (st.state === 'failed') {
+                document.getElementById('buildwait').innerHTML =
+                  '<p style="color:var(--ink-2)">Your previews are taking longer than usual. ' +
+                  'They\'ll keep building — you can leave this page and open your link anytime:</p>' +
+                  '<div class="ref" style="margin-top:10px">' + esc(API + '/proof/' + rid) + '</div>';
+                reportHeight();
+                return;
+              }
+              setTimeout(poll, polls < 24 ? 2500 : 6000);
+            })
+            .catch(function () { setTimeout(poll, 5000); });
+        }
+        setTimeout(poll, 1500);
+      })
+      .catch(function (err) {
+        submit.disabled = false;
+        submit.textContent = 'Submit request';
+        show('bad', (err.message || 'Something went wrong') +
+          '. Please try again, or email us directly if this keeps happening.');
+      });
+  });
+})();
+</script>
+</body>
+</html>

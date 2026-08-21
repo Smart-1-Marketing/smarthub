@@ -1,0 +1,98 @@
+{
+  "requestId": "AD-2026-002214",
+  "campaignName": "Fall Catering",
+  "brand": {
+    "name": "Bella Vista Catering",
+    "domain": "bellavista.com",
+    "colors": {
+      "primary": "#7A2E1F",
+      "secondary": "#C4713C",
+      "accent": "#F2C14E",
+      "light": "#FFFFFF",
+      "dark": "#2A1410"
+    },
+    "fonts": {
+      "headline": "Poppins",
+      "body": "Open Sans"
+    },
+    "logos": {
+      "primary": "assets/bella-vista-catering/logo-primary.png",
+      "reverse": "assets/bella-vista-catering/logo-reverse.png"
+    }
+  },
+  "concepts": [
+    {
+      "conceptId": "A",
+      "name": "Convenience",
+      "layoutFamily": "T01",
+      "hero": {
+        "landscape": "assets/bella-vista-catering/hero-landscape.jpg",
+        "square": "assets/bella-vista-catering/hero-square.jpg",
+        "vertical": "assets/bella-vista-catering/hero-vertical.jpg"
+      },
+      "copy": {
+        "default": {
+          "headline": "Catering That Shows Up On Time",
+          "support": "Hot, on time, and enough for everyone.",
+          "cta": "See the Menu",
+          "offer": "Free Delivery"
+        },
+        "320x50": {
+          "headline": "Catering Delivered Hot",
+          "support": "",
+          "cta": "See Menu"
+        },
+        "728x90": {
+          "headline": "Catering That Shows Up On Time",
+          "support": "Hot and on time."
+        },
+        "160x600": {
+          "headline": "Office Catering Done Right",
+          "support": "Hot and on time.",
+          "offer": "Free Delivery"
+        },
+        "300x600": {
+          "support": "Trays for ten or three hundred, delivered hot and set up before your guests arrive.",
+          "offer": "Free Delivery"
+        },
+        "970x250": {
+          "support": "Trays for ten or three hundred.",
+          "trust": "Serving the valley since 2004",
+          "cta": "See the Menu"
+        },
+        "414x125": {
+          "headline": "Office Catering Done Right",
+          "support": "Free delivery"
+        }
+      }
+    },
+    {
+      "conceptId": "C",
+      "name": "Offer",
+      "layoutFamily": "T04",
+      "useReverseLogo": true,
+      "hero": {},
+      "copy": {
+        "default": {
+          "offer": "15% Off",
+          "headline": "Your First Catered Order",
+          "support": "Valid on orders over $200.",
+          "cta": "Get Offer"
+        },
+        "320x50": {
+          "offer": "15% Off",
+          "headline": "Catering",
+          "support": "",
+          "cta": "Get Offer"
+        },
+        "728x90": {
+          "headline": "Your First Catered Order",
+          "support": "Orders over $200."
+        },
+        "300x600": {
+          "trust": "Serving the valley since 2004"
+        }
+      }
+    }
+  ]
+}

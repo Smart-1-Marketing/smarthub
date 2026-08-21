@@ -1,0 +1,74 @@
+{
+  "platform": "meta",
+  "label": "Meta (Facebook & Instagram)",
+  "sizes": {
+    "1080x1080": {
+      "w": 1080,
+      "h": 1080,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        18
+      ],
+      "minFontPx": 30,
+      "notes": "Feed square.",
+      "source": "doc"
+    },
+    "1200x628": {
+      "w": 1200,
+      "h": 628,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        16
+      ],
+      "minFontPx": 26,
+      "notes": "Feed landscape / link.",
+      "source": "doc"
+    },
+    "1080x1350": {
+      "w": 1080,
+      "h": 1350,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        18
+      ],
+      "minFontPx": 30,
+      "notes": "Feed portrait 4:5.",
+      "source": "doc"
+    },
+    "1080x1920": {
+      "w": 1080,
+      "h": 1920,
+      "maxFileBytes": 153600,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        6,
+        14
+      ],
+      "minFontPx": 34,
+      "notes": "Stories / Reels 9:16.",
+      "source": "doc"
+    }
+  }
+}

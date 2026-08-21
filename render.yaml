@@ -198,5 +198,22 @@ services:
         value: /var/data/hub-audit.log.jsonl
       - key: FLASK_ENV
         value: production
+      # ---- Display Ad Builder ----
+      # The renderer runs as a second process in this container and refuses
+      # every internal route until this is set to 16+ characters. It is not
+      # generated here on purpose: a rotating value would log everyone out of
+      # the tool on each deploy. Set it once, in the Render dashboard.
+      - key: ADBUILDER_ADMIN_TOKEN
+        sync: false
+      # Loopback port for that process. Nothing outside the container reaches
+      # it; only hub/ad_builder_proxy.py talks to it.
+      - key: ADBUILDER_PORT
+        value: "8791"
+      # The public intake form is closed unless one of these is set. Staff
+      # inside the Hub do not need either -- the admin token above already
+      # satisfies the gate. Set INTAKE_CODE to hand a code to an outside
+      # requester, or INTAKE_OPEN=true to publish the form.
+      - key: INTAKE_CODE
+        sync: false
       - key: MAX_UPLOAD_MB
         value: "100"

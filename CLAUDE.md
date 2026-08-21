@@ -134,6 +134,36 @@ If a shared function does not do what the module needs, extend the shared one
 rather than keeping the local copy. That is the whole point — the next fix
 should land once.
 
+## The one module that is not Python
+
+The **Display Ad Builder** (`modules/ad_builder`) is a Node service, not a
+Flask module. It is ~10,000 lines of TypeScript with a native image pipeline
+(sharp rasterises SVG and steps a quality ladder until each ad fits the
+platform's file-weight limit -- Amazon allows 40 KB for some placements), so
+porting it to Pillow would change creative that clients already receive.
+
+It runs as a **second process in the same container**. `docker-start.sh` starts
+it on 127.0.0.1 with a restart loop and then execs gunicorn as PID 1;
+`hub/ad_builder_proxy.py` proxies `/tools/display-ads/*` to it behind the Hub
+login and adds the admin token server-side, so nobody needs a second password.
+
+Things that follow from that, each of which has a comment where it lives:
+
+- **Two processes, one plan.** This costs ~150-200 MB of image and a second
+  build step. If Render builds start timing out or memory gets tight, the ad
+  builder ships its own `render.yaml` and can move to its own service --
+  only `AD_BUILDER_URL` changes. Nothing else in the Hub knows the difference.
+- **The pages link from the site root.** `fetch('/api/render')` is correct
+  standalone and wrong under a mount, so `src/basepath.ts` injects a shim that
+  prefixes fetch, XHR and href/src/action from `X-Forwarded-Prefix`. Without
+  it the tool loads perfectly and no button does anything.
+- **`ADBUILDER_ADMIN_TOKEN` must be set** (16+ characters) or the renderer
+  refuses its own internal routes. `/status` says so in words.
+- **The client and proposal joins are Python**, in `hub/ad_builder_link.py`.
+  The renderer never learns who our clients are; finished ads are filed into
+  the client gallery through `modules/image_picker/filing.file_asset`, which
+  records the public_id Cloudinary already has rather than re-uploading.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.

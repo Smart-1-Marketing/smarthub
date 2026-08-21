@@ -1,0 +1,47 @@
+{
+  "_comment": "Fixture shaped like a Brandfetch v2 /brands response. Used when BRANDFETCH_MOCK=1 so the discovery flow can be exercised without an API key or network. Deliberately imperfect: the fonts are unregistered and one colour pair is bad, so the reconciliation and warning paths get tested rather than a happy path that proves nothing.",
+  "name": "Northside Dental",
+  "domain": "northsidedental.com",
+  "description": "Family and cosmetic dentistry serving the north side since 1998.",
+  "quality": 0.82,
+  "logos": [
+    {
+      "type": "logo",
+      "theme": "light",
+      "formats": [
+        { "src": "https://asset.brandfetch.io/example/logo-color.svg", "format": "svg" },
+        { "src": "https://asset.brandfetch.io/example/logo-color.png", "format": "png", "width": 800, "height": 220 }
+      ]
+    },
+    {
+      "type": "logo",
+      "theme": "dark",
+      "formats": [
+        { "src": "https://asset.brandfetch.io/example/logo-reverse.png", "format": "png", "width": 800, "height": 220 }
+      ]
+    },
+    {
+      "type": "icon",
+      "theme": "light",
+      "formats": [
+        { "src": "https://asset.brandfetch.io/example/icon.jpeg", "format": "jpeg", "width": 400, "height": 400 }
+      ]
+    }
+  ],
+  "colors": [
+    { "hex": "#1F5C8B", "type": "brand", "brightness": 88 },
+    { "hex": "#4FA3D1", "type": "accent", "brightness": 140 },
+    { "hex": "#F7FAFC", "type": "light", "brightness": 249 },
+    { "hex": "#EFEFEF", "type": "dark", "brightness": 239 }
+  ],
+  "fonts": [
+    { "name": "Gilroy", "type": "title", "origin": "custom" },
+    { "name": "Lato", "type": "body", "origin": "google" }
+  ],
+  "images": [
+    {
+      "type": "banner",
+      "formats": [{ "src": "https://asset.brandfetch.io/example/banner.jpg", "format": "jpg", "width": 1600, "height": 600 }]
+    }
+  ]
+}
