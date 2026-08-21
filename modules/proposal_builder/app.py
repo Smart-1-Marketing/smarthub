@@ -21,6 +21,7 @@ from hub import audit
 from . import ghl, store
 from .industries import BLOCKS_SCHEMA, INDUSTRIES, fallback_blocks, industry_list
 from .pdfgen import build_proposal_pdf
+from hub.webargs import clamp_int
 
 app = Flask(__name__)
 PUBLIC_DIR = Path(__file__).parent / "public"
@@ -437,7 +438,7 @@ def list_proposals():
         return gate
     return jsonify({"ok": True, "results": store.search_proposals(
         q=request.args.get("q", ""), industry=request.args.get("industry", ""),
-        salesperson=request.args.get("salesperson", ""), limit=request.args.get("limit", 50))})
+        salesperson=request.args.get("salesperson", ""), limit=clamp_int(request.args.get("limit"), 50, 1, 200))})
 
 
 @app.route("/api/proposals/<pid>")

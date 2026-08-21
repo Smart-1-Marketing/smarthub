@@ -26,6 +26,7 @@ from flask import (Blueprint, Response, abort, current_app, jsonify,
                    render_template, request)
 
 from . import catalog, store
+from hub.webargs import clamp_int
 
 # Activity logging. Guarded so this module still runs standalone, but
 # inside the Hub every action is attributable — this module published calculators and captured leads,
@@ -243,7 +244,7 @@ def index():
 @bp.get("/leads")
 def leads_page():
     slug = request.args.get("slug") or ""
-    rows = [] if store.DB_BOOT_ERROR else store.leads(slug or None, request.args.get("limit", 200))
+    rows = [] if store.DB_BOOT_ERROR else store.leads(slug or None, clamp_int(request.args.get("limit"), 200, 1, 1000))
     return render_template("leads.html", rows=rows, calcs=catalog.all_calculators(),
                            mount=MOUNT, active=slug, db_error=store.DB_BOOT_ERROR)
 

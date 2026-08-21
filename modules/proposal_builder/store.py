@@ -6,6 +6,7 @@ import re
 import threading
 
 import requests
+from hub.webargs import clamp_int
 
 FOLDER = os.environ.get("CLOUDINARY_FOLDER", "smart1-proposals")
 CLOUD_READY = (os.environ.get("CLOUDINARY_URL") or "").startswith("cloudinary://")
@@ -169,11 +170,9 @@ def search_proposals(q="", industry="", salesperson="", limit=50):
             if not any(needle in str(v or "").lower() for v in hay):
                 continue
         out.append(r)
-    try:
-        lim = min(int(limit or 50), 200)
-    except (TypeError, ValueError):
-        lim = 50
-    return out[:lim]
+    # Had an upper bound but no lower one, so ?limit=-1 reached out[:-1] and
+    # silently returned every result except the last.
+    return out[:clamp_int(limit, 50, 1, 200)]
 
 
 def cloudinary_ready():

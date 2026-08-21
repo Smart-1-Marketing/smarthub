@@ -18,6 +18,7 @@ import os
 import re
 
 import requests
+from hub.webargs import clamp_int
 
 TIMEOUT = 12
 ICONIFY = "https://api.iconify.design"
@@ -47,7 +48,7 @@ def search_icons(q: str, limit: int = 60) -> dict:
         return {"icons": []}
     try:
         r = requests.get(f"{ICONIFY}/search",
-                         params={"query": q, "limit": max(32, min(int(limit), 999))},
+                         params={"query": q, "limit": clamp_int(limit, 32, 32, 999)},
                          timeout=TIMEOUT)
         r.raise_for_status()
         data = r.json()

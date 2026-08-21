@@ -17,6 +17,7 @@ from flask import (
 )
 
 from . import audit, auth, errors, knack_data
+from hub.webargs import clamp_int
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLIENTS_APP = os.path.join(ROOT, "clients_app")
@@ -213,7 +214,7 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .client_brand import work_log
-        limit = max(1, min(200, int(request.args.get("limit") or 50)))
+        limit = clamp_int(request.args.get("limit"), 50, 1, 200)
         return jsonify(work_log(request.args.get("name", ""), limit))
 
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
@@ -827,7 +828,7 @@ def create_hub_app() -> Flask:
             return gate
         from . import leads
         return jsonify(leads.listing(
-            days=int(request.args.get("days") or 30),
+            days=clamp_int(request.args.get("days"), 30, 1, 730),
             source=request.args.get("source", ""),
             page=request.args.get("page", ""),
             undelivered_only=request.args.get("undelivered") == "1"))
@@ -1037,7 +1038,7 @@ def create_hub_app() -> Flask:
             return gate
         from . import clients_registry
         rows = clients_registry.search_clients(request.args.get("q", ""),
-                                               limit=max(1, min(500, int(request.args.get("limit") or 12))))
+                                               limit=clamp_int(request.args.get("limit"), 12, 1, 500))
         return jsonify({"clients": rows})
 
     @app.route("/api/clients/house", methods=["GET", "POST"])
@@ -1855,7 +1856,7 @@ def create_hub_app() -> Flask:
             return jsonify({"error": "client is required."}), 400
         try:
             out = seo.blog_plan(client, (body.get("focus") or "").strip(),
-                                int(body.get("months") or 3),
+                                clamp_int(body.get("months"), 3, 1, 24),
                                 (body.get("start") or "").strip())
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
@@ -2123,10 +2124,7 @@ def create_hub_app() -> Flask:
         url = (body.get("url") or "").strip()
         if not client or not url:
             return jsonify({"error": "client and url are required."}), 400
-        try:
-            count = int(body.get("count") or 6)
-        except (TypeError, ValueError):
-            count = 6
+        count = clamp_int(body.get("count"), 6, 1, 50)
         avoid = body.get("avoid") if isinstance(body.get("avoid"), list) else []
         try:
             return jsonify(faq.generate(client, url, count=count, avoid=avoid))
@@ -2834,7 +2832,7 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        limit = max(1, min(300, int(request.args.get("limit") or 50)))
+        limit = clamp_int(request.args.get("limit"), 50, 1, 300)
         return jsonify({"errors": errors.read(limit=limit)})
 
     @app.route("/api/errors/clear", methods=["POST"])
@@ -2851,7 +2849,7 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        limit = max(1, min(1000, int(request.args.get("limit") or 300)))
+        limit = clamp_int(request.args.get("limit"), 300, 1, 1000)
         module = request.args.get("module") or None
         return jsonify({"entries": audit.read(limit=limit, module=module)})
 

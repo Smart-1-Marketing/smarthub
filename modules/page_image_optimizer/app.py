@@ -14,6 +14,7 @@ from flask import Blueprint, Response, jsonify, render_template, request
 
 from . import archive, naming, optimizer, settings, store
 from .scanner import ScanError, scan_page, safe_url
+from hub.webargs import clamp_int
 
 # Activity logging. Guarded so this module still runs standalone, but
 # inside the Hub every action is attributable — this module optimised images on a live page,
@@ -465,7 +466,7 @@ def api_archive():
         "ok": True,
         "backend": archive.archive_backend(),
         "rows": archive.recent(
-            limit=request.args.get("limit", 200),
+            limit=clamp_int(request.args.get("limit"), 200, 1, 1000),
             company=request.args.get("company"),
         ),
     })

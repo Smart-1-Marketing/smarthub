@@ -24,6 +24,7 @@ except Exception:                                     # noqa: BLE001
     hub_audit = None
 
 from . import assets, photo_search, projects
+from hub.webargs import clamp_int
 
 BASE_DIR = Path(__file__).parent
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
@@ -166,7 +167,7 @@ def api_photo_proxy():
 @app.route("/api/icons/search")
 def api_icons():
     return jsonify(assets.search_icons(request.args.get("q", ""),
-                                       max(1, min(500, int(request.args.get("limit") or 60)))))
+                                       clamp_int(request.args.get("limit"), 60, 1, 500)))
 
 
 @app.route("/api/icons/svg")
@@ -449,7 +450,7 @@ def api_export_optimize():
 def api_projects_list():
     return jsonify({"projects": projects.search_projects(
         request.args.get("q", ""), request.args.get("client", ""),
-        max(1, min(500, int(request.args.get("limit") or 100)))),
+        clamp_int(request.args.get("limit"), 100, 1, 500)),
         "cloudinary": projects.cloud_ready()})
 
 

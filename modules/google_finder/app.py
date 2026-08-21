@@ -15,6 +15,7 @@ from flask import Flask, redirect, render_template, request, session, url_for, j
 from flask_session import Session
 from cryptography.fernet import Fernet, InvalidToken
 from werkzeug.middleware.proxy_fix import ProxyFix
+from hub.webargs import clamp_int
 
 # Activity logging — so this tool's output appears on the client's
 # 360 record. This module reads client Google properties, and work that isn't logged is work
@@ -1774,7 +1775,7 @@ def api_ga4_compare():
     source_medium = data.get("source_medium", "").strip()
     tone = data.get("tone", "positive")
     preset = data.get("preset", "executive")
-    limit = int(data.get("limit", 15))
+    limit = clamp_int(data.get("limit"), 15, 1, 100)
 
     p1_start_str = data.get("p1_start")
     p1_end_str = data.get("p1_end")

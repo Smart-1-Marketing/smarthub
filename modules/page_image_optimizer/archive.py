@@ -16,6 +16,7 @@ import threading
 import time
 
 from . import settings
+from hub.webargs import clamp_int
 
 _LOCK = threading.Lock()
 
@@ -176,4 +177,4 @@ def recent(limit=200, company=None):
         return []
     if company:
         rows = [r for r in rows if slug(r.get("company")) == slug(company)]
-    return rows[: max(1, min(int(limit or 200), 1000))]
+    return rows[:clamp_int(limit, 200, 1, 1000)]

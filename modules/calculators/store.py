@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (Column, DateTime, Float, Integer, String, Text,
                         create_engine, select)
 from sqlalchemy.orm import declarative_base, sessionmaker
+from hub.webargs import clamp_int
 
 # When merging into Smart 1 Hub, replace the standalone engine below with the
 # Hub's shared session:  from hub.extensions import db
@@ -184,7 +185,7 @@ def set_webhook_status(token, status, detail=""):
 
 
 def leads(slug=None, limit=200, only_unlocked=True):
-    limit = max(1, min(int(limit or 200), 1000))   # clamp both ends: ?limit=-1
+    limit = clamp_int(limit, 200, 1, 1000)
     with _session() as s:                          # was a 500 on Postgres
         stmt = select(CalculatorLead).order_by(CalculatorLead.created_at.desc())
         if slug:

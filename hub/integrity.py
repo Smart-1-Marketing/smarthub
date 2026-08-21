@@ -163,7 +163,23 @@ def check_unclamped_limits() -> list[dict]:
     """A limit read straight from the query string with no bounds."""
     out = []
     for rel, src in _sources():
-        for m in re.finditer(r'request\.args\.get\(\s*["\'](limit|items|per_page|n)["\']', src):
+        # The helper's own docstring quotes the bad pattern as the example
+        # of what not to write. Flagging it would be the check reporting
+        # its own fix as the defect.
+        if rel.replace("\\", "/").endswith("hub/webargs.py"):
+            continue
+        # The same defect arrives on a form field or a JSON body, not just
+        # the query string, so all three are covered.
+        # Two patterns, because the names mean different things by source.
+        # On a query string "items" and "n" are page sizes; in a JSON body
+        # they are almost always the payload itself — a proposal's line items,
+        # a spot count — and matching those made the check cry wolf on twelve
+        # call sites that were never limits. A check nobody trusts is worse
+        # than no check.
+        pats = (r"""request\.args\.get\(\s*["'](limit|items|per_page|n)["']""",
+                r"""(?:request\.form|body|data)\.get\("""
+                r"""\s*["'](limit|per_page|page_size)["']""")
+        for m in [m for pat in pats for m in re.finditer(pat, src)]:
             # Look BEHIND as well as ahead: the usual clamp wraps the read
             # rather than following it — max(1, min(500, int(request.args...)))
             # — so a forward-only window reports correctly-clamped code as
@@ -177,7 +193,10 @@ def check_unclamped_limits() -> list[dict]:
                 "detail": f"?{m.group(1)}= is used without clamping. "
                           "?limit=-1 was a 500 on Postgres and a full table "
                           "dump on SQLite.",
-                "fix": "Clamp at both ends: max(1, min(100, int(value))).",
+                "fix": "from hub.webargs import clamp_int — it parses safely "
+                       "and clamps both ends. Do not add another local "
+                       "min()/max(); that is how two files ended up with "
+                       "max(1, max(1, min(...))).",
             })
     return out
 

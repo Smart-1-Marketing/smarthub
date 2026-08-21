@@ -22,6 +22,7 @@ import os
 import re
 import secrets
 import threading
+from hub.webargs import clamp_int
 
 FOLDER = os.environ.get("IMAGE_CREATOR_FOLDER", "smart1-image-projects")
 _CLOUD_URL = (os.environ.get("CLOUDINARY_URL") or "").strip()
@@ -226,7 +227,7 @@ def search_projects(q: str = "", client: str = "", limit: int = 100) -> list[dic
         rows = [r for r in rows if ql in str(r.get("name", "")).lower()
                 or ql in str(r.get("client", "")).lower()
                 or any(ql in t.lower() for t in r.get("tags", []))]
-    return rows[:max(1, min(int(limit), 500))]
+    return rows[:clamp_int(limit, 100, 1, 500)]
 
 
 def delete_project(pid: str) -> bool:

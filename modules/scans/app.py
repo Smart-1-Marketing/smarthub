@@ -40,6 +40,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from . import (audit_fields, insites_client, leads as widget_state,
                linkcheck, report_pdf, reports, site_health, widget)
 from .insites_client import InsitesError, is_configured
+from hub.webargs import clamp_int
 
 try:                                   # Hub activity log (present in the Hub)
     from hub import audit as hub_audit
@@ -392,7 +393,7 @@ def api_list():
     q = (request.args.get("q") or "").strip()
     status = (request.args.get("status") or "").strip()
     try:
-        limit = max(1, max(1, min(500, int(request.args.get("limit") or 100))))
+        limit = clamp_int(request.args.get("limit"), 100, 1, 500)
     except (TypeError, ValueError):
         limit = 100
 

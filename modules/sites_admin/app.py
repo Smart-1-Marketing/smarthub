@@ -50,6 +50,7 @@ from sync_service import (
     sync_catalog,
     sync_project,
 )
+from hub.webargs import clamp_int
 
 # Activity logging. Guarded so this module still runs standalone, but
 # inside the Hub every action is attributable — this module changes live client sites, and
@@ -527,7 +528,7 @@ def inventory_discover():
 def inventory_refresh_known():
     require_csrf()
     try:
-        limit = max(1, min(100, int(request.form.get("limit", "25"))))
+        limit = clamp_int(request.form.get("limit"), 25, 1, 100)
     except ValueError:
         limit = 25
     try:

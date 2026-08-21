@@ -47,6 +47,7 @@ from .models import (
     DB_BOOT_ERROR, PickerClient, SavedImage, already_saved, get_client,
     get_client_by_token, init_db, new_token, session, slugify, unique_slug,
 )
+from hub.webargs import clamp_int
 
 # Activity logging. Guarded so this module still runs standalone, but
 # inside the Hub every action is attributable — this module saves images to a client library, and
@@ -619,7 +620,7 @@ def _save_summary(n_saved: int, n_skipped: int, n_failed: int, saved: list[dict]
 def api_saved():
     db, client, is_staff = resolve_scope()
     try:
-        limit = max(1, min(500, int(request.args.get("limit") or 50)))
+        limit = clamp_int(request.args.get("limit"), 50, 1, 500)
     except (TypeError, ValueError):
         limit = 60
     limit = max(1, min(200, limit))     # clamp BOTH ends -- ?limit=-1 was a 500 in Scans

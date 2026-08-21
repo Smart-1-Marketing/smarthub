@@ -48,6 +48,7 @@ from xml.sax.saxutils import escape as xml_escape
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
+from hub.webargs import clamp_int
 
 # Activity logging. Guarded so this module still runs standalone, but
 # inside the Hub every action is attributable — this module created client quotes,
@@ -319,7 +320,7 @@ def create_quote():
 def list_quotes():
     qstr = (request.args.get("q") or "").strip().lower()
     status = (request.args.get("status") or "").strip()
-    limit = max(1, min(500, int(request.args.get("limit") or 50)))
+    limit = clamp_int(request.args.get("limit"), 50, 1, 500)
     db = SessionLocal()
     try:
         query = db.query(Quote)

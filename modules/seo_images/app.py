@@ -37,6 +37,7 @@ from pathlib import Path
 
 import requests
 from flask import Flask, jsonify, render_template, request
+from hub.webargs import clamp_int
 
 try:                                    # Hub activity log (absent standalone)
     from hub import audit as hub_audit
@@ -808,7 +809,7 @@ def api_gallery():
             for k in ("company", "project", "page", "seo_filename", "alt_text",
                       "web_url", "saved_by", "original_name"))]
     try:
-        limit = max(1, max(1, min(1000, int(request.args.get("limit") or 200))))
+        limit = clamp_int(request.args.get("limit"), 200, 1, 1000)
     except (TypeError, ValueError):
         limit = 200
     return jsonify({"gallery": rows[:limit], "total": len(load_archive())})
