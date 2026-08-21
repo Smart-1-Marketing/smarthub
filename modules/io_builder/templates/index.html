@@ -2222,12 +2222,40 @@ function prefillFromProposal(){
    else if(client)state.client=client;
    render();
 
-   const found=d.found||[];
-   if(found.length){
-    addMsg("From the proposal I read: "+found.join(" · ")+".");
+   /* Everything the reader found, not just the headline list. It extracts the
+      contact, the geography, the dates and a price per product; showing only
+      d.found meant most of that was fetched, held in memory and never put in
+      front of the person who needs it, who then retyped it off the PDF. */
+   const READ_LABELS = {
+    client_name:"Business", website:"Website",
+    client_contact_name:"Contact", client_contact_email:"Email",
+    client_contact_phone:"Phone", geo:"Geography", objectives:"Objectives",
+    monthly_budget:"Monthly budget", campaign_total:"Campaign total",
+    term_months:"Term (months)", start_date:"Start", end_date:"End"
+   };
+   const money = k => (k==="monthly_budget"||k==="campaign_total") ? "$" : "";
+   const lines = Object.keys(READ_LABELS)
+     .filter(k => f[k])
+     .map(k => "  " + READ_LABELS[k] + ": " + money(k) + f[k]);
+
+   (f.products_detail||[]).forEach(p2 => {
+    lines.push("  " + p2.product
+      + (p2.monthly ? " — $" + Number(p2.monthly).toLocaleString() + "/mo" : "")
+      + (p2.note ? " (" + p2.note + ")" : ""));
+   });
+
+   if(lines.length){
+    addMsg((d.read_by === "ai"
+            ? "I read the proposal. Here is what it appears to say:"
+            : "From the proposal I read:") + "\n" + lines.join("\n"));
+   }else if((d.found||[]).length){
+    addMsg("From the proposal I read: "+(d.found||[]).join(" · ")+".");
    }else{
     addMsg("That proposal didn't contain anything I could map to an IO.");
    }
+   /* Said once, plainly, straight after the numbers rather than at the end:
+      none of it is filled in, because a proposal is an offer and an IO is a
+      bill. The interview below asks for each of these properly. */
    if(d.note)addMsg(d.note);
    (d.ask||[]).forEach(q2=>addMsg("• "+q2));
    ask();

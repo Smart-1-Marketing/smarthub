@@ -117,6 +117,10 @@ class CampaignSpec:
     # field name -> KNOWN | PROPOSED | AGREED | NEEDS
     confidence: dict = field(default_factory=dict)
     source: str = ""                 # where this spec came from
+    # True when the document stated a total of its own, rather than the total
+    # being rolled up from the line items here. It changes what recalculate()
+    # is allowed to overwrite -- see the note there.
+    totals_stated: bool = False
     created: str = field(default_factory=lambda: date.today().isoformat())
 
     # ---- derived ----
@@ -133,10 +137,23 @@ class CampaignSpec:
         self.items = items
         rolled_monthly = round(sum(i.monthly or 0 for i in items), 2)
         rolled_total = round(sum(i.compute_total() for i in items), 2)
-        if rolled_monthly or not self.monthly_total:
-            self.monthly_total = rolled_monthly
-        if rolled_total or not self.campaign_total:
-            self.campaign_total = rolled_total
+        # A stated total is evidence; a rolled-up one is arithmetic on whatever
+        # the reader happened to itemise. They differ for ordinary reasons -- a
+        # bundle discount, or a product the reader missed -- and when they do,
+        # the document wins. This used to be safe by accident: line items never
+        # carried money, so the roll-up was always zero. The proposal reader
+        # now prices them, which would have made the sum quietly replace the
+        # figure printed on the client's proposal.
+        if not self.totals_stated:
+            if rolled_monthly or not self.monthly_total:
+                self.monthly_total = rolled_monthly
+            if rolled_total or not self.campaign_total:
+                self.campaign_total = rolled_total
+        else:
+            if not self.monthly_total:
+                self.monthly_total = rolled_monthly
+            if not self.campaign_total:
+                self.campaign_total = rolled_total
         if not self.campaign_total and self.monthly_total and self.months:
             self.campaign_total = round(self.monthly_total * self.months, 2)
         if not self.months and self.start and self.end:
@@ -287,6 +304,14 @@ def from_proposal_text(text: str, client: str = "") -> CampaignSpec:
         try:
             spec.monthly_total = float(str(f["monthly_budget"]).replace(",", ""))
             spec.confidence["monthly_total"] = NEEDS
+            spec.totals_stated = True
+        except ValueError:
+            pass
+    if f.get("campaign_total"):
+        try:
+            spec.campaign_total = float(str(f["campaign_total"]).replace(",", ""))
+            spec.confidence["campaign_total"] = NEEDS
+            spec.totals_stated = True
         except ValueError:
             pass
     for key in ("start_date", "end_date"):
@@ -298,9 +323,31 @@ def from_proposal_text(text: str, client: str = "") -> CampaignSpec:
             spec.months = int(f["term_months"])
         except ValueError:
             pass
-    for name in [p.strip() for p in (f.get("products_mentioned") or "").split(",") if p.strip()]:
-        spec.items.append(LineItem(product=name, confidence=NEEDS))
-    spec.notes = "Read from a proposal document. Nothing here is confirmed."
+    # products_detail carries an amount per product when the reader could find
+    # one; products_mentioned is only names. Prefer the detailed list so the
+    # line items arrive with money on them rather than as labels a rep has to
+    # price again -- which was the whole reason converting meant retyping.
+    detail = f.get("products_detail")
+    if isinstance(detail, list) and detail:
+        for item in detail:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("product") or "").strip()
+            if not name:
+                continue
+            try:
+                monthly = float(item.get("monthly") or 0)
+            except (TypeError, ValueError):
+                monthly = 0.0
+            spec.items.append(LineItem(product=name, monthly=monthly,
+                                       notes=str(item.get("note") or "")[:200],
+                                       confidence=NEEDS))
+    else:
+        for name in [p.strip() for p in (f.get("products_mentioned") or "").split(",") if p.strip()]:
+            spec.items.append(LineItem(product=name, confidence=NEEDS))
+    spec.notes = ("Read from a proposal document. Nothing here is confirmed."
+                  + (" The reader used AI as well as pattern matching."
+                     if parsed.get("read_by") == "ai" else ""))
     return spec
 
 
@@ -356,4 +403,18 @@ def _questions_for(spec: CampaignSpec, check: dict) -> list[str]:
         out.append("Who is the client contact, and what's their email?")
     if not spec.creative:
         out.append("Is creative being supplied, or are we producing it?")
+
+    # The document's total and its own line items disagree. That is usually a
+    # bundle price or a product the reader did not pick up, and both are worth
+    # a sentence before anyone signs -- an IO that bills the sum of what was
+    # read is not the same as one that bills what was quoted.
+    priced = [i for i in spec.items
+              if isinstance(i, LineItem) and i.monthly]
+    if spec.totals_stated and spec.monthly_total and priced:
+        rolled = round(sum(i.monthly for i in priced), 2)
+        if rolled and abs(rolled - spec.monthly_total) > 1:
+            out.append(
+                f"The proposal states ${spec.monthly_total:,.2f}/month, but the "
+                f"products read off it come to ${rolled:,.2f} — is something "
+                f"bundled, discounted, or missing from the list?")
     return out

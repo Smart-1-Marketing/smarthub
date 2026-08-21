@@ -26,8 +26,11 @@ forging one.
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, timedelta
+
+logger = logging.getLogger(__name__)
 
 # Never carried from a previous IO, whatever the source says.
 NEVER_CARRY = {"order_number", "signature", "signed_at", "submitted_at",
@@ -192,6 +195,242 @@ def creative_for(client: str, limit: int = 24) -> dict:
                     "we already have rather than asking for it again."}
 
 
+# ---------------------------------------------------------------------------
+# Reading a proposal with the model
+# ---------------------------------------------------------------------------
+#
+# The pattern pass below finds dollar figures and eight product keywords. That
+# works on proposals written the way we write them and misses everything else:
+# a table of line items, "twelve months", a product named in a sentence rather
+# than a heading, the client's own contact block. A rep then retypes it, and
+# retyping is where "the proposal said $4,500 but the IO says $4,000" comes
+# from.
+#
+# So the model gets a second look. Three rules make that safe:
+#
+#   1. **It only adds.** The pattern pass runs first and its findings stand.
+#      If the model is off, unconfigured, or slow, the result is exactly what
+#      it is today -- never worse.
+#   2. **Nothing it says is confirmed.** Every field it produces is marked
+#      needs_review, the same as a guess, because a proposal contains ranges,
+#      options and "starting at". The rep sees the number and accepts it.
+#   3. **Disagreement is surfaced, not resolved.** Where the model and the
+#      patterns read different figures, both go in the questions. Silently
+#      picking one is how a client gets billed something nobody agreed.
+
+AI_MAX_CHARS = 24_000        # ~6k tokens of proposal; longer is padding
+
+_AI_SYSTEM = (
+    "You read advertising proposals and pull out only what is written in "
+    "them. You never estimate, never fill gaps from experience, and never "
+    "convert a range into a single number. If a document says 'starting at "
+    "$2,000' the amount is 2000 and the note says it was a starting price. "
+    "If something is not in the document, omit the field entirely. Reply with "
+    "JSON only."
+)
+
+_AI_SCHEMA = """Return this shape, omitting anything the document does not state:
+
+{
+  "business_name": "",
+  "website": "",
+  "contact_name": "", "contact_email": "", "contact_phone": "",
+  "geography": "",
+  "objectives": "",
+  "monthly_budget": 0,
+  "campaign_total": 0,
+  "term_months": 0,
+  "start_date": "YYYY-MM-DD",
+  "end_date": "YYYY-MM-DD",
+  "products": [{"name": "", "monthly": 0, "note": ""}],
+  "ambiguities": ["a short question about anything vague, optional or ranged"]
+}
+
+Rules:
+- Amounts are plain numbers: 4500, not "$4,500/mo".
+- monthly_budget is the recurring monthly spend. campaign_total is the whole
+  term. Do not compute one from the other; only report what is stated.
+- For each product use the closest name from this list where one clearly
+  fits, otherwise the document's own wording:
+"""
+
+
+def _catalogue() -> list[str]:
+    """Product names from the rate card, for the model to map onto.
+
+    Giving it our own vocabulary is what makes the output usable downstream:
+    "connected TV" in a proposal comes back as the product the IO builder and
+    the rate card already know, rather than a synonym nothing matches.
+    """
+    try:
+        from hub import rate_card
+        names, seen = [], set()
+        for p in rate_card.products():
+            n = (p.get("product") or "").split("  *")[0]
+            n = n.split(" - This is")[0].strip()
+            if n and n.lower() not in seen:
+                seen.add(n.lower())
+                names.append(n)
+        return names
+    except Exception as exc:                            # noqa: BLE001
+        logger.info("rate card unavailable for the proposal reader: %s", exc)
+        return []
+
+
+def _clean_card_name(name: str) -> str:
+    """A rate-card product without its explanatory tail.
+
+    The card stores selling copy in the name — "Connected TV - Targeted - This
+    is played on televisions only *If you require specifc channel(s)..." — and
+    that whole string ends up as a line item on an IO unless it is trimmed.
+    """
+    n = str(name or "").split("  *")[0]
+    n = n.split(" - This is")[0]
+    return n.strip()
+
+
+def _card_name(name: str) -> str:
+    """Map a product the model named onto the rate card, or keep its wording.
+
+    Deliberately strict. rate_card.search() is a type-ahead: it returns a best
+    guess for almost any input, so using it here turned "Search Engine
+    Marketing" into "Pay Per Click" — a different product, on an insertion
+    order, silently. This accepts an exact match, or a candidate that actually
+    contains what the model said. Anything else keeps the document's own
+    wording, which a rep can recognise and correct; a confidently wrong
+    product name is the thing they cannot.
+    """
+    want = _clean_card_name(name)
+    if not want:
+        return str(name or "").strip()
+    try:
+        from hub import rate_card
+        hit = rate_card.find(want)
+        if hit and hit.get("product"):
+            return _clean_card_name(hit["product"])
+        key = _norm(want)
+        if len(key) < 4:                    # too short to match on safely
+            return want
+        for cand in rate_card.search(want, limit=8):
+            cand_name = _clean_card_name(cand.get("product") or "")
+            ck = _norm(cand_name)
+            if ck and (ck == key or key in ck):
+                return cand_name
+    except Exception as exc:                            # noqa: BLE001
+        logger.info("rate card lookup failed for %r: %s", name, exc)
+    return want
+
+
+def _num(v, cap: float = 10_000_000.0) -> float:
+    """A number out of whatever the model returned, or 0.0.
+
+    Models answer "4500", 4500, "$4,500/mo" and "4500.00" to the same
+    question. This is also the boundary where a hallucinated string stops
+    being a number that reaches an invoice.
+    """
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        n = float(v)
+    else:
+        m = re.search(r"-?[\d,]+(?:\.\d+)?", str(v or ""))
+        if not m:
+            return 0.0
+        try:
+            n = float(m.group(0).replace(",", ""))
+        except ValueError:
+            return 0.0
+    return n if 0 < n <= cap else 0.0
+
+
+def _iso(v) -> str:
+    """An ISO date, or "". Anything else the model offers is dropped."""
+    t = str(v or "").strip()[:10]
+    try:
+        return date.fromisoformat(t).isoformat()
+    except (ValueError, TypeError):
+        return ""
+
+
+def _ai_read(client: str, text: str, filename: str = "") -> dict | None:
+    """The model's reading of the proposal, validated. None when unavailable.
+
+    Never raises. A proposal that cannot be read by the model is still read by
+    the patterns, and the caller cannot tell the difference except that fewer
+    fields come back.
+    """
+    try:
+        from hub import ai
+    except Exception:                                   # noqa: BLE001
+        return None
+    if not ai.ready():
+        return None
+
+    body = (text or "")[:AI_MAX_CHARS]
+    if len(body.strip()) < 40:
+        return None
+
+    catalogue = _catalogue()
+    prompt = _AI_SCHEMA + ("\n".join(f"  - {n}" for n in catalogue)
+                           if catalogue else "  (no catalogue available)")
+    if len(text) > AI_MAX_CHARS:
+        prompt += ("\n\nNote: the document was truncated. Report only what "
+                   "appears in the text given.")
+
+    try:
+        out = ai.chat_json(
+            [{"role": "system", "content": _AI_SYSTEM},
+             {"role": "user", "content": prompt},
+             {"role": "user", "content":
+              f"Proposal{' (' + filename + ')' if filename else ''}"
+              f"{' for ' + client if client else ''}:\n\n{body}"}],
+            module="io_builder", purpose="proposal_read",
+            max_tokens=1200,
+            # Reading a document is not a creative task: the same proposal
+            # should produce the same numbers twice.
+            temperature=0)
+    except Exception as exc:                            # noqa: BLE001
+        logger.info("AI proposal read unavailable: %s", exc)
+        return None
+
+    if not isinstance(out, dict):
+        return None
+
+    products = []
+    for item in (out.get("products") or [])[:25]:
+        if isinstance(item, str):
+            item = {"name": item}
+        if not isinstance(item, dict):
+            continue
+        nm = str(item.get("name") or "").strip()[:120]
+        if not nm:
+            continue
+        products.append({"name": nm,
+                         "monthly": _num(item.get("monthly")),
+                         "note": str(item.get("note") or "").strip()[:200]})
+
+    def txt(key, limit=200):
+        return str(out.get(key) or "").strip()[:limit]
+
+    months = int(_num(out.get("term_months"), cap=120))
+    return {
+        "business_name": txt("business_name"),
+        "website": txt("website", 300),
+        "contact_name": txt("contact_name", 120),
+        "contact_email": txt("contact_email", 200),
+        "contact_phone": txt("contact_phone", 40),
+        "geography": txt("geography", 300),
+        "objectives": txt("objectives", 600),
+        "monthly_budget": _num(out.get("monthly_budget")),
+        "campaign_total": _num(out.get("campaign_total")),
+        "term_months": months if 0 < months <= 120 else 0,
+        "start_date": _iso(out.get("start_date")),
+        "end_date": _iso(out.get("end_date")),
+        "products": products,
+        "ambiguities": [str(q).strip()[:200]
+                        for q in (out.get("ambiguities") or [])[:8]
+                        if str(q).strip()],
+    }
+
+
 def from_proposal(client: str, text: str, filename: str = "") -> dict:
     """Read a proposal for anything that belongs on an IO.
 
@@ -249,18 +488,150 @@ def from_proposal(client: str, text: str, filename: str = "") -> dict:
             fields.setdefault(k, v)
             sources.setdefault(k, base["sources"].get(k, "known"))
 
+    ask = [
+        "Is this the agreed budget, or was it a range in the proposal?",
+        "Which of these products are actually being bought?",
+        "What start date did the client agree to?",
+    ]
+    if not client:
+        ask.append("This isn't an existing client — what's the business name, "
+                   "contact and website?")
+
+    read_by = "patterns"
+    ai = _ai_read(client, text, filename)
+    if ai:
+        read_by = "ai"
+        _merge_ai(ai, fields, sources, found, ask, client)
+
     return {
         "mode": "proposal", "client": client or "", "filename": filename,
         "fields": fields, "sources": sources,
         "found": found,
-        "ask": [
-            "Is this the agreed budget, or was it a range in the proposal?",
-            "Which of these products are actually being bought?",
-            "What start date did the client agree to?",
-        ] + ([] if client else [
-            "This isn't an existing client — what's the business name, "
-            "contact and website?"]),
+        "ask": ask,
+        "read_by": read_by,
         "note": ("Read from the proposal and NOT confirmed. A proposal carries "
                  "options and ranges, not committed numbers — check every "
                  "figure before submitting."),
     }
+
+
+def _merge_ai(ai: dict, fields: dict, sources: dict, found: list,
+              ask: list, client: str) -> None:
+    """Fold the model's reading into what the patterns already found.
+
+    Mutates in place, because the caller owns the payload and this is the only
+    thing that writes to it after the pattern pass.
+
+    The ordering rule throughout: a value the patterns found is not replaced.
+    Where the two disagree on money the difference becomes a question rather
+    than a decision, since the whole failure this feature exists to prevent is
+    an IO carrying a figure nobody agreed to.
+    """
+    def put(key, value, *, note=""):
+        """Set a field the patterns did not fill. Always needs_review."""
+        if value in (None, "", 0, 0.0):
+            return
+        if fields.get(key):
+            return
+        fields[key] = value
+        sources[key] = "needs_review"
+        if note:
+            found.append(note)
+
+    # --- money ---------------------------------------------------------
+    ai_monthly = ai.get("monthly_budget") or 0.0
+    pat_monthly = 0.0
+    if fields.get("monthly_budget"):
+        try:
+            pat_monthly = float(str(fields["monthly_budget"]).replace(",", ""))
+        except ValueError:
+            pat_monthly = 0.0
+
+    def _close(a, b):
+        """Same figure, allowing for rounding. A percentage rather than a flat
+        amount: $50 apart matters on a $500 budget and is noise on $50,000."""
+        return a and b and abs(a - b) / max(a, b) <= 0.01
+
+    if ai_monthly and pat_monthly and not _close(ai_monthly, pat_monthly):
+        # The pattern pass takes the largest figure written as "$X per month",
+        # which on a proposal that lists channels line by line is the biggest
+        # LINE, not the budget. When its number matches one of the products the
+        # model itemised, that is what happened — the model read the total and
+        # the patterns read a row of the table. Prefer the total, and say so,
+        # because leaving the headline number as a single channel is a wrong
+        # answer sitting in the field a rep is most likely to accept.
+        line_items = [p.get("monthly") or 0.0 for p in (ai.get("products") or [])]
+        if any(_close(pat_monthly, m) for m in line_items):
+            fields["monthly_budget"] = f"{ai_monthly:,.2f}"
+            sources["monthly_budget"] = "needs_review"
+            ask.insert(0, f"The proposal totals ${ai_monthly:,.2f}/month across "
+                          f"its channels, one of which is ${pat_monthly:,.2f} — "
+                          f"is the total the agreed budget?")
+        else:
+            # Genuinely two different figures. Neither is chosen here: that is
+            # the difference between a quote and a bill.
+            ask.insert(0, f"The proposal reads as ${pat_monthly:,.2f}/month in "
+                          f"one place and ${ai_monthly:,.2f}/month in another "
+                          f"— which is the agreed figure?")
+    elif ai_monthly:
+        put("monthly_budget", f"{ai_monthly:,.2f}",
+            note=f"monthly budget ${ai_monthly:,.2f}")
+
+    if ai.get("campaign_total"):
+        put("campaign_total", f"{ai['campaign_total']:,.2f}",
+            note=f"campaign total ${ai['campaign_total']:,.2f}")
+
+    # --- term and dates ------------------------------------------------
+    if ai.get("term_months"):
+        put("term_months", str(ai["term_months"]),
+            note=f"{ai['term_months']}-month term")
+    put("start_date", ai.get("start_date"))
+    put("end_date", ai.get("end_date"))
+
+    # --- who ------------------------------------------------------------
+    # Only when we do not already know them. For an existing client the Hub's
+    # own record is the better source and from_client has already set it.
+    put("client_name", ai.get("business_name"))
+    put("website", ai.get("website"))
+    put("client_contact_name", ai.get("contact_name"))
+    put("client_contact_email", ai.get("contact_email"))
+    put("client_contact_phone", ai.get("contact_phone"))
+    put("geo", ai.get("geography"))
+    put("objectives", ai.get("objectives"))
+
+    # --- products -------------------------------------------------------
+    # The model maps the proposal's wording onto our rate card, so a name that
+    # matches the card is used as the card spells it. Anything else is kept
+    # verbatim rather than dropped: an unmatched product is still something
+    # the client was quoted, and losing it silently is worse than showing it.
+    detail, names = [], []
+    for item in ai.get("products") or []:
+        name = _card_name(item["name"])
+        if name.lower() in [n.lower() for n in names]:
+            continue
+        names.append(name)
+        detail.append({"product": name, "monthly": item.get("monthly") or 0.0,
+                       "note": item.get("note", "")})
+
+    if detail:
+        fields["products_detail"] = detail
+        sources["products_detail"] = "needs_review"
+        # The model's list REPLACES the keyword sweep rather than joining it.
+        # They use different vocabularies for the same thing — the sweep says
+        # "Advanced TV" where the model says "Connected TV - Targeted" — so
+        # merging them lists one product twice and turns three channels into
+        # five. A count a rep cannot trust is worse than the shorter list, and
+        # the model read the document while the sweep matched words in it.
+        fields["products_mentioned"] = ", ".join(names)
+        sources["products_mentioned"] = "needs_review"
+        found[:] = [f for f in found if f.startswith("monthly budget")
+                    or f.startswith("campaign total")
+                    or f.endswith("-month term")]
+        found.extend(names)
+
+    # --- what the model could not settle --------------------------------
+    # Its questions go after ours: ours are the ones that always need asking,
+    # its are specific to this document.
+    for q in ai.get("ambiguities") or []:
+        if q not in ask:
+            ask.append(q)
