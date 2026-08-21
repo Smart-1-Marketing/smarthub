@@ -1675,9 +1675,41 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
             +((p.image&&p.image.status==='pending')?'Review image'
               :(p.image?'Image &#10003;':'Add image'))+'</button>'
           : '')
+        /* Once an image exists, the two things anyone actually wants are the
+           link (to paste into the CMS) and the file (to upload by hand). The
+           thumbnail opened a review modal and nothing else, so getting the
+           image out meant right-clicking it. fl_attachment is what makes
+           Cloudinary send it as a download rather than display it. */
+        +((p.image&&p.image.url)
+          ? '<button class="seoc-blink bImgCopy" data-id="'+p.id+'"'
+            +' title="Copy the image address">Copy link</button>'
+            +'<a class="seoc-blink" href="'
+            +esc(p.image.url.replace('/upload/','/upload/fl_attachment/'))
+            +'" download title="Download the image file">Image &#8681;</a>'
+          : '')
         +'<button class="seoc-blink bArch" data-id="'+p.id+'" title="Archive — keeps the post, hides it here">Archive</button>'
         +'</td></tr>';
     }).join('');
+    $('blogRows').querySelectorAll('.bImgCopy').forEach(function(b){
+      b.onclick=function(){
+        var post_=blogPosts.find(function(x){return x.id===parseInt(b.dataset.id,10);});
+        var url=post_&&post_.image?post_.image.url:'';
+        if(!url) return;
+        /* navigator.clipboard needs a secure context and is absent in a few
+           setups, so the textarea fallback stays rather than the button
+           silently doing nothing. */
+        var done=function(){ var t=b.textContent; b.textContent='Copied';
+          setTimeout(function(){b.textContent=t;},1200); };
+        if(navigator.clipboard&&navigator.clipboard.writeText){
+          navigator.clipboard.writeText(url).then(done,function(){});
+        } else {
+          var ta=document.createElement('textarea'); ta.value=url;
+          document.body.appendChild(ta); ta.select();
+          try{document.execCommand('copy');done();}catch(e){}
+          document.body.removeChild(ta);
+        }
+      };
+    });
     $('blogRows').querySelectorAll('.bImg').forEach(function(b){
       b.onclick=function(){openImageModal(parseInt(b.dataset.id,10));};
     });

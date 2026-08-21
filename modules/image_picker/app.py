@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from collections import defaultdict, deque
 from functools import wraps
 from urllib.parse import urlparse
@@ -651,6 +652,119 @@ def api_delete(image_id: int):
     # media library it may already be used in a funnel or an email.
     return jsonify({"ok": True, "removed": image_id,
                     "note": "Removed from the gallery. Any copy already in Smart 1 Suite stays there."})
+
+
+@bp.route("/api/saved/bulk-delete", methods=["POST"])
+@db_guard
+def api_bulk_delete():
+    """Remove several images at once.
+
+    Deliberately separate from the single delete rather than the UI looping
+    over it: a loop that fails halfway leaves the caller unsure what went and
+    what stayed, and each call would re-resolve the gallery.
+
+    The Cloudinary asset goes with the row. That is the point of the warning
+    the UI shows first — for an image the client uploaded, our copy is very
+    often the only copy, and there is nothing to restore it from.
+    """
+    db, client, is_staff = resolve_scope()
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"ok": False, "error": "Nothing was selected."}), 400
+    try:
+        ids = [int(i) for i in ids][:200]
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "That selection wasn't valid."}), 400
+
+    removed, missed = [], []
+    for image_id in ids:
+        row = db.get(SavedImage, image_id)
+        # Scoped to this gallery, so a guessed id cannot reach another client's
+        # images through a share link.
+        if not row or row.client_id != client.id:
+            missed.append(image_id)
+            continue
+        if row.cloudinary_public_id:
+            cloudinary_sink.destroy(row.cloudinary_public_id)
+        db.delete(row)
+        removed.append(image_id)
+    db.commit()
+    _audit("gallery_bulk_delete", client=client.name, count=len(removed))
+    return jsonify({
+        "ok": True, "removed": removed, "missed": missed,
+        "note": (f"{len(removed)} file(s) removed. Any copy already in Smart 1 "
+                 f"Suite stays there."),
+    })
+
+
+@bp.route("/api/saved/download.zip")
+@db_guard
+def api_bulk_download():
+    """Several files as one zip.
+
+    The alternative — opening each in a tab — is blocked by every popup
+    blocker once there is more than one, so a browser silently delivers the
+    first file and nothing else.
+
+    Files are fetched from our own Cloudinary and streamed into the zip. A file
+    that cannot be fetched is skipped and named in a MISSING.txt inside the
+    archive rather than failing the whole download, because a partial set with
+    an explanation beats an error page.
+    """
+    db, client, is_staff = resolve_scope()
+    raw = (request.args.get("ids") or "").strip()
+    try:
+        ids = [int(i) for i in raw.split(",") if i.strip()][:200]
+    except ValueError:
+        return jsonify({"ok": False, "error": "That selection wasn't valid."}), 400
+    if not ids:
+        return jsonify({"ok": False, "error": "Nothing was selected."}), 400
+
+    import io as _io
+    import zipfile
+    import requests as _rq
+
+    buf = _io.BytesIO()
+    missing, used = [], set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for image_id in ids:
+            row = db.get(SavedImage, image_id)
+            if not row or row.client_id != client.id or not row.cloudinary_url:
+                missing.append(str(image_id))
+                continue
+            name = (row.filename or f"{row.provider}-{image_id}").strip() or f"file-{image_id}"
+            if "." not in name.rsplit("/", 1)[-1]:
+                name += ".pdf" if row.resource_type == "raw" else ".jpg"
+            name = name.replace("/", "-")
+            # Two files can genuinely share a name; without this the zip keeps
+            # only the last one and the count silently drops.
+            base, dot, ext = name.rpartition(".")
+            n, candidate = 2, name
+            while candidate.lower() in used:
+                candidate = f"{base}-{n}.{ext}" if dot else f"{name}-{n}"
+                n += 1
+            used.add(candidate.lower())
+            try:
+                r = _rq.get(row.cloudinary_url, timeout=25)
+                r.raise_for_status()
+                z.writestr(candidate, r.content)
+            except Exception:                           # noqa: BLE001
+                missing.append(candidate)
+        if missing:
+            z.writestr("MISSING.txt",
+                       "These files could not be fetched and are not in this "
+                       "zip:\n\n" + "\n".join(missing) + "\n")
+
+    buf.seek(0)
+    _audit("gallery_download", client=client.name, count=len(ids) - len(missing))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    fname = f"{client.slug}-images-{stamp}.zip"
+    from flask import Response
+    return Response(
+        buf.getvalue(), mimetype="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"',
+                 "Content-Length": str(buf.getbuffer().nbytes)})
 
 
 @bp.route("/api/saved/<int:image_id>/retry-suite", methods=["POST"])

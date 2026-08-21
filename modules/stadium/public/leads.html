@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leads · Stadium to Screen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{--night:#0a1626;--deep:#060f1d;--panel:#0f2036;--chalk:#f4f8fc;--steel:#8ba0b8;--steel-dim:#5f7691;
+    --electric:#1e9de3;--electric-soft:#4fbef2;--turf:#2fd07a;--turf-soft:#5ee39a;--line:rgba(139,160,184,.16);--line-strong:rgba(139,160,184,.32)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Barlow',system-ui,sans-serif;background:var(--night);color:var(--chalk);-webkit-font-smoothing:antialiased}
+  .mono{font-family:'JetBrains Mono',monospace}
+  a{color:var(--electric-soft)}
+  h1,.display{font-family:'Archivo',sans-serif;letter-spacing:-.01em}
+  .wrap{width:min(1240px,94vw);margin:0 auto;padding:24px 0 60px}
+  .btn{font-family:'Archivo';font-weight:700;font-size:.86rem;padding:.55em 1.1em;border-radius:9px;border:0;cursor:pointer;display:inline-flex;gap:.4em;align-items:center;transition:transform .15s,background .2s}
+  .btn-turf{background:var(--turf);color:#05230f}
+  .btn-ghost{background:transparent;color:var(--chalk);border:1px solid var(--line-strong)}
+  .btn:hover{transform:translateY(-1px)}
+  input{font-family:'Barlow';font-size:1rem;background:var(--deep);border:1px solid var(--line-strong);border-radius:10px;padding:.7em .9em;color:var(--chalk);width:100%}
+  input:focus{outline:none;border-color:var(--turf)}
+
+  /* gate */
+  .gate{min-height:100vh;display:grid;place-items:center;padding:24px}
+  .gate-card{background:var(--panel);border:1px solid var(--line-strong);border-radius:18px;padding:34px;max-width:380px;width:100%;text-align:center}
+  .gate-card .mark{width:40px;height:40px;border-radius:10px;background:linear-gradient(150deg,var(--electric),#0a63a8);display:grid;place-items:center;margin:0 auto 14px}
+  .gate-card h1{font-size:1.4rem;font-weight:800;margin-bottom:6px}
+  .gate-card p{color:var(--steel);font-size:.9rem;margin-bottom:18px}
+  .gate-card .btn{width:100%;justify-content:center;margin-top:12px}
+  .gate-err{color:#ff9a9a;font-size:.85rem;margin-top:12px;min-height:1em}
+
+  /* dashboard */
+  #dash{display:none}
+  .top{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;margin-bottom:20px}
+  .top h1{font-size:1.6rem;font-weight:900}
+  .top h1 span{color:var(--turf-soft)}
+  .tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .search{max-width:260px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+  @media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .stat .n{font-family:'Archivo';font-weight:900;font-size:1.6rem;color:var(--turf-soft)}
+  .stat .l{font-family:'JetBrains Mono';font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--steel);margin-top:4px}
+
+  .table-wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:auto}
+  table{border-collapse:collapse;width:100%;font-size:.85rem;white-space:nowrap}
+  th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line)}
+  th{font-family:'JetBrains Mono';font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;color:var(--steel);position:sticky;top:0;background:#122843}
+  tbody tr:hover{background:rgba(30,157,227,.05)}
+  td .sub{color:var(--steel-dim);font-size:.76rem}
+  td.num{font-family:'JetBrains Mono';color:var(--electric-soft)}
+  .pill{font-size:.72rem;font-weight:600;padding:.2em .6em;border-radius:20px;background:rgba(47,208,122,.14);color:var(--turf-soft)}
+  .empty{padding:40px;text-align:center;color:var(--steel)}
+  .ephemeral{font-size:.78rem;color:#ffc98a;margin-bottom:16px}
+  .insights{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+  @media(max-width:720px){.insights{grid-template-columns:1fr}}
+  .ins-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .ins-title{font-family:'JetBrains Mono';font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--steel);margin-bottom:10px}
+  .ins-row{display:grid;grid-template-columns:130px 1fr 32px;gap:8px;align-items:center;margin-bottom:6px;font-size:.82rem}
+  .ins-lab{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--chalk)}
+  .ins-bar{background:rgba(255,255,255,.05);border-radius:6px;height:9px;overflow:hidden}
+  .ins-bar i{display:block;height:100%;border-radius:6px}
+  .ins-val{font-family:'JetBrains Mono';color:var(--steel);text-align:right}
+</style>
+</head>
+<body>
+
+<!-- token gate -->
+<div class="gate" id="gate">
+  <div class="gate-card">
+    <div class="mark"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="1.6"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
+    <h1>Leads Dashboard</h1>
+    <p>Enter the admin token to view captured leads.</p>
+    <input type="password" id="token" placeholder="Admin token" autocomplete="off" onkeydown="if(event.key==='Enter')login()">
+    <button class="btn btn-turf" onclick="login()">View leads</button>
+    <div class="gate-err" id="gateErr"></div>
+  </div>
+</div>
+
+<!-- dashboard -->
+<div id="dash"><div class="wrap">
+  <div class="top">
+    <h1>Stadium to Screen · <span>Leads</span></h1>
+    <div class="tools">
+      <input class="search" id="search" placeholder="Search name, company, team, email…" oninput="renderAll()">
+      <select id="dateFilter" onchange="renderAll()" style="background:var(--deep);border:1px solid var(--line-strong);border-radius:10px;color:var(--chalk);padding:.55em .8em;font-family:'Barlow'"><option value="all">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select>
+      <button class="btn btn-ghost" onclick="loadLeads()">Refresh</button>
+      <button class="btn btn-turf" onclick="exportCsv()">Export CSV</button>
+      <button class="btn btn-ghost" onclick="logout()">Sign out</button>
+    </div>
+  </div>
+  <div class="ephemeral" id="ephemeral"></div>
+  <div class="stats" id="stats"></div>
+  <div class="insights" id="insights"></div>
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>Date</th><th>Contact</th><th>Company</th><th>Phone</th><th>Team</th><th>Scope</th>
+      <th>Focus</th><th>Package</th><th>Budget</th><th>Fan base</th><th>Households</th><th>Matchable</th><th>Report</th><th>Notes</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table></div>
+</div></div>
+
+<script>
+let TOKEN = sessionStorage.getItem("s1_admin_token") || "";
+let LEADS = [];
+
+if (TOKEN) { document.getElementById("token").value = ""; loadLeads(true); }
+
+async function login(){
+  TOKEN = document.getElementById("token").value.trim();
+  if(!TOKEN){ return; }
+  await loadLeads();
+}
+function logout(){ sessionStorage.removeItem("s1_admin_token"); TOKEN=""; location.reload(); }
+
+async function loadLeads(silent){
+  const err=document.getElementById("gateErr"); if(err) err.textContent="";
+  try{
+    const r=await fetch("/api/leads",{headers:{"x-admin-token":TOKEN}});
+    if(r.status===401){ if(err) err.textContent="Wrong token — try again."; return; }
+    if(r.status===503){ if(err) err.textContent="Dashboard not enabled — set ADMIN_TOKEN in Render."; return; }
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const j=await r.json();
+    LEADS=Array.isArray(j.leads)?j.leads:[];
+    sessionStorage.setItem("s1_admin_token", TOKEN);
+    document.getElementById("gate").style.display="none";
+    document.getElementById("dash").style.display="block";
+    document.getElementById("ephemeral").textContent = j.persistent ? "" :
+      "⚠ CLOUDINARY_URL not set — leads are stored in memory only and reset when the server restarts.";
+    renderAll();
+  }catch(e){ if(err) err.textContent="Couldn't load leads. Check the token and try again."; }
+}
+
+function fmt(n){ const x=Number(n); if(!isFinite(x)) return "—";
+  if(x>=1e6) return (x/1e6).toFixed(x>=1e7?1:2).replace(/\.0+$/,"")+"M";
+  if(x>=1e3) return (x/1e3).toFixed(x>=1e4?0:1).replace(/\.0$/,"")+"K"; return String(x); }
+function when(iso){ if(!iso) return "—"; const d=new Date(iso); return d.toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function filtered(){
+  const q=(document.getElementById("search").value||"").trim().toLowerCase();
+  const df=document.getElementById("dateFilter"); const days=df?df.value:"all";
+  let out=LEADS;
+  if(days!=="all"){ const cut=Date.now()-Number(days)*864e5; out=out.filter(l=>{const t=Date.parse(l.generatedAt||l.submittedAt||0);return isFinite(t)&&t>=cut;}); }
+  if(q) out=out.filter(l=>[l.name,l.company,l.team,l.email,l.dma].some(v=>String(v||"").toLowerCase().includes(q)));
+  return out;
+}
+
+function renderAll(){ renderStats(); renderInsights(); renderTable(); }
+function renderInsights(){
+  const data=filtered();
+  const byTeam={}, byPkg={};
+  data.forEach(l=>{ if(l.team) byTeam[l.team]=(byTeam[l.team]||0)+1; const pk=l.recommendedPackage||"—"; byPkg[pk]=(byPkg[pk]||0)+1; });
+  const topTeams=Object.entries(byTeam).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const maxT=Math.max(1,...topTeams.map(t=>t[1]));
+  const pkgs=Object.entries(byPkg).sort((a,b)=>b[1]-a[1]);
+  const maxP=Math.max(1,...pkgs.map(x=>x[1]));
+  const bar=(label,val,max,color)=>`<div class="ins-row"><span class="ins-lab">${esc(label)}</span><span class="ins-bar"><i style="width:${Math.round(val/max*100)}%;background:${color}"></i></span><span class="ins-val">${val}</span></div>`;
+  document.getElementById("insights").innerHTML = !data.length ? "" : `
+    <div class="ins-card"><div class="ins-title">Most-requested teams</div>${topTeams.map(([t,v])=>bar(t,v,maxT,"var(--electric)")).join("")||'<div class="sub">—</div>'}</div>
+    <div class="ins-card"><div class="ins-title">By package</div>${pkgs.map(([t,v])=>bar(t,v,maxP,"var(--turf)")).join("")}</div>`;
+}
+function renderStats(){
+  const data=filtered();
+  const total=data.length;
+  const withPdf=data.filter(l=>l.pdfUrl).length;
+  const teams=new Set(data.map(l=>l.team).filter(Boolean)).size;
+  const last=data[0]?when(data[0].generatedAt||data[0].submittedAt):"—";
+  document.getElementById("stats").innerHTML=`
+    <div class="stat"><div class="n">${total}</div><div class="l">Total leads</div></div>
+    <div class="stat"><div class="n">${teams}</div><div class="l">Distinct teams</div></div>
+    <div class="stat"><div class="n">${withPdf}</div><div class="l">Reports stored</div></div>
+    <div class="stat"><div class="n" style="font-size:1rem;color:var(--electric-soft)">${last}</div><div class="l">Most recent</div></div>`;
+}
+
+function renderTable(){
+  const rows=document.getElementById("rows");
+  const data=filtered();
+  if(!data.length){ rows.innerHTML='<tr><td colspan="14" class="empty">No leads yet.</td></tr>'; return; }
+  rows.innerHTML=data.map(l=>`
+    <tr>
+      <td>${when(l.generatedAt||l.submittedAt)}</td>
+      <td><div>${esc(l.name)}</div><div class="sub">${esc(l.email)}</div></td>
+      <td>${esc(l.company)||"—"}</td>
+      <td>${esc(l.phone)||"—"}</td>
+      <td><div>${esc(l.team)}</div><div class="sub">${esc(l.league)||""}</div></td>
+      <td>${esc(l.scopeLabel)||esc(l.scope)||"—"}</td>
+      <td>${esc(l.focus)||"—"}</td>
+      <td><div>${esc(l.recommendedPackage)||"—"}</div><div class="sub">${esc(l.packagePrice)||""}</div></td>
+      <td>${esc(l.budget)||"—"}</td>
+      <td class="num">${fmt(l.estFanBase)}</td>
+      <td class="num">${fmt(l.estHouseholds)}</td>
+      <td class="num">${fmt(l.estMatchable)}</td>
+      <td>${l.pdfUrl?`<a href="${esc(l.pdfUrl)}" target="_blank" rel="noopener">PDF</a>`:'<span class="sub">—</span>'}</td>
+      <td>${esc(l.notes)?`<span class="sub">${esc(l.notes).slice(0,60)}</span>`:'—'}</td>
+    </tr>`).join("");
+}
+
+function exportCsv(){
+  const cols=["generatedAt","name","email","company","phone","team","league","scope","scopeLabel","focus","recommendedPackage","packagePrice","budget","timeline","dma","city","venue","estFanBase","estHouseholds","estDevicesTotal","estMatchable","pdfUrl","notes","source"];
+  const head=cols.join(",");
+  const body=filtered().map(l=>cols.map(c=>{
+    const v=l[c]==null?"":String(l[c]).replace(/"/g,'""');
+    return /[",\n]/.test(v)?`"${v}"`:v;
+  }).join(",")).join("\n");
+  const blob=new Blob([head+"\n"+body],{type:"text/csv"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download="stadium-to-screen-leads.csv";
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500);
+}
+</script>
+</body>
+</html>
