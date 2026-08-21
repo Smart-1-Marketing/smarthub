@@ -246,9 +246,16 @@ def check_shared_services() -> list[dict]:
     rule is to move a module onto the shared code when you are already editing
     it for another reason.
     """
+    # An image editor using PIL is not a module that should have used the
+    # shared optimiser — cropping, rotating and resizing to an exact width are
+    # operations hub.images does not offer and should not. Flagging it forever
+    # produces a finding nobody can action, which is how a report stops being
+    # read at all.
+    editors = {"modules/image_optimizer/app.py"}
+
     out = []
     for rel, src in _sources():
-        if not rel.startswith("modules/"):
+        if not rel.startswith("modules/") or rel in editors:
             continue
         mod = _module_of(rel)
         uses_shared = ("hub.storage" in src or "hub.images" in src

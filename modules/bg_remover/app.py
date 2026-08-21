@@ -331,11 +331,18 @@ def api_save():
     client = str(body.get("client") or "").strip()[:200]
     name = _slug(body.get("name") or "cutout", "cutout")
     try:
-        res = cloudinary.uploader.upload(
-            raw, folder=f"{FOLDER}/{_slug(client, 'unfiled')}", public_id=name,
-            overwrite=False, unique_filename=True, use_filename=False,
-            format="png",                              # PNG keeps the alpha
-            context={"client": client, "source": "background-remover"})
+        # Through hub.storage. The .png on the name is what carries the
+        # "keep the alpha" intent now — the shared derivation reads the
+        # extension, so format= is no longer asserted separately from it.
+        from hub import storage
+        _folder = f"{FOLDER}/{_slug(client, 'unfiled')}"
+        _asset = storage.put("cutouts", f"{name}.png", raw,
+                             folder=_folder, public_id=f"{_folder}/{name}",
+                             overwrite=False,
+                             context={"client": client,
+                                      "source": "background-remover"})
+        res = {"secure_url": _asset.url, "public_id": _asset.public_id,
+               "bytes": _asset.bytes}
     except Exception as exc:                          # noqa: BLE001
         return jsonify({"error": f"Upload failed: {exc}"}), 502
     _log("cutout_saved", detail=client, name=name)

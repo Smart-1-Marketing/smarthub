@@ -94,12 +94,14 @@ def _canvas_path(pid: str) -> str:
 def _upload_raw(pid: str, canvas: dict) -> str:
     if not CLOUD_READY:
         return ""
-    uri = "data:application/json;base64," + base64.b64encode(
-        json.dumps(canvas).encode()).decode()
-    res = cloudinary.uploader.upload(uri, resource_type="raw",
-                                     public_id=f"{FOLDER}/canvas/{pid}.json",
-                                     overwrite=True, invalidate=True)
-    return res.get("secure_url", "")
+    # Through hub.storage, same public_id. The .json gives the shared
+    # derivation "raw" without the call site stating it, and hub.storage
+    # builds the data URI, so the base64 step here is gone.
+    from hub import storage
+    _pid = f"{FOLDER}/canvas/{pid}.json"
+    return storage.put("image_projects", _pid,
+                       json.dumps(canvas).encode("utf-8"),
+                       public_id=_pid, overwrite=True).url
 
 
 def _upload_preview(pid: str, data_url: str) -> tuple[str, int, int]:

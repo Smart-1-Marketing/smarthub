@@ -558,19 +558,15 @@ def api_finalize():
         used_names.add(name)
 
         try:
-            result = cloudinary.uploader.upload(
-                src["data"],
-                folder=folder,
-                public_id=name,
-                overwrite=False,
-                unique_filename=True,
-                use_filename=False,
-                format="webp",
-                quality="auto",
-                fetch_format="auto",
-                context={"company": company, "url": web_url, "project": project,
-                         "page": page or "N/A", "alt": alt},
-            )
+            # Through hub.storage. The bytes are already WebP by this point
+            # (the pipeline converts before saving), so the .webp name carries
+            # what format= used to assert.
+            from hub import storage
+            _asset = storage.put("seo_images", f"{name}.webp", src["data"],
+                                 folder=folder, public_id=f"{folder}/{name}",
+                                 overwrite=False)
+            result = {"secure_url": _asset.url, "public_id": _asset.public_id,
+                      "bytes": _asset.bytes, "format": "webp"}
         except Exception as exc:          # noqa: BLE001
             errors.append(f"{name}: {exc}")
             continue

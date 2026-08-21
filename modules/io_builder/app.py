@@ -341,17 +341,15 @@ def _write_cloudinary_order_counter(number):
         handle.write(payload)
         temp_path = handle.name
     try:
-        cloudinary.uploader.upload(
-            temp_path,
-            resource_type="raw",
-            type="upload",
-            public_id=public_id,
-            overwrite=True,
-            unique_filename=False,
-            use_filename=False,
-            context={"last_order_number": str(int(number))},
-            tags=["smart1_system", "smart1_order_counter"],
-        )
+        # Through hub.storage. Same public_id, context and tags — this is the
+        # order-number counter, so where it lives must not change. The
+        # temporary file is no longer needed: put() takes bytes.
+        from hub import storage
+        storage.put("io_builder", f"{public_id}.json",
+                    payload.encode("utf-8"),
+                    public_id=public_id, overwrite=True,
+                    context={"last_order_number": str(int(number))},
+                    tags=["smart1_system", "smart1_order_counter"])
     finally:
         try:
             os.unlink(temp_path)

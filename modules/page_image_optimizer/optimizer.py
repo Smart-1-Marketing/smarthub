@@ -50,48 +50,39 @@ def _flatten(im):
 
 
 def optimize(raw_bytes, *, max_edge=None, quality=82):
-    """Return (webp_bytes, info) for one image."""
+    """Return (webp_bytes, info) for one image, via the shared optimiser.
+
+    The cap-then-convert order, the transparency handling and the guard
+    against returning something larger than the input all now live in
+    hub.images. They were written here first; keeping a second copy is how the
+    "resize before converting" rule ended up needing to be fixed in several
+    places separately.
+    """
+    from hub import images as _images
     max_edge = max_edge or settings.SEO_IMAGES_MAX_EDGE
 
     with Image.open(io.BytesIO(raw_bytes)) as im:
         source_format = (im.format or "").lower()
-        im = ImageOps.exif_transpose(im)      # portrait photos cap correctly
-        original_w, original_h = im.size
+        original_w, original_h = ImageOps.exif_transpose(im).size
 
-        longest = max(im.size)
-        resized = False
-        if longest > max_edge:
-            scale = max_edge / float(longest)
-            new_size = (max(1, round(im.width * scale)),
-                        max(1, round(im.height * scale)))
-            im = im.resize(new_size, Image.LANCZOS)
-            resized = True
-
-        im = _flatten(im)
-        buf = io.BytesIO()
-        im.save(buf, format="WEBP", quality=quality, method=6)
-        data = buf.getvalue()
-
-        # Belt and braces: if WebP somehow came out larger, keep the smaller one
-        # only when the source was already WebP and no resize happened.
-        if source_format == "webp" and not resized and len(raw_bytes) < len(data):
-            data = raw_bytes
-
-        info = {
-            "source_format": source_format,
-            "source_bytes": len(raw_bytes),
-            "source_width": original_w,
-            "source_height": original_h,
-            "width": im.width,
-            "height": im.height,
-            "bytes": len(data),
-            "resized": resized,
-            "saved_bytes": max(0, len(raw_bytes) - len(data)),
-            "saved_pct": (
-                round(100 * (len(raw_bytes) - len(data)) / len(raw_bytes))
-                if raw_bytes else 0
-            ),
-        }
+    proc = _images.optimise(raw_bytes, max_edge=max_edge, fmt="WEBP",
+                            quality=quality)
+    data = proc.data
+    info = {
+        "source_format": source_format,
+        "source_bytes": len(raw_bytes),
+        "source_width": original_w,
+        "source_height": original_h,
+        "width": proc.width,
+        "height": proc.height,
+        "bytes": len(data),
+        "resized": (proc.width, proc.height) != (original_w, original_h),
+        "saved_bytes": max(0, len(raw_bytes) - len(data)),
+        "saved_pct": (
+            round(100 * (len(raw_bytes) - len(data)) / len(raw_bytes))
+            if raw_bytes else 0
+        ),
+    }
     return data, info
 
 

@@ -62,13 +62,19 @@ def optimise(data: bytes, *, max_edge: int | None = None, fmt: str = "WEBP",
     """Cap the longest edge, then convert. In that order — it matters."""
     max_edge = max_edge or settings.max_edge
     im = _open(data)
+    source_fmt = (im.format or "").upper()
     keep_alpha = fmt.upper() in _TRANSPARENT_OK and im.mode in ("RGBA", "LA", "P")
 
-    if max(im.size) > max_edge:
+    resized = max(im.size) > max_edge
+    if resized:
         im.thumbnail((max_edge, max_edge), Image.LANCZOS)
 
     if keep_alpha:
         im = im.convert("RGBA")
+    elif im.mode == "P":
+        # A palette image may carry transparency; converting straight to RGB
+        # drops it and leaves a black fringe where the alpha was.
+        im = im.convert("RGBA" if "transparency" in im.info else "RGB")
     elif im.mode not in ("RGB", "L"):
         im = im.convert("RGB")
 
@@ -81,7 +87,16 @@ def optimise(data: bytes, *, max_edge: int | None = None, fmt: str = "WEBP",
     if not strip_metadata:
         save["exif"] = im.info.get("exif", b"")
     im.save(buf, format=fmt.upper(), **save)
-    return Processed(buf.getvalue(), fmt.upper(), im.width, im.height, len(data))
+    out = buf.getvalue()
+
+    # An optimiser that returns something larger than it was given has not
+    # optimised anything. Re-encoding an already-compressed file at the same
+    # size routinely does exactly that. Only safe when no resize happened and
+    # the source is already the requested format — otherwise the caller asked
+    # for a conversion and must get one.
+    if not resized and source_fmt == fmt.upper() and len(data) < len(out):
+        return Processed(data, fmt.upper(), im.width, im.height, len(data))
+    return Processed(out, fmt.upper(), im.width, im.height, len(data))
 
 
 def preview(data: bytes, edge: int | None = None) -> Processed:
