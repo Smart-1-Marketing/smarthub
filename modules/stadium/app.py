@@ -165,8 +165,28 @@ def _ip() -> str:
     return (fwd.split(",")[-1].strip() if fwd else request.remote_addr) or "?"
 
 
+# This page is public — no Hub login — and /api/recommendations spends OpenAI
+# credit per call, so without a ceiling the bill is set by whoever finds the
+# URL. Same limits and same shared implementation as the other landing pages,
+# so the rule lives in one place rather than being re-derived here.
+ANALYZE_LIMIT = int(os.environ.get("LANDING_ANALYZE_LIMIT", "6"))
+PARTIAL_LIMIT = int(os.environ.get("LANDING_PARTIAL_LIMIT", "30"))
+
+
+def _rate_limited(bucket: str, limit: int) -> bool:
+    try:
+        from hub import leads as _hub_leads
+        return _hub_leads.rate_limited(bucket, request, limit)
+    except Exception:          # noqa: BLE001 — a guard must never 500 the page
+        return False
+
+
 @app.post("/api/recommendations")
 def recommendations():
+    if _rate_limited("analyze", ANALYZE_LIMIT):
+        return jsonify({"ok": False,
+                        "error": "Too many requests from this connection. "
+                                 "Please wait a few minutes and try again."}), 429
     """AI-matched shows and apps for a team's market.
 
     The Node version fetched this **before** the contact form was shown, from
@@ -237,6 +257,9 @@ def _fallback_recommendations(team: str, market: str) -> dict:
 
 @app.post("/api/partial-lead")
 def partial_lead():
+    if _rate_limited("partial", PARTIAL_LIMIT):
+        return jsonify({"ok": True})     # silent, like a honeypot
+
     body = request.get_json(silent=True) or {}
     if not (body.get("email") or body.get("phone")):
         return jsonify({"ok": True, "skipped": "no contact details"})
@@ -246,6 +269,9 @@ def partial_lead():
 
 @app.post("/api/lead")
 def lead():
+    if _rate_limited("lead", PARTIAL_LIMIT):
+        return jsonify({"ok": True})     # silent, like a honeypot
+
     """Capture the lead and return the playbook.
 
     The Node version caught a delivery failure and still printed
@@ -272,6 +298,9 @@ def lead():
 
 @app.post("/api/playbook")
 def playbook():
+    if _rate_limited("playbook", ANALYZE_LIMIT):
+        return jsonify({"ok": False, "error": "Too many requests from this connection. Please wait a few minutes and try again."}), 429
+
     """Build and stream the PDF only. No CRM, no upload.
 
     Kept from the Node version deliberately: the download can't be broken by
@@ -302,6 +331,15 @@ def _capture(body: dict, pdf_url: str = "", partial: bool = False) -> None:
                     "team": body.get("team", ""), "market": body.get("market", ""),
                     "package": pkg["name"], "monthly": pkg["price"]},
             pdf_url=pdf_url, client=body.get("company", ""))
+        # Attribute the plan to the client, so the work appears on their 360
+        # record rather than only in the lead panel — the same call the other
+        # eight landing pages make.
+        try:
+            from hub import audit as _audit
+            _audit.log("stadium", "stadium_report",
+                       client=body.get("company", "") or None)
+        except Exception:  # noqa: BLE001 — logging never breaks a lead
+            pass
     except Exception:                                   # noqa: BLE001
         app.logger.exception("Stadium lead capture failed")
 
@@ -314,12 +352,15 @@ def _upload(pdf_bytes: bytes, body: dict) -> str:
             return ""
         slug = re.sub(r"[^a-z0-9]+", "-",
                       str(body.get("company") or "playbook").lower()).strip("-")[:60]
-        res = cloudinary.uploader.upload(
-            pdf_bytes, resource_type="raw",
-            folder=f"{settings.folder('proposals')}/stadium",
-            public_id=f"{slug}-{int(time.time())}",
-            overwrite=False, unique_filename=True)
-        return res.get("secure_url", "")
+        # Through hub.storage like every other module: same folder and id, so
+        # nothing moves, but the resource type comes from the filename rather
+        # than being asserted here — the mistake that has 403'd PDF links
+        # three times in this codebase.
+        from hub import storage
+        folder = f"{settings.folder('proposals')}/stadium"
+        pid = f"{folder}/{slug}-{int(time.time())}"
+        return storage.put("proposals", f"{pid}.pdf", pdf_bytes,
+                           folder=folder, public_id=pid, overwrite=False).url
     except Exception as exc:                            # noqa: BLE001
         app.logger.warning("Stadium PDF upload failed: %s", exc)
         return ""
