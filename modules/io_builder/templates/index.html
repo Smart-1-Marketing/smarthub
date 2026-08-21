@@ -2133,9 +2133,58 @@ document.addEventListener("keydown",e=>{
  else if(cm&&cm.classList.contains("open")&&typeof closeCreativeManager==="function"){closeCreativeManager();}
 });
 
+/* Arriving from a proposal on Client 360.
+   The proposal is the agreement and the IO is what makes it real; retyping it
+   is where the two drift apart.
+
+   What comes back is deliberately conservative — a proposal carries ranges,
+   options and "starting at", none of which is a committed number. So only the
+   client name is filled in, because that is the one thing that cannot be a
+   range. Everything else is presented as what the proposal appeared to say,
+   with the reader's own questions, and the interview then asks for it
+   normally. Filling an IO from a proposal unchecked is how a client gets
+   billed a figure nobody agreed to. */
+function prefillFromProposal(){
+ const q=new URLSearchParams(location.search);
+ const src=q.get("from_proposal");
+ if(!src)return false;
+ const client=q.get("client")||"";
+ addMsg("Reading that proposal…");
+ /* client + the proposal's id. The server looks it up among that client's
+    stored proposals and reads it there, so no URL is fetched on our say-so. */
+ fetch("/api/io/from-proposal",{method:"POST",headers:{"Content-Type":"application/json"},
+   credentials:"same-origin",
+   body:JSON.stringify({client:client,filename:src})})
+  .then(r=>r.json())
+  .then(d=>{
+   if(d.error){addMsg("Couldn't read that proposal: "+d.error+" You can still fill this in by hand.");ask();return}
+   const f=d.fields||{}, srcs=d.sources||{};
+   /* Only what the reader marked "known" is applied. Anything it flagged as
+      needs_review is shown, never set — that is the whole point of the flag. */
+   if(f.client_name&&srcs.client_name==="known")state.client=f.client_name;
+   else if(client)state.client=client;
+   render();
+
+   const found=d.found||[];
+   if(found.length){
+    addMsg("From the proposal I read: "+found.join(" · ")+".");
+   }else{
+    addMsg("That proposal didn't contain anything I could map to an IO.");
+   }
+   if(d.note)addMsg(d.note);
+   (d.ask||[]).forEach(q2=>addMsg("• "+q2));
+   ask();
+  })
+  .catch(()=>{addMsg("Couldn't reach the proposal reader. Filling this in by hand.");ask()});
+ return true;
+}
+
 (function boot(){
  render();
  checkReachability();
+ /* Before the draft prompt: someone who clicked "To IO" on a proposal means
+    to start from that proposal, not to resume last week's unfinished one. */
+ if(prefillFromProposal())return;
  const draft=loadDraft();
  const hasProgress=draft&&draft.state&&(draft.state.client||draft.state.orderNumber||(draft.state.selected&&draft.state.selected.length));
  if(hasProgress){

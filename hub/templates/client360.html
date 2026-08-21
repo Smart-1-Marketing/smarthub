@@ -505,9 +505,11 @@ function render(g,q){
      and lets it read what it can. */
   function proposalToIO(rec){
     if(!rec || !rec.url){ alert('That proposal has no file to read.'); return; }
-    var q = '/tools/io/?from_proposal=' + encodeURIComponent(rec.url)
-          + '&client=' + encodeURIComponent(name)
-          + '&proposal_id=' + encodeURIComponent(rec.id || '');
+    /* The reader resolves a stored proposal by client + id, so that is what
+       travels. The URL is not sent: handing the IO builder an arbitrary URL to
+       fetch would make it an SSRF hole, and the document is already ours. */
+    var q = '/tools/io/?from_proposal=' + encodeURIComponent(rec.id || rec.filename || '')
+          + '&client=' + encodeURIComponent(name);
     window.open(q, '_blank', 'noopener');
   }
 
