@@ -28,7 +28,8 @@
     "radio-promo": "Radio Promo", "landing-ads": "Landing Page Ads",
     "fan-radio": "Fan Radio", "tickets": "Web Tickets",
     "calculators": "Calculators", "page-images": "Page Images",
-    "google-access": "Google Access", "image-picker": "Image Picker",
+    "google-access": "Google Access",
+    "image-picker": "Client Image Uploads",
     "sites-match": "Match Sites", "commercial-builder": "Commercial Builder",
     "stale-creative": "Stale Creative", "bulk": "Scan All Clients",
     "users": "Users", "builder": "Sales Builder", "proposals": "Proposal Builder"
@@ -43,6 +44,14 @@
     "calculators": ["/tools", "Tools"], "google-access": ["/tools", "Tools"],
     "sites-match": ["/tools", "Tools"], "bulk": ["/tools", "Tools"]
   };
+
+  // The creative tools moved off the Tools index onto /creative, but their
+  // URLs stayed under /tools/, so the trail kept sending people back to a page
+  // their tool is no longer listed on.
+  var CREATIVE = ["seo-images", "image-creator", "bg-remover", "image",
+                  "image-picker", "radio-promo", "fan-radio", "landing-ads",
+                  "page-images", "commercial-builder"];
+  CREATIVE.forEach(function (k) { PARENT[k] = ["/creative", "Creative"]; });
 
   function pretty(seg) {
     return LABELS[seg] ||

@@ -325,6 +325,7 @@ def client_picker(token: str):
         is_staff=False,
         share_token=token,
         providers_on=providers.configured_providers(),
+        **_widget_ctx(client, token=token),
     )
 
 
@@ -341,6 +342,7 @@ def staff_gallery(client_id: int):
         client=client.to_dict(include_secrets=True),
         is_staff=True,
         share_token="",
+        **_widget_ctx(client, token=""),
     )
 
 
@@ -677,6 +679,177 @@ def api_retry_suite(image_id: int):
 # Client admin API (staff)
 # --------------------------------------------------------------------------- #
 
+# ---------------------------------------------------------------------------
+# Client uploads — the Cloudinary upload widget
+#
+# The point of this half of the module is the opposite of the search half:
+# instead of us finding stock photos for a client, the client sends us their
+# own. Getting files out of a small business is the actual bottleneck — they
+# have them in Drive, on a phone, in Dropbox, in an old email — so the widget
+# is configured with every source Cloudinary offers rather than a file input.
+#
+# Uploads are SIGNED, not unsigned. An unsigned preset is a public write
+# endpoint into our Cloudinary account that anyone who views source can reuse;
+# signing means the browser can only upload what we authorised, into the folder
+# we chose, for as long as the signature is valid.
+# ---------------------------------------------------------------------------
+
+# Everything the widget can offer. "local" and "url" always work; the rest
+# light up as each is connected in the Cloudinary console, and a source that
+# isn't connected is simply not shown, so listing them all costs nothing.
+WIDGET_SOURCES = ["local", "url", "camera", "google_drive", "dropbox",
+                  "instagram", "facebook", "image_search", "shutterstock",
+                  "getty", "istock", "unsplash"]
+
+# Images plus the documents a client sends alongside them. A brochure PDF is
+# part of "their pictures" as far as they are concerned, and refusing it means
+# it arrives by email instead and is lost.
+WIDGET_FORMATS = ["png", "jpg", "jpeg", "gif", "webp", "avif", "heic", "heif",
+                  "svg", "bmp", "tif", "tiff", "pdf"]
+
+MAX_UPLOAD_BYTES = int(os.environ.get("PICKER_MAX_UPLOAD_MB", "25")) * 1024 * 1024
+
+
+def _upload_folder(client) -> str:
+    """Where this gallery's own uploads land."""
+    # client.folder() is the same folder the search half saves into, so a
+    # gallery is one place in Cloudinary rather than two.
+    return f"{client.folder()}/uploads"
+
+
+def _widget_ctx(client, token: str) -> dict:
+    """What the upload panel needs to render. Kept in one place so the staff
+    gallery and the client's own link cannot drift apart."""
+    return {
+        "upload_token": token or "",
+        "client_id": client.id,
+        "sources": WIDGET_SOURCES,
+        "formats": WIDGET_FORMATS,
+        "max_bytes": MAX_UPLOAD_BYTES,
+    }
+
+
+@bp.route("/api/upload-signature", methods=["POST"])
+@db_guard
+def api_upload_signature():
+    """Sign one widget upload.
+
+    Open to a valid share token as well as staff, because the client doing the
+    uploading has no Hub login — that is the entire reason the share link
+    exists. What a token buys is narrow: a signature for one folder, on the
+    parameters we chose, for one upload.
+    """
+    body = request.get_json(silent=True) or {}
+    client = _client_from_token_or_staff(body.get("token"))
+    if client is None:
+        return jsonify({"ok": False, "error": "That link is not valid."}), 403
+    if not cloudinary_sink.configured():
+        return jsonify({"ok": False,
+                        "error": "Uploads aren't switched on yet. Your Smart 1 "
+                                 "contact can enable them."}), 503
+
+    import cloudinary.utils
+    cloudinary_sink._configure()
+    # The widget sends back whatever it was signed for, so the folder is fixed
+    # here rather than taken from the request — otherwise a caller could sign
+    # an upload into any folder in the account.
+    params = {
+        "timestamp": int(time.time()),
+        "folder": _upload_folder(client),
+        "tags": f"client_upload,{client.slug}",
+    }
+    signature = cloudinary.utils.api_sign_request(
+        params, os.environ.get("CLOUDINARY_API_SECRET", ""))
+    return jsonify({"ok": True, "signature": signature,
+                    "api_key": os.environ.get("CLOUDINARY_API_KEY", ""),
+                    "cloud_name": os.environ.get("CLOUDINARY_CLOUD_NAME", ""),
+                    **params})
+
+
+@bp.route("/api/uploads", methods=["POST"])
+@db_guard
+def api_record_upload():
+    """Record what the widget just stored, so it appears in the gallery.
+
+    Cloudinary already has the file by the time this runs; this only writes the
+    row. It therefore never fetches the URL it is given — the asset is verified
+    by having come back from a signed upload into our own folder, and anything
+    outside that folder is refused rather than trusted.
+    """
+    body = request.get_json(silent=True) or {}
+    client = _client_from_token_or_staff(body.get("token"))
+    if client is None:
+        return jsonify({"ok": False, "error": "That link is not valid."}), 403
+
+    public_id = str(body.get("public_id") or "").strip()
+    url = str(body.get("secure_url") or "").strip()
+    if not public_id or not url.startswith("https://"):
+        return jsonify({"ok": False, "error": "That upload didn't complete."}), 400
+    if not public_id.startswith(_upload_folder(client)):
+        # Only assets from this gallery's own signed folder.
+        return jsonify({"ok": False, "error": "That file isn't part of this "
+                                              "gallery."}), 400
+
+    # The widget reports which source the visitor picked. Storing it is what
+    # lets the gallery group by where a file came from.
+    source = str(body.get("source") or "local").strip().lower()[:40]
+    if source not in WIDGET_SOURCES:
+        source = "local"
+
+    db = session()
+    existing = db.execute(
+        select(SavedImage).where(SavedImage.client_id == client.id,
+                                 SavedImage.provider == source,
+                                 SavedImage.provider_image_id == public_id)
+    ).scalar_one_or_none()
+    if existing:
+        return jsonify({"ok": True, "duplicate": True,
+                        "image": existing.to_dict()})
+
+    rtype = str(body.get("resource_type") or "image").strip().lower()
+    img = SavedImage(
+        client_id=client.id,
+        provider=source,
+        provider_image_id=public_id,
+        source_url=url,
+        filename=str(body.get("original_filename") or "")[:300] or None,
+        alt_text=str(body.get("alt") or "")[:500] or None,
+        resource_type="raw" if rtype not in ("image", "video") else rtype,
+        cloudinary_public_id=public_id,
+        cloudinary_url=url,
+        width=body.get("width") or None,
+        height=body.get("height") or None,
+        bytes=body.get("bytes") or None,
+        ghl_status="skipped",
+        saved_by=(g.get("hub_user") or "client"),
+        collection_kind="upload",
+        collection_label="Client upload",
+    )
+    db.add(img)
+    db.commit()
+    _audit("client_upload", client=client.name, source=source,
+           filename=img.filename or public_id)
+    return jsonify({"ok": True, "image": img.to_dict()})
+
+
+def _client_from_token_or_staff(token):
+    """The gallery this request is allowed to write to, or None.
+
+    A share token identifies one gallery. Staff may pass a client_id instead,
+    which is why this is not simply a token lookup.
+    """
+    tok = str(token or "").strip()
+    if tok:
+        return get_client_by_token(session(), tok)
+    if not g.get("hub_user"):
+        return None
+    try:
+        cid = int((request.get_json(silent=True) or {}).get("client_id") or 0)
+    except (TypeError, ValueError):
+        return None
+    return get_client(session(), cid) if cid else None
+
+
 @bp.route("/api/clients", methods=["POST"])
 @staff_only
 @db_guard
@@ -691,11 +864,18 @@ def api_create_client():
     if not taxonomy.industry(industry_key):
         industry_key = taxonomy.guess_industry(body.get("industry_text") or name)
 
+    hub_id = str(body.get("hub_client_id") or "").strip() or None
+    # Attached to a Hub record, or standing alone until one exists. Trusting
+    # the caller's word would let a gallery claim to be filed against a client
+    # it was never linked to.
+    kind = "client" if hub_id else "prospect"
+
     client = PickerClient(
         name=name,
         slug=unique_slug(db, name),
         industry_key=industry_key,
-        hub_client_id=str(body.get("hub_client_id") or "").strip() or None,
+        kind=kind,
+        hub_client_id=hub_id,
         ghl_location_id=str(body.get("ghl_location_id") or "").strip() or None,
         ghl_location_token=str(body.get("ghl_location_token") or "").strip() or None,
         share_token=new_token(),

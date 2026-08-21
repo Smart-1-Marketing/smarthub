@@ -55,9 +55,33 @@ def init_db(app=None) -> None:
         )
         _Session = scoped_session(sessionmaker(bind=_ENGINE, future=True, expire_on_commit=False))
         Base.metadata.create_all(_ENGINE)
+        _add_missing_columns()
         DB_BOOT_ERROR = None
     except Exception as exc:  # noqa: BLE001
         DB_BOOT_ERROR = str(exc)
+
+
+def _add_missing_columns() -> None:
+    """Add columns introduced after a table was first created.
+
+    create_all() creates missing tables, never missing columns, so a database
+    that predates a new field keeps working right up until the first query that
+    mentions it. Each statement is attempted and its failure ignored, because
+    "already exists" is the normal case on every boot after the first.
+    """
+    from sqlalchemy import text as _text
+    stmts = [
+        "ALTER TABLE image_picker_clients ADD COLUMN kind VARCHAR(20) "
+        "DEFAULT 'prospect'",
+        "ALTER TABLE image_picker_images ADD COLUMN resource_type VARCHAR(20) "
+        "DEFAULT 'image'",
+    ]
+    for sql in stmts:
+        try:
+            with _ENGINE.begin() as conn:
+                conn.execute(_text(sql))
+        except Exception:                               # noqa: BLE001
+            pass
 
 
 def session():
@@ -108,6 +132,11 @@ class PickerClient(Base):
 
     id = Column(Integer, primary_key=True)
     hub_client_id = Column(String(64), nullable=True, index=True)
+    # "client" once it is attached to a record in the Hub registry, "prospect"
+    # until then. A gallery often has to exist before the account does — the
+    # whole point is to collect a prospect's photos while they are willing to
+    # send them — so this is not derived from hub_client_id being set.
+    kind = Column(String(20), nullable=False, default="prospect")
     name = Column(String(200), nullable=False)
     slug = Column(String(200), nullable=False, unique=True, index=True)
     industry_key = Column(String(60), nullable=False, default="general")
@@ -181,6 +210,9 @@ class SavedImage(Base):
     collection_key = Column(String(80), nullable=True)
     collection_label = Column(String(200), nullable=True)
 
+    # image | raw. A client sending "the photos" routinely sends a PDF of the
+    # brochure too, and refusing it means they email it instead and it is lost.
+    resource_type = Column(String(20), nullable=False, default="image")
     cloudinary_public_id = Column(String(400), nullable=True)
     cloudinary_url = Column(Text, nullable=True)
     width = Column(Integer, nullable=True)
@@ -202,6 +234,7 @@ class SavedImage(Base):
             "id": self.id,
             "client_id": self.client_id,
             "provider": self.provider,
+            "resource_type": self.resource_type or "image",
             "provider_image_id": self.provider_image_id,
             "source_url": self.source_url,
             "author": self.author,

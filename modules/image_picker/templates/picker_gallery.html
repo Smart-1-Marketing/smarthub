@@ -2,6 +2,13 @@
 {% block title %}Gallery · {{ client.name }}{% endblock %}
 
 {% block body %}
+<style>
+.src-head td{background:var(--paper);border-top:1px solid var(--line);padding:9px 10px}
+.src-pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;
+  font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+  background:#e8eef4;color:#46586E}
+.src-pill.theirs{background:#E8F3EE;color:#1B6E52}
+</style>
 <header class="top">
   <div class="wrap">
     <div class="mark">S1</div>
@@ -23,6 +30,8 @@
   </section>
 
   <div id="messages" aria-live="polite"></div>
+
+  {% include "_upload_panel.html" %}
 
   <section class="panel">
     <div class="panel-head"><h2>Library</h2><span class="hint" id="count"></span></div>
@@ -76,13 +85,60 @@
         'Send this client their picker link and their choices land here.</div></td></tr>';
       return;
     }
-    document.getElementById("rows").innerHTML = images.map(function(im){
+    /* Grouped by where each file came from. A gallery that mixes a client's
+       own phone photos with stock we found reads as one undifferentiated pile,
+       and the first question anyone asks of it is "which of these are theirs?"
+       Source answers that, so it is the grouping rather than a column. */
+    var LABELS = {
+      local: "Uploaded from their device", url: "Added by web address",
+      camera: "Taken with a camera", google_drive: "From Google Drive",
+      dropbox: "From Dropbox", instagram: "From Instagram",
+      facebook: "From Facebook", image_search: "From image search",
+      shutterstock: "Shutterstock", getty: "Getty", istock: "iStock",
+      unsplash: "Unsplash", pexels: "Pexels", pixabay: "Pixabay"
+    };
+    var CLIENT_SENT = ["local","camera","google_drive","dropbox","instagram",
+                       "facebook","url"];
+    var order = [], buckets = {};
+    images.forEach(function(im){
+      var k = im.provider || "other";
+      if (!buckets[k]) { buckets[k] = []; order.push(k); }
+      buckets[k].push(im);
+    });
+    /* Their own files first — those are the ones we were waiting on. */
+    order.sort(function(a,b){
+      var ca = CLIENT_SENT.indexOf(a) === -1 ? 1 : 0;
+      var cb = CLIENT_SENT.indexOf(b) === -1 ? 1 : 0;
+      return ca - cb || a.localeCompare(b);
+    });
+
+    var html = "";
+    order.forEach(function(k){
+      var rows = buckets[k];
+      var theirs = CLIENT_SENT.indexOf(k) !== -1;
+      html += '<tr class="src-head"><td colspan="7">' +
+        '<span class="src-pill' + (theirs ? ' theirs' : '') + '">' +
+        esc(LABELS[k] || k) + '</span> ' +
+        '<span style="color:var(--ink-3);font-size:.78rem">' + rows.length +
+        ' file' + (rows.length === 1 ? '' : 's') + '</span></td></tr>';
+      html += rows.map(rowHtml).join("");
+    });
+    document.getElementById("rows").innerHTML = html;
+  }
+
+  function rowHtml(im){
+    {
       var s = STATUS[im.ghl_status] || STATUS.pending;
       var dims = (im.width && im.height) ? im.width + "×" + im.height : "";
       var kb = im.bytes ? Math.round(im.bytes/1024) + " KB" : "";
       return '<tr data-id="' + im.id + '">' +
         '<td><a href="' + esc(im.url) + '" target="_blank" rel="noopener">' +
-          '<img src="' + esc(im.url) + '" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:7px;display:block"></a></td>' +
+          (im.resource_type === "raw"
+            ? '<span style="display:flex;width:64px;height:48px;align-items:center;' +
+              'justify-content:center;border:1px solid var(--line);border-radius:7px;' +
+              'font-size:20px;background:var(--paper)">&#128196;</span>'
+            : '<img src="' + esc(im.url) + '" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:7px;display:block">') +
+          '</a></td>' +
         '<td><strong>' + esc(im.filename) + '</strong><br>' +
           '<span style="color:var(--ink-3);font-size:.8rem">' + esc(im.alt_text || "—") + '</span></td>' +
         '<td>' + esc(im.collection_label || im.collection_kind || "—") + '</td>' +
@@ -99,7 +155,7 @@
           esc((im.created_at || "").slice(0,10)) + '<br>' + esc(dims) + ' ' + esc(kb) + '</td>' +
         '<td><button class="btn quiet small del" type="button">Remove</button></td>' +
       '</tr>';
-    }).join("");
+    }
   }
 
   function load(){

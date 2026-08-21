@@ -1,0 +1,154 @@
+{# Cloudinary upload widget, shared by the staff gallery and the client's own
+   share link.
+
+   Expects two variables:
+     upload_token   the gallery's share token (client-facing), or "" for staff
+     client_id      the gallery id, used when staff upload on a client's behalf
+
+   The widget is loaded from Cloudinary's CDN because it is the widget — there
+   is no self-hosted build of it — and it is the one third-party script on the
+   page. Uploads are signed by /api/upload-signature, so this script cannot
+   place a file anywhere except this gallery's own folder no matter what is
+   typed into the console. #}
+<section class="panel" id="uploadPanel">
+  <div class="panel-head">
+    <h2>Add your own files</h2>
+    <span class="hint">Photos, logos, brochures — PDFs are fine too</span>
+  </div>
+  <p class="hint" style="margin:0 0 12px">
+    Bring them from wherever they already are: your computer or phone camera,
+    Google Drive, Dropbox, Instagram, Facebook, or a web address. Nothing is
+    published anywhere — it goes straight into your gallery for our team.
+  </p>
+  <button type="button" class="btn" id="openUpload">Upload files</button>
+  <span class="hint" id="uploadState" style="margin-left:10px"></span>
+  <div id="uploadJustAdded" class="upload-strip"></div>
+</section>
+
+<style>
+.upload-strip{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.upload-strip figure{margin:0;width:92px;text-align:center}
+.upload-strip img{width:92px;height:92px;object-fit:cover;border-radius:8px;
+  border:1px solid var(--line)}
+.upload-strip .doc{width:92px;height:92px;border-radius:8px;border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;font-size:26px;background:var(--paper)}
+.upload-strip figcaption{font-size:10.5px;color:var(--ink-3);margin-top:4px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+
+<script src="https://upload-widget.cloudinary.com/global/all.js" defer></script>
+<script>
+(function () {
+  var TOKEN = {{ (upload_token or "")|tojson }};
+  var CLIENT_ID = {{ (client_id or 0)|tojson }};
+  var BASE = {{ (url_for('image_picker.admin')|replace('/admin',''))|tojson }};
+  var btn = document.getElementById('openUpload');
+  var state = document.getElementById('uploadState');
+  var strip = document.getElementById('uploadJustAdded');
+  var widget = null;
+
+  function say(msg) { state.textContent = msg || ''; }
+
+  function body(extra) {
+    var b = extra || {};
+    if (TOKEN) { b.token = TOKEN; } else { b.client_id = CLIENT_ID; }
+    return b;
+  }
+
+  /* Cloudinary asks for a signature per upload. Returning it from our own
+     endpoint is what keeps this a signed upload: the browser never holds the
+     API secret, and the folder is decided server-side. */
+  function sign(cb, paramsToSign) {
+    fetch(BASE + '/api/upload-signature', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body({ params: paramsToSign }))
+    }).then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { say(d.error || 'Uploads are unavailable.'); return; }
+        cb(d.signature);
+      })
+      .catch(function () { say('Could not start the upload.'); });
+  }
+
+  function record(info) {
+    fetch(BASE + '/api/uploads', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body({
+        public_id: info.public_id, secure_url: info.secure_url,
+        resource_type: info.resource_type, source: info.source || 'local',
+        original_filename: info.original_filename, width: info.width,
+        height: info.height, bytes: info.bytes
+      }))
+    }).then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { say(d.error || 'That file did not save.'); return; }
+        var isImg = (info.resource_type === 'image');
+        var fig = document.createElement('figure');
+        fig.innerHTML = (isImg
+            ? '<img src="' + info.secure_url + '" alt="">'
+            : '<div class="doc">&#128196;</div>')
+          + '<figcaption>' + ((info.original_filename || 'file') + '').slice(0, 22)
+          + '</figcaption>';
+        strip.appendChild(fig);
+        say('Added ' + strip.children.length + ' file'
+            + (strip.children.length === 1 ? '' : 's') + '.');
+      })
+      .catch(function () { say('That file did not save.'); });
+  }
+
+  function open() {
+    if (!window.cloudinary) { say('Still loading — try again in a moment.'); return; }
+    say('');
+    /* Ask the server first: it holds the cloud name and which folder this
+       gallery writes to, and the widget needs both before it can open. */
+    fetch(BASE + '/api/upload-signature', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body({}))
+    }).then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { say(d.error || 'Uploads are unavailable.'); return; }
+        widget = window.cloudinary.createUploadWidget({
+          cloudName: d.cloud_name,
+          apiKey: d.api_key,
+          uploadSignatureTimestamp: d.timestamp,
+          uploadSignature: sign,
+          folder: d.folder,
+          tags: (d.tags || '').split(','),
+          /* Every source the widget offers. One that isn't connected in the
+             Cloudinary console simply doesn't appear, so listing them all
+             costs nothing and means a client can use whichever they already
+             keep their photos in. */
+          sources: {{ sources|tojson }},
+          multiple: true,
+          maxFiles: 40,
+          maxFileSize: {{ max_bytes|tojson }},
+          clientAllowedFormats: {{ formats|tojson }},
+          resourceType: 'auto',
+          showAdvancedOptions: false,
+          showPoweredBy: false,
+          singleUploadAutoClose: false,
+          styles: {
+            palette: {
+              window: '#FFFFFF', windowBorder: '#DCE3EA', tabIcon: '#0A6E8C',
+              menuIcons: '#46586E', textDark: '#0E1B2B', textLight: '#FFFFFF',
+              link: '#0A6E8C', action: '#0A6E8C', inactiveTabIcon: '#7C8B9C',
+              error: '#A33327', inProgress: '#0A6E8C', complete: '#1B6E52',
+              sourceBg: '#F4F6F8'
+            }
+          }
+        }, function (error, result) {
+          if (error) { say('Upload failed. Please try again.'); return; }
+          if (result && result.event === 'success') { record(result.info); }
+          if (result && result.event === 'queues-end') { say('Done.'); }
+        });
+        widget.open();
+      })
+      .catch(function () { say('Could not start the upload.'); });
+  }
+
+  btn.addEventListener('click', open);
+})();
+</script>
