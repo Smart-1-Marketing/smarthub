@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learning Library</title>
+</head>
+<body>
+<style>html,body{margin:0;padding:0;background:#f5f7fa}@media (prefers-color-scheme:dark){html:not([data-theme="light"]),html:not([data-theme="light"]) body{background:#0a1725}}html[data-theme="dark"],html[data-theme="dark"] body{background:#0a1725}.s1app{min-height:100vh}
+.s1app{--navy:#0e1f36; --navy2:#16304f; --accent:#2f80ed; --accent-dark:#1f5fc0;
+  --gold:#f2a33c; --bg:#f5f7fa; --card:#ffffff; --sunk:#eef3f8;
+  --ink:#1c2734; --muted:#5b6b7c; --line:#e3e9f0; --line2:#d6e0ea;
+  --band:#0e1f36; --chip:#e8f1fd; --chip-ink:#1f5fc0; --mark:#ffe6a8; --mark-ink:#5a3d00;
+  --radius:14px; --shadow:0 6px 18px rgba(20,45,80,.10); --stick-top:0px;}
+@media (prefers-color-scheme:dark){.s1app:not([data-theme="light"]){--navy:#0a1725; --navy2:#12283f; --accent:#6fa9f2; --accent-dark:#8fbdf7;
+    --gold:#f5b55e; --bg:#0a1725; --card:#10243a; --sunk:#0d1e31;
+    --ink:#e8eff7; --muted:#94a9be; --line:#1e3a58; --line2:#264a6d;
+    --band:#17334f; --chip:#16324e; --chip-ink:#9cc6f8; --mark:#5a4410; --mark-ink:#ffe6a8;
+    --shadow:0 6px 18px rgba(0,0,0,.35);}}
+.s1app[data-theme="dark"]{--navy:#0a1725; --navy2:#12283f; --accent:#6fa9f2; --accent-dark:#8fbdf7;
+  --gold:#f5b55e; --bg:#0a1725; --card:#10243a; --sunk:#0d1e31;
+  --ink:#e8eff7; --muted:#94a9be; --line:#1e3a58; --line2:#264a6d;
+  --band:#17334f; --chip:#16324e; --chip-ink:#9cc6f8; --mark:#5a4410; --mark-ink:#ffe6a8;
+  --shadow:0 6px 18px rgba(0,0,0,.35);}
+.s1app *{margin:0;padding:0;box-sizing:border-box}
+.s1app{scroll-behavior:smooth}
+.s1app{font-family:'Segoe UI',system-ui,-apple-system,Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased}
+.s1app .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+.s1app .topnav{background:var(--navy);border-bottom:1px solid rgba(255,255,255,.09)}
+.s1app .topnav .wrap{display:flex;gap:4px;align-items:center;overflow-x:auto;scrollbar-width:none}
+.s1app .topnav .wrap::-webkit-scrollbar{display:none}
+.s1app .topnav a{padding:13px 16px;color:#a9c2dd;text-decoration:none;font-size:13.5px;font-weight:700;
+  white-space:nowrap;border-bottom:3px solid transparent;transition:color .15s,border-color .15s}
+.s1app .topnav a:hover{color:#fff}
+.s1app .topnav a[aria-current="page"]{color:#fff;border-bottom-color:var(--gold)}
+.s1app .topnav a:focus-visible{outline:2px solid var(--gold);outline-offset:-3px}
+.s1app header{background:linear-gradient(135deg,var(--navy) 0%,var(--navy2) 70%,#1d3d63 100%);color:#fff;padding:34px 0 32px}
+.s1app .head-row{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end;justify-content:space-between}
+.s1app h1{font-size:clamp(27px,4vw,38px);font-weight:800;line-height:1.14;text-wrap:balance;color:#fff}
+.s1app .sub{margin-top:12px;font-size:16.5px;color:#c8d6e8;max-width:620px}
+.s1app .eff{font-size:12.5px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;color:var(--gold);margin-bottom:10px}
+.s1app .btn{display:inline-block;padding:12px 22px;border-radius:9px;font-weight:700;font-size:14.5px;
+  text-decoration:none;border:0;cursor:pointer;transition:all .15s ease;font-family:inherit;text-align:center}
+.s1app .btn-primary{background:var(--gold);color:#0e1f36}
+.s1app .btn-primary:hover{background:#ffb95a;transform:translateY(-1px)}
+.s1app .controls{position:sticky;top:var(--stick-top);z-index:30;background:var(--card);border-bottom:1px solid var(--line);
+  box-shadow:0 2px 10px rgba(20,45,80,.05)}
+.s1app .controls-inner{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:14px 0}
+.s1app .search{position:relative;flex:1 1 300px;min-width:230px}
+.s1app .search input{width:100%;padding:12px 40px 12px 40px;border:1.5px solid var(--line2);border-radius:10px;
+  background:var(--sunk);color:var(--ink);font-size:15px;font-family:inherit;transition:border-color .15s}
+.s1app .search input:focus{outline:none;border-color:var(--accent);background:var(--card);
+  box-shadow:0 0 0 3px rgba(47,128,237,.16)}
+.s1app .search input::placeholder{color:var(--muted)}
+.s1app .search .ico{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted);
+  pointer-events:none;line-height:0}
+.s1app .search .slash{position:absolute;right:11px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;
+  color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:2px 6px;pointer-events:none}
+.s1app .search input:not(:placeholder-shown)~.slash{display:none}
+.s1app .seg{display:inline-flex;background:var(--sunk);border:1.5px solid var(--line2);border-radius:10px;padding:3px;gap:3px}
+.s1app .seg button{padding:8px 16px;border-radius:7px;background:none;font-size:13.5px;font-weight:700;
+  color:var(--muted);cursor:pointer;font-family:inherit;transition:all .15s;border:0}
+.s1app .seg button[aria-pressed="true"]{background:var(--band);color:#fff}
+.s1app .seg button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.s1app .count{font-size:13.5px;color:var(--muted);font-weight:600;white-space:nowrap}
+.s1app .count b{color:var(--ink);font-variant-numeric:tabular-nums}
+.s1app .chipbar{background:var(--bg);border-bottom:1px solid var(--line);padding:12px 0}
+.s1app .chips{display:flex;flex-wrap:wrap;gap:7px}
+.s1app .chip{padding:6px 13px;border-radius:20px;border:1.5px solid var(--line2);background:var(--card);
+  color:var(--muted);font-size:12.8px;font-weight:650;cursor:pointer;font-family:inherit;transition:all .15s}
+.s1app .chip:hover{border-color:var(--accent);color:var(--accent)}
+.s1app .chip[aria-pressed="true"]{background:var(--chip);border-color:var(--accent);color:var(--chip-ink)}
+.s1app .chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.s1app main{padding:26px 0 40px}
+.s1app .section{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  margin-bottom:20px;overflow:hidden;box-shadow:var(--shadow);scroll-margin-top:140px}
+.s1app .sec-head{background:var(--band);color:#fff;padding:14px 20px;display:flex;align-items:baseline;
+  justify-content:space-between;gap:16px}
+.s1app .sec-head h2{font-size:16.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#fff}
+.s1app .sec-head .n{font-size:12px;font-weight:700;color:#9fc0e6;font-variant-numeric:tabular-nums;white-space:nowrap}
+.s1app .grp{padding:13px 20px 5px;font-size:11.5px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent)}
+.s1app mark{background:var(--mark);color:var(--mark-ink);border-radius:3px;padding:0 1px}
+.s1app .empty{display:none;text-align:center;padding:60px 24px;color:var(--muted)}
+.s1app .empty h3{font-size:19px;font-weight:800;color:var(--ink);margin-bottom:6px}
+.s1app[data-empty="1"] .empty{display:block}
+.s1app .xlinks{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.s1app .xlink{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;
+  background:var(--chip);color:var(--chip-ink);font-size:11.5px;font-weight:750;text-decoration:none;
+  border:1px solid transparent;transition:all .15s;white-space:nowrap}
+.s1app .xlink:hover{border-color:var(--accent);transform:translateY(-1px)}
+.s1app .xlink:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.s1app *{transition:none!important;scroll-behavior:auto!important}}
+@media (max-width:720px){.s1app .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.s1app .chips::-webkit-scrollbar{display:none}
+.s1app .chip{white-space:nowrap;flex:none}
+.s1app .controls-inner{gap:10px}}
+@media (max-width:640px){.s1app header{padding:26px 0 24px}
+.s1app .wrap{padding:0 16px}}
+.s1app .card-body{padding:18px 20px}
+.s1app .badge{font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:#9fc0e6;white-space:nowrap}
+.s1app .tagline{font-size:16px;font-weight:700;color:var(--ink);margin-bottom:12px;line-height:1.45;max-width:72ch}
+.s1app .card-body p{font-size:14px;color:var(--muted);margin-bottom:11px;line-height:1.6;max-width:72ch}
+.s1app .notes{list-style:none;display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.s1app .notes li{font-size:13.5px;color:var(--muted);padding-left:18px;position:relative;line-height:1.5}
+.s1app .notes li::before{content:"\203A";position:absolute;left:0;color:var(--accent);font-weight:800}
+.s1app .kv{display:grid;grid-template-columns:auto 1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.s1app .kv>div{padding:9px 14px;border-top:1px solid var(--line);font-size:13.5px}
+.s1app .kv>div:nth-child(-n+2){border-top:0}
+.s1app .kv .k{background:var(--sunk);font-weight:700;white-space:nowrap;color:var(--ink)}
+.s1app .kv .v{color:var(--muted);font-variant-numeric:tabular-nums}
+.s1app .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+.s1app table{border-collapse:collapse;width:100%;min-width:560px;font-size:13px}
+.s1app th{background:var(--sunk);text-align:left;padding:9px 12px;font-size:10.6px;font-weight:800;letter-spacing:1px;
+  text-transform:uppercase;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--line)}
+.s1app td{padding:9px 12px;border-top:1px solid var(--line);color:var(--muted);vertical-align:top;line-height:1.45}
+.s1app td:first-child{color:var(--ink);font-weight:700}
+.s1app tbody tr:hover{background:var(--sunk)}
+.s1app .sub-block{margin-top:16px}
+.s1app .sub-title{font-size:11.5px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+.s1app .bul{list-style:none;display:flex;flex-direction:column;gap:7px}
+.s1app .bul li{font-size:13.6px;color:var(--muted);padding-left:19px;position:relative;line-height:1.55}
+.s1app .bul li::before{content:"\2713";position:absolute;left:0;color:var(--accent);font-weight:800}
+.s1app .bul li b{color:var(--ink)}
+.s1app details.meta{margin-top:16px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.s1app details.meta summary{padding:11px 14px;background:var(--sunk);cursor:pointer;font-size:12.5px;
+  font-weight:750;color:var(--ink);list-style:none}
+.s1app details.meta summary::-webkit-details-marker{display:none}
+.s1app details.meta summary::before{content:"\25B8  ";color:var(--accent)}
+.s1app details.meta[open] summary::before{content:"\25BE  "}
+.s1app details.meta summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.s1app .metacols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;padding:16px 14px}
+.s1app .metacols h4{font-size:11.5px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+.s1app .metacols ul{list-style:none;font-size:12.6px;color:var(--muted);line-height:1.75}
+.s1app .card-foot{padding:0 20px 18px}
+.s1app .section.flash{outline:2px solid var(--accent);outline-offset:-1px}
+.s1app .kit-grid{display:grid;grid-template-columns:1fr 340px;gap:26px;align-items:start}
+.s1app .kit-txt{grid-column:1;grid-row:1;min-width:0}
+.s1app .shot{grid-column:2;grid-row:1;background:#fff;border:1px solid var(--line);border-radius:11px;
+  overflow:hidden}
+.s1app .shot img{display:block;width:100%;height:auto;max-height:430px;object-fit:contain;background:#fff}
+@media (max-width:860px){.s1app .kit-grid{grid-template-columns:1fr;gap:16px}
+.s1app .kit-txt, .s1app .shot{grid-column:1}
+.s1app .shot{grid-row:1;max-width:520px}
+.s1app .kit-txt{grid-row:2}
+.s1app .shot img{max-height:300px}}
+.s1app .termgrid{columns:3 330px;column-gap:16px}
+.s1app .section.term{margin:0 0 16px;break-inside:avoid;-webkit-column-break-inside:avoid;display:inline-block;width:100%}
+.s1app .term .card-body{padding:17px 19px}
+.s1app .term-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:4px}
+.s1app .term-name{font-size:17px;font-weight:800;color:var(--ink);line-height:1.25}
+.s1app .term-exp{font-size:13px;color:var(--accent);font-weight:700;margin-bottom:9px}
+.s1app .term-def{font-size:13.4px;color:var(--muted);line-height:1.6}
+.s1app .term .badge{color:var(--muted)}
+.s1app .term .bul{margin-top:10px}
+.s1app .term .card-foot{padding:0 19px 16px}
+.s1app .lessongrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;align-items:start}
+.s1app .section.lesson{margin-bottom:0;display:flex;flex-direction:column}
+.s1app .lesson .card-body{padding:18px 19px;flex:1}
+.s1app .lesson h3{font-size:17px;font-weight:800;color:var(--ink);margin-bottom:7px;line-height:1.3}
+.s1app .lesson p{font-size:13.5px;color:var(--muted);line-height:1.55;margin:0}
+.s1app .lesson .card-foot{padding:0 19px 17px}
+.s1app .xlink.ext{background:var(--accent);color:#fff}
+.s1app .xlink.ext:hover{background:var(--accent-dark);border-color:transparent}
+.s1app[data-theme="dark"] .xlink.ext, .s1app:not([data-theme="light"]) .xlink.ext{color:#08131f}
+@media (prefers-color-scheme:light){.s1app:not([data-theme="dark"]) .xlink.ext{color:#fff}}
+.s1app .soon{display:inline-block;padding:4px 10px;border-radius:6px;background:var(--sunk);color:var(--muted);
+  font-size:11.5px;font-weight:700;border:1px dashed var(--line2)}
+.s1app .terms-line{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.s1app .terms-line .lbl{font-size:10.6px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted)}
+.s1app .xlink.tiny{font-size:11px;padding:3px 8px;background:transparent;border-color:var(--line2);color:var(--muted)}
+.s1app .xlink.tiny:hover{color:var(--accent);border-color:var(--accent)}
+.s1app .tag{display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:800;
+  letter-spacing:.7px;text-transform:uppercase;margin-right:9px;vertical-align:1px}
+.s1app .tag-upd{background:rgba(242,163,60,.22);color:var(--gold);border:1px solid rgba(242,163,60,.45)}
+.s1app .tag-new{background:rgba(47,128,237,.28);color:#bcd8ff;border:1px solid rgba(120,175,245,.5)}
+.s1app details.changes{margin-top:16px;border:1px solid var(--line);border-left:3px solid var(--gold);
+  border-radius:10px;overflow:hidden;background:var(--sunk)}
+.s1app details.changes summary{padding:11px 14px;cursor:pointer;font-size:12.5px;font-weight:750;
+  color:var(--ink);list-style:none}
+.s1app details.changes summary::-webkit-details-marker{display:none}
+.s1app details.changes summary::before{content:"\25B8  ";color:var(--gold)}
+.s1app details.changes[open] summary::before{content:"\25BE  "}
+.s1app details.changes summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.s1app details.changes ul{list-style:none;padding:2px 16px 15px 30px;display:flex;flex-direction:column;gap:7px}
+.s1app details.changes li{font-size:13.2px;color:var(--muted);line-height:1.55;position:relative}
+.s1app details.changes li::before{content:"\2192";position:absolute;left:-18px;color:var(--gold);font-weight:800}
+.s1app .metanote{padding:13px 14px 0;font-size:12.8px;color:var(--muted);line-height:1.55}
+.s1app .section.lesson{overflow:hidden}
+.s1app .poster{position:relative;display:block;width:100%;aspect-ratio:16/9;border:0;padding:0;margin:0;
+  cursor:pointer;background:linear-gradient(135deg,#0e1f36 0%,#16304f 62%,#1d3d63 100%);
+  overflow:hidden;font-family:inherit;text-align:left}
+.s1app .poster img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.s1app .poster .fallback{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;
+  padding:14px 16px 46px;gap:6px}
+.s1app .poster .fallback .kick{font-size:9.5px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#f2a33c}
+.s1app .poster .fallback .ttl{font-size:16px;font-weight:800;color:#fff;line-height:1.25;text-wrap:balance}
+.s1app .poster .scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(14,31,54,0) 38%,rgba(14,31,54,.82) 100%)}
+.s1app .poster .play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.94);display:flex;
+  align-items:center;justify-content:center;transition:transform .18s ease,background .18s ease;
+  box-shadow:0 4px 16px rgba(0,0,0,.34)}
+.s1app .poster .play svg{margin-left:3px}
+.s1app .poster:hover .play, .s1app .poster:focus-visible .play{transform:translate(-50%,-50%) scale(1.09);background:#fff}
+.s1app .poster:focus-visible{outline:3px solid var(--gold);outline-offset:-3px}
+.s1app .poster .dur{position:absolute;right:10px;bottom:10px;background:rgba(10,23,37,.86);color:#fff;
+  font-size:11px;font-weight:750;padding:3px 7px;border-radius:4px;letter-spacing:.3px}
+.s1app .vmodal{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;
+  padding:24px;background:rgba(6,15,26,.86);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+.s1app .vmodal[open], .s1app .vmodal.on{display:flex}
+.s1app .vbox{width:min(980px,100%);background:#0a1725;border-radius:14px;overflow:hidden;
+  box-shadow:0 24px 70px rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.12)}
+.s1app .vbar{display:flex;align-items:center;gap:14px;padding:13px 16px;background:#0e1f36;
+  border-bottom:1px solid rgba(255,255,255,.1)}
+.s1app .vbar h3{flex:1;font-size:15px;font-weight:800;color:#fff;line-height:1.3;min-width:0}
+.s1app .vclose{background:none;border:1.5px solid rgba(255,255,255,.35);color:#fff;border-radius:8px;
+  width:34px;height:34px;font-size:19px;line-height:1;cursor:pointer;font-family:inherit;flex:none}
+.s1app .vclose:hover{background:rgba(255,255,255,.14)}
+.s1app .vclose:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.s1app .vframe{position:relative;aspect-ratio:16/9;background:#000}
+.s1app .vframe iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.s1app .vfoot{padding:12px 16px;background:#0e1f36;border-top:1px solid rgba(255,255,255,.1);
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.s1app .vfoot .hint{font-size:12px;color:#9fc0e6}
+.s1app .vfoot a{display:inline-flex;align-items:center;gap:5px;padding:7px 13px;border-radius:7px;
+  background:var(--gold);color:#0e1f36;font-size:12.5px;font-weight:800;text-decoration:none}
+.s1app .vfoot a:hover{background:#ffb95a}
+@media (max-width:640px){.s1app .vmodal{padding:12px}
+.s1app .vbar h3{font-size:13.5px}}
+.s1app .rebuilt{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--gold);
+  border-radius:12px;padding:18px 20px;margin-top:22px;box-shadow:var(--shadow)}
+.s1app .rb-head{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:9px}
+.s1app .rb-head b{font-size:15px;font-weight:800;color:var(--ink)}
+.s1app .rebuilt p{font-size:13.6px;color:var(--muted);line-height:1.6;max-width:78ch}
+.s1app .rebuilt ul{list-style:none;margin-top:11px;display:flex;flex-direction:column;gap:7px}
+.s1app .rebuilt li{font-size:13.4px;color:var(--muted);line-height:1.55;padding-left:19px;position:relative}
+.s1app .rebuilt li::before{content:"\2192";position:absolute;left:0;color:var(--gold);font-weight:800}
+.s1app .rebuilt li b{color:var(--ink)}
+.s1app .vblocked{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:9px;padding:28px;text-align:center;background:#0a1725;color:#9fc0e6}
+.s1app .vblocked svg{color:var(--gold);margin-bottom:2px}
+.s1app .vblocked p{font-size:13.6px;line-height:1.55;max-width:46ch;margin:0}
+.s1app .vblocked b{color:#fff}
+.s1app .vblocked a{margin-top:9px;display:inline-flex;padding:9px 17px;border-radius:8px;background:var(--gold);
+  color:#0e1f36;font-size:13px;font-weight:800;text-decoration:none}
+.s1app .vblocked a:hover{background:#ffb95a}
+.s1app .vloading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:#0a1725;color:#6f88a3;font-size:13.5px;font-weight:650;letter-spacing:.3px}</style>
+<div class="s1app"><nav class="topnav"><div class="wrap"><a href="" data-link="rate">Rate Card</a><a href="" data-link="specs">Creative Specs</a><a href="" data-link="kit">Product Sales Kit</a><a href="" data-link="library" aria-current="page">Learning Library</a><a href="" data-link="dict">Digital Dictionary</a></div></nav><header><div class="wrap"><div class="head-row"><div><div class="eff">Learning Library</div><h1>Learning Library</h1><p class="sub">Short explainer videos on every Smart 1 product &mdash; what it is, who it is for, and when to use it. Play one here, or open the full lesson on smart1marketing.com.</p></div><div><a class="btn btn-primary" href="mailto:clientsuccess@smart1marketing.com?subject=Pricing%20and%20Rate%20Card%20Help&body=Hi%20Smart%201%20team%2C%0A%0A">Need help with pricing or have a question?</a></div></div></div></header><div class="controls"><div class="wrap"><div class="controls-inner"><div class="search"><span class="ico" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg></span><input id="q" type="search" placeholder="Search a lesson&hellip;" aria-label="Search the learning library" autocomplete="off"><span class="slash" aria-hidden="true">/</span></div><div class="count" id="count" aria-live="polite" role="status"></div></div></div></div><div class="chipbar"><div class="wrap"><div class="chips" id="chips"></div></div></div><main class="wrap"><div class="lessongrid"><section class="section lesson" id="digital-strategy" data-cat="Foundations" data-hay="digital strategy foundations feeling overwhelmed by the digital landscape? see how a well-crafted digital strategy pulls the channels together. digital strategy explained digital strategy foundations feeling overwhelmed by the digital landscape? see how a well crafted digital strategy pulls the channels together. digital strategy explained digitalstrategyfoundationsfeelingoverwhelmedbythedigitallandscape?seehowawellcrafteddigitalstrategypullsthechannelstogether.digitalstrategyexplained"><button class="poster" type="button" data-v="H6AWLC81O5s" data-t="Digital Strategy Explained" aria-label="Play video: Digital Strategy Explained"><div class="fallback"><span class="kick">Foundations</span><span class="ttl">Digital Strategy</span></div><img src="https://i.ytimg.com/vi/H6AWLC81O5s/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Digital Strategy</h3><span class="badge">Foundations</span></div><p data-hl>Feeling overwhelmed by the digital landscape? See how a well-crafted digital strategy pulls the channels together.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=H6AWLC81O5s" target="_blank" rel="noopener" data-v="H6AWLC81O5s" data-t="Digital Strategy Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/digital-strategy" target="_blank" rel="noopener">Full lesson &#8599;</a></div></div></section><section class="section lesson" id="media-buying" data-cat="Foundations" data-hay="media buying foundations want to maximize your advertising impact? how expert media buying gets more out of the same budget. media buying explained media buying foundations want to maximize your advertising impact? how expert media buying gets more out of the same budget. media buying explained mediabuyingfoundationswanttomaximizeyouradvertisingimpact?howexpertmediabuyinggetsmoreoutofthesamebudget.mediabuyingexplained"><button class="poster" type="button" data-v="rEPQXtnOxDQ" data-t="Media Buying Explained" aria-label="Play video: Media Buying Explained"><div class="fallback"><span class="kick">Foundations</span><span class="ttl">Media Buying</span></div><img src="https://i.ytimg.com/vi/rEPQXtnOxDQ/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Media Buying</h3><span class="badge">Foundations</span></div><p data-hl>Want to maximize your advertising impact? How expert media buying gets more out of the same budget.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=rEPQXtnOxDQ" target="_blank" rel="noopener" data-v="rEPQXtnOxDQ" data-t="Media Buying Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/media-buying" target="_blank" rel="noopener">Full lesson &#8599;</a></div></div></section><section class="section lesson" id="web-development" data-cat="Web &amp; Platforms" data-hay="website development &amp; redesign web &amp; platforms is your website in need of a makeover? transform your online presence with web development and redesign. website development and redesign explained website development &amp; redesign web &amp; platforms is your website in need of a makeover? transform your online presence with web development and redesign. website development and redesign explained websitedevelopment&amp;redesignweb&amp;platformsisyourwebsiteinneedofamakeover?transformyouronlinepresencewithwebdevelopmentandredesign.websitedevelopmentandredesignexplained"><button class="poster" type="button" data-v="amTEU00lC64" data-t="Website Development and Redesign Explained" aria-label="Play video: Website Development and Redesign Explained"><div class="fallback"><span class="kick">Web &amp; Platforms</span><span class="ttl">Website Development &amp; Redesign</span></div><img src="https://i.ytimg.com/vi/amTEU00lC64/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Website Development &amp; Redesign</h3><span class="badge">Web &amp; Platforms</span></div><p data-hl>Is your website in need of a makeover? Transform your online presence with web development and redesign.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=amTEU00lC64" target="_blank" rel="noopener" data-v="amTEU00lC64" data-t="Website Development and Redesign Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/web-development" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-web-development">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#web-production">Product &rarr;</a></div></div></section><section class="section lesson" id="smart-1-site" data-cat="Web &amp; Platforms" data-hay="smart 1 site web &amp; platforms need a stunning website without the hassle? how smart 1 site gets you online fast. smart 1 site web &amp; platforms need a stunning website without the hassle? how smart 1 site gets you online fast. smart1siteweb&amp;platformsneedastunningwebsitewithoutthehassle?howsmart1sitegetsyouonlinefast."><div class="card-body"><div class="term-head"><h3 data-hl>Smart 1 Site</h3><span class="badge">Web &amp; Platforms</span></div><p data-hl>Need a stunning website without the hassle? How Smart 1 Site gets you online fast.</p></div><div class="card-foot"><div class="xlinks"><span class="soon">Lesson page coming soon</span><a class="xlink" href="/partner/rate-card-universal#sec-web-development">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#web-production">Product &rarr;</a></div></div></section><section class="section lesson" id="smart-1-snap" data-cat="Web &amp; Platforms" data-hay="smart 1 snap web &amp; platforms smart 1 snap is mobile engagement technology built to deepen customer relationships, improve loyalty and drive commerce. smart 1 snap explained smart 1 snap web &amp; platforms smart 1 snap is mobile engagement technology built to deepen customer relationships, improve loyalty and drive commerce. smart 1 snap explained smart1snapweb&amp;platformssmart1snapismobileengagementtechnologybuilttodeepencustomerrelationships,improveloyaltyanddrivecommerce.smart1snapexplained"><button class="poster" type="button" data-v="7HhecD5-nwQ" data-t="Smart 1 Snap Explained" aria-label="Play video: Smart 1 Snap Explained"><div class="fallback"><span class="kick">Web &amp; Platforms</span><span class="ttl">Smart 1 Snap</span></div><img src="https://i.ytimg.com/vi/7HhecD5-nwQ/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Smart 1 Snap</h3><span class="badge">Web &amp; Platforms</span></div><p data-hl>Smart 1 Snap is mobile engagement technology built to deepen customer relationships, improve loyalty and drive commerce.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=7HhecD5-nwQ" target="_blank" rel="noopener" data-v="7HhecD5-nwQ" data-t="Smart 1 Snap Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/smart-1-snap" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-web-development">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#smart-1-snap">Product &rarr;</a></div></div></section><section class="section lesson" id="seo-search-engine-optimization" data-cat="Search &amp; Local" data-hay="seo search &amp; local looking to boost your online presence and attract more customers? how search engine optimization compounds over time. search engine optimization explained seo search &amp; local looking to boost your online presence and attract more customers? how search engine optimization compounds over time. search engine optimization explained seosearch&amp;locallookingtoboostyouronlinepresenceandattractmorecustomers?howsearchengineoptimizationcompoundsovertime.searchengineoptimizationexplained"><button class="poster" type="button" data-v="IBTF_MzAnrg" data-t="Search Engine Optimization Explained" aria-label="Play video: Search Engine Optimization Explained"><div class="fallback"><span class="kick">Search &amp; Local</span><span class="ttl">SEO</span></div><img src="https://i.ytimg.com/vi/IBTF_MzAnrg/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>SEO</h3><span class="badge">Search &amp; Local</span></div><p data-hl>Looking to boost your online presence and attract more customers? How search engine optimization compounds over time.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=IBTF_MzAnrg" target="_blank" rel="noopener" data-v="IBTF_MzAnrg" data-t="Search Engine Optimization Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/seo-search-engine-optimization" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-search-engine-optimization">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#seo">Product &rarr;</a></div></div></section><section class="section lesson" id="paid-search-ppc-sem" data-cat="Search &amp; Local" data-hay="paid search advertising search &amp; local want to drive immediate traffic and boost your online visibility? how paid search, ppc and sem work together. paid search advertising explained paid search advertising search &amp; local want to drive immediate traffic and boost your online visibility? how paid search, ppc and sem work together. paid search advertising explained paidsearchadvertisingsearch&amp;localwanttodriveimmediatetrafficandboostyouronlinevisibility?howpaidsearch,ppcandsemworktogether.paidsearchadvertisingexplained"><button class="poster" type="button" data-v="z-vzJVrUuus" data-t="Paid Search Advertising Explained" aria-label="Play video: Paid Search Advertising Explained"><div class="fallback"><span class="kick">Search &amp; Local</span><span class="ttl">Paid Search Advertising</span></div><img src="https://i.ytimg.com/vi/z-vzJVrUuus/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Paid Search Advertising</h3><span class="badge">Search &amp; Local</span></div><p data-hl>Want to drive immediate traffic and boost your online visibility? How paid search, PPC and SEM work together.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=z-vzJVrUuus" target="_blank" rel="noopener" data-v="z-vzJVrUuus" data-t="Paid Search Advertising Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/paid-search-ppc-sem" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-search-engine-marketing-ppc">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#sem">Product &rarr;</a></div></div></section><section class="section lesson" id="local-listing-maps" data-cat="Search &amp; Local" data-hay="local listings search &amp; local can customers find you where they search? how accurate local listings and maps drive foot traffic. local listings explained local listings search &amp; local can customers find you where they search? how accurate local listings and maps drive foot traffic. local listings explained locallistingssearch&amp;localcancustomersfindyouwheretheysearch?howaccuratelocallistingsandmapsdrivefoottraffic.locallistingsexplained"><button class="poster" type="button" data-v="rqfJ6Qcloks" data-t="Local Listings Explained" aria-label="Play video: Local Listings Explained"><div class="fallback"><span class="kick">Search &amp; Local</span><span class="ttl">Local Listings</span></div><img src="https://i.ytimg.com/vi/rqfJ6Qcloks/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Local Listings</h3><span class="badge">Search &amp; Local</span></div><p data-hl>Can customers find you where they search? How accurate local listings and maps drive foot traffic.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=rqfJ6Qcloks" target="_blank" rel="noopener" data-v="rqfJ6Qcloks" data-t="Local Listings Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/local-listing-maps" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-search-engine-optimization">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#local-business-listings">Product &rarr;</a></div></div></section><section class="section lesson" id="reputation-management" data-cat="Search &amp; Local" data-hay="reputation management search &amp; local is your online reputation helping or hurting your business? how review generation and monitoring change the picture. reputation management explained reputation management search &amp; local is your online reputation helping or hurting your business? how review generation and monitoring change the picture. reputation management explained reputationmanagementsearch&amp;localisyouronlinereputationhelpingorhurtingyourbusiness?howreviewgenerationandmonitoringchangethepicture.reputationmanagementexplained"><button class="poster" type="button" data-v="ltov4cpgRxo" data-t="Reputation Management Explained" aria-label="Play video: Reputation Management Explained"><div class="fallback"><span class="kick">Search &amp; Local</span><span class="ttl">Reputation Management</span></div><img src="https://i.ytimg.com/vi/ltov4cpgRxo/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Reputation Management</h3><span class="badge">Search &amp; Local</span></div><p data-hl>Is your online reputation helping or hurting your business? How review generation and monitoring change the picture.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=ltov4cpgRxo" target="_blank" rel="noopener" data-v="ltov4cpgRxo" data-t="Reputation Management Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/reputation-management" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-search-engine-optimization">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#reputation-management">Product &rarr;</a></div></div></section><section class="section lesson" id="programmatic-display" data-cat="Display &amp; Programmatic" data-hay="targeted data display display &amp; programmatic want to make your advertising dollars work harder? how targeted data display puts ads in front of the right audience. targeted data display explained targeted data display display &amp; programmatic want to make your advertising dollars work harder? how targeted data display puts ads in front of the right audience. targeted data display explained targeteddatadisplaydisplay&amp;programmaticwanttomakeyouradvertisingdollarsworkharder?howtargeteddatadisplayputsadsinfrontoftherightaudience.targeteddatadisplayexplained"><button class="poster" type="button" data-v="LFjjgM1E_0k" data-t="Targeted Data Display Explained" aria-label="Play video: Targeted Data Display Explained"><div class="fallback"><span class="kick">Display &amp; Programmatic</span><span class="ttl">Targeted Data Display</span></div><img src="https://i.ytimg.com/vi/LFjjgM1E_0k/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Targeted Data Display</h3><span class="badge">Display &amp; Programmatic</span></div><p data-hl>Want to make your advertising dollars work harder? How targeted data display puts ads in front of the right audience.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=LFjjgM1E_0k" target="_blank" rel="noopener" data-v="LFjjgM1E_0k" data-t="Targeted Data Display Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/programmatic-display" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-targeted-display">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#display-network-targeting">Product &rarr;</a></div></div></section><section class="section lesson" id="location-targeting" data-cat="Display &amp; Programmatic" data-hay="location targeting display &amp; programmatic looking to connect with your audience in a specific area? how geo-fencing, ip targeting and lookback work. location targeting explained location targeting display &amp; programmatic looking to connect with your audience in a specific area? how geo fencing, ip targeting and lookback work. location targeting explained locationtargetingdisplay&amp;programmaticlookingtoconnectwithyouraudienceinaspecificarea?howgeofencing,iptargetingandlookbackwork.locationtargetingexplained"><button class="poster" type="button" data-v="R0dciV2SYGo" data-t="Location Targeting Explained" aria-label="Play video: Location Targeting Explained"><div class="fallback"><span class="kick">Display &amp; Programmatic</span><span class="ttl">Location Targeting</span></div><img src="https://i.ytimg.com/vi/R0dciV2SYGo/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Location Targeting</h3><span class="badge">Display &amp; Programmatic</span></div><p data-hl>Looking to connect with your audience in a specific area? How geo-fencing, IP targeting and lookback work.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=R0dciV2SYGo" target="_blank" rel="noopener" data-v="R0dciV2SYGo" data-t="Location Targeting Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/location-targeting" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-ip-targeting">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#ip-targeting">Product &rarr;</a></div></div></section><section class="section lesson" id="mobile-advertising" data-cat="Display &amp; Programmatic" data-hay="mobile advertising display &amp; programmatic looking to reach your audience wherever they go? how mobile advertising follows the customer. mobile advertising explained mobile advertising display &amp; programmatic looking to reach your audience wherever they go? how mobile advertising follows the customer. mobile advertising explained mobileadvertisingdisplay&amp;programmaticlookingtoreachyouraudiencewherevertheygo?howmobileadvertisingfollowsthecustomer.mobileadvertisingexplained"><button class="poster" type="button" data-v="MaTk8wOk8ls" data-t="Mobile Advertising Explained" aria-label="Play video: Mobile Advertising Explained"><div class="fallback"><span class="kick">Display &amp; Programmatic</span><span class="ttl">Mobile Advertising</span></div><img src="https://i.ytimg.com/vi/MaTk8wOk8ls/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Mobile Advertising</h3><span class="badge">Display &amp; Programmatic</span></div><p data-hl>Looking to reach your audience wherever they go? How mobile advertising follows the customer.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=MaTk8wOk8ls" target="_blank" rel="noopener" data-v="MaTk8wOk8ls" data-t="Mobile Advertising Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/mobile-advertising" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-targeted-display">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#display-network-targeting">Product &rarr;</a></div></div></section><section class="section lesson" id="video-advertising" data-cat="Video, Audio &amp; Outdoor" data-hay="video advertising video, audio &amp; outdoor want to captivate your audience and tell your brand&#x27;s story? how video advertising earns attention. video advertising explained video advertising video, audio &amp; outdoor want to captivate your audience and tell your brand&#x27;s story? how video advertising earns attention. video advertising explained videoadvertisingvideo,audio&amp;outdoorwanttocaptivateyouraudienceandtellyourbrand&#x27;sstory?howvideoadvertisingearnsattention.videoadvertisingexplained"><button class="poster" type="button" data-v="gCznYUa33Tg" data-t="Video Advertising Explained" aria-label="Play video: Video Advertising Explained"><div class="fallback"><span class="kick">Video, Audio &amp; Outdoor</span><span class="ttl">Video Advertising</span></div><img src="https://i.ytimg.com/vi/gCznYUa33Tg/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Video Advertising</h3><span class="badge">Video, Audio &amp; Outdoor</span></div><p data-hl>Want to captivate your audience and tell your brand&#x27;s story? How video advertising earns attention.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=gCznYUa33Tg" target="_blank" rel="noopener" data-v="gCznYUa33Tg" data-t="Video Advertising Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/video-advertising" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-video-pre-mid-post-roll">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#video-youtube">Product &rarr;</a></div></div></section><section class="section lesson" id="connected-tv-ott" data-cat="Video, Audio &amp; Outdoor" data-hay="ott &amp; connected tv video, audio &amp; outdoor ready to elevate your advertising game? how over-the-top advertising reaches the living room. o.t.t. explained ott &amp; connected tv video, audio &amp; outdoor ready to elevate your advertising game? how over the top advertising reaches the living room. o.t.t. explained ott&amp;connectedtvvideo,audio&amp;outdoorreadytoelevateyouradvertisinggame?howoverthetopadvertisingreachesthelivingroom.o.t.t.explained"><button class="poster" type="button" data-v="emz518ai5cA" data-t="O.T.T. Explained" aria-label="Play video: O.T.T. Explained"><div class="fallback"><span class="kick">Video, Audio &amp; Outdoor</span><span class="ttl">OTT &amp; Connected TV</span></div><img src="https://i.ytimg.com/vi/emz518ai5cA/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>OTT &amp; Connected TV</h3><span class="badge">Video, Audio &amp; Outdoor</span></div><p data-hl>Ready to elevate your advertising game? How Over-The-Top advertising reaches the living room.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=emz518ai5cA" target="_blank" rel="noopener" data-v="emz518ai5cA" data-t="O.T.T. Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/connected-tv-ott" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-ott-connected-tv">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#ctv-ott">Product &rarr;</a></div></div></section><section class="section lesson" id="digital-radio" data-cat="Video, Audio &amp; Outdoor" data-hay="digital radio video, audio &amp; outdoor looking to amplify your brand&#x27;s reach? how digital radio advertising reaches listeners across streaming platforms. digital radio explained digital radio video, audio &amp; outdoor looking to amplify your brand&#x27;s reach? how digital radio advertising reaches listeners across streaming platforms. digital radio explained digitalradiovideo,audio&amp;outdoorlookingtoamplifyyourbrand&#x27;sreach?howdigitalradioadvertisingreacheslistenersacrossstreamingplatforms.digitalradioexplained"><button class="poster" type="button" data-v="Mcptf73cP5Q" data-t="Digital Radio Explained" aria-label="Play video: Digital Radio Explained"><div class="fallback"><span class="kick">Video, Audio &amp; Outdoor</span><span class="ttl">Digital Radio</span></div><img src="https://i.ytimg.com/vi/Mcptf73cP5Q/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Digital Radio</h3><span class="badge">Video, Audio &amp; Outdoor</span></div><p data-hl>Looking to amplify your brand&#x27;s reach? How digital radio advertising reaches listeners across streaming platforms.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=Mcptf73cP5Q" target="_blank" rel="noopener" data-v="Mcptf73cP5Q" data-t="Digital Radio Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/digital-radio" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-digital-radio-podcasts">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#digital-radio">Product &rarr;</a></div></div></section><section class="section lesson" id="digital-out-of-home-advertising" data-cat="Video, Audio &amp; Outdoor" data-hay="digital out of home video, audio &amp; outdoor want to capture attention while your audience is on the move? how dooh brings digital targeting to the real world. digital out of home advertising explained digital out of home video, audio &amp; outdoor want to capture attention while your audience is on the move? how dooh brings digital targeting to the real world. digital out of home advertising explained digitaloutofhomevideo,audio&amp;outdoorwanttocaptureattentionwhileyouraudienceisonthemove?howdoohbringsdigitaltargetingtotherealworld.digitaloutofhomeadvertisingexplained"><button class="poster" type="button" data-v="N5iKHS6Imkc" data-t="Digital Out of Home Advertising Explained" aria-label="Play video: Digital Out of Home Advertising Explained"><div class="fallback"><span class="kick">Video, Audio &amp; Outdoor</span><span class="ttl">Digital Out of Home</span></div><img src="https://i.ytimg.com/vi/N5iKHS6Imkc/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Digital Out of Home</h3><span class="badge">Video, Audio &amp; Outdoor</span></div><p data-hl>Want to capture attention while your audience is on the move? How DOOH brings digital targeting to the real world.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=N5iKHS6Imkc" target="_blank" rel="noopener" data-v="N5iKHS6Imkc" data-t="Digital Out of Home Advertising Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/digital-out-of-home-advertising" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-smart-1-signage">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#dooh">Product &rarr;</a></div></div></section><section class="section lesson" id="social-media-marketing" data-cat="Social &amp; Direct" data-hay="social media marketing social &amp; direct struggling to make your mark on social media? how paid and organic social work together. social media marketing explained social media marketing social &amp; direct struggling to make your mark on social media? how paid and organic social work together. social media marketing explained socialmediamarketingsocial&amp;directstrugglingtomakeyourmarkonsocialmedia?howpaidandorganicsocialworktogether.socialmediamarketingexplained"><button class="poster" type="button" data-v="pemQWnIXGpM" data-t="Social Media Marketing Explained" aria-label="Play video: Social Media Marketing Explained"><div class="fallback"><span class="kick">Social &amp; Direct</span><span class="ttl">Social Media Marketing</span></div><img src="https://i.ytimg.com/vi/pemQWnIXGpM/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Social Media Marketing</h3><span class="badge">Social &amp; Direct</span></div><p data-hl>Struggling to make your mark on social media? How paid and organic social work together.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=pemQWnIXGpM" target="_blank" rel="noopener" data-v="pemQWnIXGpM" data-t="Social Media Marketing Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/social-media-marketing" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-social-media-advertising">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#social-media-ads">Product &rarr;</a></div></div></section><section class="section lesson" id="email-marketing" data-cat="Social &amp; Direct" data-hay="email marketing social &amp; direct looking to boost your business with a proven strategy? how email marketing still delivers. email marketing explained email marketing social &amp; direct looking to boost your business with a proven strategy? how email marketing still delivers. email marketing explained emailmarketingsocial&amp;directlookingtoboostyourbusinesswithaprovenstrategy?howemailmarketingstilldelivers.emailmarketingexplained"><button class="poster" type="button" data-v="NjbXJyDpGOU" data-t="Email Marketing Explained" aria-label="Play video: Email Marketing Explained"><div class="fallback"><span class="kick">Social &amp; Direct</span><span class="ttl">Email Marketing</span></div><img src="https://i.ytimg.com/vi/NjbXJyDpGOU/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Email Marketing</h3><span class="badge">Social &amp; Direct</span></div><p data-hl>Looking to boost your business with a proven strategy? How email marketing still delivers.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=NjbXJyDpGOU" target="_blank" rel="noopener" data-v="NjbXJyDpGOU" data-t="Email Marketing Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/email-marketing" target="_blank" rel="noopener">Full lesson &#8599;</a><a class="xlink" href="/partner/rate-card-universal#sec-email-marketing">Pricing &rarr;</a><a class="xlink" href="/partner/sales-kit#email-marketing">Product &rarr;</a></div></div></section><section class="section lesson" id="text-marketing" data-cat="Social &amp; Direct" data-hay="text marketing social &amp; direct looking for a direct and effective way to reach your customers? how text marketing cuts through. text marketing explained text marketing social &amp; direct looking for a direct and effective way to reach your customers? how text marketing cuts through. text marketing explained textmarketingsocial&amp;directlookingforadirectandeffectivewaytoreachyourcustomers?howtextmarketingcutsthrough.textmarketingexplained"><button class="poster" type="button" data-v="K9Qai6X2uZ4" data-t="Text Marketing Explained" aria-label="Play video: Text Marketing Explained"><div class="fallback"><span class="kick">Social &amp; Direct</span><span class="ttl">Text Marketing</span></div><img src="https://i.ytimg.com/vi/K9Qai6X2uZ4/hqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="scrim"></div><span class="play" aria-hidden="true"><svg width="20" height="22" viewBox="0 0 20 22" fill="#0e1f36"><path d="M19 9.27a1.7 1.7 0 010 2.95L3.2 21.3A1.7 1.7 0 01.65 19.8V2.2A1.7 1.7 0 013.2.7L19 9.27z"/></svg></span><span class="dur">Watch</span></button><div class="card-body"><div class="term-head"><h3 data-hl>Text Marketing</h3><span class="badge">Social &amp; Direct</span></div><p data-hl>Looking for a direct and effective way to reach your customers? How text marketing cuts through.</p></div><div class="card-foot"><div class="xlinks"><a class="xlink ext" href="https://www.youtube.com/watch?v=K9Qai6X2uZ4" target="_blank" rel="noopener" data-v="K9Qai6X2uZ4" data-t="Text Marketing Explained">Play video &#9654;</a><a class="xlink" href="https://smart1marketing.com/text-marketing" target="_blank" rel="noopener">Full lesson &#8599;</a></div></div></section></div></main><div class="empty"><h3>No matches</h3><p>Nothing here matches that search. Try a shorter term, or <button class="chip" id="clearAll" type="button">clear the search</button></p></div><div class="vmodal" id="vmodal" role="dialog" aria-modal="true" aria-labelledby="vtitle"><div class="vbox"><div class="vbar"><h3 id="vtitle"></h3><button class="vclose" id="vclose" type="button" aria-label="Close video">&times;</button></div><div class="vframe" id="vframe"></div><div class="vfoot"><span class="hint" id="vhint">Press Esc to close</span><a id="vyt" href="#" target="_blank" rel="noopener">Watch on YouTube &#8599;</a></div></div></div></div>
+<script>
+const LINKS={"rate": "/rate-card-universal", "specs": "/creative-specs", "kit": "/sales-kit", "library": "/learning-library", "dict": "/digital-dictionary"};
+const ALL_LABEL="All lessons", NOUN="lessons";
+const ROOT=document.querySelector('.s1app')||document.body;
+document.querySelectorAll('.topnav a[data-link]').forEach(a=>{a.href=LINKS[a.dataset.link]||'#'});
+const qEl=document.getElementById('q'), countEl=document.getElementById('count'),
+      chipsEl=document.getElementById('chips');
+let cat=null;
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+const CATS=[...new Set([...document.querySelectorAll('.section')].map(s=>s.dataset.cat))];
+function mkChip(label,value){
+  const b=document.createElement('button'); b.className='chip'; b.type='button'; b.textContent=label;
+  b.setAttribute('aria-pressed',String(cat===value));
+  b.onclick=()=>{cat=(cat===value?null:value); syncChips(); apply();};
+  chipsEl.appendChild(b);
+}
+function syncChips(){[...chipsEl.children].forEach((b,i)=>b.setAttribute('aria-pressed',String(i===0?cat===null:cat===CATS[i-1])))}
+mkChip(ALL_LABEL,null);
+if (typeof UPD_CHIP !== 'undefined') { mkChip(UPD_CHIP,'__upd__'); CATS.unshift('__upd__'); }
+CATS.filter(c=>c!=='__upd__').forEach(c=>mkChip(c,c));
+function hl(root,term){
+  root.querySelectorAll('[data-hl]').forEach(el=>{
+    const raw = el.dataset.raw!==undefined ? el.dataset.raw : (el.dataset.raw=el.textContent);
+    if(!term){ if(el.innerHTML!==el.dataset.orig&&el.dataset.orig!==undefined) el.innerHTML=el.dataset.orig;
+               else if(el.dataset.orig===undefined) el.dataset.orig=el.innerHTML;
+               return }
+    if(el.dataset.orig===undefined) el.dataset.orig=el.innerHTML;
+    const i=raw.toLowerCase().indexOf(term);
+    if(i<0){ el.innerHTML=el.dataset.orig; return }
+    el.innerHTML=esc(raw.slice(0,i))+'<mark>'+esc(raw.slice(i,i+term.length))+'</mark>'+esc(raw.slice(i+term.length));
+  });
+}
+function apply(){
+  const term=qEl.value.trim().toLowerCase(); let shown=0;
+  document.querySelectorAll('.section').forEach(s=>{
+    const catOk = !cat || (cat==='__upd__' ? s.dataset.upd==='1' : s.dataset.cat===cat);
+    const ok=catOk&&(!term||s.dataset.hay.includes(term));
+    s.style.display=ok?'':'none'; if(ok){shown++; hl(s,term);}
+  });
+  ROOT.dataset.empty=shown?'0':'1';
+  const t=document.querySelectorAll('.section').length;
+  countEl.innerHTML = shown===t ? '<b>'+t+'</b> '+NOUN : '<b>'+shown+'</b> of '+t+' '+NOUN;
+}
+qEl.addEventListener('input',apply);
+document.getElementById('clearAll').onclick=()=>{qEl.value='';cat=null;syncChips();apply();qEl.focus()};
+document.addEventListener('keydown',e=>{
+  if(e.key==='/'&&document.activeElement!==qEl){e.preventDefault();qEl.focus()}
+  if(e.key==='Escape'&&document.activeElement===qEl){qEl.value='';apply()}
+});
+function flashHash(){
+  const id=location.hash.slice(1); if(!id) return;
+  const el=document.getElementById(id); if(!el) return;
+  document.querySelectorAll('.section.flash').forEach(s=>s.classList.remove('flash'));
+  el.classList.add('flash'); el.scrollIntoView({block:'start'});
+  setTimeout(()=>el.classList.remove('flash'),2200);
+}
+window.addEventListener('hashchange',flashHash);
+apply(); setTimeout(flashHash,60);
+
+(function(){
+  const m=document.getElementById('vmodal'), fr=document.getElementById('vframe'),
+        tt=document.getElementById('vtitle'), yt=document.getElementById('vyt'),
+        hint=document.getElementById('vhint');
+  let last=null, timer=null;
+  function embed(id,title){
+    fr.innerHTML='<iframe src="https://www.youtube-nocookie.com/embed/'+id+
+      '?autoplay=1&rel=0&modestbranding=1" title="'+(title||'Video').replace(/"/g,'&quot;')+
+      '" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
+  }
+  function blocked(id){
+    fr.innerHTML='<div class="vblocked"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" '+
+      'stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 9v4"/>'+
+      '<path d="M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>'+
+      '<p><b>This page can\u2019t play embedded video.</b></p>'+
+      '<p>Previews on claude.ai block third-party players. The video plays inline once this page is '+
+      'hosted on your own domain \u2014 or watch it on YouTube now.</p>'+
+      '<a href="https://www.youtube.com/watch?v='+id+'" target="_blank" rel="noopener">Watch on YouTube \u2197</a></div>';
+    hint.textContent='Embedded playback unavailable in this preview';
+  }
+  function open(id,title){
+    last=document.activeElement;
+    tt.textContent=title||'Video';
+    yt.href='https://www.youtube.com/watch?v='+id;
+    hint.textContent='Press Esc to close';
+    fr.innerHTML='<div class="vloading">Loading\u2026</div>';
+    m.classList.add('on'); document.body.style.overflow='hidden';
+    document.getElementById('vclose').focus();
+    clearTimeout(timer);
+    var probe=new Image(), done=false;
+    function decide(ok){ if(done) return; done=true; clearTimeout(timer); ok?embed(id,title):blocked(id); }
+    probe.onload=function(){decide(true)};
+    probe.onerror=function(){decide(false)};
+    probe.src='https://i.ytimg.com/vi/'+id+'/default.jpg';
+    timer=setTimeout(function(){decide(false)},3000);
+  }
+  function close(){
+    clearTimeout(timer); fr.innerHTML=''; m.classList.remove('on');
+    document.body.style.overflow=''; if(last&&last.focus) last.focus();
+  }
+  document.addEventListener('click',function(e){
+    const p=e.target.closest('[data-v]');
+    if(p){ e.preventDefault(); open(p.dataset.v,p.dataset.t); return; }
+    if(e.target===m) close();
+  });
+  document.getElementById('vclose').addEventListener('click',close);
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&m.classList.contains('on')) close(); });
+})();
+
+</script>
+</body>
+</html>

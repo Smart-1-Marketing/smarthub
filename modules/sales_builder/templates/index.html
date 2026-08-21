@@ -375,13 +375,37 @@ function nav(v){VIEWS.forEach(x=>{document.getElementById('view-'+x).style.displ
 /* ============================================================
    DASHBOARD
    ============================================================ */
-let DASH=null,LIST=[],listTab="all";
+let DASH=null,LIST=[],UPLOADED=[],listTab="all";
+
+/* An uploaded proposal is a file with a date; a quote has a number, a
+   revision and a status this tool owns. Rather than invent a status for a
+   document nobody here drafted, uploaded rows carry uploaded:true and are
+   labelled as such wherever they appear. */
+function asUploadedRow(p){
+  return {uploaded:true, id:p.id, client:p.client||"", filename:p.filename||"",
+          title:p.title||p.filename||"Proposal", url:p.url||"",
+          kind:p.kind||"", note:p.note||"", uploaded_by:p.uploaded_by||"",
+          date_sent:p.date_sent||"", created_at:p.uploaded_at||p.date_sent||"",
+          value:p.value||0, status:"Uploaded"};
+}
+
+/* mm-dd-yy, the Hub's format everywhere. */
+function mdy(iso){
+  const d=String(iso||"").slice(0,10).split("-");
+  return d.length===3 ? d[1]+"-"+d[2]+"-"+d[0].slice(2) : "";
+}
 async function drawDashboard(){
  const host=document.getElementById('view-dashboard');
  host.innerHTML='<div class="empty"><span class="spin"></span>Loading dashboard…</div>';
  try{
-  const[d,l]=await Promise.all([api('/sales/builder/api/dashboard'),api('/sales/builder/api/quotes?limit=60')]);
-  DASH=d;LIST=l.quotes||[];
+  /* Uploaded proposals load alongside the quotes and are allowed to fail on
+     their own: a proposal store that is unavailable should cost the list its
+     uploaded rows, not the whole dashboard. */
+  const[d,l,u]=await Promise.all([
+    api('/sales/builder/api/dashboard'),
+    api('/sales/builder/api/quotes?limit=60'),
+    api('/sales/builder/api/uploaded-proposals?limit=100').catch(()=>({proposals:[]}))]);
+  DASH=d;LIST=l.quotes||[];UPLOADED=(u.proposals||[]).map(asUploadedRow);
  }catch(e){host.innerHTML='<div class="empty">Could not load the dashboard ('+esc(e.message)+').</div>';return;}
  const s=DASH.stats,hr=new Date().getHours(),greet=hr<12?"Good morning":hr<17?"Good afternoon":"Good evening";
  const approvedReady=LIST.filter(q=>q.status==='Approved').length;
@@ -401,7 +425,7 @@ async function drawDashboard(){
   <div class="cols"><div>
    <div class="panel">
     <div class="phead"><span class="ttl">Recent Quotes &amp; Proposals</span>
-     <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t+"s"===t+"s"?(t==="Draft"?"Drafts":t):t}</span>`).join("")}</div>
+     <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Uploaded"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t+"s"===t+"s"?(t==="Draft"?"Drafts":t):t}</span>`).join("")}</div>
      <div class="search"><input id="q" placeholder="Search client, quote #, website…" oninput="drawRows()"></div></div>
     <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
     <tbody id="rows"></tbody></table>
@@ -473,11 +497,66 @@ function rowHtml(x){
    ${x.status==='Approved'?`<button class="ic gold" title="Convert to IO" onclick="openConvert(${x.id})">🔁</button>`:""}
   </div></td></tr>`;
 }
+function uploadedRowHtml(x){
+ return `<tr data-upid="${esc(x.id)}">
+  <td><span class="qnum">Uploaded<small>${esc(mdy(x.date_sent||x.created_at))}</small></span></td>
+  <td><b style="color:var(--navy)">${esc(x.client||"—")}</b>
+   <small style="display:block;color:var(--muted)">${esc(x.filename)}</small></td>
+  <td style="font-size:12.5px;color:#33415C">${esc(x.title)}${x.note?` · ${esc(x.note)}`:""}
+   <small style="display:block;color:var(--muted)">${esc(x.uploaded_by||"")}</small></td>
+  <td><span class="money">${x.value?money(x.value):"—"}<small>${x.value?"":"not priced here"}</small></span></td>
+  <td><span class="badge">Uploaded</span></td>
+  <td><div class="rowact" onclick="event.stopPropagation()">
+   ${x.url?`<button class="ic" title="Open the proposal file" onclick="window.open('${esc(x.url)}','_blank','noopener')">${x.kind==='pdf'?"📄":"📝"}</button>`:""}
+   <button class="ic gold" title="Read this proposal and start an insertion order from it" onclick="uploadedToIO('${esc(x.id)}')">🔁</button>
+   <button class="ic" title="Remove from the client record" onclick="deleteUploaded('${esc(x.id)}')">🗑️</button>
+  </div></td></tr>`;
+}
+
+/* Start an IO from a proposal we already sent. The proposal is the agreement;
+   the IO is what makes it real, and retyping it is where the two drift apart.
+   The reader resolves a stored proposal by client + id, so that is what
+   travels — handing the IO builder an arbitrary URL to fetch would make it an
+   SSRF hole, and the document is already ours. */
+function uploadedToIO(pid){
+ const x=UPLOADED.find(r=>String(r.id)===String(pid));
+ if(!x){toast("That proposal is no longer in the list.");return;}
+ if(!x.url){toast("That proposal has no file to read.");return;}
+ window.open('/tools/io/?from_proposal='+encodeURIComponent(x.id||x.filename||'')
+   +'&client='+encodeURIComponent(x.client||''),'_blank','noopener');
+}
+
+async function deleteUploaded(pid){
+ const x=UPLOADED.find(r=>String(r.id)===String(pid));
+ if(!x){return;}
+ if(!confirm(`Remove "${x.filename||x.title}" from ${x.client||"the client"}'s record?
+
+This deletes the uploaded proposal, not any quote built here.`))return;
+ try{
+  const r=await fetch('/api/client/proposals/update',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:x.client,id:x.id,delete:true})});
+  const d=await r.json().catch(()=>({}));
+  if(d.error){toast(d.error);return;}
+  UPLOADED=UPLOADED.filter(r2=>String(r2.id)!==String(pid));
+  toast("Proposal removed.");drawRows();
+ }catch(e){toast("Could not remove it: "+e.message);}
+}
+
 function drawRows(){
  const q=(document.getElementById('q')?.value||"").toLowerCase();
  const rows=LIST.filter(x=>(listTab==="all"||x.status===listTab)&&(!q||[x.quote_number,x.client,x.website,x.products_summary,x.io_number].join(" ").toLowerCase().includes(q)));
+ /* Uploaded proposals show under "all" and under their own tab. They have no
+    Draft/Approved status, so filtering them by one would hide them entirely
+    rather than say why they are missing. */
+ const ups=(listTab==="all"||listTab==="Uploaded")
+   ? UPLOADED.filter(x=>!q||[x.client,x.filename,x.title,x.note,x.uploaded_by].join(" ").toLowerCase().includes(q))
+   : [];
+ const merged=rows.map(x=>({x,html:rowHtml(x),t:x.created_at||""}))
+   .concat(ups.map(x=>({x,html:uploadedRowHtml(x),t:x.date_sent||x.created_at||""})))
+   .sort((a,b)=>String(b.t).localeCompare(String(a.t)));
  const tb=document.getElementById('rows');if(!tb)return;
- tb.innerHTML=rows.map(rowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
+ tb.innerHTML=merged.map(r=>r.html).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
 }
 function quickConvert(){const c=LIST.filter(x=>x.status==='Approved');if(!c.length){toast("No approved proposals yet — mark a quote Approved first, then convert it.");return;}openConvert(c[0].id);}
 async function aiDraft(){
@@ -508,13 +587,14 @@ async function drawProposals(){
  const host=document.getElementById('view-proposals');
  host.innerHTML='<div class="empty"><span class="spin"></span>Loading proposals…</div>';
  let l;try{l=await api('/sales/builder/api/quotes?limit=300');}catch(e){host.innerHTML='<div class="empty">'+esc(e.message)+'</div>';return;}
+ try{const u=await api('/sales/builder/api/uploaded-proposals?limit=200');UPLOADED=(u.proposals||[]).map(asUploadedRow);}catch(e){}
  LIST=l.quotes||[];
  host.innerHTML=`
   <div class="headrow"><div class="grow"><h1>Proposals &amp; Quotes</h1><div class="pgsub">Every saved quote — look one up, edit it, duplicate it, or convert it to an IO.</div></div>
    <button class="btn btn-gold" onclick="startNewProposal()">✨ New Proposal</button></div>
   <div class="panel">
    <div class="phead"><span class="ttl">All Quotes</span>
-    <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Lost"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t}</span>`).join("")}</div>
+    <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Lost","Uploaded"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t}</span>`).join("")}</div>
     <div class="search"><input id="q" placeholder="Search client, quote #, IO #…" oninput="drawRows()"></div></div>
    <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
    <tbody id="rows"></tbody></table>

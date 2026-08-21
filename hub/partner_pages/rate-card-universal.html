@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2026 Universal Rate Card</title>
+</head>
+<body>
+<style>html,body{margin:0;padding:0;background:#f5f7fa}@media (prefers-color-scheme:dark){html:not([data-theme="light"]),html:not([data-theme="light"]) body{background:#0a1725}}html[data-theme="dark"],html[data-theme="dark"] body{background:#0a1725}.s1app{min-height:100vh}
+.s1app{--navy:#0e1f36; --navy2:#16304f; --accent:#2f80ed; --accent-dark:#1f5fc0;
+  --gold:#f2a33c; --bg:#f5f7fa; --card:#ffffff; --sunk:#eef3f8;
+  --ink:#1c2734; --muted:#5b6b7c; --line:#e3e9f0; --line2:#d6e0ea;
+  --band:#0e1f36; --chip:#e8f1fd; --chip-ink:#1f5fc0; --mark:#ffe6a8; --mark-ink:#5a3d00;
+  --radius:14px; --shadow:0 6px 18px rgba(20,45,80,.10); --stick-top:0px;}
+@media (prefers-color-scheme:dark){.s1app:not([data-theme="light"]){--navy:#0a1725; --navy2:#12283f; --accent:#6fa9f2; --accent-dark:#8fbdf7;
+    --gold:#f5b55e; --bg:#0a1725; --card:#10243a; --sunk:#0d1e31;
+    --ink:#e8eff7; --muted:#94a9be; --line:#1e3a58; --line2:#264a6d;
+    --band:#17334f; --chip:#16324e; --chip-ink:#9cc6f8; --mark:#5a4410; --mark-ink:#ffe6a8;
+    --shadow:0 6px 18px rgba(0,0,0,.35);}}
+.s1app[data-theme="dark"]{--navy:#0a1725; --navy2:#12283f; --accent:#6fa9f2; --accent-dark:#8fbdf7;
+  --gold:#f5b55e; --bg:#0a1725; --card:#10243a; --sunk:#0d1e31;
+  --ink:#e8eff7; --muted:#94a9be; --line:#1e3a58; --line2:#264a6d;
+  --band:#17334f; --chip:#16324e; --chip-ink:#9cc6f8; --mark:#5a4410; --mark-ink:#ffe6a8;
+  --shadow:0 6px 18px rgba(0,0,0,.35);}
+.s1app *{margin:0;padding:0;box-sizing:border-box}
+.s1app{scroll-behavior:smooth}
+.s1app{font-family:'Segoe UI',system-ui,-apple-system,Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased}
+.s1app .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+.s1app .topnav{background:var(--navy);border-bottom:1px solid rgba(255,255,255,.09)}
+.s1app .topnav .wrap{display:flex;gap:4px;align-items:center;overflow-x:auto;scrollbar-width:none}
+.s1app .topnav .wrap::-webkit-scrollbar{display:none}
+.s1app .topnav a{padding:13px 16px;color:#a9c2dd;text-decoration:none;font-size:13.5px;font-weight:700;
+  white-space:nowrap;border-bottom:3px solid transparent;transition:color .15s,border-color .15s}
+.s1app .topnav a:hover{color:#fff}
+.s1app .topnav a[aria-current="page"]{color:#fff;border-bottom-color:var(--gold)}
+.s1app .topnav a:focus-visible{outline:2px solid var(--gold);outline-offset:-3px}
+.s1app header{background:linear-gradient(135deg,var(--navy) 0%,var(--navy2) 70%,#1d3d63 100%);color:#fff;padding:34px 0 32px}
+.s1app .head-row{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end;justify-content:space-between}
+.s1app h1{font-size:clamp(27px,4vw,38px);font-weight:800;line-height:1.14;text-wrap:balance;color:#fff}
+.s1app .sub{margin-top:12px;font-size:16.5px;color:#c8d6e8;max-width:620px}
+.s1app .eff{font-size:12.5px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;color:var(--gold);margin-bottom:10px}
+.s1app .btn{display:inline-block;padding:12px 22px;border-radius:9px;font-weight:700;font-size:14.5px;
+  text-decoration:none;border:0;cursor:pointer;transition:all .15s ease;font-family:inherit;text-align:center}
+.s1app .btn-primary{background:var(--gold);color:#0e1f36}
+.s1app .btn-primary:hover{background:#ffb95a;transform:translateY(-1px)}
+.s1app .controls{position:sticky;top:var(--stick-top);z-index:30;background:var(--card);border-bottom:1px solid var(--line);
+  box-shadow:0 2px 10px rgba(20,45,80,.05)}
+.s1app .controls-inner{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:14px 0}
+.s1app .search{position:relative;flex:1 1 300px;min-width:230px}
+.s1app .search input{width:100%;padding:12px 40px 12px 40px;border:1.5px solid var(--line2);border-radius:10px;
+  background:var(--sunk);color:var(--ink);font-size:15px;font-family:inherit;transition:border-color .15s}
+.s1app .search input:focus{outline:none;border-color:var(--accent);background:var(--card);
+  box-shadow:0 0 0 3px rgba(47,128,237,.16)}
+.s1app .search input::placeholder{color:var(--muted)}
+.s1app .search .ico{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted);
+  pointer-events:none;line-height:0}
+.s1app .search .slash{position:absolute;right:11px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;
+  color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:2px 6px;pointer-events:none}
+.s1app .search input:not(:placeholder-shown)~.slash{display:none}
+.s1app .seg{display:inline-flex;background:var(--sunk);border:1.5px solid var(--line2);border-radius:10px;padding:3px;gap:3px}
+.s1app .seg button{padding:8px 16px;border-radius:7px;background:none;font-size:13.5px;font-weight:700;
+  color:var(--muted);cursor:pointer;font-family:inherit;transition:all .15s;border:0}
+.s1app .seg button[aria-pressed="true"]{background:var(--band);color:#fff}
+.s1app .seg button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.s1app .count{font-size:13.5px;color:var(--muted);font-weight:600;white-space:nowrap}
+.s1app .count b{color:var(--ink);font-variant-numeric:tabular-nums}
+.s1app .chipbar{background:var(--bg);border-bottom:1px solid var(--line);padding:12px 0}
+.s1app .chips{display:flex;flex-wrap:wrap;gap:7px}
+.s1app .chip{padding:6px 13px;border-radius:20px;border:1.5px solid var(--line2);background:var(--card);
+  color:var(--muted);font-size:12.8px;font-weight:650;cursor:pointer;font-family:inherit;transition:all .15s}
+.s1app .chip:hover{border-color:var(--accent);color:var(--accent)}
+.s1app .chip[aria-pressed="true"]{background:var(--chip);border-color:var(--accent);color:var(--chip-ink)}
+.s1app .chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.s1app main{padding:26px 0 40px}
+.s1app .section{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  margin-bottom:20px;overflow:hidden;box-shadow:var(--shadow);scroll-margin-top:140px}
+.s1app .sec-head{background:var(--band);color:#fff;padding:14px 20px;display:flex;align-items:baseline;
+  justify-content:space-between;gap:16px}
+.s1app .sec-head h2{font-size:16.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#fff}
+.s1app .sec-head .n{font-size:12px;font-weight:700;color:#9fc0e6;font-variant-numeric:tabular-nums;white-space:nowrap}
+.s1app .grp{padding:13px 20px 5px;font-size:11.5px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent)}
+.s1app mark{background:var(--mark);color:var(--mark-ink);border-radius:3px;padding:0 1px}
+.s1app .empty{display:none;text-align:center;padding:60px 24px;color:var(--muted)}
+.s1app .empty h3{font-size:19px;font-weight:800;color:var(--ink);margin-bottom:6px}
+.s1app[data-empty="1"] .empty{display:block}
+.s1app .xlinks{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.s1app .xlink{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;
+  background:var(--chip);color:var(--chip-ink);font-size:11.5px;font-weight:750;text-decoration:none;
+  border:1px solid transparent;transition:all .15s;white-space:nowrap}
+.s1app .xlink:hover{border-color:var(--accent);transform:translateY(-1px)}
+.s1app .xlink:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.s1app *{transition:none!important;scroll-behavior:auto!important}}
+@media (max-width:720px){.s1app .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.s1app .chips::-webkit-scrollbar{display:none}
+.s1app .chip{white-space:nowrap;flex:none}
+.s1app .controls-inner{gap:10px}}
+@media (max-width:640px){.s1app header{padding:26px 0 24px}
+.s1app .wrap{padding:0 16px}}
+.s1app .legend{display:grid;gap:16px;padding:9px 20px;background:var(--sunk);border-bottom:1px solid var(--line);
+  font-size:10.8px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted)}
+.s1app .row{display:grid;gap:16px;padding:14px 20px;border-top:1px solid var(--line);align-items:start}
+.s1app .grp+.row{border-top:0}
+.s1app .legend, .s1app .row{grid-template-columns:2.3fr 1.35fr 2.6fr 1.4fr .95fr}
+.s1app .row:hover{background:var(--sunk)}
+.s1app .p{font-size:14.5px;font-weight:700;line-height:1.4}
+.s1app .pr{font-size:15px;font-weight:800;color:var(--accent-dark);font-variant-numeric:tabular-nums;line-height:1.4}
+.s1app .pr.quote{color:var(--muted);font-weight:700;font-size:13.5px}
+.s1app .d{font-size:13.3px;color:var(--muted);line-height:1.5}
+.s1app .q{font-size:12.6px;color:var(--muted);line-height:1.45}
+.s1app .q.has{color:var(--ink)}
+.s1app .t .pill{display:inline-block;background:var(--chip);color:var(--chip-ink);border-radius:6px;
+  padding:3px 9px;font-size:12px;font-weight:750;white-space:nowrap;font-variant-numeric:tabular-nums}
+.s1app .t .pill.none{background:none;color:var(--muted);padding-left:0;font-weight:600}
+.s1app .notice{display:none;gap:14px;align-items:center;flex-wrap:wrap;background:var(--chip);
+  border:1px solid var(--line2);border-left:4px solid var(--gold);border-radius:10px;
+  padding:14px 18px;margin:22px 0 0;font-size:13.8px;color:var(--ink)}
+.s1app[data-mode="retail"] .notice{display:flex}
+.s1app .notice .txt{flex:1 1 340px;min-width:280px}
+.s1app .notice b{color:var(--ink)}
+.s1app .mkctl{display:flex;align-items:center;gap:9px;flex:none}
+.s1app .mkctl label{font-size:12px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted)}
+.s1app .mkfield{display:flex;align-items:center;background:var(--card);border:1.5px solid var(--line2);
+  border-radius:9px;padding:2px 10px 2px 4px;transition:border-color .15s}
+.s1app .mkfield:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,128,237,.16)}
+.s1app .mkfield input{width:66px;padding:8px 6px;border:0;background:none;color:var(--ink);font-family:inherit;
+  font-size:16px;font-weight:800;text-align:right;font-variant-numeric:tabular-nums}
+.s1app .mkfield input:focus{outline:none}
+.s1app .mkfield input::-webkit-outer-spin-button, .s1app .mkfield input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.s1app .mkfield input[type=number]{-moz-appearance:textfield}
+.s1app .mkfield .pct{font-size:16px;font-weight:800;color:var(--muted)}
+.s1app .mkreset{background:none;border:0;color:var(--accent);font-family:inherit;font-size:12.5px;
+  font-weight:700;cursor:pointer;text-decoration:underline;padding:4px}
+.s1app .mkreset:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:900px){.s1app .legend{display:none}
+.s1app .row{grid-template-columns:1fr;gap:7px;padding:16px 18px}
+.s1app .row>div:empty{display:none}
+.s1app .pr::before, .s1app .q.has::before, .s1app .t::before{display:block;font-size:10.5px;font-weight:800;
+    letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.s1app .pr::before{content:"Price"}
+.s1app .q.has::before{content:"Requirements"}
+.s1app .t::before{content:"Launch"}}
+.s1app .section.flash{outline:2px solid var(--accent);outline-offset:-1px}</style>
+<div class="s1app"><nav class="topnav"><div class="wrap"><a href="" data-link="rate" aria-current="page">Rate Card</a><a href="" data-link="specs">Creative Specs</a><a href="" data-link="kit">Product Sales Kit</a><a href="" data-link="library">Learning Library</a><a href="" data-link="dict">Digital Dictionary</a></div></nav>
+<header><div class="wrap"><div class="head-row"><div><div class="eff">Partner Rate Card &middot; Effective 2026</div><h1>2026 Universal Rate Card</h1><p class="sub">Every product and service we fulfill, with pricing, requirements and launch timelines. Search it, filter it, or switch between your cost and client-facing pricing.</p></div><div><a class="btn btn-primary" href="mailto:clientsuccess@smart1marketing.com?subject=Pricing%20and%20Rate%20Card%20Help&body=Hi%20Smart%201%20team%2C%0A%0A">Need help with pricing or have a question?</a></div></div></div></header>
+
+<div class="controls">
+  <div class="wrap">
+    <div class="controls-inner">
+      <div class="search">
+        <span class="ico" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg></span>
+        <input id="q" type="search" placeholder="Search products, targeting, requirements&hellip;" aria-label="Search the rate card" autocomplete="off">
+        <span class="slash" aria-hidden="true">/</span>
+      </div>
+      <div class="seg" role="group" aria-label="Pricing view">
+        <button id="mWholesale" type="button" aria-pressed="true">Wholesale</button>
+        <button id="mRetail" type="button" aria-pressed="false">Retail</button>
+      </div>
+      <div class="count" id="count" aria-live="polite" role="status"></div>
+    </div>
+  </div>
+</div>
+
+<div class="chipbar"><div class="wrap"><div class="chips" id="chips"></div></div></div>
+
+<div class="wrap">
+  <div class="notice">
+    <div class="txt"><b>Retail view.</b> Client-facing prices are calculated from your wholesale cost using the markup below &mdash; it defaults to <b>50%</b>. Change it and every price on the page updates. Custom-quote items and stated budget minimums stay as they are.</div>
+    <div class="mkctl">
+      <label for="mk">Markup</label>
+      <div class="mkfield">
+        <input id="mk" type="number" min="0" max="500" step="1" value="50" aria-label="Retail markup percentage">
+        <span class="pct" aria-hidden="true">%</span>
+      </div>
+      <button class="mkreset" id="mkreset" type="button">Reset</button>
+    </div>
+  </div>
+</div>
+
+<main class="wrap" id="main"></main>
+
+<div class="empty">
+  <h3>No matches</h3>
+  <p>Nothing in the rate card matches that search. Try a shorter term, or <button class="chip" id="clearAll" type="button">clear the search</button></p>
+</div>
+
+<script>
+const LINKS = {"rate": "/rate-card-universal", "specs": "/creative-specs", "kit": "/sales-kit", "library": "/learning-library", "dict": "/digital-dictionary"};
+const DATA = [{"s": "Programmatic Campaign", "groups": [{"g": null, "items": [{"p": "Select Tactics \u2014 Comes with Retargeting", "w": "$5.50 / CPM", "mk": "auto", "d": "Creation of Custom Audience which could include Category, Demographic, Behavioral, Contextual, Job Title, Mobile Category, Mobile Behavioral, Mobile Geo Fence, and Retargeting.", "q": "Requires Pixel Placement on Client Website", "t": "3 Business Days", "kit": "programmatic", "spec": "desktop-display"}]}]}, {"s": "Targeted Display", "groups": [{"g": "Outreach", "items": [{"p": "RON (Run of Network)", "w": "$3.50 / CPM", "mk": "auto", "d": "Geographic Target Only", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "desktop-display"}, {"p": "Category", "w": "$4.25 / CPM", "mk": "auto", "d": "Websites your customer would visit regularly.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "desktop-display"}, {"p": "Demographic", "w": "$4.25 / CPM", "mk": "auto", "d": "Target Gender, Age, or Income Range", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "desktop-display"}, {"p": "Behavioral", "w": "$4.25 / CPM", "mk": "auto", "d": "Segments are identified by history of searches and online content consumption.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "desktop-display"}, {"p": "Contextual", "w": "$4.25 / CPM", "mk": "auto", "d": "Targets ads next to relevant content on a website.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "desktop-display"}, {"p": "Advanced Audience", "w": "$5.50 / CPM", "mk": "auto", "d": "Combination of Demographic and Behavioral information to target ads.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "desktop-display"}, {"p": "Native Display", "w": "$13.20 / CPM", "mk": "auto", "d": "Your message surrounded by content, fully integrated into the natural site experience.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "native-display"}, {"p": "Job Title", "w": "$7.00 / CPM", "mk": "auto", "d": "Targeted ads are served to job title segments as users visit any site across the web.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "desktop-display"}, {"p": "Temperature", "w": "$8.00 / CPM", "mk": "auto", "d": "Ads served based on temperature, precipitation or other weather patterns.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "desktop-display"}]}, {"g": "Retargeting", "items": [{"p": "Website Retargeting", "w": "$4.75 / CPM", "mk": "auto", "d": "Target previous website visitors as they browse the internet.", "q": "Requires Pixel Placement on Client Website", "t": "2 Business Days", "kit": "data-based-targeting", "spec": "desktop-display"}, {"p": "Facebook / Instagram Retargeting \u2014 No Impression Guarantee, Frequency Cap Allowed", "w": "25% Mgmt Fee", "mk": "auto", "d": "Target previous website visitors on Facebook and Instagram.", "q": "Requires Facebook Access; Requires Pixel Placement on Client Website", "t": "3 Business Days", "kit": "social-media-ads", "spec": "facebook-display"}]}, {"g": "Mobile Only", "items": [{"p": "RON (Run of Network)", "w": "$3.50 / CPM", "mk": "auto", "d": "Geographic Target Only", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "mobile-display"}, {"p": "Category", "w": "$4.00 / CPM", "mk": "auto", "d": "Websites your customer would visit regularly.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "mobile-display"}, {"p": "Behavioral", "w": "$4.00 / CPM", "mk": "auto", "d": "Segments are identified by history of searches and online content consumption.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "mobile-display"}, {"p": "In-Store Visits", "w": "$9.00 / CPM", "mk": "auto", "d": "We find the user online and then track them going to a physical location.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "mobile-display"}, {"p": "Geo-Fence", "w": "$5.00 / CPM", "mk": "auto", "d": "Pinpoint a target audience within a specific area in real time.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "mobile-display"}, {"p": "Geo-Fence :: Targeted", "w": "$5.75 / CPM", "mk": "auto", "d": "Pinpoint a target audience within a specific area in real time with either Behavioral or Demographic Targeting.", "q": "", "t": "2 Business Days", "kit": "display-network-targeting", "spec": "mobile-display"}]}, {"g": "Location Lookback", "items": [{"p": "Demographic", "w": "$7.50 / CPM", "mk": "auto", "d": "Look Back as early as 2 Weeks up to 1 Year", "q": "", "t": "3 Business Days", "kit": "data-based-targeting", "spec": "desktop-display"}, {"p": "Behavioral", "w": "$7.50 / CPM", "mk": "auto", "d": "Look Back as early as 2 Weeks up to 1 Year", "q": "", "t": "3 Business Days", "kit": "data-based-targeting", "spec": "desktop-display"}, {"p": "Brand Affinity", "w": "$7.50 / CPM", "mk": "auto", "d": "Look Back as early as 2 Weeks up to 1 Year", "q": "Restaurants & Coffee Shops / Automotive / Grocery, Convenience & Drug Stores / Apparel, Shoes & Accessories / General Retail / Gas Stations / Financial", "t": "3 Business Days", "kit": "data-based-targeting", "spec": "desktop-display"}, {"p": "List Provided Locations", "w": "$7.50 / CPM", "mk": "auto", "d": "Look Back 1 Month / 3 Months / 6 Months / 1 Year", "q": "Must Provide List of Locations", "t": "3 Business Days", "kit": "data-based-targeting", "spec": "desktop-display"}]}]}, {"s": "Video Pre / Mid / Post-Roll", "groups": [{"g": "Outreach", "items": [{"p": "Programmatic \u2014 RON (Run of Network)", "w": "$14.00 / CPM", "mk": "auto", "d": "Geographic Target Only", "q": "", "t": "2 Business Days", "kit": "video-youtube", "spec": "standard-video"}, {"p": "Programmatic \u2014 Targeted", "w": "$17.00 / CPM", "mk": "auto", "d": "Pinpoint a target audience within a specific area with either Behavioral or Demographic Targeting.", "q": "", "t": "2 Business Days", "kit": "video-youtube", "spec": "standard-video"}, {"p": "Premium: Non-Skippable", "w": "$23.00 / CPM", "mk": "auto", "d": "Larger Video Players / Premium Spots on Page / Must watch entire video", "q": "", "t": "2 Business Days", "kit": "video-youtube", "spec": "standard-video"}, {"p": "Premium Native Video", "w": "$26.00 / CPM", "mk": "auto", "d": "Does NOT run on CTV \u2014 websites and apps only, no streaming services. Desktop / mobile / tablets.", "q": "", "t": "2 Business Days", "kit": "video-youtube", "spec": "native-video"}]}, {"g": "YouTube", "items": [{"p": "TrueView", "w": "$0.20 / CPV", "mk": "auto", "d": ":12 / :15 / :30 Spots \u2014 only pay when video is watched. Geographic Target Only.", "q": "YouTube Account Access Required", "t": "3 Business Days", "kit": "video-youtube", "spec": "youtube-video"}, {"p": "TrueView \u2014 Targeted", "w": "$0.25 / CPV", "mk": "auto", "d": ":12 / :15 / :30 Spots \u2014 only pay when video is watched. Select Demographic or Behavioral Target.", "q": "YouTube Account Access Required", "t": "3 Business Days", "kit": "video-youtube", "spec": "youtube-video"}, {"p": "Bumpers", "w": "$15.00 / CPM", "mk": "auto", "d": ":06 Spots / Non-Skippable", "q": "YouTube Account Access Required", "t": "3 Business Days", "kit": "video-youtube", "spec": "youtube-video"}]}]}, {"s": "Search Engine Marketing / PPC", "groups": [{"g": null, "items": [{"p": "Pay Per Click", "w": "15% Mgmt from Retail Cost", "mk": "auto", "d": "Text Ads on Google / Bing / Yahoo", "q": "", "t": "3 Business Days", "kit": "sem"}, {"p": "Google Grant (Setup)", "w": "$125 One time set up fee", "mk": "auto", "d": "", "q": "", "t": "", "kit": "sem"}, {"p": "Google Grant (Management)", "w": "15% Mgmt fee monthly", "mk": "auto", "d": "", "q": "", "t": "", "kit": "sem"}, {"p": "Local Service Ads \u2014 LSA (Setup)", "w": "$125 One time set up fee", "mk": "auto", "d": "We claim and file the necessary documents for Google, have background checks put through, and complete the final documents necessary to launch.", "q": "6 Month Minimum Contract", "t": "15 Business Days \u2014 may take longer due to background checks required by Google.", "kit": "lsa-pmax"}, {"p": "Local Service Ads \u2014 LSA (Management)", "w": "15% Mgmt fee monthly", "mk": "auto", "d": "", "q": "6 Month Minimum Contract", "t": "", "kit": "lsa-pmax"}, {"p": "Pay Per Click \u2014 Shopping", "w": "15% Mgmt from Retail Cost", "mk": "auto", "d": "Shopping Ads on Google using Merchant Center Feed.", "q": "Google Merchant Center access required", "t": "3 Business Days", "kit": "sem"}, {"p": "Shopping Campaign Merchant Center Set Up", "w": "Custom Quote Required", "mk": "none", "d": "Feed that connects shopping campaign to Google.", "q": "", "t": "10 Business Days", "kit": "sem"}]}]}, {"s": "Search Engine Optimization", "groups": [{"g": null, "items": [{"p": "Search Engine Optimization", "w": "50% of Retail Cost / Custom Quote Required", "mk": "none", "d": "On and off site optimizations to increase the volume and quality of traffic to a website from search engines.", "q": "6 Month Minimum Contract", "t": "5 Business Days", "rf": "Custom Quote Required", "kit": "seo"}, {"p": "Local Business Boost", "w": "$75 Per Location / Per Month", "mk": "auto", "d": "Claim, Optimize, Manage & Monitor across 50+ directories, plus Google Business Profile (GMB) management & optimization and Google review generation (up to 200 texts/mo/location).", "q": "6 Month Minimum Contract", "t": "5 Business Days", "kit": "local-business-listings"}, {"p": "Additional Location for Local Business Boost \u2014 inclusive of Google Review Generation", "w": "$65 Per Location / Per Month", "mk": "auto", "d": "Additional location added to the Local Business Boost package.", "q": "6 Month Minimum Contract", "t": "5 Business Days", "kit": "reputation-management"}, {"p": "A La Carte :: Local Business Listing Management", "w": "$35.00 Per Location / Per Month", "mk": "auto", "d": "Claim, Optimize, Manage & Monitor listings in the search engine results for local searches.", "q": "6 Month Minimum Contract", "t": "5 Business Days", "kit": "local-business-listings"}, {"p": "Google Analytics Consultation", "w": "Custom Quote Required", "mk": "none", "d": "Let our experts install / update / repair / create goals within the client's Google Analytics.", "q": "", "t": "5 Business Days", "kit": "seo"}]}]}, {"s": "Social Media Advertising", "groups": [{"g": "Display", "items": [{"p": "Facebook | Instagram \u2014 Awareness", "w": "25% Mgmt Fee", "mk": "auto", "d": "Geographic Target with clicks to your page or site.", "q": "Social Media Channels Access Required", "t": "2 Business Days", "kit": "social-media-ads", "spec": "facebook-display"}, {"p": "Facebook | Instagram \u2014 Targeted", "w": "25% Mgmt Fee", "mk": "auto", "d": "Geographic plus one of Demographic or Behavioral tactics implemented to reach a specific audience.", "q": "Social Media Channels Access Required", "t": "2 Business Days", "kit": "social-media-ads", "spec": "facebook-display"}, {"p": "Programmatic Paid Social \u2014 Budget Based, No Impression Guarantee", "w": "25% Mgmt Fee", "mk": "auto", "d": "Blended paid social advertising that allows for more than one tactic to be implemented. Includes Social Media Retargeting.", "q": "Social Media Channels Access Required", "t": "2 Business Days", "kit": "social-media-ads", "spec": "facebook-display"}, {"p": "Facebook / Instagram Retargeting \u2014 No Impression Guarantee, Frequency Cap Allowed", "w": "25% Mgmt Fee", "mk": "auto", "d": "Target previous website visitors on Facebook and Instagram.", "q": "Requires Facebook Access; Requires Pixel Placement on Client Website", "t": "3 Business Days", "kit": "social-media-ads", "spec": "facebook-display"}, {"p": "Facebook \u2014 Leads", "w": "25% Mgmt Fee", "mk": "auto", "d": "Fill out a form in the ad and allow a business to follow up.", "q": "Social Media Channels Access Required", "t": "2 Business Days", "kit": "social-media-ads", "spec": "facebook-display"}, {"p": "Facebook \u2014 Boosted Posts", "w": "$20.00 / Per Post", "mk": "auto", "d": "Get more people to see and engage with your Post or Page.", "q": "Social Media Channels Access Required", "t": "2 Business Days", "kit": "social-media-ads", "spec": "facebook-display"}]}, {"g": "Video & Platforms", "items": [{"p": "Facebook | Instagram \u2014 Paid Social Video Advertising", "w": "25% Mgmt Fee", "mk": "auto", "d": "Share your client goal and Smart 1 will decide what targeting and platform is best suited.", "q": "Social Media Channels Access Required", "t": "2 Business Days", "kit": "social-media-ads", "spec": "facebook-video"}, {"p": "LinkedIn \u2014 Display & Text Ads, Budget Based, No Impression Guarantee", "w": "25% Mgmt Fee", "mk": "auto", "d": "Get your business in front of specific audiences and drive them to your website or landing page.", "q": "LinkedIn Access Required", "t": "3 Business Days", "kit": "social-media-ads", "spec": "linkedin"}, {"p": "Pinterest \u2014 Paid Social Media Advertising", "w": "25% Management Fee", "mk": "auto", "d": "Share your client goal and Smart 1 will decide what targeting is best suited.", "q": "Social Media Channels Access Required", "t": "2 Business Days", "kit": "social-media-ads"}, {"p": "Snapchat \u2014 Paid Social Media Advertising", "w": "25% Management Fee", "mk": "auto", "d": "Share your client goal and Smart 1 will decide what targeting is best suited.", "q": "Social Media Channels Access Required", "t": "2 Business Days", "kit": "social-media-ads", "spec": "snapchat"}, {"p": "Twitter / X \u2014 Paid Social Media Advertising", "w": "25% Management Fee", "mk": "auto", "d": "Share your client goal and Smart 1 will decide what targeting is best suited.", "q": "Social Media Channels Access Required", "t": "2 Business Days", "kit": "social-media-ads", "spec": "x-twitter"}, {"p": "TikTok \u2014 Paid Social Media Advertising", "w": "25% Mgmt Fee (minimum daily budget of $35 or $1,068 monthly)", "mk": "pctonly", "d": "Share your client goal and Smart 1 will decide what targeting is best suited.", "q": "Social Media Channels Access Required", "t": "2 Business Days", "kit": "social-media-ads", "spec": "tiktok"}]}]}, {"s": "Social Media Management", "groups": [{"g": null, "items": [{"p": "Social Media Management", "w": "$199.00", "mk": "auto", "d": "Cultivate awareness, connections and engagement on social media channels. Up to 15 posts per month.", "q": "All Social Media Channels Administrative Access Required", "t": "5 Business Days", "kit": "social-media-management"}]}]}, {"s": "IP Targeting", "groups": [{"g": "Display & Video", "items": [{"p": "IP Targeted Display \u2014 list supplied or purchased separately", "w": "$18.00 / CPM", "mk": "auto", "d": "Target a user's IP address to deliver display ads.", "q": "30,000 Impression Minimum monthly (3 month minimum)", "t": "3 Business Days", "kit": "ip-targeting"}, {"p": "IP Targeted Display \u2014 New Movers", "w": "$25.00 / CPM", "mk": "auto", "d": "Target new movers to deliver display ads.", "q": "30,000 Impression Minimum monthly (3 month minimum)", "t": "3 Business Days", "kit": "advanced-ip-targeting", "spec": "desktop-display"}, {"p": "IP Targeted Display \u2014 Venue Replay", "w": "$19.50 / CPM", "mk": "auto", "d": "Uses locations to target IPs in a unique location or locations.", "q": "30,000 Impression Minimum monthly (3 month minimum)", "t": "3 Business Days", "kit": "advanced-ip-targeting", "spec": "desktop-display"}, {"p": "IP Targeted Video \u2014 list supplied or purchased separately", "w": "$31.00 / CPM", "mk": "auto", "d": "Target a user's IP address to deliver video ads.", "q": "30,000 Impression Minimum monthly (3 month minimum)", "t": "3 Business Days", "kit": "ip-targeting"}]}, {"g": "Add-On Product", "items": [{"p": "Purchase / Rented IP Targeting List", "w": "Custom Quote Required", "mk": "none", "d": "Purchase of address list to match goals of campaign.", "q": "", "t": "5 Business Days", "kit": "ip-targeting"}]}]}, {"s": "Digital Radio & Podcasts", "groups": [{"g": null, "items": [{"p": "Programmatic \u2014 Targeted", "w": "$18.00 CPM / add $3.00 for specialty targeting", "mk": "auto", "d": "Layer a behavioral target on your digital radio spot to find the right audience. Channels may include iHeart, Pandora, Spotify, SoundCloud and others.", "q": "Specific channel requests require a custom quote", "t": "3 Business Days", "kit": "digital-radio", "spec": "digital-radio"}, {"p": "Programmatic \u2014 Run of Site (ROS)", "w": "$13.50 CPM", "mk": "auto", "d": "Run of site placement across the digital radio network.", "q": "", "t": "3 Business Days", "kit": "digital-radio", "spec": "digital-radio"}, {"p": "Podcasts \u2014 Targeted", "w": "$18.00 CPM / add $3.00 for specialty targeting", "mk": "auto", "d": "Layer a behavioral target on your podcast spot to find the right audience. Channels may include iHeart, Pandora, Spotify, SoundCloud and others.", "q": "Specific channel requests require a custom quote", "t": "3 Business Days", "kit": "digital-radio", "spec": "digital-radio"}, {"p": "Podcasts \u2014 Run of Site (ROS)", "w": "$13.50 CPM", "mk": "auto", "d": "Run of site placement across the podcast network.", "q": "", "t": "3 Business Days", "kit": "digital-radio", "spec": "digital-radio"}, {"p": "Optional Companion Banner", "w": "Free with other tactic selected", "mk": "none", "d": "300x250 .jpeg that runs alongside radio ads when streaming.", "q": "", "t": "3 Business Days", "kit": "digital-radio", "spec": "digital-radio"}]}]}, {"s": "OTT / Connected TV", "groups": [{"g": null, "items": [{"p": "Connected TV \u2014 Targeted", "w": "$35.00 / CPM", "mk": "auto", "d": "Played on televisions only. Behavioral or Demographic along with DMA or larger target.", "q": "Specific channel requests require a custom quote", "t": "3 Business Days", "kit": "ctv-ott", "spec": "ctv-ott"}, {"p": "Advanced TV \u2014 Targeted", "w": "$25.00 / CPM", "mk": "auto", "d": "Played on all streaming services, all devices and connected apps. Full video solution inclusive of targeting an audience.", "q": "Specific channel requests require a custom quote", "t": "3 Business Days", "kit": "ctv-ott", "spec": "ctv-ott"}]}]}, {"s": "Email Marketing", "groups": [{"g": null, "items": [{"p": "List Provided Email", "w": "$100.00 Per Send", "mk": "auto", "d": "Email blast to emails provided by client.", "q": "Up to 5,000 Email Addresses", "t": "3 Business Days", "kit": "email-marketing", "spec": "standard-email"}, {"p": "Behavioral Targeted Email \u2014 Purchasing Data", "w": "$20.00 / CPM", "mk": "auto", "d": "Email blast to emails purchased by client that match goals of campaign.", "q": "50,000 Send Minimum", "t": "5 Business Days", "kit": "email-marketing", "spec": "standard-email"}, {"p": "Email Targeting List \u2014 Purchasing Data", "w": "Custom Quote Required", "mk": "none", "d": "Purchase of email list to match goals of campaign.", "q": "", "t": "5 Business Days", "kit": "email-marketing", "spec": "standard-email"}, {"p": "Email Template Creative Production", "w": "$100.00", "mk": "auto", "d": "Includes 1 round of revisions. Edits for supplemental campaigns at $25 each with one round of revisions.", "q": "", "t": "5 Business Days", "kit": "email-marketing", "spec": "standard-email"}]}]}, {"s": "Call Tracking", "groups": [{"g": null, "items": [{"p": "1st Phone Number \u2014 with area code", "w": "$15.00 / Month", "mk": "auto", "d": "Dynamic phone number for pay per click conversion tracking.", "q": "", "t": "2 Business Days", "kit": "call-tracking"}, {"p": "Additional Phone Numbers \u2014 with area code", "w": "$10.00 / Month", "mk": "auto", "d": "Dynamic phone number for pay per click conversion tracking.", "q": "", "t": "2 Business Days", "kit": "call-tracking"}, {"p": "1st Toll Free Number", "w": "$20.00 / Month", "mk": "auto", "d": "Dynamic toll free number for pay per click conversion tracking.", "q": "", "t": "2 Business Days", "kit": "call-tracking"}, {"p": "Additional Toll Free Numbers", "w": "$10.00 / Month", "mk": "auto", "d": "Dynamic toll free number for pay per click conversion tracking.", "q": "", "t": "2 Business Days", "kit": "call-tracking"}]}]}, {"s": "Web Development", "groups": [{"g": null, "items": [{"p": "WordPress Website", "w": "Custom Quote Required", "mk": "none", "d": "Mobile responsive website built on the WordPress platform.", "q": "", "t": "Will come in quote", "kit": "web-production"}, {"p": "E-Commerce Website", "w": "Custom Quote Required", "mk": "none", "d": "Mobile responsive e-commerce website built on the Shopify platform.", "q": "", "t": "Will come in quote", "kit": "web-production"}, {"p": "Landing Page", "w": "$100 One Time Fee or $19 per month", "mk": "auto", "d": "Single web page to land an advertising campaign with call to action and lead form.", "q": "Includes 1 round of revisions", "t": "5 Business Days", "kit": "web-production"}, {"p": "Smart 1 Snap", "w": "$499 / One time set up fee", "mk": "auto", "d": "5 page Snap.", "q": "", "t": "5 Business Days", "kit": "smart-1-snap"}, {"p": "Snap Management Fee & Texting for Snap", "w": "$75 / Month", "mk": "auto", "d": "Includes 500 texts, hosting, and 1 hour of changes monthly.", "q": "", "t": "", "kit": "smart-1-snap"}, {"p": "Monthly Website Hosting & Maintenance \u2014 standard WordPress site", "w": "$75.00 / Month", "mk": "auto", "d": "Hosting and maintenance for a standard WordPress site.", "q": "12 Month Minimum", "t": "", "kit": "web-production"}, {"p": "Smart 1 Site / 2\u20135 pages", "w": "$349.50 One time + $24.50 per month hosting", "mk": "auto", "d": "Hosting for Smart 1 built websites. Includes 1 hour of website changes.", "q": "12 Month Minimum", "t": "", "kit": "web-production"}, {"p": "Smart 1 Site / 6\u201325 pages", "w": "Starting $599.50 One time + $39.50 per month hosting", "mk": "auto", "d": "Hosting for Smart 1 built websites. Includes 1 hour of website changes.", "q": "12 Month Minimum", "t": "", "kit": "web-production"}, {"p": "Smart 1 Site / 26+ pages", "w": "Starting $779.50 One time + $49.50 per month hosting", "mk": "auto", "d": "Hosting for Smart 1 built websites. Includes 1 hour of website changes.", "q": "12 Month Minimum", "t": "", "kit": "web-production"}, {"p": "Smart 1 Site / E-Commerce", "w": "Custom Quote Required", "mk": "none", "d": "Mobile responsive website built on the Smart 1 Sites platform.", "q": "12 Month Minimum", "t": "Will come in quote", "kit": "web-production"}]}]}, {"s": "Creative / Design Services", "groups": [{"g": null, "items": [{"p": "Standard Set of 6 Ad Creation", "w": "$250", "mk": "auto", "d": "Includes 1 round of revisions.", "q": "", "t": "2 Business Days", "spec": "desktop-display"}, {"p": "Social Media Ad Creation \u2014 per platform", "w": "$35.00", "mk": "auto", "d": "Includes 1 round of revisions.", "q": "", "t": "2 Business Days", "spec": "facebook-display"}, {"p": "Email Template Creation", "w": "$100.00", "mk": "auto", "d": "Includes 1 round of revisions.", "q": "", "t": "3 Business Days", "spec": "standard-email"}, {"p": "Custom Creative / Design Project", "w": "Custom Quote Required", "mk": "none", "d": "Scoped to the project.", "q": "", "t": "Will come in quote", "spec": "desktop-display"}]}]}, {"s": "Smart 1 Signage", "groups": [{"g": null, "items": [{"p": "Digital Outdoor & Indoor Signage", "w": "Custom Quote Required", "mk": "none", "d": "Digital billboards, gas stations, malls, universities, workout facilities.", "q": "Includes 1 round of revisions", "t": "5 Business Days", "kit": "dooh", "spec": "dooh"}]}]}];
+const COLS = ["Product","Price","Description","Requirements","Launch"];
+const ROOT=document.querySelector('.s1app')||document.body;
+const main=document.getElementById('main'), qEl=document.getElementById('q'),
+      countEl=document.getElementById('count'), chipsEl=document.getElementById('chips'),
+      mkEl=document.getElementById('mk');
+let mode='w', cat=null, mult=1.5;
+
+document.querySelectorAll('.topnav a[data-link]').forEach(a=>{ a.href = LINKS[a.dataset.link] || '#'; });
+
+try{ const s=localStorage.getItem('s1rc-mode'); if(s==='r'||s==='w') mode=s;
+     const m=parseFloat(localStorage.getItem('s1rc-markup')); if(m>=0&&m<=500){ mult=1+m/100; mkEl.value=m; } }catch(e){}
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function money(n){return '$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function pctf(n){return (Math.round(n*100)/100).toString()}
+function retail(it){
+  if(it.rf) return it.rf;
+  if(it.mk==='none') return it.w;
+  if(it.mk==='pctonly') return it.w.replace(/^(\d+(?:\.\d+)?)%/,(m,n)=>pctf(parseFloat(n)*mult)+'%');
+  return it.w.replace(/\$[\d,]+(?:\.\d+)?/g,m=>money(parseFloat(m.replace(/[$,]/g,''))*mult))
+             .replace(/(\d+(?:\.\d+)?)%/g,(m,n)=>pctf(parseFloat(n)*mult)+'%');
+}
+function shortT(t){ if(!t) return null;
+  const m=/^(\d+)\s+Business Days/i.exec(t); if(m) return m[1]+(m[1]==='1'?' day':' days');
+  if(/^Will come/i.test(t)) return 'In quote'; return t; }
+function hay(t){t=t.toLowerCase();return t+' '+t.replace(/[-\/]/g,' ')+' '+t.replace(/[-\s\/]/g,'')}
+function total(){let n=0;DATA.forEach(s=>s.groups.forEach(g=>n+=g.items.length));return n}
+
+const ITEMS=[];
+DATA.forEach(sec=>{
+  const n=sec.groups.reduce((a,g)=>a+g.items.length,0);
+  const el=document.createElement('section'); el.className='section'; el.dataset.sec=sec.s;
+  el.id='sec-'+sec.s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  let html='<div class="sec-head"><h2>'+esc(sec.s)+'</h2><span class="n">'+n+(n===1?' item':' items')+'</span></div>';
+  html+='<div class="legend">'+COLS.map(c=>'<span>'+c+'</span>').join('')+'</div>';
+  sec.groups.forEach(g=>{
+    if(g.g) html+='<div class="grp">'+esc(g.g)+'</div>';
+    g.items.forEach(it=>{
+      const idx=ITEMS.push(it)-1, st=shortT(it.t), quote=/Custom Quote|Free with/i.test(it.w);
+      let xl='';
+      if(it.kit) xl+='<a class="xlink" href="'+LINKS.kit+'#'+it.kit+'">Learn more &rarr;</a>';
+      if(it.spec) xl+='<a class="xlink" href="'+LINKS.specs+'#'+it.spec+'">Creative specs &rarr;</a>';
+      html+='<div class="row" data-i="'+idx+'" data-hay="'+esc(hay(it.p+' '+it.d+' '+it.q+' '+sec.s+' '+(g.g||'')))+'">'
+        +'<div><div class="p">'+esc(it.p)+'</div>'+(xl?'<div class="xlinks">'+xl+'</div>':'')+'</div>'
+        +'<div class="pr'+(quote?' quote':'')+'"></div>'
+        +'<div class="d">'+esc(it.d)+'</div>'
+        +'<div class="q'+(it.q?' has':'')+'">'+(it.q?esc(it.q):'')+'</div>'
+        +'<div class="t">'+(st?'<span class="pill" title="'+esc(it.t)+'">'+esc(st)+'</span>':'<span class="pill none">&mdash;</span>')+'</div>'
+        +'</div>';
+    });
+  });
+  el.innerHTML=html; main.appendChild(el);
+});
+
+function paint(){
+  document.querySelectorAll('.row').forEach(r=>{
+    const it=ITEMS[+r.dataset.i];
+    r.querySelector('.pr').textContent = mode==='r' ? retail(it) : it.w;
+  });
+}
+function mkChip(label,value){
+  const b=document.createElement('button'); b.className='chip'; b.type='button'; b.textContent=label;
+  b.setAttribute('aria-pressed',String(cat===value));
+  b.onclick=()=>{cat=(cat===value?null:value); syncChips(); apply();};
+  chipsEl.appendChild(b);
+}
+function syncChips(){[...chipsEl.children].forEach((b,i)=>b.setAttribute('aria-pressed',String(i===0?cat===null:cat===DATA[i-1].s)))}
+mkChip('All services',null); DATA.forEach(s=>mkChip(s.s,s.s));
+
+const bw=document.getElementById('mWholesale'), br=document.getElementById('mRetail');
+function setMode(m){
+  mode=m; ROOT.dataset.mode=(m==='r'?'retail':'wholesale');
+  bw.setAttribute('aria-pressed',String(m==='w')); br.setAttribute('aria-pressed',String(m==='r'));
+  paint(); try{localStorage.setItem('s1rc-mode',m)}catch(e){}
+}
+bw.onclick=()=>setMode('w'); br.onclick=()=>setMode('r');
+function setMarkup(v){
+  let n=parseFloat(v); if(!isFinite(n)||n<0) n=0; if(n>500) n=500;
+  mult=1+n/100; paint(); try{localStorage.setItem('s1rc-markup',String(n))}catch(e){}
+}
+mkEl.addEventListener('input',e=>setMarkup(e.target.value));
+mkEl.addEventListener('blur',e=>{ let n=parseFloat(e.target.value);
+  if(!isFinite(n)||n<0)n=0; if(n>500)n=500; e.target.value=n; });
+document.getElementById('mkreset').onclick=()=>{mkEl.value=50; setMarkup(50);};
+
+function hl(root,term){
+  root.querySelectorAll('.p,.d,.q').forEach(el=>{
+    const raw = el.dataset.raw!==undefined ? el.dataset.raw : (el.dataset.raw=el.textContent);
+    if(!term){el.textContent=raw;return}
+    const i=raw.toLowerCase().indexOf(term);
+    if(i<0){el.textContent=raw;return}
+    el.innerHTML=esc(raw.slice(0,i))+'<mark>'+esc(raw.slice(i,i+term.length))+'</mark>'+esc(raw.slice(i+term.length));
+  });
+}
+function apply(){
+  const term=qEl.value.trim().toLowerCase(); let shown=0;
+  document.querySelectorAll('.section').forEach(sec=>{
+    const catOk=!cat||sec.dataset.sec===cat; let n=0;
+    sec.querySelectorAll('.row').forEach(r=>{
+      const ok=catOk&&(!term||r.dataset.hay.includes(term));
+      r.style.display=ok?'':'none'; if(ok){n++; hl(r,term);}
+    });
+    sec.querySelectorAll('.grp').forEach(g=>{
+      let vis=false;
+      for(let x=g.nextElementSibling; x&&x.classList.contains('row'); x=x.nextElementSibling)
+        if(x.style.display!=='none'){vis=true;break}
+      g.style.display=vis?'':'none';
+    });
+    sec.style.display=n?'':'none';
+    sec.querySelector('.n').textContent=n+(n===1?' item':' items');
+    shown+=n;
+  });
+  ROOT.dataset.empty=shown?'0':'1';
+  const t=total();
+  countEl.innerHTML = shown===t ? '<b>'+t+'</b> services' : '<b>'+shown+'</b> of '+t+' services';
+}
+qEl.addEventListener('input',apply);
+document.getElementById('clearAll').onclick=()=>{qEl.value='';cat=null;syncChips();apply();qEl.focus()};
+document.addEventListener('keydown',e=>{
+  if(e.key==='/'&&document.activeElement!==qEl&&document.activeElement!==mkEl){e.preventDefault();qEl.focus()}
+  if(e.key==='Escape'&&document.activeElement===qEl){qEl.value='';apply()}
+});
+setMode(mode); apply();
+function flashHash(){ const id=location.hash.slice(1); if(!id) return;
+  const el=document.getElementById(id); if(!el) return;
+  document.querySelectorAll('.section.flash').forEach(s=>s.classList.remove('flash'));
+  el.classList.add('flash'); el.scrollIntoView({block:'start'});
+  setTimeout(()=>el.classList.remove('flash'),2200); }
+window.addEventListener('hashchange',flashHash); setTimeout(flashHash,60);
+</script>
+</div>
+</body>
+</html>

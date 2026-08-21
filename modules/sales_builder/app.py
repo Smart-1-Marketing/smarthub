@@ -341,6 +341,34 @@ def list_quotes():
         db.close()
 
 
+@app.get("/api/uploaded-proposals")
+def list_uploaded_proposals():
+    """Proposals written outside this tool and uploaded to a client record.
+
+    Kept as a separate call rather than merged into /api/quotes because the
+    two are genuinely different objects: a quote has a number, a revision and
+    a status this tool owns, while an uploaded proposal is a file with a date.
+    Flattening them into one row shape would mean inventing values for half
+    the columns, and an invented "Draft" on a document nobody here drafted is
+    exactly the sort of confident wrong answer to avoid. The front end merges
+    them for display and keeps them labelled.
+    """
+    limit = clamp_int(request.args.get("limit"), 100, 1, 500)
+    try:
+        from hub import proposals as hub_proposals
+    except Exception:                                   # noqa: BLE001
+        # Standalone, outside the Hub. An empty list is the honest answer.
+        return jsonify({"ok": True, "proposals": [], "available": False})
+    try:
+        rows = hub_proposals.all_proposals(limit=limit,
+                                           q=(request.args.get("q") or "").strip())
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("uploaded proposals unavailable: %s", exc)
+        return jsonify({"ok": True, "proposals": [], "available": False,
+                        "note": "Uploaded proposals could not be read."})
+    return jsonify({"ok": True, "proposals": rows, "available": True})
+
+
 @app.get("/api/quotes/<int:qid>")
 def get_quote(qid):
     db = SessionLocal()

@@ -81,6 +81,68 @@ def list_proposals(client: str) -> list[dict]:
     return items
 
 
+def all_proposals(limit: int = 200, q: str = "") -> list[dict]:
+    """Uploaded proposals across every client, newest first.
+
+    The Sales Builder list is the one place staff look for "what have we
+    quoted lately", and it only ever showed quotes built in the tool. A
+    proposal someone wrote elsewhere and uploaded to the client record was
+    invisible there, so the list quietly under-reported the pipeline — the
+    kind of confident wrong answer this codebase treats as worse than an
+    error.
+
+    Each row carries the client name, because unlike list_proposals() the
+    caller no longer knows which client it asked about.
+
+    rollup() walks all 950 registry clients to do the same job. Almost none of
+    them have an SEO store, so that is ~950 failed file opens on the path of a
+    page load. This lists the store directory instead and reads only what
+    exists, which is a small fraction of them, falling back to the registry
+    walk if the directory cannot be listed.
+    """
+    try:
+        from hub import clients_registry
+        names = [c.get("name", "") for c in clients_registry.all_clients()
+                 if c.get("name")]
+    except Exception:                                   # noqa: BLE001
+        return []
+
+    try:
+        base = seo._store_base()
+        have = {f[:-5] for f in os.listdir(base) if f.endswith(".json")}
+        # The store is keyed by slug, so the registry supplies the display
+        # name. A store with no matching client keeps its slug rather than
+        # being dropped — an orphaned store still holds real proposals.
+        by_slug = {seo.slugify(n): n for n in names}
+        names = [by_slug.get(sl, sl) for sl in have]
+    except OSError:
+        pass
+
+    needle = str(q or "").strip().lower()
+    out = []
+    for name in names:
+        try:
+            items = list_proposals(name)
+        except Exception:                               # noqa: BLE001
+            # One unreadable client store must not empty the whole list.
+            continue
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            if needle:
+                hay = " ".join(str(it.get(k) or "") for k in
+                               ("title", "filename", "note", "uploaded_by"))
+                if needle not in hay.lower() and needle not in name.lower():
+                    continue
+            row = dict(it)
+            row["client"] = name
+            out.append(row)
+
+    out.sort(key=lambda i: (str(i.get("date_sent") or ""),
+                            str(i.get("uploaded_at") or "")), reverse=True)
+    return out[:max(1, int(limit or 200))]
+
+
 PROPOSAL_STATUSES = ("draft", "sent", "viewed", "won", "lost")
 
 

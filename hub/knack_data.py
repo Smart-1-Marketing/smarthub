@@ -144,6 +144,74 @@ def _history_path() -> str:
     return os.path.join(base, "hub-metrics-history.json")
 
 
+# Metrics worth trending. Snapshotted per Knack period so the dashboard can say
+# which way each one moved, rather than only what it is today.
+TRENDED = ("clients_live", "live_products", "live_budget_monthly",
+           "websites_active", "hm_monthly", "estimated_total_monthly")
+
+
+def _period_minus(period: str, months: int) -> str:
+    """The YYYYMM that many months before `period`."""
+    try:
+        y, m = int(str(period)[:4]), int(str(period)[4:6])
+    except (TypeError, ValueError):
+        return ""
+    total = y * 12 + (m - 1) - months
+    return f"{total // 12:04d}{total % 12 + 1:02d}"
+
+
+def _snapshot(period: str, values: dict) -> dict:
+    """Record this period's metrics and return the whole history.
+
+    Written every time the dashboard is read, so the current period is always
+    up to date and past periods keep the last value they were given.
+    """
+    path = _history_path()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            hist = json.load(fh)
+    except (OSError, ValueError):
+        hist = {}
+    if period:
+        entry = hist.get(period) or {}
+        entry.update({k: v for k, v in values.items() if v is not None})
+        hist[period] = entry
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(hist, fh)
+        except OSError:
+            pass
+    return hist
+
+
+def _delta(now, before):
+    """A movement, or an explicit "we don't have that yet".
+
+    `available: False` is the point of this shape. A month we have no snapshot
+    for is not a month where nothing changed, and rendering it as 0 would state
+    something we do not know — the same mistake as showing an empty rate card
+    as "no products".
+    """
+    if not isinstance(before, (int, float)) or not isinstance(now, (int, float)):
+        return {"available": False}
+    diff = now - before
+    pct = round(diff / before * 100, 1) if before else None
+    return {"available": True, "from": before, "diff": diff, "pct": pct,
+            "dir": "up" if diff > 0 else "down" if diff < 0 else "flat"}
+
+
+def _trends(period: str, current: dict) -> dict:
+    """Each trended metric against last month and the same month last year."""
+    hist = _snapshot(period, {k: current.get(k) for k in TRENDED})
+    prev_m = hist.get(_period_minus(period, 1)) or {}
+    prev_y = hist.get(_period_minus(period, 12)) or {}
+    out = {}
+    for k in TRENDED:
+        out[k] = {"last_month": _delta(current.get(k), prev_m.get(k)),
+                  "last_year": _delta(current.get(k), prev_y.get(k))}
+    return out
+
+
 def _website_movement(period, websites_active) -> int | None:
     """Websites carry no month-over-month fields, so the Hub snapshots the
     active count per Knack period and compares to the previous period."""
@@ -231,6 +299,17 @@ def summary() -> dict:
         "increased_customers": mom["increased"],
         "decreased_customers": mom["decreased"],
         "website_movement": movement,
+        # Which way each headline number moved, against last month and against
+        # the same month a year ago. Absent history is reported as absent
+        # rather than as no change.
+        "trends": _trends(str(this_period or ""), {
+            "clients_live": len(live_clients),
+            "live_products": len(live),
+            "live_budget_monthly": round(live_budget),
+            "websites_active": len(active_sites),
+            "hm_monthly": round(hm_monthly),
+            "estimated_total_monthly": round(live_budget + hm_monthly),
+        }),
         "this_period": _period_label(this_period),
         "last_period": _period_label(last_period),
         "data_age_hours": data_age_hours(),
