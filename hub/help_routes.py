@@ -81,6 +81,15 @@ def static_ask_analytics_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/campaign-request.js")
+def static_campaign_request_js():
+    """The Campaign Change / Support / Ad Copy form, shared by Client 360 and
+    the dashboard. Root-level for the same reason as the scripts above: one
+    copy of the form, reachable from any page that needs it."""
+    return send_from_directory(_STATIC, "campaign-request.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-crumbs.js")
 def static_crumbs_js():
     return send_from_directory(_STATIC, "hub-crumbs.js",

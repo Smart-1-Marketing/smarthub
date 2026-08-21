@@ -28,6 +28,7 @@
 
 {% block scripts %}
 <script src="/ask-analytics.js"></script>
+<script src="/campaign-request.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const user_name={{ (user or '')|tojson }};
@@ -980,102 +981,20 @@ function render(g,q){
   if(newTick)newTick.onclick=()=>openTicketModal(name,web0&&web0.domain?web0.domain:'');
 
   // ---------- Campaign Change / Support requests (Knack object_140 / 121) ----------
+  // The form itself now lives in /campaign-request.js, because the dashboard
+  // opens the same three requests without a client on screen and a second copy
+  // is how a fix ends up landing in only one of them. Behaviour here is
+  // unchanged: the groups this search produced are handed straight over, so a
+  // name matching several clients stays switchable inside the form.
   function openCampaignModal(kind){
-    const label=kind==='change'?'Campaign Change Request':'Campaign Support Request';
-    let m=document.getElementById('campModal');
-    if(m)m.remove();
-    m=document.createElement('div');
-    m.id='campModal';
-    m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
-    m.innerHTML=`<div style="background:#fff;border-radius:14px;width:620px;max-width:100%;max-height:92vh;display:flex;flex-direction:column">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line)">
-        <b style="color:var(--navy)">${label} — ${esc(name)}</b>
-        <button id="campClose" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
-      <div id="campBody" style="padding:16px 18px;overflow-y:auto"><div class="empty">Reading Knack fields… <span class="spin"></span></div></div></div>`;
-    document.body.appendChild(m);
-    m.onclick=e=>{if(e.target===m)m.remove();};
-    document.getElementById('campClose').onclick=()=>m.remove();
-
-    Promise.all([
-      fetch('/api/knack/campaign-fields?kind='+kind).then(r=>r.json()),
-      fetch('/api/knack/people').then(r=>r.json()).catch(()=>({names:[]})),
-    ]).then(([d,people])=>{
-      const body=document.getElementById('campBody');
-      if(!d.configured){body.innerHTML='<div class="empty">Knack API not connected — set KNACK_APP_ID and KNACK_API_KEY, then redeploy.</div>';return}
-      if(d.error){body.innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
-      const roleNames={title:'Subject',description:'Details',client:'Client name',campaign:'Campaign / product',io:'IO number',requested_by:'Requested by'};
-      const mapRows=Object.keys(roleNames).map(role=>{
-        const slot=(d.map||{})[role];
-        return `<tr><td style="padding:4px 10px 4px 0;color:#64748b;font-size:12px">${roleNames[role]}</td>
-          <td style="padding:4px 0;font-size:12px">${slot?'<b>'+esc(slot.label)+'</b> <span class="muted">('+esc(slot.field)+')</span>':'<span style="color:#b45309">no matching field — will be skipped</span>'}</td></tr>`;
-      }).join('');
-
-      // client: from the C360 screen — dropdown only when the search matched several
-      const allGroups=(typeof groups!=='undefined'&&groups&&groups.length)?groups:[{client:name,products:window.__c360prods||[]}];
-      const clientSel=allGroups.length>1
-        ?`<select id="campClient" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-            ${allGroups.map(g=>`<option value="${esc(g.client)}"${g.client===name?' selected':''}>${esc(g.client)}</option>`).join('')}</select>`
-        :`<input id="campClient" value="${esc(name)}" readonly style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit;background:#f8fafc;color:#475569">`;
-
-      // campaign/IO options: client + IO number, newest IO first
-      function prodOptions(clientName){
-        const grp=allGroups.find(g=>g.client===clientName)||allGroups[0];
-        const prods=(grp.products||[]).slice().sort((a,b)=>{
-          const ai=parseInt(a.io,10)||0, bi=parseInt(b.io,10)||0;
-          return bi-ai;                                  // newest (highest IO) first
-        });
-        return '<option value="">Which campaign / IO?</option>'+prods.map(p=>{
-          const label=esc(clientName)+(p.io?' — IO '+esc(p.io):'')+': '+esc(p.product||'')
-            +(String(p.status||'').toLowerCase()==='live'?' (live)':'');
-          return `<option value="${esc(p.product||'')}" data-io="${esc(p.io||'')}">${label}</option>`;
-        }).join('');
-      }
-
-      // requested by: names from Knack objects 161 + 109
-      const names=(people&&people.names)||[];
-      const meFirst=names.includes(user_name)?user_name:'';
-      const reqOpts=['<option value="">Requested by…</option>']
-        .concat(names.map(n=>`<option value="${esc(n)}"${n===meFirst?' selected':''}>${esc(n)}</option>`));
-      if(!names.length) reqOpts.push(`<option value="${esc(user_name)}" selected>${esc(user_name)}</option>`);
-
-      body.innerHTML=`
-        <div style="background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px">
-          <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:6px">
-            Writing to Knack ${esc(d.object)} — these fields will be used</div>
-          <table>${mapRows}</table>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:10px">
-          ${clientSel}
-          <select id="campProd" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">${prodOptions(name)}</select>
-          <select id="campReq" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">${reqOpts.join('')}</select>
-          <input id="campSubject" placeholder="Subject — what do you need?" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-          <textarea id="campDesc" rows="5" placeholder="${kind==='change'?'Describe the change: budget, targeting, dates, creative…':'Describe the issue or question for the campaign team…'}" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit"></textarea>
-          <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center">
-            <span id="campMsg" class="muted" style="font-size:12px"></span>
-            <a class="btn-primary" id="campSend" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Send to Smart 1 Team</a>
-          </div>
-        </div>`;
-      const clientEl=document.getElementById('campClient');
-      if(clientEl.tagName==='SELECT') clientEl.onchange=()=>{
-        document.getElementById('campProd').innerHTML=prodOptions(clientEl.value);
-      };
-      document.getElementById('campSend').onclick=()=>{
-        const subject=document.getElementById('campSubject').value.trim();
-        if(!subject){document.getElementById('campMsg').textContent='Subject is required.';return;}
-        const sel=document.getElementById('campProd');
-        const opt=sel.options[sel.selectedIndex]||{};
-        document.getElementById('campMsg').textContent='Sending…';
-        fetch('/api/client/campaign-request',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({kind:kind,client:clientEl.value,campaign:sel.value,
-            io:(opt.dataset&&opt.dataset.io)||'',subject:subject,
-            requested_by:document.getElementById('campReq').value,
-            description:document.getElementById('campDesc').value.trim()})})
-          .then(r=>r.json()).then(res=>{
-            if(res.error){document.getElementById('campMsg').textContent=res.error;return;}
-            document.getElementById('campMsg').textContent='Sent ✓';
-            setTimeout(()=>m.remove(),900);
-          });
-      };
+    if(!window.CampaignRequest){
+      alert('The request form failed to load. Reload the page and try again.');
+      return;
+    }
+    window.CampaignRequest.open({
+      kind:kind, client:name, user:user_name,
+      groups:(typeof groups!=='undefined'&&groups&&groups.length)?groups:null,
+      products:window.__c360prods||[]
     });
   }
   const campChange=document.getElementById('c-camp-change');

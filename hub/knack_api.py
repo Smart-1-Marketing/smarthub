@@ -172,12 +172,17 @@ def ticket_value(rec: dict, key: str):
 def create_ticket(client: str, website: str, subject: str,
                   description: str, author: str = "",
                   requested_by: str = "", ticket_type: str = "",
-                  billable: str = "") -> dict:
+                  billable: str = "", extra: dict | None = None) -> dict:
     """Create a web ticket in Knack against the confirmed field ids.
 
     Status and Developer are not written here — Knack's own workflow sets the
     opening status, and assigning a developer is a decision made in Manage
     Ticket. Writing either at submission would override that.
+
+    `extra` is {field_id: value} for fields this signature does not name — the
+    due date the SEO tasks set, for one. It goes through the same connection
+    guard as everything else, so a caller cannot use it to write a record id
+    into a connection field by accident.
     """
     m = field_map()
     payload = {}
@@ -203,6 +208,8 @@ def create_ticket(client: str, website: str, subject: str,
     put_text(m["billable"], billable)
     put_text(m["assigner"], requested_by or author)
     put_text(m.get("requested_by"), requested_by or author)
+    for key, value in (extra or {}).items():
+        put_text(key, value)
     if not payload:
         raise RuntimeError(
             "Nothing writable resolved on "
