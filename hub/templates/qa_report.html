@@ -29,26 +29,62 @@ document.addEventListener('click', function(ev){
   }
 
   if(action === 'form-summary'){
+    /* Was a native alert(). Two problems with that: it is the one piece of UI
+       we cannot style, and a browser that has been told "prevent this page
+       from creating more dialogs" swallows it silently — which reads as the
+       button doing nothing at all. A real panel can't be suppressed and can
+       show an empty state rather than an empty box. */
     b.disabled = true; b.textContent = 'Loading…';
     fetch('/api/qa/form-summary/' + encodeURIComponent(client), {credentials:'same-origin'})
       .then(function(r){ return r.json(); })
       .then(function(d){
         b.disabled = false; b.textContent = 'Summary';
-        if(d.error){ alert(d.error); return; }
-        var lines = [];
-        if(d.contact && (d.contact.name || d.contact.email)){
-          lines.push((d.contact.name||'') +
-            (d.contact.company ? ' · ' + d.contact.company : '') +
-            (d.contact.email ? '\n' + d.contact.email : '') +
-            (d.contact.phone ? ' · ' + d.contact.phone : ''));
+        var title = document.getElementById('qaSumTitle');
+        var body  = document.getElementById('qaSumBody');
+        if(d.error){
+          title.textContent = 'Could not load this request';
+          body.innerHTML = '<p style="color:#b42318">'+esc(d.error)+'</p>';
+          document.getElementById('qaSumModal').classList.add('open');
+          return;
         }
-        if(d.created) lines.push('Submitted ' + d.created);
-        lines.push('');
-        (d.fields||[]).forEach(function(f){ lines.push(f.label + ':\n  ' + f.value); });
-        if(!(d.fields||[]).length) lines.push(d.note || 'No form fields recorded.');
-        alert((d.name || 'Request') + '\n\n' + lines.join('\n'));
+        title.textContent = d.name || 'Request';
+        var h = '';
+        if(d.contact && (d.contact.name || d.contact.email || d.contact.company)){
+          h += '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;'
+            +  'padding:10px 12px;margin-bottom:12px">'
+            +  '<b>'+esc(d.contact.name||'—')+'</b>'
+            +  (d.contact.company? ' <span class="muted">· '+esc(d.contact.company)+'</span>':'')
+            +  '<div style="font-size:12.5px;color:#64748b;margin-top:2px">'
+            +  esc(d.contact.email||'') + (d.contact.phone? ' · '+esc(d.contact.phone):'')
+            +  '</div></div>';
+        }
+        var meta = [];
+        if(d.created) meta.push('Submitted ' + esc(d.created));
+        if(d.status)  meta.push('Status ' + esc(d.status));
+        if(meta.length) h += '<div style="font-size:12px;color:#64748b;margin-bottom:12px">'
+                          + meta.join(' &middot; ') + '</div>';
+        if((d.fields||[]).length){
+          h += '<table style="width:100%;border-collapse:collapse">';
+          d.fields.forEach(function(f){
+            h += '<tr><td style="vertical-align:top;padding:6px 10px 6px 0;color:#64748b;'
+              +  'font-size:12px;white-space:nowrap">'+esc(f.label)+'</td>'
+              +  '<td style="padding:6px 0;white-space:pre-wrap">'+esc(f.value)+'</td></tr>';
+          });
+          h += '</table>';
+        } else {
+          h += '<p class="muted">'+esc(d.note || 'No form fields were recorded for this request.')+'</p>';
+        }
+        body.innerHTML = h;
+        document.getElementById('qaSumModal').classList.add('open');
       })
-      .catch(function(){ b.disabled=false; b.textContent='Summary'; alert('Could not load it.'); });
+      .catch(function(){
+        b.disabled=false; b.textContent='Summary';
+        document.getElementById('qaSumTitle').textContent = 'Could not load this request';
+        document.getElementById('qaSumBody').innerHTML =
+          '<p style="color:#b42318">The request could not be fetched. '
+        + 'Smart 1 Suite may be unreachable.</p>';
+        document.getElementById('qaSumModal').classList.add('open');
+      });
     return;
   }
 
@@ -100,9 +136,14 @@ document.addEventListener('click', function(ev){
 })();
 </script>
 <style>
-.qa-act{border:1px solid #cfe2f2;background:#eef5fb;color:#1769AA;border-radius:6px;
-  padding:3px 10px;font:600 11.5px system-ui;cursor:pointer;white-space:nowrap}
-.qa-act:hover{background:#e2eef8}
+/* Matches .qa-btn.qa-sec — the Hub's secondary button — rather than the
+   one-off blue this used to be. Two button styles on one page reads as two
+   different systems bolted together. */
+.qa-act{border:1px solid #e2e8f0;background:#fff;color:#1e293b;border-radius:8px;
+  padding:5px 11px;font:600 12px 'Segoe UI',system-ui,sans-serif;cursor:pointer;
+  white-space:nowrap}
+.qa-act:hover{background:#f8fafc;border-color:#cbd5e1}
+.qa-assign-btn:hover{background:#f8fafc}
 .qa-act:disabled{opacity:.5;cursor:default}
 </style>
 
@@ -160,7 +201,7 @@ tr.qa-row-yellow td:not(:first-child){border-left:none}
 tr.qa-row-red td{background:#fef2f2 !important;border-left:3px solid #ef4444}
 tr.qa-row-red td:not(:first-child){border-left:none}
 tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;border-top:2px solid #cbd5e1}
-.qa-assign-btn{border:1px solid #e2e8f0;background:#fff;color:#2563eb;border-radius:8px;
+.qa-assign-btn{border:1px solid #e2e8f0;background:#fff;color:#1e293b;border-radius:8px;
   padding:4px 10px;font:600 12px 'Segoe UI',system-ui,sans-serif;cursor:pointer;white-space:nowrap}
 .qa-assign-wrap{display:flex;gap:6px;align-items:center}
 .qa-assign-wrap input{padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;
@@ -177,6 +218,13 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
 .qa-cmp b{color:#1a2e58}
 .qa-x{border:0;background:none;font-size:22px;cursor:pointer;color:#64748b}
 </style>
+<div class="qa-modal" id="qaSumModal">
+  <div class="qa-modal-box">
+    <div class="qa-modal-head"><span id="qaSumTitle">Request</span>
+      <button class="qa-x" id="qaSumClose">&times;</button></div>
+    <div class="qa-modal-body" id="qaSumBody"></div>
+  </div>
+</div>
 <div class="qa-modal" id="qaCmpModal">
   <div class="qa-modal-box">
     <div class="qa-modal-head"><span>Invoice comparison — each month vs this month</span>
@@ -228,8 +276,16 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
     }
     /* A group heading row, e.g. "Ending this month (12)". */
     if(c && typeof c==='object' && c.group){
-      return '<b style="font-size:12px;text-transform:uppercase;letter-spacing:.5px;'+
-             'color:#64748b">'+esc(c.text||'')+'</b>';
+      /* Ending this month and ending next month were the same grey label, one
+         after the other, so the boundary between "act now" and "act soon" was
+         easy to miss. Each band gets its own colour and a rule above it. */
+      var tone = c.tone==='now'  ? {bg:'#fdecec',bd:'#dc2626',fg:'#991b1b'} :
+                 c.tone==='soon' ? {bg:'#fef9ec',bd:'#d97706',fg:'#92400e'} :
+                                   {bg:'#f1f5f9',bd:'#94a3b8',fg:'#475569'};
+      return '<span style="display:inline-block;padding:5px 12px;border-radius:6px;'+
+             'background:'+tone.bg+';border-left:4px solid '+tone.bd+';color:'+tone.fg+';'+
+             'font:700 12px \'Segoe UI\',system-ui,sans-serif;text-transform:uppercase;'+
+             'letter-spacing:.6px">'+esc(c.text||'')+'</span>';
     }
     if(c && typeof c==='object' && c.assign!==undefined)
       return '<div class="qa-assign-host" data-cust="'+esc(c.assign)+'"><button class="qa-assign-btn">+ Add to partner</button></div>';
@@ -405,6 +461,12 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
   document.getElementById('qaCompare').onclick = function(){
     document.getElementById('qaCmpModal').classList.add('open');
   };
+  var sumClose = document.getElementById('qaSumClose');
+  if(sumClose) sumClose.onclick = function(){
+    document.getElementById('qaSumModal').classList.remove('open'); };
+  var sumModal = document.getElementById('qaSumModal');
+  if(sumModal) sumModal.addEventListener('click', function(ev){
+    if(ev.target === sumModal) sumModal.classList.remove('open'); });
   document.getElementById('qaCmpClose').onclick = function(){
     document.getElementById('qaCmpModal').classList.remove('open');
   };

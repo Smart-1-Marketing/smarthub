@@ -59,6 +59,13 @@ F_TRAFFICKER       = "field_2312"   # Trafficker
 F_SALES            = "field_3322"   # Internal Sales
 F_RECORD_ID        = "field_3370"   # Record ID
 F_CLICK_THRU       = "field_2413"   # Click Thru URL
+# The creative file link (Drive/Dropbox/PDF) that the committed export exposes
+# as `url`. The live reader never fetched it, which is why creative filed in
+# Knack was invisible to the Stale Creative report once products were read
+# live. Set KNACK_CREATIVE_FIELD to the real field id to switch it on; until
+# then the row carries no creative link and the report falls back to the
+# export, rather than mistaking the click-thru URL for artwork.
+F_CREATIVE_URL     = os.environ.get("KNACK_CREATIVE_FIELD", "")
 F_DISPLAY_CLICK    = "field_2414"   # Display Click Thru URL
 F_GEO              = "field_2546"   # Geographic Target
 
@@ -152,6 +159,8 @@ def _row(rec: dict) -> dict:
         "dash": (_href(rec.get(F_DASHBOARD_URL))
                  or _href(rec.get(F_DASH_VALUE))),
         "url": _href(rec.get(F_CLICK_THRU)) or _text(rec.get(F_CLICK_THRU)),
+        "creative_url": (_href(rec.get(F_CREATIVE_URL))
+                         or _text(rec.get(F_CREATIVE_URL))) if F_CREATIVE_URL else "",
         "display_url": (_href(rec.get(F_DISPLAY_CLICK))
                         or _text(rec.get(F_DISPLAY_CLICK))),
         "geo": _text(rec.get(F_GEO)),
