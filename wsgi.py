@@ -269,6 +269,13 @@ except Exception as _pb_exc:  # noqa: BLE001
     propb, propb_fb = None, _fallback_app("Proposal Builder", str(_pb_exc))
 
 try:
+    import importlib as _il_msa
+    msa_app = _il_msa.import_module("modules.msa.app")
+    msa_fb = None
+except Exception as _exc_msa:  # noqa: BLE001
+    msa_app, msa_fb = None, _fallback_app("MSA", str(_exc_msa))
+
+try:
     import importlib as _il2
     scans = _il2.import_module("modules.scans.app")
     scans_fb = None
@@ -494,6 +501,12 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
     "/tools/io": _mount(iob.app, "/tools/io") if iob else iob_fb,
+    # The client signing an agreement has no Hub login, so this is public in
+    # the same way a landing page is. Writes on it are rate-limited in the
+    # module itself, because "public" and "free to hammer" are not the same
+    # thing when a signature costs a PDF render and a Cloudinary upload.
+    "/msa": (AuthGuard(msa_app.app, "/msa", public_prefixes=("/",))
+             if msa_app else msa_fb),
     # A landing page must not sit behind the Hub login — the whole page and
     # its lead endpoints are public, which is what public_prefixes=("/",) says.
     "/land/boat": (AuthGuard(boat.app, "/land/boat", public_prefixes=("/",))

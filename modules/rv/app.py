@@ -314,9 +314,17 @@ def index():
     return send_from_directory(PUBLIC, "index.html")
 
 
+# The Suite embed was shipped as a second, byte-identical copy of the
+# multipart embed under its own name. Two copies of one page drift the first
+# time somebody edits the embed and does not know about the other, so the name
+# is kept as an alias and the file is not duplicated.
+PUBLIC_ALIASES = {"smart1-suite-embed.html": "smart1-multipart-embed.html"}
+
+
 @app.get("/<path:filename>")
 def public_files(filename):
     safe = os.path.normpath(filename).lstrip("./")
+    safe = PUBLIC_ALIASES.get(safe, safe)
     if safe.startswith("..") or not (PUBLIC / safe).exists():
         return jsonify({"error": "Not found"}), 404
     return send_from_directory(PUBLIC, safe)

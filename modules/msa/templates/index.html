@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Master Services Agreement — Smart 1 Marketing</title>
+<style>
+  :root{--navy:#0D2340;--cyan:#3EC6F0;--ink:#1B2733;--muted:#64748B;
+        --line:#E2E8F0;--bg:#F6F9FC}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.6 'Segoe UI',system-ui,sans-serif}
+  .top{background:var(--navy);color:#fff;padding:18px 0}
+  .wrap{max-width:820px;margin:0 auto;padding:0 22px}
+  .mark{display:inline-block;width:11px;height:11px;border-radius:50%;
+        background:var(--cyan);margin-right:9px;vertical-align:-1px}
+  .top b{font-size:14px;letter-spacing:.4px}
+  h1{font-size:26px;margin:26px 0 4px;color:var(--navy)}
+  .lede{color:var(--muted);margin:0 0 22px;font-size:14.5px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;
+        padding:22px;margin-bottom:18px}
+  label{display:block;font-size:13px;font-weight:600;margin:0 0 5px}
+  input,textarea{width:100%;padding:10px 12px;border:1px solid #cfd7df;
+        border-radius:8px;font:15px inherit;background:#fff}
+  input:focus,textarea:focus{outline:2px solid var(--cyan);outline-offset:-1px}
+  .row{display:grid;grid-template-columns:1fr;gap:14px}
+  @media(min-width:680px){.row.two{grid-template-columns:1fr 1fr}}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:5px}
+  .doc{max-height:460px;overflow:auto;border:1px solid var(--line);
+       border-radius:9px;padding:20px;background:#fff}
+  .doc h3{font-size:14.5px;color:var(--navy);margin:18px 0 6px}
+  .doc h3:first-child{margin-top:0}
+  .doc p{font-size:14px;margin:0 0 10px}
+  .fill{background:#fff4d7;padding:0 4px;border-radius:3px;font-weight:600}
+  .fill.done{background:#e7f6ef;color:#11633f}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);
+        vertical-align:top}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;
+     color:var(--muted)}
+  .agree{display:flex;gap:11px;align-items:flex-start;margin:0 0 14px;
+         font-size:14.5px;cursor:pointer}
+  .agree input{width:19px;height:19px;flex:none;margin-top:2px}
+  .sign{font:22px 'Segoe Script','Brush Script MT',cursive;padding:12px 14px}
+  .btn{background:var(--navy);color:#fff;border:0;border-radius:9px;
+       padding:13px 26px;font:600 15px inherit;cursor:pointer}
+  .btn:disabled{background:#94a3b8;cursor:not-allowed}
+  .btn.alt{background:var(--cyan);color:#04293f}
+  .msg{margin-top:12px;font-size:14px}
+  .err{color:#b42318}
+  .ok{color:#147d52}
+  .done-box{background:#e7f6ef;border:1px solid #86efac;border-radius:11px;
+            padding:22px;text-align:center}
+  footer{color:var(--muted);font-size:12.5px;padding:26px 0 40px}
+</style>
+</head>
+<body>
+
+<div class="top"><div class="wrap"><b><span class="mark"></span>SMART 1 MARKETING</b></div></div>
+
+<div class="wrap">
+  <h1>Master Services Agreement</h1>
+  <p class="lede">Fill in your company details, read the agreement, and sign.
+     You'll be able to download a signed PDF straight away.</p>
+
+  {% if not_ready %}
+  {# Said at the top, not discovered at the bottom. The server refuses to
+     record a signature while the clause text is still the template, and
+     letting someone read, fill in and sign before telling them that is the
+     kind of small dishonesty that loses an account. #}
+  <div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:10px;
+              padding:14px 16px;margin:0 0 18px">
+    <b>This agreement isn't ready to sign yet.</b>
+    <div style="margin-top:4px;font-size:14px">The clause text is still being
+      finalised, so signing is switched off. Your Smart 1 representative can
+      tell you when it's ready.</div>
+  </div>
+  {% endif %}
+
+  <div id="form">
+    <!-- Details first: the agreement below fills in as they type, so what
+         they read is what they're signing rather than a template. -->
+    <div class="card">
+      <div class="row two">
+        <div>
+          <label for="company">Company name</label>
+          <input id="company" autocomplete="organization" placeholder="Acme Marine, LLC">
+        </div>
+        <div>
+          <label for="signer">Your name</label>
+          <input id="signer" autocomplete="name" placeholder="Dana Reed">
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <label for="address">Company address</label>
+        <input id="address" autocomplete="street-address"
+               placeholder="120 Harbor Road, Columbus, OH 43004">
+      </div>
+      <div class="row two" style="margin-top:14px">
+        <div>
+          <label for="email">Email</label>
+          <input id="email" type="email" autocomplete="email" placeholder="dana@acmemarine.com">
+        </div>
+        <div>
+          <label for="phone">Phone <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+          <input id="phone" type="tel" autocomplete="tel" placeholder="614-555-0100">
+        </div>
+      </div>
+      <p class="hint">Your company name and address appear in the agreement below as you type.</p>
+    </div>
+
+    <div class="card">
+      <div class="doc" id="doc">
+        {% for sec in sections %}
+        <h3>{{ sec.heading }}</h3>
+        {% for p in sec.paragraphs %}<p>{{ p }}</p>{% endfor %}
+        {% endfor %}
+
+        <h3>Campaign Launch Times</h3>
+        <table>
+          <thead><tr><th>Product</th><th>Typical launch</th></tr></thead>
+          <tbody>
+          {% for product, timing in launch_times %}
+            <tr><td>{{ product }}</td><td>{{ timing }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+
+        <h3>Rate Card</h3>
+        <p>{{ rate_card_note }}</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <label class="agree">
+        <input type="checkbox" id="agreeRates">
+        <span>I have read and agree to the <b>rate card</b>.</span>
+      </label>
+      <label class="agree">
+        <input type="checkbox" id="agreeLaunch">
+        <span>I have read and agree to the <b>campaign launch times</b> set out above.</span>
+      </label>
+
+      <label for="sig" style="margin-top:6px">Type your full name to sign</label>
+      <input id="sig" class="sign" placeholder="Dana Reed" autocomplete="off">
+      <p class="hint">A typed signature is accepted as an original. We record the
+         date, time and your IP address alongside it.</p>
+
+      <div style="margin-top:16px">
+        <button class="btn" id="submit" disabled>Sign and generate PDF</button>
+        <div class="msg" id="msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="done" hidden>
+    <div class="done-box">
+      <h2 style="margin:0 0 6px;color:#11633f;font-size:20px">Signed</h2>
+      <p style="margin:0 0 18px" id="doneNote"></p>
+      <a class="btn alt" id="dl" href="#">Download your PDF</a>
+      <p class="hint" style="margin-top:14px">A copy is saved against your
+         record, so we can send it again any time.</p>
+    </div>
+  </div>
+
+  <footer>© Smart 1 Marketing · smart1marketing.com</footer>
+</div>
+
+<script>
+var $ = function(id){ return document.getElementById(id); };
+
+/* Live substitution. Doing it in the page rather than only in the PDF means
+   the client reads the finished document before agreeing to it — a template
+   full of blanks invites people to skim. */
+var docHtml = $('doc').innerHTML;
+function fillDoc(){
+  var company = $('company').value.trim();
+  var address = $('address').value.trim();
+  var d = new Date();
+  var date = d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+  var html = docHtml
+    .split('{company}').join(mark(company, 'your company name'))
+    .split('{address}').join(mark(address, 'your address'))
+    .split('{date}').join('<span class="fill done">' + date + '</span>');
+  $('doc').innerHTML = html;
+}
+function mark(value, placeholder){
+  return value
+    ? '<span class="fill done">' + esc(value) + '</span>'
+    : '<span class="fill">' + placeholder + '</span>';
+}
+function esc(s){
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});
+}
+
+['company','address'].forEach(function(id){
+  $(id).addEventListener('input', fillDoc);
+});
+fillDoc();
+
+/* The button stays disabled until everything real is present. Both checkboxes
+   are re-checked on the server too — a browser-side gate is not evidence. */
+function check(){
+  var ok = $('company').value.trim() && $('address').value.trim()
+        && $('signer').value.trim() && $('email').value.trim()
+        && $('sig').value.trim() && $('agreeRates').checked && $('agreeLaunch').checked;
+  $('submit').disabled = !ok;
+}
+['company','address','signer','email','sig'].forEach(function(id){
+  $(id).addEventListener('input', check);
+});
+['agreeRates','agreeLaunch'].forEach(function(id){
+  $(id).addEventListener('change', check);
+});
+
+$('submit').onclick = function(){
+  var btn = this;
+  btn.disabled = true;
+  $('msg').className = 'msg';
+  $('msg').textContent = 'Preparing your agreement…';
+  fetch('api/sign', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      company: $('company').value.trim(),
+      address: $('address').value.trim(),
+      signer: $('sig').value.trim() || $('signer').value.trim(),
+      email: $('email').value.trim(),
+      phone: $('phone').value.trim(),
+      agree_rates: $('agreeRates').checked,
+      agree_launch: $('agreeLaunch').checked
+    })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if(d.error){
+      $('msg').className = 'msg err';
+      $('msg').textContent = d.error;
+      btn.disabled = false;
+      return;
+    }
+    $('doneNote').textContent = d.note || '';
+    $('dl').href = d.download;
+    $('form').hidden = true;
+    $('done').hidden = false;
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  })
+  .catch(function(){
+    $('msg').className = 'msg err';
+    $('msg').textContent = 'That did not go through. Nothing was signed — try again.';
+    btn.disabled = false;
+  });
+};
+</script>
+</body>
+</html>
