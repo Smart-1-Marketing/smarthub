@@ -888,6 +888,19 @@ def create_hub_app() -> Flask:
             str(body.get("pdf_url") or ""), str(body.get("client") or ""),
             body.get("meta") if isinstance(body.get("meta"), dict) else None))
 
+    @app.route("/api/leads/ghl/preflight")
+    def api_leads_ghl_preflight():
+        """Check lead delivery config against the live Suite API. Reads only.
+
+        `?find=1` also lists the sub-accounts whose name matches, so the right
+        location id can be copied out rather than hunted for in Suite.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .ghl_contacts import preflight
+        return jsonify(preflight(find=request.args.get("find") == "1"))
+
     @app.route("/api/leads/retry", methods=["POST"])
     def api_leads_retry():
         gate = _require_api()

@@ -764,10 +764,28 @@ def _ghl(path: str, params=None, method: str = "GET", body=None):
 
 def _accounting_location() -> tuple[str, str]:
     """(location_id, name) of the Smart 1 Marketing sub-account.
-    SUITE_COMPANY_ID pins it directly (preferred); falls back to
-    GHL_ACCOUNTING_LOCATION_ID, then a name search."""
-    override = (os.environ.get("SUITE_COMPANY_ID", "").strip()
-                or os.environ.get("GHL_ACCOUNTING_LOCATION_ID", "").strip())
+
+    GHL_ACCOUNTING_LOCATION_ID / GHL_LEAD_LOCATION_ID pin it; otherwise it is
+    found by name.
+
+    This used to accept SUITE_COMPANY_ID as the override, which is wrong twice
+    over: the name says company and hub/config.py reads it as one, and in this
+    deployment it holds the same value as GHL_COMPANY_ID. A companyId passed
+    where the API wants a locationId addresses the agency rather than the
+    sub-account, and nothing in the response says so — the pipeline lookup just
+    comes back empty as though there were no pipelines. A company id is
+    therefore refused here rather than used.
+    """
+    company = (os.environ.get("GHL_COMPANY_ID", "").strip()
+               or os.environ.get("SUITE_COMPANY_ID", "").strip())
+    override = (os.environ.get("GHL_ACCOUNTING_LOCATION_ID", "").strip()
+                or os.environ.get("GHL_LEAD_LOCATION_ID", "").strip())
+    if override and company and override == company:
+        raise RuntimeError(
+            "The configured accounting location id is the same value as the "
+            "agency company id. That addresses the agency, not the Smart 1 "
+            "Marketing sub-account. Set GHL_ACCOUNTING_LOCATION_ID to the "
+            "sub-account (location) id.")
     if override:
         return override, "Smart 1 Marketing"
     if "acct_loc" in _ghl_cache:

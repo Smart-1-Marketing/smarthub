@@ -52,16 +52,36 @@ function loadLeads(){
 }
 
 function renderLeads(d){
-  document.getElementById('leadWarn').innerHTML = d.note
-    ? '<div style="background:#fff4d7;color:#8a5a00;padding:10px 14px;border-radius:9px;'+
-      'font-size:13px;margin-bottom:14px">'+esc(d.note)+'</div>' : '';
+  document.getElementById('leadWarn').innerHTML =
+    (d.route_warning
+      ? '<div style="background:#fdecea;color:#8a1c12;padding:10px 14px;border-radius:9px;'+
+        'font-size:13px;margin-bottom:14px"><b>Two delivery routes configured.</b> '+
+        esc(d.route_warning)+'</div>' : '')+
+    (d.note
+      ? '<div style="background:#fff4d7;color:#8a5a00;padding:10px 14px;border-radius:9px;'+
+        'font-size:13px;margin-bottom:14px">'+esc(d.note)+'</div>' : '');
 
   document.getElementById('leadStats').innerHTML =
     '<div class="diag-row"><span class="diag-pill p-ok">'+d.count+'</span>'+
     '<span class="diag-name">Leads</span><span class="diag-detail">'+
     'in the last '+d.days+' days · '+d.with_pdf+' with a report attached'+
     (d.undelivered ? ' · <b>'+d.undelivered+' not yet in Suite</b>' : ' · all delivered')+
+    (d.needs_attention ? ' · <b>'+d.needs_attention+' need attention</b>' : '')+
     '</span></div>'+
+    '<div class="diag-row"><span class="diag-pill p-'+
+      (d.route==='api'?'ok':d.route==='webhook'?'warn':'error')+'">'+
+      esc(d.route||'none')+'</span><span class="diag-name">Delivery route</span>'+
+      '<span class="diag-detail">Leads are written to Smart 1 Suite via the <b>'+
+      esc(d.route_label||'')+'</b>.'+
+      (d.route==='api'
+        ? ' '+d.confirmed+' of '+d.count+' carry a Suite contact id, which is what '+
+          'confirms the contact exists rather than just that the request was accepted.'
+        : d.route==='webhook'
+          ? ' A webhook confirms only that Suite accepted the request — there is no '+
+            'contact id to check against.'
+          : '')+
+      ' <a href="/api/leads/ghl/preflight?find=1" target="_blank" rel="noopener">Run preflight</a>'+
+      '</span></div>'+
     (d.by_page.length
       ? '<div class="diag-row"><span class="diag-pill p-off">'+d.by_page.length+
         '</span><span class="diag-name">Pages</span><span class="diag-detail">'+
@@ -98,8 +118,13 @@ function renderLeads(d){
             'rel="noopener">Open PDF</a>':'<span class="muted">—</span>')+'</td>'+
         '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
           (l.delivered
-            ? '<span class="pill ok">sent</span>'
-            : '<span class="pill err" title="'+esc(l.last_error||'')+'">queued</span>')+
+            ? (l.contact_id
+                ? '<span class="pill ok" title="Suite contact '+esc(l.contact_id)+'">in Suite</span>'
+                : '<span class="pill ok" title="Accepted by the webhook. No contact id — '+
+                  'delivery is not confirmed beyond the request being accepted.">sent</span>')
+            : (l.retryable===false
+                ? '<span class="pill err" title="'+esc(l.last_error||'')+'">needs attention</span>'
+                : '<span class="pill err" title="'+esc(l.last_error||'')+'">queued</span>'))+
           '</td></tr>';
     }).join('')+'</tbody></table>';
 }
@@ -107,7 +132,8 @@ function renderLeads(d){
 function retryLeads(){
   fetch('/api/leads/retry',{method:'POST',credentials:'same-origin'})
     .then(function(r){return r.json();}).then(function(d){
-      alert(d.note || (d.delivered+' delivered, '+d.still_failing+' still queued.'));
+      alert(d.note || (d.delivered+' delivered, '+d.still_failing+' still queued'+
+                       (d.needs_attention? ', '+d.needs_attention+' need attention':'')+'.'));
       loadLeads();
     }).catch(function(){ alert('Could not retry.'); });
 }
