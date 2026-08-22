@@ -1,12 +1,10 @@
 """
 Persistence for the Image Picker.
 
-MERGE NOTE (one line): when this module is dropped into the Hub, replace the
-standalone engine below with `from hub.extensions import db` and delete the
-`_standalone_*` block. Everything else in this file already uses the shared
-declarative style the rest of the Hub uses. Table names are prefixed
-`image_picker_` so they cannot collide on the shared DATABASE_URL -- the Scans
-module review flagged exactly that risk.
+The engine comes from hub/extensions, so this module shares the Hub's single
+connection pool rather than opening a second one against the same Postgres.
+Table names are prefixed `image_picker_` so they cannot collide on the shared
+DATABASE_URL -- the Scans module review flagged exactly that risk.
 """
 
 from __future__ import annotations
@@ -18,26 +16,17 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean, Column, DateTime, ForeignKey, Integer, String, Text,
-    UniqueConstraint, create_engine, select,
+    UniqueConstraint, select,
 )
-from sqlalchemy.orm import declarative_base, relationship, scoped_session, sessionmaker
+from sqlalchemy.orm import declarative_base, relationship
+
+from hub.extensions import create_all_metadata, session_factory, shared_engine
 
 Base = declarative_base()
 
-# --- _standalone_engine: replace with hub.extensions.db on merge -------------
 _ENGINE = None
 _Session = None
 DB_BOOT_ERROR: str | None = None
-
-
-def _database_url() -> str:
-    url = os.environ.get("DATABASE_URL", "").strip()
-    if not url:
-        return "sqlite:///image_picker.db"
-    # Render hands out postgres:// which SQLAlchemy 2.x no longer accepts.
-    if url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql://", 1)
-    return url
 
 
 def init_db(app=None) -> None:
@@ -49,14 +38,12 @@ def init_db(app=None) -> None:
     """
     global _ENGINE, _Session, DB_BOOT_ERROR
     try:
-        _ENGINE = create_engine(
-            _database_url(), pool_pre_ping=True, future=True,
-            connect_args={"check_same_thread": False} if _database_url().startswith("sqlite") else {},
-        )
-        _Session = scoped_session(sessionmaker(bind=_ENGINE, future=True, expire_on_commit=False))
-        Base.metadata.create_all(_ENGINE)
-        _add_missing_columns()
-        DB_BOOT_ERROR = None
+        _ENGINE = shared_engine()
+        _Session = session_factory(scoped=True)
+        # Advisory-locked so the two gunicorn workers don't race the DDL.
+        DB_BOOT_ERROR = create_all_metadata(Base.metadata) or None
+        if not DB_BOOT_ERROR:
+            _add_missing_columns()
     except Exception as exc:  # noqa: BLE001
         DB_BOOT_ERROR = str(exc)
 
@@ -93,7 +80,6 @@ def session():
     if DB_BOOT_ERROR:
         raise RuntimeError(f"database unavailable: {DB_BOOT_ERROR}")
     return _Session()
-# --- end _standalone_engine -------------------------------------------------
 
 
 def utcnow() -> datetime:

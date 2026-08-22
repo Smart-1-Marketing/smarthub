@@ -33,13 +33,13 @@ from urllib.parse import urlparse
 
 from flask import (Flask, jsonify, make_response, redirect,
                    render_template, request, Response)
-from sqlalchemy import (Column, DateTime, Integer, String, Text, create_engine,
-                        func, or_)
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import Column, DateTime, Integer, String, Text, func, or_
+from sqlalchemy.orm import declarative_base
 
 from . import (audit_fields, insites_client, leads as widget_state,
                linkcheck, report_pdf, reports, site_health, widget)
 from .insites_client import InsitesError, is_configured
+from hub.extensions import create_all_metadata, session_factory, shared_engine
 from hub.webargs import clamp_int
 
 try:                                   # Hub activity log (present in the Hub)
@@ -90,16 +90,15 @@ def config_warnings() -> list[str]:
 # =====================================================================
 # Database (SQLite locally, Postgres on Render via DATABASE_URL)
 # =====================================================================
-_db_url = os.getenv("DATABASE_URL", "").strip()
-if _db_url.startswith("postgres://"):
-    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
-if not _db_url:
-    _db_url = "sqlite:///" + str(BASE_DIR / "smart1_scans.db")
-engine = create_engine(
-    _db_url, future=True, pool_pre_ping=True,
-    connect_args={"check_same_thread": False} if _db_url.startswith("sqlite") else {},
-)
-SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+# The engine comes from hub/extensions, which owns the URL, the pool and the
+# DDL lock for every module. This file used to resolve DATABASE_URL and call
+# create_engine() itself, which meant a second connection pool against the same
+# Postgres as the rest of the Hub -- and, with no DATABASE_URL set, a SQLite
+# file at modules/scans/smart1_scans.db, i.e. inside the container image, which
+# Render discards on every deploy. Same two backends, one pool, and the
+# fallback file now lands on the mounted disk.
+engine = shared_engine()
+SessionLocal = session_factory()
 Base = declarative_base()
 
 
@@ -160,14 +159,18 @@ class LinkCheck(Base):
 # A database that isn't up yet must not take the module offline for the life
 # of the worker \u2014 capture the problem and let every request explain it, the
 # same way the Sites admin does.
+# create_all_metadata takes the Postgres advisory lock, so the two gunicorn
+# workers no longer race each other into a duplicate-key stack trace, and it
+# reports rather than raises.
 DB_BOOT_ERROR = ""
-try:
-    Base.metadata.create_all(engine)
-    # The widget's placements and run state ride the same engine, so a deploy
-    # that can reach the scans database can always serve the embed too.
-    widget_state.Base.metadata.create_all(engine)
-except Exception as _db_exc:  # noqa: BLE001
-    DB_BOOT_ERROR = f"{type(_db_exc).__name__}: {_db_exc}"
+for _metadata in (Base.metadata,
+                  # The widget's placements and run state ride the same engine,
+                  # so a deploy that can reach the scans database can always
+                  # serve the embed too.
+                  widget_state.Base.metadata):
+    _err = create_all_metadata(_metadata)
+    if _err and not DB_BOOT_ERROR:
+        DB_BOOT_ERROR = _err
 
 # Serialises the duplicate-check-then-insert in api_new_scan so a double-click
 # can't spend two Insites credits on the same domain.
