@@ -372,15 +372,31 @@ const API_BASE=(typeof window!=="undefined"&&window.SMART1_API_BASE)?String(wind
 if(typeof window!=="undefined"&&window.fetch){
   const _origFetch=window.fetch.bind(window);
   const API_TIMEOUT_MS=150000;
+  // OUR /api/* routes, straight off this app's route table. Only these get the
+  // mount prefix. Everything else beginning /api/ belongs to the Hub at the
+  // site root -- /api/io/from-proposal (the proposal reader) and /api/help (the
+  // help layer both live there) -- and prefixing those sent them here, where
+  // they do not exist. That is why converting an uploaded proposal answered
+  // "Couldn't read that proposal" every time.
+  const OWN_API={{ (own_api_paths or [])|tojson }};
+  function isOwnApi(u){
+    if(typeof u!=="string")return false;
+    const path=u.split(/[?#]/)[0];
+    // Whole path segments only: a bare prefix test would let /api/spec-input
+    // match the route /api/spec-in and get rewritten with it.
+    return OWN_API.some(p=>p.charAt(p.length-1)==="/"
+      ? path.indexOf(p)===0
+      : (path===p||path.indexOf(p+"/")===0));
+  }
   function isApiReq(input){
     const u=(typeof input==="string")?input:(input&&input.url)||"";
-    return typeof u==="string"&&u.indexOf("/api/")===0;
+    return isOwnApi(u);
   }
   function withBase(input){
     if(!API_BASE)return input;   // served at the root; the path is already right
     try{
-      if(typeof input==="string"&&input.indexOf("/api/")===0)return API_BASE+input;
-      if(input&&typeof input.url==="string"&&input.url.indexOf("/api/")===0)return new Request(API_BASE+input.url,input);
+      if(typeof input==="string"&&isOwnApi(input))return API_BASE+input;
+      if(input&&typeof input.url==="string"&&isOwnApi(input.url))return new Request(API_BASE+input.url,input);
     }catch(e){}
     return input;
   }
@@ -595,7 +611,11 @@ function baseFlow(){
  ];
 }
 function nextValidIndex(i){
- while(i<flow.length && flow[i].condition && !flow[i].condition())i++;
+ /* Two reasons to walk past a question: its own condition says it doesn't
+    apply, or the proposal we converted from already answered it. The second
+    is released by goBack(), so nothing read off a document is unreachable. */
+ while(i<flow.length && ((flow[i].condition && !flow[i].condition())
+                         || (typeof proposalAnswered==="function" && proposalAnswered(flow[i]))))i++;
  return i;
 }
 function allRecommendedKPIs(){
@@ -611,7 +631,13 @@ function extractSuggestedBudget(listedRate){
  return m?m[1]:null;
 }
 function recommendationFor(q){
+ if(!q)return null;
  if(q.suggestion!==undefined&&q.suggestion!==null&&q.suggestion!=='')return String(q.suggestion);
+ /* Whatever the proposal said for this field, offered rather than assumed --
+    this is what a money question gets instead of being skipped, and what
+    every other prefilled question falls back to after Back releases the
+    skips. */
+ if(typeof PROPOSAL==="object"&&q.key&&PROPOSAL.filled[q.key])return String(PROPOSAL.filled[q.key]);
  if(q.default)return String(q.default);
  return null;
 }
@@ -920,7 +946,16 @@ Type Y to use this description, or enter your own.`,suggestion};
   if(!state.sameDates&&!tempItem.start)return{key:"productStart",q:`What is the campaign start date for ${cfg.product}? Use MM/DD/YYYY.`};
   if(!state.sameDates&&!tempItem.end)return{key:"productEnd",q:`What is the campaign end date for ${cfg.product}? Use MM/DD/YYYY.`};
   if(state.landingMode==="Multiple landing pages by product"&&!tempItem.landingUrl)return{key:"productLandingUrl",q:`What landing-page URL should be used for ${cfg.product}?`};
-  if(tempItem.budget===null)return{key:"productBudget",q:`The listed rate for ${cfg.product} is ${cfg.listedRate}. What monthly budget or fee should appear on the IO?`,suggestion:extractSuggestedBudget(cfg.listedRate)};
+  if(tempItem.budget===null){
+   /* A price read off the proposal beats the rate card's own suggestion here,
+      and it is still only a suggestion: the rep presses Y to accept it. This
+      is the one place a proposal figure becomes a billed figure, so it is
+      asked every time rather than skipped. */
+   const fromProposal=(typeof PROPOSAL==="object")?PROPOSAL.budgets[product]:0;
+   return{key:"productBudget",
+    q:`The listed rate for ${cfg.product} is ${cfg.listedRate}.${fromProposal?` The proposal quoted $${Number(fromProposal).toLocaleString()}/month.`:""} What monthly budget or fee should appear on the IO?`,
+    suggestion:fromProposal||extractSuggestedBudget(cfg.listedRate)};
+  }
   if((cfg.rate==="CPM"||cfg.rate==="CPV")&&tempItem.rate===null)return{key:"productRate",q:`The rate card recommends ${cfg.listedRate}. Type Y to use the recommended ${cfg.rate} of ${cfg.defaultRate}, or enter your own ${cfg.rate}.`,suggestion:String(cfg.defaultRate)};
   if(tempItem.prorateFirstMonth===undefined && startsMidMonth(tempItem.start||state.start))return{key:"prorateFirstMonth",q:`${cfg.product} starts mid-month (${tempItem.start||state.start}). For that first partial month, prorate the budget by the days remaining, or charge the full monthly budget?`,options:["Prorate first month","Charge full month"]};
   if(tempItem.budgetChangesAsked===null)return{key:"productBudgetChanges",q:`Will the monthly budget for ${cfg.product} change during the campaign?`,options:["Yes","No"]};
@@ -2139,6 +2174,14 @@ function goBack(){
   index=o.index;currentProduct=o.currentProduct;tempItem=o.tempItem;
   document.querySelectorAll(".quick,.multi-panel").forEach(x=>x.remove());
   addMsg("↶ Went back to the previous question.");
+  /* Someone pressing Back on a proposal-filled IO is asking to see what was
+     filled in for them. Skipping stops here rather than bouncing them past
+     the very answers they came back to check; each one now asks normally with
+     the proposal's value offered. */
+  if(typeof PROPOSAL==="object"&&PROPOSAL.skip){
+   PROPOSAL.skip=false;
+   addMsg("Every answer I took from the proposal is now open for review — press Enter to keep the value I read, or type a different one.");
+  }
   render();ask();
  }catch(e){}
 }
@@ -2190,17 +2233,49 @@ document.addEventListener("keydown",e=>{
  else if(cm&&cm.classList.contains("open")&&typeof closeCreativeManager==="function"){closeCreativeManager();}
 });
 
-/* Arriving from a proposal on Client 360.
+/* Arriving from a proposal on Client 360 or the Sales Builder.
    The proposal is the agreement and the IO is what makes it real; retyping it
    is where the two drift apart.
 
-   What comes back is deliberately conservative — a proposal carries ranges,
-   options and "starting at", none of which is a committed number. So only the
-   client name is filled in, because that is the one thing that cannot be a
-   range. Everything else is presented as what the proposal appeared to say,
-   with the reader's own questions, and the interview then asks for it
-   normally. Filling an IO from a proposal unchecked is how a client gets
-   billed a figure nobody agreed to. */
+   What the reader returns is applied to the IO, and the interview then asks
+   only what the document did not answer. Two guards stay, because a proposal
+   carries ranges, options and "starting at":
+
+   - Money is never auto-accepted. A price the reader found arrives as the
+     suggested answer on the question that asks for it, so the figure still
+     passes in front of the rep. Filling a budget in unchecked is how a client
+     gets billed a number nobody agreed to.
+   - The first press of Back releases every skip, so anything read off the
+     document can be corrected rather than being locked in behind a question
+     that never gets asked. */
+const PROPOSAL={filled:{},budgets:{},skip:false};
+
+/* A question the proposal already answered. Only while skipping is armed --
+   goBack() disarms it, and then these ask normally with the proposal's value
+   offered as the suggestion. */
+function proposalAnswered(q){
+ return PROPOSAL.skip && !!q && !!q.key
+   && Object.prototype.hasOwnProperty.call(PROPOSAL.filled,q.key);
+}
+
+/* A product name the model read, mapped onto the rate card. Exact product or
+   label first, then a contains match. No match returns "" -- an unmatched
+   product is shown to the rep as text rather than guessed into a line item,
+   because the wrong product on an IO is the error they cannot spot. */
+function cardLabelFor(name){
+ const n=String(name||"").trim().toLowerCase();
+ if(!n)return "";
+ const eq=x=>String(x||"").trim().toLowerCase();
+ let hit=rateCard.find(x=>eq(x.product)===n)||rateCard.find(x=>eq(x.label)===n);
+ /* Contains in one direction only -- the card's product name may carry the
+    trailing description ("Advanced TV - Targeted - This is played on...") and
+    still be the same product. The reverse would let a short generic product
+    name like "Category" swallow any longer phrase containing the word. Same
+    rule the server's _card_name uses, so both ends agree on what a match is. */
+ if(!hit&&n.length>3)hit=rateCard.find(x=>eq(x.product).indexOf(n)>=0);
+ return hit?hit.label:"";
+}
+
 function prefillFromProposal(){
  const q=new URLSearchParams(location.search);
  const src=q.get("from_proposal");
@@ -2208,24 +2283,80 @@ function prefillFromProposal(){
  const client=q.get("client")||"";
  addMsg("Reading that proposal…");
  /* client + the proposal's id. The server looks it up among that client's
-    stored proposals and reads it there, so no URL is fetched on our say-so. */
- fetch("{{ request.script_root }}/api/io/from-proposal",{method:"POST",headers:{"Content-Type":"application/json"},
+    stored proposals and reads it there, so no URL is fetched on our say-so.
+
+    The path is absolute and deliberately NOT prefixed with the mount root:
+    the reader is a Hub route at the site root, and this app is mounted at
+    /tools/io. Prefixed, it asked /tools/io/api/io/from-proposal, which this
+    app has no route for -- so every conversion failed, said "couldn't read
+    that proposal" and dropped into a blank interview. That is the mount trap
+    in CLAUDE.md. The fetch wrapper above leaves it alone because it is not in
+    OWN_API. */
+ fetch("/api/io/from-proposal",{method:"POST",headers:{"Content-Type":"application/json"},
    credentials:"same-origin",
    body:JSON.stringify({client:client,filename:src})})
   .then(r=>r.json())
   .then(d=>{
    if(d.error){addMsg("Couldn't read that proposal: "+d.error+" You can still fill this in by hand.");ask();return}
-   const f=d.fields||{}, srcs=d.sources||{};
-   /* Only what the reader marked "known" is applied. Anything it flagged as
-      needs_review is shown, never set — that is the whole point of the flag. */
-   if(f.client_name&&srcs.client_name==="known")state.client=f.client_name;
-   else if(client)state.client=client;
-   render();
+   const f=d.fields||{};
 
-   /* Everything the reader found, not just the headline list. It extracts the
-      contact, the geography, the dates and a price per product; showing only
-      d.found meant most of that was fetched, held in memory and never put in
-      front of the person who needs it, who then retyped it off the PDF. */
+   /* ---- what the proposal answered, applied to the IO ---- */
+   const put=(key,val)=>{
+    const v=(val===0||val)?String(val).trim():"";
+    if(!v)return;
+    state[key]=v;PROPOSAL.filled[key]=v;
+   };
+   put("client",f.client_name||client);
+   put("url",f.website);
+   put("clientContactName",f.client_contact_name);
+   put("clientContactEmail",f.client_contact_email);
+   put("clientContactPhone",f.client_contact_phone);
+   if(f.geo){
+    /* "Other" rather than a radius: a proposal writes its geography in prose,
+       and turning prose into an origin + a mileage would be inventing the
+       number the radius question exists to ask. */
+    state.geoType="Other";PROPOSAL.filled.geoType="Other";
+    put("geoOther",f.geo);state.geo=state.geoOther;
+   }
+   const isoDate=v=>/^\d{4}-\d{2}-\d{2}$/.test(String(v||""));
+   if(isoDate(f.start_date)){
+    /* state carries the boolean the flow's conditions test; PROPOSAL.filled
+       carries what the question would have been answered with, because that
+       is what gets offered back as the suggestion after Back. */
+    state.sameDates=true;PROPOSAL.filled.sameDates="Yes";
+    put("start",f.start_date);
+    if(isoDate(f.end_date))put("end",f.end_date);
+   }
+
+   /* Goals and products are pre-ticked, never skipped. Both are chosen from a
+      fixed list, and the panel showing them already ticked is the confirmation
+      -- whereas skipping the product step outright would leave a rep no way to
+      add a product the reader missed. */
+   const goals=Object.keys(objectiveKPIs);
+   String(f.objectives||"").split(/[,;\n]|\band\b/i).forEach(part=>{
+    const t=part.trim().toLowerCase();if(t.length<4)return;
+    const g=goals.find(x=>x.toLowerCase()===t)||goals.find(x=>x.toLowerCase().indexOf(t)>=0||t.indexOf(x.toLowerCase())>=0);
+    if(g&&!state.objectives.includes(g))state.objectives.push(g);
+   });
+
+   const matched=[],unmatched=[];
+   (f.products_detail||[]).forEach(p2=>{
+    const label=cardLabelFor(p2.product);
+    if(!label){unmatched.push(p2.product);return}
+    if(!state.selected.includes(label))state.selected.push(label);
+    const cat=(productConfig[label]||{}).category||"";
+    if(cat&&!state.selectedCategories.includes(cat))state.selectedCategories.push(cat);
+    if(p2.monthly>0)PROPOSAL.budgets[label]=Math.round(p2.monthly);
+    matched.push(label);
+   });
+
+   PROPOSAL.skip=Object.keys(PROPOSAL.filled).length>0;
+   render();
+   /* The URL question normally kicks this off. Skipping the question must not
+      also skip the brand lookup that hangs off it. */
+   if(state.url)try{fetchBrandfetchData(state.url)}catch(e){}
+
+   /* ---- what it says, in full ---- */
    const READ_LABELS = {
     client_name:"Business", website:"Website",
     client_contact_name:"Contact", client_contact_email:"Email",
@@ -2253,9 +2384,31 @@ function prefillFromProposal(){
    }else{
     addMsg("That proposal didn't contain anything I could map to an IO.");
    }
-   /* Said once, plainly, straight after the numbers rather than at the end:
-      none of it is filled in, because a proposal is an offer and an IO is a
-      bill. The interview below asks for each of these properly. */
+
+   /* Said once, plainly, straight after the numbers: what was taken, what was
+      only ticked for confirmation, and how to change any of it. A prefill the
+      rep cannot see is the same problem as no prefill at all. */
+   const took=Object.keys(PROPOSAL.filled).length;
+   if(took){
+    addMsg("I've filled "+took+" answer"+(took>1?"s":"")+" in from the proposal, "
+     +"so I'll only ask for what it didn't say. Press ← Back at any point to "
+     +"review or change anything I took from it.");
+   }
+   if(matched.length){
+    /* Short names. Several rate-card products carry their whole description in
+       the product field ("Advanced TV - Targeted - This is played on all
+       streaming services..."), and three of those in one line is unreadable. */
+    const shortName=l=>{
+     const n=String((productConfig[l]||{}).product||l).split(/\s+-\s+/)[0].trim();
+     return n.length>48?n.slice(0,45)+"…":n;
+    };
+    addMsg("Pre-selected from the rate card: "+matched.map(shortName).join(", ")
+     +". You'll still confirm the product list and every budget — a proposal "
+     +"quotes a price, an IO bills it.");
+   }
+   if(unmatched.length){
+    addMsg("Not on the rate card, so not selected: "+unmatched.join(", ")+". Add the matching product yourself if it belongs on this IO.");
+   }
    if(d.note)addMsg(d.note);
    (d.ask||[]).forEach(q2=>addMsg("• "+q2));
    ask();

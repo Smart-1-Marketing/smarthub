@@ -431,6 +431,20 @@ def _ai_read(client: str, text: str, filename: str = "") -> dict | None:
     }
 
 
+def _add_months(start: date, months: int) -> date:
+    """The last day of a term of `months` beginning on `start`.
+
+    Month arithmetic done as a running month count, because doing it as
+    `year + months // 12` with the month taken modulo 12 loses a whole year
+    whenever the month wraps: a 6-month term from 2026-09-01 came back ending
+    2026-02-28 — an insertion order whose end date is before its start. It
+    only shows on terms that cross a December, which is why it survived.
+    """
+    total = start.year * 12 + (start.month - 1) + months
+    nxt = date(total // 12, total % 12 + 1, 1)
+    return nxt - timedelta(days=1)
+
+
 def from_proposal(client: str, text: str, filename: str = "") -> dict:
     """Read a proposal for anything that belongs on an IO.
 
@@ -476,10 +490,7 @@ def from_proposal(client: str, text: str, filename: str = "") -> dict:
         start = date.today().replace(day=1) + timedelta(days=32)
         start = start.replace(day=1)
         fields["start_date"] = start.isoformat()
-        fields["end_date"] = (start.replace(
-            year=start.year + months // 12,
-            month=((start.month - 1 + months % 12) % 12) + 1)
-            - timedelta(days=1)).isoformat()
+        fields["end_date"] = _add_months(start, months).isoformat()
         sources["start_date"] = sources["end_date"] = "needs_review"
 
     if client:
