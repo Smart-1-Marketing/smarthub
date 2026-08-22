@@ -332,9 +332,9 @@ function sendPartialLead(){
   const body=JSON.stringify(data);
   try{
     if(navigator.sendBeacon){navigator.sendBeacon('/api/lead',new Blob([body],{type:'application/json'}));}
-    else{fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});}
+    else{fetch('{{ request.script_root }}/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});}
   }catch(e){
-    try{fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});}catch(e2){}
+    try{fetch('{{ request.script_root }}/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});}catch(e2){}
   }
 }
 const nextBtn=document.getElementById('nextBtn');
@@ -442,7 +442,7 @@ nextBtn.onclick=()=>{if(validStep()){const leaving=current;current++;showStep();
 backBtn.onclick=()=>{if(current>0){current--;showStep()}};
 stepDots.forEach((dot,i)=>dot.addEventListener('click',()=>{if(i<=current){current=i;showStep()}}));
 const fmt=n=>new Intl.NumberFormat('en-US').format(n||0);const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-form.addEventListener('submit',async e=>{e.preventDefault();if(!validStep())return;const payload=Object.fromEntries(new FormData(form).entries());Object.assign(payload,ATTR);payload.lead_id=LEAD_ID;payload.form_started_at=FORM_STARTED_AT;sendPartialLead();track('s1_report_requested');document.getElementById('formCard').classList.add('hidden');document.getElementById('loading').classList.remove('hidden');try{const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const raw=await r.text();let data;try{data=JSON.parse(raw)}catch{throw new Error(`Server did not return a report (status ${r.status}). The report may have taken too long to generate — please try again.`)}if(!r.ok||!data.ok)throw new Error(data.detail?`${data.error} (${data.detail})`:(data.error||'Report failed'));renderReport(data.report,payload.restaurant_name);pollForPdf(data.report_id)}catch(err){track('s1_report_error',{message:String(err&&err.message||err)});document.getElementById('loading').classList.add('hidden');document.getElementById('formCard').classList.remove('hidden');errorBox.textContent=err.message}});
+form.addEventListener('submit',async e=>{e.preventDefault();if(!validStep())return;const payload=Object.fromEntries(new FormData(form).entries());Object.assign(payload,ATTR);payload.lead_id=LEAD_ID;payload.form_started_at=FORM_STARTED_AT;sendPartialLead();track('s1_report_requested');document.getElementById('formCard').classList.add('hidden');document.getElementById('loading').classList.remove('hidden');try{const r=await fetch('{{ request.script_root }}/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const raw=await r.text();let data;try{data=JSON.parse(raw)}catch{throw new Error(`Server did not return a report (status ${r.status}). The report may have taken too long to generate — please try again.`)}if(!r.ok||!data.ok)throw new Error(data.detail?`${data.error} (${data.detail})`:(data.error||'Report failed'));renderReport(data.report,payload.restaurant_name);pollForPdf(data.report_id)}catch(err){track('s1_report_error',{message:String(err&&err.message||err)});document.getElementById('loading').classList.add('hidden');document.getElementById('formCard').classList.remove('hidden');errorBox.textContent=err.message}});
 const PACKAGES=(window.__PACKAGES__&&window.__PACKAGES__.length)?window.__PACKAGES__:[{name:'Corner Table',price:'$1,500/month',blurb:''},{name:'Local Favorite',price:'$3,000/month',blurb:''},{name:'Regional Draw',price:'$5,500/month',blurb:''},{name:'Market Leader',price:'$8,500/month',blurb:''}];
 function buildTradeMap(geo){
   const W=520,H=360,cx=W/2,cy=H/2,rings=[150,102,58];
@@ -551,7 +551,7 @@ function pollForPdf(reportId){
   var timer=setInterval(function(){
     tries++;
     if(tries>20){clearInterval(timer);return;}
-    fetch('/api/report/'+encodeURIComponent(reportId)).then(function(r){return r.json();}).then(function(d){
+    fetch('{{ request.script_root }}/api/report/'+encodeURIComponent(reportId)).then(function(r){return r.json();}).then(function(d){
       if(d&&d.ok&&d.report&&d.report.report_pdf_url){clearInterval(timer);setPdfButton(d.report.report_pdf_url);}
     }).catch(function(){});
   },3000);
@@ -613,7 +613,7 @@ if(document.documentElement.classList.contains('embed')){
   if(!vid)return;
   document.documentElement.classList.add('view-only');
   document.getElementById('loading').classList.remove('hidden');
-  fetch('/api/report/'+encodeURIComponent(vid)).then(function(r){return r.json();}).then(function(d){
+  fetch('{{ request.script_root }}/api/report/'+encodeURIComponent(vid)).then(function(r){return r.json();}).then(function(d){
     if(d&&d.ok&&d.report){ renderReport(d.report, d.report._restaurant||'Your Restaurant'); }
     else { document.getElementById('loading').innerHTML='<p style="padding:40px;color:#68798c">This report link is no longer available.</p>'; }
   }).catch(function(){ document.getElementById('loading').innerHTML='<p style="padding:40px;color:#68798c">This report link could not be loaded.</p>'; });

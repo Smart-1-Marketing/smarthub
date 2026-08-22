@@ -410,7 +410,7 @@ form.addEventListener('submit',async e=>{
   document.getElementById('loading').classList.remove('hidden');
   window.scrollTo({top:0,behavior:'smooth'});
   try{
-    const res=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const res=await fetch('{{ request.script_root }}/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const raw=await res.text();
     let data;
     try{data=JSON.parse(raw);}catch{throw new Error(`Server did not return a plan (status ${res.status}). It may have taken too long — please try again.`);}
@@ -438,7 +438,7 @@ document.getElementById('conquestForm').addEventListener('submit',async e=>{
     lsa_status:'yes_active',lead_type:'conquest_disqualified'
   };
   document.getElementById('conquestSubmit').disabled=true;
-  try{await fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});}catch(err){/* still confirm to the user */}
+  try{await fetch('{{ request.script_root }}/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});}catch(err){/* still confirm to the user */}
   document.getElementById('conquestGate').innerHTML=`
     <span class="gate-badge">🏆 CONQUEST LIST</span>
     <h2>You're on the list.</h2>

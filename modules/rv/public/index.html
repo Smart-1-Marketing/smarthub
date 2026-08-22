@@ -4,7 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Smart RV Demand Package</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <!-- Relative, not "/styles.css": this page is served under the /land/rv
+       mount, and public/ is sent as plain files so there is no Jinja to
+       inject the prefix. Werkzeug 308s /land/rv -> /land/rv/, so the
+       document URL always ends in a slash and this resolves under it. -->
+  <link rel="stylesheet" href="styles.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
@@ -110,7 +114,7 @@
     </form>
   </main>
 
-  <script src="/script.js"></script>
+  <script src="script.js"></script>
   <script>
     (function(){
       var loader = document.getElementById('srvPageLoader');

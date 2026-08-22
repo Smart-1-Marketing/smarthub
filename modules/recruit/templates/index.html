@@ -342,7 +342,7 @@ function sendPartial(){
   partialSent=true;
   const body=JSON.stringify({...p,...TRACK,lead_id:LEAD_ID,lead_stage:'partial'});
   if(navigator.sendBeacon){navigator.sendBeacon('/api/partial-lead',new Blob([body],{type:'application/json'}));}
-  else{fetch('/api/partial-lead',{method:'POST',headers:{'Content-Type':'application/json'},body,keepalive:true}).catch(()=>{});}
+  else{fetch('{{ request.script_root }}/api/partial-lead',{method:'POST',headers:{'Content-Type':'application/json'},body,keepalive:true}).catch(()=>{});}
 }
 window.addEventListener('pagehide',sendPartial);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')sendPartial();});
@@ -354,11 +354,11 @@ form.addEventListener('submit',async e=>{
   const payload={...Object.fromEntries(new FormData(form).entries()),...TRACK,lead_id:LEAD_ID};
   // Progressive capture: land the lead in the CRM immediately, before the slower
   // AI report call — so we never lose a completed form to a timeout or a bounce.
-  fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});
+  fetch('{{ request.script_root }}/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});
   document.getElementById('formCard').classList.add('hidden');
   document.getElementById('loading').classList.remove('hidden');
   try{
-    const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const r=await fetch('{{ request.script_root }}/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const raw=await r.text();let data;
     try{data=JSON.parse(raw)}catch{throw new Error(`Server did not return a report (status ${r.status}). The report may have taken too long to generate — please try again.`)}
     if(!r.ok||!data.ok)throw new Error(data.detail?`${data.error} (${data.detail})`:(data.error||'Report failed'));
