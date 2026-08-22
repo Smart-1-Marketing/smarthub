@@ -61,6 +61,7 @@ function renderLeads(d){
     '<span class="diag-name">Leads</span><span class="diag-detail">'+
     'in the last '+d.days+' days · '+d.with_pdf+' with a report attached'+
     (d.undelivered ? ' · <b>'+d.undelivered+' not yet in Suite</b>' : ' · all delivered')+
+    (d.converted ? ' · '+d.converted+' converted to clients' : '')+
     '</span></div>'+
     (d.by_page.length
       ? '<div class="diag-row"><span class="diag-pill p-off">'+d.by_page.length+
@@ -77,7 +78,7 @@ function renderLeads(d){
   document.getElementById('leadTable').innerHTML =
     '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
     '<thead><tr>'+
-    ['Captured','Name','Contact','Page','Report','Suite'].map(function(h){
+    ['Captured','Name','Contact','Page','Report','Suite','Client'].map(function(h){
       return '<th style="text-align:left;padding:6px;font-size:11px;color:#94a3b8;'+
              'text-transform:uppercase;letter-spacing:.5px">'+h+'</th>';}).join('')+
     '</tr></thead><tbody>'+
@@ -100,8 +101,36 @@ function renderLeads(d){
           (l.delivered
             ? '<span class="pill ok">sent</span>'
             : '<span class="pill err" title="'+esc(l.last_error||'')+'">queued</span>')+
+          '</td>'+
+        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
+          (l.converted_at
+            ? '<span class="pill ok" title="Linked '+esc((l.converted_at||"").slice(0,10))+
+              '">'+esc(l.client||'client')+'</span>'
+            : '<button class="um-btn" onclick="convertLead(\''+esc(l.id||'')+'\')">'+
+              'Link to client</button>')+
           '</td></tr>';
     }).join('')+'</tbody></table>';
+}
+
+// Linking a lead to the client it became. The account itself is created in
+// Knack -- that is what billing reads -- so this asks for the name and refuses
+// one the registry does not know, rather than inventing a client here and
+// leaving the Hub disagreeing with the invoice.
+function convertLead(id){
+  if(!id) return;
+  var name = prompt('Which client did this prospect become?\n\n'+
+                    'Type the account name exactly as it appears in the Hub. '+
+                    'The account must already exist in Knack.');
+  if(name === null) return;
+  name = name.trim();
+  if(!name) return;
+  fetch('/api/leads/convert',{
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({id:id, client:name})
+  }).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){ loadLeads(); } else { alert(d.error || 'That could not be linked.'); }
+  }).catch(function(){ alert('That could not be linked.'); });
 }
 
 function retryLeads(){
