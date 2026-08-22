@@ -9,10 +9,18 @@ every one of those passes a configuration check and fails in production. The
 suite audits are full of exactly this shape of bug: features that looked fine
 and silently degraded.
 
-Each check is cheap and read-only. Nothing here starts an audit, generates an
-image, or spends a credit — the checks are chosen specifically so that running
-the diagnostics page never costs money. Where a provider has no free ping,
-the check is marked `unverified` rather than guessed at.
+Each check is cheap. Nothing here starts an audit, generates an image, or
+spends a credit — the checks are chosen specifically so that running the
+diagnostics page never costs money. Where a provider has no free ping, the
+check is marked `unverified` rather than guessed at.
+
+Checks are read-only with one deliberate exception: check_google_accounts
+calls Google Finder's own refresh_access_token, which flips an account to
+REAUTH_REQUIRED when Google rejects its refresh token with a 400/401. That
+write is the point — the token really is dead, and the module already records
+it that way from /google/debug/accounts. Reimplementing the refresh here just
+to dodge the write would mean two copies of the token logic, which is how the
+Pexels key got fixed twice.
 
 Every check is wrapped and time-limited. A hanging provider must not hang the
 page.
@@ -377,6 +385,10 @@ def check_public_base_url() -> Check:
 # enough to tell a dead API or a disabled project from a healthy one, and
 # fanning out over every connected account would make this page pay a token
 # refresh plus three API calls per account.
+# Sequential refreshes at 10s apiece; see check_google_accounts for why this
+# is capped rather than exhaustive.
+MAX_GOOGLE_ACCOUNTS = 8
+
 _GOOGLE_APIS = [
     ("google_ga4", "Google · GA4 Admin API",
      "https://analyticsadmin.googleapis.com/v1beta/accountSummaries",
@@ -440,11 +452,16 @@ def check_google_accounts() -> list[Check]:
                       detail, int((time.time() - started) * 1000),
                       fix="Connect one at /google/login.")]
 
-    # Refresh each account's token until one succeeds. A revoked token is the
-    # common failure and it is per-account, so every account is named rather
-    # than reduced to a count.
+    # A revoked token is the common failure and it is per-account, so every
+    # account is named rather than reduced to a count. Bounded, though:
+    # refresh_access_token allows itself 10s and these run in sequence, so an
+    # agency with twenty dead accounts would otherwise hold this page open for
+    # over three minutes. This file's contract is that a sick provider must
+    # not hang the page, and a check that enforces that on other people has to
+    # obey it too. What the cap skipped is stated rather than passed over.
+    probe, skipped = accounts[:MAX_GOOGLE_ACCOUNTS], accounts[MAX_GOOGLE_ACCOUNTS:]
     token, live, dead = None, [], []
-    for acc in accounts:
+    for acc in probe:
         email = acc.get("email", "unknown")
         if not acc.get("refresh_token"):
             dead.append(f"{email} (no refresh token)")
@@ -455,12 +472,14 @@ def check_google_accounts() -> list[Check]:
             token = token or fresh
         except Exception as exc:            # noqa: BLE001
             dead.append(f"{email} ({type(exc).__name__})")
+    tail = (f" {len(skipped)} more not checked (cap {MAX_GOOGLE_ACCOUNTS})."
+            if skipped else "")
     ms = int((time.time() - started) * 1000)
 
     if not live:
         rows = [Check("google_accounts", "Google · connected accounts", "error",
-                      f"All {len(accounts)} connected account(s) failed to "
-                      f"refresh: {', '.join(dead)}.", ms, required=False,
+                      f"All {len(probe)} connected account(s) checked failed "
+                      f"to refresh: {', '.join(dead)}.{tail}", ms, required=False,
                       fix="Reconnect at /google/login — Google revokes a "
                           "refresh token when the password changes or access "
                           "is withdrawn.")]
@@ -471,12 +490,13 @@ def check_google_accounts() -> list[Check]:
 
     if dead:
         head = Check("google_accounts", "Google · connected accounts", "warn",
-                     f"{len(live)} of {len(accounts)} accounts refresh cleanly. "
-                     f"Failing: {', '.join(dead)}.", ms,
+                     f"{len(live)} of {len(probe)} accounts checked refresh "
+                     f"cleanly. Failing: {', '.join(dead)}.{tail}", ms,
                      fix="Reconnect the failing accounts at /google/login.")
     else:
         head = Check("google_accounts", "Google · connected accounts", "ok",
-                     f"{len(live)} account(s) connected, all refreshing.", ms)
+                     f"{len(live)} account(s) connected, all refreshing.{tail}",
+                     ms)
 
     rows = [head]
     for key, label, url, params, what in _GOOGLE_APIS:
