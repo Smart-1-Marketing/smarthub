@@ -245,7 +245,7 @@ function sendPartial(){
   partialSent=true;
   const body=JSON.stringify({...p,...ATTR,lead_id:LEAD_ID,lead_stage:"partial"});
   if(navigator.sendBeacon)navigator.sendBeacon("/api/partial-lead",new Blob([body],{type:"application/json"}));
-  else fetch("/api/partial-lead",{method:"POST",headers:{"Content-Type":"application/json"},body,keepalive:true});
+  else fetch("{{ request.script_root }}/api/partial-lead",{method:"POST",headers:{"Content-Type":"application/json"},body,keepalive:true});
 }
 window.addEventListener("pagehide",sendPartial);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")sendPartial();});
@@ -346,7 +346,7 @@ form.addEventListener("submit",async e=>{
  document.getElementById("formArea").style.display="none";document.getElementById("loading").style.display="block";startLoader();
  const payload={...Object.fromEntries(new FormData(form).entries()),...ATTR,lead_id:LEAD_ID};
  try{
-  const response=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+  const response=await fetch("{{ request.script_root }}/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
   const data=await response.json();
   if(!response.ok)throw new Error(data.details||data.error||"Request failed");
   finalSent=true;stopLoader();render(data.report,data.webhook,data.report_pdf_url);

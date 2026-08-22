@@ -610,7 +610,7 @@
       data.lead_id = LEAD_ID;
       finalSubmitted = true; // suppress the abandon-partial once the full lead is submitted
       try {
-        const res = await fetch('/api/analyze', {
+        const res = await fetch('{{ request.script_root }}/api/analyze', {
           method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)
         });
         const json = await res.json();
