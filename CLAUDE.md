@@ -218,8 +218,16 @@ only found by running it.
 python3 -c "import ast,pathlib; [ast.parse(p.read_text(errors='ignore')) \
   for p in pathlib.Path('.').rglob('*.py') if '_attic' not in p.parts]"
 node --check hub/static/*.js
-python tools/linkcheck.py
+python tools/checktemplates.py     # inline JS in templates and public pages
+python tools/linkcheck.py          # every internal URL resolves
+python tools/pagecheck.py          # the page the browser actually receives
+python tools/integritycheck.py     # known defect patterns
 ```
+
+**All of this runs on every pull request** — `.github/workflows/ci.yml`. CI
+runs the same scripts a person runs, against a real Postgres, so a green run
+means the same thing in both places and no check exists only where nobody can
+reproduce it.
 
 `tools/linkcheck.py` boots the composed app and checks every internal URL
 literal against the route table of whichever app owns that path, so it catches
@@ -228,6 +236,24 @@ standalone and 404s under a mount. It exits non-zero, so it can gate a
 release. **Run it after touching any module template**: that one bug was live
 on seven landing pages for two days, and it took down the lead capture on all
 of them without anything looking wrong.
+
+`tools/pagecheck.py` asks a different question: not what the template says,
+but what the browser receives *after* `HubBar` and the hub's `after_request`
+have rewritten the response. Both inject the sidebar and five script tags into
+HTML they did not write, and injecting into the wrong place breaks the page
+while leaving every template valid and every link resolving. That is not
+hypothetical — HubBar injected at the FIRST `</body>` in the response, and the
+IO Builder builds two printable documents as JavaScript template literals that
+each carry their own `</body>`, so the sidebar landed inside a string, closed
+the page's script early, and the entire tool rendered blank. It checks that
+the chrome arrives as an *element* (`html.parser` goes raw-text inside
+`<script>` exactly as a browser does, so chrome hidden in a literal is not
+seen) and that every browser-delimited script block still parses.
+
+`tools/integritycheck.py` runs `/api/integrity` from the command line and
+fails on `high` findings. Two `medium` ones stand today (`ad_builder` and
+`msa` never write to the activity log); it prints them every run rather than
+failing on them, so switching it on did not start life red.
 
 Then boot through `wsgi.application` (not just the hub app — that's how mount
 shadowing hides) and request the pages you touched. `/api/integrity` reports

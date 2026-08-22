@@ -19,6 +19,34 @@ import sys
 
 BS = "\\"
 
+# Keywords that can be followed by a value, so a slash after one starts a
+# REGEX, not a division. `prev` is a single character and cannot tell "return"
+# from any other identifier ending in "n", so `return /[",\\r\\n]/.test(v)` was
+# read as a divide and the quote inside the character class opened a string
+# that never closed. One valid line, one "unterminated string", and a checker
+# with a false positive is one people learn to ignore — which is the failure
+# mode this whole file exists to avoid.
+VALUE_KEYWORDS = {
+    "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
+    "throw", "case", "do", "else", "yield", "await",
+}
+
+
+def _keyword_before(src, i):
+    """True when the token immediately before src[i] is a value keyword."""
+    j = i - 1
+    while j >= 0 and src[j] in " \t":
+        j -= 1
+    end = j + 1
+    while j >= 0 and (src[j].isalnum() or src[j] == "_" or src[j] == "$"):
+        j -= 1
+    word = src[j + 1:end]
+    # A property access (obj.return) or a longer identifier ending in one of
+    # these words is not the keyword.
+    if j >= 0 and src[j] == ".":
+        return False
+    return word in VALUE_KEYWORDS
+
 
 def check(src, name):
     i, n = 0, len(src)
@@ -73,7 +101,8 @@ def check(src, name):
             continue
 
         # A slash where a value may start is a regex, not division.
-        if c == "/" and (prev in "(,=:[!&|?{};" or prev == ""):
+        if c == "/" and (prev in "(,=:[!&|?{};" or prev == ""
+                         or _keyword_before(src, i)):
             j, ok, in_class = i + 1, False, False
             while j < n:
                 if src[j] == BS:
