@@ -346,6 +346,39 @@ def _update(row: dict) -> None:
         pass
 
 
+def mark_converted(lead_id: str, client_name: str, actor: str = "") -> dict | None:
+    """Record that a prospect became a client, and which client.
+
+    Deliberately a *link*, not a creation. A client in this Hub is anyone with
+    a product in Knack -- that is the billing source of truth, and
+    clients_registry.all_clients() reads it. Writing a client record here would
+    produce an account that appears in the Hub, never appears on an invoice,
+    and disagrees with Knack the moment anyone looks. So the account is created
+    in Knack as it always was, and this ties the lead to it so the history
+    survives: who came in, from which tool, and what they became.
+
+    Returns the updated row, or None if there is no lead with that id.
+    """
+    lead_id = str(lead_id or "").strip()
+    client_name = _clean(client_name, 200)
+    if not lead_id or not client_name:
+        return None
+    row = next((r for r in _read_all() if r.get("id") == lead_id), None)
+    if row is None:
+        return None
+    row["client"] = client_name
+    row["converted_at"] = _now()
+    row["converted_by"] = _clean(actor, 120)
+    _update(row)
+    try:
+        from hub import audit
+        audit.log("leads", "converted", actor=actor, client=client_name,
+                  lead=lead_id, source=row.get("source") or "")
+    except Exception:                                   # noqa: BLE001
+        pass
+    return row
+
+
 def retry_undelivered(limit: int = 50) -> dict:
     """Re-push anything that hasn't landed. Called by hand or the scheduler.
 
@@ -418,6 +451,7 @@ def listing(days: int = 30, source: str = "", page: str = "",
     return {
         "leads": rows[:500], "count": len(rows),
         "undelivered": undelivered,
+        "converted": sum(1 for r in rows if r.get("converted_at")),
         "with_pdf": sum(1 for r in rows if r.get("pdf_url")),
         "by_page": sorted(by_page.items(), key=lambda kv: -kv[1]),
         "sources": sorted({r.get("source") for r in rows if r.get("source")}),

@@ -12,34 +12,96 @@
 {% endif %}
 
 <div class="card">
-  <div class="card-h"><h3>Who is it for?</h3></div>
+  <div class="card-h"><h3 data-tour="ads-kind">Who is it for? {{ help_dot('display_ads.start.kind') if help_dot is defined else '' }}</h3></div>
   <div class="card-b">
     <form method="post" action="{{ url_prefix }}/_hub/start">
       <div class="field">
-        <label for="client">Client or prospect</label>
+        <label>Is this for an existing client, or someone new?</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+          <label style="flex:1 1 220px;display:flex;gap:9px;align-items:flex-start;
+                        border:1px solid var(--line);border-radius:8px;padding:11px 13px;
+                        cursor:pointer;text-transform:none;font-weight:400">
+            <input type="radio" name="kind" value="client" style="margin-top:3px"
+                   {% if kind != 'prospect' %}checked{% endif %}>
+            <span><strong>Existing client</strong><br>
+              <span style="font-size:12.5px;color:var(--muted)">
+                Pick the account. The build is filed against that record.</span></span>
+          </label>
+          <label style="flex:1 1 220px;display:flex;gap:9px;align-items:flex-start;
+                        border:1px solid var(--line);border-radius:8px;padding:11px 13px;
+                        cursor:pointer;text-transform:none;font-weight:400">
+            <input type="radio" name="kind" value="prospect" style="margin-top:3px"
+                   {% if kind == 'prospect' %}checked{% endif %}>
+            <span><strong>New prospect</strong><br>
+              <span style="font-size:12.5px;color:var(--muted)">
+                Creates a lead you can find and follow up later.</span></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="field" data-when="client">
+        <label for="client">Which client</label>
         <input id="client" name="client" list="client-list" autocomplete="off"
-               value="{{ client }}" placeholder="Start typing a client name" required>
+               value="{{ client }}" placeholder="Start typing a client name">
         <datalist id="client-list"></datalist>
         <p style="font-size:12.5px;color:var(--muted);margin-top:5px">
-          A name we do not have yet is fine — it becomes a prospect, and the
-          gallery is created when the first creative is attached.</p>
+          Pick from the list so the build is filed under the same spelling the
+          rest of the Hub uses. A name that is not on it is not rejected to be
+          awkward — it means we have no account by that name, so it belongs on
+          the prospect side.</p>
+      </div>
+
+      <div class="field" data-when="prospect">
+        <label for="prospect_name">Business name</label>
+        <input id="prospect_name" name="prospect_name" autocomplete="off"
+               value="{{ form.get('prospect_name', '') }}"
+               placeholder="Riverside HVAC">
+      </div>
+
+      <div class="field" data-when="prospect">
+        <label for="contact">Contact <span style="text-transform:none;font-weight:400">(optional)</span></label>
+        <input id="contact" name="contact" value="{{ form.get('contact', '') }}"
+               placeholder="Who we spoke to">
+      </div>
+
+      <div class="field" data-when="prospect" style="display:flex;gap:10px">
+        <span style="flex:1">
+          <label for="email">Email <span style="text-transform:none;font-weight:400">(optional)</span></label>
+          <input id="email" name="email" type="email" style="width:100%"
+                 value="{{ form.get('email', '') }}" placeholder="name@example.com">
+        </span>
+        <span style="flex:1">
+          <label for="phone">Phone <span style="text-transform:none;font-weight:400">(optional)</span></label>
+          <input id="phone" name="phone" style="width:100%"
+                 value="{{ form.get('phone', '') }}" placeholder="(555) 555-5555">
+        </span>
+      </div>
+
+      <div class="field" data-when="prospect">
+        <p style="font-size:12.5px;color:var(--muted);margin:0">
+          Saved to <a href="/sales/leads">Sales leads</a> before the builder
+          opens, so this prospect is searchable there whatever happens to the
+          build — and can be linked to the account later if they sign.</p>
       </div>
 
       <div class="field">
         <label for="campaign">Campaign name</label>
         <input id="campaign" name="campaign" required
+               value="{{ form.get('campaign', '') }}"
                placeholder="Spring Service Promo">
       </div>
 
       <div class="field">
         <label for="promoting">What is being promoted</label>
         <input id="promoting" name="promoting"
+               value="{{ form.get('promoting', '') }}"
                placeholder="Free system check, booked online">
       </div>
 
       <div class="field">
         <label for="website">Website <span style="text-transform:none;font-weight:400">(optional — filled from the client record when we have one)</span></label>
-        <input id="website" name="website" placeholder="https://example.com">
+        <input id="website" name="website" value="{{ form.get('website', '') }}"
+               placeholder="https://example.com">
       </div>
 
       {% if proposals %}
@@ -70,9 +132,35 @@
 // Type-ahead from the one client registry, so a build is started against the
 // same spelling of the name the rest of the Hub uses. Name drift is what puts
 // one account's creative in another account's gallery.
+// Show only the half that applies, and make only that half's name box
+// required. Both halves stay in the DOM so a rejected submission can hand
+// back what was typed on either side.
+(function () {
+  var radios = document.querySelectorAll('input[name="kind"]');
+  var clientBox = document.getElementById('client');
+  var prospectBox = document.getElementById('prospect_name');
+
+  function apply() {
+    var picked = 'client';
+    radios.forEach(function (r) { if (r.checked) picked = r.value; });
+    document.querySelectorAll('[data-when]').forEach(function (el) {
+      var on = el.getAttribute('data-when') === picked;
+      el.style.display = on ? '' : 'none';
+    });
+    // A hidden required field blocks submission with a message pointing at
+    // something nobody can see, so required moves with the visible half.
+    if (clientBox) clientBox.required = (picked === 'client');
+    if (prospectBox) prospectBox.required = (picked === 'prospect');
+  }
+
+  radios.forEach(function (r) { r.addEventListener('change', apply); });
+  apply();
+})();
+
 (function () {
   var box = document.getElementById('client');
   var list = document.getElementById('client-list');
+  if (!box || !list) return;
   var timer = null;
   var known = {};
 

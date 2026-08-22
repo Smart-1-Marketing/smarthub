@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Activity — Smart 1 Hub{% endblock %}
 {% block content %}
-<div class="page-head"><h2>Activity Log</h2><p>Every login and action across all modules, attributed by name</p></div>
+<div class="page-head"><h2 data-tour="activity-log">Activity Log {{ help_dot('hub.activity.log') if help_dot is defined else '' }}</h2><p>Every login and action across all modules, attributed by name</p></div>
 <div class="card">
   <div class="card-h"><h3>Suite-wide log</h3>
     <div class="right">

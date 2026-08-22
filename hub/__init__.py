@@ -888,6 +888,45 @@ def create_hub_app() -> Flask:
             str(body.get("pdf_url") or ""), str(body.get("client") or ""),
             body.get("meta") if isinstance(body.get("meta"), dict) else None))
 
+    @app.route("/api/leads/convert", methods=["POST"])
+    def api_leads_convert():
+        """Tie a prospect to the client account they became.
+
+        A link, not a creation: a client here is anyone with a product in
+        Knack, which is what billing reads. Writing an account from this
+        endpoint would produce a client the Hub shows and no invoice ever
+        mentions, so the account is still created in Knack and this records
+        which lead it came from.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import clients_registry, leads
+        body = request.get_json(silent=True) or request.form.to_dict() or {}
+        lead_id = str(body.get("id") or "").strip()
+        client = str(body.get("client") or "").strip()
+        if not lead_id or not client:
+            return jsonify({"ok": False,
+                            "error": "A lead and a client are required."}), 400
+
+        # The client has to exist, or "converted" would mean nothing checkable
+        # and the name could drift from the account it is supposed to name.
+        known = clients_registry.find_client(client)
+        if known is None:
+            return jsonify({
+                "ok": False,
+                "error": f"“{client}” is not in the client registry yet. "
+                         f"Create the account in Knack first — that is what "
+                         f"billing reads — then convert this lead to it.",
+            }), 404
+
+        row = leads.mark_converted(lead_id, str(known.get("name") or client),
+                                   actor=current_user() or "")
+        if row is None:
+            return jsonify({"ok": False,
+                            "error": "That lead could not be found."}), 404
+        return jsonify({"ok": True, "lead": row})
+
     @app.route("/api/leads/ghl/preflight")
     def api_leads_ghl_preflight():
         """Check lead delivery config against the live Suite API. Reads only.

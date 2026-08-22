@@ -133,13 +133,34 @@ FEEDBACK_FORM_URL = "https://api.leadconnectorhq.com/widget/form/XOszuVj3bHvyOas
 
 FOOTER_HTML = """
 <style>
+/* Collapsed to a "?" so it stops competing with the page, and widens to
+   its full label on hover or keyboard focus. The label stays in the markup
+   rather than appearing on hover, so screen readers and search-in-page still
+   find it and the width animates from real text. */
 .s1hub-feed{position:fixed;bottom:10px;right:14px;z-index:99991;
+  display:inline-flex;align-items:center;
   font:600 12px 'Segoe UI',system-ui,sans-serif;color:#64748b;background:rgba(255,255,255,.92);
-  border:1px solid #e2e8f0;border-radius:20px;padding:6px 14px;cursor:pointer;
-  box-shadow:0 4px 14px rgba(15,23,42,.10);text-decoration:none}
-.s1hub-feed:hover{color:#1a2e58;border-color:#cbd5e1}
+  border:1px solid #e2e8f0;border-radius:20px;padding:5px;cursor:pointer;
+  box-shadow:0 4px 14px rgba(15,23,42,.10);text-decoration:none;
+  transition:padding .18s ease,color .18s ease,border-color .18s ease}
+.s1hub-feed-q{flex:none;width:22px;height:22px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:700;line-height:1}
+.s1hub-feed-t{max-width:0;overflow:hidden;white-space:nowrap;
+  transition:max-width .22s ease,padding .22s ease}
+.s1hub-feed:hover,.s1hub-feed:focus-visible{color:#1a2e58;border-color:#cbd5e1;
+  padding:5px 13px 5px 5px}
+.s1hub-feed:hover .s1hub-feed-t,.s1hub-feed:focus-visible .s1hub-feed-t{
+  max-width:16rem;padding-left:3px}
+/* Touch has no hover: a tap opens the form, which is the point of the button,
+   so the collapsed "?" is the whole control there. */
+@media (prefers-reduced-motion:reduce){
+  .s1hub-feed,.s1hub-feed-t{transition:none}
+}
 </style>
-<a class="s1hub-feed" onclick="s1hubFeedback();return false" href="#">Issues, Suggestions, Problems?</a>
+<a class="s1hub-feed" onclick="s1hubFeedback();return false" href="#"
+   aria-label="Issues, suggestions, problems?" title="Issues, suggestions, problems?"
+   ><span class="s1hub-feed-q" aria-hidden="true">?</span><span class="s1hub-feed-t">Issues, Suggestions, Problems?</span></a>
 <script>
 function s1hubFeedback(){
   var m=document.getElementById('s1hubFeedModal');
