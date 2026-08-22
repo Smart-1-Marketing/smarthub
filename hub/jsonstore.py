@@ -35,15 +35,23 @@ One shared store, so the fix lands once rather than fifty times:
   and returns it. A recreated disk therefore refills itself as it is used,
   with no restore step and nothing for anyone to remember to run.
 
-## Why its own engine and not hub.extensions.db
+## Why the shared engine, but not db.session
 
 `db.session` needs an application context belonging to the app that `db` was
 `init_app`-ed against. Half the callers here are dispatcher-mounted modules
 with their *own* Flask app, and some are scheduler threads with no app at all —
 both would raise "The current Flask app is not registered with this
 'SQLAlchemy' instance", which is the trap `hub/extensions.py` already documents.
-A plain Core engine against the same `database_url()` has no such requirement
-and reaches the same table.
+
+So this uses Core, not the session — but through `extensions.engine_for()`
+rather than its own `create_engine`. Those are two different questions and only
+the first one needed avoiding: `engine_for()` hands back a plain Core engine
+with no app-context requirement, shared process-wide, so the ORM trap is
+sidestepped without opening a pool nobody else can see. `/api/db/structure`
+counts engines per module for exactly that reason, and DDL goes through
+`create_all_metadata()` so this table is created under the same advisory lock
+as every other — two gunicorn workers racing to create it is otherwise the
+`pg_type_typname_nsp_index` violation on every deploy.
 
 ## Failure is never the caller's problem
 
@@ -74,11 +82,11 @@ from datetime import datetime, timezone
 # disk half of this module from working — that half is what modules depend on.
 try:
     from sqlalchemy import (Column, DateTime, Integer, MetaData, String, Table,
-                            Text, create_engine, delete, select)
+                            Text, delete, select)
     _SA_ERROR = ""
 except Exception as exc:                                # noqa: BLE001
     Column = DateTime = Integer = MetaData = String = Table = Text = None
-    create_engine = delete = select = None
+    delete = select = None
     _SA_ERROR = f"{type(exc).__name__}: {exc}"
 
 
@@ -185,19 +193,12 @@ def _init() -> bool:
             _init_done = False          # cooldown elapsed — try again below
         _init_done = True
         _init_retry_at = time.time() + INIT_RETRY_SECONDS
-        if create_engine is None:
+        if Table is None:
             _init_error = f"SQLAlchemy unavailable ({_SA_ERROR})"
             return False
         try:
-            from .extensions import database_url
-            url = database_url()
-        except Exception as exc:                        # noqa: BLE001
-            _init_error = f"no database url ({type(exc).__name__}: {exc})"
-            return False
-        try:
-            _engine = create_engine(
-                url, pool_pre_ping=True, pool_recycle=280, pool_size=3,
-                max_overflow=2, future=True)
+            from . import extensions
+            _engine = extensions.engine_for()
             meta = MetaData()
             _table = Table(
                 "hub_json_blobs", meta,
@@ -206,16 +207,17 @@ def _init() -> bool:
                 Column("bytes", Integer, nullable=False, default=0),
                 Column("updated_at", DateTime, nullable=False),
             )
-            meta.create_all(_engine)
+            # Advisory-locked, and it returns the error rather than raising, so
+            # a database still waking cannot stop this module from loading and
+            # saying why it is not mirroring.
+            err = extensions.create_all_metadata(meta)
+            if err:
+                _init_error = err
+                _engine = None
+                return False
             _ready = True
             return True
         except Exception as exc:                        # noqa: BLE001
-            # Two workers creating the same table at once is the benign race
-            # hub/extensions.py documents; the table exists either way.
-            from .extensions import _is_benign_ddl_race
-            if _is_benign_ddl_race(exc):
-                _ready = True
-                return True
             _init_error = f"{type(exc).__name__}: {exc}"
             _engine = None
             return False
