@@ -206,31 +206,138 @@ def attach_ads(*, project: dict, client_name: str, sizes: list | None = None,
 
 # ------------------------------------------------------------------- starting
 
+def _known_client(name: str) -> dict | None:
+    """The registry row for this name, or None. Never raises."""
+    try:
+        from hub import clients_registry
+        return clients_registry.find_client(name)
+    except Exception:                                  # noqa: BLE001
+        return None
+
+
+def _recent_prospect(business: str, minutes: int = 60) -> dict | None:
+    """A prospect for the same business captured here very recently."""
+    key = str(business or "").strip().lower()
+    if not key:
+        return None
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        from hub import leads
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+        for row in leads.listing(days=2, source="display_ads")["leads"]:
+            if str(row.get("company") or "").strip().lower() != key:
+                continue
+            if row.get("converted_at"):
+                continue        # already a client; start a fresh record
+            try:
+                when = datetime.fromisoformat(row.get("created", ""))
+            except ValueError:
+                continue
+            if when >= cutoff:
+                return row
+    except Exception:                                  # noqa: BLE001
+        return None
+    return None
+
+
+def _capture_prospect(*, business: str, website: str, campaign: str,
+                      contact: str, email: str, phone: str,
+                      actor: str) -> str:
+    """Write a new prospect into the one lead store, and return its id.
+
+    Through hub.leads rather than a table of its own: that module exists
+    precisely because every tool used to keep its own list of who had been in
+    touch, and the answer to "where did this account come from" depended on
+    which tool you asked. A prospect who reached us by having creative built
+    is a lead like any other, so it lands in the same panel, is searchable
+    beside the rest, and rides the same delivery to GoHighLevel.
+
+    Never raises. A lead store that is unwritable must not stop the build --
+    the person is standing in front of the form, and losing their work to fix
+    a filing problem helps nobody. The build then simply has no lead attached,
+    which the audit entry shows.
+    """
+    try:
+        from hub import leads
+        # A build that fails at the renderer leaves a lead behind and sends the
+        # person back to the form -- which is right, a lost lead is worse than
+        # an orphan one, but pressing the button twice must not produce two
+        # prospects. Reuse a matching one from the last hour instead. Duplicate
+        # near-identical records are the "same client three times under
+        # slightly different names" problem this Hub already has.
+        recent = _recent_prospect(business)
+        if recent:
+            return str(recent.get("id") or "")
+        row = leads.capture(
+            source="display_ads",
+            page="Display Ad Builder — new prospect",
+            fields={"name": contact, "email": email, "phone": phone,
+                    "company": business, "website": website,
+                    "campaign": campaign, "opened_by": actor},
+            client=business,
+            meta={"kind": "prospect", "tool": "display_ads"},
+        )
+        return str(row.get("id") or "")
+    except Exception as exc:                           # noqa: BLE001
+        logger.warning("display_ads: prospect not recorded as a lead: %s", exc)
+        return ""
+
+
 def start_project(*, client_name: str, campaign: str, website: str = "",
                   promoting: str = "", contact: str = "", email: str = "",
-                  proposal_id: str = "", actor: str = "") -> dict:
+                  phone: str = "", kind: str = "", proposal_id: str = "",
+                  actor: str = "") -> dict:
     """Create a build in the renderer, prefilled from what the Hub knows.
 
     The renderer's intake wants a business, a website, a contact and something
     to promote. For an existing client the Hub already holds the first two, and
     for a new client the proposal usually holds the rest -- so the person
     starting a build types a campaign name rather than re-keying the account.
+
+    ``kind`` says which of the two this is, and it is asked rather than
+    guessed. The form used to be one free-text box: typing an existing client
+    with a different spelling silently started a build nobody could find on
+    that account, and typing a genuinely new name recorded nothing at all --
+    the prospect existed only as a string on one ad project. Now a client is
+    checked against the registry, and a prospect becomes a lead in the one
+    lead store before the build is opened.
     """
     client_name = str(client_name or "").strip()
     campaign = str(campaign or "").strip()
     if not client_name or not campaign:
         return {"ok": False, "error": "A client and a campaign name are required."}
 
+    kind = str(kind or "").strip().lower()
+    if kind not in ("client", "prospect"):
+        # Older callers (and the JSON API) may not send it. Decide from the
+        # registry rather than refusing, but never invent a client: an unknown
+        # name is a prospect, which is the safe direction to be wrong in.
+        kind = "client" if _known_client(client_name) else "prospect"
+
     website = str(website or "").strip()
-    if not website:
-        try:
-            from hub import clients_registry
-            found = clients_registry.find_client(client_name)
-            website = str((found or {}).get("domain") or "").strip()
-        except Exception:                              # noqa: BLE001
-            website = ""
+    registry_row = None
+    if kind == "client":
+        registry_row = _known_client(client_name)
+        if registry_row is None:
+            return {"ok": False,
+                    "error": f"“{client_name}” is not in the client registry. "
+                             f"Pick the account from the list, or start it as "
+                             f"a new prospect."}
+        # Use the registry's spelling, not what was typed. Name drift is what
+        # puts one account's creative in another account's gallery.
+        client_name = str(registry_row.get("name") or client_name).strip()
+        if not website:
+            website = str(registry_row.get("domain") or "").strip()
+
     if website and not website.startswith(("http://", "https://")):
         website = "https://" + website
+
+    lead_id = ""
+    if kind == "prospect":
+        lead_id = _capture_prospect(
+            business=client_name, website=website, campaign=campaign,
+            contact=contact, email=email, phone=phone, actor=actor)
 
     payload = {
         "business": client_name,
@@ -257,10 +364,12 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
         from hub import audit
         audit.log("display_ads", "build_started", actor=actor,
                   client=client_name, campaign=campaign, request=request_id,
-                  proposal=proposal_id or None)
+                  proposal=proposal_id or None, kind=kind,
+                  lead=lead_id or None)
     except Exception:                                  # noqa: BLE001
         pass
-    return {"ok": True, "request_id": request_id, "client": client_name}
+    return {"ok": True, "request_id": request_id, "client": client_name,
+            "kind": kind, "lead_id": lead_id}
 
 
 # --------------------------------------------------------------------- routes
@@ -298,25 +407,38 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
             except Exception:                          # noqa: BLE001
                 proposals = []
         return render_template("ad_builder_start.html", client=client,
-                               proposals=proposals, url_prefix=url_prefix,
-                               error="")
+                               kind="client" if client else "",
+                               form={}, proposals=proposals,
+                               url_prefix=url_prefix, error="")
 
     @bp.route("/start", methods=["POST"])
     def start_submit():
         body = request.form if request.form else (request.get_json(silent=True) or {})
+        kind = str(body.get("kind") or "").strip().lower()
+        # Each half of the form has its own name box, so switching between them
+        # cannot carry a half-typed client name into a prospect.
+        name = (body.get("prospect_name") if kind == "prospect"
+                else body.get("client")) or body.get("client", "")
         res = start_project(
-            client_name=body.get("client", ""),
+            client_name=name,
             campaign=body.get("campaign", ""),
             website=body.get("website", ""),
             promoting=body.get("promoting", ""),
+            contact=body.get("contact", ""),
+            email=body.get("email", ""),
+            phone=body.get("phone", ""),
+            kind=kind,
             proposal_id=body.get("proposal", ""),
             actor=_user() or "",
         )
         if request.form:
             if res.get("ok"):
                 return redirect(f"{url_prefix}/build?request={res['request_id']}")
+            # Hand back what they typed, so a rejected name is corrected
+            # rather than re-keyed.
             return render_template("ad_builder_start.html",
-                                   client=body.get("client", ""), proposals=[],
+                                   client=body.get("client", ""),
+                                   kind=kind, form=body, proposals=[],
                                    url_prefix=url_prefix,
                                    error=res.get("error", "")), 400
         return jsonify(res), (200 if res.get("ok") else 400)
