@@ -357,23 +357,181 @@ def check_public_base_url() -> Check:
                  settings.public_base_url)
 
 
+# ---------------------------------------------------------------------------
+# Google Finder
+#
+# The module already knew all of this — /google/health and
+# /google/debug/accounts have reported it since the module was written — but
+# both sit inside the mount, so the one page anybody actually opens when
+# something looks wrong never showed it. A connected account whose refresh
+# token has been revoked is the single most common Google failure, and it
+# looked identical to "working" from here.
+#
+# check_google_oauth above answers "can staff sign in with Google?". These
+# answer the different question "can the Hub still call Google's APIs on
+# behalf of the accounts we connected?" — a separate credential, separate
+# failure mode.
+# ---------------------------------------------------------------------------
+
+# Probed with the first account whose token still refreshes. One account is
+# enough to tell a dead API or a disabled project from a healthy one, and
+# fanning out over every connected account would make this page pay a token
+# refresh plus three API calls per account.
+_GOOGLE_APIS = [
+    ("google_ga4", "Google · GA4 Admin API",
+     "https://analyticsadmin.googleapis.com/v1beta/accountSummaries",
+     {"pageSize": 1},
+     "GA4 reporting, anomalies and the monthly summaries stop working."),
+    ("google_gtm", "Google · Tag Manager API",
+     "https://tagmanager.googleapis.com/tagmanager/v2/accounts", None,
+     "container inspection and event/pixel deployment stop working."),
+    ("google_gsc", "Google · Search Console API",
+     "https://www.googleapis.com/webmasters/v3/sites", None,
+     "bulk property adds and the webmaster rows stop working."),
+]
+
+
+def _google_module():
+    """The already-loaded Google Finder module, or None.
+
+    Read out of sys.modules under the name wsgi.py loaded it with rather than
+    imported: importing modules.google_finder.app here would execute a second
+    copy of the module, giving this page its own Flask app and its own handle
+    on the token database.
+    """
+    import sys
+    return sys.modules.get("gf_app")
+
+
+def check_google_accounts() -> list[Check]:
+    """Connected Google accounts, and whether Google still honours them."""
+    gf = _google_module()
+    if gf is None:
+        return [Check("google_accounts", "Google · connected accounts", "warn",
+                      "Google Finder is not loaded, so its accounts cannot be "
+                      "checked.", 0,
+                      fix="See why the module failed to import on this page.")]
+
+    if not getattr(gf, "TOKEN_ENCRYPTION_KEY", ""):
+        return [_off("google_accounts", "Google · connected accounts",
+                     "TOKEN_ENCRYPTION_KEY",
+                     "refresh tokens cannot be decrypted, so every connected "
+                     "account is unusable.", required=True)]
+
+    def load():
+        accounts = gf.connected_accounts() or []
+        if not accounts:
+            return ("warn", "No Google accounts connected. GA4, Tag Manager "
+                            "and Search Console tools have nothing to call "
+                            "with."), []
+        return None, accounts
+
+    started = time.time()
+    try:
+        early, accounts = load()
+    except Exception as exc:                # noqa: BLE001
+        return [Check("google_accounts", "Google · connected accounts", "error",
+                      f"Could not read the token store ({type(exc).__name__}).",
+                      int((time.time() - started) * 1000),
+                      fix="Check TOKEN_DB_PATH is on a writable, persistent disk.")]
+    if early:
+        state, detail = early
+        return [Check("google_accounts", "Google · connected accounts", state,
+                      detail, int((time.time() - started) * 1000),
+                      fix="Connect one at /google/login.")]
+
+    # Refresh each account's token until one succeeds. A revoked token is the
+    # common failure and it is per-account, so every account is named rather
+    # than reduced to a count.
+    token, live, dead = None, [], []
+    for acc in accounts:
+        email = acc.get("email", "unknown")
+        if not acc.get("refresh_token"):
+            dead.append(f"{email} (no refresh token)")
+            continue
+        try:
+            fresh = gf.refresh_access_token(email, acc["refresh_token"])
+            live.append(email)
+            token = token or fresh
+        except Exception as exc:            # noqa: BLE001
+            dead.append(f"{email} ({type(exc).__name__})")
+    ms = int((time.time() - started) * 1000)
+
+    if not live:
+        rows = [Check("google_accounts", "Google · connected accounts", "error",
+                      f"All {len(accounts)} connected account(s) failed to "
+                      f"refresh: {', '.join(dead)}.", ms, required=False,
+                      fix="Reconnect at /google/login — Google revokes a "
+                          "refresh token when the password changes or access "
+                          "is withdrawn.")]
+        rows += [Check(key, label, "unverified",
+                       "Not checked — no account has a working token.", 0)
+                 for key, label, _u, _p, _w in _GOOGLE_APIS]
+        return rows
+
+    if dead:
+        head = Check("google_accounts", "Google · connected accounts", "warn",
+                     f"{len(live)} of {len(accounts)} accounts refresh cleanly. "
+                     f"Failing: {', '.join(dead)}.", ms,
+                     fix="Reconnect the failing accounts at /google/login.")
+    else:
+        head = Check("google_accounts", "Google · connected accounts", "ok",
+                     f"{len(live)} account(s) connected, all refreshing.", ms)
+
+    rows = [head]
+    for key, label, url, params, what in _GOOGLE_APIS:
+        def go(url=url, params=params):
+            try:
+                gf.google_get(token, url, params=params)
+            except Exception as exc:        # noqa: BLE001
+                text = str(exc)
+                if "403" in text:
+                    return ("error", f"Refused (403) — {what} The API is "
+                                     f"probably not enabled on the Google "
+                                     f"Cloud project.")
+                if "401" in text:
+                    return ("error", f"Rejected (401) — {what}")
+                return ("error", f"{type(exc).__name__} — {what}")
+            return ("ok", f"Reachable as {live[0]}.")
+        (state, detail), api_ms = _timed(go)
+        rows.append(Check(key, label, state, detail, api_ms,
+                          fix="Enable the API for the OAuth project in the "
+                              "Google Cloud console, then retry."))
+    return rows
+
+
 CHECKS = [
     check_database, check_public_base_url, check_openai, check_cloudinary,
     check_brandfetch, check_insites, check_removebg, check_pexels,
     check_pixabay, check_unsplash, check_google_fonts, check_ghl,
-    check_ghl_app, check_knack, check_google_oauth,
+    check_ghl_app, check_knack, check_google_oauth, check_google_accounts,
 ]
 
 
 def run_all(parallel: bool = True) -> dict:
-    """Run every check. Parallel, because fourteen sequential HTTP calls is a
-    page nobody waits for."""
+    """Run every check. Parallel, because a page of sequential HTTP calls is
+    a page nobody waits for."""
     started = time.time()
+
+    def one(fn):
+        # A check that has to authenticate before it can probe anything covers
+        # several rows off the back of that one handshake, so a check may
+        # return either a Check or a list of them.
+        try:
+            res = fn()
+        except Exception as exc:            # noqa: BLE001
+            # A check that raises must not blank the whole page — that is how
+            # a diagnostics panel ends up reporting nothing at all.
+            return [Check(getattr(fn, "__name__", "check"), "Check failed",
+                          "error", f"{type(exc).__name__}: {exc}", 0)]
+        return res if isinstance(res, list) else [res]
+
     if parallel:
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(lambda f: f(), CHECKS))
+            groups = list(pool.map(one, CHECKS))
     else:
-        results = [f() for f in CHECKS]
+        groups = [one(f) for f in CHECKS]
+    results = [c for g in groups for c in g]
 
     rows = [r.as_dict() for r in results]
     by_state = {}
