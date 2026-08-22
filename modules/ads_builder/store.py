@@ -2,33 +2,25 @@
 
 SQLite locally, Postgres on Render via DATABASE_URL — the same dual-mode
 pattern the scans and sales_builder modules use, so this is testable offline
-and durable in production.
+and durable in production. All three now get that from hub/extensions rather
+than each building an engine of its own; see the note in modules/scans/app.py.
 """
 from __future__ import annotations
 
 import json
-import os
+import logging
 import secrets
 from datetime import datetime, timezone
-from pathlib import Path
 
-from sqlalchemy import (Column, DateTime, Integer, String, Text, create_engine,
-                        select)
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import Column, DateTime, Integer, String, Text, select
+from sqlalchemy.orm import declarative_base
 
-BASE_DIR = Path(__file__).parent
+from hub.extensions import create_all_metadata, session_factory, shared_engine
 
-_db_url = os.getenv("DATABASE_URL", "").strip()
-if _db_url.startswith("postgres://"):
-    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
-if not _db_url:
-    _db_url = "sqlite:///" + str(BASE_DIR / "smart1_ads.db")
+log = logging.getLogger(__name__)
 
-engine = create_engine(
-    _db_url, future=True,
-    connect_args={"check_same_thread": False} if _db_url.startswith("sqlite") else {},
-)
-SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+engine = shared_engine()
+SessionLocal = session_factory()
 Base = declarative_base()
 
 
@@ -112,7 +104,11 @@ class Event(Base):
         }
 
 
-Base.metadata.create_all(engine)
+# Advisory-locked (two gunicorn workers issue this concurrently on every
+# deploy) and reported rather than raised.
+DB_BOOT_ERROR = create_all_metadata(Base.metadata)
+if DB_BOOT_ERROR:
+    log.error("ads_builder: table creation reported: %s", DB_BOOT_ERROR)
 
 STATUSES = ("DRAFT", "IN_REVIEW", "CHANGES_REQUESTED", "APPROVED", "DEPLOYED", "ARCHIVED")
 OPEN_STATUSES = ("DRAFT", "IN_REVIEW", "CHANGES_REQUESTED")

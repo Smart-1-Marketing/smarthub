@@ -31,8 +31,8 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_file
 from flask_cors import CORS
 from sqlalchemy import (Column, DateTime, Integer, LargeBinary, String, Text,
-                        create_engine, func, or_)
-from sqlalchemy.orm import declarative_base, sessionmaker
+                        func, or_)
+from sqlalchemy.orm import declarative_base
 
 # ---- PDF (reportlab, same stack as the IO app) ----
 from reportlab.lib import colors as rl_colors
@@ -48,6 +48,7 @@ from xml.sax.saxutils import escape as xml_escape
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
+from hub.extensions import create_all_metadata, session_factory, shared_engine
 from hub.webargs import clamp_int
 
 # Activity logging. Guarded so this module still runs standalone, but
@@ -74,14 +75,12 @@ CORS(app, resources={r"/api/*": {"origins": "*"}}, methods=["GET", "POST", "PUT"
 # =====================================================================
 # Database (SQLite locally, Postgres on Render via DATABASE_URL)
 # =====================================================================
-_db_url = os.getenv("DATABASE_URL", "").strip()
-if _db_url.startswith("postgres://"):  # Render's URL form -> SQLAlchemy form
-    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
-if not _db_url:
-    _db_url = "sqlite:///" + str(BASE_DIR / "smart1_sales_builder.db")
-engine = create_engine(_db_url, future=True,
-                       connect_args={"check_same_thread": False} if _db_url.startswith("sqlite") else {})
-SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+# One engine for the whole Hub, from hub/extensions -- see the note in
+# modules/scans/app.py. Quotes are client work: a second pool with its own
+# SQLite fallback inside the container image meant "back up the database" had a
+# different answer here than everywhere else.
+engine = shared_engine()
+SessionLocal = session_factory()
 Base = declarative_base()
 
 QUOTE_BASE = 10199  # first quote is Q-10200 (matches the IO number family)
@@ -133,7 +132,11 @@ class Activity(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
-Base.metadata.create_all(engine)
+# Advisory-locked, and reported rather than raised: a database slow to wake
+# must not take the module offline for the life of the worker.
+DB_BOOT_ERROR = create_all_metadata(Base.metadata)
+if DB_BOOT_ERROR:
+    logger.error("sales_builder: table creation reported: %s", DB_BOOT_ERROR)
 
 _COUNTER_LOCK = threading.Lock()
 

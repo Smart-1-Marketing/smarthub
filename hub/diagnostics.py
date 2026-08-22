@@ -344,11 +344,19 @@ def check_database() -> Check:
                      "on every redeploy.", 0,
                      fix="Attach a Render Postgres instance and set DATABASE_URL.")
     def go():
+        # Deliberately not the shared engine from hub/extensions: this probe
+        # exists to answer "can this deploy reach Postgres at all", and a pool
+        # that is already wedged would otherwise report itself healthy. It is
+        # disposed either way -- without that, every /status refresh left a
+        # pool behind and the connection count climbed all day.
         from sqlalchemy import create_engine, text
         eng = create_engine(settings.database_url, pool_pre_ping=True,
                             connect_args={"connect_timeout": TIMEOUT})
-        with eng.connect() as cx:
-            cx.execute(text("SELECT 1"))
+        try:
+            with eng.connect() as cx:
+                cx.execute(text("SELECT 1"))
+        finally:
+            eng.dispose()
         return ("ok", "Connected.")
     (state, detail), ms = _timed(go)
     return Check("database", "Database", state, detail, ms, required=True)
