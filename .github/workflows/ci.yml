@@ -52,18 +52,18 @@ jobs:
       # runner is thrown away, so ./data being written to costs nothing.
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 3.12 is what the Dockerfile ships, so CI and production agree on which
       # standard library and which SQLAlchemy behaviour are being tested.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install dependencies
         run: |
