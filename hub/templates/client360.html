@@ -392,9 +392,11 @@ function render(g,q){
     });
   }).catch(()=>{$('c-ghl').innerHTML='<div class="empty">Suite module unavailable.</div>'});
 
-  // Proposals from the Proposal Builder — "+ New proposal" prefills this client
-  const propPrefill='/sales/proposals/?prefill=1&business_name='+encodeURIComponent(name)+
-    (web0&&web0.domain?'&website='+encodeURIComponent('https://'+web0.domain):'');
+  // Proposals from the Proposal Builder — "+ New proposal" prefills this client.
+  // /sales/builder is the one builder now; /sales/proposals redirects here and
+  // serves only the retired tool's archive.
+  const propPrefill='/sales/builder/?prefill=1&client='+encodeURIComponent(name)+
+    (web0&&web0.domain?'&url='+encodeURIComponent(web0.domain):'');
   const propNew=document.getElementById('c-props-new'); if(propNew)propNew.href=propPrefill;
   /* One proposals table, not two.
      A proposal we built and a proposal we uploaded are the same thing to the
@@ -402,13 +404,14 @@ function render(g,q){
      and they were in separate tables with different columns and different
      actions, so "recent proposals" showed only half of them. They are merged
      here and sorted by date, whichever way they arrived. */
-  var BUILT = [], UPLOADED = [];
+  var BUILT = [], UPLOADED = [], QUOTES = [];
 
   function propDate(p){ return String(p.date_sent || p.updated_at || p.uploaded_at || '').slice(0,10); }
 
   function renderProposals(){
     var host = $('c-props'); if(!host) return;
-    var rows = BUILT.map(function(p){ return {kind:'built', p:p, d:propDate(p)}; })
+    var rows = QUOTES.map(function(p){ return {kind:'quote', p:p, d:propDate(p)}; })
+      .concat(BUILT.map(function(p){ return {kind:'built', p:p, d:propDate(p)}; }))
       .concat(UPLOADED.map(function(p){ return {kind:'sent', p:p, d:propDate(p)}; }));
     if(!rows.length){
       host.innerHTML = '<div class="empty">No proposals yet for this client. '
@@ -422,19 +425,37 @@ function render(g,q){
       + '<th>Status</th><th>Date</th><th></th></tr></thead><tbody>'
       + rows.map(function(r){
           var p = r.p;
+          if(r.kind === 'quote'){
+            /* Live quotes from the Proposal Builder. These carry a number, a
+               revision and a status the tool owns, so they say so rather than
+               borrowing the archive's shape. */
+            return '<tr>'
+              + '<td><b>'+esc(p.quote_number||'—')+'</b>'
+              + '<div class="muted" style="font-size:11.5px">'+esc(p.products_summary||p.package||'')
+              + (p.geo_summary? ' · '+esc(p.geo_summary):'')+'</div></td>'
+              + '<td><span class="pill neutral">Proposal Builder</span></td>'
+              + '<td>'+(p.monthly_budget? money(p.monthly_budget)+'/mo':'—')+'</td>'
+              + '<td><span class="pill '+(p.status==='Converted'||p.status==='Approved'?'ok':(p.status==='Lost'?'err':'neutral'))+'">'
+              + esc(p.status||'')+' · rev '+(p.revision||1)+'</span></td>'
+              + '<td class="muted">'+esc(r.d||'')+'</td>'
+              + '<td style="white-space:nowrap">'
+              + (p.pdf_url? '<a class="gbtn" href="'+esc(p.pdf_url)+'" target="_blank" rel="noopener">PDF</a> ':'')
+              + '<a class="gbtn" href="/sales/builder/?quote='+encodeURIComponent(p.id)+'">Open</a></td></tr>';
+          }
           if(r.kind === 'built'){
             return '<tr>'
               + '<td><b>'+esc(p.business||'—')+'</b>'
               + '<div class="muted" style="font-size:11.5px">'+esc(p.industry_label||'')
               + (p.salesperson? ' · '+esc(p.salesperson):'')+'</div></td>'
-              + '<td><span class="pill neutral">Built here</span></td>'
+              + '<td><span class="pill neutral" title="Built in the retired standalone builder">Archive</span></td>'
               + '<td>'+(p.monthly? money(p.monthly)+'/mo':'—')+'</td>'
               + '<td><span class="pill '+(p.status==='saved'?'ok':'neutral')+'">'
               + esc(p.status||'')+' · v'+(p.versions||1)+'</span></td>'
               + '<td class="muted">'+esc(r.d||'')+'</td>'
               + '<td style="white-space:nowrap">'
               + (p.pdf_url? '<a class="gbtn" href="'+esc(p.pdf_url)+'" target="_blank" rel="noopener">PDF</a> ':'')
-              + '<a class="gbtn" href="/sales/proposals/">Open</a></td></tr>';
+              + '<button class="btn-ghost" style="padding:2px 8px;font-size:11px" '
+              + 'onclick="importArchivedProposal(\''+esc(p.id)+'\',this)">Reopen as a quote</button></td></tr>';
           }
           /* Uploaded. The date is editable because it is the date the proposal
              actually went to the client, which only a person knows. */
@@ -496,6 +517,30 @@ function render(g,q){
     .then(function(r){ return r.ok ? r.json() : {results:[]}; })
     .then(function(d){ BUILT = d.results||[]; renderProposals(); })
     .catch(function(){ BUILT = []; renderProposals(); });
+
+  fetch('/sales/builder/api/quotes?q='+encodeURIComponent(term)+'&limit=8',
+        {headers:{'Accept':'application/json'}})
+    .then(function(r){ return r.ok ? r.json() : {quotes:[]}; })
+    .then(function(d){ QUOTES = d.quotes||[]; renderProposals(); })
+    .catch(function(){ QUOTES = []; renderProposals(); });
+
+  /* Reopening an archived proposal creates a real quote from it. The archive
+     row stays where it is -- it is what was sent, and rewriting history to
+     look like the new tool built it would be a lie about what the client
+     received. */
+  window.importArchivedProposal = function(pid, btn){
+    btn.disabled = true; btn.textContent = 'Importing…';
+    fetch('/sales/builder/api/legacy/proposals/'+encodeURIComponent(pid)+'/import',
+          {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d.ok){ btn.disabled=false; btn.textContent='Reopen as a quote';
+                   alert(d.error||'Import failed.'); return; }
+        location.href = '/sales/builder/?quote=' + encodeURIComponent(d.quote.id);
+      })
+      .catch(function(e){ btn.disabled=false; btn.textContent='Reopen as a quote';
+                          alert('Import failed: '+e); });
+  };
 
   fetch('/api/client/proposals?client='+encodeURIComponent(name))
     .then(function(r){ return r.json(); })
@@ -642,27 +687,90 @@ function render(g,q){
         <input id="up-date" type="date" value="${todayISO()}"
           style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit;width:100%;box-sizing:border-box"></div>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 150px;gap:8px;margin-bottom:8px">
+        <input id="up-value" placeholder="Monthly value quoted (optional) — e.g. $4,500"
+          style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
+        <div><label class="muted" style="font-size:11px;display:block;margin-bottom:2px">Term</label>
+        <select id="up-term" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit;width:100%;box-sizing:border-box">
+          <option value="monthly">monthly</option><option value="one_time">one-time</option><option value="annual">annual</option></select></div>
+      </div>
       <input id="up-file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         style="font:12.5px inherit;margin-bottom:8px">
       <div><button class="btn-primary" id="up-go" style="padding:7px 14px">Save to client</button>
-        <span id="up-msg" class="muted" style="margin-left:8px;font-size:12px">PDF or Word, up to 25 MB. Stored in client gallery and kept with this client.</span></div>
+        <span id="up-msg" class="muted" style="margin-left:8px;font-size:12px">PDF or Word, up to 25 MB. Filed with this client and opened as an opportunity in Smart 1 Suite.</span></div>
+      <div id="up-suite"></div>
     </div>`;
+    // Say up front when Suite is not configured, rather than after the upload:
+    // the value field only matters if an opportunity is going to carry it.
+    fetch('/api/client/proposals/suite-status').then(r=>r.json()).then(st=>{
+      if(!st.ok&&$('up-suite'))$('up-suite').innerHTML=
+        '<div class="muted" style="font-size:11.5px;margin-top:8px">No Smart 1 Suite opportunity will be created — '
+        +esc((st.problems||[]).join(' '))+'</div>';
+    }).catch(()=>{});
     $('up-go').onclick=()=>{
       const f=$('up-file').files[0];
       if(!f){$('up-msg').textContent='Choose a file first.';return}
       const fd=new FormData();
       fd.append('client',name); fd.append('file',f);
       fd.append('date_sent',$('up-date').value); fd.append('title',$('up-title').value);
+      fd.append('value',$('up-value').value); fd.append('term',$('up-term').value);
       $('up-go').disabled=true; $('up-msg').textContent='Uploading…';
       fetch('/api/client/proposals/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
         $('up-go').disabled=false;
         if(d.error){$('up-msg').textContent=d.error;return}
         $('up-msg').textContent='Saved ✓';
         UPLOADED = d.proposals||[]; renderProposals();
-        setTimeout(()=>{box.style.display='none'},900);
+        // The file is filed either way. Suite is the part that can come back
+        // with a question, and it is asked here rather than answered by
+        // inventing a contact from the client's business name.
+        showSuiteResult(d.proposal||{}, d.suite||{}, box);
       }).catch(e=>{$('up-go').disabled=false;$('up-msg').textContent='Upload failed: '+e});
     };
   };
+
+  function showSuiteResult(record, suite, box){
+    const host=$('up-suite'); if(!host) return;
+    if(suite.ok){
+      host.innerHTML='<div class="muted" style="font-size:12px;margin-top:8px">Smart 1 Suite opportunity created for '
+        +esc((suite.contact||{}).name||(suite.contact||{}).email||'the contact on file')+'.</div>';
+      setTimeout(()=>{if(box)box.style.display='none'},1400);
+      return;
+    }
+    if(!suite.needs_contact){
+      host.innerHTML='<div class="muted" style="font-size:12px;margin-top:8px">Filed. No Suite opportunity — '
+        +esc(suite.reason||'reason unknown')+'</div>';
+      return;
+    }
+    const sug=suite.suggest||{};
+    host.innerHTML='<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">'
+      +'<b style="font-size:12.5px">Who is the contact at '+esc(name)+'?</b>'
+      +'<div class="muted" style="font-size:11.5px;margin:3px 0 7px">Smart 1 Suite has no matching contact. '
+      +'A name plus an email or a phone number creates one and opens the opportunity against it.</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:7px">'
+      +'<input id="oc-name" placeholder="Contact name" value="'+esc(sug.name||'')+'" style="padding:7px 9px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit">'
+      +'<input id="oc-email" placeholder="Email" value="'+esc(sug.email||'')+'" style="padding:7px 9px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit">'
+      +'<input id="oc-phone" placeholder="Phone" value="'+esc(sug.phone||'')+'" style="padding:7px 9px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit"></div>'
+      +'<button class="btn-primary" id="oc-go" style="padding:6px 12px">Create the contact &amp; opportunity</button>'
+      +'<button class="btn-ghost" id="oc-skip" style="padding:6px 12px;margin-left:6px">Skip for now</button>'
+      +'<span id="oc-msg" class="muted" style="margin-left:8px;font-size:11.5px"></span></div>';
+    $('oc-skip').onclick=()=>{if(box)box.style.display='none'};
+    $('oc-go').onclick=()=>{
+      const contact={name:($('oc-name').value||'').trim(),
+                     email:($('oc-email').value||'').trim(),
+                     phone:($('oc-phone').value||'').trim()};
+      if(!contact.name||(!contact.email&&!contact.phone)){
+        $('oc-msg').textContent='A name and either an email or a phone number are needed.';return}
+      $('oc-go').disabled=true; $('oc-msg').textContent='Creating…';
+      fetch('/api/client/proposals/opportunity',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name,id:record.id,contact})})
+        .then(r=>r.json()).then(d=>{
+          $('oc-go').disabled=false;
+          UPLOADED=d.proposals||UPLOADED; renderProposals();
+          showSuiteResult(record, d.suite||{}, box);
+        }).catch(e=>{$('oc-go').disabled=false;$('oc-msg').textContent='Failed: '+e});
+    };
+  }
 
   // QuickBooks invoices — attached customer wins; shows customer-since in header
   function renderQb(d,attachedNote){

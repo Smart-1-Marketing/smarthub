@@ -242,28 +242,23 @@ def generate_business_description():
         return jsonify({'error': 'At least one website URL is required'}), 400
     client = str(data.get('client') or '').strip()
     industry = str(data.get('industry') or '').strip()
-    geography = str(data.get('geo') or '').strip()
     brand = data.get('brandfetch') or {}
-    prompt = (
-        'Research this business carefully using its official website and any clearly authoritative pages linked from it: '
-        + ', '.join(urls) + '.\n'
-        'Write a customer-facing business description suitable for a Google Business Profile "from the business" section. '
-        'Requirements: write in third person about the business; keep it to roughly 500 to 750 characters (Google allows up to 750); '
-        'clearly describe what the business offers, the products or services provided, who it serves, the areas or locations it serves, '
-        'and what makes it a good choice, using natural language a prospective customer would find helpful. '
-        'Follow Google Business Profile content rules: do NOT include URLs or website links, phone numbers, prices, promotional or sales language '
-        '(no "call now", "best", "#1", discounts, or offers), special characters, or ALL-CAPS gimmicks. Keep it factual and professional. '
-        'Do not invent unsupported claims, awards, service areas, years in business, or capabilities. '
-        'Do not include citations or raw URLs.\n'
-        f'Known intake details:\nClient name: {client}\nIndustry: {industry}\nGeographic target: {geography}\n'
-        f'Brandfetch description: {brand.get("description", "") if isinstance(brand, dict) else ""}\n'
-        'Return only the finished Google Business Profile description.'
-    )
+    # The rules live in hub.business_description so the Proposal Builder writes
+    # descriptions to the same Google Business Profile standard this route
+    # already met -- it previously had a looser prompt of its own, and the same
+    # client could end up with two different descriptions.
+    from hub import business_description as _desc
+    from hub import target_areas as _ta
+    areas = _ta.normalize(data.get('targetAreas')) or _ta.from_legacy(data)
+    prompt = _desc.prompt_for(urls, client=client, industry=industry,
+                              areas=areas, brandfetch=brand,
+                              geo=str(data.get('geo') or '').strip())
     try:
         description = _openai_response(prompt, max_output_tokens=5000)
         if not description:
             return jsonify({'error': 'OpenAI returned no description'}), 502
-        return jsonify({'description': description})
+        return jsonify({'description': description,
+                        'warnings': _desc.check(description)})
     except Exception as exc:
         detail = ''
         if getattr(exc, 'response', None) is not None:
@@ -629,9 +624,44 @@ def _build_requirements_pdf(data, doc_type):
         ['Monthly Spend', data.get('monthlySpendFormatted','')],
         ['Total Campaign Budget', data.get('totalCampaignBudgetFormatted','')],
     ]
+    # Geography was missing from this table entirely -- the IO said what was
+    # being bought and never where it was running.
+    from hub import target_areas as _ta
+    areas = _ta.normalize(data.get('targetAreas')) or _ta.from_legacy(data)
+    if areas:
+        meta.append(['Target Area' if len(areas) == 1 else f'Target Areas ({len(areas)})',
+                     _p('\n'.join(_ta.names(areas)), styles['S1Body'])])
+    elif data.get('geo'):
+        meta.append(['Target Area', _p(data.get('geo'), styles['S1Body'])])
     t=Table(meta, colWidths=[1.45*inch, 5.55*inch])
     t.setStyle(TableStyle([('BACKGROUND',(0,0),(0,-1),colors.HexColor('#eef3f8')),('TEXTCOLOR',(0,0),(0,-1),colors.HexColor('#14284b')),('FONTNAME',(0,0),(0,-1),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),8),('GRID',(0,0),(-1,-1),0.4,colors.HexColor('#d5dee9')),('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),6),('RIGHTPADDING',(0,0),(-1,-1),6),('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5)]))
     story += [t, Spacer(1,10)]
+
+    if areas:
+        story.append(Paragraph('Target Areas', styles['S1H2']))
+        area_rows = [['Target area', 'Type', 'ZIP Codes / notes']]
+        for area in areas:
+            zips = _ta.zip_list(area.get('zips'))
+            detail = ', '.join(zips) if zips else (area.get('notes') or '')
+            if not detail:
+                # Said plainly rather than left blank: a radius area with no
+                # ZIP list cannot be trafficked, and a blank cell reads as
+                # "nothing to do here".
+                detail = ('ZIP list to be added before trafficking'
+                          if area['type'] == _ta.RADIUS else '—')
+            area_rows.append([_p(_ta.label(area), styles['S1Small']),
+                              _p(area['type'], styles['S1Small']),
+                              _p(detail, styles['S1Small'])])
+        at = Table(area_rows, colWidths=[2.4*inch, 1.5*inch, 3.1*inch], repeatRows=1)
+        at.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#14284b')),
+                                ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+                                ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                                ('FONTSIZE',(0,0),(-1,-1),7.5),
+                                ('GRID',(0,0),(-1,-1),0.35,colors.HexColor('#d5dee9')),
+                                ('VALIGN',(0,0),(-1,-1),'TOP'),
+                                ('TOPPADDING',(0,0),(-1,-1),4),
+                                ('BOTTOMPADDING',(0,0),(-1,-1),4)]))
+        story += [at, Spacer(1,10)]
 
     # Brandfetch section near beginning
     b=data.get('brandfetch') or {}
@@ -945,7 +975,11 @@ def submit_io():
         "campaign_end_date": data.get("end"),
         "campaign_goals": data.get("objectives", []),
         "kpis": data.get("kpis", []),
-        "geographic_target": data.get("geo"),
+        # geographic_target stays a single string -- a GoHighLevel workflow
+        # already reads it -- and now holds every area rather than the first.
+        # target_areas is the structured list for anything that can use it.
+        "geographic_target": _payload_geo(data),
+        "target_areas": _payload_areas(data),
         "audiences": data.get("audiences", []),
         "income_targets": data.get("incomes", data.get("income", [])),
         "dayparting": data.get("dayparting"),
@@ -989,6 +1023,17 @@ def submit_io():
         "client_pdf_url": client_pdf_url,
         "internal_pdf_url": internal_pdf_url
     })
+
+
+def _payload_areas(data):
+    from hub import target_areas as _ta
+    return _ta.normalize(data.get("targetAreas")) or _ta.from_legacy(data)
+
+
+def _payload_geo(data):
+    from hub import target_areas as _ta
+    areas = _payload_areas(data)
+    return _ta.to_legacy_geo(areas) or str(data.get("geo") or "")
 
 
 @app.post('/api/zipcodes-in-radius')
