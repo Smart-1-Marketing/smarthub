@@ -214,6 +214,12 @@ services:
       # it; only hub/ad_builder_proxy.py talks to it.
       - key: ADBUILDER_PORT
         value: "8791"
+      # Renders, project state and the brand cache. The renderer's own default
+      # is a directory inside the image, which Render replaces on every deploy
+      # -- a finished ad package would disappear with the next release. The
+      # mounted disk is the only durable place in this container.
+      - key: OUTPUT_DIR
+        value: /var/data/adbuilder-out
       # The public intake form is closed unless one of these is set. Staff
       # inside the Hub do not need either -- the admin token above already
       # satisfies the gate. Set INTAKE_CODE to hand a code to an outside
