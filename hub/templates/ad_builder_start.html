@@ -12,7 +12,7 @@
 {% endif %}
 
 <div class="card">
-  <div class="card-h"><h3>Who is it for?</h3></div>
+  <div class="card-h"><h3 data-tour="ads-kind">Who is it for? {{ help_dot('display_ads.start.kind') if help_dot is defined else '' }}</h3></div>
   <div class="card-b">
     <form method="post" action="{{ url_prefix }}/_hub/start">
       <div class="field">
