@@ -278,8 +278,13 @@ def structure_report() -> dict:
     root = pathlib.Path(__file__).resolve().parent.parent
     engines, json_stores, client_keys = [], [], []
 
+    # Vendored code is not ours to fix, and counting it buries the findings
+    # that are. hub/integrity.py learned this when the scan reported the openai
+    # package itself; without node_modules here the JSON count read 102.
+    skip = {"_attic", "__pycache__", ".git", "node_modules", ".venv", "venv",
+            "env", "site-packages", ".tox", "build", "dist"}
     for p in root.rglob("*.py"):
-        if any(x in p.parts for x in ("_attic", "__pycache__")):
+        if any(x in p.parts for x in skip):
             continue
         try:
             src = p.read_text(encoding="utf-8", errors="ignore")
@@ -293,8 +298,15 @@ def structure_report() -> dict:
             if builds or shared:
                 engines.append({"module": mod, "file": rel,
                                 "shared": shared and not builds})
-        if "json.dump" in src and "/templates/" not in rel:
-            json_stores.append({"module": mod, "file": rel})
+        # json.dump( — with the bracket. The substring also matches json.dumps,
+        # which serialises to a string and touches no disk at all; it is in
+        # every module that returns JSON from a route, so counting it made this
+        # number mostly noise. And a file going through hub/jsonstore.py *is*
+        # mirrored into the database, so it is no longer part of this risk —
+        # counting the fix as more of the problem is worse than not counting.
+        if "json.dump(" in src and "/templates/" not in rel:
+            if "jsonstore" not in src:
+                json_stores.append({"module": mod, "file": rel})
         for key in ("client_id", "client_name", "domain_key", "client_slug"):
             if re.search(rf"\b{key}\b\s*=\s*Column", src):
                 client_keys.append({"module": mod, "file": rel, "key": key})
@@ -384,14 +396,21 @@ def structure_report() -> dict:
                       "deploy running without DATABASE_URL ever wrote one.",
             "where": [x["module"] for x in leftovers],
         })
-    if len(json_stores) > 6:
+    if json_stores:
+        mods = sorted({j["module"] for j in json_stores})
         risks.append({
             "level": "medium",
-            "title": f"{len(json_stores)} modules persist to JSON files",
+            "title": (f"{len(json_stores)} file writes JSON"
+                      if len(json_stores) == 1 else
+                      f"{len(json_stores)} files write JSON") +
+                     " outside hub/jsonstore.py",
             "detail": "JSON on the Render disk is not backed up with the "
                       "database and is lost if the disk is recreated. Fine for "
-                      "caches; a problem for anything that is the only copy.",
-            "where": sorted({j["module"] for j in json_stores})[:12],
+                      "caches; a problem for anything that is the only copy. "
+                      "Files written through hub/jsonstore.py are mirrored into "
+                      "the database and are not counted here; /api/backup says "
+                      "what that mirror actually holds.",
+            "where": mods[:12],
         })
 
     return {

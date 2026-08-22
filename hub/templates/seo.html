@@ -2,7 +2,7 @@
 {% block title %}SEO — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
-  <div><h2>SEO Clients</h2><p>Every client with a live SEO product &mdash; click one to manage accounts, schema &amp; setup</p></div>
+  <div><h2 data-tour="seo-list">SEO Clients {{ help_dot('hub.seo.list') if help_dot is defined else '' }}</h2><p>Every client with a live SEO product &mdash; click one to manage accounts, schema &amp; setup</p></div>
   <a class="seo-wm-btn" href="/seo/webmaster">&#128202; Webmaster Report Dashboard</a>
 </div>
 <div class="seo-summary" id="seoSummary" style="display:none">
