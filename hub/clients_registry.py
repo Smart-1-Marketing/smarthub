@@ -41,8 +41,16 @@ def slugify(name: str) -> str:
 
 
 def norm_domain(value: str) -> str:
-    d = re.sub(r"^https?://", "", str(value or "").strip().lower())
-    return d.removeprefix("www.").split("/")[0].split(":")[0]
+    """The one definition of a domain, borrowed rather than repeated.
+
+    This used to be its own three-line normaliser, which is how a registry
+    domain and a scan domain could disagree about the same site: this one kept
+    the query string and accepted anything with a dot, canonical_domain() did
+    not. Two spellings of one domain is two clients, so there is now one
+    implementation and both callers use it.
+    """
+    from hub.client_context import canonical_domain
+    return canonical_domain(value)
 
 
 # ------------------------------------------------------------- house clients
@@ -226,7 +234,12 @@ def all_clients(refresh: bool = False) -> list[dict]:
     rows = []
     for entry in by_key.values():
         products = sorted(entry.pop("products", set()))
-        rows.append({**entry, "products": products, "product_count": len(products)})
+        # The derived join key, so every consumer of this list groups clients
+        # the same way instead of each inventing its own name match.
+        from hub.client_key import client_key
+        rows.append({**entry, "products": products, "product_count": len(products),
+                     "key": client_key(entry["name"], entry.get("url")
+                                       or entry.get("domain") or "")})
     rows.sort(key=lambda r: r["name"].lower())
 
     _cache["rows"] = rows

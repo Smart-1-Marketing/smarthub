@@ -96,6 +96,23 @@ class AccessRequest(db.Model):
     def expired(self):
         return bool(self.expires_at and utcnow() > self.expires_at)
 
+    def client_key(self):
+        """The Hub-wide client key for this invitation.
+
+        `hub_client_id` above is the intended join and it is optional, typed
+        by hand into one admin field, and therefore usually empty — which is
+        why the Client 360 access card showed nothing for clients who plainly
+        had access granted. This is derived from `website` first (a domain is
+        exact) and the client name second, so it is populated on every row
+        without anybody filling anything in.
+        """
+        try:
+            from hub.client_key import resolve
+            return resolve(name=self.client_name or "",
+                           url=self.website or "")["key"]
+        except Exception:                                 # noqa: BLE001
+            return ""
+
     def grant_for(self, service):
         for g in self.grants:
             if g.service == service:

@@ -109,14 +109,34 @@ def _join(vals) -> str:
 
 
 def _norm_name(s: str) -> str:
-    """Normalize a business name for QB<->Knack matching."""
-    import re
-    s = str(s or "").lower()
-    s = re.sub(r"[^a-z0-9 ]+", " ", s)
-    drop = {"inc", "llc", "co", "corp", "company", "the", "of", "and", "dba",
-            "ltd", "lp", "pllc", "pc", "group"}
-    words = [w for w in s.split() if w and w not in drop]
-    return " ".join(words)
+    """Normalize a business name for QB<->Knack matching.
+
+    Delegates to hub/client_key so this report, the Sites matcher and the
+    client crosswalk all agree on when two names are one company. One
+    behaviour change came with it: "group" is no longer dropped as a filler
+    word. Dropping it merged "Riverside Group" into "Riverside", which are
+    routinely two different accounts — a drop list may only remove words that
+    cannot tell two businesses apart.
+    """
+    from hub.client_key import normalise_name
+    return normalise_name(s)
+
+
+def _match_cell(row: dict):
+    """How a Suite sub-account was matched to a Knack client, in the table.
+
+    A match and a guess used to look identical here — both rendered "Yes" —
+    which is how a mis-attributed sub-account survived every reading of this
+    report. Now the evidence is in the cell.
+    """
+    if row.get("knack_name"):
+        if row.get("match_confidence") == "probable":
+            return "Probable — check"
+        return "Yes" if row.get("match_on") != "domain" else "Yes (domain)"
+    cands = row.get("match_candidates") or []
+    if cands:
+        return "Ambiguous: " + ", ".join(cands[:3]) + ("…" if len(cands) > 3 else "")
+    return "No match in Knack"
 
 
 # ------------------------------------------------- dashboard skip list
@@ -1014,9 +1034,18 @@ def _ghl_billing_rows() -> list:
     except RuntimeError:
         plans = {}
 
+    from hub import client_key as ck
+
     groups = _client_groups()
+    index = ck.alias_index()
+
+    # Knack client names, grouped by the shared client key rather than by a
+    # normalised string of their own. Two Knack rows that resolve to one key
+    # are one client, which is the whole point of the key existing.
+    knack_by_key = {}
     knack_by_norm = {}
     for name, g in groups.items():
+        knack_by_key.setdefault(ck.resolve(name=name, index=index)["key"], (name, g))
         n = _norm_name(name)
         if n:
             knack_by_norm.setdefault(n, (name, g))
@@ -1029,11 +1058,21 @@ def _ghl_billing_rows() -> list:
         plan_id = info.get("saasPlanId") or loc.get("saasPlanId")
         plan = plans.get(plan_id) or {}
         raw_name = str(loc.get("name") or loc.get("locationId") or "").strip()
-        n = _norm_name(raw_name)
-        hit = knack_by_norm.get(n)
-        if not hit:
-            hit = next(((kn, kg) for norm, (kn, kg) in knack_by_norm.items()
-                        if norm and n and (norm in n or n in norm)), None)
+        website = str(loc.get("website") or loc.get("domain") or "").strip()
+
+        # This is the line that used to invent false alarms. The old fallback
+        # took the *first* Knack name that contained the sub-account name as a
+        # substring, so a sub-account called "Acme" was attributed to whichever
+        # of Acme Plumbing, Acme Roofing and Acme Electric came out of the dict
+        # first — a different one on a different day, and no way to tell from
+        # the report that a guess had been made at all. resolve() matches on
+        # domain, then on an exact normalised name, and only offers a near
+        # match when exactly one client can possibly be meant.
+        hit_info = ck.resolve(name=raw_name, url=website,
+                              allow_fuzzy=True, index=index)
+        hit = knack_by_key.get(hit_info["key"]) if hit_info["known"] else None
+        if hit is None and hit_info["known"]:
+            hit = knack_by_norm.get(_norm_name(hit_info["client"]))
         rows.append({
             "location_id": loc.get("locationId"),
             "raw_name": raw_name or "(unnamed sub-account)",
@@ -1042,6 +1081,12 @@ def _ghl_billing_rows() -> list:
             "monthly": _plan_monthly_price(plan),
             "knack_name": hit[0] if hit else None,
             "knack_group": hit[1] if hit else None,
+            "match_confidence": hit_info["confidence"] if hit else "unmatched",
+            "match_on": hit_info["matched_on"] if hit else "",
+            # Populated when several clients could be meant. Showing them is
+            # what turns "no match" from a dead end into something a person
+            # can resolve in ten seconds.
+            "match_candidates": hit_info.get("candidates") or [],
         })
     return rows
 
@@ -1062,6 +1107,7 @@ def ghl_billing_no_products() -> dict:
         return {"columns": columns, "rows": [], "error": str(exc)}
     rows = []
     total = 0.0
+    ambiguous = 0
     for r in rows_raw:
         if r["status"] not in _ACTIVE_SUB_STATUSES:
             continue
@@ -1071,19 +1117,23 @@ def ghl_billing_no_products() -> dict:
         rows.append((str(r["raw_name"]).lower(), [
             client_cell, r["raw_name"], r["plan_title"], _money(r["monthly"]),
             r["status"].replace("_", " ").title(),
-            "Yes" if r["knack_name"] else "No match in Knack",
+            _match_cell(r),
         ]))
         total += r["monthly"]
+        if r.get("match_candidates"):
+            ambiguous += 1
     rows.sort(key=lambda t: t[0])
-    return {
-        "columns": columns,
-        "rows": [r for _, r in rows],
-        "note": (f"{len(rows)} Smart 1 Suite sub-accounts billing (active, trialing "
-                 f"or past-due) with no live Smart 1 marketing product on file in "
-                 f"Knack — {_money(total)}/mo of Suite-only billing. \"No match in "
-                 "Knack\" means the sub-account name couldn't be matched to any "
-                 "Smart 1 client record at all, so double-check those by hand."),
-    }
+    note = (f"{len(rows)} Smart 1 Suite sub-accounts billing (active, trialing "
+            f"or past-due) with no live Smart 1 marketing product on file in "
+            f"Knack — {_money(total)}/mo of Suite-only billing. \"No match in "
+            "Knack\" means the sub-account name couldn't be matched to any "
+            "Smart 1 client record at all, so double-check those by hand.")
+    if ambiguous:
+        note += (f" {ambiguous} could be more than one client and are shown "
+                 "unmatched with the candidates listed rather than guessed at "
+                 "— a wrong match is what makes this report disagree with the "
+                 "invoices.")
+    return {"columns": columns, "rows": [r for _, r in rows], "note": note}
 
 
 def ghl_billing_this_month() -> dict:
