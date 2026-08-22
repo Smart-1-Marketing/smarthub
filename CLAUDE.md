@@ -218,7 +218,16 @@ only found by running it.
 python3 -c "import ast,pathlib; [ast.parse(p.read_text(errors='ignore')) \
   for p in pathlib.Path('.').rglob('*.py') if '_attic' not in p.parts]"
 node --check hub/static/*.js
+python tools/linkcheck.py
 ```
+
+`tools/linkcheck.py` boots the composed app and checks every internal URL
+literal against the route table of whichever app owns that path, so it catches
+the mount trap above — a module page written as `fetch("/api/lead")` works
+standalone and 404s under a mount. It exits non-zero, so it can gate a
+release. **Run it after touching any module template**: that one bug was live
+on seven landing pages for two days, and it took down the lead capture on all
+of them without anything looking wrong.
 
 Then boot through `wsgi.application` (not just the hub app — that's how mount
 shadowing hides) and request the pages you touched. `/api/integrity` reports

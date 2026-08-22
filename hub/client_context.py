@@ -33,6 +33,7 @@ it to be discovered when two reports disagree.
 """
 from __future__ import annotations
 
+import ast
 import os
 import re
 from datetime import datetime, timezone
@@ -202,6 +203,45 @@ def context(client: str, domain: str = "") -> dict:
 # Database structure watch
 # ---------------------------------------------------------------------------
 
+# The two files allowed to build an engine: the shared registry itself, and the
+# /status probe, which deliberately opens a short-lived connection of its own so
+# a pool that is already wedged cannot report itself healthy.
+_ENGINE_OWNERS = ("hub/extensions.py", "hub/diagnostics.py")
+
+# Importing any of these is what "uses the shared engine" means.
+_SHARED_ENGINE_NAMES = {"shared_engine", "engine_for", "session_factory",
+                        "create_all_metadata", "db"}
+
+
+def _engine_use(src: str) -> tuple[bool, bool]:
+    """(builds its own engine, takes one from hub/extensions) for one file.
+
+    Parsed rather than grepped. The substring version of this check counted a
+    *comment* mentioning hub.extensions as proof that a module used it, so two
+    modules that each opened their own pool were reported as sharing one — the
+    check said four engines when there were six.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        # Unparseable: fall back to the crude test, and treat it as its own
+        # engine rather than quietly clearing it.
+        return ("create_engine(" in src, False)
+
+    builds = shared = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            fn = node.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if name == "create_engine":
+                builds = True
+        elif isinstance(node, ast.ImportFrom):
+            if (node.module or "").startswith("hub.extensions"):
+                if any(a.name in _SHARED_ENGINE_NAMES for a in node.names):
+                    shared = True
+    return (builds, shared)
+
+
 def structure_report() -> dict:
     """Where client data actually lives, and where it can drift apart.
 
@@ -223,9 +263,11 @@ def structure_report() -> dict:
         rel = p.relative_to(root).as_posix()
         mod = p.parts[len(root.parts) + 1] if "modules" in p.parts else "hub"
 
-        if "create_engine(" in src and "diagnostics.py" not in rel:
-            shared = "hub.extensions" in src or "from hub import extensions" in src
-            engines.append({"module": mod, "file": rel, "shared": shared})
+        if rel not in _ENGINE_OWNERS:
+            builds, shared = _engine_use(src)
+            if builds or shared:
+                engines.append({"module": mod, "file": rel,
+                                "shared": shared and not builds})
         if "json.dump" in src and "/templates/" not in rel:
             json_stores.append({"module": mod, "file": rel})
         for key in ("client_id", "client_name", "domain_key", "client_slug"):
@@ -233,19 +275,20 @@ def structure_report() -> dict:
                 client_keys.append({"module": mod, "file": rel, "key": key})
 
     own_engines = [e for e in engines if not e["shared"]]
+    own_modules = sorted({e["module"] for e in own_engines})
     keys_used = sorted({k["key"] for k in client_keys})
 
     risks = []
-    if len(own_engines) > 1:
+    if len(own_modules) > 1:
         risks.append({
             "level": "high",
-            "title": f"{len(own_engines)} separate database engines",
+            "title": f"{len(own_modules)} separate database engines",
             "detail": "Each module builds its own engine instead of using the "
                       "shared one in hub/extensions.py. That means separate "
                       "connection pools against the same Postgres, no shared "
                       "transaction, and a backup of one is not a backup of the "
                       "others.",
-            "where": [e["module"] for e in own_engines],
+            "where": own_modules,
         })
     if len(keys_used) > 1:
         risks.append({
@@ -257,6 +300,23 @@ def structure_report() -> dict:
                       "different names. This is what makes the billing audit "
                       "report false alarms.",
             "where": sorted({k['module'] for k in client_keys}),
+        })
+    try:
+        from .extensions import legacy_databases
+        leftovers = legacy_databases()
+    except Exception:                   # noqa: BLE001
+        leftovers = []
+    if leftovers:
+        risks.append({
+            "level": "medium",
+            "title": f"{len(leftovers)} pre-merge SQLite "
+                     f"file{'s' if len(leftovers) != 1 else ''} still on disk",
+            "detail": "These are the per-module database files from before the "
+                      "modules shared one engine. Nothing reads them any more, "
+                      "so any rows still in them are invisible to the Hub — "
+                      "which is worth knowing before deleting them. Only a "
+                      "deploy running without DATABASE_URL ever wrote one.",
+            "where": [x["module"] for x in leftovers],
         })
     if len(json_stores) > 6:
         risks.append({
@@ -273,11 +333,15 @@ def structure_report() -> dict:
         "own_engines": len(own_engines),
         "shared_engine_users": len([e for e in engines if e["shared"]]),
         "json_stores": len(json_stores),
+        "legacy_databases": leftovers,
         "client_keys": keys_used,
         "risks": risks,
         "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "note": "Read from source, so it reports accurately even when a module "
-                "fails to import.",
+                "fails to import. A module counts as sharing the engine only "
+                "if it actually imports one from hub/extensions and calls no "
+                "create_engine of its own — a comment saying it should is not "
+                "evidence that it does.",
     }
 
 

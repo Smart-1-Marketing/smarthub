@@ -13,14 +13,15 @@ import secrets
 import threading
 from datetime import datetime, timezone
 
-from sqlalchemy import (Column, DateTime, Float, Integer, String, Text,
-                        create_engine, select)
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import Column, DateTime, Float, Integer, String, Text, select
+from sqlalchemy.orm import declarative_base
+from hub.extensions import create_all_metadata, engine_for, session_factory
 from hub.webargs import clamp_int
 
-# When merging into Smart 1 Hub, replace the standalone engine below with the
-# Hub's shared session:  from hub.extensions import db
-# and swap Base -> db.Model, _session() -> db.session. Nothing else changes.
+# The engine comes from hub/extensions, so this shares the Hub's connection
+# pool. CALCULATORS_DATABASE_URL still points the module at a database of its
+# own if it is ever needed; that gets its own pool, one per database rather
+# than one per module.
 Base = declarative_base()
 
 _engine = None
@@ -103,21 +104,17 @@ def init(app):
     of the worker. Record the error and surface it per request instead.
     """
     global _engine, _Session, DB_BOOT_ERROR
-    url = (app.config.get("CALCULATORS_DATABASE_URL")
-           or os.environ.get("DATABASE_URL")
-           or "sqlite:///" + os.path.join(app.config.get("CALCULATORS_DATA_DIR", "data"),
-                                          "calculators.db"))
-    if url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql://", 1)
+    # Blank unless someone has deliberately split this module off; the Hub
+    # database is the default, which is what DATABASE_URL used to give it.
+    url = (app.config.get("CALCULATORS_DATABASE_URL") or "").strip() or None
     try:
-        if url.startswith("sqlite:///"):
+        if url and url.startswith("sqlite:///"):
             path = url[len("sqlite:///"):]
             if path:
                 os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        _engine = create_engine(url, pool_pre_ping=True, future=True)
-        _Session = sessionmaker(bind=_engine, future=True)
-        Base.metadata.create_all(_engine)
-        DB_BOOT_ERROR = None
+        _engine = engine_for(url)
+        _Session = session_factory(url, expire_on_commit=True)
+        DB_BOOT_ERROR = create_all_metadata(Base.metadata, url) or None
     except Exception as exc:  # pragma: no cover - environment dependent
         DB_BOOT_ERROR = "{}: {}".format(type(exc).__name__, exc)
     return DB_BOOT_ERROR
