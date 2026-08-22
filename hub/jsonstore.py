@@ -385,13 +385,18 @@ def write_json(path: str, data, *, durable: bool = True, indent=None) -> bool:
             _declared_caches.add(key)
         return True
 
-    if len(text.encode("utf-8")) > MAX_MIRROR_BYTES:
+    size = len(text.encode("utf-8"))
+    if size > MAX_MIRROR_BYTES:
         # Reported rather than silently truncated. A backup that quietly holds
         # part of a file is worse than one that says it holds none of it.
+        # Both numbers in KB and stated outright: "over 0 MB" is what integer
+        # division produced for any cap below a megabyte, and the size that
+        # actually breached the cap is the one you need in order to act on it.
         with _lock:
             global _last_error
-            _last_error = (f"{key} is over {MAX_MIRROR_BYTES // 1024 // 1024} MB "
-                           f"and was not mirrored")
+            _last_error = (f"{key} is {size // 1024} KB, over the "
+                           f"{MAX_MIRROR_BYTES // 1024} KB mirror limit, and "
+                           f"was NOT backed up")
         return True
 
     _upsert(key, text)
