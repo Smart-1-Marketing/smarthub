@@ -347,7 +347,7 @@ section{padding:72px 0}
       <p>Answer a few quick questions about your market and goals &mdash; your recommended plan appears right here, in about three minutes. No obligation.</p>
     </div>
     <div class="plan-frame-wrap" id="planWrap">
-      <iframe id="planFrame" data-src="/plan" title="Build your HVAC marketing plan" loading="lazy" scrolling="no"></iframe>
+      <iframe id="planFrame" data-src="{{ request.script_root }}/plan" title="Build your HVAC marketing plan" loading="lazy" scrolling="no"></iframe>
       <div class="plan-loader" id="planLoader" role="status" aria-live="polite">
         <div class="pl-inner">
           <img class="pl-logo" src="https://content.app-sources.com/s/30680510049142132/uploads/Our_Products_/logo-final-cmyk-hz1line-white-9562849.png?format=webp" alt="Smart 1 Marketing">
@@ -371,7 +371,7 @@ section{padding:72px 0}
           </svg>
           <div class="pl-status" id="plStatus">Waking up the market engine&hellip;</div>
           <div class="pl-bar"><span id="plBar"></span></div>
-          <a class="pl-fallback" id="plFallback" href="/plan" target="_blank" rel="noopener">Trouble loading? Open in a new tab &#8599;</a>
+          <a class="pl-fallback" id="plFallback" href="{{ request.script_root }}/plan" target="_blank" rel="noopener">Trouble loading? Open in a new tab &#8599;</a>
         </div>
       </div>
     </div>

@@ -95,7 +95,11 @@ function sendPartial() {
     if (navigator.sendBeacon) {
       navigator.sendBeacon('/api/partial-lead', new Blob([body], { type: 'application/json' }));
     } else {
-      fetch('/api/partial-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
+      // Relative, not '/api/...': this file is served as a plain asset under
+      // the /land/tourism mount, so there is no Jinja to inject the prefix.
+      // fetch() resolves against the document URL, which is always
+      // /land/tourism/ (Werkzeug 308s the slashless form).
+      fetch('api/partial-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
     }
   } catch (e) { /* best-effort — never break the wizard */ }
 }
@@ -307,7 +311,7 @@ function maybeAnalyzeWebsite(a) {
   if (/facebook\.com|fb\.com|fb\.me|instagram\.com/i.test(site)) return;
   lastAnalyzedWebsite = site;
   a.aiSuggestionStatus = 'loading';
-  fetch('/api/analyze-business', {
+  fetch('api/analyze-business', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ website: site }),
@@ -1110,7 +1114,7 @@ async function submitPlan(body) {
   }
 
   try {
-    const res = await fetch('/api/submit', {
+    const res = await fetch('api/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
