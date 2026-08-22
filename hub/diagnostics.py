@@ -364,6 +364,13 @@ def check_json_backup() -> Check:
             return ("error",
                     "Not mirroring — JSON on the disk is the only copy and the "
                     f"disk is not backed up. {st['error'] or 'No database.'}")
+        if st.get("same_disk"):
+            return ("error",
+                    "The mirror is a SQLite file on the same disk it is meant "
+                    "to protect, because DATABASE_URL is not set — so a "
+                    "recreated disk destroys the files and the backup together. "
+                    "Everything below this line still reports healthy, which is "
+                    "why this is an error and not a warning.")
         if st["breaker_open"]:
             return ("warn",
                     "Mirroring is paused after repeated database errors; it "

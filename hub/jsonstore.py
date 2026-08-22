@@ -595,6 +595,31 @@ def sweep(limit: int = 4000) -> dict:
 
 
 # ---------------------------------------------------------------- reporting
+def mirror_is_on_the_same_disk() -> bool:
+    """Is the "backup" sitting on the very disk it is supposed to survive?
+
+    With DATABASE_URL unset, ``extensions.database_url()`` falls back to a
+    SQLite file on /var/data — sensible for local development, and worthless
+    as a backup, because the mirror is then destroyed by exactly the event it
+    exists to protect against. Everything still reports healthy: writes
+    succeed, reads succeed, the blob count climbs. That is the most dangerous
+    shape a backup can have, so it is detected and said out loud rather than
+    left to be discovered after a disk is recreated.
+    """
+    if not _engine:
+        return False
+    try:
+        if not _engine.dialect.name.startswith("sqlite"):
+            return False                # Postgres — a separate service
+        db_path = (_engine.url.database or "").strip()
+        if not db_path or db_path == ":memory:":
+            return False
+        root = os.path.abspath(data_root())
+        return os.path.abspath(db_path).startswith(root + os.sep)
+    except Exception:                                   # noqa: BLE001
+        return False
+
+
 def status() -> dict:
     """What is backed up, what is not, and why — for /diagnostics.
 
@@ -609,6 +634,7 @@ def status() -> dict:
         "breaker_open": _breaker_open(),
         "root": data_root(),
         "declared_caches": sorted(_declared_caches),
+        "same_disk": ready and mirror_is_on_the_same_disk(),
         "blobs": None,
         "bytes": None,
         "newest": None,
