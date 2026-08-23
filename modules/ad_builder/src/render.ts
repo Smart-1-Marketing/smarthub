@@ -23,6 +23,7 @@ import type {
 import { compose } from './svg';
 import { rasterise } from './raster';
 import { rollUp, runQa } from './qa';
+import { applyBlockStyles } from './block-style';
 import { getPlatform, getTemplate } from './registry';
 
 export interface RenderOneOptions {
@@ -49,14 +50,17 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
   const { brand, concept, platform, size, outDir, assetRoot, emitSvg } = opts;
 
   const template = getTemplate(concept.layoutFamily);
-  const layout = template.sizes[size];
-  if (!layout) {
+  const rawLayout = template.sizes[size];
+  if (!rawLayout) {
     throw new Error(`Template ${template.id} has no layout for ${size}`);
   }
   const rule = getPlatform(platform).sizes[size];
   if (!rule) {
     throw new Error(`Platform ${platform} does not define ${size}`);
   }
+  // Same overrides the preview applied, so what was approved on screen is what
+  // ships. Clamped in block-style.ts, not here.
+  const layout = applyBlockStyles(rawLayout, concept.styleOverrides);
 
   const scale = rule.deliverScale;
   const copy = copyForSize(concept, size);
@@ -145,8 +149,11 @@ export async function renderPreview(opts: {
 }): Promise<{ png: Buffer; width: number; height: number; qa: QaFinding[]; status: 'pass' | 'warn' | 'fail'; wordCount: number }> {
   const { brand, concept, platform, size, assetRoot } = opts;
   const template = getTemplate(concept.layoutFamily);
-  const layout = template.sizes[size];
-  if (!layout) throw new Error(`${template.id} has no layout for ${size}`);
+  const rawLayout = template.sizes[size];
+  if (!rawLayout) throw new Error(`${template.id} has no layout for ${size}`);
+  // Both render paths apply the concept's overrides here, so the preview and
+  // the delivered file cannot disagree about the type.
+  const layout = applyBlockStyles(rawLayout, concept.styleOverrides);
   const rule = getPlatform(platform).sizes[size];
   if (!rule) throw new Error(`${platform} does not define ${size}`);
 
