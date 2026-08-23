@@ -56,7 +56,6 @@
         transition:transform .15s ease}
   tr.row.open .chev{transform:rotate(90deg)}
   .num{white-space:nowrap;font-variant-numeric:tabular-nums}
-  .warnflag{color:var(--amber);font-size:12px;margin-left:6px}
   .dash{color:var(--muted)}
 
   tr.detail{display:none}
@@ -84,15 +83,26 @@
 <div class="wrap">
 
   <h1>Stale Creative</h1>
-  <p class="sub">How long it has been since we last uploaded creative for each client.</p>
+  <p class="sub">How long it has been since we last uploaded creative for each
+    client currently running a product.</p>
+  {% set _left_out = (data.totals.inactive or 0) + (data.totals.unmatched or 0) %}
+  {% if _left_out %}
+  <p class="sub" style="font-size:13px">Not listed:
+    {% if data.totals.inactive %}{{ data.totals.inactive }} client{{ '' if data.totals.inactive == 1 else 's' }}
+      with no product delivering today{% endif %}{% if data.totals.inactive and data.totals.unmatched %};
+    {% endif %}{% if data.totals.unmatched %}{{ data.totals.unmatched }} creative
+      record{{ '' if data.totals.unmatched == 1 else 's' }} whose client name matched nothing in the
+      registry{% endif %}.</p>
+  {% endif %}
 
   {% set e = data.edges %}
   {% set g = {} %}
   {% for grp in data.groups %}{% set _ = g.update({grp.key: grp.count}) %}{% endfor %}
 
+  {# Tile order mirrors the section order below: worst elapsed time first,
+     then the clients with nothing on file. A tile row that disagrees with the
+     list underneath it makes the page read as two different reports. #}
   <div class="tiles">
-    <div class="tile t-never"><div class="n">{{ g.get('never', 0) }}</div>
-      <div class="l">No creative on file</div></div>
     <div class="tile t-hi"><div class="n">{{ g.get('over_' ~ e[2], 0) }}</div>
       <div class="l">{{ e[2] }}+ days</div></div>
     <div class="tile t-mid"><div class="n">{{ g.get('d' ~ e[1] ~ '_' ~ e[2], 0) }}</div>
@@ -101,6 +111,8 @@
       <div class="l">{{ e[0] }}-{{ e[1] }} days</div></div>
     <div class="tile t-fresh"><div class="n">{{ g.get('fresh', 0) }}</div>
       <div class="l">Under {{ e[0] }} days</div></div>
+    <div class="tile t-never"><div class="n">{{ g.get('never', 0) }}</div>
+      <div class="l">No creative on file</div></div>
   </div>
 
   <div class="bar">
@@ -134,8 +146,6 @@
         <tr class="row" tabindex="0" data-target="d-{{ grp.key }}-{{ loop.index }}">
           <td><span class="chev">&#9656;</span>
             <span class="name">{{ c.client }}</span>
-            {% if not c.in_registry %}<span class="warnflag"
-              title="Creative found but no matching client in the registry">unmatched</span>{% endif %}
           </td>
           <td class="num">{% if c.days_since is none %}<span class="dash">never</span>
             {% else %}{{ c.days_since }}{% endif %}</td>
@@ -207,28 +217,5 @@
   });
 })();
 </script>
-<script>
-/* Inactive clients still render, after the active ones and labelled, so the
-   list stays complete while the headline number means "clients owed creative"
-   rather than "clients we have ever had". */
-document.addEventListener("DOMContentLoaded",function(){
-  var f=window.renderAudit;
-  if(!f) return;
-  window.renderAudit=function(d){
-    f(d);
-    if(d&&d.totals&&d.totals.inactive){
-      var host=document.querySelector("h1");
-      if(host&&!document.getElementById("sc-inactive-note")){
-        var p=document.createElement("p");
-        p.id="sc-inactive-note";
-        p.style.cssText="color:#64748b;font-size:13px;margin:4px 0 0";
-        p.textContent="Counts cover "+d.totals.clients+" active clients. "+
-          d.totals.inactive+" former clients with no live product are listed "+
-          "after them and excluded from the totals.";
-        host.parentNode.insertBefore(p,host.nextSibling);
-      }
-    }
-  };
-});
-</script></body>
+</body>
 </html>

@@ -30,10 +30,10 @@
     <a href="/qa/stale-creative">View audit</a>
   </div>
 
+  {# Same order as the audit page: worst elapsed time first, "none on file"
+     last. The tile and the page it links to disagreeing about which number
+     comes first is how a card stops being read. #}
   <div class="s1-stale-grid">
-    <div class="s1-stale-b s1-b-never">
-      <div class="s1-stale-n" data-k="never">–</div>
-      <div class="s1-stale-l">None on file</div></div>
     <div class="s1-stale-b s1-b-hi">
       <div class="s1-stale-n" data-k="over_hi">–</div>
       <div class="s1-stale-l" data-l="hi">90+ days</div></div>
@@ -43,6 +43,9 @@
     <div class="s1-stale-b s1-b-lo">
       <div class="s1-stale-n" data-k="lo_mid">–</div>
       <div class="s1-stale-l" data-l="lo">30–60 days</div></div>
+    <div class="s1-stale-b s1-b-never">
+      <div class="s1-stale-n" data-k="never">–</div>
+      <div class="s1-stale-l">None on file</div></div>
   </div>
 
   <p class="s1-stale-worst" data-worst></p>

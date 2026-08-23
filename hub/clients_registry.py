@@ -167,14 +167,20 @@ def all_clients(refresh: bool = False) -> list[dict]:
         key = nm.lower()
         entry = by_key.setdefault(key, {
             "name": nm, "slug": slugify(nm), "source": "knack",
-            "url": "", "domain": "", "products": set(), "is_seo": False,
-            "is_house": False, "live": False,
+            "url": "", "domain": "", "products": set(), "running": set(),
+            "is_seo": False, "is_house": False, "live": False,
         })
         pname = str(r.get("product") or "")
         if pname:
             entry["products"].add(pname)
         if knack_data.is_running(r):
             entry["live"] = True
+            # Kept apart from `products`, which counts every IO the client has
+            # ever had. Callers asking "are we working for them right now?"
+            # were reading product_count and getting "yes" for accounts that
+            # ended years ago.
+            if pname:
+                entry["running"].add(pname)
             if "seo" in pname.lower():
                 entry["is_seo"] = True
                 seo_clients.add(key)
@@ -184,7 +190,8 @@ def all_clients(refresh: bool = False) -> list[dict]:
         nm = str(w.get("name") or "").strip()
         entry = by_key.setdefault(key, {
             "name": nm, "slug": slugify(nm), "source": "website",
-            "url": "", "domain": "", "products": set(), "is_seo": False,
+            "url": "", "domain": "", "products": set(), "running": set(),
+            "is_seo": False,
             "is_house": False, "live": str(w.get("status") or "").lower() == "live",
         })
         if not entry["domain"]:
@@ -216,6 +223,7 @@ def all_clients(refresh: bool = False) -> list[dict]:
         entry = by_key.setdefault(key, {
             "name": h.get("name", ""), "slug": h.get("slug") or slugify(h.get("name", "")),
             "source": "house", "url": "", "domain": "", "products": set(),
+            "running": set(),
             "is_seo": False, "is_house": True, "live": True,
         })
         entry["is_house"] = True
@@ -227,10 +235,12 @@ def all_clients(refresh: bool = False) -> list[dict]:
     rows = []
     for entry in by_key.values():
         products = sorted(entry.pop("products", set()))
+        running = sorted(entry.pop("running", set()))
         # The derived join key, so every consumer of this list groups clients
         # the same way instead of each inventing its own name match.
         from hub.client_key import client_key
         rows.append({**entry, "products": products, "product_count": len(products),
+                     "running_products": running, "running_count": len(running),
                      "key": client_key(entry["name"], entry.get("url")
                                        or entry.get("domain") or "")})
     rows.sort(key=lambda r: r["name"].lower())
