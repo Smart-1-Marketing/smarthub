@@ -1189,10 +1189,11 @@ SCENARIOS: list[Scenario] = [
         minutes=4, path="/qa/stale-creative",
         steps=[
             Step("Read the buckets, not the total",
-                 "30 / 60 / 90 days, plus never.",
-                 "The 'never' group is the one that matters. A client paying "
-                 "for creative who has received none is the clearest churn "
-                 "signal in the Hub.",
+                 "90+ / 60-90 / 30-60 / under 30, then none on file.",
+                 "Worst elapsed time first. Start at 90+: those are current "
+                 "clients whose last creative is old enough to notice. 'None "
+                 "on file' sits last because most of it is creative that "
+                 "arrived some way this audit cannot see.",
                  action="look", selector="[data-demo='sc-buckets']"),
             Step("Check which sources are reporting",
                  "The footer names them.",
@@ -1200,16 +1201,18 @@ SCENARIOS: list[Scenario] = [
                  "isn't seeing it and the report is understating the problem. "
                  "An audit that silently finds nothing is worse than no audit.",
                  action="look", selector="[data-demo='sc-sources']"),
-            Step("Look at 'unmatched' before you panic",
-                 "Creative that didn't match any client.",
-                 "Usually a name mismatch between a Cloudinary folder and the "
-                 "client registry, not missing work. Fix the name and the row "
-                 "moves to the right client.",
+            Step("Read the 'not listed' line under the title",
+                 "Who was left out, and why.",
+                 "Only clients running a product today are listed — a former "
+                 "client owed nothing is not a gap in our work. The line also "
+                 "counts creative whose client name matched nothing in the "
+                 "registry: usually a spelling to fix, not missing work.",
                  action="look", selector="[data-demo='sc-unmatched']"),
             Step("Turn it into this week's list",
                  "Cross-reference against who's paying for creative.",
-                 "A house URL with no creative is fine. A paying SEO client at "
-                 "90+ days is a conversation you want to start before they do.",
+                 "A house URL with no creative is fine, and is not listed. "
+                 "A paying SEO client at 90+ days is a conversation you want "
+                 "to start before they do.",
                  action="look"),
         ]),
 

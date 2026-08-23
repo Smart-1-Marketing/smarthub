@@ -7,13 +7,17 @@ Sources are pulled from the tools that already produce client creative — the S
 Image Pipeline, the Image Creator and the Background Remover — plus a Cloudinary
 folder scan as a last-resort fallback if none of those expose a record model.
 
-Clients are grouped by how long it has been:
+Only clients running a product today are listed. A former client is owed no
+creative, so listing them made the report read as an indictment when it was
+mostly accounts we no longer serve.
 
-    No creative on file   never uploaded anything
+Those clients are grouped by how long it has been, worst elapsed time first:
+
     90+ days              stale, act now
     60-90 days            slipping
     30-60 days            watch
-    Under 30 days         fresh (counted, not listed)
+    Under 30 days         current
+    No creative on file   nothing on file for a client we are working for
 
 Mounted at /qa/stale-creative with a JSON API at /api/qa/stale-creative and a
 small scorecard payload at /api/qa/stale-creative/scorecard for the dashboard.
@@ -471,18 +475,30 @@ def _registry_clients():
                 continue
             if get("is_house") or get("house"):
                 continue  # house URLs are ours, not customers
-            # A client with no live product isn't someone we owe creative to.
-            # Counting all 950 as "no creative on file" made the headline
-            # number meaningless — it was really "clients we have ever had".
             products = get("product_count") or get("products") or 0
             if isinstance(products, (list, tuple, set)):
                 products = len(products)
+            # A client with no product delivering *today* isn't someone we owe
+            # creative to. This used to read `live or product_count > 0`, and
+            # product_count is every insertion order the client has ever had —
+            # so an account that ended in 2019 still counted as active and sat
+            # in "no creative on file" forever. running_count comes from
+            # knack_data.is_running(), the same test Client 360 and the renewal
+            # queue use, so all three agree on who is a current client.
+            running = get("running_count")
+            if running is None:
+                running = get("running_products")
+            if isinstance(running, (list, tuple, set)):
+                running = len(running)
             out.append({
                 "name": name,
                 "id": _text(get("id") or get("client_id") or get("knack_id"), 80),
                 "products": products,
                 "seo": bool(get("is_seo") or get("seo")),
-                "active": bool(get("live")) or int(products or 0) > 0,
+                # A source that cannot report running products at all falls
+                # back to its own live flag rather than dropping every row.
+                "active": bool(get("live")) if running is None
+                          else int(running or 0) > 0,
             })
         if out:
             return out
@@ -547,13 +563,18 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
                         "in_registry": True, "products": c["products"],
                         "active": c.get("active", True)})
 
-    # Anything with creative but no registry match still gets a row, flagged.
+    # Creative whose client name matched nothing in the registry. We cannot
+    # confirm those are running a product, so they are not listed — but the
+    # count is reported, because an unmatched name is usually a spelling that
+    # needs fixing rather than a client who does not exist.
+    unmatched = 0
     for key, recs in by_key.items():
         if key in seen:
             continue
+        unmatched += 1
         clients.append({"name": recs[0]["client_raw"] or key, "key": key,
                         "id": "", "in_registry": False, "products": 0,
-                        "active": True})   # they have creative, so they count
+                        "active": False})
 
     rows = []
     for c in clients:
@@ -584,22 +605,29 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
             } for r in recs[:items_per_client]],
         })
 
-    # Inactive clients are dropped outright, not merely sorted below. A former
-    # client with no recent creative is not a gap in our work, and listing them
-    # made "no creative on file" read as an indictment when it was mostly
-    # accounts we no longer serve. Sorting alone still left them in the counts
-    # and in every export of this page.
-    inactive_dropped = sum(1 for r in rows if not r.get("active", True))
+    # Clients with nothing running are dropped outright, not merely sorted
+    # below. A former client with no recent creative is not a gap in our work,
+    # and listing them made "no creative on file" read as an indictment when it
+    # was mostly accounts we no longer serve. Sorting alone still left them in
+    # the counts and in every export of this page.
+    dropped = sum(1 for r in rows if not r.get("active", True))
+    inactive_dropped = dropped - unmatched
     rows = [r for r in rows if r.get("active", True)]
 
-    rows.sort(key=lambda r: (not r.get("active", True),
-                             r["days_since"] is not None,
+    # Longest overdue first inside each group; "never" has no number and sorts
+    # to the end of whichever group it lands in (its own, in practice).
+    rows.sort(key=lambda r: (r["days_since"] is None,
                              -(r["days_since"] or 0), r["client"].lower()))
 
     lo, mid, hi = edges
+    # Worst first, by elapsed time: 90+, 60-90, 30-60, under 30 — then the
+    # clients with nothing on file at all. "Never" reads as the most urgent
+    # group and used to lead the page, but it is the least actionable of the
+    # five: most of it is clients whose creative arrived some way this audit
+    # cannot see, and it buried the 90-day list, which is the one a rep can do
+    # something about this week. Everything in it is a current client now, so
+    # it is worth reading — just last.
     groups = [
-        {"key": "never", "label": "No creative on file",
-         "blurb": "We have never uploaded anything for these clients."},
         {"key": "over_%d" % hi, "label": "%d+ days" % hi,
          "blurb": "Stale. Nothing new in over %d days." % hi},
         {"key": "d%d_%d" % (mid, hi), "label": "%d-%d days" % (mid, hi),
@@ -608,28 +636,28 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
          "blurb": "Watch. Due within the month."},
         {"key": "fresh", "label": "Under %d days" % lo,
          "blurb": "Current. No action needed."},
+        {"key": "never", "label": "No creative on file",
+         "blurb": "Active clients we have never uploaded anything for."},
     ]
     for g in groups:
+        # Every row left is a client with a product delivering today, so the
+        # count is simply the length. It was a filtered sum back when inactive
+        # clients still rendered underneath.
         g["clients"] = [r for r in rows if r["bucket"] == g["key"]]
-        # The headline count is ACTIVE clients only. A former client with no
-        # creative is not a gap in our work, and counting them made "950 with
-        # no creative on file" read as alarming when it mostly meant "clients
-        # we have ever had". Inactive rows still appear, below the active ones
-        # and labelled, so nothing is hidden.
-        g["count"] = sum(1 for r in g["clients"] if r.get("active", True))
-        g["inactive_count"] = len(g["clients"]) - g["count"]
+        g["count"] = len(g["clients"])
+        g["inactive_count"] = 0
 
-    active_rows = [r for r in rows if r.get("active", True)]
     return {
         "generated_at": _iso(now),
         "edges": edges,
         "groups": groups,
         "totals": {
-            "clients": len(active_rows),
+            "clients": len(rows),
             "all_clients": len(rows),
-            # Inactive clients are excluded before this point; reported so the
-            # page can say how many were left out rather than silently shrinking.
+            # Excluded before this point; reported so the page can say how many
+            # were left out rather than silently shrinking.
             "inactive": inactive_dropped,
+            "unmatched": unmatched,
             "creatives": len(records),
             "needs_attention": sum(
                 g["count"] for g in groups if g["key"] not in ("fresh",)
