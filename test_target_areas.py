@@ -183,7 +183,30 @@ FIXTURES = [
     {"name": "", "type": "DMA", "dma": "Indianapolis"},
     {"name": "North stores", "type": "Statewide", "state": "Indiana"},
     {"name": "", "type": "National"},
+    # One per density step, and one past the end of the table. A mirror that
+    # loses a single step still agrees on every other radius, so the fixtures
+    # have to cross each boundary to catch it.
+    {"name": "Downtown", "type": "City/ZIP + Radius", "origin": "Indianapolis, IN", "radius": 3},
+    {"name": "Inner ring", "type": "City/ZIP + Radius", "origin": "Indianapolis, IN", "radius": 5},
+    {"name": "Metro", "type": "City/ZIP + Radius", "origin": "Indianapolis, IN", "radius": 25},
+    {"name": "Region", "type": "City/ZIP + Radius", "origin": "Indianapolis, IN", "radius": 50},
+    {"name": "Everything", "type": "City/ZIP + Radius", "origin": "Indianapolis, IN", "radius": 75},
 ]
+# The reach panel read low on every campaign because a radius was sized at 900
+# people per square mile -- roughly a county's average. A radius is drawn on a
+# city, centred on where the people are, and one number cannot serve both a
+# 5-mile ring and a 50-mile one.
+check("density falls as the radius grows",
+      [ta.density_for(r) for r in (3, 10, 25, 50, 75)]
+      == sorted([ta.density_for(r) for r in (3, 10, 25, 50, 75)], reverse=True),
+      [ta.density_for(r) for r in (3, 10, 25, 50, 75)])
+check("a 10-mile ring is no longer sized like open country",
+      ta.estimated_population({"type": "City/ZIP + Radius", "origin": "x",
+                               "radius": 10}) > 600_000,
+      ta.estimated_population({"type": "City/ZIP + Radius", "origin": "x", "radius": 10}))
+check("and an area with no radius is still not measured, rather than zero",
+      ta.estimated_population({"type": "City/ZIP + Radius", "origin": "x"}) is None)
+
 py_labels = [ta.label(ta.normalize_area(f)) for f in FIXTURES]
 py_pops = [ta.estimated_population(ta.normalize_area(f)) for f in FIXTURES]
 
@@ -193,11 +216,13 @@ import subprocess                                                  # noqa: E402
 TEMPLATE = os.path.join(ROOT, "modules", "sales_builder", "templates", "index.html")
 js_source = "\n".join(m.group(1) for m in re.finditer(
     r"<script>(.*?)</script>", open(TEMPLATE, encoding="utf-8").read(), re.S))
-wanted = ["function areaGeo(", "function areaLabel(", "function areaPopulation("]
+wanted = ["const DENSITY_BY_RADIUS=", "const DENSITY_BEYOND=", "function densityFor(",
+          "function areaGeo(", "function areaLabel(", "function areaPopulation("]
 extract = ""
 for start_token in wanted:
     i = js_source.index(start_token)
     ends = [j for j in (js_source.find("\nfunction ", i + 10),
+                        js_source.find("\nconst ", i + 10),
                         js_source.find("\n/*", i + 10)) if j > 0]
     extract += js_source[i:min(ends)] + "\n"
 

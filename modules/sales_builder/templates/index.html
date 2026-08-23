@@ -993,10 +993,25 @@ function areaComplete(a){
  if(a.type==="Other")return !!((a.other||"").trim()||(a.zips||"").trim());
  return !!(a.origin||"").trim();}
 function areaZips(a){return String((a&&a.zips)||"").match(/\b\d{5}\b/g)||[];}
+/* People per square mile inside a radius, mirroring hub/target_areas.py.
+   This was a flat 900 -- roughly a county average -- but a radius is drawn on
+   a city, deliberately centred on where the people are, so every campaign's
+   reach read low. Density falls as the radius grows because a bigger circle
+   keeps reaching into land nobody lives on.
+
+   A step table rather than a curve, on purpose: the last two times this
+   arithmetic disagreed with Python it was floating point (3.14159 vs Math.PI,
+   then int() vs Math.round). Integers off a shared table cannot drift.
+   test_target_areas.py asserts both sides agree. */
+const DENSITY_BY_RADIUS=[[5, 2600], [10, 2100], [25, 1400], [50, 800]];
+const DENSITY_BEYOND=500;
+function densityFor(r){
+ for(const [limit,density] of DENSITY_BY_RADIUS)if(r<=limit)return density;
+ return DENSITY_BEYOND;}
 function areaPopulation(a){
  if(!a)return null;
  if(+a.population>0)return +a.population;
- if(a.type==="City/ZIP + Radius"){const r=+a.radius||0;return r>0?Math.round(Math.PI*r*r*900):null;}
+ if(a.type==="City/ZIP + Radius"){const r=+a.radius||0;return r>0?Math.round(Math.PI*r*r*densityFor(r)):null;}
  if(a.type==="DMA")return a.dma?1200000:null;
  if(a.type==="Statewide")return 6500000;
  if(a.type==="National")return 335000000;
@@ -1741,13 +1756,18 @@ function drawEst(){const e=estimates();const g=document.getElementById('estGrid'
  // An unmeasured campaign shows a dash, not a zero. "0 households" reads as a
  // finding; it is the absence of one.
  const val=n=>S._aiLoading?'—':(e.measured?fmt(n):'—');
- g.innerHTML=`<div class="est${L}"><b>${val(e.pop)}</b><span>Est. population</span></div><div class="est${L}"><b>${val(e.aud)}</b><span>Addressable audience</span></div><div class="est${L}"><b>${val(e.hh)}</b><span>Households</span></div><div class="est${L}"><b>${val(e.dev)}</b><span>Devices</span></div>`;
+ const col=(n,label,key)=>`<div class="est${L}"><b>${val(n)}</b><span>${label} <span data-help="sales_builder.areas.${key}"></span></span></div>`;
+ g.innerHTML=col(e.pop,"Est. population","pop")+col(e.aud,"Addressable audience","aud")
+  +col(e.hh,"Households","hh")+col(e.dev,"Devices","dev");
  const n=document.getElementById('popNote');
  if(n){
   if(S._aiLoading)n.innerHTML='<span class="spin"></span>Smart 1 is sizing '+((S.targetAreas||[]).length>1?'each target area':'this area')+'…';
   else{
    const bits=[];
-   bits.push(e.ai?"✨ Smart 1 AI estimate, per area.":"Built-in estimate — the AI re-estimate sizes each area for real.");
+   bits.push(e.ai?"✨ Smart 1 AI estimate, per area."
+    :"Built-in estimate. A radius is sized on an assumed density that falls as it grows ("
+     +DENSITY_BY_RADIUS.map(d=>d[0]+" mi: "+fmt(d[1])).join(", ")+"/sq mi, "+fmt(DENSITY_BEYOND)
+     +" beyond). Overlapping areas are added, not de-duplicated. The AI re-estimate sizes each area for real.");
    if(e.note)bits.push(e.note);
    if((e.unmeasured||[]).length)bits.push("Not measured: "+e.unmeasured.join(", ")+".");
    n.textContent=bits.join(" ");}}

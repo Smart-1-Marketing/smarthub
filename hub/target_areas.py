@@ -81,10 +81,51 @@ _TYPE_ALIASES = {
     "other": OTHER,
 }
 
-# Rough people-per-square-mile for a radius area. The Proposal Builder used
-# 900 client-side; keeping the same constant means the server and the browser
-# agree, which they did not when each carried its own arithmetic.
-_PEOPLE_PER_SQ_MILE = 900
+# ---------------------------------------------------------------------------
+# People per square mile inside a radius.
+#
+# This was one number, 900, and it read low on every campaign anyone ran. 900
+# is roughly a whole county's average, and a radius is not a county: a rep
+# draws it on a city or a ZIP, deliberately centred on where the people are.
+# A 10-mile ring around a city centre was being sized at 283,000 when the real
+# figure is closer to two-thirds of a million, and a reach panel that
+# under-reports by that much gets stopped believing.
+#
+# One constant cannot serve both ends of the range either. A number right for
+# 10 miles is far too high for 50, because the bigger circle keeps reaching
+# into land nobody lives on. So density falls as the radius grows.
+#
+# Deliberately a step function rather than a curve. The wizard mirrors this
+# arithmetic in JavaScript so the reach panel updates live, and the last time
+# these two disagreed it was over floating-point -- 3.14159 against Math.PI,
+# then int() against Math.round. Steps and integers cannot drift that way:
+# either side reads the same table and gets the same answer exactly.
+# test_target_areas.py asserts they do.
+#
+# These are estimates and are labelled as such wherever they appear. The AI
+# re-estimate sizes each area for real; this is the fallback that has to be
+# defensible on its own.
+_DENSITY_BY_RADIUS = (
+    (5, 2600),      # a downtown or a dense inner suburb
+    (10, 2100),     # city plus its first ring -- the common case
+    (25, 1400),     # the metro, reaching the outer suburbs
+    (50, 800),      # the metro plus the rural counties around it
+)
+_DENSITY_BEYOND = 500   # past 50 miles it is mostly countryside
+
+
+def density_for(radius: float) -> int:
+    """People per square mile to assume inside a radius of this size."""
+    for limit, density in _DENSITY_BY_RADIUS:
+        if radius <= limit:
+            return density
+    return _DENSITY_BEYOND
+
+
+def density_table() -> dict:
+    """The whole assumption, for the wizard's mirror and for the help text."""
+    return {"steps": [list(row) for row in _DENSITY_BY_RADIUS],
+            "beyond": _DENSITY_BEYOND}
 _DMA_POPULATION = 1_200_000
 _STATE_POPULATION = 6_500_000
 _US_POPULATION = 335_000_000
@@ -307,7 +348,7 @@ def estimated_population(area: dict):
         # truncating here put the PDF one person below the screen the rep
         # quoted from. Trivial in itself, and exactly the kind of drift that
         # makes someone stop trusting both numbers.
-        return round(math.pi * radius * radius * _PEOPLE_PER_SQ_MILE)
+        return round(math.pi * radius * radius * density_for(radius))
     if kind == DMA:
         return _DMA_POPULATION if _clean(area.get("dma")) else None
     if kind == STATEWIDE:

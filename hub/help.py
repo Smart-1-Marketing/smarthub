@@ -46,6 +46,37 @@ def _h(*a, **kw) -> Help:
 
 REGISTRY: list[Help] = [
 
+    # ---------------- Proposal Builder: the reach panel ----------------
+    # Four numbers sat above a target area with nothing saying what any of
+    # them counted, so "addressable audience" got read as "people who will
+    # see the ad" -- which it is not, by an order of magnitude. Each column
+    # now says what it is, and where the number came from.
+    _h("sales_builder.areas.pop", "Estimated population",
+       "Everyone living inside the target areas, before any targeting is "
+       "applied. For a radius it is the area of the circle times an assumed "
+       "density that falls as the radius grows — a 10-mile ring drawn on a "
+       "city centre is far denser than a 50-mile one reaching into farmland. "
+       "Overlapping areas are added together, so two rings five miles apart "
+       "count their shared households twice. It is an estimate, and the AI "
+       "re-estimate sizes each area for real."),
+    _h("sales_builder.areas.aud", "Addressable audience",
+       "The share of that population the campaign could target — population "
+       "narrowed to adults, then to the age ranges and household incomes "
+       "chosen on this step. It is who we are allowed to bid on, not who "
+       "will see an ad: how many of them actually get reached depends on the "
+       "budget and the CPMs in the media plan."),
+    _h("sales_builder.areas.hh", "Households",
+       "The addressable audience expressed as homes rather than people, at "
+       "roughly 1.9 adults per household. Useful for anything bought or "
+       "decided per address — Connected TV, direct mail, IP targeting — "
+       "where two people in one house are one impression, not two."),
+    _h("sales_builder.areas.dev", "Devices",
+       "Roughly how many screens that audience is reachable on — phone, "
+       "laptop, tablet, connected TV — at about 2.3 per person. It is why "
+       "frequency is counted per person rather than per device: the same "
+       "someone can be served the same ad on all of them."),
+
+
     # ---------------- Dashboard ----------------
     _h("hub.dashboard.tiles", "Your tools",
        "Every tool lives behind this one login. Tiles you haven't set up yet "
