@@ -1495,13 +1495,12 @@ def uploads_not_in_suite() -> dict:
     }
 
 
+# Group order on /qa is this dict's insertion order -- qa_home() walks REPORTS
+# and appends each group the first time it sees one. So moving an entry moves
+# its whole group, and an entry with no "group" at all falls into a default
+# bucket literally called "Reports": that is why Uploads Not In Suite used to
+# open the page alone under a heading that named nothing.
 REPORTS = {
-    "uploads-not-in-suite": {
-        "title": "Uploads Not In Suite",
-        "desc": "Client files uploaded to a gallery that never reached their Smart 1 Suite media library — with the reason for each.",
-        "ico": "&#8593;",
-        "fn": uploads_not_in_suite,
-    },
     "active-clients": {
         "title": "Active Clients",
         "desc": "Every client with a live product or billing this month — partner, salesperson, live monthly and dashboard status.",
@@ -1558,13 +1557,6 @@ REPORTS = {
         "fn": partner_scorecard,
         "group": "Scorecards",
     },
-    "accounting-requests": {
-        "title": "Accounting Requests",
-        "desc": "Every request in the Accounting Requests pipeline (Smart 1 Marketing · GHL) — change stages right from the report.",
-        "ico": "&#128203;",
-        "fn": accounting_requests,
-        "group": "Accounting",
-    },
     "ghl-billing-no-products": {
         "title": "Suite Billing, No Active Product",
         "desc": "Smart 1 Suite sub-accounts with active GHL billing but no live Smart 1 marketing product on file in Knack.",
@@ -1579,19 +1571,40 @@ REPORTS = {
         "fn": ghl_billing_this_month,
         "group": "Suite (GoHighLevel)",
     },
+    "uploads-not-in-suite": {
+        "title": "Uploads Not In Suite",
+        "desc": "Client files uploaded to a gallery that never reached their Smart 1 Suite media library — with the reason for each.",
+        "ico": "&#8593;",
+        "fn": uploads_not_in_suite,
+        "group": "Suite (GoHighLevel)",
+    },
+    # One group, not two. Splitting them put a single report under "Accounting"
+    # and two under "Billing (QuickBooks)", which reads as a distinction the
+    # work does not make -- all three are the same question, asked of whichever
+    # system happens to hold the answer. The label drops "(QuickBooks)" because
+    # it is no longer true of the whole group: Accounting Requests comes from
+    # the GHL pipeline, and a heading naming the wrong source is worse than one
+    # naming none.
     "billing-comparison": {
         "title": "Customer Billing Comparison",
         "desc": "QuickBooks invoices per customer: this month vs the last three. Decreases listed first, biggest swings on top.",
         "ico": "&#128181;",
         "fn": billing_comparison,
-        "group": "Billing (QuickBooks)",
+        "group": "Billing & Accounting",
     },
     "invoice-off": {
         "title": "Invoice Off Report",
         "desc": "Customers whose invoiced amount this month doesn't match their active-product monthly total.",
         "ico": "&#9878;",
         "fn": invoice_off,
-        "group": "Billing (QuickBooks)",
+        "group": "Billing & Accounting",
+    },
+    "accounting-requests": {
+        "title": "Accounting Requests",
+        "desc": "Every request in the Accounting Requests pipeline (Smart 1 Marketing · GHL) — change stages right from the report.",
+        "ico": "&#128203;",
+        "fn": accounting_requests,
+        "group": "Billing & Accounting",
     },
 }
 
