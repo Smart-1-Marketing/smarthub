@@ -151,10 +151,26 @@ class PickerClient(Base):
         base = os.environ.get("IMAGE_PICKER_FOLDER", "smart1-client-images")
         return self.cloudinary_folder or f"{base}/{self.slug}"
 
+    def client_key(self) -> str:
+        """The Hub-wide client key for this gallery.
+
+        `hub_client_id` is the join this module was built to have, and it is
+        blank on nearly every row because filling it in is a manual step
+        somebody has to remember. The derived key needs nobody to remember
+        anything: it works off the name that is already there, and it keeps
+        working when the gallery is renamed.
+        """
+        try:
+            from hub.client_key import resolve
+            return resolve(name=self.name or "")["key"]
+        except Exception:                                 # noqa: BLE001
+            return ""
+
     def to_dict(self, *, include_secrets: bool = False) -> dict:
         d = {
             "id": self.id,
             "hub_client_id": self.hub_client_id,
+            "client_key": self.client_key(),
             "name": self.name,
             "slug": self.slug,
             "industry_key": self.industry_key,

@@ -18,8 +18,6 @@ list of the matches a human accepted.
 """
 from __future__ import annotations
 
-import re
-
 from hub.client_context import canonical_domain
 
 # Simvoly's own hosting domains. A project still parked on one of these has no
@@ -37,14 +35,13 @@ def _is_platform(domain: str) -> bool:
 def _norm_name(name: str) -> str:
     """Normalise a business name for a fallback comparison.
 
-    Drops the suffixes that differ between systems for the same company —
-    "LLC", "Inc", "Ltd" — and any punctuation. Only used when there is no
-    domain to match on, and only reported as a lower-confidence suggestion.
+    Was a local regex; now the shared one in hub/client_key. The local version
+    ran the words together — "ab cd" and "abcd" normalised alike — and dropped
+    a different set of suffixes than the billing audit's copy did, so the two
+    reports could disagree about whether two names were the same company.
     """
-    n = (name or "").lower()
-    n = re.sub(r"\b(llc|l\.l\.c\.|inc|inc\.|ltd|ltd\.|co|co\.|corp|corporation|"
-               r"company|the)\b", " ", n)
-    return re.sub(r"[^a-z0-9]+", "", n)
+    from hub.client_key import normalise_name
+    return normalise_name(name)
 
 
 def _hub_clients() -> list[dict]:

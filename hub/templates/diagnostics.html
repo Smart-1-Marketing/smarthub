@@ -99,7 +99,25 @@
       alarms. Read from source, so it stays accurate even when a module fails
       to load.
     </p>
-    <div id="diag-structure" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+    <div id="diag-structure" class="diag-rows">
+      <div id="diag-structure-main"><p class="diag-loading">Loading…</p></div>
+      <div id="diag-structure-urls"></div>
+    </div>
+  </section>
+
+  <!-- ---------------- client identity ---------------- -->
+  <section class="diag-card">
+    <h2>Client identity</h2>
+    <p class="diag-help">
+      The modules key a client three different ways &mdash; Scans on a domain,
+      Ads and Google Access on a typed business name, Image Picker on its own
+      table. Rather than migrate four tables, the Hub derives one key on read
+      (<code>hub/client_key.py</code>) and joins on that: a domain where there
+      is one, a normalised name where there is not. This is what that join
+      currently finds. A record with a name and no URL on file can only ever be
+      matched to another name, so those are listed separately.
+    </p>
+    <div id="diag-crosswalk" class="diag-rows"><p class="diag-loading">Loading…</p></div>
   </section>
 
   <!-- ---------------- OpenAI cost ---------------- -->
@@ -266,7 +284,7 @@ function renderIntegrity(d){
 }
 
 function renderStructure(d){
-  var el=document.getElementById("diag-structure"); if(!el) return;
+  var el=document.getElementById("diag-structure-main"); if(!el) return;
   var head='<div class="diag-row"><span class="diag-pill p-'+(d.risks.length?"warn":"ok")+'">'+
     (d.own_engines)+'</span><span class="diag-name">Own engines</span>'+
     '<span class="diag-detail">'+d.engines.length+' engines total, '+d.shared_engine_users+
@@ -280,6 +298,65 @@ function renderStructure(d){
       '<em class="diag-fix">'+esc((r.where||[]).join(", "))+'</em></span></div>';
   }).join("") || head;
 }
+function renderCrosswalk(d){
+  var el=document.getElementById("diag-crosswalk"); if(!el) return;
+  function row(state, pill, name, detail){
+    return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+esc(String(pill))+
+      '</span><span class="diag-name">'+esc(name)+'</span>'+
+      '<span class="diag-detail">'+detail+'</span></div>';
+  }
+  var stores = (d.stores||[]).map(function(s){
+    return "<b>"+esc(s.module)+"</b> ("+esc(s.key_column)+"): "+s.rows+" rows, "+
+      s.resolved+" matched to a client"+
+      (s.unmatched? ", "+s.unmatched+" not":"")+
+      (s.error? ' <em class="diag-fix">'+esc(s.error)+"</em>":"")+
+      (s.truncated? " · only the newest "+s.rows+" read":"");
+  }).join("<br>");
+
+  var dupes = (d.duplicates||[]).slice(0,6).map(function(c){
+    return "<b>"+esc(c.client)+"</b> — "+c.names.map(esc).join(" / ");
+  }).join("; ");
+
+  var orphans = (d.orphans||[]).slice(0,6).map(function(o){
+    return "<b>"+esc(o.as)+"</b> ("+Object.keys(o.modules).map(esc).join(", ")+")";
+  }).join("; ");
+
+  el.innerHTML =
+    row(d.index_error?"error":"ok", d.keys, "Clients seen",
+        esc(d.keys)+" distinct clients across every store · "+esc(d.domain_keyed)+
+        " keyed on a domain (exact) · "+esc(d.name_keyed)+
+        " on a name alone (a best effort). "+esc(d.in_more_than_one_module)+
+        " exist in more than one module and are now joined."+
+        (d.index_error?' <em class="diag-fix">'+esc(d.index_error)+"</em>":"")) +
+    row(d.duplicate_names?"warn":"ok", d.duplicate_names,
+        "Several records, one website",
+        d.duplicate_names
+          ? "More than one client record shares one domain. Often that is a "+
+            "franchise filed per location and entirely correct; sometimes it "+
+            "is the same company entered twice. Either way they are joined "+
+            "now, so anything totalled per client totals across all of them: "+
+            dupes+((d.duplicates||[]).length>6?"; …":"")
+          : "Every client resolves to a single name.") +
+    row((d.orphans||[]).length?"warn":"ok", (d.orphans||[]).length,
+        "Cannot be joined",
+        (d.orphans||[]).length
+          ? "A name with no URL on file and no match in the client registry. "+
+            "These can be matched to another name and to nothing else — add a "+
+            "URL to the client record and they join everything: "+orphans+
+            ((d.orphans||[]).length>6?"; …":"")
+          : "Every record resolves to a client on file.") +
+    row((d.registry_domain_conflicts||[]).length?"error":"ok",
+        (d.registry_domain_conflicts||[]).length, "One domain, two clients",
+        (d.registry_domain_conflicts||[]).length
+          ? "The client registry itself has one website under two client "+
+            "records — the duplicate is in the source data: "+
+            (d.registry_domain_conflicts||[]).slice(0,6).map(function(x){
+              return "<b>"+esc(x.domain)+"</b> ("+x.clients.map(esc).join(" / ")+")";
+            }).join("; ")
+          : "No domain is claimed by two client records.") +
+    row("off", (d.stores||[]).length, "Stores read", stores);
+}
+
 function renderKnack(d){
   var el=document.getElementById("diag-knack"); if(!el) return;
   var stale = d.age_minutes === null || d.age_minutes > (d.ttl_minutes||180)*2;
@@ -391,7 +468,7 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderScans).catch(function(){});
   fetch("/api/db/urls",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(function(d){
-      var el=document.getElementById("diag-structure"); if(!el) return;
+      var el=document.getElementById("diag-structure-urls"); if(!el) return;
       var extra='<div class="diag-row"><span class="diag-pill p-'+
         (d.duplicate_domains.length?"error":"ok")+'">'+d.duplicate_domains.length+'</span>'+
         '<span class="diag-name">Duplicate domains</span><span class="diag-detail">'+
@@ -404,10 +481,13 @@ function loadAll(force){
         (d.missing_url.length?"warn":"ok")+'">'+d.missing_url.length+'</span>'+
         '<span class="diag-name">Clients with no URL</span><span class="diag-detail">'+
         esc(d.note)+' Checked '+d.checked+' clients · '+d.unique_domains+' unique domains.</span></div>';
-      el.insertAdjacentHTML("beforeend", extra);
+      el.innerHTML = extra;
     }).catch(function(){});
   fetch("/api/db/structure",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderStructure)
+    .catch(function(){});
+  fetch("/api/clients/crosswalk",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderCrosswalk)
     .catch(function(){});
   fetch("/api/quotas",{credentials:"same-origin"})
     .then(r=>r.json()).then(d=>{renderQuotas(d);renderOpenAI(d.openai);})
