@@ -95,7 +95,7 @@ SUGGESTION_RULES = [
                   "convert — it just buys more people to lose. If they are not "
                   "happy with the site, that is the first thing to fix, before "
                   "the budget scales.",
-        "products": ["Smart 1 Sites", "Web Development"],
+        "products": ["Smart 1 Site / 2-5 pages", "WordPress Website"],
     },
     {
         "key": "seo", "when": (NO, UNKNOWN),
@@ -112,14 +112,14 @@ SUGGESTION_RULES = [
                   "catches the people who already have it and are typing the "
                   "words right now — usually the lowest cost per lead on the "
                   "plan.",
-        "products": ["PPC Google & Bing Campaign Management"],
+        "products": ["Pay Per Click"],
     },
     {
         "key": "paidSocial", "when": (NO,),
         "title": "Re-engage in feed",
         "detail": "Paid social is where an audience that has met the brand "
                   "once gets met again, cheaply, with a different message.",
-        "products": ["Facebook | Instagram - Targeted Paid Social Media"],
+        "products": ["Facebook | Instagram - Targeted Paid Social Media Advertising"],
     },
 ]
 
@@ -147,7 +147,7 @@ SUGGESTION_RULES += [
         "detail": "Chat catches the people who want an answer now and would "
                   "otherwise leave. It is the cheapest lift available to a "
                   "landing page that traffic is already being bought for.",
-        "products": ["Smart 1 Suite", "Smart 1 Sites"],
+        "products": ["Smart 1 Suite", "Smart 1 Site / 2-5 pages"],
     },
     {
         "key": "texting", "when": (NO,),

@@ -791,6 +791,7 @@ async function editQuote(id){
 }
 function editLoaded(q){
  S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;step=0;_lastStep=-1;
+ S.growth=q.growth||null;
  // A quote saved before multi-area targeting has its geography only in
  // geoType/geo/radius. The server already converted it (hub/target_areas
  // from_legacy) and sends the result, so re-opening an old quote shows its
@@ -808,8 +809,14 @@ async function saveNow(extra){
  try{S.creativeSummary=creativeSummary();}catch(e){}
  setSave("Saving…");
  try{
-  if(!QUOTE_ID){const d=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});QUOTE_ID=d.quote.id;QUOTE_NUMBER=d.quote.quote_number;}
-  else await api('/sales/builder/api/quotes/'+QUOTE_ID,{method:'PUT',body:JSON.stringify(Object.assign({data:S},extra||{}))});
+  /* growth is computed by the server, not stored on the quote's data. Kept
+     off S's saved shape deliberately: it is derived from the plan, the
+     packages and the discovery answers, and a stale copy of it would be a
+     recommended budget that no longer matches the plan it sits under. */
+  let saved=null;
+  if(!QUOTE_ID){saved=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});QUOTE_ID=saved.quote.id;QUOTE_NUMBER=saved.quote.quote_number;}
+  else saved=await api('/sales/builder/api/quotes/'+QUOTE_ID,{method:'PUT',body:JSON.stringify(Object.assign({data:S},extra||{}))});
+  if(saved&&saved.quote&&saved.quote.growth)S.growth=saved.quote.growth;
   setSave("✓ Saved "+(QUOTE_NUMBER||""));drawQuoteTag((QUOTE_NUMBER?QUOTE_NUMBER+" · ":"")+"autosaving");
  }catch(e){setSave("⚠ Not saved: "+e.message);}
 }
@@ -1404,6 +1411,7 @@ function previewTable(sec,e){
  if(k==="mediaplan")return mediaPlanEditor();
  if(k==="packages")return investmentTable();
  if(k==="roi")return roiTable();
+ if(k==="growth")return growthTable();
  if(k==="zips"){
   /* Every ZIP, at the back of the document. Trafficking cannot launch
      without this list and nobody reads it in the middle of the strategy. */
@@ -1413,6 +1421,66 @@ function previewTable(sec,e){
    [esc(areaLabel(a))+'<br><span style="color:var(--muted)">'+z.length+' ZIP Code'+(z.length===1?'':'s')+'</span>',
     '<span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.7">'+z.map(esc).join(", ")+'</span>']));}
  return '';}
+/* Recommended budgets: what "more" looks like, editable here.
+
+   Neither column invents a number. Raising a line quotes the Accelerated
+   package already printed two sections above; adding one quotes the rate
+   card's own monthly minimum for that product -- the smallest honest figure
+   rather than a guess at what they might spend. A product with no card entry
+   is offered to be quoted rather than given a price nobody can stand behind.
+
+   The server computes all of it (growth_options in app.py). This renders what
+   it returned and writes any edit back onto the quote, so the proposal, the
+   PDF and the Word copy all show the same figures. */
+function growthRows(){return (S.growth&&S.growth.any)?S.growth:null;}
+function growthTable(){
+ const g=growthRows();
+ if(!g||!g.any)return '<div class="dnote">Nothing to recommend beyond the plan above — every product the discovery answers pointed at is already on it.</div>';
+ const months=g.months||1;
+ let html='';
+ if(g.increases.length){
+  html+='<div class="dnote" style="margin-top:10px"><b>Raise a budget already on the plan</b></div>'
+   +`<table class="dtbl"><thead><tr><th>Product</th><th style="text-align:right">Quoted</th><th style="text-align:right">Recommended</th><th style="text-align:right">More per month</th><th style="text-align:right">Over ${months} mo</th><th></th></tr></thead><tbody>`
+   +g.increases.map(r=>`<tr>
+     <td><b>${esc(r.product)}</b>${r.custom?' <span style="color:var(--muted);font-size:10.5px">edited</span>':''}</td>
+     <td style="text-align:right">${money(r.current)}</td>
+     <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${r.suggested}" onchange="setGrowth('inc:${esc(r.product)}',+this.value)"></td>
+     <td style="text-align:right">${money(r.uplift)}</td>
+     <td style="text-align:right">${money(r.campaign)}</td>
+     <td><button class="x" title="Do not offer this" onclick="dropGrowth('inc:${esc(r.product)}')">✕</button></td></tr>`).join('')
+   +`<tr class="dtot"><td colspan="3">Additional monthly</td><td style="text-align:right">${money(g.increase_monthly)}</td><td style="text-align:right">${money(g.increase_monthly*months)}</td><td></td></tr></tbody></table>`;
+ }
+ if(g.additions.length){
+  html+='<div class="dnote" style="margin-top:14px"><b>Add what the discovery answers pointed at</b></div>'
+   +`<table class="dtbl"><thead><tr><th>Product</th><th>Why</th><th style="text-align:right">From</th><th style="text-align:right">Over ${months} mo</th><th></th></tr></thead><tbody>`
+   +g.additions.map(r=>`<tr>
+     <td><b>${esc(r.product)}</b>${r.category?'<br><span style="color:var(--muted);font-size:11px">'+esc(r.category)+'</span>':''}</td>
+     <td>${esc(r.why||'')}</td>
+     <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${r.suggested||''}" placeholder="quote" onchange="setGrowth('add:${esc(r.product)}',+this.value)"></td>
+     <td style="text-align:right">${r.quoted?money(r.campaign):'<span style="color:var(--muted)">to be quoted</span>'}</td>
+     <td><button class="x" title="Do not offer this" onclick="dropGrowth('add:${esc(r.product)}')">✕</button></td></tr>`).join('')
+   +`</tbody></table>`;
+ }
+ const dropped=(S.growthDropped||[]).length;
+ if(dropped)html+=`<div class="dnote" style="margin-top:8px">${dropped} option${dropped===1?'':'s'} removed. <a onclick="S.growthDropped=[];saveNow();refreshGrowth()" style="cursor:pointer;color:var(--blue);font-weight:700">Restore</a></div>`;
+ html+='<div class="dnote" style="margin-top:8px">Figures a client can act on without a new proposal. Raising a line uses the Accelerated option above; adding one starts at the rate card minimum.</div>';
+ return html;}
+function setGrowth(key,value){
+ S.growthEdits=Object.assign({},S.growthEdits,{[key]:value});
+ saveNow();refreshGrowth();}
+function dropGrowth(key){
+ S.growthDropped=(S.growthDropped||[]).concat([key]);
+ saveNow();refreshGrowth();}
+/* The server owns the arithmetic, so an edit round-trips rather than being
+   recomputed here -- otherwise the preview and the PDF would each carry their
+   own version of the same sum. */
+async function refreshGrowth(){
+ try{
+  const d=await api('/sales/builder/api/quotes/'+QUOTE_ID,{method:'PUT',body:JSON.stringify({data:S})});
+  if(d.quote&&d.quote.growth)S.growth=d.quote.growth;
+ }catch(e){}
+ drawPreview();}
+
 function dtable(head,rows){
  return `<table class="dtbl"><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`
   +rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')+`</tbody></table>`;}

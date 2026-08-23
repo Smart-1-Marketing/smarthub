@@ -74,13 +74,15 @@ section("the 13-part structure")
 from hub import proposal_spec as spec                              # noqa: E402
 
 ids = [s["id"] for s in spec.OUTLINE]
-# The narrative runs cover to next steps. The ZIP list follows it as an
-# appendix rather than sitting inside the audience section, where a hundred
-# five-digit numbers buried the strategy they belonged to.
+# The narrative runs cover to next steps, then two appendices: what more would
+# look like, and the trafficking ZIP list. The ZIPs used to sit inside the
+# audience section, where a hundred five-digit numbers buried the strategy.
+APPENDICES = ["growth", "zips"]
 check("the narrative is ordered cover-first, next-steps-last",
-      ids[0] == "cover" and ids[-2] == "next", ids[:1] + ids[-2:])
-check("and the trafficking appendix comes after it",
-      ids[-1] == "zips", ids[-1])
+      ids[0] == "cover" and ids[-len(APPENDICES) - 1] == "next",
+      ids[:1] + ids[-len(APPENDICES) - 1:])
+check("and the appendices come after it, in order",
+      ids[-len(APPENDICES):] == APPENDICES, ids[-len(APPENDICES):])
 for needed in ("summary", "objectives", "friction", "areas", "channels",
                "mediaplan", "creative", "technology", "reporting", "timeline",
                "packages", "roi", "next"):
@@ -773,6 +775,65 @@ served_plan = api("post", "/sales/builder/api/ai/section-plan",
 check("the wizard is told exactly what will be written",
       len(served_plan["sections"]) == len(spec.OUTLINE) - 2,
       len(served_plan["sections"]))
+# ---------------------------------------------------------------------------
+# Recommended budgets: what "more" looks like, at the foot of the proposal.
+# The point of the section is that neither route invents a number -- raising a
+# line quotes the Accelerated package already printed above it, and adding one
+# quotes the rate card's own minimum. A recommended budget a rep cannot defend
+# on a call is worse than not offering one.
+grow_state = dict(
+    quote_state, months=6,
+    mkt={"retargeting": cm.NO, "aiOptimized": cm.NO, "paidSearch": cm.NO},
+    items=[{"category": "OTT", "product": "Connected TV - Targeted",
+            "rate": "CPM", "rateValue": 35.0, "dollars": 6000}],
+    packages=[{"name": "Accelerated",
+               "lines": [{"product": "Connected TV - Targeted", "dollars": 9000}]}])
+grow = builder.growth_options(grow_state)
+check("raising a line quotes the Accelerated package, not a new number",
+      [(r["current"], r["suggested"]) for r in grow["increases"]] == [(6000.0, 9000.0)],
+      grow["increases"])
+check("and states the uplift over the whole flight",
+      grow["increases"][0]["campaign"] == 3000.0 * 6, grow["increases"][0])
+added = {r["product"]: r["suggested"] for r in grow["additions"]}
+check("additions come from the discovery answers",
+      "Website Retargeting" in added and "Pay Per Click" in added, sorted(added))
+check("and are priced at the rate card's own minimum",
+      added.get("Pay Per Click") == rc.minimum_for("Pay Per Click"), added)
+check("nothing already on the plan is offered as an addition",
+      not any("Connected TV" in p for p in added), sorted(added))
+
+# A product with no card entry gets no price rather than a guess.
+check("a product the card does not carry is offered to be quoted",
+      all(r["quoted"] is False for r in grow["additions"] if not rc.find(r["product"])))
+
+# The rep's edits win, and removals stick.
+edited = builder.growth_options(dict(
+    grow_state, growthEdits={"inc:Connected TV - Targeted": 7500}))
+check("a rep can re-price a recommendation",
+      edited["increases"][0]["suggested"] == 7500.0
+      and edited["increases"][0]["uplift"] == 1500.0, edited["increases"][0])
+dropped = builder.growth_options(dict(
+    grow_state, growthDropped=["inc:Connected TV - Targeted"]))
+check("and remove one entirely", dropped["increases"] == [], dropped["increases"])
+
+check("a plan with nothing to add or raise says so rather than inventing one",
+      builder.growth_options({"months": 3, "items": [], "packages": []})["any"] is False)
+
+# Every product a suggestion names has to exist on the card, or it cannot be
+# priced, added to a plan, or acted on at all. Three named products did not.
+unpriceable = sorted({n for r in cm.SUGGESTION_RULES for n in r["products"]
+                      if not rc.find(n)})
+check("suggestion products use the card's own names",
+      unpriceable == ["Call Tracking", "Smart 1 Suite"], unpriceable)
+
+grow_quote = api("post", "/sales/builder/api/quotes", json={"data": grow_state})["quote"]
+check("the quote carries the computed options", grow_quote["growth"]["any"] is True)
+gpdf = http.get(f"/sales/builder/api/quotes/{grow_quote['id']}/pdf")
+check("a proposal with recommended budgets renders its PDF",
+      gpdf.status_code == 200 and gpdf.data[:4] == b"%PDF", gpdf.status_code)
+gdocx = http.get(f"/sales/builder/api/quotes/{grow_quote['id']}/docx")
+check("and its Word copy", gdocx.status_code == 200 and len(gdocx.data) > 2000)
+
 # The ZIP list is the one section trafficking cannot launch without, and it is
 # now generated at the back rather than typed into the middle of the audience
 # section. Worth proving it survives into the documents that get sent.

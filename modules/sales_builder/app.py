@@ -363,6 +363,7 @@ def quote_json(q, include_data=False):
         "updated_at": q.updated_at.isoformat() if q.updated_at else "",
         "converted_at": q.converted_at.isoformat() if q.converted_at else "",
         "gaps": compute_gaps(state),
+        "growth": growth_options(state),
         "guardrails": compute_guardrails(state),
         "target_areas": campaign_areas(state),
         "creative": hub_creative.evaluate(state),
@@ -695,6 +696,123 @@ def _money(n):
         return "$" + f"{float(n):,.0f}"
     except Exception:
         return str(n)
+
+
+def growth_options(state) -> dict:
+    """Two grounded routes to a bigger plan, for the foot of the proposal.
+
+    A client who says yes usually asks "and what would more look like?", and
+    the answer has always been improvised on a call. It belongs on the
+    document -- but only if the numbers are defensible, so neither route
+    invents one:
+
+      * **Raise a budget.** The difference between what each line is quoted at
+        and what the Accelerated package already prices it at. That figure is
+        on the proposal two sections above; this just names the gap.
+
+      * **Add a product.** Whatever discovery said they are missing (the
+        We Suggest They Should list), priced at the rate card's own monthly
+        minimum for that product -- the smallest honest number, not a guess at
+        what they might spend.
+
+    Every row is editable on the proposal. `custom` rows are ones the rep
+    added or re-priced, and they are returned untouched.
+    """
+    state = state or {}
+    months = max(1, int(state.get("months") or 1))
+    items = state.get("items") or []
+    on_plan = {str(i.get("product") or "").strip().lower() for i in items}
+
+    # --- raising what is already there ---
+    # The Accelerated package is built at 150% of budget and is already on the
+    # document, so the uplift per line is arithmetic rather than opinion.
+    increases = []
+    accelerated = None
+    for pkg in state.get("packages") or []:
+        if str(pkg.get("name") or "").lower().startswith("acceler"):
+            accelerated = pkg
+            break
+    by_product = {}
+    for line in ((accelerated or {}).get("lines") or []):
+        by_product[str(line.get("product") or "").strip().lower()] = line
+    for item in items:
+        now = float(item.get("dollars") or 0)
+        target = float((by_product.get(str(item.get("product") or "").strip().lower())
+                        or {}).get("dollars") or 0)
+        if target > now > 0:
+            increases.append({
+                "product": item.get("product", ""),
+                "category": item.get("category", ""),
+                "current": round(now, 2),
+                "suggested": round(target, 2),
+                "uplift": round(target - now, 2),
+                "campaign": round((target - now) * months, 2),
+            })
+
+    # --- adding what is not there ---
+    additions = []
+    seen = set()
+    try:
+        from hub import current_marketing as hub_marketing
+        wanted = hub_marketing.suggestions(state)
+    except Exception:                                       # noqa: BLE001
+        wanted = []
+    for suggestion in wanted:
+        for name in suggestion.get("products") or []:
+            key = str(name).strip().lower()
+            if not key or key in on_plan or key in seen:
+                continue
+            seen.add(key)
+            card = hub_rate_card.find(name) or {}
+            # No card entry means no defensible price, so it is offered as
+            # something to quote rather than with a number nobody can stand
+            # behind.
+            minimum = (hub_rate_card.minimum_for(name, card.get("category", ""))
+                       if card else 0)
+            additions.append({
+                "product": card.get("product") or name,
+                "category": card.get("category", ""),
+                "why": suggestion.get("title", ""),
+                "suggested": round(float(minimum), 2) if minimum else 0,
+                "campaign": round(float(minimum) * months, 2) if minimum else 0,
+                "rate": card.get("listed_rate", ""),
+                "quoted": bool(minimum),
+            })
+
+    edits = state.get("growthEdits") or {}
+    for row in increases:
+        override = edits.get("inc:" + row["product"])
+        if override is not None:
+            try:
+                row["suggested"] = round(float(override), 2)
+                row["uplift"] = round(row["suggested"] - row["current"], 2)
+                row["campaign"] = round(row["uplift"] * months, 2)
+                row["custom"] = True
+            except (TypeError, ValueError):
+                pass
+    for row in additions:
+        override = edits.get("add:" + row["product"])
+        if override is not None:
+            try:
+                row["suggested"] = round(float(override), 2)
+                row["campaign"] = round(row["suggested"] * months, 2)
+                row["quoted"] = row["suggested"] > 0
+                row["custom"] = True
+            except (TypeError, ValueError):
+                pass
+
+    dropped = set(state.get("growthDropped") or [])
+    increases = [r for r in increases if ("inc:" + r["product"]) not in dropped]
+    additions = [r for r in additions if ("add:" + r["product"]) not in dropped]
+
+    return {
+        "increases": increases,
+        "additions": additions,
+        "months": months,
+        "increase_monthly": round(sum(r["uplift"] for r in increases), 2),
+        "addition_monthly": round(sum(r["suggested"] for r in additions), 2),
+        "any": bool(increases or additions),
+    }
 
 
 def investment_lines(state, q):
@@ -1094,6 +1212,46 @@ def build_proposal_pdf(q, state):
                                 + ", ".join(results["metrics"]) + ".", st_body))
             if results.get("traditional_note"):
                 story.append(_p(results["traditional_note"], st_body))
+        elif kind == "growth":
+            growth = growth_options(state)
+            if not growth["any"]:
+                story.append(_p("Every product the discovery answers pointed at "
+                                "is already on the plan above.", st_small))
+            else:
+                if growth["increases"]:
+                    rows = [["Product", "Quoted", "Recommended", "More / month",
+                             f"Over {growth['months']} mo"]]
+                    for row in growth["increases"]:
+                        rows.append([_p(row["product"], st_small),
+                                     _money(row["current"]), _money(row["suggested"]),
+                                     _money(row["uplift"]), _money(row["campaign"])])
+                    rows.append(["Additional monthly", "", "",
+                                 _money(growth["increase_monthly"]),
+                                 _money(growth["increase_monthly"] * growth["months"])])
+                    gt = Table(rows, colWidths=[2.6 * inch, 1.1 * inch, 1.25 * inch,
+                                                1.2 * inch, 1.25 * inch], repeatRows=1)
+                    style = _head_style_rows()
+                    style.append(("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), SOFT))
+                    style.append(("FONTNAME", (0, len(rows) - 1), (-1, len(rows) - 1),
+                                  "Helvetica-Bold"))
+                    gt.setStyle(TableStyle(style))
+                    story.append(_p("Raise a budget already on the plan", st_small))
+                    story.append(gt)
+                if growth["additions"]:
+                    rows = [["Product", "Why", "From",
+                             f"Over {growth['months']} mo"]]
+                    for row in growth["additions"]:
+                        rows.append([
+                            _p(row["product"], st_small), _p(row["why"], st_small),
+                            _money(row["suggested"]) if row["quoted"] else _p("Quoted on request", st_small),
+                            _money(row["campaign"]) if row["quoted"] else _p("—", st_small)])
+                    at2 = Table(rows, colWidths=[2.3 * inch, 2.8 * inch, 1.1 * inch,
+                                                 1.2 * inch], repeatRows=1)
+                    at2.setStyle(TableStyle(_head_style_rows()))
+                    story.append(_p("Add what the discovery answers pointed at", st_small))
+                    story.append(at2)
+                story.append(_p("Raising a line uses the Accelerated option above; "
+                                "adding one starts at the rate-card minimum.", st_small))
         elif kind == "zips":
             # The trafficking reference, at the back. Monospaced and small on
             # purpose: it is a list to be checked against, not read.
@@ -1304,6 +1462,22 @@ def build_proposal_docx(q, state):
             d.add_paragraph(f"Estimated population {int(est.get('pop') or 0):,} · addressable audience "
                             f"{int(est.get('aud') or 0):,} · households {int(est.get('hh') or 0):,} · "
                             f"devices {int(est.get('dev') or 0):,}")
+        elif kind == "growth":
+            growth = growth_options(state)
+            if not growth["any"]:
+                d.add_paragraph("Every product the discovery answers pointed at "
+                                "is already on the plan above.")
+            else:
+                for row in growth["increases"]:
+                    d.add_paragraph(
+                        f"{row['product']}: quoted {_money(row['current'])}, "
+                        f"recommended {_money(row['suggested'])} "
+                        f"(+{_money(row['uplift'])}/mo, "
+                        f"{_money(row['campaign'])} over {growth['months']} months)")
+                for row in growth["additions"]:
+                    price = (f"from {_money(row['suggested'])}/mo"
+                             if row["quoted"] else "quoted on request")
+                    d.add_paragraph(f"{row['product']} — {row['why']} ({price})")
         elif kind == "zips":
             wrote = False
             for area in campaign_areas(state):
@@ -1348,7 +1522,7 @@ def quote_docx(qid):
 # Sections the AI may write copy for. The table-backed ones take an intro
 # paragraph above their generated table; only the cover has nothing to say.
 WRITABLE_KINDS = ("text", "friction", "areas", "reach", "channels", "mediaplan",
-                  "creative", "packages", "kpis", "roi", "timeline")
+                  "creative", "packages", "kpis", "roi", "timeline", "growth")
 
 
 def writable_sections(state):
