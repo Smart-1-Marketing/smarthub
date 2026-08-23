@@ -167,174 +167,6 @@
   @keyframes sp{to{transform:rotate(360deg)}}
   .warnbox{background:#fdeeee;border:1px solid #f2c3bd;border-radius:11px;padding:12px 15px;margin-top:13px;font-size:12.5px;color:#8c2f24}
   .warnbox b{display:block;margin-bottom:4px}
-  /* ============================================================
-   PROPOSAL PREVIEW
-   The document as the client will read it. Every section renders the same
-   content the PDF will: prose where the section is prose, the real table
-   where it is a table. A section can be edited in place, rewritten by the
-   AI, or hidden -- and the media plan can be re-costed here rather than
-   sending the rep back three steps to change one budget.
-   ============================================================ */
-function drawPreview(){
- const host=document.getElementById('docPreview');if(!host)return;
- const e=S.estimates||estimates();
- host.innerHTML=`<div class="paperdoc">
-  <div class="docband">SMART 1 MARKETING</div>
-  <h2 class="doctitle">Marketing Proposal — ${esc(S.client||'Client')}</h2>
-  <div class="docsub">${esc(QUOTE_NUMBER||'Draft')} · ${esc(new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}))}${S.salesContact?' · Prepared by '+esc(S.salesContact):''}</div>
-  ${S.sections.map((sec,i)=>previewSection(sec,i,e)).join('')}
- </div>`;}
-function previewSection(sec,i,e){
- const req=isRequired(sec);
- const editing=S._editSec===sec.id;
- const tools=`<div class="dtools">
-   <button class="ic" title="${editing?'Done editing':'Edit this section'}" onclick="toggleEditSec('${sec.id}')">${editing?'✓':'✎'}</button>
-   <button class="ic" title="Rewrite with AI" onclick="rewriteSecById('${sec.id}')">✨</button>
-   <button class="ic" title="${req?'Required — every Smart 1 proposal includes this':(sec.enabled?'Hide from the proposal':'Show in the proposal')}" ${req?'disabled style="opacity:.3;cursor:not-allowed"':''} onclick="${req?'':`toggleSec('${sec.id}')`}">${sec.enabled?'👁':'🚫'}</button>
-  </div>`;
- if(!sec.enabled)
-  return `<div class="docsec off"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
-   <div class="note">Hidden — this section will not appear in the PDF.</div></div>`;
- const body=editing
-  ? `<textarea class="dedit" oninput="S.sections[${i}].body=this.value;saveSoon()" placeholder="${sec.kind==='text'?'Section copy…':'Short intro above the table…'}">${esc(sec.body||'')}</textarea>`
-  : (sec.body?`<div class="dbody">${esc(sec.body).replace(/\n/g,'<br>')}</div>`
-             :`<div class="note dempty">No copy yet — ✨ writes it, or ✎ to type it.</div>`);
- return `<div class="docsec"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
-  ${body}${previewTable(sec,e)}</div>`;}
-
-/* The generated tables, rendered as the PDF renders them. These are never
-   editable text: they are computed from the campaign, and a proposal whose
-   prose and tables disagree is the failure the whole spec is built around. */
-function previewTable(sec,e){
- const k=sec.kind;
- if(k==="areas"){const rows=(S.targetAreas||[]).filter(areaComplete);if(!rows.length)return '';
-  return dtable(["Target area","Coverage","Est. population"],rows.map(a=>{
-   const pop=areaPopulation(a),z=areaZips(a);
-   return [esc(areaLabel(a)),esc(a.notes||(z.length?z.length+" ZIP Codes":a.type)),pop?fmt(pop):"<b>Not measured</b>"];}));}
- if(k==="reach")return dgrid([["Est. population",e.measured?fmt(e.pop):"—"],["Addressable audience",e.measured?fmt(e.aud):"—"],["Households",e.measured?fmt(e.hh):"—"],["Devices",e.measured?fmt(e.dev):"—"]]);
- if(k==="friction"){const picks=suggestions();if(!picks.length)return '';
-  return dtable(["We suggest they should","Why"],picks.map(pk=>[esc(pk.title),esc(pk.detail)]));}
- if(k==="channels"){if(!S.items.length)return '';
-  return dtable(["Channel","Role in the funnel","Primary KPI"],S.items.map(it=>{const r=channelRole(it);return [esc(it.product),esc(r[0]),esc(r[1])];}));}
- if(k==="creative"){const rows=creativeRows();if(!rows.length)return '';
-  return dtable(["Medium","Campaign spend","Creative"],rows.map(r=>[esc(r.label),money(r.spend),esc(creativePhrase(r))]));}
- if(k==="timeline")return dtable(["Phase","What happens"],TIMELINE_PHASES.map(t=>[esc(t[0])+"<br>"+esc(t[1]),esc(t[2])]));
- if(k==="kpis")return S.kpis.length?`<div class="dnote">KPIs: ${esc(S.kpis.join(', '))}</div>`:'';
- if(k==="mediaplan")return mediaPlanEditor();
- if(k==="packages")return investmentTable();
- if(k==="roi")return roiTable();
- return '';}
-function dtable(head,rows){
- return `<table class="dtbl"><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`
-  +rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')+`</tbody></table>`;}
-function dgrid(pairs){
- return `<div class="dgrid">${pairs.map(p=>`<div><b>${p[1]}</b><span>${esc(p[0])}</span></div>`).join('')}</div>`;}
-const TIMELINE_PHASES=[
- ["Weeks 1–2","Setup & Onboarding","Admin access collected, tracking pixels placed, conversion actions defined, audience and geography built, Smart 1 Suite provisioned."],
- ["Weeks 3–4","Production & Integration","Creative produced or supplied and approved, landing pages reviewed, workflow automations mapped in the Smart 1 Suite, tracking verified end to end before a cent is spent."],
- ["Month 2+","Execution & Scaling","Campaigns live, weekly pacing and bid optimisation, creative performance checks, budget shifted toward what proves out, first full performance review delivered."]];
-function channelRole(it){
- const c=String(it.category||"").toUpperCase(),m=mediumOf(it);
- if(/SEARCH ENGINE MARKETING|PAY PER CLICK/.test(c))return ["Bottom of funnel — captures demand that is already searching","Cost per lead and conversion rate"];
- if(/SEARCH ENGINE OPTIMIZATION/.test(c))return ["Compounding — organic and AI-answer visibility","Ranked terms, map-pack visibility and organic leads"];
- if(/RETARGETING/.test(c))return ["Bottom of funnel — brings back the people who already came","Return visits and cost per conversion"];
- if(m==="video")return ["Top of funnel — builds awareness and trust on the screens the household already watches","Completed views and completion rate"];
- if(m==="audio")return ["Mid funnel — reaches the 79% of digital audio time spent with no screen at all","Reach, frequency and listen-through"];
- if(m==="social")return ["Mid funnel — consideration and re-engagement in feed","Engaged sessions and cost per lead"];
- if(m==="display")return ["Full funnel — precision targeting and retargeting against the people already in market","Click-through rate and cost per action"];
- return ["Supports the campaign","Cost per action"];}
-function creativePhrase(r){
- if(r.answer==="has")return "Supplied by the client";
- if(r.answer==="client")return "Produced by Smart 1 — "+money(r.fee)+" one-time";
- if(r.answer==="comp")return "Produced by Smart 1 at no charge";
- return "To be confirmed before launch";}
-
-/* The media plan is editable here: budgets, deletions and additions, without
-   walking back three steps to change one number. */
-function mediaPlanEditor(){
- const months=Math.max(1,+S.months||1);
- return `<table class="dtbl editable"><thead><tr><th>Product</th><th>Category</th><th>Rate</th><th style="text-align:right">Monthly</th><th style="text-align:right">Total (${months} mo)</th><th></th></tr></thead><tbody>`
-  +S.items.map((it,ix)=>`<tr>
-    <td><b>${esc(it.product)}</b></td><td>${esc(it.category)}</td>
-    <td>${esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
-    <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)"></td>
-    <td style="text-align:right">${money((it.dollars||0)*months)}</td>
-    <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`).join('')
-  +`<tr class="dtot"><td colspan="3">Campaign total</td>
-     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))}</td>
-     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)}</td><td></td></tr>`
-  +`</tbody></table>
-   <div class="addrow" style="margin-top:8px"><select id="pvAddCat">${productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')}</select>
-    <button class="btn btn-ghost" onclick="previewAddItem()">+ Add product</button>
-    <span class="note" style="margin:0">Changing the plan here re-costs the packages, the ROI table and the creative gate.</span></div>
-   ${previewGuards()}`;}
-function previewSetDollars(ix,v){
- S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
- const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
- S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
- buildPackages();S.aiEst=S.aiEst;saveSoon();drawPreview();}
-function previewRemoveItem(ix){
- const it=S.items[ix];
- if(!confirm('Remove "'+(it.product||'this product')+'" from the media plan?'))return;
- S.items.splice(ix,1);applySeeds();buildPackages();saveSoon();drawPreview();}
-function previewAddItem(){
- const cat=document.getElementById('pvAddCat').value,p=findProduct(cat)||{};
- if(S.items.some(i=>i.category===cat)){toast("That category is already in the mix.");return;}
- S.items.push({label:p.label,category:cat,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,pctSeed:15,dollars:0});
- applySeeds();buildPackages();saveSoon();drawPreview();
- toast("Added — set its monthly budget.");}
-function previewGuards(){
- const g=guardrailsJs(),need=creativeUnresolved();
- let h='';
- if(g.length)h+=`<div class="warnbox" style="margin-top:10px"><b>🛡 Guardrails</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`;
- if(need.length)h+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
-  +need.map(m=>esc(MEDIUM_LABEL[m].split(" (")[0])+" is in the plan and no spot has been confirmed.").join("<br>")+`</div>`;
- return h;}
-function investmentTable(){
- const t=chosenTier(),media=S.items.reduce((a,b)=>a+(+b.dollars||0),0)||+((S.selectedPackage||{}).monthly||S.budget||0);
- const fees=creativeFees(),months=Math.max(1,+S.months||1);
- const recur=t.monthly+media,rows=[
-  ["Smart 1 Suite — "+t.name,money(t.monthly),"Monthly"],
-  ["Media spend",money(media),"Monthly"]];
- if(fees)rows.push(["Creative production",money(fees),"One-time"]);
- rows.push(["Total first month",money(recur+fees),""]);
- rows.push(["Total campaign ("+months+" mo)",money(recur*months+fees),""]);
- return dtable(["","Amount","Recurs"],rows.map(r=>[esc(r[0]),r[1],esc(r[2])]));}
-function roiTable(){
- const months=Math.max(1,+S.months||1);
- let impr=0,views=0;const unpriced=[];
- const rows=S.items.map(it=>{
-  const d=+it.dollars||0;let units=null,label="";
-  if(it.rate==="CPM"&&it.rateValue>0){units=Math.round(d/it.rateValue*1000);label="impressions/month";impr+=units*months;}
-  else if(it.rate==="CPV"&&it.rateValue>0){units=Math.round(d/it.rateValue);label="views/month";views+=units*months;}
-  else unpriced.push(it.product);
-  return [esc(it.product),money(d),money(d*months),units?fmt(units)+" "+label:"Not impression-based"];});
- if(!rows.length)return '';
- const bits=[];if(impr)bits.push(fmt(impr)+" impressions");if(views)bits.push(fmt(views)+" video views");
- rows.push(["<b>Campaign total</b>","<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))+"</b>",
-            "<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)+"</b>","<b>"+(bits.join(" · ")||"—")+"</b>"]);
- let h=dtable(["Product","Monthly","Campaign ("+months+" mo)","Estimated delivery"],rows);
- if(unpriced.length)h+=`<div class="dnote">Not in the delivery totals (no impression-based rate): ${esc(unpriced.join(', '))}.</div>`;
- const t=(S.traditional||{});
- if(t.running==="Yes"&&t.posture)h+=`<div class="dnote">${t.posture==="shift"
-   ?"Every figure above is attributable to the channel that produced it. That is the difference worth weighing against the traditional spend."
-   :"These figures cover the digital portion of the plan; they sit alongside the traditional buy rather than replacing it."}</div>`;
- return h;}
-function toggleEditSec(id){S._editSec=S._editSec===id?null:id;saveNow();drawPreview();}
-function toggleSec(id){
- const sec=S.sections.find(x=>x.id===id);if(!sec||isRequired(sec))return;
- sec.enabled=!sec.enabled;saveSoon();drawPreview();}
-async function rewriteSecById(id){
- const i=S.sections.findIndex(x=>x.id===id);if(i<0)return;
- if(!CFG.ai_enabled){toast("AI rewriting needs OPENAI_API_KEY on the server.");return;}
- toast("✨ Rewriting "+S.sections[i].title+"…");
- try{
-  const d=await api('/sales/builder/api/ai/draft-sections',{method:'POST',
-   body:JSON.stringify({data:S,section:id})});
-  if(d.sections&&d.sections[id]){S.sections[i].body=d.sections[id];saveNow();drawPreview();
-   toast("✨ "+S.sections[i].title+" rewritten.");return;}
-  toast((d.breaches&&Object.keys(d.breaches).length)?"The rewrite broke a proposal rule and was discarded.":"The AI returned nothing for that section.");
- }catch(e){toast("Rewrite failed: "+e.message);}}
 
 /* section editor */
   .sec{border:1px solid var(--line);border-radius:12px;background:#fff;margin-top:12px;overflow:hidden}
@@ -1414,6 +1246,175 @@ async function lookupZips(){
   toast("📍 "+(d.count||0)+" ZIP Codes found — review them before trafficking.");
  }catch(e){toast("ZIP lookup failed: "+e.message);}
  finally{const bb=document.getElementById('zipBtn');if(bb){bb.disabled=false;bb.textContent='📍 Find the ZIP Codes this radius touches';}}}
+
+  /* ============================================================
+   PROPOSAL PREVIEW
+   The document as the client will read it. Every section renders the same
+   content the PDF will: prose where the section is prose, the real table
+   where it is a table. A section can be edited in place, rewritten by the
+   AI, or hidden -- and the media plan can be re-costed here rather than
+   sending the rep back three steps to change one budget.
+   ============================================================ */
+function drawPreview(){
+ const host=document.getElementById('docPreview');if(!host)return;
+ const e=S.estimates||estimates();
+ host.innerHTML=`<div class="paperdoc">
+  <div class="docband">SMART 1 MARKETING</div>
+  <h2 class="doctitle">Marketing Proposal — ${esc(S.client||'Client')}</h2>
+  <div class="docsub">${esc(QUOTE_NUMBER||'Draft')} · ${esc(new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}))}${S.salesContact?' · Prepared by '+esc(S.salesContact):''}</div>
+  ${S.sections.map((sec,i)=>previewSection(sec,i,e)).join('')}
+ </div>`;}
+function previewSection(sec,i,e){
+ const req=isRequired(sec);
+ const editing=S._editSec===sec.id;
+ const tools=`<div class="dtools">
+   <button class="ic" title="${editing?'Done editing':'Edit this section'}" onclick="toggleEditSec('${sec.id}')">${editing?'✓':'✎'}</button>
+   <button class="ic" title="Rewrite with AI" onclick="rewriteSecById('${sec.id}')">✨</button>
+   <button class="ic" title="${req?'Required — every Smart 1 proposal includes this':(sec.enabled?'Hide from the proposal':'Show in the proposal')}" ${req?'disabled style="opacity:.3;cursor:not-allowed"':''} onclick="${req?'':`toggleSec('${sec.id}')`}">${sec.enabled?'👁':'🚫'}</button>
+  </div>`;
+ if(!sec.enabled)
+  return `<div class="docsec off"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
+   <div class="note">Hidden — this section will not appear in the PDF.</div></div>`;
+ const body=editing
+  ? `<textarea class="dedit" oninput="S.sections[${i}].body=this.value;saveSoon()" placeholder="${sec.kind==='text'?'Section copy…':'Short intro above the table…'}">${esc(sec.body||'')}</textarea>`
+  : (sec.body?`<div class="dbody">${esc(sec.body).replace(/\n/g,'<br>')}</div>`
+             :`<div class="note dempty">No copy yet — ✨ writes it, or ✎ to type it.</div>`);
+ return `<div class="docsec"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
+  ${body}${previewTable(sec,e)}</div>`;}
+
+/* The generated tables, rendered as the PDF renders them. These are never
+   editable text: they are computed from the campaign, and a proposal whose
+   prose and tables disagree is the failure the whole spec is built around. */
+function previewTable(sec,e){
+ const k=sec.kind;
+ if(k==="areas"){const rows=(S.targetAreas||[]).filter(areaComplete);if(!rows.length)return '';
+  return dtable(["Target area","Coverage","Est. population"],rows.map(a=>{
+   const pop=areaPopulation(a),z=areaZips(a);
+   return [esc(areaLabel(a)),esc(a.notes||(z.length?z.length+" ZIP Codes":a.type)),pop?fmt(pop):"<b>Not measured</b>"];}));}
+ if(k==="reach")return dgrid([["Est. population",e.measured?fmt(e.pop):"—"],["Addressable audience",e.measured?fmt(e.aud):"—"],["Households",e.measured?fmt(e.hh):"—"],["Devices",e.measured?fmt(e.dev):"—"]]);
+ if(k==="friction"){const picks=suggestions();if(!picks.length)return '';
+  return dtable(["We suggest they should","Why"],picks.map(pk=>[esc(pk.title),esc(pk.detail)]));}
+ if(k==="channels"){if(!S.items.length)return '';
+  return dtable(["Channel","Role in the funnel","Primary KPI"],S.items.map(it=>{const r=channelRole(it);return [esc(it.product),esc(r[0]),esc(r[1])];}));}
+ if(k==="creative"){const rows=creativeRows();if(!rows.length)return '';
+  return dtable(["Medium","Campaign spend","Creative"],rows.map(r=>[esc(r.label),money(r.spend),esc(creativePhrase(r))]));}
+ if(k==="timeline")return dtable(["Phase","What happens"],TIMELINE_PHASES.map(t=>[esc(t[0])+"<br>"+esc(t[1]),esc(t[2])]));
+ if(k==="kpis")return S.kpis.length?`<div class="dnote">KPIs: ${esc(S.kpis.join(', '))}</div>`:'';
+ if(k==="mediaplan")return mediaPlanEditor();
+ if(k==="packages")return investmentTable();
+ if(k==="roi")return roiTable();
+ return '';}
+function dtable(head,rows){
+ return `<table class="dtbl"><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`
+  +rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')+`</tbody></table>`;}
+function dgrid(pairs){
+ return `<div class="dgrid">${pairs.map(p=>`<div><b>${p[1]}</b><span>${esc(p[0])}</span></div>`).join('')}</div>`;}
+const TIMELINE_PHASES=[
+ ["Weeks 1–2","Setup & Onboarding","Admin access collected, tracking pixels placed, conversion actions defined, audience and geography built, Smart 1 Suite provisioned."],
+ ["Weeks 3–4","Production & Integration","Creative produced or supplied and approved, landing pages reviewed, workflow automations mapped in the Smart 1 Suite, tracking verified end to end before a cent is spent."],
+ ["Month 2+","Execution & Scaling","Campaigns live, weekly pacing and bid optimisation, creative performance checks, budget shifted toward what proves out, first full performance review delivered."]];
+function channelRole(it){
+ const c=String(it.category||"").toUpperCase(),m=mediumOf(it);
+ if(/SEARCH ENGINE MARKETING|PAY PER CLICK/.test(c))return ["Bottom of funnel — captures demand that is already searching","Cost per lead and conversion rate"];
+ if(/SEARCH ENGINE OPTIMIZATION/.test(c))return ["Compounding — organic and AI-answer visibility","Ranked terms, map-pack visibility and organic leads"];
+ if(/RETARGETING/.test(c))return ["Bottom of funnel — brings back the people who already came","Return visits and cost per conversion"];
+ if(m==="video")return ["Top of funnel — builds awareness and trust on the screens the household already watches","Completed views and completion rate"];
+ if(m==="audio")return ["Mid funnel — reaches the 79% of digital audio time spent with no screen at all","Reach, frequency and listen-through"];
+ if(m==="social")return ["Mid funnel — consideration and re-engagement in feed","Engaged sessions and cost per lead"];
+ if(m==="display")return ["Full funnel — precision targeting and retargeting against the people already in market","Click-through rate and cost per action"];
+ return ["Supports the campaign","Cost per action"];}
+function creativePhrase(r){
+ if(r.answer==="has")return "Supplied by the client";
+ if(r.answer==="client")return "Produced by Smart 1 — "+money(r.fee)+" one-time";
+ if(r.answer==="comp")return "Produced by Smart 1 at no charge";
+ return "To be confirmed before launch";}
+
+/* The media plan is editable here: budgets, deletions and additions, without
+   walking back three steps to change one number. */
+function mediaPlanEditor(){
+ const months=Math.max(1,+S.months||1);
+ return `<table class="dtbl editable"><thead><tr><th>Product</th><th>Category</th><th>Rate</th><th style="text-align:right">Monthly</th><th style="text-align:right">Total (${months} mo)</th><th></th></tr></thead><tbody>`
+  +S.items.map((it,ix)=>`<tr>
+    <td><b>${esc(it.product)}</b></td><td>${esc(it.category)}</td>
+    <td>${esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
+    <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)"></td>
+    <td style="text-align:right">${money((it.dollars||0)*months)}</td>
+    <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`).join('')
+  +`<tr class="dtot"><td colspan="3">Campaign total</td>
+     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))}</td>
+     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)}</td><td></td></tr>`
+  +`</tbody></table>
+   <div class="addrow" style="margin-top:8px"><select id="pvAddCat">${productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')}</select>
+    <button class="btn btn-ghost" onclick="previewAddItem()">+ Add product</button>
+    <span class="note" style="margin:0">Changing the plan here re-costs the packages, the ROI table and the creative gate.</span></div>
+   ${previewGuards()}`;}
+function previewSetDollars(ix,v){
+ S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
+ const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
+ S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
+ buildPackages();S.aiEst=S.aiEst;saveSoon();drawPreview();}
+function previewRemoveItem(ix){
+ const it=S.items[ix];
+ if(!confirm('Remove "'+(it.product||'this product')+'" from the media plan?'))return;
+ S.items.splice(ix,1);applySeeds();buildPackages();saveSoon();drawPreview();}
+function previewAddItem(){
+ const cat=document.getElementById('pvAddCat').value,p=findProduct(cat)||{};
+ if(S.items.some(i=>i.category===cat)){toast("That category is already in the mix.");return;}
+ S.items.push({label:p.label,category:cat,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,pctSeed:15,dollars:0});
+ applySeeds();buildPackages();saveSoon();drawPreview();
+ toast("Added — set its monthly budget.");}
+function previewGuards(){
+ const g=guardrailsJs(),need=creativeUnresolved();
+ let h='';
+ if(g.length)h+=`<div class="warnbox" style="margin-top:10px"><b>🛡 Guardrails</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`;
+ if(need.length)h+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
+  +need.map(m=>esc(MEDIUM_LABEL[m].split(" (")[0])+" is in the plan and no spot has been confirmed.").join("<br>")+`</div>`;
+ return h;}
+function investmentTable(){
+ const t=chosenTier(),media=S.items.reduce((a,b)=>a+(+b.dollars||0),0)||+((S.selectedPackage||{}).monthly||S.budget||0);
+ const fees=creativeFees(),months=Math.max(1,+S.months||1);
+ const recur=t.monthly+media,rows=[
+  ["Smart 1 Suite — "+t.name,money(t.monthly),"Monthly"],
+  ["Media spend",money(media),"Monthly"]];
+ if(fees)rows.push(["Creative production",money(fees),"One-time"]);
+ rows.push(["Total first month",money(recur+fees),""]);
+ rows.push(["Total campaign ("+months+" mo)",money(recur*months+fees),""]);
+ return dtable(["","Amount","Recurs"],rows.map(r=>[esc(r[0]),r[1],esc(r[2])]));}
+function roiTable(){
+ const months=Math.max(1,+S.months||1);
+ let impr=0,views=0;const unpriced=[];
+ const rows=S.items.map(it=>{
+  const d=+it.dollars||0;let units=null,label="";
+  if(it.rate==="CPM"&&it.rateValue>0){units=Math.round(d/it.rateValue*1000);label="impressions/month";impr+=units*months;}
+  else if(it.rate==="CPV"&&it.rateValue>0){units=Math.round(d/it.rateValue);label="views/month";views+=units*months;}
+  else unpriced.push(it.product);
+  return [esc(it.product),money(d),money(d*months),units?fmt(units)+" "+label:"Not impression-based"];});
+ if(!rows.length)return '';
+ const bits=[];if(impr)bits.push(fmt(impr)+" impressions");if(views)bits.push(fmt(views)+" video views");
+ rows.push(["<b>Campaign total</b>","<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))+"</b>",
+            "<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)+"</b>","<b>"+(bits.join(" · ")||"—")+"</b>"]);
+ let h=dtable(["Product","Monthly","Campaign ("+months+" mo)","Estimated delivery"],rows);
+ if(unpriced.length)h+=`<div class="dnote">Not in the delivery totals (no impression-based rate): ${esc(unpriced.join(', '))}.</div>`;
+ const t=(S.traditional||{});
+ if(t.running==="Yes"&&t.posture)h+=`<div class="dnote">${t.posture==="shift"
+   ?"Every figure above is attributable to the channel that produced it. That is the difference worth weighing against the traditional spend."
+   :"These figures cover the digital portion of the plan; they sit alongside the traditional buy rather than replacing it."}</div>`;
+ return h;}
+function toggleEditSec(id){S._editSec=S._editSec===id?null:id;saveNow();drawPreview();}
+function toggleSec(id){
+ const sec=S.sections.find(x=>x.id===id);if(!sec||isRequired(sec))return;
+ sec.enabled=!sec.enabled;saveSoon();drawPreview();}
+async function rewriteSecById(id){
+ const i=S.sections.findIndex(x=>x.id===id);if(i<0)return;
+ if(!CFG.ai_enabled){toast("AI rewriting needs OPENAI_API_KEY on the server.");return;}
+ toast("✨ Rewriting "+S.sections[i].title+"…");
+ try{
+  const d=await api('/sales/builder/api/ai/draft-sections',{method:'POST',
+   body:JSON.stringify({data:S,section:id})});
+  if(d.sections&&d.sections[id]){S.sections[i].body=d.sections[id];saveNow();drawPreview();
+   toast("✨ "+S.sections[i].title+" rewritten.");return;}
+  toast((d.breaches&&Object.keys(d.breaches).length)?"The rewrite broke a proposal rule and was discarded.":"The AI returned nothing for that section.");
+ }catch(e){toast("Rewrite failed: "+e.message);}}
 
 /* ============================================================
    BUILDER STEPS

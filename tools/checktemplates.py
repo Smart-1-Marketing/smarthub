@@ -15,6 +15,18 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from jscheck import check
 
 SCRIPT = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.S)
+STYLE = re.compile(r"<style[^>]*>(.*?)</style>", re.S)
+
+# JavaScript that has fallen into a <style> block. A browser drops it, every
+# checker here reads only <script>, and the page renders perfectly right up to
+# the moment something calls the function that no longer exists.
+#
+# That is not hypothetical: 168 lines of the Proposal Builder's preview --
+# drawPreview and everything it calls -- sat inside <style> and the whole
+# preview silently did nothing, through a green jscheck, checktemplates,
+# linkcheck and pagecheck. CSS has no `function` keyword, so one unambiguous
+# marker is enough and there are no false positives to tune.
+JS_IN_CSS = re.compile(r"^\s*(?:async\s+)?function\s+[A-Za-z_$][\w$]*\s*\(", re.M)
 
 
 def templates():
@@ -59,6 +71,20 @@ def main():
         if err:
             failures += 1
             print("FAIL  " + err)
+
+    # Separate pass: a <style> block is not checked as JavaScript by anything,
+    # so JavaScript hiding in one is invisible to every other tool.
+    for path in sorted(templates()):
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        for css in STYLE.findall(raw):
+            hit = JS_IN_CSS.search(css)
+            if not hit:
+                continue
+            name = css[hit.start():hit.end()].strip()
+            line = raw[:raw.index(css) + hit.start()].count("\n") + 1
+            failures += 1
+            print("FAIL  %s:%d: JavaScript inside a <style> block — \"%s\" "
+                  "never runs. Move it into <script>." % (path, line, name))
     print("%d templates with inline script checked, %d failing" % (checked, failures))
     return 1 if failures else 0
 
