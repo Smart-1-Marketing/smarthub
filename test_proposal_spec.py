@@ -509,6 +509,45 @@ from hub import current_marketing as cm                            # noqa: E402
 check("the three new questions are asked",
       {"retargeting", "aiOptimized", "websiteHappy"} <= {q["key"] for q in cm.QUESTIONS},
       [q["key"] for q in cm.QUESTIONS])
+check("and the five that came after them",
+      {"reputation", "email", "chat", "callTracking", "texting"}
+      <= {q["key"] for q in cm.QUESTIONS},
+      [q["key"] for q in cm.QUESTIONS])
+check("each of the five raises a suggestion when the answer is no",
+      all(any(r["key"] == k for r in cm.SUGGESTION_RULES)
+          for k in ("reputation", "email", "chat", "callTracking", "texting")))
+
+# Every answer is required. A blank was reaching the proposal as though the
+# client did not do that thing, which is a different claim from "we did not
+# ask" -- and Unknown exists on the form precisely so there is an honest
+# answer for the second case.
+check("a blank discovery step is incomplete", cm.complete({}) is False)
+check("and says exactly which are missing",
+      len(cm.unanswered({})) == len(cm.QUESTIONS))
+half = {"mkt": {q["key"]: cm.YES for q in cm.QUESTIONS[:4]}}
+check("a half-answered one names only the rest",
+      [q["key"] for q in cm.unanswered(half)]
+      == [q["key"] for q in cm.QUESTIONS[4:]])
+check("Unknown counts as answered, because it is an answer",
+      cm.complete({"mkt": {q["key"]: cm.UNKNOWN for q in cm.QUESTIONS}}) is True)
+
+# The wizard carries its own copy so the step can react without a round trip.
+# Twelve questions on one screen and eleven rules behind them is exactly the
+# kind of list that gets edited on one side only.
+wiz = open(os.path.join(ROOT, "modules", "sales_builder", "templates",
+                        "index.html"), encoding="utf-8").read()
+mq = re.search(r"const DISCOVERY_QUESTIONS=\[(.*?)\n\];", wiz, re.S)
+js_keys = re.findall(r'key:"([^"]+)"', mq.group(1)) if mq else []
+check("the wizard asks the same questions, in the same order",
+      js_keys == [q["key"] for q in cm.QUESTIONS], js_keys)
+js_labels = re.findall(r'label:"([^"]+)"', mq.group(1)) if mq else []
+check("with the same wording",
+      js_labels == [q["label"] for q in cm.QUESTIONS],
+      [(a, b) for a, b in zip(js_labels, [q["label"] for q in cm.QUESTIONS]) if a != b])
+mr = re.search(r"const SUGGESTION_RULES=\[(.*?)\n\];", wiz, re.S)
+js_rules = re.findall(r'key:"([^"]+)",when:', mr.group(1)) if mr else []
+check("and holds the same suggestion rules",
+      js_rules == [r["key"] for r in cm.SUGGESTION_RULES], js_rules)
 
 doing_everything = {"mkt": {q["key"]: cm.YES for q in cm.QUESTIONS},
                     "traditional": {"running": cm.NO}}

@@ -195,6 +195,15 @@
   .clientcard{border:1px solid var(--line);border-radius:13px;background:#fff;padding:16px 18px;margin-top:12px;box-shadow:var(--shadow)}
   .clientcard h3{margin:0 0 3px;font-size:15px;color:var(--navy)}
   .clientcard .meta{font-size:12px;color:var(--muted)}
+  /* Discovery, two across. Twelve yes/no/unknown rows in a single column is
+     a page of scrolling for what is really one screen of questions. */
+  .disc2{display:grid;grid-template-columns:1fr 1fr;gap:2px 22px;margin-top:8px}
+  .disc2 .fld{margin-top:8px}
+  .disc2 .fld label{display:block;margin-bottom:5px}
+  /* Guardrail choices, three across -- same reason. */
+  .pillrow.c3{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+  .pillrow.c3 .pill{margin:0;text-align:center}
+  @media(max-width:820px){.disc2,.pillrow.c3{grid-template-columns:1fr}}
   @media(max-width:1000px){.cols{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:720px){.cards,.cards.c3,.estgrid,.pkgs,.two,.three{grid-template-columns:1fr}}
   /* ---- proposal preview: the document as the client will read it ---- */
@@ -525,7 +534,7 @@ function rowHtml(x){
    <button class="ic" title="Branded PDF" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄</button>
    <button class="ic" title="Word copy" onclick="location.href='/sales/builder/api/quotes/${x.id}/docx'">📝</button>
    <button class="ic" title="Duplicate as new quote" onclick="dupQuote(${x.id})">📋</button>
-   ${x.status==='Approved'?`<button class="ic gold" title="Convert to IO" onclick="openConvert(${x.id})">🔁</button>`:""}
+   ${x.status!=='Converted'?`<button class="ic gold" title="${x.status==='Approved'?'Convert to IO':'Convert to IO — this quote is '+x.status.toLowerCase()+', so check it is agreed first'}" onclick="openConvert(${x.id})">🔁</button>`:""}
   </div></td></tr>`;
 }
 function uploadedRowHtml(x){
@@ -589,7 +598,13 @@ function drawRows(){
  const tb=document.getElementById('rows');if(!tb)return;
  tb.innerHTML=merged.map(r=>r.html).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
 }
-function quickConvert(){const c=LIST.filter(x=>x.status==='Approved');if(!c.length){toast("No approved proposals yet — mark a quote Approved first, then convert it.");return;}openConvert(c[0].id);}
+function quickConvert(){
+ const approved=LIST.filter(x=>x.status==='Approved');
+ const any=LIST.filter(x=>x.status!=='Converted');
+ const pick=approved[0]||any[0];
+ if(!pick){toast("Nothing to convert yet — build a proposal first.");return;}
+ if(!approved.length)toast("No approved proposal yet — opening the most recent. Check it is agreed before you write the IO.");
+ openConvert(pick.id);}
 async function aiDraft(){
  const v=(document.getElementById('aiAsk').value||"").trim();
  if(!v){toast("Type what you need — e.g. \"$6k/mo for an HVAC company in Carmel, lead gen\"");return;}
@@ -809,20 +824,35 @@ const DISCOVERY_QUESTIONS=[
  {key:"retargeting",label:"Retargeting visitors to their website?"},
  {key:"aiOptimized",label:"Optimizing for AI search (AI Overviews, ChatGPT)?"},
  {key:"websiteHappy",label:"Happy with their website?"},
+ {key:"reputation",label:"Managing reviews and reputation?"},
+ {key:"email",label:"Running email campaigns?"},
+ {key:"chat",label:"Chat widget on the site?"},
+ {key:"callTracking",label:"Tracking inbound calls?"},
+ {key:"texting",label:"Texting customers?"},
 ];
 const SUGGESTION_RULES=[
- {key:"retargeting",when:["No","Unknown"],title:"Retarget the people who already visited",
+ {key:"retargeting",when:["No", "Unknown"],title:"Retarget the people who already visited",
   detail:"Someone who has already been to the site is the cheapest conversion available and the easiest audience to reach again. Website retargeting runs at $4.75 CPM on the card and needs only a pixel on the site."},
- {key:"aiOptimized",when:["No","Unknown"],title:"Get the site readable by AI search",
-  detail:"Search is turning into an answer engine — AI Overviews, ChatGPT and Siri increasingly answer instead of linking. Being cited needs accurate schema markup, fast pages and clean directory listings across the local platforms."},
+ {key:"aiOptimized",when:["No", "Unknown"],title:"Get the site readable by AI search",
+  detail:"Search is turning into an answer engine \u2014 AI Overviews, ChatGPT and Siri increasingly answer instead of linking. Being cited needs accurate schema markup, fast pages and clean directory listings across the local platforms."},
  {key:"websiteHappy",when:["No"],title:"Fix the page the media points at",
-  detail:"Paid media cannot outrun a landing page that does not convert — it just buys more people to lose. If they are not happy with the site, that is the first thing to fix, before the budget scales."},
- {key:"seo",when:["No","Unknown"],title:"Claim the organic and map results",
+  detail:"Paid media cannot outrun a landing page that does not convert \u2014 it just buys more people to lose. If they are not happy with the site, that is the first thing to fix, before the budget scales."},
+ {key:"seo",when:["No", "Unknown"],title:"Claim the organic and map results",
   detail:"Paid media stops the day the budget stops. Local listings and organic visibility compound, and they feed the same review and ranking signals AI search reads."},
  {key:"paidSearch",when:["No"],title:"Capture the demand already searching",
-  detail:"Everything else in this plan creates demand. Paid search catches the people who already have it and are typing the words right now — usually the lowest cost per lead on the plan."},
+  detail:"Everything else in this plan creates demand. Paid search catches the people who already have it and are typing the words right now \u2014 usually the lowest cost per lead on the plan."},
  {key:"paidSocial",when:["No"],title:"Re-engage in feed",
   detail:"Paid social is where an audience that has met the brand once gets met again, cheaply, with a different message."},
+ {key:"callTracking",when:["No", "Unknown"],title:"Count the calls the media produces",
+  detail:"A local campaign's best leads arrive as phone calls, and an untracked call is a conversion the report cannot show. Without it the plan gets judged on the half of the response that happens to leave a form fill behind."},
+ {key:"reputation",when:["No", "Unknown"],title:"Get the reviews working for the ads",
+  detail:"Star rating is the first thing a click sees and it feeds the same local signals AI search reads. Media pointed at a three-star listing pays more for every conversion it gets."},
+ {key:"chat",when:["No"],title:"Answer the visitors who will not fill in a form",
+  detail:"Chat catches the people who want an answer now and would otherwise leave. It is the cheapest lift available to a landing page that traffic is already being bought for."},
+ {key:"texting",when:["No"],title:"Reply the way the lead expects",
+  detail:"Speed to lead decides most local sales, and a text is answered where a voicemail is not. The Suite already holds the numbers the campaign produces."},
+ {key:"email",when:["No"],title:"Use the list they already own",
+  detail:"Email reaches people who have already bought or enquired, at no media cost per impression. It is the one channel here that does not need a budget to reach an audience."},
 ];
 const TRADITIONAL_SUGGESTION={
  supplement:{key:"traditional",title:"Make the traditional buy measurable",
@@ -844,6 +874,14 @@ function restoreSuggestions(){S.suggestDismissed=[];saveSoon();renderStep();}
 function traditionalReady(){
  const t=S.traditional||{};
  return t.running!=="Yes"||["supplement","shift"].includes(t.posture);}
+/* Every discovery answer is required. A blank was reaching the proposal as
+   though the client simply did not do that thing -- which is a different
+   claim from "we did not ask". Unknown is on the form precisely so there is
+   an honest answer available when nobody knows. */
+function discoveryUnanswered(){
+ return DISCOVERY_QUESTIONS.filter(q=>!["Yes","No","Unknown"].includes((S.mkt||{})[q.key]));}
+function discoveryReady(){
+ return discoveryUnanswered().length===0&&!!(S.traditional||{}).running&&traditionalReady();}
 
 /* ============================================================
    CREATIVE GATE — mirrors hub/creative_needs.py exactly
@@ -1121,7 +1159,7 @@ function landingRec(){const g=S.objectives;
 
 /* helper renderers */
 function card(em2,t,d,on,click){return `<div class="choice${on?' on':''}" onclick="${click}"><div class="em">${em2}</div><div><h3>${t}</h3><p>${d}</p></div><div class="tick"></div></div>`;}
-function pillRow(list,arr,kind){return '<div>'+list.map(v=>`<span class="pill${arr.includes(v)?' on':''}" onclick="pill('${kind}',this.dataset.v)" data-v="${esc(v)}">${esc(v)}</span>`).join('')+'</div>';}
+function pillRow(list,arr,kind,cls){return '<div class="pillrow'+(cls?' '+cls:'')+'">'+list.map(v=>`<span class="pill${arr.includes(v)?' on':''}" onclick="pill('${kind}',this.dataset.v)" data-v="${esc(v)}">${esc(v)}</span>`).join('')+'</div>';}
 function opt(list,cur){return list.map(x=>`<option ${cur===x?'selected':''}>${esc(x)}</option>`).join('');}
 function seg(label,key){
  // "__traditional" is the one question that does not live on S.mkt: its
@@ -1489,7 +1527,9 @@ const STEPS=[
  ()=>({eyebrow:"Current Marketing",title:"What are they already doing?",
    sub:"Every answer changes the recommendation. Unknown is a real answer — it means we have not confirmed it.",
    html:`<div class="bpanel"><div class="ttl">📋 What's running today</div>
-    ${DISCOVERY_QUESTIONS.map(q=>seg(q.label,q.key)).join('')}</div>
+    <div class="note" style="margin-top:2px">All twelve need an answer. <b>Unknown</b> is a real one — it says we have not confirmed it, which is different from a no.</div>
+    <div class="disc2">${DISCOVERY_QUESTIONS.map(q=>seg(q.label,q.key)).join('')}</div>
+    ${discoveryUnanswered().length?`<div class="note" style="margin-top:10px;color:#8c2f24"><b>${discoveryUnanswered().length} still unanswered:</b> ${discoveryUnanswered().map(q=>esc(q.label.replace(/\?$/,''))).join(' · ')}</div>`:''}</div>
 
    <div class="bpanel"><div class="ttl">📻 Traditional media</div>
     ${seg("Are they doing traditional media (radio, TV, print, outdoor, direct mail)?","__traditional")}
@@ -1509,11 +1549,11 @@ const STEPS=[
     ${(S.traditional||{}).running==="Unknown"?'<div class="note" style="margin-top:8px">Worth finding out before the proposal goes out: it is usually the largest number in the room.</div>':''}
    </div>
    ${suggestBlock()}`,
-   valid:()=>traditionalReady()}),
+   valid:()=>discoveryReady()}),
 
  ()=>({eyebrow:"Guardrails",title:"Anything to avoid?",sub:"Flag exclusions, negative keywords, or restricted audiences up front (feeds the IO's exclusions field).",
    html:'<div class="bpanel"><div class="ttl">🚫 Exclusions / things to avoid</div>'+
-     pillRow(["Exclude current customers","Exclude competitor staff","No off-hours delivery","Brand-safety sensitive","Avoid certain keywords","Sensitive category (health/legal)","Competitor conquesting OK"],S.exclusions,'exc')+
+     pillRow(["Exclude current customers","Exclude competitor staff","No off-hours delivery","Brand-safety sensitive","Avoid certain keywords","Sensitive category (health/legal)","Competitor conquesting OK"],S.exclusions,'exc','c3')+
      '<div class="addpill"><input id="excIn" placeholder="Add an exclusion…" onkeydown="if(event.key===\'Enter\'){addCustom(\'exc\',\'excIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'exc\',\'excIn\')">+ Add</button></div></div>',
    valid:()=>true}),
 
@@ -1528,6 +1568,19 @@ const STEPS=[
   if(S._areaView==="edit")return areaEditorStep();
   return areaListStep();
  },
+
+ /* Measurement sits ahead of the audience and the media mix on purpose.
+    "Cost per lead" and "cost per store visit" are different campaigns, and
+    deciding how this one will be judged before the products are chosen is
+    what makes the mix answer a question rather than fill a budget. It used
+    to come after the plan was already priced, where it could only describe
+    what had been chosen. */
+ ()=>{ if(S.kpis.length===0)S.kpis=[...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].slice(0,6);
+   return{eyebrow:"Measurement",title:"How will this be judged?",sub:"Set this before the products: what counts as success decides which products belong on the plan.",
+   html:'<div class="bpanel"><div class="ttl">📐 KPIs</div>'+pillRow([...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))],S.kpis,'kpi')+
+     '<div class="addpill"><input id="kpiIn" placeholder="Add a KPI…" onkeydown="if(event.key===\'Enter\'){addCustom(\'kpi\',\'kpiIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'kpi\',\'kpiIn\')">+ Add</button></div></div>'
+     +'<div class="note">These travel onto the insertion order and into the proposal\'s Measurement &amp; Reporting section.</div>',
+   valid:()=>S.kpis.length>0};},
 
  ()=>({eyebrow:"Audience Strategy",title:"Who we target",sub:"Pulled from the industry audience library. Adjust as needed.",
    html:(()=>{const key=INDUSTRY_KEYS[S.industry]||'general';const lib=industryIdeas[key]||industryIdeas.general;
@@ -1572,12 +1625,6 @@ const STEPS=[
     +' per medium gets one confirmation — over the campaign, production usually pays for itself above that.</div>',
    valid:()=>creativeUnresolved().length===0};
  },
-
- ()=>{ if(S.kpis.length===0)S.kpis=[...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].slice(0,6);
-   return{eyebrow:"Measurement",title:"KPI framework",sub:"KPIs come straight from the objective→KPI map. Tune them as needed.",
-   html:'<div class="bpanel"><div class="ttl">📐 KPIs</div>'+pillRow([...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))],S.kpis,'kpi')+
-     '<div class="addpill"><input id="kpiIn" placeholder="Add a KPI…" onkeydown="if(event.key===\'Enter\'){addCustom(\'kpi\',\'kpiIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'kpi\',\'kpiIn\')">+ Add</button></div></div>',
-   valid:()=>S.kpis.length>0};},
 
  ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. Pick the featured one.",
    html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Essential ≈ 70%, Recommended = 100%, Accelerated ≈ 150% of budget. Change the budget or products and these rebuild.</div>'
@@ -1625,7 +1672,12 @@ function renderStep(){
  // because there it means "back out of this area", not "leave the wizard".
  document.getElementById('backBtn').style.visibility=(step===0&&!d.onBack)?'hidden':'visible';
  document.getElementById('nextBtn').textContent=d.nextLabel||(d.isLast?'Finish & back to dashboard':'Continue →');
- if(d.after)d.after();window._valid=d.valid;syncNext();window.scrollTo(0,0);
+ if(d.after)d.after();window._valid=d.valid;syncNext();
+ /* Only when the wizard actually moved. renderStep() is also how a step
+    redraws after an answer -- picking a goal, answering a discovery
+    question, toggling a card -- and scrolling to the top on every one of
+    those threw the rep back to the heading mid-question. */
+ if(window._entering)window.scrollTo(0,0);
 }
 function syncNext(){const b=document.getElementById('nextBtn');if(b)b.disabled=window._valid?!window._valid():false;}
 function nextStep(){
