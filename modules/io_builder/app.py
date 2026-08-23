@@ -103,6 +103,28 @@ def health():
         'order_counter_storage': 'cloudinary' if _cloudinary_is_configured() else 'temporary',
     })
 
+
+def _own_api_paths():
+    """This app's own /api/* routes, as plain prefixes for the page to use.
+
+    The page rewrites /api/* fetches onto the mount prefix, because its own
+    routes live at /tools/io/api/* once DispatcherMiddleware mounts it. That
+    rewrite has to know which /api/ paths are OURS: the page also calls Hub
+    routes that live at the site root (/api/io/from-proposal reads a proposal,
+    /api/help draws the help layer), and prefixing those sent them to this app,
+    which has no such route -- so reading a proposal 500'd and every help
+    bubble on the page died with it. Derived from the route table rather than
+    hand-listed, so a new route cannot be forgotten here.
+    """
+    out = set()
+    for rule in app.url_map.iter_rules():
+        path = str(rule.rule)
+        if not path.startswith('/api/'):
+            continue
+        cut = path.find('<')                    # /api/thing/<id> -> /api/thing/
+        out.add(path[:cut] if cut > 0 else path)
+    return sorted(out)
+
 @app.get('/')
 def index():
     template_path = BASE_DIR / 'templates' / 'index.html'
@@ -113,7 +135,7 @@ def index():
             'Upload the templates folder beside app.py and leave Render Root Directory blank.',
             500,
         )
-    return render_template('index.html')
+    return render_template('index.html', own_api_paths=_own_api_paths())
 
 @app.get('/api/cloudinary-config')
 def cloudinary_config():

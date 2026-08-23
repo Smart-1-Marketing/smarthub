@@ -167,8 +167,18 @@ class HubBar:
                     b'<script defer src="/hub-crumbs.js"></script>'
                     b'<script defer src="/hub-autofill.js"></script>'
                     b'<script defer src="/hub-accordion.js"></script>')
-        if b"</body>" in body:
-            body = body.replace(b"</body>", _bar + _scripts + b"</body>", 1)
+        # The LAST </body>, not the first. A module page that builds a printable
+        # document in JavaScript carries a whole `<html>...</body></html>`
+        # string inside its own script -- the IO Builder builds two of them --
+        # and injecting at the first match dropped the sidebar markup, a
+        # stylesheet and five <script> tags into the middle of a template
+        # literal. The injected <script> closed the page's own script block
+        # early, so everything after it parsed as HTML: the IO Builder's entire
+        # interview died with "Unexpected identifier" before drawing a single
+        # question. The document's real closing tag is the last one.
+        cut = body.rfind(b"</body>")
+        if cut >= 0:
+            body = body[:cut] + _bar + _scripts + body[cut:]
         else:
             body += _bar + _scripts
         headers = [(k, v) for k, v in headers if k.lower() != "content-length"]
