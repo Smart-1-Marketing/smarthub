@@ -212,8 +212,15 @@ def proposals_for(client: str) -> dict:
 
 
 def brief_from_proposal(proposal_id: str = "", client: str = "",
-                        text: str = "", uploaded_id: str = "") -> dict:
-    """Everything known about the campaign, before any copy is written."""
+                        text: str = "", uploaded_id: str = "",
+                        website: str = "", kind: str = "client") -> dict:
+    """Everything known about the campaign, before any copy is written.
+
+    ``kind="prospect"`` is a business we do not have a record for: a sample
+    page built to show them what we would do. There is no client record, no
+    proposal and no brand on file, so the website is doing all the work --
+    which is why it is required for a prospect and optional for a client.
+    """
     spec, source = None, ""
 
     # A proposal written elsewhere and uploaded onto the client record. Read
@@ -250,15 +257,23 @@ def brief_from_proposal(proposal_id: str = "", client: str = "",
         spec = from_proposal_text(text, client).to_dict()
         source = (f"uploaded proposal {uploaded_id}" if uploaded_id
                   else "uploaded proposal")
-    if not spec and client:
+    # Not for a prospect: there is no record to read, and a same-named client
+    # in the registry is a different business, not this one.
+    if not spec and client and kind != "prospect":
         from hub.campaign_spec import from_client
         spec = from_client(client).to_dict()
         source = "client record"
 
+    if kind == "prospect":
+        # Nothing to look up. Say so, rather than reporting "client record"
+        # as the source for a business that has no record.
+        spec, source = spec or {}, source or "prospect website"
+
     spec = spec or {}
     brief = {
+        "kind": kind,
         "client": spec.get("client") or client,
-        "website": spec.get("website", ""),
+        "website": website or spec.get("website", ""),
         "industry": spec.get("industry", ""),
         "city": spec.get("city", ""), "state": spec.get("state", ""),
         "phone": spec.get("contact_phone", ""),
@@ -277,7 +292,8 @@ def brief_from_proposal(proposal_id: str = "", client: str = "",
     # Anything the client record knows that the proposal didn't carry. A quote
     # row has no address or phone on it, and those are what a landing page
     # header is made of.
-    if brief["client"] and not (brief["phone"] and brief["city"]):
+    if (kind != "prospect" and brief["client"]
+            and not (brief["phone"] and brief["city"])):
         try:
             from hub.client_context import context
             f = context(brief["client"]).get("fields", {}) or {}
@@ -318,7 +334,14 @@ def brief_from_proposal(proposal_id: str = "", client: str = "",
     # they're what the campaign is selling — but "no proposal yet" is a
     # supported starting point, so refusing outright would block the case
     # this was asked for. The gap is reported rather than silently accepted.
-    brief["missing"] = [] if brief.get("client") else ["client"]
+    missing = []
+    if not brief.get("client"):
+        missing.append("a name")
+    if kind == "prospect" and not brief.get("website"):
+        # Without it there is nothing to build a sample page from but the
+        # name, and a page written from a name alone is a guess.
+        missing.append("their website address")
+    brief["missing"] = missing
     brief["thin"] = not brief.get("products")
     return brief
 
@@ -393,15 +416,22 @@ def write_copy(brief: dict, goal: str, offer: str) -> dict:
 
 def create(proposal_id: str = "", client: str = "", text: str = "",
            direction: str = "trust", goal: str = "", offer: str = "",
-           actor: str = "", uploaded_id: str = "") -> dict:
-    brief = brief_from_proposal(proposal_id, client, text, uploaded_id)
+           actor: str = "", uploaded_id: str = "", kind: str = "client",
+           website: str = "") -> dict:
+    kind = "prospect" if kind == "prospect" else "client"
+    brief = brief_from_proposal(proposal_id, client, text, uploaded_id,
+                                website, kind)
     if brief["missing"]:
         return {"error": "Still needed: " + ", ".join(brief["missing"])}
     copy = write_copy(brief, goal, offer)
     from .landing_render import render_page, with_endpoint
+    from .landing_images import pick
 
     page_id = uuid.uuid4().hex[:12]
-    html = render_page(brief, copy, DIRECTIONS.get(direction, DIRECTIONS["trust"]))
+    pics = pick(brief, benefits=len([b for b in (copy.get("benefits") or [])
+                                     if isinstance(b, dict) and b.get("title")]))
+    html = render_page(brief, copy, DIRECTIONS.get(direction, DIRECTIONS["trust"]),
+                       pics)
     # Absolute, so the form still reaches us from wherever the page is pasted.
     from hub.config import settings
     base = settings.public_base_url
@@ -411,6 +441,11 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
         "id": page_id,
         "slug": f"{_slug(brief['client'])}-{page_id[:6]}",
         "client": brief["client"],
+        "kind": kind,
+        "website": brief.get("website", ""),
+        "images": {"available": pics.get("available", False),
+                   "source": pics.get("source", ""),
+                   "cards": len(pics.get("cards") or [])},
         "proposal_id": proposal_id or uploaded_id,
         "proposal_kind": ("saved" if proposal_id else
                           "uploaded" if uploaded_id else ""),
@@ -443,11 +478,16 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
     if brief.get("thin"):
         note += (" No proposal was attached, so the page has no products on "
                  "it — build it from a proposal to get those.")
+    if not pics.get("available"):
+        note += (" No image provider is configured, so the page uses a colour "
+                 "hero rather than photography — set PEXELS_API or "
+                 "PIXABAY_API and rebuild for a richer page.")
     if not base:
         # Otherwise the form posts to whatever domain the page is pasted onto.
         note += (" PUBLIC_BASE_URL isn't set, so the lead form uses a relative "
                  "URL and will only work while the page is served from the Hub.")
     return {"ok": True, "id": page_id, "slug": row["slug"],
+            "kind": kind, "images": row["images"],
             "preview": f"/sales/landing/p/{row['slug']}",
             "copy_source": copy.get("source"),
             "thin": brief.get("thin", False),
@@ -479,6 +519,132 @@ def update_html(id_or_slug: str, html: str, actor: str = "") -> dict:
     return {"error": "No such landing page."}
 
 
+REVISE_SYSTEM = (
+    "You are revising landing page copy that is already live. You are given "
+    "the current copy as JSON and an instruction from the person who owns "
+    "the page.\n\n"
+    "Change what the instruction asks for and leave everything else exactly "
+    "as it is. Return the SAME JSON shape with the same keys.\n\n"
+    "The rules the original copy was written under still hold, and an "
+    "instruction does not lift them: never invent reviews, testimonials, "
+    "awards, guarantees, prices, discounts, locations, staff or years in "
+    "business, and never write a claim the material does not support. If the "
+    "instruction asks for something you have no basis for, leave that part "
+    "alone rather than inventing it."
+)
+
+
+def revise(id_or_slug: str, instructions: str, actor: str = "") -> dict:
+    """Rewrite a built page against an instruction, keeping the old version.
+
+    The directives the copy was first written under are restated here rather
+    than assumed. "Make it punchier" is exactly the kind of instruction that
+    walks a model past a prohibition it was given once, several requests ago
+    -- the Proposal Builder learned that when its AI rewrite had no
+    directives attached at all.
+    """
+    instructions = str(instructions or "").strip()
+    if not instructions:
+        return {"error": "Say what you would like changed."}
+
+    row = get(id_or_slug)
+    if not row:
+        return {"error": "No such landing page."}
+
+    brief = row.get("brief") or {}
+    copy = dict(row.get("copy") or {})
+    try:
+        from hub import ai
+        raw = ai.chat(
+            [{"role": "system", "content": REVISE_SYSTEM},
+             {"role": "user", "content":
+              "Current copy:\n" + json.dumps(copy) +
+              "\n\nWhat is known about the business:\n" + json.dumps({
+                  k: brief.get(k) for k in
+                  ("client", "industry", "geo", "city", "products",
+                   "description")}) +
+              "\n\nInstruction:\n" + instructions}],
+            module="landing_maker", purpose="page_revision",
+            json_mode=True, max_tokens=1600, temperature=0.5)
+        data = json.loads(re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M))
+        if not isinstance(data, dict):
+            raise ValueError("not an object")
+    except Exception:                                       # noqa: BLE001
+        return {"error": "The rewrite did not come back. Nothing was changed."}
+
+    # Only keys that were already there, so a stray key cannot reshape the
+    # page, and a section the model dropped keeps its existing copy.
+    for key in list(copy):
+        if key in data and data[key] not in (None, ""):
+            copy[key] = data[key]
+    copy["source"] = "ai"
+
+    from .landing_render import render_page, with_endpoint
+    from .landing_images import pick
+    pics = pick(brief, benefits=len([b for b in (copy.get("benefits") or [])
+                                     if isinstance(b, dict) and b.get("title")]))
+    html = render_page(brief, copy,
+                       DIRECTIONS.get(row.get("direction"), DIRECTIONS["trust"]),
+                       pics)
+    from hub.config import settings
+    base = settings.public_base_url
+    html = with_endpoint(html, f"{base}/api/leads/capture" if base
+                         else "/api/leads/capture")
+
+    rows = _load()
+    for r in rows:
+        if r.get("id") == row["id"]:
+            r.setdefault("versions", []).append(
+                {"html": r.get("page_html", ""), "saved": r.get("updated") or r.get("created"),
+                 "by": r.get("updated_by") or r.get("by", ""),
+                 "why": r.get("last_instruction", "")})
+            r["versions"] = r["versions"][-10:]
+            r["page_html"] = html
+            r["copy"] = copy
+            r["headline"] = copy.get("headline", r.get("headline", ""))
+            r["updated"] = _now()
+            r["updated_by"] = actor
+            r["last_instruction"] = instructions[:400]
+            _save(rows)
+            break
+
+    try:
+        from hub import audit
+        audit.log("landing_maker", "revised", actor=actor or None,
+                  client=row.get("client"), page=row.get("slug"))
+    except Exception:                                       # noqa: BLE001
+        pass
+    return {"ok": True, "slug": row["slug"],
+            "preview": f"/sales/landing/p/{row['slug']}",
+            "versions": len(get(row["id"]).get("versions") or []),
+            "note": "Rewritten. The previous version is kept."}
+
+
+def remove(id_or_slug: str, actor: str = "") -> dict:
+    """Delete a built page.
+
+    The store is one mirrored JSON file, so this is a write of the remaining
+    rows rather than a file removal -- deleting the file would leave the
+    database copy to be restored on the next read, which is the one way the
+    backup can bite you.
+    """
+    rows = _load()
+    keep = [r for r in rows
+            if r.get("id") != id_or_slug and r.get("slug") != id_or_slug]
+    if len(keep) == len(rows):
+        return {"error": "No such landing page."}
+    gone = next(r for r in rows
+                if r.get("id") == id_or_slug or r.get("slug") == id_or_slug)
+    _save(keep)
+    try:
+        from hub import audit
+        audit.log("landing_maker", "deleted", actor=actor or None,
+                  client=gone.get("client"), page=gone.get("slug"))
+    except Exception:                                       # noqa: BLE001
+        pass
+    return {"ok": True, "deleted": gone.get("slug", "")}
+
+
 def listing(client: str = "", q: str = "") -> dict:
     """Every landing page, searchable."""
     rows = all_rows = _load()
@@ -494,7 +660,8 @@ def listing(client: str = "", q: str = "") -> dict:
     return {
         "pages": [{k: r.get(k) for k in
                    ("id", "slug", "client", "campaign", "headline", "direction",
-                    "created", "by", "proposal_id", "updated")}
+                    "created", "by", "proposal_id", "updated", "kind",
+                    "website", "images")}
                   for r in rows[:300]],
         "count": len(rows),
         "clients": sorted({r.get("client") for r in all_rows if r.get("client")}),

@@ -30,6 +30,7 @@ The rest guard the traps CLAUDE.md names:
 """
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -281,6 +282,131 @@ check("the edit is what is served now",
       "edited" in anon.get(f"/sales/landing/p/{slug}").get_data(as_text=True), True)
 check("saving to a page that does not exist is reported",
       "error" in lm.update_html("nope", "<html></html>"), True)
+
+
+
+section("A sample page for a prospect")
+
+check("a prospect with no website is refused",
+      "website" in (lm.create(client="Northgate Dental", kind="prospect",
+                              goal="Book a cleaning").get("error") or ""), True)
+
+pros = lm.create(client="Northgate Dental", kind="prospect",
+                 website="northgatedental.com", goal="Book a cleaning",
+                 actor="Test")
+check("with one, the page builds", bool(pros.get("ok")), True)
+_p = lm.get(pros.get("slug", "")) or {}
+check("it is recorded as a prospect", _p.get("kind"), "prospect")
+check("their website is kept", _p.get("website"), "northgatedental.com")
+# A prospect has no client record, and a same-named client in the registry is
+# a different business — so that lookup must not run at all.
+check("it does not claim a client record as its source",
+      (_p.get("brief") or {}).get("source"), "prospect website")
+check("and it still captures leads, which is the point",
+      "/api/leads/capture" in _p.get("page_html", ""), True)
+check("a client page is still labelled a client",
+      (lm.get(slug) or {}).get("kind"), "client")
+
+
+section("The built page is made to convert")
+
+_html = _p.get("page_html", "")
+for _label, _must in [("a call to action above the fold",
+                       '<a class="btn" href="#enquire">'),
+                      ("a header that sticks", "position:sticky"),
+                      ("a bar pinned to the bottom on phones", 'class="dock"'),
+                      ("one form, and every action points at it", 'id="enquire"')]:
+    check(_label, _must in _html, True)
+
+# No provider configured is the normal state of a fresh deployment. It must
+# produce a colour hero, never a page of broken image icons.
+check("with no image provider, no image tags are emitted",
+      re.findall(r'<img[^>]+src="([^"]*)"', _html), [])
+check("and no empty background url is left behind", "url()" in _html, False)
+check("the response says photography was not available",
+      "image provider" in (pros.get("note") or ""), True)
+
+
+section("Pictures, when there are pictures")
+
+from hub.landing_render import render_page as _render               # noqa: E402
+
+_brief = {"client": "Riverside HVAC", "industry": "HVAC", "geo": "Columbus, OH",
+          "colors": [], "fonts": [], "logo": "", "products": []}
+_copy = {"headline": "H", "subhead": "S", "cta": "Book a visit",
+         "benefits": [{"title": "A", "text": "1"}, {"title": "B", "text": "2"}],
+         "how_it_works": [], "why_us": [], "faqs": []}
+
+
+def _img(u):
+    return {"url": u, "wide": True, "alt": "", "credit": "Jo Bloggs",
+            "credit_url": "", "source": "pexels"}
+
+
+_pics = {"hero": _img("https://img.test/hero.jpg"),
+         "cards": [_img("https://img.test/a.jpg"), _img("https://img.test/b.jpg")],
+         "band": _img("https://img.test/band.jpg"),
+         "credits": ["Jo Bloggs (pexels)"], "source": "stock", "available": True}
+_rich = _render(_brief, _copy, lm.DIRECTIONS["trust"], _pics)
+check("the hero carries its photograph",
+      "url(https://img.test/hero.jpg)" in _rich, True)
+check("every benefit card carries one",
+      _rich.count('class="card-pic"'), 2)
+check("and the closing band does too",
+      "url(https://img.test/band.jpg)" in _rich, True)
+check("the photographer is credited", "Photography: Jo Bloggs" in _rich, True)
+
+# A row where some cards have photographs and some do not reads as a page
+# that failed to load, so it is all of them or none.
+_short = dict(_pics, cards=[_img("https://img.test/only.jpg")])
+check("one photograph for two cards gives none",
+      'class="card-pic"' in _render(_brief, _copy, lm.DIRECTIONS["trust"], _short),
+      False)
+
+# These URLs come off a stock API or somebody's website.
+_evil = dict(_pics, hero={"url": "javascript:alert(1)", "wide": True},
+             band={"url": "data:text/html,<script>", "wide": True})
+_h = _render(_brief, _copy, lm.DIRECTIONS["trust"], _evil)
+check("a javascript: image url never reaches the page", "javascript:" in _h, False)
+check("nor a data: one", "data:text/html" in _h, False)
+
+
+section("Changing and removing a page")
+
+check("an empty instruction is refused",
+      "error" in lm.revise(pros["slug"], "   "), True)
+check("so is one for a page that does not exist",
+      "error" in lm.revise("no-such-page", "make it shorter"), True)
+
+# No OPENAI_API_KEY here, which is the failure this has to survive: the page
+# must be left exactly as it was rather than half-rewritten.
+_before = lm.get(pros["slug"])["page_html"]
+_rev = lm.revise(pros["slug"], "lead with the emergency call-out", "Test")
+check("a rewrite that cannot run says so", "error" in _rev, True)
+check("and changes nothing",
+      lm.get(pros["slug"])["page_html"], _before)
+
+_n = lm.listing()["count"]
+check("delete removes it", bool(lm.remove(pros["slug"], "Test").get("ok")), True)
+check("it is gone from the list", lm.listing()["count"], _n - 1)
+check("and cannot be fetched", lm.get(pros["slug"]), None)
+check("deleting it twice is reported, not silent",
+      "error" in lm.remove(pros["slug"], "Test"), True)
+# Removing only the file would leave the mirror to restore it on the next
+# read, so the delete has to go through the store, not os.remove.
+os.remove(lm._path())
+check("and the database mirror does not bring it back",
+      lm.get(pros["slug"]), None)
+
+
+section("The page uses the Hub's own buttons")
+
+check("the build button is the Hub's primary button",
+      'class="btn-primary" id="lpBuild"' in maker, True)
+check("row actions use the Hub's ghost button",
+      maker.count('class="btn-ghost"') >= 3, True)
+check("no other module's button class is borrowed",
+      "um-btn" in maker, False)
 
 
 # ------------------------------------------------------------------- summary
