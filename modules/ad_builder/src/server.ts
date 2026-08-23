@@ -37,6 +37,7 @@ import { reworkLogo } from './logo-tools';
 import { resolveAsset } from './assets';
 import { fitImageToBudget } from './image-budget';
 import { getPlatform } from './registry';
+import { listFamilies } from './fonts';
 import sharp from 'sharp';
 import { notify } from './notify';
 import { discoverBrand, normalizeDomain } from './brandfetch';
@@ -1644,7 +1645,11 @@ const server = http.createServer(async (req, res) => {
             : null,
         };
       });
-      return json(res, 200, { templates });
+      // The families the renderer actually has. Sent so the editor can offer a
+      // list rather than a text box: an unknown name falls back to Montserrat
+      // predictably, which means a free-text control can show one family while
+      // the ad renders another.
+      return json(res, 200, { templates, fonts: listFamilies() });
     }
 
     if (route === 'GET /api/campaigns') {

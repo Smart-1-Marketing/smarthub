@@ -146,6 +146,14 @@ export interface Box {
 export interface TextBox extends Box {
   align?: HAlign;
   valign?: VAlign;
+  /**
+   * Family for this block only. Unset means the brand's font for this role --
+   * the headline face for a headline, the body face for everything else --
+   * which is what nearly every ad wants. Set when one block needs to differ,
+   * e.g. an offer flash in the headline face on a body-face layout.
+   * Must be a family fonts.ts actually has; block-style.ts checks that.
+   */
+  font?: string;
   /** [min, max] px at 1x. Autofit steps down from max. */
   size: [number, number];
   maxLines: number;

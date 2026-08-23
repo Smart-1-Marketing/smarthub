@@ -25,6 +25,7 @@
  * preview and the final render see exactly the same boxes.
  */
 
+import { fontIsAvailable } from './fonts';
 import type { HAlign, SizeLayout, TextBox, VAlign, Weight } from './types';
 
 /** The blocks a person can restyle. Geometry-only blocks are deliberately out. */
@@ -38,6 +39,14 @@ export const MAX_TYPE = 96;
 export interface BlockStyle {
   /** Largest type size in px at 1x. Autofit still steps down to fit. */
   size?: number;
+  /**
+   * Family for this block only. Blank means the brand's face for this role.
+   * A family the renderer does not have is DROPPED rather than passed on:
+   * resolveFont falls back predictably, so an unavailable name would render
+   * as Montserrat while the control still showed the name that was asked for
+   * -- the ad looks wrong and the panel says it is right.
+   */
+  font?: string;
   weight?: Weight;
   align?: HAlign;
   /** Block width in px at 1x — where the line wraps. */
@@ -111,6 +120,11 @@ export function applyBlockStyles(
       // has no room to shrink and long copy overflows instead of fitting.
       const floor = Math.min(Array.isArray(box.size) ? box.size[0] : max, max);
       patched.size = [Math.max(MIN_TYPE, floor), max];
+      changed = true;
+    }
+
+    if (style.font && fontIsAvailable(style.font)) {
+      patched.font = style.font.trim();
       changed = true;
     }
 

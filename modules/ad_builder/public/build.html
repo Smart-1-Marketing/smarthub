@@ -335,6 +335,7 @@
     size: '300x250',
     platform: 'google',
     templates: [],
+    fonts: [],        // families the renderer has, from /api/build/options
     dirty: false,
     sizeStatus: {},   // size -> { status, words }
   };
@@ -578,6 +579,14 @@
             '<input type="number" min="20" max="2000" step="1" placeholder="auto"' +
             ' data-style="' + key + '" data-prop="w"' +
             ' value="' + (st.w || '') + '"></label>' +
+        '</div>' +
+        '<div class="bsrow" style="grid-template-columns:1fr">' +
+          '<label>Typeface<select data-style="' + key + '" data-prop="font">' +
+            opt('', 'Brand face for this block', st.font) +
+            (state.fonts || []).map(function (f) {
+              return opt(f, f, st.font);
+            }).join('') +
+          '</select></label>' +
         '</div>' +
         '<div class="bsrow">' +
           '<label>Weight<select data-style="' + key + '" data-prop="weight">' +
@@ -1473,6 +1482,10 @@
     fetch('/api/campaigns').then(function (r) { return r.json(); })
   ]).then(function (out) {
     state.templates = out[0].templates || [];
+    // The families the renderer actually has. A select of these rather than a
+    // text box, because an unknown name falls back to Montserrat predictably --
+    // so a free-text control can show one family while the ad renders another.
+    state.fonts = out[0].fonts || [];
     var list = out[1].campaigns || [];
     window.__campaignList = list;
     if (!list.length) {
