@@ -75,12 +75,26 @@ if [ -z "${PUBLIC_URL:-}" ] && [ -n "${PUBLIC_BASE_URL:-}" ]; then
   export PUBLIC_URL="${PUBLIC_BASE_URL%/}/tools/display-ads"
 fi
 
-# Renders, project state and the brand cache. The default is a directory inside
-# the image, which Render discards on every deploy -- so a finished ad package
-# would vanish with the next release. render.yaml points this at the mounted
-# disk; create it here because the renderer only creates subdirectories.
+# Renders, project state and the brand cache. The renderer's own default is a
+# directory inside the image, which Render replaces on every deploy, so a
+# finished ad package would vanish with the next release.
+#
+# This was set in render.yaml and never arrived. render.yaml is a Blueprint
+# file, and this service takes its environment from the dashboard instead, so
+# a value declared only in the blueprint is documentation rather than
+# configuration -- the boot log said `output dir: /app/modules/ad_builder/out`
+# for exactly that reason. Defaulting it here means the durable path does not
+# depend on anyone remembering a dashboard field.
+#
+# Same test hub/extensions.py uses to place the database: the mounted disk when
+# there is one, and the repo-local fallback when there is not, so a laptop run
+# still works.
+if [ -z "${OUTPUT_DIR:-}" ] && [ -d /var/data ]; then
+  export OUTPUT_DIR=/var/data/adbuilder-out
+fi
 if [ -n "${OUTPUT_DIR:-}" ]; then
   mkdir -p "$OUTPUT_DIR" || echo "[adbuilder] could not create OUTPUT_DIR ${OUTPUT_DIR}"
+  echo "[adbuilder] output dir: ${OUTPUT_DIR}"
 fi
 
 start_adbuilder() {
