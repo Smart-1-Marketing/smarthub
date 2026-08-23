@@ -1577,7 +1577,27 @@ def expected_results(state):
             monthly = float(item.get("dollars") or 0)
         except (TypeError, ValueError):
             monthly = 0.0
-        totals["monthly"] += monthly
+        # Monthly or one-time, and for how long. A line quoted at $3,000 that
+        # is actually a one-off is $18,000 over a six-month flight if nobody
+        # asks -- so the wizard asks, and the totals here read the answer
+        # rather than assuming every line runs the whole campaign.
+        basis = str(item.get("basis") or "monthly")
+        try:
+            term = int(item.get("termMonths") or months)
+        except (TypeError, ValueError):
+            term = months
+        term = max(1, min(months, term))
+        if basis == "one_time":
+            line_campaign = round(monthly, 2)
+            # A one-time cost still has to sit in a monthly plan somewhere, so
+            # it is spread across the flight. Never dropped (the plan
+            # under-reports what is owed) and never charged monthly (every
+            # month of the campaign is overstated by the same amount).
+            line_monthly = round(monthly / months, 2)
+        else:
+            line_campaign = round(monthly * term, 2)
+            line_monthly = monthly
+        totals["monthly"] += line_monthly
         product = hub_rate_card.find(item.get("label") or item.get("product") or "")
         if product is None:
             # Fall back to the rate the wizard carried, so an off-card product
@@ -1586,25 +1606,28 @@ def expected_results(state):
                        "listed_rate": item.get("rate") or ""}
         delivery = hub_rate_card.estimate_delivery(product, monthly)
         units = delivery.get("units")
+        run = 1 if basis == "one_time" else term
         if units and delivery["unit_label"].startswith("impressions"):
-            totals["impressions"] += units * months
+            totals["impressions"] += units * run
         elif units:
-            totals["views"] += units * months
+            totals["views"] += units * run
         if not units:
             unpriced.append(str(item.get("product") or ""))
         rows.append({
             "product": item.get("product") or "",
             "category": item.get("category") or "",
             "medium": hub_creative.medium_of(item),
-            "monthly": monthly,
-            "campaign": round(monthly * months, 2),
+            "monthly": line_monthly,
+            "campaign": line_campaign,
+            "basis": basis,
+            "term_months": 1 if basis == "one_time" else term,
             "rate": product.get("listed_rate") or "",
             "units": units,
             "unit_label": delivery.get("unit_label") or "",
             "note": delivery.get("note") or "",
         })
 
-    totals["campaign"] = round(totals["monthly"] * months, 2)
+    totals["campaign"] = round(sum(r["campaign"] for r in rows), 2)
     return {
         "rows": rows, "months": months, "totals": totals,
         # Only says anything when they run traditional media and a posture has

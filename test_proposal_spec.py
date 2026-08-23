@@ -776,6 +776,51 @@ check("the wizard is told exactly what will be written",
       len(served_plan["sections"]) == len(spec.OUTLINE) - 2,
       len(served_plan["sections"]))
 # ---------------------------------------------------------------------------
+# Monthly or one-time, and for how long. A dollar figure on its own has not
+# said which, and the difference is what gets billed: a $3,000 line read as
+# monthly over a six-month flight is $18,000 nobody agreed to.
+basis_base = {"months": 6, "items": [
+    {"category": "OTT", "product": "Connected TV - Targeted",
+     "rate": "CPM", "rateValue": 35.0, "dollars": 3000}]}
+
+
+def _basis(**extra):
+    st = dict(basis_base, items=[dict(basis_base["items"][0], **extra)])
+    return builder.expected_results(st)
+
+
+full = _basis()
+check("a monthly line runs the whole flight by default",
+      (full["rows"][0]["campaign"], full["totals"]["campaign"]) == (18000.0, 18000.0),
+      full["rows"][0])
+
+once = _basis(basis="one_time")
+check("a one-time line bills once, not every month",
+      once["rows"][0]["campaign"] == 3000.0, once["rows"][0]["campaign"])
+check("but still sits in the monthly plan, spread across the flight",
+      once["rows"][0]["monthly"] == 500.0, once["rows"][0]["monthly"])
+check("and delivers its impressions once rather than six times",
+      once["totals"]["impressions"] == full["totals"]["impressions"] // 6,
+      (once["totals"]["impressions"], full["totals"]["impressions"]))
+
+short = _basis(basis="monthly", term_months=None, termMonths=3)
+check("a line that stops early costs only the months it runs",
+      short["rows"][0]["campaign"] == 9000.0, short["rows"][0]["campaign"])
+check("a term longer than the campaign is capped at it",
+      _basis(termMonths=99)["rows"][0]["term_months"] == 6)
+check("and a nonsense term falls back to the campaign length",
+      _basis(termMonths="soon")["rows"][0]["campaign"] == 18000.0)
+
+# The campaign total is the sum of the lines, not the monthly average times the
+# term -- a one-time line and a line that stops early each break that shortcut.
+mixed = builder.expected_results({"months": 6, "items": [
+    dict(basis_base["items"][0]),
+    {"category": "CREATIVE / DESIGN SERVICES", "product": "Standard Set of 6",
+     "dollars": 250, "basis": "one_time"}]})
+check("mixed bases total correctly",
+      mixed["totals"]["campaign"] == 18000.0 + 250.0, mixed["totals"]["campaign"])
+
+# ---------------------------------------------------------------------------
 # Recommended budgets: what "more" looks like, at the foot of the proposal.
 # The point of the section is that neither route invents a number -- raising a
 # line quotes the Accelerated package already printed above it, and adding one

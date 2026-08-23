@@ -193,6 +193,9 @@
   iframe.ioframe{width:100%;height:calc(100vh - 130px);border:0;border-radius:14px;background:#fff;box-shadow:var(--shadow)}
   .empty{padding:40px;text-align:center;color:var(--muted)}
   .clientcard{border:1px solid var(--line);border-radius:13px;background:#fff;padding:16px 18px;margin-top:12px;box-shadow:var(--shadow)}
+  .basisrow{flex-basis:100%;display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+    margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
+  .basisrow .pill{margin:0}
   .clienthit{border:1px solid var(--line);border-radius:10px;background:#fff;
     padding:9px 12px;margin-top:6px;cursor:pointer;transition:border-color .12s,background .12s}
   .clienthit:hover{border-color:var(--blue);background:#f6faff}
@@ -1984,8 +1987,37 @@ function drawLanding(){
 function drawItems(){const host=document.getElementById('prodList');if(!host)return;
  host.innerHTML=S.items.map((i,ix)=>{const rateLabel=i.rate?(i.rate+' '+(i.rateValue||'')):'Mgmt/flat';
   return `<div class="prod"><div class="pi">${em(i.category)}</div><div class="grow"><h4>${esc(i.product)}</h4><div class="meta">${esc(i.category)} · ${esc(rateLabel)} · ROI ${esc(CATEGORY_ROI[i.category]||'—')}</div></div>
-  <div class="alloc"><input type="number" min="0" step="50" value="${i.dollars||0}" onchange="setItemDollars(${ix},+this.value)"><small>$ / month</small></div>
-  <button class="x" onclick="rmItem(${ix})">✕</button></div>`;}).join('');}
+  <div class="alloc"><input type="number" min="0" step="50" value="${i.dollars||0}" onchange="setItemDollars(${ix},+this.value)"><small>$ / ${i.basis==="one_time"?"one time":"month"}</small></div>
+  <button class="x" onclick="rmItem(${ix})">✕</button>
+  ${basisRow(i,ix)}</div>`;}).join('');}
+/* Monthly or one-time, and for how long -- asked here for the same reason the
+   IO conversion asks it. A dollar figure on its own has not said which, and
+   the difference is what gets billed: a $3,000 line read as monthly over six
+   months is $18,000 the client never agreed to.
+
+   Most lines are monthly for the whole flight, so that is the default and the
+   question only takes a click when it is wrong. A one-time cost is spread
+   across the flight in the plan totals rather than dropped or charged every
+   month -- both of those are wrong in a way that survives review. */
+function basisRow(i,ix){
+ const months=Math.max(1,+S.months||1);
+ const oneTime=i.basis==="one_time";
+ const term=Math.max(1,Math.min(months,+i.termMonths||months));
+ return `<div class="basisrow">
+  <span class="pill${oneTime?'':' on'}" onclick="setBasis(${ix},'monthly')">Monthly</span>
+  <span class="pill${oneTime?' on':''}" onclick="setBasis(${ix},'one_time')">One time</span>
+  ${oneTime
+   ? `<span class="note" style="margin:0">${money(i.dollars||0)} once — ${money(Math.round((i.dollars||0)/months))}/mo across the ${months}-month flight.</span>`
+   : `<span class="note" style="margin:0">for <input type="number" min="1" max="${months}" value="${term}" onchange="setTerm(${ix},+this.value)" class="dmoney" style="width:56px"> of ${months} month${months===1?'':'s'} · ${money((i.dollars||0)*term)} total</span>`}
+ </div>`;}
+function setBasis(ix,basis){
+ S.items[ix].basis=basis;
+ if(basis==="one_time")S.items[ix].termMonths=1;
+ flagDirty();saveSoon();drawItems();drawGuards();}
+function setTerm(ix,n){
+ const months=Math.max(1,+S.months||1);
+ S.items[ix].termMonths=Math.max(1,Math.min(months,n||months));
+ flagDirty();saveSoon();drawItems();}
 function setItemDollars(ix,v){S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
  const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
  S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
@@ -2189,6 +2221,25 @@ function submitContact(){
  S.clientContactName=name;S.clientContactEmail=email;S.clientContactPhone=phone;
  deliverProposal({name,email,phone});}
 
+/* What a line costs across the flight, honouring the basis the rep answered
+   on the media-mix step. Both the review summary and the payload that builds
+   the IO used to multiply by months independently, so a one-time production
+   fee reached the insertion order as a monthly charge. */
+function lineCampaign(i,months){
+ const m=Math.max(1,+months||1),d=+i.dollars||0;
+ if(i.basis==="one_time")return d;
+ const term=Math.max(1,Math.min(m,+i.termMonths||m));
+ return d*term;}
+function lineForIO(i,months,withRate){
+ const row={product:i.product,category:i.category,rate:i.rate,
+  budget:i.basis==="one_time"?0:(+i.dollars||0),
+  campaignBudget:lineCampaign(i,months),
+  basis:i.basis||"monthly",
+  termMonths:i.basis==="one_time"?1:Math.max(1,Math.min(Math.max(1,+months||1),+i.termMonths||Math.max(1,+months||1)))};
+ if(withRate)row.listedRate=i.rate?(i.rate+" "+(i.rateValue||"")):"Managed/flat";
+ if(i.basis==="one_time")row.note="One-time cost of "+money(+i.dollars||0)+".";
+ return row;}
+
 /* ============================================================
    CONVERT-TO-IO WIZARD
    ============================================================ */
@@ -2239,7 +2290,7 @@ function drawConvert(){
    <button class="btn btn-primary" onclick="convToReview()">Review IO →</button>`;
  }else if(CONV.step===1){
   const a=CONV.answers,st=CONV.quote.data||{};
-  const items=(st.items||[]).map(i=>({product:i.product,category:i.category,rate:i.rate,budget:i.dollars||0,campaignBudget:(i.dollars||0)*(st.months||1)}));
+  const items=(st.items||[]).map(i=>lineForIO(i,st.months||1,false));
   body.innerHTML=`
    <div class="dsec">What happens next</div>
    <ol style="font-size:13px;color:#33415C;padding-left:20px;line-height:1.7">
@@ -2288,7 +2339,7 @@ function convToReview(){
 }
 function ioDataPayload(){
  const st=CONV.quote.data||{},a=CONV.answers,q=CONV.quote;
- const items=(st.items||[]).map(i=>({product:i.product,category:i.category,rate:i.rate,listedRate:i.rate?(i.rate+" "+(i.rateValue||"")):"Managed/flat",budget:i.dollars||0,campaignBudget:(i.dollars||0)*(st.months||1)}));
+ const items=(st.items||[]).map(i=>lineForIO(i,st.months||1,true));
  const monthly=items.reduce((s,i)=>s+(i.budget||0),0);
  const total=items.reduce((s,i)=>s+(i.campaignBudget||0),0);
  const customerRequirements=[
@@ -2298,7 +2349,10 @@ function ioDataPayload(){
   "Confirm the landing page: "+(a.landingUrl||st.landingUrl||"TBD"),
   "Review and sign the insertion order"];
  const internalRequirements=items.map(i=>({title:i.product+" — "+i.category,items:[
-  "Monthly budget: "+money(i.budget)+" · campaign total: "+money(i.campaignBudget),
+  (i.basis==="one_time"
+    ? "One-time cost: "+money(i.campaignBudget)
+    : "Monthly budget: "+money(i.budget)+" for "+i.termMonths+" month"+(i.termMonths===1?"":"s")
+      +" · campaign total: "+money(i.campaignBudget)),
   "Geography: "+((st.targetAreas||[]).length?(st.targetAreas||[]).map(areaLabel).join(" | "):(st.geo||st.geoType||"")),
   "Audience: "+((st.audiences||[]).join(", ")||"per proposal"),
   "Landing page: "+(a.landingUrl||st.landingUrl||"TBD"),
