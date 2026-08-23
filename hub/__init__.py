@@ -1215,9 +1215,30 @@ def create_hub_app() -> Flask:
             proposal_id=str(body.get("proposal_id") or ""),
             uploaded_id=str(body.get("uploaded_id") or ""),
             client=str(body.get("client") or ""), text=text,
+            kind=str(body.get("kind") or "client"),
+            website=str(body.get("website") or ""),
             direction=str(body.get("direction") or "trust"),
             goal=str(body.get("goal") or ""), offer=str(body.get("offer") or ""),
             actor=current_user() or ""))
+
+    @app.route("/api/landing/<page_id>/revise", methods=["POST"])
+    def api_landing_revise(page_id):
+        """Rewrite a built page against an instruction, keeping the old one."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        body = request.get_json(silent=True) or {}
+        return jsonify(lm.revise(page_id, str(body.get("instructions") or ""),
+                                 current_user() or ""))
+
+    @app.route("/api/landing/<page_id>", methods=["DELETE"])
+    def api_landing_delete(page_id):
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        return jsonify(lm.remove(page_id, current_user() or ""))
 
     @app.route("/api/landing/<page_id>", methods=["POST"])
     def api_landing_save(page_id):

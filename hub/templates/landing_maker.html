@@ -12,17 +12,39 @@
   <div class="card-h"><h3>New landing page</h3></div>
   <div class="card-b">
     <div style="display:grid;grid-template-columns:1fr;gap:14px">
+      <div>
+        <label class="lp-l">Who is this page for?</label>
+        <select id="lpKind" class="lp-i" onchange="lpKindChanged()">
+          <option value="client">A client — build from their proposal</option>
+          <option value="prospect">A prospect — a sample page to win them</option>
+        </select>
+        <p class="muted" style="font-size:12px;margin:5px 0 0" id="lpKindNote">
+          Pages for a prospect capture leads the same way, so a sample you
+          send can bring one in before they sign anything.</p>
+      </div>
+
       <!-- The client comes first. "Which proposal?" is only answerable once
            you know whose, and a global list of every proposal in the Hub gets
            longer every week. -->
       <div>
-        <label class="lp-l">Client</label>
+        <label class="lp-l" id="lpNameLabel">Client</label>
         <input id="lpClient" class="lp-i" list="lp-client-list" autocomplete="off"
                placeholder="Start typing a client name…" oninput="lpClientTyped()">
         <datalist id="lp-client-list"></datalist>
       </div>
 
-      <div>
+      <!-- A prospect has no record, no proposal and no brand on file, so the
+           website is doing all the work. -->
+      <div id="lpSiteRow" hidden>
+        <label class="lp-l">Their website</label>
+        <input id="lpSite" class="lp-i" placeholder="riversidehvac.com" autocomplete="off">
+        <p class="muted" style="font-size:12px;margin:5px 0 0">
+          Needed for a prospect — it is where the brand, the services and the
+          photography come from. Without it there is nothing to build from but
+          the name.</p>
+      </div>
+
+      <div id="lpProposalRow">
         <label class="lp-l">Proposal</label>
         <select id="lpProposal" class="lp-i" onchange="lpProposalChanged()">
           <option value="">Pick a client first</option>
@@ -70,7 +92,7 @@
       </div>
 
       <div>
-        <button class="um-btn" id="lpBuild" onclick="lpCreate()">Build the page</button>
+        <button class="btn-primary" id="lpBuild" onclick="lpCreate()">Build the page</button>
         <span id="lpMsg" class="muted" style="font-size:13px;margin-left:10px"></span>
       </div>
     </div>
@@ -100,6 +122,25 @@
 <script>
 function $(id){ return document.getElementById(id); }
 
+/* --- client or prospect ---------------------------------------------- */
+
+function lpKind(){ return $('lpKind').value; }
+
+function lpKindChanged(){
+  var prospect = lpKind() === 'prospect';
+  $('lpSiteRow').hidden = !prospect;
+  $('lpProposalRow').hidden = prospect;
+  $('lpNameLabel').textContent = prospect ? 'Business name' : 'Client';
+  $('lpClient').placeholder = prospect
+    ? 'Their business name…' : 'Start typing a client name…';
+  $('lpKindNote').textContent = prospect
+    ? 'Pages for a prospect capture leads the same way, so a sample you send '+
+      'can bring one in before they sign anything.'
+    : 'Built from a proposal, so the page, the ads and the IO all say the '+
+      'same thing.';
+  if(!prospect) lpClientSettled();
+}
+
 /* --- client first, then that client's proposals ---------------------- */
 
 var lpClientTimer = null, lpLastClient = "";
@@ -113,6 +154,9 @@ function lpClientTyped(){
    same spelling the rest of the Hub uses. */
 function lpClientSettled(){
   var name = $('lpClient').value.trim();
+  /* A prospect is not in the registry by definition, so suggesting names
+     from it would only ever offer the wrong business. */
+  if(lpKind() === 'prospect'){ return; }
   if(name.length >= 2){
     fetch('/api/clients/search?q=' + encodeURIComponent(name),
           {credentials:'same-origin'})
@@ -198,16 +242,24 @@ function esc(s){
 function lpCreate(){
   var btn = $('lpBuild'), msg = $('lpMsg');
   var client = $('lpClient').value.trim();
-  var pick = $('lpProposal').value;
+  var prospect = lpKind() === 'prospect';
+  var pick = prospect ? 'none' : $('lpProposal').value;
 
   if(!client){
     msg.style.color = '#b42318';
-    msg.textContent = 'Pick a client first.';
+    msg.textContent = prospect ? 'Give the business a name.' : 'Pick a client first.';
+    return;
+  }
+  if(prospect && !$('lpSite').value.trim()){
+    msg.style.color = '#b42318';
+    msg.textContent = 'A prospect needs their website — it is what the page is built from.';
     return;
   }
 
   var body = {
     client: client,
+    kind: prospect ? 'prospect' : 'client',
+    website: prospect ? $('lpSite').value.trim() : '',
     goal: $('lpGoal').value.trim(),
     offer: $('lpOffer').value.trim(),
     direction: (document.querySelector('input[name=lpDir]:checked')||{}).value || 'trust'
@@ -267,26 +319,89 @@ function lpLoad(){
       }
       $('lpList').innerHTML =
         '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
-        '<thead><tr>'+['Client','Campaign','Headline','Style','Built',''].map(function(h){
+        '<thead><tr>'+['For','Campaign','Headline','Style','Built',''].map(function(h){
           return '<th style="text-align:left;padding:6px;font-size:11px;color:#94a3b8;'+
                  'text-transform:uppercase;letter-spacing:.5px">'+h+'</th>';}).join('')+
         '</tr></thead><tbody>'+
         d.pages.map(function(p){
+          var tag = p.kind === 'prospect'
+            ? ' <span class="pill neutral" style="font-size:10px">prospect</span>' : '';
+          var noPics = (p.images && p.images.available === false)
+            ? ' <span class="muted" style="font-size:11px">no photos</span>' : '';
           return '<tr>'+
-            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa"><b>'+esc(p.client)+'</b></td>'+
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa"><b>'+
+              esc(p.client)+'</b>'+tag+noPics+'</td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+esc(p.campaign||'—')+'</td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+esc(p.headline||'')+'</td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
               '<span class="pill neutral">'+esc(d.directions[p.direction]||p.direction)+'</span></td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;white-space:nowrap">'+
               esc((p.created||'').replace('T',' ').slice(0,16))+'</td>'+
-            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;text-align:right">'+
-              '<a class="um-btn" href="/sales/landing/p/'+esc(p.slug)+'" target="_blank">Open</a></td>'+
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;text-align:right;white-space:nowrap">'+
+              '<a class="btn-ghost" href="/sales/landing/p/'+esc(p.slug)+'" target="_blank">Open</a> '+
+              '<button class="btn-ghost" onclick="lpRevise(\''+esc(p.id)+'\',\''+
+                 esc(p.client).replace(/'/g,"") + '\')">Change…</button> '+
+              '<button class="btn-ghost" onclick="lpDelete(\''+esc(p.id)+'\',\''+
+                 esc(p.client).replace(/'/g,"") + '\')">Delete</button></td>'+
             '</tr>';
         }).join('')+'</tbody></table>'+
         '<p class="muted" style="font-size:12px;margin-top:8px">'+d.count+' page(s).</p>';
     })
     .catch(function(){ $('lpList').innerHTML = '<p class="muted">Could not load.</p>'; });
+}
+
+/* --- change or remove a built page ------------------------------------ */
+
+function lpRevise(id, name){
+  var what = window.prompt(
+    'What should change on the ' + (name || 'landing') + ' page?\n\n' +
+    'e.g. "lead with the emergency call-out", "shorter headline", ' +
+    '"drop the FAQ about pricing"');
+  if(what === null) return;
+  what = what.trim();
+  if(!what) return;
+
+  var msg = $('lpMsg');
+  msg.style.color = '';
+  msg.textContent = 'Rewriting the page…';
+  fetch('/api/landing/' + encodeURIComponent(id) + '/revise', {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({instructions: what})
+  }).then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d.error){ msg.style.color='#b42318'; msg.textContent = d.error; return; }
+      msg.style.color = '#147d52';
+      msg.textContent = d.note || 'Rewritten.';
+      window.open(d.preview, '_blank');
+      lpLoad();
+    })
+    .catch(function(){
+      msg.style.color='#b42318';
+      msg.textContent = 'That did not go through.';
+    });
+}
+
+function lpDelete(id, name){
+  /* The page may already be pasted onto a client's own site, where deleting
+     the record here does not take it down — so say so before, not after. */
+  if(!window.confirm('Delete the ' + (name || 'landing') + ' page?\n\n' +
+     'If it has already been pasted somewhere it stays up there; this only '+
+     'removes it from the Hub.')) return;
+  var msg = $('lpMsg');
+  fetch('/api/landing/' + encodeURIComponent(id),
+        {method:'DELETE', credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d.error){ msg.style.color='#b42318'; msg.textContent = d.error; return; }
+      msg.style.color = '';
+      msg.textContent = 'Deleted.';
+      lpLoad();
+    })
+    .catch(function(){
+      msg.style.color='#b42318';
+      msg.textContent = 'That did not go through.';
+    });
 }
 
 /* Arriving from "proposal saved -> build a page" carries the client, so the
@@ -310,6 +425,7 @@ function lpLoad(){
   }, 150);
 })();
 
+lpKindChanged();
 lpProposalChanged();
 lpLoad();
 </script>
