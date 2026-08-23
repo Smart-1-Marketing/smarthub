@@ -1451,12 +1451,46 @@ const server = http.createServer(async (req, res) => {
 
     // Everything the build screen needs to populate its controls.
     if (route === 'GET /api/build/options') {
-      const templates = [...loadTemplates().values()].map((t) => ({
-        id: t.id,
-        name: t.name,
-        description: t.description,
-        sizes: Object.keys(t.sizes),
-      }));
+      // `wire` is the real block geometry for one representative size, so the
+      // build screen can draw each family as a small diagram rather than
+      // listing names in a dropdown. Nobody picks a layout from the words
+      // "Split image" -- they pick it from seeing where the picture goes.
+      const templates = [...loadTemplates().values()].map((t) => {
+        const sizeKeys = Object.keys(t.sizes);
+        // 300x250 is the one everybody recognises; fall back to whatever the
+        // family does have, because not every family carries every size.
+        const key = sizeKeys.includes('300x250') ? '300x250' : sizeKeys[0];
+        const layout = key ? (t.sizes as Record<string, any>)[key] : undefined;
+        const canvas = layout?.canvas;
+        const blocks: Array<{ k: string; x: number; y: number; w: number; h: number }> = [];
+        if (layout && canvas?.w && canvas?.h) {
+          for (const [k, v] of Object.entries(layout as Record<string, any>)) {
+            if (k === 'canvas' || k === 'safe' || k === 'background') continue;
+            if (!v) continue;
+            // `panels` is an array of rects, not a single box. Skipping it drew
+            // "Image top, copy below" as text floating on white -- the panel is
+            // most of what that family looks like.
+            const rects = Array.isArray(v) ? v : [v];
+            for (const r of rects) {
+              if (!r || typeof r !== 'object') continue;
+              const { x, y, w, h } = r as Record<string, number>;
+              if ([x, y, w, h].some((n) => typeof n !== 'number')) continue;
+              blocks.push({ k: Array.isArray(v) ? 'panel' : k, x, y, w, h });
+            }
+          }
+        }
+        return {
+          id: t.id,
+          name: t.name,
+          description: t.description,
+          sizes: sizeKeys,
+          // The field colour matters as much as the boxes: two families differ
+          // mainly in whether the ad is a flat brand field or a white card.
+          wire: canvas?.w && canvas?.h
+            ? { size: key, w: canvas.w, h: canvas.h, background: layout?.background ?? null, blocks }
+            : null,
+        };
+      });
       return json(res, 200, { templates });
     }
 
