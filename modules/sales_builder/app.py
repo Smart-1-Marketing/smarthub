@@ -1,20 +1,43 @@
 """
-Smart 1 Sales Builder — Proposals & Insertion Orders
-==========================================
-Combined dashboard + proposal builder backend.
+Smart 1 Sales Builder — the Proposal Builder
+============================================
+Dashboard, proposal wizard and IO hand-off, in one module.
+
+**This is now the only proposal builder.** There were two: this one, and a
+standalone block-based builder at /sales/proposals. They shared no code, no
+storage and no idea of what a campaign is, so the same client could be quoted
+differently depending on which tool a rep happened to open, and only this one
+produced anything an insertion order could read. /sales/proposals now redirects
+here; its saved proposals stay readable and can be imported as quotes (see
+`/api/legacy/proposals`).
+
+What came over from the standalone builder:
+
+- the industry library (channels, demand triggers, intro copy) — now
+  `hub.industries`, used for the default proposal sections and the AI draft,
+- AI narrative section copy, rather than only an AI *setup* draft,
+- the branded PDF uploaded to Cloudinary so there is a link to send, not just
+  a blob in the database,
+- filing the finished proposal onto the client's record, so it appears on
+  Client 360 next to everything else we've sent them,
+- pushing an opportunity into Smart 1 Suite when a proposal goes to a client.
+
+Also here:
 
 - Stores every quote (full builder state + generated PDF) in a database
   (SQLite by default; set DATABASE_URL for Render Postgres).
 - Assigns quote numbers in the Q-10200 series (own counter, IO-style).
-- Generates the Smart 1–branded proposal PDF (reportlab) and a formatted
-  Word (.docx) copy on demand; the latest PDF is archived with the quote.
-- Computes "what's still missing before this can become an IO" gap lists.
-- Optional AI routes (draft a proposal from one sentence, rewrite copy)
-  using the same OpenAI Responses API pattern as the IO builder.
-- The existing IO builder app is NOT touched: AI estimate/description/
-  landing-review/media-mix calls and the IO conversion (order number,
-  client + internal PDFs, Smart 1 Suite webhook) go straight to the IO
-  API (IO_API_BASE), which stays exactly as deployed today.
+- Word (.docx) export; the latest PDF is archived with the quote.
+- "What's still missing before this can become an IO" gap lists.
+- Multiple target areas per campaign, via `hub.target_areas` — the same shape
+  the IO builder reads, so a three-location client survives the hand-off.
+
+The AI helper routes (audience estimate, business description, landing-page
+review, ZIP-radius lookup) are served **here**. They used to be fetched from
+`IO_API_BASE + "/sales/builder/api/..."`, a path that exists on neither this
+app nor the IO app, so every one of those buttons had been silently falling
+back to its placeholder. The IO conversion still calls the IO API for the
+order number and the two IO PDFs, because those belong to the IO.
 """
 
 import json
@@ -50,6 +73,13 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
 from hub.extensions import create_all_metadata, session_factory, shared_engine
 from hub.webargs import clamp_int
+
+# Shared services. Per the migration rule in CLAUDE.md: this module was being
+# edited anyway, so it moves onto the shared implementations rather than
+# keeping local copies of geography, prompt and Suite logic.
+from hub import business_description as hub_desc
+from hub import industries as hub_industries
+from hub import target_areas as hub_areas
 
 # Activity logging. Guarded so this module still runs standalone, but
 # inside the Hub every action is attributable — this module created client quotes,
@@ -118,6 +148,15 @@ class Quote(Base):
     pdf_blob = Column(LargeBinary, nullable=True)
     pdf_filename = Column(String(300), default="")
     pdf_generated_at = Column(DateTime, nullable=True)
+    # Delivery: where the client-facing copy lives, and what it created in
+    # Smart 1 Suite. The blob above is the archive; a blob cannot be emailed,
+    # which is why the standalone builder uploaded to Cloudinary and this one
+    # now does too.
+    pdf_url = Column(String(600), default="")
+    client_filed_as = Column(String(64), default="")     # hub.proposals record id
+    suite_contact_id = Column(String(64), default="")
+    suite_opportunity_id = Column(String(64), default="")
+    delivered_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
@@ -137,6 +176,34 @@ class Activity(Base):
 DB_BOOT_ERROR = create_all_metadata(Base.metadata)
 if DB_BOOT_ERROR:
     logger.error("sales_builder: table creation reported: %s", DB_BOOT_ERROR)
+
+
+def _add_missing_columns() -> None:
+    """Add columns introduced after the quotes table was first created.
+
+    create_all() creates missing tables, never missing columns, so the live
+    database — which has quotes in it already — would keep working right up
+    until the first query mentioning a delivery column. Each statement is
+    attempted and its failure ignored: "already exists" is the normal case on
+    every boot after the first.
+    """
+    from sqlalchemy import text as _text
+    for sql in (
+        "ALTER TABLE quotes ADD COLUMN pdf_url VARCHAR(600)",
+        "ALTER TABLE quotes ADD COLUMN client_filed_as VARCHAR(64)",
+        "ALTER TABLE quotes ADD COLUMN suite_contact_id VARCHAR(64)",
+        "ALTER TABLE quotes ADD COLUMN suite_opportunity_id VARCHAR(64)",
+        "ALTER TABLE quotes ADD COLUMN delivered_at TIMESTAMP",
+    ):
+        try:
+            with engine.begin() as conn:
+                conn.execute(_text(sql))
+        except Exception:                               # noqa: BLE001
+            pass
+
+
+if not DB_BOOT_ERROR:
+    _add_missing_columns()
 
 _COUNTER_LOCK = threading.Lock()
 
@@ -169,6 +236,8 @@ def compute_gaps(state):
     def blank(v):
         return v in (None, "", [], {})
 
+    if not hub_areas.normalize(s.get("targetAreas")) and not hub_areas.from_legacy(s):
+        gaps.append({"key": "geo", "label": "At least one target area to run in"})
     if blank(s.get("clientContactName")) and blank(s.get("clientContactEmail")):
         gaps.append({"key": "contact", "label": "Client contact name, email, and phone"})
     if blank(s.get("startDate")):
@@ -243,10 +312,27 @@ def quote_json(q, include_data=False):
         "converted_at": q.converted_at.isoformat() if q.converted_at else "",
         "gaps": compute_gaps(state),
         "guardrails": compute_guardrails(state),
+        "target_areas": campaign_areas(state),
+        "pdf_url": q.pdf_url or "",
+        "suite_opportunity_id": q.suite_opportunity_id or "",
+        "delivered_at": q.delivered_at.isoformat() if q.delivered_at else "",
     }
     if include_data:
         out["data"] = state
     return out
+
+
+def campaign_areas(state):
+    """Every target area on a quote, old records included.
+
+    Quotes saved before multi-area targeting have their geography in
+    `geoType` / `geo` / `radius` only, so `from_legacy` reads those rather
+    than a migration rewriting rows nobody has re-opened. A quote that has
+    both keeps the explicit list: it was edited more recently than it was
+    imported.
+    """
+    state = state or {}
+    return hub_areas.normalize(state.get("targetAreas")) or hub_areas.from_legacy(state)
 
 
 def summarize_into(q, state):
@@ -263,22 +349,41 @@ def summarize_into(q, state):
     items = state.get("items") or []
     q.products_summary = " · ".join([str(i.get("product") or "") for i in items])[:500]
     q.goals_summary = ", ".join(state.get("objectives") or [])[:300]
-    geo = state.get("geo") or state.get("geoType") or ""
-    if state.get("geoType") == "City/ZIP + Radius" and state.get("radius"):
-        geo = f"{state.get('geo','')} + {state.get('radius')} mi"
-    q.geo_summary = str(geo)[:300]
+    # The list column says how many places this campaign runs in, not just the
+    # first one -- "Carmel showroom + 3 more" is the difference between a
+    # single-location quote and a four-rooftop one at a glance.
+    areas = campaign_areas(state)
+    q.geo_summary = (hub_areas.summary(areas) or str(state.get("geo") or ""))[:300]
 
 
 # =====================================================================
 # Routes — core
 # =====================================================================
+def _io_api_base():
+    """Where the IO builder's own routes live.
+
+    It is mounted inside the Hub at /tools/io, so the default is that mount:
+    same origin, same login, no cold start. IO_API_BASE still overrides it if
+    the IO ever moves back to its own service.
+
+    This used to default to the external Render URL, and the callers then
+    appended "/sales/builder/api/..." to it -- a path that exists on neither
+    app. Every conversion call 404'd.
+    """
+    return os.getenv("IO_API_BASE", "/tools/io").rstrip("/")
+
+
 @app.get("/health")
 def health():
     return jsonify({
         "status": "ok",
-        "database": _db_url.split("://")[0],
+        # engine.url, not a module-level _db_url -- that name was never
+        # defined, so this route raised NameError and answered 500 to every
+        # "is the Sales Builder up?" check ever made against it.
+        "database": engine.url.get_backend_name(),
+        "suite": _suite_status(),
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
-        "io_api_base": os.getenv("IO_API_BASE", "https://insertionordersmart.onrender.com"),
+        "io_api_base": _io_api_base(),
     })
 
 
@@ -562,13 +667,16 @@ def build_proposal_pdf(q, state):
 
     # Meta table
     sel = state.get("selectedPackage") or {}
+    areas = campaign_areas(state)
     meta = [["Client", q.client or ""],
             ["Website", q.website or ""],
             ["Campaign Goals", ", ".join(state.get("objectives") or [])],
-            ["Target Area", q.geo_summary or ""],
+            ["Target Area" if len(areas) < 2 else f"Target Areas ({len(areas)})",
+             "\n".join(hub_areas.names(areas)) or q.geo_summary or ""],
             ["Term", f"{q.months} months"],
             ["Monthly Investment", _money(sel.get("monthly") or q.monthly_budget)],
             ["Total Investment", _money(sel.get("total") or q.total_budget)]]
+    meta = [[row[0], _p(row[1], st_body)] for row in meta]
     t = Table(meta, colWidths=[1.55 * inch, 5.85 * inch])
     t.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, -1), SOFT), ("TEXTCOLOR", (0, 0), (0, -1), NAVY),
                            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8.5),
@@ -585,7 +693,34 @@ def build_proposal_pdf(q, state):
         if sec.get("body"):
             story.append(_p(sec.get("body"), st_body))
         kind = sec.get("kind")
-        if kind == "reach":
+        if kind == "areas":
+            if areas:
+                rows = [["Target area", "Coverage", "Est. population"]]
+                for area in areas:
+                    population = hub_areas.estimated_population(area)
+                    zips = hub_areas.zip_list(area.get("zips"))
+                    coverage = area.get("notes") or (f"{len(zips)} ZIP Codes" if zips else area["type"])
+                    rows.append([_p(hub_areas.label(area), st_small),
+                                 _p(coverage, st_small),
+                                 # "Not measured", never a zero. An area we
+                                 # could not size must not read as an area
+                                 # with nobody in it.
+                                 f"{population:,}" if population else "Not measured"])
+                at = Table(rows, colWidths=[3.5 * inch, 2.2 * inch, 1.7 * inch], repeatRows=1)
+                at.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), NAVY),
+                                        ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.white),
+                                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                                        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                                        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+                                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
+                                        ("TOPPADDING", (0, 0), (-1, -1), 5),
+                                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
+                story.append(at)
+                if len(areas) > 1:
+                    story.append(_p("Populations are shown per area and are not de-duplicated "
+                                    "where areas overlap.", st_small))
+        elif kind == "reach":
             est = state.get("estimates") or {}
             if est:
                 rows = [["Est. Population", "Addressable Audience", "Households", "Devices"],
@@ -716,11 +851,14 @@ def build_proposal_docx(q, state):
     hcolor(p, 10, MUTED_D, bold=False, center=True)
 
     sel = state.get("selectedPackage") or {}
+    areas = campaign_areas(state)
     table = d.add_table(rows=0, cols=2)
     table.style = "Light Grid Accent 1"
     for label, val in [("Client", q.client), ("Website", q.website),
                        ("Campaign Goals", ", ".join(state.get("objectives") or [])),
-                       ("Target Area", q.geo_summary), ("Term", f"{q.months} months"),
+                       ("Target Area" if len(areas) < 2 else f"Target Areas ({len(areas)})",
+                        "\n".join(hub_areas.names(areas)) or q.geo_summary),
+                       ("Term", f"{q.months} months"),
                        ("Monthly Investment", _money(sel.get("monthly") or q.monthly_budget)),
                        ("Total Investment", _money(sel.get("total") or q.total_budget))]:
         row = table.add_row().cells
@@ -737,7 +875,21 @@ def build_proposal_docx(q, state):
         if sec.get("body"):
             d.add_paragraph(str(sec.get("body")))
         kind = sec.get("kind")
-        if kind == "mediaplan" and state.get("items"):
+        if kind == "areas" and areas:
+            t0 = d.add_table(rows=1, cols=3)
+            t0.style = "Light Grid Accent 1"
+            hdr = t0.rows[0].cells
+            for i, htxt in enumerate(["Target area", "Coverage", "Est. population"]):
+                hdr[i].text = htxt
+                hdr[i].paragraphs[0].runs[0].font.bold = True
+            for area in areas:
+                population = hub_areas.estimated_population(area)
+                zips = hub_areas.zip_list(area.get("zips"))
+                row = t0.add_row().cells
+                row[0].text = hub_areas.label(area)
+                row[1].text = area.get("notes") or (f"{len(zips)} ZIP Codes" if zips else area["type"])
+                row[2].text = f"{population:,}" if population else "Not measured"
+        elif kind == "mediaplan" and state.get("items"):
             t2 = d.add_table(rows=1, cols=4)
             t2.style = "Light Grid Accent 1"
             hdr = t2.rows[0].cells
@@ -802,18 +954,56 @@ def quote_docx(qid):
 # =====================================================================
 # Default proposal sections (used when the builder hasn't customized them)
 # =====================================================================
+def industry_template(state):
+    """The `hub.industries` entry that best fits this quote, or None.
+
+    The library is keyed by our own industry slugs (boat, ski, legal...) while
+    the wizard offers a broader list, so this matches on the label as well.
+    Returning None is a normal answer — most industries have no template, and
+    a generic proposal is better than one that claims a ski resort's demand
+    triggers because the name nearly matched.
+    """
+    raw = str((state or {}).get("industry") or "").strip().lower()
+    if not raw:
+        return None
+    if raw in hub_industries.INDUSTRIES:
+        return hub_industries.INDUSTRIES[raw]
+    for key, entry in hub_industries.INDUSTRIES.items():
+        label = str(entry.get("label") or "").lower()
+        if raw == label or (len(raw) > 3 and (raw in label or key in raw)):
+            return entry
+    return None
+
+
 def ensure_sections(state):
     if state.get("sections"):
         return state
     client = state.get("client") or "the client"
     goals = ", ".join(state.get("objectives") or []) or "the campaign goals"
+    areas = campaign_areas(state)
+    where = hub_areas.summary(areas, limit=3) or "the target area"
+    template = industry_template(state)
+
+    # The strategy paragraph says how many places this runs in. A four-location
+    # client whose proposal talks about "the target area" reads as though we
+    # were quoting one of their rooftops.
+    if len(areas) > 1:
+        strategy = (f"This program is built around {goals.lower()}, combining the Smart 1 products "
+                    f"below across {len(areas)} target areas — {where} — with the frequency needed "
+                    f"to drive results in each.")
+    else:
+        strategy = (f"This program is built around {goals.lower()}, combining the Smart 1 products "
+                    f"below to reach the right audience in {where} with the frequency needed to "
+                    f"drive results.")
+    if template:
+        strategy = template["intro"] + "\n\n" + strategy
+
     state["sections"] = [
         {"id": "about", "title": f"About {client}", "kind": "text", "enabled": True,
          "body": state.get("description") or ""},
         {"id": "strategy", "title": "Campaign Strategy", "kind": "text", "enabled": True,
-         "body": f"This program is built around {goals.lower()}, combining the Smart 1 products below to "
-                 f"reach the right audience in {state.get('geo') or 'the target area'} with the frequency "
-                 f"needed to drive results."},
+         "body": strategy},
+        {"id": "areas", "title": "Target Areas", "kind": "areas", "enabled": True, "body": ""},
         {"id": "reach", "title": "Target Audience & Reach", "kind": "reach", "enabled": True, "body": ""},
         {"id": "mediaplan", "title": "Recommended Media Plan", "kind": "mediaplan", "enabled": True, "body": ""},
         {"id": "packages", "title": "Investment Options", "kind": "packages", "enabled": True, "body": ""},
@@ -825,6 +1015,14 @@ def ensure_sections(state):
          "body": "1. Approve the recommended package.\n2. Smart 1 finalizes the insertion order and "
                  "creative plan.\n3. Campaign launches after tracking is verified."},
     ]
+    if template and template.get("triggers"):
+        # Demand triggers are the most persuasive thing in the industry
+        # library and the standalone builder's proposals always led with them.
+        state["sections"].insert(3, {
+            "id": "triggers", "title": "Demand Triggers We Activate On",
+            "kind": "text", "enabled": True,
+            "body": "Budget is concentrated on the moments that produce revenue:\n"
+                    + "\n".join("• " + str(t) for t in template["triggers"])})
     return state
 
 
@@ -903,6 +1101,522 @@ def ai_rewrite():
         return jsonify({"ok": True, "text": _openai_response(prompt, 2500)})
     except Exception as exc:
         return jsonify({"ok": False, "error": "AI rewrite failed", "detail": str(exc)}), 502
+
+
+@app.post("/api/ai/draft-sections")
+def ai_draft_sections():
+    """Write the proposal's narrative copy from the campaign already built.
+
+    The standalone builder's one real advantage was this: it produced a
+    proposal a rep could send, not a form a rep then had to write into. It did
+    it from an industry template and nothing else, though, so the prose never
+    matched the media plan underneath it. This writes from both — the industry
+    library for voice and demand triggers, the actual products, budget, target
+    areas and KPIs for substance.
+
+    Only `text` sections are written. The tables (media plan, packages, reach,
+    target areas) are generated from the campaign data and must never be
+    narrated by a model — that is how a proposal ends up describing a budget
+    it does not contain.
+    """
+    body = request.get_json(force=True) or {}
+    state = body.get("data") or {}
+    ensure_sections(state)
+    template = industry_template(state)
+    areas = campaign_areas(state)
+    writable = [sec for sec in state.get("sections") or []
+                if sec.get("kind") == "text" and sec.get("enabled", True)]
+    if not writable:
+        return jsonify({"ok": False, "error": "This proposal has no text sections to write."}), 400
+
+    facts = {
+        "client": state.get("client") or "",
+        "website": state.get("url") or "",
+        "industry": state.get("industry") or "",
+        "business_description": state.get("description") or "",
+        "objectives": state.get("objectives") or [],
+        "kpis": state.get("kpis") or [],
+        "target_areas": hub_areas.for_prompt(areas),
+        "target_area_count": len(areas),
+        "audiences": state.get("audiences") or [],
+        "exclusions": state.get("exclusions") or [],
+        "months": state.get("months") or 1,
+        "monthly_budget": (state.get("selectedPackage") or {}).get("monthly") or state.get("budget") or 0,
+        "products": [{"product": i.get("product"), "category": i.get("category"),
+                      "monthly": i.get("dollars")} for i in (state.get("items") or [])],
+        "landing_page": state.get("landingUrl") or "",
+        "landing_recommendation": state.get("landing") or "",
+        "sections_to_write": [{"id": sec.get("id"), "title": sec.get("title"),
+                               "current": sec.get("body") or ""} for sec in writable],
+    }
+    if template:
+        facts["industry_voice"] = template["intro"]
+        facts["demand_triggers"] = template["triggers"]
+        facts["channels_we_sell_here"] = template["channels"]
+
+    prompt = (
+        "You are a senior media strategist at Smart 1 Marketing, a full-service digital agency "
+        "(geofenced display, Connected TV, streaming audio, digital out-of-home, weather-triggered "
+        "advertising). Write the narrative copy for the client-facing proposal described below.\n\n"
+        "Rules:\n"
+        "- Return STRICT JSON only: {\"sections\": [{\"id\": \"...\", \"body\": \"...\"}]}, one entry per "
+        "id in sections_to_write, and no other keys.\n"
+        "- Use ONLY the facts given. Do not invent statistics, client results, awards, case studies, "
+        "impression counts, or prices. Every number in the plan is already in the tables the client "
+        "will see next to your copy; contradicting one is worse than omitting it.\n"
+        "- When target_area_count is above 1, write about all of the areas rather than one of them.\n"
+        "- Each section is 2 to 4 short paragraphs, plain professional English, second person about "
+        "the client's business. No headings, no bullet characters unless the current copy uses them.\n"
+        "- Keep anything factual the current copy already states.\n\n"
+        + json.dumps(facts, ensure_ascii=False))
+    try:
+        result = _json_from_ai(_openai_response(prompt, 5000))
+        written = {str(sec.get("id")): str(sec.get("body") or "")
+                   for sec in (result.get("sections") or []) if sec.get("id")}
+    except Exception as exc:                            # noqa: BLE001
+        logger.exception("AI section draft failed")
+        return jsonify({"ok": False, "error": "AI draft failed", "detail": str(exc)}), 502
+    if not written:
+        return jsonify({"ok": False, "error": "The AI returned no sections."}), 502
+    return jsonify({"ok": True, "sections": written})
+
+
+# =====================================================================
+# Campaign intelligence — served here, not fetched from the IO app
+# =====================================================================
+@app.get("/api/industries")
+def api_industries():
+    """The industry library, for the wizard's picker."""
+    return jsonify({"ok": True, "industries": hub_industries.industry_list()})
+
+
+@app.post("/api/generate-business-description")
+def api_business_description():
+    """A Google Business Profile description, to the IO builder's rules.
+
+    Identical prompt to /tools/io — it lives in hub.business_description now.
+    Before this route existed, the wizard's Generate button called a path on
+    the IO *app* that has never had it, so the placeholder ran every time and
+    the description on a proposal was never the one on the IO.
+    """
+    body = request.get_json(force=True) or {}
+    urls = [str(u).strip() for u in (body.get("urls") or []) if str(u).strip()]
+    if not urls:
+        return jsonify({"ok": False, "error": "A website URL is required."}), 400
+    areas = hub_areas.normalize(body.get("areas") or body.get("targetAreas")) \
+        or hub_areas.from_legacy(body)
+    prompt = hub_desc.prompt_for(urls, client=body.get("client", ""),
+                                 industry=body.get("industry", ""), areas=areas,
+                                 brandfetch=body.get("brandfetch") or {},
+                                 geo=str(body.get("geo") or ""))
+    try:
+        description = _openai_response(prompt, 5000)
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "error": "Description request failed",
+                        "detail": str(exc)}), 502
+    if not description:
+        return jsonify({"ok": False, "error": "The AI returned no description."}), 502
+    return jsonify({"ok": True, "description": description,
+                    "warnings": hub_desc.check(description)})
+
+
+@app.post("/api/review-landing-page")
+def api_review_landing_page():
+    """Conversion review of the landing page, before the campaign is priced."""
+    body = request.get_json(force=True) or {}
+    url = str(body.get("url") or "").strip()
+    if not url:
+        return jsonify({"ok": False, "error": "A landing-page URL is required."}), 400
+    prompt = (
+        f"Review this campaign landing page: {url}\n"
+        f"Client: {str(body.get('client') or '')}\n"
+        f"Product or use: {str(body.get('product') or 'Campaign landing page')}\n"
+        f"Campaign goals: {', '.join(str(o) for o in (body.get('objectives') or []))}\n"
+        "Visit the page and evaluate it as a conversion-focused landing page. Determine whether it has "
+        "a clear primary call to action above the fold and throughout the page. Review message match, "
+        "headline clarity, offer clarity, forms, phone calls, buttons, mobile usability, page speed "
+        "signals, trust indicators, testimonials, privacy language, tracking readiness, distractions, "
+        "and whether the conversion action is easy to complete. Return a concise internal note with "
+        "these headings: CTA Status, Strengths, Required Fixes Before Launch, Recommended Improvements, "
+        "Tracking Checks. Be specific and practical. If the page cannot be accessed, say so clearly.")
+    try:
+        return jsonify({"ok": True, "review": _openai_response(prompt, 5000), "url": url})
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "error": "Landing-page review failed",
+                        "detail": str(exc)}), 502
+
+
+@app.post("/api/zipcodes-in-radius")
+def api_zipcodes_in_radius():
+    """The ZIP Codes a radius touches — per target area, not per campaign.
+
+    Same lookup the IO builder runs. Having it here means the ZIP list is
+    attached to the area it belongs to while the proposal is still being
+    built, rather than being rebuilt at IO time against whichever origin
+    happened to be typed first.
+    """
+    body = request.get_json(force=True) or {}
+    origin = str(body.get("origin") or "").strip()
+    radius = str(body.get("radius") or "").strip()
+    if not origin or not radius:
+        return jsonify({"ok": False, "error": "An origin and a radius are required."}), 400
+    prompt = (
+        f"Find the complete list of United States ZIP Codes whose geographic polygon is fully or "
+        f"partially touched by a {radius}-mile radius centered on {origin}. Include a ZIP Code whenever "
+        f"any portion of that ZIP Code area intersects the radius, not only when its centroid is inside. "
+        "Use current authoritative geographic sources where possible. Return only five-digit ZIP Codes, "
+        "comma-separated, sorted ascending, with no commentary. Be exhaustive and do not intentionally "
+        "omit any matching ZIP Code.")
+    try:
+        zips = hub_areas.zip_list(_openai_response(prompt, 12000))
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "error": "ZIP-radius lookup failed",
+                        "detail": str(exc)}), 502
+    if not zips:
+        return jsonify({"ok": False, "error": "No ZIP Codes were returned."}), 502
+    return jsonify({"ok": True, "zipcodes": ", ".join(zips), "count": len(zips),
+                    "warning": "AI-assisted ZIP-radius results should be reviewed before "
+                               "trafficking — ZIP boundaries and radius intersections change."})
+
+
+@app.post("/api/estimate-audience")
+def api_estimate_audience():
+    """Size every target area on the campaign, and total them.
+
+    Each area is sized on its own. A campaign covering Carmel, Fishers and an
+    Indianapolis DMA buy is three different reach questions, and one merged
+    answer hides that two of them overlap heavily while the third does not.
+
+    Anything the AI cannot size falls back to the shared geometric estimate,
+    and an area neither can size is returned as null — "not measured", never
+    a confident zero.
+    """
+    body = request.get_json(force=True) or {}
+    areas = hub_areas.normalize(body.get("areas") or body.get("targetAreas")) \
+        or hub_areas.from_legacy(body)
+    if not areas:
+        return jsonify({"ok": False, "error": "Add a target area first."}), 400
+
+    demographics = {"gender": body.get("gender") or "Both",
+                    "ages": body.get("ages") or [],
+                    "income": body.get("income") or [],
+                    "industry": body.get("industry") or ""}
+    prompt = (
+        "You are a media planner sizing advertising reach for United States geographies. For EACH "
+        "target area below, estimate population, addressable audience after the stated demographic "
+        "filters, households, and reachable devices. Return STRICT JSON only: "
+        "{\"areas\": [{\"id\": \"...\", \"population\": n, \"addressable_audience\": n, "
+        "\"households\": n, \"devices\": n, \"rationale\": \"one short sentence\"}]}. "
+        "Use whole numbers. If an area cannot be sized from real data, omit it from the array rather "
+        "than guessing — an omitted area is reported as not measured, which is correct, and an "
+        "invented one is not.\n\n"
+        + json.dumps({"demographics": demographics,
+                      "areas": [{"id": a["id"], "area": hub_areas.label(a),
+                                 "type": a["type"], "radius_miles": a["radius"],
+                                 "zip_codes": a["zips"]} for a in areas]},
+                     ensure_ascii=False))
+    by_id, ai_used = {}, False
+    try:
+        for row in (_json_from_ai(_openai_response(prompt, 4000)).get("areas") or []):
+            if row.get("id"):
+                by_id[str(row["id"])] = row
+        ai_used = bool(by_id)
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("audience estimate fell back to the built-in model: %s", exc)
+
+    out, totals = [], {"pop": 0, "aud": 0, "hh": 0, "dev": 0}
+    measured = 0
+    for area in areas:
+        row = by_id.get(area["id"]) or {}
+        population = int(row.get("population") or 0) or (hub_areas.estimated_population(area) or 0)
+        if not population:
+            out.append({"id": area["id"], "label": hub_areas.label(area),
+                        "measured": False, "note": "Not measured — this area could "
+                                                   "not be sized from what was entered."})
+            continue
+        audience = int(row.get("addressable_audience") or 0) or int(population * 0.85)
+        households = int(row.get("households") or 0) or int(audience / 1.9)
+        devices = int(row.get("devices") or 0) or int(audience * 2.3)
+        measured += 1
+        out.append({"id": area["id"], "label": hub_areas.label(area), "measured": True,
+                    "pop": population, "aud": audience, "hh": households, "dev": devices,
+                    "ai": bool(row), "rationale": str(row.get("rationale") or "")})
+        totals["pop"] += population
+        totals["aud"] += audience
+        totals["hh"] += households
+        totals["dev"] += devices
+
+    note = ""
+    if len(areas) > 1:
+        note = ("Areas are totalled without deducting overlap, so nearby areas "
+                "double-count the people they share.")
+    unmeasured = [row["label"] for row in out if not row["measured"]]
+    return jsonify({"ok": True, "areas": out, "ai": ai_used,
+                    "totals": totals if measured else None,
+                    "measured": measured, "unmeasured": unmeasured, "note": note})
+
+
+# =====================================================================
+# Delivery — the PDF the client gets, filed and pushed to Smart 1 Suite
+# =====================================================================
+def _suite_status():
+    try:
+        from hub import suite_opportunity
+        return suite_opportunity.status()
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "problems": [f"Suite helper unavailable ({type(exc).__name__})."]}
+
+
+@app.get("/api/suite/status")
+def api_suite_status():
+    """Whether an opportunity will actually be created, in words."""
+    return jsonify(_suite_status())
+
+
+def _upload_proposal_pdf(quote_number, client, pdf_bytes, revision):
+    """Put the client-facing PDF somewhere it can be linked to.
+
+    Through hub.storage rather than a local cloudinary.config() call, per the
+    migration rule. Returns "" when Cloudinary is not configured — the archive
+    copy in the database is still there, and the caller says so rather than
+    handing anyone a dead link.
+    """
+    try:
+        from hub import storage
+        from hub.config import settings
+        safe = storage.slug(f"{quote_number}-{client or 'client'}", "quote")
+        public_id = f"{settings.folder('proposals')}/quotes/{safe}-r{revision}.pdf"
+        return storage.put("proposals", public_id, pdf_bytes,
+                           public_id=public_id, overwrite=True).url or ""
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("proposal PDF upload failed: %s", exc)
+        return ""
+
+
+@app.post("/api/quotes/<int:qid>/deliver")
+def deliver_quote(qid):
+    """Send a proposal to a client: PDF, filed on the client, opportunity in Suite.
+
+    Three things happen, in an order chosen so a later failure never loses an
+    earlier success:
+
+      1. The branded PDF is generated and archived on the quote (always works).
+      2. It is uploaded and filed on the client's Hub record, so it shows up on
+         Client 360 with everything else that client has been sent.
+      3. An opportunity is created in Smart 1 Suite.
+
+    Step 3 is the one that can come back asking a question. If Suite holds no
+    contact for this client, the response is `needs_contact` — the proposal is
+    already saved and filed at that point, and the rep supplies a name plus an
+    email or phone and posts again. That is the whole reason this is not done
+    silently in the background: inventing a contact from a business name is
+    how a Suite account fills with records nobody can call.
+    """
+    body = request.get_json(silent=True) or {}
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        state = json.loads(q.data or "{}")
+        ensure_sections(state)
+
+        pdf_bytes, title = build_proposal_pdf(q, state)
+        q.pdf_blob = pdf_bytes
+        q.pdf_filename = title + ".pdf"
+        q.pdf_generated_at = datetime.now(timezone.utc)
+
+        url = q.pdf_url
+        if not url or body.get("regenerate", True):
+            url = _upload_proposal_pdf(q.quote_number, q.client, pdf_bytes, q.revision or 1) or q.pdf_url
+        q.pdf_url = url or ""
+
+        filed, filed_note = None, ""
+        if q.client:
+            try:
+                from hub import proposals as hub_proposals
+                # One filed document per revision. Pressing Send twice on the
+                # same revision -- a double click, or answering the Suite
+                # contact question -- must not leave the client's record
+                # showing the same proposal three times; each of those rows
+                # looks like a separate thing we sent them.
+                prior_id, _, prior_rev = (q.client_filed_as or "").partition("@")
+                if prior_id and prior_rev == str(q.revision or 1):
+                    hub_proposals.delete_proposal(q.client, prior_id)
+                filed = hub_proposals.add_proposal(
+                    q.client, title + ".pdf", pdf_bytes,
+                    title=f"{q.quote_number} — {q.package or 'Marketing Proposal'}"
+                          + (f" (rev {q.revision})" if (q.revision or 1) > 1 else ""),
+                    note=f"Built in the Proposal Builder. {q.geo_summary or ''}".strip(),
+                    actor=request.environ.get("s1hub.user") or state.get("salesContact") or "",
+                    value=str(q.monthly_budget or 0), term="monthly", status="sent")
+                q.client_filed_as = f"{filed.get('id') or ''}@{q.revision or 1}"[:64]
+            except Exception as exc:                    # noqa: BLE001
+                logger.warning("filing the proposal on the client failed: %s", exc)
+                filed_note = (f"The proposal could not be filed on {q.client}'s record "
+                              f"({type(exc).__name__}). It is still saved here.")
+        else:
+            filed_note = "No client name on this quote, so it was not filed on a client record."
+
+        contact = body.get("contact") or {
+            "name": state.get("clientContactName") or "",
+            "email": state.get("clientContactEmail") or "",
+            "phone": state.get("clientContactPhone") or "",
+        }
+        if q.suite_contact_id and not contact.get("id"):
+            contact["id"] = q.suite_contact_id
+
+        # The PDF is built and filed by this point. A Suite problem -- even the
+        # helper failing to import -- reports itself; it never costs the work
+        # already done.
+        try:
+            from hub import suite_opportunity
+            suite = suite_opportunity.push_proposal(
+                client=q.client, title=f"{q.client} — {q.package or 'Marketing'} Proposal "
+                                       f"({q.quote_number})",
+                value=float(q.monthly_budget or 0), contact=contact,
+                website=q.website, pdf_url=q.pdf_url,
+                opportunity_id=q.suite_opportunity_id or "")
+        except Exception as exc:                        # noqa: BLE001
+            logger.warning("Suite push failed: %s", exc)
+            suite = {"ok": False, "reason": f"Smart 1 Suite is unreachable "
+                                            f"({type(exc).__name__})."}
+        if suite.get("ok"):
+            q.suite_opportunity_id = str(suite.get("opportunity_id") or "")[:64]
+            found = suite.get("contact") or {}
+            q.suite_contact_id = str(found.get("id") or "")[:64]
+            # Remember the contact, so converting this quote to an IO does not
+            # ask for it a second time. setdefault would not do: the wizard
+            # seeds these keys as empty strings, so they are present-but-blank
+            # rather than absent.
+            for key, value in (("clientContactName", found.get("name")),
+                               ("clientContactEmail", found.get("email")),
+                               ("clientContactPhone", found.get("phone"))):
+                if value and not state.get(key):
+                    state[key] = value
+            q.data = json.dumps(state, ensure_ascii=False)
+
+        q.delivered_at = datetime.now(timezone.utc)
+        if q.status == "Draft":
+            q.status = "Sent"
+        log_activity(db, q.id, "📤",
+                     f"{q.quote_number} delivered — {q.client}"
+                     + (f", Suite opportunity {q.suite_opportunity_id}" if suite.get("ok")
+                        else ", no Suite opportunity"))
+        db.commit()
+        try:
+            _audit("proposal_delivered", client=q.client, quote=q.quote_number,
+                   suite=bool(suite.get("ok")))
+        except Exception:                               # noqa: BLE001
+            pass
+        return jsonify({"ok": True, "quote": quote_json(q), "pdf_url": q.pdf_url,
+                        "filed": filed, "filed_note": filed_note, "suite": suite})
+    finally:
+        db.close()
+
+
+# =====================================================================
+# The retired standalone builder's archive
+# =====================================================================
+@app.get("/api/legacy/proposals")
+def legacy_proposals():
+    """Proposals built in the old /sales/proposals tool.
+
+    Read-only, and listed beside the quotes rather than merged into them: they
+    have no quote number, no revision and no campaign data, and giving them
+    invented ones would make the pipeline read as bigger and better-specified
+    than it is.
+    """
+    try:
+        from modules.proposal_builder import store as legacy_store
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": True, "proposals": [], "available": False,
+                        "note": f"The old builder's archive is unreadable ({type(exc).__name__})."})
+    try:
+        rows = legacy_store.search_proposals(
+            q=request.args.get("q", ""),
+            limit=clamp_int(request.args.get("limit"), 50, 1, 200))
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("legacy proposal index unreadable: %s", exc)
+        return jsonify({"ok": True, "proposals": [], "available": False,
+                        "note": "The old builder's archive could not be read."})
+    return jsonify({"ok": True, "proposals": rows, "available": True})
+
+
+@app.post("/api/legacy/proposals/<pid>/import")
+def legacy_import(pid):
+    """Reopen an old standalone proposal as a quote in this builder.
+
+    What carries over is what was structured: the customer, the industry, the
+    recommended package and its monthly price, and the narrative blocks as
+    editable text sections. What does not carry over is a media plan, because
+    the old proposals never had one — the products were named inside prose.
+    The imported quote therefore lands as a Draft with its gaps listed, which
+    is an honest description of it.
+    """
+    try:
+        from modules.proposal_builder import store as legacy_store
+    except Exception:                                   # noqa: BLE001
+        return jsonify({"ok": False, "error": "The old builder's archive is unavailable."}), 503
+    record = legacy_store.get_proposal(pid)
+    if not record:
+        return jsonify({"ok": False, "error": "No such proposal."}), 404
+
+    customer = record.get("customer") or {}
+    sections, monthly = [], record.get("monthly_investment") or 0
+    for i, block in enumerate(record.get("blocks") or []):
+        data = block.get("data") or {}
+        title = str(data.get("heading") or data.get("title") or "").strip()
+        parts = [str(data.get("body") or "").strip()]
+        for item in (data.get("items") or []):
+            if isinstance(item, dict):
+                parts.append(f"• {item.get('label', '')}: {item.get('value', '')}")
+            else:
+                parts.append(f"• {item}")
+        text = "\n".join(p for p in parts if p)
+        if title or text:
+            sections.append({"id": f"legacy{i}", "title": title or f"Section {i + 1}",
+                             "kind": "text", "enabled": True, "body": text})
+
+    city, st = customer.get("city", ""), customer.get("state", "")
+    where = ", ".join(x for x in (city, st) if x) or customer.get("zip", "")
+    areas = hub_areas.normalize([{"name": where, "origin": where}]) if where else []
+
+    state = {
+        "client": customer.get("business_name", ""),
+        "url": customer.get("website", ""),
+        "industry": record.get("industry_label") or record.get("industry") or "",
+        "description": "", "descriptionMode": "I have one",
+        "objectives": [], "kpis": [], "exclusions": [], "audiences": [], "items": [],
+        "targetAreas": areas,
+        "budget": int(float(monthly or 0)), "months": 12,
+        "clientContactName": customer.get("contact_name", ""),
+        "clientContactEmail": customer.get("contact_email", ""),
+        "clientContactPhone": customer.get("contact_phone", ""),
+        "salesContact": customer.get("salesperson", ""),
+        "sections": sections or None,
+        "importedFrom": f"proposal-builder:{pid}",
+    }
+    hub_areas.apply_to_legacy(state, areas)
+
+    db = SessionLocal()
+    try:
+        q = Quote(quote_number=next_quote_number(db), status="Draft",
+                  data=json.dumps(state, ensure_ascii=False))
+        summarize_into(q, state)
+        q.package = str(record.get("recommended_package") or "")[:40]
+        q.pdf_url = str(record.get("pdf_url") or "")[:600]
+        db.add(q)
+        db.flush()
+        log_activity(db, q.id, "📥",
+                     f"{q.quote_number} imported from the old Proposal Builder — {q.client}")
+        db.commit()
+        return jsonify({"ok": True, "quote": quote_json(q, include_data=True),
+                        "note": "Goals, products and budget were never structured in the old "
+                                "builder, so they are blank rather than guessed. The copy came "
+                                "across as editable sections."})
+    finally:
+        db.close()
 
 
 @app.errorhandler(Exception)

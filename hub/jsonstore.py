@@ -552,8 +552,15 @@ def maybe_restore() -> dict:
 # Directories under the data root holding files that are rebuildable from their
 # source. Sweeping them would put megabytes of Knack and provider responses
 # into the backup to no purpose, and would make "what would we lose?" unreadable.
+# "adbuilder-out" is OUTPUT_DIR from render.yaml — the Display Ad Builder's
+# renders, project state and brand cache. It is a separate Node service with
+# its own storage model and its own render.yaml, and its output is largely
+# rasterised ads rather than Hub state, so quietly pulling it into the Hub's
+# backup would put megabytes of another service's internals into every restore
+# without that service knowing. If its project state needs backing up, that is
+# the renderer's decision to make, in its own terms.
 SWEEP_SKIP_DIRS = {"assets", "cache", "caches", "tmp", "knack-cache",
-                   "ad_builder", "sessions"}
+                   "ad_builder", "adbuilder-out", "sessions"}
 SWEEP_SKIP_FILES = {"knack_products.json", "knack_products_cache.json"}
 
 

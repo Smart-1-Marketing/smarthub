@@ -97,6 +97,12 @@ class Settings:
     knack_api_key: str = field(default_factory=lambda: _s("KNACK_API_KEY"))
     ghl_token: str = field(default_factory=lambda: _first("GHL_PRIVATE_TOKEN", "SMART1SUITE_PRIVATE_TOKEN"))
     ghl_company_id: str = field(default_factory=lambda: _first("GHL_COMPANY_ID", "SUITE_COMPANY_ID"))
+    # The sub-account leads are written into. Deliberately NOT defaulted to the
+    # company id: they are different id spaces, and a companyId sent where a
+    # locationId belongs addresses the agency silently.
+    ghl_lead_location_id: str = field(default_factory=lambda: _first(
+        "GHL_LEAD_LOCATION_ID", "SMART1_MARKETING_LOCATION_ID",
+        "GHL_ACCOUNTING_LOCATION_ID"))
     simvoly_key: str = field(default_factory=lambda: _first("SIMVOLY_API_KEY", "SIMVOLY_KEY"))
 
     # ---- behaviour ----
@@ -206,6 +212,13 @@ class Settings:
             row("Insites", bool(self.insites_key), False, "INSITES_API_KEY — Site Scans disabled without it."),
             row("Knack", bool(self.knack_app_id and self.knack_api_key), False, "KNACK_APP_ID / KNACK_API_KEY — client registry."),
             row("GoHighLevel", bool(self.ghl_token and self.ghl_company_id), False, "GHL_PRIVATE_TOKEN (or SMART1SUITE_PRIVATE_TOKEN) + GHL_COMPANY_ID (or SUITE_COMPANY_ID)."),
+            row("Lead delivery to Suite",
+                bool(self.ghl_token and self.ghl_lead_location_id
+                     and self.ghl_lead_location_id != self.ghl_company_id),
+                False,
+                "GHL_LEAD_LOCATION_ID — the Smart 1 Marketing sub-account id, "
+                "which must not be the agency company id. Without it leads fall "
+                "back to HUB_LEAD_WEBHOOK_URL, which cannot confirm delivery."),
             row("Simvoly", bool(self.simvoly_key), False, "SIMVOLY_API_KEY — Sites admin."),
         ]
 

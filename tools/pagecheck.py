@@ -30,7 +30,8 @@ asks two things of the bytes that come back:
 
   2. Every script block the BROWSER would delimit still parses. Blocks are cut
      at the first ``</script>`` the same way a browser cuts them, then handed
-     to tools/jscheck.py.
+     to ``node --check`` through tools/jscheck.py. Without node that half is
+     reported as not run, never as a pass.
 
     python tools/pagecheck.py            # report, exit 1 on any failure
     python tools/pagecheck.py --quiet    # only the summary line
@@ -42,6 +43,7 @@ Exits 1 on failure, so it can gate a release.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from html.parser import HTMLParser
 
@@ -56,7 +58,16 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(
 os.environ.setdefault("SECRET_KEY", "pagecheck")
 os.environ.setdefault("PANEL_PASSWORD", "pagecheck")
 
-from jscheck import check as js_check                            # noqa: E402
+# node --check, the real parser, borrowed from tools/jscheck.py. A rendered
+# page carries no Jinja -- the template engine has already run -- so unlike
+# tools/checktemplates.py there is nothing here that node would reject for the
+# wrong reason, and the stricter checker is the right one. It is also what
+# actually caught the bug this file exists for: the browser said "Unexpected
+# identifier 'header'", which is a parse error, not an unbalanced bracket.
+from jscheck import _node_check                                  # noqa: E402
+
+NODE = subprocess.run(["node", "--version"],
+                      capture_output=True).returncode == 0
 
 # Staff pages served by the hub app itself.
 HUB_PAGES = [
@@ -183,15 +194,16 @@ def check_page(client, path, quiet, unavailable):
     if not wants_chrome and parser.chrome_elements:
         problems.append(f"{path}: staff sidebar injected into a public page")
 
-    for n, src in enumerate(parser.scripts):
-        if not src.strip():
-            continue
-        try:
-            err = js_check(src, f"{path} script #{n + 1}")
-        except Exception as exc:                    # noqa: BLE001
-            err = f"{path} script #{n + 1}: checker error {exc}"
-        if err:
-            problems.append(err)
+    if NODE:
+        for n, src in enumerate(parser.scripts):
+            if not src.strip():
+                continue
+            try:
+                err = _node_check(src, f"{path} script #{n + 1}")
+            except Exception as exc:                # noqa: BLE001
+                err = f"{path} script #{n + 1}: checker error {exc}"
+            if err:
+                problems.append(err)
 
     if not problems and not quiet:
         print(f"  ok    {path}  ({len(parser.scripts)} script block(s), "
@@ -212,6 +224,12 @@ def main():
     problems, unavailable = [], []
     if not quiet:
         print(f"checking {len(pages)} rendered page(s)\n")
+    if not NODE:
+        # Never a silent pass: the chrome check below still runs, but half of
+        # what this tool does did not, and saying so is the difference between
+        # "checked" and "nothing went wrong as far as I looked".
+        print("  ----  node is not available, so no page's JavaScript was "
+              "parsed. The chrome check still ran.\n")
     for path in pages:
         problems.extend(check_page(client, path, quiet, unavailable))
 

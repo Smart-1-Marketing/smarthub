@@ -59,7 +59,32 @@ extras raises `TypeError` and silently zeroes cost tracking. Use `tool=`.
 **Env var names drifted.** This deployment sets `PEXELS_API` and
 `PIXABAY_API`; much of the code was written against `..._API_KEY`. Config
 accepts both. If a provider reports "no API key set" while the key is clearly
-present, that's the cause.
+present, that's the cause. The Proposal Builder's Suite push was the worst
+case: it read `GHL_PRIVATE_INTEGRATION_TOKEN`, `GHL_LOCATION_ID`,
+`GHL_PIPELINE_ID` and `GHL_PIPELINE_STAGE_ID`, none of which this deployment
+has ever set, so it reported "env vars not fully set" into a response nobody
+reads and never once created an opportunity. `hub/suite_opportunity.py` reads
+the real names and discovers the pipeline through the API.
+
+**A URL built by concatenation is a URL nothing checks.** `tools/linkcheck.py`
+only sees a path literal that sits directly inside `fetch("…")`. Written as
+`fetch(BASE + "/api/thing")` it is invisible, which is how three of the
+Proposal Builder's AI buttons and all four of its IO-conversion calls came to
+point at `IO_API_BASE + "/sales/builder/api/…"` — a path that exists on
+neither app — while every page looked healthy. linkcheck now *lists* these
+under "built at runtime, NOT verified" rather than guessing at them. Read that
+list; prefer a same-origin literal.
+
+**One campaign runs in more than one place.** Target areas are a list, in
+`hub/target_areas.py`, shared by the Proposal Builder, the IO Builder and
+`CampaignSpec`. The old single-geo fields (`geoType`/`geo`/`radius`, and the
+IO's `geoOrigin`/`geoRadius`/`geoDMA`/`geoZipcodes`) are still written on every
+save, because the IO PDF and the Suite webhook's `geographic_target` read them
+— `from_legacy()` converts old records on read rather than migrating rows
+nobody has re-opened. The wizard carries a JavaScript copy of the label and
+sizing helpers so the reach panel updates live; `test_target_areas.py` asserts
+the two produce identical output, because when they drift the proposal
+contradicts the screen it was quoted from and nothing errors.
 
 **Placeholder values are worse than blanks.** `CLOUDINARY_URL` sat at
 `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` and every "is it configured?"
@@ -119,6 +144,32 @@ across this codebase (`url`, `domain`, `website`, `web_url`, `site_url`…).
 a domain means. Name matching produces false positives — "Riverside HVAC" vs
 "Riverside HVAC LLC" — and is why billing audits report phantom problems.
 
+**One client key, derived on read.** The modules key a client three different
+ways and always will: Scans on `domain_key`, Ads and Google Access on a typed
+`client_name`, Image Picker on its own table. `hub/client_key.py` joins them
+without changing any of it — `client_key(name, url)` returns `d:<domain>` where
+there is a URL and `n:<name-slug>` where there is not, and `resolve()`,
+`same_client()` and `crosswalk()` are built on that. Use them rather than
+comparing names.
+
+Two rules it enforces, both learned the hard way:
+
+- **Never store the key.** `create_all()` creates missing tables and never adds
+  a column to an existing one, so a `client_key` column would be silently
+  absent on the live Postgres while every local test passed. Deriving it also
+  means a client renamed in Knack is re-joined on the next request instead of
+  leaving a stale copy behind.
+- **Never match on a substring.** `resolve()` matches on domain, then on an
+  exact normalised name, and offers a near match only when exactly one client
+  can possibly be meant — otherwise it returns *no* match and lists the
+  candidates. The billing audit used to take the first Knack name containing
+  the sub-account name, so "Acme" was attributed to whichever of Acme Plumbing,
+  Acme Roofing and Acme Electric came out of the dict first, and nothing in the
+  report showed that a guess had been made.
+
+`/api/clients/crosswalk` shows what is joined, what shares a domain, and what
+carries a name with no URL and therefore cannot be joined to anything.
+
 ---
 
 ## Opportunistic migration — read this before editing any module
@@ -165,6 +216,29 @@ What that means in practice:
 If a shared function does not do what the module needs, extend the shared one
 rather than keeping the local copy. That is the whole point — the next fix
 should land once.
+
+## There is one proposal builder
+
+There were two, which is worth remembering because the shape of the problem
+recurs. `modules/sales_builder` (`/sales/builder`) and
+`modules/proposal_builder` (`/sales/proposals`) shared no code, no storage and
+no idea of what a campaign is. The same client could be quoted two different
+ways depending on which one a rep opened, and only one produced anything an
+insertion order could read.
+
+`modules/sales_builder` is now **the** Proposal Builder. `/sales/proposals`
+redirects to it (carrying Client 360's prefill through) and serves only the
+old tool's archive, which stays readable because those are real documents real
+clients received — `/sales/builder/api/legacy/proposals/<id>/import` reopens
+one as a live quote. What moved across: the industry library (now
+`hub/industries.py`), AI-written narrative copy, the Cloudinary-hosted PDF, and
+filing the finished proposal onto the client record.
+
+Delivering a proposal now files it on the client and opens an opportunity in
+Smart 1 Suite. It looks up the contact first and **asks** when there is none,
+rather than creating one from the business name — an opportunity attached to a
+contact nobody can call is worse than no opportunity, and it duplicates the
+real contact next time anyone searches.
 
 ## The one module that is not Python
 
@@ -217,17 +291,27 @@ only found by running it.
 ```bash
 python3 -c "import ast,pathlib; [ast.parse(p.read_text(errors='ignore')) \
   for p in pathlib.Path('.').rglob('*.py') if '_attic' not in p.parts]"
-node --check hub/static/*.js
-python tools/checktemplates.py     # inline JS in templates and public pages
+python tools/jscheck.py            # every .js file and inline block, via node
+python tools/checktemplates.py     # the Jinja-carrying blocks jscheck skips
 python tools/linkcheck.py          # every internal URL resolves
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
+python3 test_jsonstore.py          # the database mirror really restores
+python3 test_ads_module.py         # the Node ad builder behind its proxy
+python3 test_target_areas.py       # target areas, delivery, the Suite push
+python3 test_lead_delivery.py      # one write path per lead
 ```
 
-**All of this runs on every pull request** — `.github/workflows/ci.yml`. CI
-runs the same scripts a person runs, against a real Postgres, so a green run
-means the same thing in both places and no check exists only where nobody can
-reproduce it.
+The test files need no pytest and no new dependencies; each runs against a
+temporary data directory and a throwaway SQLite database, so none of them
+touches `/var/data` or the real one.
+
+**All of this runs on every pull request** — `.github/workflows/checks.yml`.
+CI runs the same scripts a person runs, against a real Postgres, so a green
+run means the same thing in both places and no check exists only where nobody
+can reproduce it. Postgres rather than SQLite because Sites Admin refuses to
+start without it and serves the 503 fallback instead: on SQLite a whole module
+drops out of every check that boots the app, and nothing says so.
 
 `tools/linkcheck.py` boots the composed app and checks every internal URL
 literal against the route table of whichever app owns that path, so it catches
@@ -249,6 +333,15 @@ the page's script early, and the entire tool rendered blank. It checks that
 the chrome arrives as an *element* (`html.parser` goes raw-text inside
 `<script>` exactly as a browser does, so chrome hidden in a literal is not
 seen) and that every browser-delimited script block still parses.
+
+`tools/jscheck.py` and `tools/checktemplates.py` split the JavaScript between
+them. jscheck hands every file and every inline block to `node --check`, the
+real parser, but *skips* blocks containing `{% %}` or `{{ }}` because Jinja is
+not JavaScript and Node would reject it for the wrong reason. checktemplates
+is what checks those: it blanks the Jinja to same-width filler, so line numbers
+still line up, and runs a bracket/string/template balance check over what is
+left. Neither is redundant — jscheck is stricter on what it can read, and
+checktemplates is the only thing that reads the rest.
 
 `tools/integritycheck.py` runs `/api/integrity` from the command line and
 fails on `high` findings. Two `medium` ones stand today (`ad_builder` and

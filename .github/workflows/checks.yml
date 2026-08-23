@@ -1,0 +1,183 @@
+# The checks CLAUDE.md already prescribes, run automatically.
+#
+# Every one of these existed as a command a person was expected to remember.
+# tools/linkcheck.py in particular was written because a module page calling
+# fetch("/api/lead") works standalone and 404s under a mount — that bug took
+# down lead capture on seven landing pages for two days. It exits non-zero
+# precisely so it can gate a release; until now nothing ran it.
+#
+# Deliberately no deploy step and no secrets. These checks run on pull requests
+# from a clean checkout, so they must pass without Knack, GoHighLevel,
+# Cloudinary or OpenAI credentials. Anything that needs a live third party
+# belongs in /status and /api/integrity on the deployment, not here — a gate
+# that fails because someone else's API is down teaches people to ignore it.
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes the run in flight for the same branch.
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: syntax, links and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Postgres rather than SQLite, for the steps that boot the app. Sites Admin
+    # refuses to start without a real Postgres URL and serves wsgi.py's 503
+    # fallback instead, so on SQLite a whole module silently drops out of every
+    # check that boots -- 36 of 37 pages checked, and nothing saying so. This
+    # is a service container, not a credential: it keeps the "no secrets, runs
+    # from a clean checkout" rule above intact, and it also exercises
+    # create_all() under its advisory lock, which is a deploy-time failure mode.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: smarthub
+          POSTGRES_PASSWORD: smarthub
+          POSTGRES_DB: smarthub_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+      SECRET_KEY: ci-not-a-real-secret
+      PANEL_PASSWORD: ci-not-a-real-password
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Matches the Dockerfile (python:3.12-slim), so the gate runs what
+      # production runs.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Python syntax
+        run: |
+          python -c "import ast, pathlib, sys; \
+            files = [p for p in pathlib.Path('.').rglob('*.py') if '_attic' not in p.parts]; \
+            [ast.parse(p.read_text(errors='ignore'), str(p)) for p in files]; \
+            print(f'parsed {len(files)} Python files')"
+
+      - name: JavaScript syntax
+        run: python tools/jscheck.py
+
+      # The other half: jscheck skips blocks carrying Jinja, because Node would
+      # reject them for the wrong reason. This balance-checks exactly those, so
+      # "not checked (Jinja)" in the step above is not the end of the story.
+      - name: JavaScript inside Jinja templates
+        run: python tools/checktemplates.py
+
+      # Boots the composed app and checks every internal URL literal against
+      # the route table of whichever app owns that path. This is the one that
+      # catches the mount trap.
+      - name: Link and mount check
+        run: python tools/linkcheck.py
+
+      - name: Ad builder module tests
+        run: python test_ads_module.py
+
+      - name: JSON store tests
+        run: python test_jsonstore.py
+
+      - name: Target area tests
+        run: |
+          if [ -f test_target_areas.py ]; then
+            python test_target_areas.py
+          else
+            echo "test_target_areas.py not on this branch — nothing to run."
+          fi
+
+      - name: Lead delivery tests
+        # Skipped rather than failed on a branch that predates the file, so
+        # this workflow can merge before the branch that adds it.
+        run: |
+          if [ -f test_lead_delivery.py ]; then
+            python test_lead_delivery.py
+          else
+            echo "test_lead_delivery.py not on this branch — nothing to run."
+          fi
+
+      - name: Boot the composed app
+        # Static analysis misses what booting catches; several serious bugs in
+        # this repo were only ever found by running it. Requests the pages a
+        # change is most likely to break.
+        env:
+          DATABASE_URL: sqlite:////tmp/ci-boot.db
+          PANEL_PASSWORD: ci-test-password
+          SECRET_KEY: ci-test-secret
+        run: |
+          python - <<'PY'
+          import sys
+          from werkzeug.test import Client
+          from wsgi import application
+
+          c = Client(application)
+          c.post("/login", data={"password": "ci-test-password", "name": "CI"})
+
+          pages = ["/", "/status", "/diagnostics", "/sales/leads",
+                   "/api/integrity", "/api/leads", "/login/health"]
+          bad = []
+          for url in pages:
+              try:
+                  code = c.get(url).status_code
+              except Exception as exc:
+                  bad.append(f"{url} raised {type(exc).__name__}: {exc}")
+                  continue
+              print(f"{code}  {url}")
+              # 3xx is fine (auth redirects); 4xx/5xx on these is not.
+              if code >= 400:
+                  bad.append(f"{url} returned {code}")
+
+          if bad:
+              print("\nFAILED:")
+              for b in bad:
+                  print("  " + b)
+              sys.exit(1)
+          print("\nthe composed app boots and every checked page responds")
+          PY
+
+      # What the BROWSER receives, after HubBar and the hub's after_request
+      # have rewritten the response. Every check above reads source; this reads
+      # the bytes. HubBar injected the sidebar at the first </body> in the
+      # response, and the IO Builder builds two printable documents as
+      # JavaScript template literals that each carry their own </body> -- so
+      # the chrome landed inside a string, closed the page's script early, and
+      # the whole tool rendered blank. Every template was valid. Every link
+      # resolved. Nothing above would have caught it.
+      - name: Rendered pages (chrome is markup, scripts still parse)
+        run: python tools/pagecheck.py --strict
+
+      # The Hub's own defect-pattern check, which otherwise lives behind a
+      # login on a page somebody has to remember to open. Gates on `high` only:
+      # two medium findings stand today (ad_builder and msa never write to the
+      # activity log) and are printed every run, so switching this on did not
+      # start it red.
+      - name: Known defect patterns (/api/integrity)
+        run: python tools/integritycheck.py

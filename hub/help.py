@@ -221,6 +221,80 @@ REGISTRY: list[Help] = [
        "are all intercepted — nothing you click here spends a credit or "
        "touches a real client. Break whatever you like.", step=1,
        selector="[data-tour='demo-banner']"),
+
+    # ---------------- Sales leads ----------------
+    _h("hub.leads.store", "Every lead, one list",
+       "Landing pages, calculators and the ad builder all write here before "
+       "anything is sent anywhere else. That order matters: a GoHighLevel "
+       "outage or a rotated token can delay delivery, but it can no longer "
+       "lose a lead you already have.",
+       step=1, selector="[data-tour='leads-store']"),
+    _h("hub.leads.delivery", "sent vs queued",
+       "\u201csent\u201d means GoHighLevel accepted it. \u201cqueued\u201d means we still hold it "
+       "and delivery has not succeeded yet \u2014 hover it for the last error. "
+       "Retry pushes every queued row again; nothing is lost in the meantime.",
+       step=2, selector="[data-tour='leads-delivery']"),
+    _h("hub.leads.convert", "Linking a lead to a client",
+       "A client here is anyone with a product in Knack, because that is what "
+       "billing reads. So this links the lead to an account that already "
+       "exists rather than creating one \u2014 create the account in Knack "
+       "first, then link it, and the history of where it came from survives.",
+       step=3, selector="[data-tour='leads-convert']"),
+
+    # ---------------- System status ----------------
+    _h("hub.status.checks", "What these checks actually do",
+       "Each one makes a real call with the key that is configured, rather "
+       "than reporting whether a variable is set. A key that is present but "
+       "expired, revoked or pointed at the wrong account fails here \u2014 "
+       "which is the whole point.",
+       step=1, selector="[data-tour='status-checks']"),
+    _h("hub.status.errors", "The error log",
+       "Boot-time failures are caught so one broken module cannot take the "
+       "Hub down, but they are recorded here rather than swallowed. If a tool "
+       "is missing from the sidebar or a page 404s for no reason, this is "
+       "where the reason is.",
+       step=2, selector="[data-tour='status-errors']"),
+
+    # ---------------- Activity ----------------
+    _h("hub.activity.log", "Who did what",
+       "Every action across every tool, attributed by name. Anything recorded "
+       "against a client also appears on that client's 360 record, so the "
+       "question \u201cwho changed this account and when\u201d has an answer "
+       "without asking around.",
+       step=1, selector="[data-tour='activity-log']"),
+
+    # ---------------- SEO clients ----------------
+    _h("hub.seo.list", "Where this list comes from",
+       "Clients with a live SEO product in Knack \u2014 the same source "
+       "billing uses, read live rather than from an export. A client who "
+       "belongs here but is missing usually has the product recorded under a "
+       "slightly different name.",
+       step=1, selector="[data-tour='seo-list']"),
+
+    # ---------------- Creative ----------------
+    _h("hub.creative.pick", "Which of these you want",
+       "Image Creator is the full editor for making something new. Client "
+       "Image Uploads builds a client's library from stock search. Page Image "
+       "Optimizer fixes images already live on a page. Image Optimizer is for "
+       "one file to an exact size \u2014 for naming a batch for SEO, use the "
+       "SEO Image Pipeline instead.",
+       step=1, selector="[data-tour='creative-tiles']"),
+
+    # ---------------- Display ads ----------------
+    _h("display_ads.start.kind", "Client or prospect",
+       "This is asked rather than guessed because the two are filed "
+       "differently. A client is matched to the registry so the creative "
+       "lands on the right account even if the name is typed differently. A "
+       "prospect becomes a lead you can find in Sales leads afterwards, "
+       "instead of a name that exists only on this one build.",
+       step=1, selector="[data-tour='ads-kind']"),
+    _h("display_ads.attach.filing", "What attaching does",
+       "The renderer has already put every finished ad in Cloudinary, in this "
+       "same account, so filing records the image that is already there "
+       "rather than uploading it again. That keeps one copy, and keeps the "
+       "link the renderer is holding working.",
+       step=1, selector="[data-tour='ads-attach']"),
+
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

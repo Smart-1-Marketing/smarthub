@@ -45,6 +45,22 @@ class Proposal(Base):
 
     # ------------------------------------------------------------ helpers
     @property
+    def client_key(self) -> str:
+        """The Hub-wide client key for this proposal.
+
+        Derived, not stored: `client_name` is free text typed into the builder,
+        so it is "Riverside HVAC" here and "Riverside HVAC LLC" in Google
+        Access. The key is what makes those one client. Falls back to the raw
+        name if the Hub isn't importable, which is how this module stays
+        runnable on its own.
+        """
+        try:
+            from hub.client_key import resolve
+            return resolve(name=self.client_name or "")["key"]
+        except Exception:                                 # noqa: BLE001
+            return ""
+
+    @property
     def campaign(self) -> dict:
         return json.loads(self.campaign_json or "{}")
 
@@ -62,6 +78,7 @@ class Proposal(Base):
         return {
             "id": self.public_id,
             "client_name": self.client_name,
+            "client_key": self.client_key,
             "google_customer_id": self.google_customer_id,
             "status": self.status,
             "created_by": self.created_by,

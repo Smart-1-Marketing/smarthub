@@ -1,66 +1,12 @@
-"""Industry templates — ported verbatim from lib/industries.js."""
-import json as _json
-from datetime import datetime
+"""Moved to `hub.industries` when the two proposal builders were consolidated.
 
-INDUSTRIES = _json.loads(r'''{"tourism": {"label": "Tourism & Attractions", "source": "Smart 1 Seasonal Tourism Marketing Planner", "icon": "sun", "tiers": [{"name": "Good", "price": 2500, "blurb": "Core seasonal presence", "features": ["Geofenced display in your drive market", "Seasonal budget pacing", "Monthly performance recap", "Landing page conversion audit"]}, {"name": "Better", "price": 5000, "blurb": "Season-long demand capture", "features": ["Everything in Good", "Connected TV in feeder metros", "Weather-triggered pacing", "Quarterly strategy session"]}, {"name": "Best", "price": 10000, "blurb": "Market-leading share of voice", "features": ["Everything in Better", "Streaming audio + YouTube", "Custom audience modeling", "Dedicated strategist"]}], "channels": ["Geofenced Display", "Connected TV", "Streaming Audio", "YouTube", "Digital Out-of-Home"], "triggers": ["Peak season ramp", "Holiday weekends", "Weather windows", "Event calendars"], "intro": "A seasonal marketing plan built around when your visitors actually decide to travel \u2014 concentrating budget in the windows that produce revenue and protecting it in the slow months."}, "marketing_audit": {"label": "General Business (Marketing Efficiency)", "source": "Marketing Efficiency Audit", "icon": "chart", "tiers": [{"name": "Good", "price": 2000, "blurb": "Fix the leaks", "features": ["Marketing efficiency audit", "Tracking + attribution setup", "Budget reallocation plan", "Monthly reporting"]}, {"name": "Better", "price": 4500, "blurb": "Efficiency + growth", "features": ["Everything in Good", "Geofenced display + CTV", "Creative refresh", "Quarterly business review"]}, {"name": "Best", "price": 8500, "blurb": "Full-funnel program", "features": ["Everything in Better", "Streaming audio + video", "Custom audiences", "Dedicated strategist"]}], "channels": ["Geofenced Display", "Connected TV", "Streaming Audio", "Retargeting", "Digital Out-of-Home"], "triggers": ["Seasonal demand", "Competitor activity", "Promotional windows"], "intro": "A data-driven plan that eliminates wasted spend first, then reinvests it in the channels with measurable local reach."}, "boat": {"label": "Boat Dealers", "source": "Smart 1 Boat Dealer Market Intelligence", "icon": "boat", "tiers": [{"name": "SmartReach", "price": 3000, "blurb": "Core market coverage", "features": ["Geofenced display around lakes, ramps & marinas", "Boat-owner household targeting", "Monthly reporting"]}, {"name": "SmartForecast", "price": 5000, "blurb": "Weather-triggered advertising", "features": ["Everything in SmartReach", "Weather-triggered CTV + display", "Seasonal pacing engine", "Quarterly strategy session"]}, {"name": "SmartDominance", "price": 8500, "blurb": "Own your water market", "features": ["Everything in SmartForecast", "Streaming audio + video", "Service & storage campaigns", "Dedicated strategist"]}], "channels": ["Geofenced Display", "Connected TV", "Weather-Triggered Ads", "Digital Out-of-Home", "Streaming Audio"], "triggers": ["Warm weekends", "Season open", "Boat show dates", "Fall storage push"], "intro": "Marketing timed to the weather windows when boat buyers are actually on the water and in-market \u2014 not flat monthly spend that ignores the season."}, "legal": {"label": "Law Firms", "source": "Smart 1 Legal Conquesting Market Intelligence", "icon": "scales", "tiers": [{"name": "Presence", "price": 3500, "blurb": "Local visibility", "features": ["Digital out-of-home screen network", "Geofenced display near key venues", "Monthly reporting"]}, {"name": "Conquest", "price": 6500, "blurb": "Screen-to-phone conquesting", "features": ["Everything in Presence", "Mobile retargeting from screens", "Practice-area creative rotation", "Quarterly strategy session"]}, {"name": "Dominance", "price": 12000, "blurb": "Market-wide share of voice", "features": ["Everything in Conquest", "Connected TV + streaming audio", "Multi-location geofencing", "Dedicated strategist"]}], "channels": ["Digital Out-of-Home", "Mobile Retargeting", "Geofenced Display", "Connected TV", "Streaming Audio"], "triggers": ["Case-type seasonality", "Court calendars", "Weather-driven incidents"], "intro": "A conquesting plan that puts your firm on the screens and phones your future clients see every day \u2014 in the moments that generate cases."}, "recruit": {"label": "Recruitment / Hiring", "source": "Smart 1 Precision Recruitment Intelligence", "icon": "people", "tiers": [{"name": "Good", "price": 2500, "blurb": "Targeted candidate reach", "features": ["Geofenced display around competitor employers", "Commute-radius targeting", "Monthly reporting"]}, {"name": "Better", "price": 5000, "blurb": "Always-on talent pipeline", "features": ["Everything in Good", "Streaming audio + CTV", "Role-specific creative", "Quarterly strategy session"]}, {"name": "Best", "price": 10000, "blurb": "Employer-brand dominance", "features": ["Everything in Better", "Digital out-of-home", "Custom audience modeling", "Dedicated strategist"]}], "channels": ["Geofenced Display", "Streaming Audio", "Connected TV", "Digital Out-of-Home", "Mobile Retargeting"], "triggers": ["Shift-change windows", "Seasonal hiring waves", "Competitor layoffs", "New-facility openings"], "intro": "Reach qualified candidates where they already are \u2014 at competitor employers, on their commute, and on their screens at home."}, "restaurant": {"label": "Restaurants & Food Service", "source": "Smart 1 Restaurant Market Intelligence", "icon": "plate", "tiers": [{"name": "Good", "price": 1500, "blurb": "Trade-area presence", "features": ["Geofenced display in your trade area", "Daypart-timed delivery", "Monthly reporting"]}, {"name": "Better", "price": 3000, "blurb": "Full daypart coverage", "features": ["Everything in Good", "Connected TV to frequent diners", "Weather + event triggers", "Quarterly strategy session"]}, {"name": "Best", "price": 5500, "blurb": "Market-leading frequency", "features": ["Everything in Better", "Streaming audio", "Competitor-location conquesting", "Dedicated strategist"]}], "channels": ["Geofenced Display", "Connected TV", "Streaming Audio", "Digital Out-of-Home", "Mobile Retargeting"], "triggers": ["Lunch & dinner dayparts", "Weekend weather", "Local events", "Holiday bookings"], "intro": "A trade-area plan that reaches frequent diners at decision time \u2014 timed to dayparts, weather, and the events that fill tables."}, "rv": {"label": "RV Dealers", "source": "Smart RV Demand Estimate Form", "icon": "campfire", "tiers": [{"name": "SmartReach", "price": 3000, "blurb": "Core RV market coverage", "features": ["Geofenced display around campgrounds & routes", "RV-owner household targeting", "Monthly reporting"]}, {"name": "SmartForecast", "price": 5000, "blurb": "Weather-triggered advertising", "features": ["Everything in SmartReach", "Weather-triggered CTV + display", "Camping-season pacing", "Quarterly strategy session"]}, {"name": "SmartDominance", "price": 8500, "blurb": "Own your region", "features": ["Everything in SmartForecast", "Streaming audio + video", "Service & consignment campaigns", "Dedicated strategist"]}], "channels": ["Geofenced Display", "Connected TV", "Weather-Triggered Ads", "Streaming Audio", "Digital Out-of-Home"], "triggers": ["Camping-season open", "Warm weekend windows", "RV show dates", "Fall service push"], "intro": "Demand-driven RV marketing that follows the camping calendar and the weather \u2014 reaching owners and first-time buyers when the season tells them to act."}, "ski": {"label": "Ski Resorts", "source": "Smart 1 Ski Resort Package", "icon": "mountain", "tiers": [{"name": "Good", "price": 3000, "blurb": "Feeder-market presence", "features": ["Geofenced display in feeder metros", "Snow-window pacing", "Monthly reporting"]}, {"name": "Better", "price": 6000, "blurb": "Weather-protected media", "features": ["Everything in Good", "Snowfall-triggered CTV", "Drive-market audience modeling", "Quarterly strategy session"]}, {"name": "Best", "price": 10000, "blurb": "Destination dominance", "features": ["Everything in Better", "Streaming audio + video", "Season-pass spring campaigns", "Dedicated strategist"]}], "channels": ["Geofenced Display", "Connected TV", "Snow-Triggered Ads", "Streaming Audio", "YouTube"], "triggers": ["Fresh snowfall", "Season open/close", "Holiday weeks", "Pass-sale windows"], "intro": "Media that turns on when the snow does \u2014 protecting your budget in bad weeks and flooding feeder markets when conditions sell themselves."}, "stadium": {"label": "Sports & Fan Audiences", "source": "Stadium to Screen proposal builder", "icon": "football", "tiers": [{"name": "Kickoff", "price": 3500, "blurb": "Fan-audience reach", "features": ["Team fan-base audience targeting", "Streaming audio on game days", "Monthly reporting"]}, {"name": "Playoff", "price": 6500, "blurb": "Audio + video fan surround", "features": ["Everything in Kickoff", "Connected TV to fan households", "Device-level DMA targeting", "Quarterly strategy session"]}, {"name": "Championship", "price": 12000, "blurb": "Season-long fan dominance", "features": ["Everything in Playoff", "Multi-team / multi-DMA reach", "Custom fan segments", "Dedicated strategist"]}], "channels": ["Streaming Audio", "Connected TV", "Fan-Audience Display", "Mobile Retargeting"], "triggers": ["Game days", "Playoff runs", "Season kickoff", "Rivalry weeks"], "intro": "Put your brand inside the games fans stream \u2014 audio and video that follows the team's audience from the stadium to every screen they own."}}''')
-
-BLOCKS_SCHEMA = _json.loads(r'''{"name": "proposal_blocks", "strict": false, "schema": {"type": "object", "additionalProperties": false, "properties": {"blocks": {"type": "array", "minItems": 6, "maxItems": 12, "items": {"type": "object", "additionalProperties": false, "properties": {"type": {"type": "string", "enum": ["heading", "text", "stats", "list", "tiers", "table", "cta"]}, "data": {"type": "object", "additionalProperties": false, "properties": {"title": {"type": "string"}, "subtitle": {"type": "string"}, "heading": {"type": "string"}, "body": {"type": "string"}, "items": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "array", "items": {"type": "object", "additionalProperties": false, "properties": {"label": {"type": "string"}, "value": {"type": "string"}}, "required": ["label", "value"]}}]}, "recommended": {"type": "number"}, "tiers": {"type": "array", "items": {"type": "object", "additionalProperties": false, "properties": {"name": {"type": "string"}, "price": {"type": "string"}, "blurb": {"type": "string"}, "features": {"type": "array", "items": {"type": "string"}}}, "required": ["name", "price", "blurb", "features"]}}, "columns": {"type": "array", "items": {"type": "string"}}, "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}, "button": {"type": "string"}, "url": {"type": "string"}}, "required": []}}, "required": ["type", "data"]}}}, "required": ["blocks"]}}''')
-
-
-def industry_list():
-    return [{"key": k, "label": v["label"], "icon": v.get("icon", "")} for k, v in INDUSTRIES.items()]
-
-
-def _money(n):
-    try:
-        return "$" + f"{float(n):,.0f}"
-    except (TypeError, ValueError):
-        return "$0"
-
-
-def fallback_blocks(industry_key, c):
-    """Deterministic fallback proposal — used when OPENAI_API_KEY is unset or the call fails."""
-    ind = INDUSTRIES.get(industry_key) or INDUSTRIES["marketing_audit"]
-    biz = c.get("business_name") or "Your Business"
-    where = ", ".join(x for x in (c.get("city"), c.get("state")) if x) or (
-        f"the {c['zip']} area" if c.get("zip") else "your market")
-    tiers = ind["tiers"]
-    rec = tiers[1] if len(tiers) > 1 else tiers[0]
-    import re as _re
-    budget_num = 0.0
-    try:
-        budget_num = float(_re.sub(r"[^0-9.]", "", str(c.get("monthly_budget") or "")) or 0)
-    except ValueError:
-        pass
-    budget_num = budget_num or rec["price"]
-    today = datetime.now().strftime("%B %d, %Y").replace(" 0", " ")
-    goals = c.get("goals")
-    return [
-        {"type": "heading", "data": {"title": f"{biz} — {ind['label']} Marketing Proposal",
-         "subtitle": "Prepared by Smart 1 Marketing" + (" · " + c["salesperson"] if c.get("salesperson") else "") + " · " + today}},
-        {"type": "text", "data": {"heading": "Executive Summary",
-         "body": ind["intro"] + "\n\nThis proposal outlines a " + ind["label"].lower() + f" media program for {biz} in {where}"
-                 + (f", built around your stated goal: {goals}." if goals else ".")
-                 + f" It is designed to be measurable from day one, with budget concentrated where {where} customers actually make decisions."}},
-        {"type": "stats", "data": {"heading": "Program at a Glance", "items": [
-            {"label": "Recommended Package", "value": rec["name"]},
-            {"label": "Monthly Investment", "value": _money(budget_num)},
-            {"label": "Annual Program Value", "value": _money(budget_num * 12)},
-        ]}},
-        {"type": "list", "data": {"heading": "Recommended Media Channels",
-         "items": [f"{ch} — targeted to {where}" for ch in ind["channels"]]}},
-        {"type": "list", "data": {"heading": "Demand Triggers We Activate On", "items": ind["triggers"]}},
-        {"type": "tiers", "data": {"heading": "Investment Options", "recommended": 1, "tiers": [
-            {"name": t["name"], "price": _money(t["price"]) + "/mo", "blurb": t["blurb"], "features": t["features"]}
-            for t in tiers]}},
-        {"type": "table", "data": {"heading": "First 90 Days",
-         "columns": ["Phase", "Timing", "What Happens"], "rows": [
-            ["Launch", "Weeks 1\u20132", "Creative production, tracking setup, audience build"],
-            ["Optimize", "Weeks 3\u20138", "Live campaigns, weekly pacing adjustments"],
-            ["Scale", "Weeks 9\u201312", "Shift budget to proven channels, first quarterly review"]]}},
-        {"type": "text", "data": {"heading": "Why Smart 1 Marketing",
-         "body": "Smart 1 Marketing is a full-service digital partner \u2014 partnerships, solutions, results. Every campaign is tracked, reported monthly, and backed by a strategist who knows your market, not a dashboard login and a good-luck handshake."}},
-        {"type": "cta", "data": {"heading": "Next Step",
-         "body": f"Approve this proposal and {biz} can be live in-market within two weeks.",
-         "button": "Schedule your kickoff call", "url": "https://smart1marketing.com/free-consultation"}},
-    ]
+Kept as a re-export so this module's archive endpoints (which still read
+proposals saved against these industry keys) keep working without a second
+copy of the table drifting out of step with the shared one.
+"""
+from hub.industries import (  # noqa: F401
+    BLOCKS_SCHEMA,
+    INDUSTRIES,
+    fallback_blocks,
+    industry_list,
+)

@@ -796,61 +796,57 @@ SCENARIOS: list[Scenario] = [
 
     # ------------------------------------------------------------------
     Scenario(
-        key="proposal_builder.generate", module="proposal_builder",
-        title="Generate a client-ready proposal from a brief",
-        goal="A branded proposal PDF built from client details, saved to the "
-             "searchable log and pushed into Smart 1 Suite as an opportunity.",
-        minutes=7, path="/tools/proposals",
+        key="sales_builder.deliver", module="sales_builder",
+        title="Send a proposal to a client and open the deal in Suite",
+        goal="A branded proposal PDF filed on the client's record, with an "
+             "opportunity waiting in Smart 1 Suite against a real contact.",
+        minutes=6, path="/sales/builder/",
         spends=["openai.text", "ghl.write"],
         steps=[
-            Step("Pick the industry first",
-                 "It sets the template, the language and the default package.",
-                 "Get this right before typing anything else — changing it "
-                 "later rebuilds the proposal and loses your edits.",
-                 action="click", selector="#indGrid"),
-            Step("Business details",
-                 "Business name, website, city, state, ZIP.",
-                 "The ZIP is not decoration — it drives the market sizing that "
-                 "appears in the proposal. A wrong ZIP produces a confidently "
-                 "wrong market analysis.",
-                 action="fill", selector="#c_business_name", value="Riverside HVAC"),
-            Step("Their website",
-                 "The real one, with https.",
-                 "It gets read to pull context. A typo here means the proposal "
-                 "is built with no knowledge of their business at all.",
-                 action="fill", selector="#c_website",
-                 value="https://riverside-hvac.example"),
-            Step("Contact details",
-                 "Name, email and phone of the person who'll receive it.",
-                 "These become the opportunity in Smart 1 Suite. Phone matters "
-                 "— an opportunity with no phone number is one nobody follows "
-                 "up.",
-                 action="fill", selector="#c_contact_name", value="Dana Whitfield"),
-            Step("State their budget if you know it",
-                 "The monthly figure they've actually said out loud.",
-                 "If you enter one, the recommendation is built to it. If you "
-                 "leave it blank, the recommendation comes from the market. "
-                 "Entering a number you invented is how a proposal ends up "
-                 "quoting a tier the client already told you they can't afford.",
-                 action="fill", selector="#c_monthly_budget", value="2500"),
-            Step("What they want out of it",
-                 "Their goals, in their words if you have them.",
-                 "Quote the client back to themselves where you can. 'We need "
-                 "the phone to ring in summer' lands better than 'increase "
-                 "qualified lead volume'.",
-                 action="fill", selector="#c_goals",
-                 value="Fill the summer schedule; more tune-ups, fewer emergency calls"),
-            Step("Generate",
-                 "Builds the proposal, the PDF, and the Suite opportunity.",
-                 "Simulated here — this writes a real opportunity into "
-                 "GoHighLevel. In live use, check the opportunity value looks "
-                 "sane before you move on.",
-                 action="click", selector="#genBtn", simulated=True),
-            Step("Read it before you send it",
-                 "Especially the numbers and the recommended tier.",
-                 "Everything is defensible only if you can explain it on a "
-                 "call. If a figure in there would stump you, edit it now.",
-                 action="look", selector="#canvas"),
+            Step("Name every place the campaign runs",
+                 "One target area, then \u201cadd another\u201d until they are all in.",
+                 "Give each one the name you use on a call \u2014 \u201cCarmel "
+                 "showroom\u201d, not \u201carea 2\u201d. That name travels to the "
+                 "insertion order and onto the trafficking sheet, and a "
+                 "four-rooftop client whose proposal names one rooftop reads "
+                 "as a quote for one rooftop.",
+                 action="look", selector="#areaEst"),
+            Step("Let it size the areas",
+                 "Each area is estimated separately, then totalled.",
+                 "The total does not deduct overlap \u2014 two nearby radii share "
+                 "most of their people \u2014 so quote it as an estimate. An area "
+                 "it cannot size says \u201cnot measured\u201d rather than showing "
+                 "a zero, and that distinction matters on a call.",
+                 action="look", selector="#estGrid"),
+            Step("Write the copy from the campaign",
+                 "It uses the industry library plus the products, budget and "
+                 "areas you just built.",
+                 "Simulated here. The tables stay generated from the real "
+                 "numbers \u2014 only the prose is written \u2014 so the copy can "
+                 "never contradict the media plan next to it. Read it anyway: "
+                 "it is good at structure and generic about the client.",
+                 action="click", selector="#draftBtn", simulated=True),
+            Step("Send it",
+                 "PDF, filed on the client, opportunity in Smart 1 Suite.",
+                 "Simulated here \u2014 in live use this writes a real "
+                 "opportunity into GoHighLevel. Check the monthly value looks "
+                 "sane first; that number becomes the deal value.",
+                 action="click", selector="#deliverBtn", simulated=True),
+            Step("Answer the contact question if it asks",
+                 "Suite looks for an existing contact before creating one.",
+                 "If it has no match it asks you rather than inventing a "
+                 "contact from the business name. Give it a name and an email "
+                 "or a phone \u2014 an opportunity with no way to reach anyone is "
+                 "one nobody follows up.",
+                 action="look", selector="#deliverOut"),
+            Step("Convert to an IO when they sign",
+                 "Goals, areas, audiences, products and budgets all carry over.",
+                 "The gap check lists what an IO needs that a proposal does "
+                 "not \u2014 dates, creative source, tracking. Answer those and "
+                 "nothing gets retyped, which is where the "
+                 "\u201cthe proposal said $4,500 but the IO says $4,000\u201d "
+                 "arguments used to come from.",
+                 action="look", selector="[data-demo='convert']"),
         ]),
 
     # ------------------------------------------------------------------

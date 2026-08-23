@@ -55,7 +55,7 @@ SIDEBAR = b"""
   <div class="sec">Scans</div><a href="/scans/">Scans</a>
   <div class="sec">SEO</div><a href="/seo">SEO Clients</a>
   <div class="sec">Ads</div><a class="on" href="/tools/ads/">Smart 1 Ads</a>
-  <div class="sec">Sales</div><a href="/sales/builder/">Sales Builder</a><a href="/sales/proposals/">Proposal Builder</a>
+  <div class="sec">Sales</div><a href="/sales/builder/">Proposal Builder</a>
   <div class="sec">Utilities</div><a href="/tools">Tools</a><a href="/qa">QA Reports</a>
   <a href="/activity">Activity Log</a><a href="/status">System Status</a>
 </nav>

@@ -324,6 +324,43 @@ def create_hub_app() -> Flask:
         from .client_context import resolve_by_url
         return jsonify(resolve_by_url(request.args.get("url", "")))
 
+    @app.route("/api/clients/crosswalk")
+    def api_clients_crosswalk():
+        """Every client record in every module, grouped by one derived key.
+
+        The join that is missing from the data. Answers the two questions no
+        single module can: which records are the same client, and which ones
+        carry a name with no URL behind it and therefore cannot be joined to
+        anything at all.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_key import crosswalk
+        return jsonify(crosswalk())
+
+    @app.route("/api/client/records")
+    def api_client_records():
+        """Every module record belonging to one client, by name or by URL."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_key import for_client
+        return jsonify(for_client(name=request.args.get("client", ""),
+                                  url=request.args.get("url", "")))
+
+    @app.route("/api/client/resolve")
+    def api_client_resolve():
+        """Who a name or URL actually is, and how confidently we know."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_key import resolve
+        fuzzy = str(request.args.get("fuzzy", "")).lower() in ("1", "true", "yes")
+        return jsonify(resolve(name=request.args.get("client", ""),
+                               url=request.args.get("url", ""),
+                               allow_fuzzy=fuzzy))
+
     @app.route("/api/db/structure")
     def api_db_structure():
         """Where client data lives, and where it can drift apart."""
@@ -887,6 +924,58 @@ def create_hub_app() -> Flask:
             src, str(body.get("page") or ""), fields,
             str(body.get("pdf_url") or ""), str(body.get("client") or ""),
             body.get("meta") if isinstance(body.get("meta"), dict) else None))
+
+    @app.route("/api/leads/convert", methods=["POST"])
+    def api_leads_convert():
+        """Tie a prospect to the client account they became.
+
+        A link, not a creation: a client here is anyone with a product in
+        Knack, which is what billing reads. Writing an account from this
+        endpoint would produce a client the Hub shows and no invoice ever
+        mentions, so the account is still created in Knack and this records
+        which lead it came from.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import clients_registry, leads
+        body = request.get_json(silent=True) or request.form.to_dict() or {}
+        lead_id = str(body.get("id") or "").strip()
+        client = str(body.get("client") or "").strip()
+        if not lead_id or not client:
+            return jsonify({"ok": False,
+                            "error": "A lead and a client are required."}), 400
+
+        # The client has to exist, or "converted" would mean nothing checkable
+        # and the name could drift from the account it is supposed to name.
+        known = clients_registry.find_client(client)
+        if known is None:
+            return jsonify({
+                "ok": False,
+                "error": f"“{client}” is not in the client registry yet. "
+                         f"Create the account in Knack first — that is what "
+                         f"billing reads — then convert this lead to it.",
+            }), 404
+
+        row = leads.mark_converted(lead_id, str(known.get("name") or client),
+                                   actor=current_user() or "")
+        if row is None:
+            return jsonify({"ok": False,
+                            "error": "That lead could not be found."}), 404
+        return jsonify({"ok": True, "lead": row})
+
+    @app.route("/api/leads/ghl/preflight")
+    def api_leads_ghl_preflight():
+        """Check lead delivery config against the live Suite API. Reads only.
+
+        `?find=1` also lists the sub-accounts whose name matches, so the right
+        location id can be copied out rather than hunted for in Suite.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .ghl_contacts import preflight
+        return jsonify(preflight(find=request.args.get("find") == "1"))
 
     @app.route("/api/leads/retry", methods=["POST"])
     def api_leads_retry():
@@ -2432,15 +2521,105 @@ def create_hub_app() -> Flask:
                 date_sent=request.form.get("date_sent", ""),
                 title=request.form.get("title", ""),
                 note=request.form.get("note", ""),
-                actor=current_user() or "")
+                actor=current_user() or "",
+                value=request.form.get("value", ""),
+                term=request.form.get("term", "monthly"),
+                status=request.form.get("status", "sent"))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": f"Upload failed: {exc}"}), 500
         audit.log("hub", "proposal_uploaded", actor=current_user(), detail=client,
                   name=record["filename"], date_sent=record["date_sent"])
-        return jsonify({"ok": True, "proposal": record,
+
+        # A proposal that reaches a client is a deal in progress, so it opens an
+        # opportunity in Smart 1 Suite. The contact is looked up first and only
+        # created when the uploader supplies details -- an opportunity attached
+        # to a contact invented from a business name is one no salesperson can
+        # act on, and it duplicates the real contact next time anyone searches.
+        #
+        # The file is already saved by this point. If Suite says it needs a
+        # contact, the response says so and the upload still stands; the
+        # uploader answers and posts to /api/client/proposals/opportunity.
+        suite = _proposal_opportunity(client, record, {
+            "name": request.form.get("contact_name", ""),
+            "email": request.form.get("contact_email", ""),
+            "phone": request.form.get("contact_phone", ""),
+        })
+        if suite.get("ok"):
+            proposals.update_proposal(client, record["id"], {
+                "opportunity_id": suite.get("opportunity_id", "")})
+            record = next((i for i in proposals.list_proposals(client)
+                           if i.get("id") == record["id"]), record)
+        return jsonify({"ok": True, "proposal": record, "suite": suite,
                         "proposals": proposals.list_proposals(client)})
+
+    def _proposal_opportunity(client, record, contact):
+        """File one uploaded proposal as a Smart 1 Suite opportunity."""
+        try:
+            from . import suite_opportunity
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "reason": f"Suite helper unavailable ({type(exc).__name__})."}
+        # The client's own website, from the registry. Looked up by name and
+        # left blank when there is no match -- canonical_domain() reads a URL,
+        # not a client name, and feeding it one produces a plausible-looking
+        # domain that belongs to nobody.
+        website = ""
+        try:
+            from . import clients_registry
+            website = (clients_registry.find_client(client) or {}).get("url", "")
+        except Exception:  # noqa: BLE001
+            pass
+        return suite_opportunity.push_proposal(
+            client=client,
+            title=f"{client} — {record.get('title') or 'Marketing Proposal'}",
+            value=float(record.get("value") or 0), contact=contact,
+            website=website, pdf_url=record.get("url", ""),
+            opportunity_id=str(record.get("opportunity_id") or ""),
+            source="Smart 1 Hub — Client 360")
+
+    @app.route("/api/client/proposals/opportunity", methods=["POST"])
+    def api_client_proposals_opportunity():
+        """Open (or retry) the Suite opportunity for an already-uploaded proposal.
+
+        Separate from the upload so a missing contact costs one extra click
+        rather than a re-upload, and so a proposal filed while Suite was
+        misconfigured can be pushed later without touching the file.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import proposals
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        pid = (body.get("id") or "").strip()
+        if not client or not pid:
+            return jsonify({"error": "client and id are required."}), 400
+        record = next((i for i in proposals.list_proposals(client)
+                       if i.get("id") == pid), None)
+        if record is None:
+            return jsonify({"error": "Not found"}), 404
+        suite = _proposal_opportunity(client, record, body.get("contact") or {})
+        if suite.get("ok"):
+            proposals.update_proposal(client, pid, {
+                "opportunity_id": suite.get("opportunity_id", "")})
+            audit.log("hub", "proposal_opportunity", actor=current_user(),
+                      detail=client, opportunity=suite.get("opportunity_id", ""))
+        return jsonify({"ok": suite.get("ok", False), "suite": suite,
+                        "proposals": proposals.list_proposals(client)})
+
+    @app.route("/api/client/proposals/suite-status")
+    def api_client_proposals_suite_status():
+        """Whether an upload will actually reach Smart 1 Suite."""
+        gate = _require_api()
+        if gate:
+            return gate
+        try:
+            from . import suite_opportunity
+            return jsonify(suite_opportunity.status())
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"ok": False,
+                            "problems": [f"Suite helper unavailable ({type(exc).__name__})."]})
 
     @app.route("/api/client/proposals/update", methods=["POST"])
     def api_client_proposals_update():
