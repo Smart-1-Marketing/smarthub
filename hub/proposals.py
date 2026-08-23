@@ -42,11 +42,17 @@ def cloudinary_ready() -> bool:
 
 
 def _local_dir() -> str:
-    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-    path = os.path.join(base, "client-proposals")
-    os.makedirs(path, exist_ok=True)
-    return path
+    """Where a proposal PDF lands when Cloudinary is not configured.
+
+    Through `jsonstore.data_dir()` rather than its own copy of the
+    /var/data-or-repo expression. Every module that carried that expression
+    agreed by luck rather than design, and this one ignored HUB_DATA_DIR
+    entirely — so it wrote into the repo even when the data root had been
+    pointed somewhere else, which is how the test suite started leaving
+    client PDFs in the working tree.
+    """
+    from . import jsonstore
+    return jsonstore.data_dir("client-proposals")
 
 
 def _safe_name(name: str) -> str:
