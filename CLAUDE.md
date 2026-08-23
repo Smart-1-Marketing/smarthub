@@ -240,6 +240,53 @@ rather than creating one from the business name — an opportunity attached to a
 contact nobody can call is worse than no opportunity, and it duplicates the
 real contact next time anyone searches.
 
+### The proposal has a specification, and it is data
+
+`hub/proposal_spec.py` owns the 13-part outline, the standing directives, the
+audience partner taxonomy, the Suite tiers and the operating facts a proposal
+may cite. The builder, the PDF, the Word export and the AI prompt all read it,
+so changing what a proposal contains is one edit rather than four.
+
+Three of those directives are checked rather than merely requested. Copy that
+mentions **Smart 1 Labs** is discarded before a rep sees it — a prompt is a
+request, and "the model was told not to" is not evidence that it did not. The
+**Expected Results & ROI** section is *computed* from `hub/rate_card.py`, never
+written: a management fee reports no impressions at all rather than a plausible
+number, because a projection that contradicts the media plan printed above it
+is worse than no projection. And the **Investment Summary** keeps recurring
+platform licensing apart from media spend and one-time production, so a client
+can tell what stops if they pause the campaign.
+
+`roi`, `mediaplan` and `packages` cannot be deleted from a proposal. An older
+quote saved against the previous eight-section layout keeps its copy and gains
+whichever required sections it is missing on the next save.
+
+### Video and audio are asked about before they are priced
+
+`hub/creative_needs.py`. A Connected TV or digital radio buy that reaches an
+insertion order with no spot behind it is a launch date nobody can hit, so
+those two mediums are gated: does the client have creative, and if not does
+the client pay or does Smart 1 comp it. **A comp on a medium spending under
+$1,500 across the flight gets one explicit confirmation, with the number
+shown**, and that confirmation lapses if the budget is later cut below what
+was confirmed. Display is not gated — six banner sizes is a $250 rate-card
+line.
+
+The classifier is the whole gate, and it cannot work from the rate card's
+categories: four programmatic **video** products are filed under DISPLAY
+beside banner inventory, and three of the four have names that identify
+nothing — "Programmatic - Targeted" is $17.00 CPM video while "Category" next
+to it is $4.25 CPM display. So those four are named explicitly, and
+`/api/integrity` has a high-severity check that fires if one is renamed on the
+card. Without it a renamed product silently reverts to the keyword guess, gets
+read as display, and the gate stops asking while every screen still looks
+healthy.
+
+The wizard carries a JavaScript mirror of the classifier and both constants so
+the Creative step reacts as a rep edits the plan; `test_proposal_spec.py`
+asserts the two agree on every product, exactly as `test_target_areas.py` does
+for the area helpers.
+
 ## The one module that is not Python
 
 The **Display Ad Builder** (`modules/ad_builder`) is a Node service, not a
@@ -296,9 +343,10 @@ python tools/linkcheck.py
 python3 test_jsonstore.py        # the database mirror really restores
 python3 test_ads_module.py       # the Node ad builder behind its proxy
 python3 test_target_areas.py     # target areas, delivery, the Suite push
+python3 test_proposal_spec.py    # the 13-part spec, the creative gate, ROI math
 ```
 
-The three test files need no pytest and no new dependencies; each runs against
+The four test files need no pytest and no new dependencies; each runs against
 a temporary data directory and a throwaway SQLite database, so none of them
 touches `/var/data` or the real one.
 

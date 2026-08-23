@@ -352,6 +352,37 @@ def check_unbacked_json() -> list[dict]:
     return out
 
 
+def check_creative_medium_drift() -> list[dict]:
+    """Rate-card products the creative gate names by hand, that no longer exist.
+
+    Four programmatic *video* products sit under the DISPLAY category beside
+    banner inventory, and three of the four have names that identify nothing:
+    "Programmatic - Targeted" is $17.00 CPM video, while "Category" next to it
+    is $4.25 CPM display. `hub/creative_needs.py` therefore names them.
+
+    If one is renamed on the card, that lookup stops matching and the product
+    quietly falls back to the keyword guess — which reads it as display. The
+    plan would then price a video buy and never ask whether a spot exists,
+    which is the exact failure the gate was built to prevent, and it would
+    look completely healthy on screen.
+    """
+    try:
+        from . import creative_needs
+        missing = creative_needs.card_drift()
+    except Exception:                                   # noqa: BLE001
+        return []
+    return [{
+        "file": "hub/creative_needs.py", "module": "sales_builder",
+        "detail": f'The creative gate treats "{name}" as video, but no product '
+                  f'by that name is on the rate card any more. It is now being '
+                  f'classified by keyword instead, which reads it as display — '
+                  f'so a plan containing it will be priced without anyone being '
+                  f'asked whether a spot exists.',
+        "fix": "Update EXPLICIT_MEDIUM in hub/creative_needs.py to the product's "
+               "new name on the card.",
+    } for name in missing]
+
+
 CHECKS = [
     ("pdf_resource_type", "PDF uploaded as an image type", "high", check_pdf_resource_type),
     ("convert_without_resize", "Converts without resizing", "high", check_convert_without_resize),
@@ -362,6 +393,8 @@ CHECKS = [
     ("bare_except_pass", "Silent exception handling", "low", check_bare_except_pass),
     ("shared_services", "Not yet on shared services", "low", check_shared_services),
     ("unbacked_json", "JSON on the disk with no backup", "medium", check_unbacked_json),
+    ("creative_medium_drift", "Creative gate lost a rate-card product", "high",
+     check_creative_medium_drift),
 ]
 
 

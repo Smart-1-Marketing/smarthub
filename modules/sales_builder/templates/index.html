@@ -710,6 +710,9 @@ function freshState(){return{
  ages:["25-34","35-44","45-54"],gender:"Both",income:["No income targeting"],
  audiences:[],budgetMode:"range",budget:8000,months:6,
  items:[],landingMode:"One landing page",landingUrl:"",landing:"",landingReview:"",
+ // Per-medium creative answers, keyed "video"/"audio" -- see hub/creative_needs.py.
+ // {answer:"has"|"client"|"comp", fee:number, confirmed:bool}
+ creativePlan:{},suiteTier:{},
  packages:[],selPkg:1,selectedPackage:null,estimates:null,aiEst:null,
  mkt:{seo:"",paidSearch:"",socialPosting:"",paidSocial:""},
  sections:null,
@@ -743,6 +746,9 @@ function drawQuoteTag(t){const el=document.getElementById('quoteTag');if(el)el.t
 function saveSoon(){clearTimeout(_saveT);setSave("…");_saveT=setTimeout(saveNow,900);}
 async function saveNow(extra){
  if(!S)return;
+ // Stamped on save so the IO payload, the PDF and the dashboard all read the
+ // same sentence rather than each re-deriving it.
+ try{S.creativeSummary=creativeSummary();}catch(e){}
  setSave("Saving…");
  try{
   if(!QUOTE_ID){const d=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});QUOTE_ID=d.quote.id;QUOTE_NUMBER=d.quote.quote_number;}
@@ -751,6 +757,66 @@ async function saveNow(extra){
  }catch(e){setSave("⚠ Not saved: "+e.message);}
 }
 function setSave(t){const el=document.getElementById('saveState');if(el)el.textContent=t;}
+
+/* ============================================================
+   CREATIVE GATE — mirrors hub/creative_needs.py exactly
+   Video and audio are asked about before they are priced. Display is not:
+   a set of six banners is a $250 line off the rate card, while a :30 spot
+   that does not exist is a launch date nobody can hit.
+   ============================================================ */
+const COMP_CONFIRM_UNDER=1500;
+const TYPICAL_PRODUCTION={video:750,audio:250};
+const MEDIUM_LABEL={video:"Video (CTV, streaming, YouTube, pre-roll)",
+ audio:"Audio (digital radio, podcasts, streaming audio)",
+ display:"Display",social:"Paid social",other:"Other"};
+/* Four programmatic VIDEO products sit under the same DISPLAY category as
+   banner inventory and their names do not say so -- "Programmatic - Targeted"
+   is $17.00 CPM video while "Category" beside it is $4.25 display. Guessing
+   from the category would price a video buy and never ask for a spot. */
+const EXPLICIT_MEDIUM={"programmatic - ron (run of network)":"video",
+ "programmatic - targeted":"video","premium: non-skippable":"video",
+ "premium native video":"video"};
+const CATEGORY_MEDIUM={"digital radio":"audio","ott":"video","youtube":"video"};
+function mediumOf(i){
+ const cat=String((i&&i.category)||"").trim().toLowerCase();
+ if(CATEGORY_MEDIUM[cat])return CATEGORY_MEDIUM[cat];
+ const prod=String((i&&i.product)||"").trim().toLowerCase();
+ if(EXPLICIT_MEDIUM[prod])return EXPLICIT_MEDIUM[prod];
+ const t=[cat,prod,String((i&&i.label)||"")].join(" ").toLowerCase();
+ if(/radio|podcast|audio|spotify|pandora|iheart/.test(t))return "audio";
+ if(/video|ott|youtube|trueview|bumper|connected tv|advanced tv|ctv|pre-?roll|non-skippable/.test(t))return "video";
+ if(/facebook|instagram|meta|tik ?tok|linkedin|snapchat|pinterest|twitter|social/.test(t))return "social";
+ if(/display|banner|retarget|geo-?fence|outreach|native|location lookback|ip target/.test(t))return "display";
+ return "other";}
+function mediumSpend(m){
+ const months=Math.max(1,+S.months||1);
+ return Math.round(S.items.filter(i=>mediumOf(i)===m)
+  .reduce((sum,i)=>sum+(+i.dollars||0),0)*months);}
+function gatedMedia(){
+ const present=new Set(S.items.map(mediumOf));
+ return ["video","audio"].filter(m=>present.has(m));}
+function creativeRows(){
+ return gatedMedia().map(m=>{
+  const d=(S.creativePlan||{})[m]||{};
+  const answer=["has","client","comp"].includes(d.answer)?d.answer:"";
+  const spend=mediumSpend(m);
+  const needsConfirm=spend<COMP_CONFIRM_UNDER;
+  // A comp confirmed on a $1,400 buy is not a comp confirmed on the $300 one
+ // it just became. confirmedAt records the number the rep was shown; the
+ // confirmation lapses if the budget has fallen since.
+ const confirmed=!!d.confirmed&&!(d.confirmedAt&&spend<d.confirmedAt);
+  const fee=answer==="client"?(+d.fee||TYPICAL_PRODUCTION[m]||0):0;
+  const resolved=!!answer&&!(answer==="comp"&&needsConfirm&&!confirmed);
+  return{medium:m,label:MEDIUM_LABEL[m],spend,answer,fee,needsConfirm,confirmed,resolved};});}
+function creativeUnresolved(){return creativeRows().filter(r=>!r.resolved).map(r=>r.medium);}
+function creativeFees(){return creativeRows().reduce((s,r)=>s+(r.fee||0),0);}
+function creativeSummary(){
+ const rows=creativeRows();if(!rows.length)return "";
+ return rows.map(r=>{const n=r.label.split(" (")[0];
+  if(r.answer==="has")return n+": client supplies finished creative";
+  if(r.answer==="client")return n+": Smart 1 produces ("+money(r.fee)+")";
+  if(r.answer==="comp")return n+": Smart 1 produces at no charge";
+  return n+": creative source not yet confirmed";}).join(" · ");}
 
 /* ============================================================
    TARGET AREAS — a campaign runs in as many places as it runs in
@@ -859,24 +925,76 @@ function guardrailsJs(){
  if(S.items.length>4&&S.budget/Math.max(S.items.length,1)<750)warns.push("Budget is split across many products — consider fewer products for impact.");
  if((S.creativeSource||"").startsWith("Smart 1")&&!S.creativeFee)warns.push("Smart 1 is building creative but no creative fee is set.");
  return warns;}
+/* The Smart 1 proposal specification, mirrored from hub/proposal_spec.py.
+   The server owns it; this copy exists so the section editor can seed and
+   label sections without a round trip. `purpose` is shown to the rep so it is
+   obvious what each section is for before they rewrite it. */
+const PROPOSAL_OUTLINE=[
+ {id:"cover",title:"Cover",kind:"cover",purpose:"Professionalism and visual authority."},
+ {id:"summary",title:"Executive Summary",kind:"text",purpose:"A yes from the C-suite even if they read nothing else."},
+ {id:"objectives",title:"Objectives & Success Criteria",kind:"text",purpose:"Show we listened. Primary and secondary."},
+ {id:"friction",title:"Current Friction Points",kind:"text",purpose:"Where the current marketing is losing money."},
+ {id:"areas",title:"Audience & Market Strategy",kind:"areas",purpose:"Precision targeting, area by area."},
+ {id:"reach",title:"Addressable Audience",kind:"reach",purpose:"How many people this actually reaches."},
+ {id:"channels",title:"Recommended Channel Strategy",kind:"channels",purpose:"Every channel's role in the funnel and its KPI."},
+ {id:"mediaplan",title:"Media Mix & Budget Allocation",kind:"mediaplan",purpose:"Where the money goes, at card rates."},
+ {id:"creative",title:"Creative & Messaging Strategy",kind:"creative",purpose:"Messaging themes and who produces the creative."},
+ {id:"technology",title:"Smart 1 Technology",kind:"text",purpose:"The Suite as the client's command centre."},
+ {id:"reporting",title:"Reporting, Optimization & Transparency",kind:"text",purpose:"How it is optimised and what they can see."},
+ {id:"timeline",title:"Implementation Timeline",kind:"timeline",purpose:"The 30-day blueprint."},
+ {id:"packages",title:"Investment Summary",kind:"packages",purpose:"Platform, media and one-time, kept apart."},
+ {id:"kpis",title:"How We Measure Success",kind:"kpis",purpose:"The metrics we are judged on."},
+ {id:"roi",title:"Expected Results & ROI",kind:"roi",purpose:"What the money buys, computed from the rate card. Required."},
+ {id:"next",title:"Next Steps",kind:"text",purpose:"Sign, onboard, kick off."},
+];
+const REQUIRED_SECTIONS=["roi","mediaplan","packages"];
+const SUITE_TIERS=[
+ {name:"Smart 1",monthly:199,specs:"5 users · 250 contacts · 1,500 emails · 500 texts"},
+ {name:"Smarter",monthly:599,specs:"10 users · 1,000 contacts · 5,000 emails · 1,500 texts"},
+ {name:"Smartest",monthly:999,specs:"Unlimited users & contacts · 100,000 emails · 10,000 texts"},
+];
+function suggestedTier(monthly){
+ const n=+monthly||0;
+ return n>=15000?SUITE_TIERS[2]:(n>=5000?SUITE_TIERS[1]:SUITE_TIERS[0]);}
+function chosenTier(){
+ const t=S.suiteTier||{};
+ return t.name?SUITE_TIERS.find(x=>x.name===t.name)||suggestedTier(S.budget):suggestedTier((S.selectedPackage||{}).monthly||S.budget);}
 function defaultSections(){
  const client=S.client||"the client";
  const goals=(S.objectives.join(", ")||"the campaign goals");
  const areas=(S.targetAreas||[]).filter(areaComplete);
  const where=areasSummary()||"the target area";
- const strategy=areas.length>1
-  ? "This program is built around "+goals.toLowerCase()+", combining the Smart 1 products below across "+areas.length+" target areas — "+where+" — with the frequency needed to drive results in each."
-  : "This program is built around "+goals.toLowerCase()+", combining the Smart 1 products below to reach the right audience in "+where+" with the frequency needed to drive results.";
- return[
-  {id:"about",title:"About "+client,kind:"text",enabled:true,body:S.description||""},
-  {id:"strategy",title:"Campaign Strategy",kind:"text",enabled:true,body:strategy},
-  {id:"areas",title:"Target Areas",kind:"areas",enabled:true,body:""},
-  {id:"reach",title:"Target Audience & Reach",kind:"reach",enabled:true,body:""},
-  {id:"mediaplan",title:"Recommended Media Plan",kind:"mediaplan",enabled:true,body:""},
-  {id:"packages",title:"Investment Options",kind:"packages",enabled:true,body:""},
-  {id:"kpis",title:"How We Measure Success",kind:"kpis",enabled:true,body:"Reporting is provided monthly with the KPIs below, reviewed together to optimize the plan."},
-  {id:"landing",title:"Landing Page Recommendation",kind:"text",enabled:true,body:S.landing||""},
-  {id:"next",title:"Next Steps",kind:"text",enabled:true,body:"1. Approve the recommended package.\n2. Smart 1 finalizes the insertion order and creative plan.\n3. Campaign launches after tracking is verified."}];}
+ const months=Math.max(1,+S.months||1);
+ const body={
+  summary:client+" has the demand; what is missing is a single system that captures it and proves what it produced. "
+   +"This plan puts Smart 1 media in front of the right households in "+where
+   +" and routes every response into the Smart 1 Suite, where it is answered, nurtured and measured. Over "
+   +months+" months the goal is "+goals.toLowerCase()+" — reported against business outcomes, not impressions.",
+  objectives:"Primary\n"+(S.objectives.length?S.objectives.map(o=>"• "+o).join("\n"):"• To be confirmed with the client")
+   +"\n\nSecondary\n• A lower, measurable cost per acquisition\n• One vendor and one dashboard instead of a stack of logins\n• Reporting the client can open themselves, at any time",
+  friction:"Most of the money lost in local marketing is lost after the click, not before it. The patterns worth checking here:\n"
+   +"• A bolted-on tech stack — separate tools for email, forms, reviews and calls, each with its own login and none of them talking to each other.\n"
+   +"• No central CRM, so an inbound lead cools while it waits for someone to notice it.\n"
+   +"• Fixed-schedule advertising that runs the same way regardless of weather, foot traffic or real-time intent.",
+  mediaplan:"The split below is weighted toward the stage of the funnel this campaign has to move. Every rate is the Smart 1 card rate — there is no markup between the line item and what runs.",
+  technology:"The Smart 1 Suite is the central nervous system of this campaign. Every call, form, chat and message the media generates lands in one inbox, and the Suite goes to work immediately: Missed Call Text Back so a missed call becomes a conversation instead of a lost lead, automated text and email follow-up, online scheduling, and automated review requests that compound into local search visibility. The media creates the opportunity; the Suite is what turns it into revenue you can trace.",
+  reporting:"Optimisation is a routine, not a promise: bids adjusted against delivery and cost per action, negative keywords and placement exclusions updated, creative checked against performance and rotated before it fatigues. Everything reports into one live dashboard inside the Smart 1 Suite that you can open whenever you want, rather than waiting for a monthly PDF.",
+  packages:"Platform licensing, media spend and any one-time production are listed separately below so it is clear what recurs and what does not.",
+  roi:"The delivery figures below are calculated from the Smart 1 rate card at the budgets in this plan — they are what the money buys, not a forecast. The Smart 1 Suite is the single source of truth for what those impressions produced: every lead is attributed to the channel that created it, so the spend can be judged against the business, not against a click count.",
+  next:"1. Approve this proposal and sign the digital agreement.\n2. Complete the Smart 1 onboarding questionnaire — access, tracking and creative.\n3. Book the 30-minute campaign kickoff call.",
+  creative:"Three messaging themes carry the campaign, rotated so no one execution fatigues:\n"
+   +"• Problem / Agitate / Solution — name the frustration the customer already has, make it concrete, then resolve it.\n"
+   +"• Proof — the specific, verifiable reason to choose this business over the one down the road.\n"
+   +"• Urgency without gimmick — the real reason now is better than later (season, capacity, availability), never a manufactured countdown."
+   +(creativeSummary()?"\n\nCreative source: "+creativeSummary()+".":""),
+ };
+ if(areas.length&&S.audiences.length)
+  body.areas="Targeting is built area by area rather than as one broad demographic:\n"+S.audiences.map(a=>"• "+a).join("\n");
+ return PROPOSAL_OUTLINE.map(spec=>({
+  id:spec.id,title:spec.title,kind:spec.kind,enabled:true,
+  required:REQUIRED_SECTIONS.includes(spec.id),
+  purpose:spec.purpose,
+  body:spec.id==="summary"&&S.description?S.description:(body[spec.id]||"")}));}
 function landingRec(){const g=S.objectives;
  if(g.includes("Lead Generation")||g.includes("Phone Calls"))return "A dedicated landing page with one clear offer, a short lead form, click-to-call, and trust signals (reviews, credentials). Keep navigation minimal so every visitor converts or calls.";
  if(g.includes("Conversions"))return "Send paid traffic to fast product/category pages with the retargeting pixel installed, clear pricing, and prominent CTAs. Add abandoned-cart retargeting.";
@@ -1094,6 +1212,26 @@ const STEPS=[
     '<div class="bpanel"><div class="ttl">💡 Sample ROI by product (internal only)</div><div id="roiTags" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div><div class="note">Illustrative category benchmarks — not shown to the client unless you include them.</div></div>',
    valid:()=>S.items.length>0,after:()=>{drawItems();drawRoi();drawGuards();}};},
 
+ /* Creative. Sits directly after the media mix, so the question is asked
+    while the plan that raises it is still on screen and before any package
+    is priced around it. Skipped entirely when the plan has no video or
+    audio -- there is nothing to ask. */
+ ()=>{
+  const rows=creativeRows();
+  if(!rows.length)return{eyebrow:"Creative",title:"No video or audio in this plan",
+   sub:"Display and social creative is a standard rate-card line — nothing to decide here.",
+   html:'<div class="bpanel"><div class="ttl">🎨 Creative</div><div class="note" style="margin-top:6px">'
+    +'Add Connected TV, streaming audio, YouTube or podcasts to the media mix and Smart 1 will ask '
+    +'whether a spot already exists before pricing it.</div></div>',
+   valid:()=>true};
+  return{eyebrow:"Creative",title:"Do they have the spots for this?",
+   sub:"Video and audio need creative before they can run. Answer this now and it travels onto the insertion order.",
+   html:rows.map(creativeCard).join('')
+    +'<div class="note" style="margin-top:12px">A comp under '+money(COMP_CONFIRM_UNDER)
+    +' per medium gets one confirmation — over the campaign, production usually pays for itself above that.</div>',
+   valid:()=>creativeUnresolved().length===0};
+ },
+
  ()=>{ if(S.kpis.length===0)S.kpis=[...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].slice(0,6);
    return{eyebrow:"Measurement",title:"KPI framework",sub:"KPIs come straight from the objective→KPI map. Tune them as needed.",
    html:'<div class="bpanel"><div class="ttl">📐 KPIs</div>'+pillRow([...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))],S.kpis,'kpi')+
@@ -1101,7 +1239,10 @@ const STEPS=[
    valid:()=>S.kpis.length>0};},
 
  ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. Pick the featured one.",
-   html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Essential ≈ 70%, Recommended = 100%, Accelerated ≈ 150% of budget. Change the budget or products and these rebuild.</div>',
+   html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Essential ≈ 70%, Recommended = 100%, Accelerated ≈ 150% of budget. Change the budget or products and these rebuild.</div>'
+    +'<div class="bpanel" style="margin-top:18px"><div class="ttl">🧠 Smart 1 Suite tier</div>'
+    +'<div class="note" style="margin-top:4px">The Suite is the central nervous system of the campaign — every lead the media produces lands there. Licensing is quoted separately from media on the proposal.</div>'
+    +'<div class="cards c3" style="margin-top:10px">'+SUITE_TIERS.map(t=>card("🧠",t.name+" · "+money(t.monthly)+"/mo",t.specs,chosenTier().name===t.name,`pickTier('${t.name}')`)).join('')+'</div></div>',
    valid:()=>true,after:drawPkgs};},
 
  ()=>{ if(!S.sections)S.sections=defaultSections(); S.estimates=estimates(); return{eyebrow:"Proposal Document",title:"Edit the proposal",sub:"These sections become the branded PDF and Word doc. Rename, rewrite, reorder, disable, or add sections. Auto sections (tables) fill from the campaign data.",
@@ -1142,6 +1283,47 @@ function prevStep(){
  const d=window._stepDesc||STEPS[step]();
  if(d.onBack&&d.onBack()===true)return;   // the step walked its own sub-flow
  if(step>0){step--;renderStep();}}
+
+/* creative gate widgets */
+function creativeCard(r){
+ const n=r.label.split(" (")[0];
+ const pick=(v,em2,t,d)=>card(em2,t,d,r.answer===v,`setCreative('${r.medium}','${v}')`);
+ let html=`<div class="bpanel"><div class="ttl">🎬 ${esc(r.label)} — ${money(r.spend)} over ${S.months} month${S.months===1?'':'s'}</div>
+  <div class="cards c3" style="margin-top:10px">
+   ${pick("has","✅","They have creative","Finished "+n.toLowerCase()+" spots we can traffic")}
+   ${pick("client","💳","They'll pay for it","Smart 1 produces it — the fee goes on this proposal")}
+   ${pick("comp","🎁","We comp it","Smart 1 absorbs the production cost")}
+  </div>`;
+ if(r.answer==="client"){
+  html+=`<div class="fld" style="margin-top:12px"><label>Production fee for ${esc(n.toLowerCase())}</label>
+   <input type="number" min="0" step="25" value="${r.fee}" oninput="setCreativeFee('${r.medium}',+this.value)" style="max-width:200px">
+   <div class="note" style="margin-top:5px">Starting point — ${esc(n)} production is a custom quote, so change it to whatever was agreed.</div></div>`;}
+ if(r.answer==="comp"){
+  html+=r.needsConfirm
+   ? `<div class="warnbox" style="margin-top:12px"><b>⚠ ${money(r.spend)} ${esc(n.toLowerCase())} campaign — are you sure you want to comp this?</b>
+      Smart 1 would be producing ${esc(n.toLowerCase())} creative at no charge on a campaign under ${money(COMP_CONFIRM_UNDER)}, which is below where a comp usually pays for itself.
+      <div style="margin-top:9px;display:flex;gap:9px;flex-wrap:wrap">
+       ${r.confirmed
+         ? `<span class="pill on" style="cursor:default">✓ Confirmed — Smart 1 comps this</span><button class="btn btn-line" onclick="setCreative('${r.medium}','client')">Actually, charge for it</button>`
+         : `<button class="btn btn-gold" onclick="confirmComp('${r.medium}')">Yes — comp it anyway</button>
+            <button class="btn btn-line" onclick="setCreative('${r.medium}','client')">No — the client pays</button>`}
+      </div></div>`
+   : `<div class="note" style="margin-top:12px">${money(r.spend)} is above the ${money(COMP_CONFIRM_UNDER)} mark, so the comp is recorded without a second question.</div>`;}
+ return html+`</div>`;}
+function setCreative(medium,answer){
+ S.creativePlan=S.creativePlan||{};
+ const prev=S.creativePlan[medium]||{};
+ // Changing the answer clears the confirmation: a comp confirmed at one
+ // budget must not stay confirmed after the plan moves underneath it.
+ S.creativePlan[medium]={answer,fee:answer==="client"?(+prev.fee||TYPICAL_PRODUCTION[medium]||0):0,confirmed:false};
+ saveSoon();renderStep();}
+function setCreativeFee(medium,v){
+ S.creativePlan[medium]=Object.assign({},S.creativePlan[medium],{fee:Math.max(0,v||0)});
+ saveSoon();syncNext();}
+function confirmComp(medium){
+ S.creativePlan[medium]=Object.assign({},S.creativePlan[medium],
+  {confirmed:true,confirmedAt:mediumSpend(medium),confirmed_at:mediumSpend(medium)});
+ saveNow();renderStep();toast("Recorded — the comp is noted on the quote and the IO.");}
 
 /* step widgets */
 function drawEst(){const e=estimates();const g=document.getElementById('estGrid');if(!g)return;
@@ -1214,7 +1396,11 @@ function setItemDollars(ix,v){S.items[ix].dollars=Math.max(0,Math.round(v/50)*50
  flagDirty();drawItems();drawGuards();saveSoon();}
 function drawRoi(){const h=document.getElementById('roiTags');if(!h)return;h.innerHTML=S.items.map(i=>`<span class="pill on" style="margin:0;cursor:default">${em(i.category)} ${esc(i.category)}: ${esc(CATEGORY_ROI[i.category]||'—')}</span>`).join('');}
 function drawGuards(){const w=document.getElementById('guardWrap');if(!w)return;const g=guardrailsJs();
- w.innerHTML=g.length?`<div class="warnbox"><b>🛡 IO guardrail warnings (not blocks)</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:"";}
+ const need=creativeUnresolved();
+ let html=g.length?`<div class="warnbox"><b>🛡 IO guardrail warnings (not blocks)</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:"";
+ if(need.length)html+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
+  +need.map(m=>"This plan runs "+esc(MEDIUM_LABEL[m].split(" (")[0].toLowerCase())+" — the next step asks whether a spot exists.").join("<br>")+`</div>`;
+ w.innerHTML=html;}
 function addItem(){const cat=document.getElementById('addCat').value;const p=findProduct(cat)||{};
  if(S.items.some(i=>i.category===cat)){toast("That category is already in the mix.");return;}
  S.items.push({label:p.label,category:cat,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,pctSeed:15,dollars:0});
@@ -1223,30 +1409,43 @@ function rmItem(i){S.items.splice(i,1);applySeeds();flagDirty();drawItems();draw
 function flagDirty(){if(!S.configured)return;S.dirty=true;S.keepAsIs=false;drawReconfig();}
 function drawReconfig(){const w=document.getElementById('reconfigWrap');if(!w)return;
  w.innerHTML=(S.dirty&&!S.keepAsIs)?`<div class="reconfig"><p>🔄 You changed the product mix. Reconfigure the three packages to match — or keep the current numbers as-is?</p><button class="btn btn-primary" onclick="buildPackages();S.dirty=false;drawReconfig();saveSoon()">Reconfigure</button><button class="btn btn-back" onclick="S.keepAsIs=true;S.dirty=false;drawReconfig()">Keep as is</button></div>`:'';}
+function pickTier(name){S.suiteTier={name,monthly:(SUITE_TIERS.find(t=>t.name===name)||{}).monthly||0};saveSoon();renderStep();}
 function drawPkgs(){const w=document.getElementById('pkgWrap');if(!w)return;
  w.innerHTML=S.packages.map((p,i)=>`<div class="pkg${i===S.selPkg?' on':''}" onclick="S.selPkg=${i};S.selectedPackage=S.packages[${i}];saveSoon();drawPkgs()">${p.rec?'<div class="flag">Recommended</div>':''}<div class="pn">${p.name}</div><div class="pp">${money(p.monthly)}<small>/mo</small></div><div class="ptot">${money(p.total)} over ${S.months} mo</div><ul>${p.lines.map(l=>`<li>${esc(l.name)}<b>${money(l.amt)}</b></li>`).join('')}<li>Est. impressions<b>${fmt(p.impr)}</b></li>${p.views?`<li>Est. video views<b>${fmt(p.views)}</b></li>`:''}</ul></div>`).join('');}
 
 /* section editor */
+function isRequired(s){return !!s.required||REQUIRED_SECTIONS.includes(s.id);}
 function drawSections(){const host=document.getElementById('secList');if(!host)return;
- host.innerHTML=S.sections.map((s,i)=>`
+ host.innerHTML=S.sections.map((s,i)=>{
+  const req=isRequired(s);
+  const purpose=s.purpose||(PROPOSAL_OUTLINE.find(x=>x.id===s.id)||{}).purpose||"";
+  return `
   <div class="sec${s.enabled?'':' off'}">
    <div class="shead">
     <input type="text" value="${esc(s.title)}" onchange="S.sections[${i}].title=this.value;saveSoon()">
-    ${s.kind!=='text'?`<span class="autotag">auto: ${esc(s.kind)}</span>`:""}
+    ${s.kind!=='text'&&s.kind!=='cover'?`<span class="autotag">auto: ${esc(s.kind)}</span>`:""}
+    ${req?'<span class="autotag" title="Required by the Smart 1 proposal specification — it can be re-worded but not removed">required</span>':''}
     <div class="tools">
      <button class="ic" title="Move up" onclick="moveSec(${i},-1)">↑</button>
      <button class="ic" title="Move down" onclick="moveSec(${i},1)">↓</button>
-     <button class="ic" title="${s.enabled?'Hide from proposal':'Include in proposal'}" onclick="S.sections[${i}].enabled=!S.sections[${i}].enabled;saveSoon();drawSections()">${s.enabled?'👁':'🚫'}</button>
-     <button class="ic" title="Delete section" onclick="delSec(${i})">🗑</button>
+     <button class="ic" title="${req?'Required — every Smart 1 proposal includes this':(s.enabled?'Hide from proposal':'Include in proposal')}" ${req?'disabled style="opacity:.35;cursor:not-allowed"':''} onclick="${req?'':`S.sections[${i}].enabled=!S.sections[${i}].enabled;saveSoon();drawSections()`}">${s.enabled?'👁':'🚫'}</button>
+     <button class="ic" title="${req?'Required — cannot be deleted':'Delete section'}" ${req?'disabled style="opacity:.35;cursor:not-allowed"':''} onclick="${req?'':`delSec(${i})`}">🗑</button>
     </div>
    </div>
+   ${purpose?`<div class="note" style="margin:0 0 6px 2px">${esc(purpose)}</div>`:''}
    <div class="sbody">
-    <textarea placeholder="${s.kind==='text'?'Section copy…':'Optional intro copy above the auto table…'}" onchange="S.sections[${i}].body=this.value;saveSoon()">${esc(s.body||'')}</textarea>
+    <textarea placeholder="${s.kind==='text'||s.kind==='cover'?'Section copy…':'Optional intro copy above the auto table…'}" onchange="S.sections[${i}].body=this.value;saveSoon()">${esc(s.body||'')}</textarea>
     <div class="airow"><input id="aiIns${i}" placeholder="✨ AI rewrite — e.g. shorter, friendlier, more ROI-focused"><button class="btn btn-ghost" style="padding:8px 13px" onclick="aiRewrite(${i})">✨ Rewrite</button></div>
    </div>
-  </div>`).join('');}
+  </div>`;}).join('');}
 function moveSec(i,d){const j=i+d;if(j<0||j>=S.sections.length)return;const t=S.sections[i];S.sections[i]=S.sections[j];S.sections[j]=t;saveSoon();drawSections();}
-function delSec(i){if(!confirm("Delete the \""+S.sections[i].title+"\" section from this proposal?"))return;S.sections.splice(i,1);saveSoon();drawSections();}
+function delSec(i){
+ // Guarded here as well as in the markup: Expected Results & ROI, the media
+ // plan and the investment summary are required by the Smart 1 specification,
+ // and the server puts a missing one back on the next save anyway.
+ if(isRequired(S.sections[i])){toast("Every Smart 1 proposal includes this section — re-word it instead.");return;}
+ if(!confirm("Delete the \""+S.sections[i].title+"\" section from this proposal?"))return;
+ S.sections.splice(i,1);saveSoon();drawSections();}
 function addSection(){S.sections.push({id:"custom"+Date.now(),title:"New Section",kind:"text",enabled:true,body:""});saveSoon();drawSections();}
 async function draftSections(){
  if(!CFG.ai_enabled){toast("Writing the copy needs OPENAI_API_KEY on the server.");return;}
@@ -1266,8 +1465,10 @@ async function aiRewrite(i){
  if(!text){toast("Write something in the section first, then AI can rewrite it.");return;}
  if(!CFG.ai_enabled){toast("AI rewrite needs OPENAI_API_KEY on the Sales Builder server.");return;}
  toast("✨ Rewriting…");
- try{const d=await api('/sales/builder/api/ai/rewrite',{method:'POST',body:JSON.stringify({text,instruction:ins})});
-  S.sections[i].body=d.text;saveSoon();drawSections();toast("✨ Rewritten — edit further as needed.");}
+ try{const d=await api('/sales/builder/api/ai/rewrite',{method:'POST',
+   body:JSON.stringify({text,instruction:ins,section:S.sections[i].id,data:S})});
+  S.sections[i].body=d.text;saveSoon();drawSections();
+  toast((d.warnings&&d.warnings.length)?("Rewritten, but: "+d.warnings.join(" ")):"✨ Rewritten — edit further as needed.");}
  catch(e){toast("AI rewrite failed: "+e.message);}}
 
 /* review step */
@@ -1281,8 +1482,21 @@ function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPacka
   ${row('Est. audience / households',e.measured?(fmt(e.aud)+' / '+fmt(e.hh)):'not measured')}
   ${row('Products',esc(S.items.map(i=>i.product).join(', ')||'—'))}
   ${row('Featured package',esc(sel.name||'—')+' · '+money(sel.monthly||0)+'/mo')}
+  ${row('Creative',esc(creativeSummary()||'Display and social only — nothing to confirm'))}
+  ${row('Smart 1 Suite',esc(chosenTier().name)+' · '+money(chosenTier().monthly)+'/mo')}
   ${row('Campaign total',money(sel.total||0)+' over '+S.months+' months')}
   ${row('KPIs',esc(S.kpis.join(', ')||'—'))}</ul></div>
+  ${(()=>{const t=chosenTier(),media=+((S.selectedPackage||{}).monthly||S.budget||0),fees=creativeFees();
+    const recur=t.monthly+media, first=recur+fees, campaign=recur*S.months+fees;
+    return `<div class="bpanel"><div class="ttl">💵 Investment — what recurs and what does not</div>
+     <ul style="list-style:none;padding:0;margin:8px 0 0">
+      ${row('Smart 1 Suite — '+esc(t.name),money(t.monthly)+'/mo')}
+      ${row('Media spend',money(media)+'/mo')}
+      ${fees?row('Creative production (one-time)',money(fees)):''}
+      ${row('First month',money(first))}
+      ${row('Campaign total ('+S.months+' mo)',money(campaign))}
+     </ul>
+     <div class="note" style="margin-top:8px">Platform licensing is separate from media so it is clear what stops if the media pauses.</div></div>`;})()}
   ${g.length?`<div class="warnbox"><b>🛡 Guardrails to note</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:""}
   <div class="bpanel"><div class="ttl">Deliver</div>
    <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:8px">
@@ -1454,7 +1668,8 @@ function ioDataPayload(){
   "Geography: "+((st.targetAreas||[]).length?(st.targetAreas||[]).map(areaLabel).join(" | "):(st.geo||st.geoType||"")),
   "Audience: "+((st.audiences||[]).join(", ")||"per proposal"),
   "Landing page: "+(a.landingUrl||st.landingUrl||"TBD"),
-  "KPIs: "+((st.kpis||[]).join(", ")||"")]}));
+  "KPIs: "+((st.kpis||[]).join(", ")||""),
+  "Creative: "+(st.creativeSummary||"display/social only")]}));
  const trackingPlan={primaryConversion:a.primaryConversion,secondaryConversions:[],ga4:a.ga4,gtm:"",callTracking:a.callTracking,thankYouPage:"",offlineImport:"",verifier:a.verifier};
  return{
   ioType:"Converted Proposal",client:st.client,url:st.url,
@@ -1468,6 +1683,10 @@ function ioDataPayload(){
   targetAreas:st.targetAreas||[],geo:st.geo||"",
   audiences:st.audiences||[],incomes:st.income||[],dayparting:"",
   creativeSource:a.creativeSource,creativeFee:a.creativeFee,managementFee:a.managementFeeAck,
+  // What the creative gate decided, per medium, so trafficking knows which
+  // spots to expect and who agreed to pay for them.
+  creativePlan:st.creativePlan||{},creativeSummary:(st.creativeSummary||""),
+  suiteTier:st.suiteTier||{},
   exclusions:(st.exclusions||[]).join(", "),
   landingPageMode:st.landingMode,landingPage:a.landingUrl||st.landingUrl,
   landingPageReviews:st.landingReview?[{product:"Campaign landing page",url:a.landingUrl||st.landingUrl,review:st.landingReview}]:[],
