@@ -29,7 +29,6 @@ import threading
 import time as _time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlparse
 
 from flask import (Flask, jsonify, make_response, redirect,
                    render_template, request, Response)
@@ -132,6 +131,22 @@ class Scan(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     completed_at = Column(DateTime, nullable=True)
 
+    @property
+    def client_key(self) -> str:
+        """The Hub-wide client key for the site this scan is about.
+
+        Scans got the identity question right by accident: `domain_key` is
+        already a domain, and a domain is exactly what the rest of the Hub
+        wants to join on. This exposes it in the shared form so a scan can be
+        matched to an ad proposal, an image gallery and an access request
+        without every caller knowing that scans happen to key on hostname.
+        """
+        try:
+            from hub.client_key import client_key as _key
+            return _key(self.business_name or "", self.domain_key or "")
+        except Exception:                                 # noqa: BLE001
+            return f"d:{self.domain_key}" if self.domain_key else ""
+
 
 class LinkCheck(Base):
     """One run of the on-demand broken-link crawl for a scan.
@@ -212,18 +227,19 @@ def actor_name() -> str:
 
 def domain_key(url_or_host: str) -> str:
     """Normalise any URL/host to a bare dedupe key: lowercased, no scheme,
-    no leading www., no path, no user:pass@ prefix."""
-    s = (url_or_host or "").strip().lower()
-    if "//" not in s:
-        s = "//" + s
-    host = urlparse(s if "://" in s else "http:" + s).netloc or s.strip("/")
-    host = host.split("/")[0]
-    if "@" in host:                       # strip userinfo (user:pass@host)
-        host = host.rsplit("@", 1)[1]
-    host = host.split(":")[0]
-    if host.startswith("www."):
-        host = host[4:]
-    return host
+    no leading www., no path, no user:pass@ prefix.
+
+    This was its own implementation — the fourth in the codebase doing the
+    same job with slightly different edges. It kept the query string and
+    accepted anything host-shaped, where hub/client_context wanted a real
+    domain, so a scan's key and a client registry's key for one site could
+    disagree and the two would never join. There is now one definition and
+    this calls it. For any real domain the answer is unchanged, so stored
+    keys still match; a value that is not a domain now returns "" instead of
+    a fragment, which looks_like_domain() below already treats as a reject.
+    """
+    from hub.client_context import canonical_domain
+    return canonical_domain(url_or_host)
 
 
 def looks_like_domain(value: str) -> bool:

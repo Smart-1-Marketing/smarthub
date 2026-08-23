@@ -119,6 +119,32 @@ across this codebase (`url`, `domain`, `website`, `web_url`, `site_url`…).
 a domain means. Name matching produces false positives — "Riverside HVAC" vs
 "Riverside HVAC LLC" — and is why billing audits report phantom problems.
 
+**One client key, derived on read.** The modules key a client three different
+ways and always will: Scans on `domain_key`, Ads and Google Access on a typed
+`client_name`, Image Picker on its own table. `hub/client_key.py` joins them
+without changing any of it — `client_key(name, url)` returns `d:<domain>` where
+there is a URL and `n:<name-slug>` where there is not, and `resolve()`,
+`same_client()` and `crosswalk()` are built on that. Use them rather than
+comparing names.
+
+Two rules it enforces, both learned the hard way:
+
+- **Never store the key.** `create_all()` creates missing tables and never adds
+  a column to an existing one, so a `client_key` column would be silently
+  absent on the live Postgres while every local test passed. Deriving it also
+  means a client renamed in Knack is re-joined on the next request instead of
+  leaving a stale copy behind.
+- **Never match on a substring.** `resolve()` matches on domain, then on an
+  exact normalised name, and offers a near match only when exactly one client
+  can possibly be meant — otherwise it returns *no* match and lists the
+  candidates. The billing audit used to take the first Knack name containing
+  the sub-account name, so "Acme" was attributed to whichever of Acme Plumbing,
+  Acme Roofing and Acme Electric came out of the dict first, and nothing in the
+  report showed that a guess had been made.
+
+`/api/clients/crosswalk` shows what is joined, what shares a domain, and what
+carries a name with no URL and therefore cannot be joined to anything.
+
 ---
 
 ## Opportunistic migration — read this before editing any module

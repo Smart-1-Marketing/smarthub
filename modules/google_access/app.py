@@ -398,19 +398,45 @@ def extend(request_id):
 @admin_bp.route("/api/client/<hub_client_id>/status")
 @require_login
 def client_status(hub_client_id):
-    """Feed for the Client 360 access card."""
+    """Feed for the Client 360 access card.
+
+    `hub_client_id` is matched first, then the derived client key. The second
+    lookup is what makes this card work at all: the id is an optional field on
+    the invite form, so almost every request in the table has it blank and
+    this endpoint answered "no access on file" for clients whose Analytics we
+    had been granted months earlier. The path segment is still called
+    hub_client_id because Client 360 links to it that way; it accepts a client
+    name or a URL just as happily.
+    """
     rows = (
         AccessRequest.query
         .filter_by(hub_client_id=hub_client_id)
         .order_by(AccessRequest.created_at.desc())
         .all()
     )
+    matched_on = "hub_client_id"
+    if not rows:
+        try:
+            from hub.client_key import resolve
+            want = resolve(name=hub_client_id, url=hub_client_id)["key"]
+        except Exception:                                 # noqa: BLE001
+            want = ""
+        if want:
+            from hub.client_key import same_client
+            rows = [r for r in (AccessRequest.query
+                                .order_by(AccessRequest.created_at.desc())
+                                .limit(500).all())
+                    if same_client(hub_client_id, hub_client_id,
+                                   r.client_name or "", r.website or "")]
+            matched_on = "client_key"
     if not rows:
         return jsonify(ok=True, found=False, services={})
     latest = rows[0]
     return jsonify(
         ok=True,
         found=True,
+        matched_on=matched_on,
+        client_name=latest.client_name,
         request_id=latest.id,
         status=latest.status,
         consent_email=latest.consent_email,

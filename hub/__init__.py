@@ -324,6 +324,43 @@ def create_hub_app() -> Flask:
         from .client_context import resolve_by_url
         return jsonify(resolve_by_url(request.args.get("url", "")))
 
+    @app.route("/api/clients/crosswalk")
+    def api_clients_crosswalk():
+        """Every client record in every module, grouped by one derived key.
+
+        The join that is missing from the data. Answers the two questions no
+        single module can: which records are the same client, and which ones
+        carry a name with no URL behind it and therefore cannot be joined to
+        anything at all.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_key import crosswalk
+        return jsonify(crosswalk())
+
+    @app.route("/api/client/records")
+    def api_client_records():
+        """Every module record belonging to one client, by name or by URL."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_key import for_client
+        return jsonify(for_client(name=request.args.get("client", ""),
+                                  url=request.args.get("url", "")))
+
+    @app.route("/api/client/resolve")
+    def api_client_resolve():
+        """Who a name or URL actually is, and how confidently we know."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_key import resolve
+        fuzzy = str(request.args.get("fuzzy", "")).lower() in ("1", "true", "yes")
+        return jsonify(resolve(name=request.args.get("client", ""),
+                               url=request.args.get("url", ""),
+                               allow_fuzzy=fuzzy))
+
     @app.route("/api/db/structure")
     def api_db_structure():
         """Where client data lives, and where it can drift apart."""
