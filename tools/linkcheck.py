@@ -51,7 +51,14 @@ EXTS = ("html", "py", "js", "ts", "tsx", "jsx")
 # This file is skipped too: the URLs in its docstring and patterns are examples
 # of the bug, not links, and a checker that fails on its own documentation is a
 # checker people learn to ignore.
-SKIP_PREFIXES = ("modules/ad_builder/", "tools/linkcheck.py")
+#
+# test_ads_module.py for the same reason: it carries a JavaScript fixture that
+# feeds fake URLs to the ad builder's base-path shim to prove the shim leaves
+# the Hub's chrome alone. Those are the shim's INPUT, not links a page follows
+# -- and they are the ad builder's own routes, which the line above already
+# says Flask cannot judge.
+SKIP_PREFIXES = ("modules/ad_builder/", "tools/linkcheck.py",
+                 "test_ads_module.py")
 
 # Known-good references that are not links in the running app:
 #   install_into_hub.py  writes the mount that would then serve /tools/ads/

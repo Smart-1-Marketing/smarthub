@@ -368,12 +368,144 @@ def run():
     r = g(f"http://127.0.0.1:{PORT}/", timeout=10)
     check("the Hub shell outside the mount is untouched", "Hub shell" in r.text)
 
+    basepath_shim()
+
     server.shutdown()
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed\n")
     if FAIL:
         for f in FAIL:
             print("  FAILED:", f)
     return 1 if FAIL else 0
+
+
+# ---------------------------------------------------------------------------
+# The base-path shim must not rewrite the Hub's own chrome
+# ---------------------------------------------------------------------------
+#
+# src/basepath.ts prefixes every root-relative href/src/action so this app
+# works under a mount. But the Hub injects its sidebar, its feedback tab and
+# five /hub-*.js scripts into the SAME page after this service has produced
+# it, and those URLs belong to the Hub. Prefixing them sent every sidebar link
+# back into this service, which answered
+#
+#     {"error": "No route for GET /sales/landing"}
+#
+# and looked, from the browser, exactly like the Hub had lost the page. The
+# help layer was dead on this page for the same reason and nobody noticed,
+# because a missing bubble looks like a page that simply has none.
+#
+# Driven from Python through node, the way test_proposal_spec.py checks the
+# wizard's copy of the classifier: the shim is browser code, so the real
+# parser is the only one worth asking.
+
+BASEPATH_FIXTURE = r"""
+function El(tag, attrs, parent){
+  const e = {tag, attrs: {...attrs}, parent: parent||null, children: [],
+    getAttribute:(a)=>e.attrs[a]===undefined?null:e.attrs[a],
+    setAttribute:(a,v)=>{e.attrs[a]=v;},
+    matches:(sel)=>selMatch(e, sel),
+    closest:(sel)=>{let n=e; while(n){ if(selMatch(n,sel)) return n; n=n.parent;} return null;},
+    querySelectorAll:(sel)=>all(e).filter(n=>n!==e&&selMatch(n,sel))};
+  if(parent) parent.children.push(e);
+  return e;
+}
+function all(root){ let out=[root]; root.children.forEach(c=>out=out.concat(all(c))); return out; }
+function selMatch(el, sel){
+  return sel.split(',').some(part=>{
+    part = part.trim();
+    let m = part.match(/^\[(\w+)\^="(.*)"\]$/);
+    if(m){ const v = el.getAttribute(m[1]); return typeof v==='string' && v.startsWith(m[2]); }
+    m = part.match(/^\[class\*="(.*)"\]$/);
+    if(m){ const v = el.getAttribute('class'); return typeof v==='string' && v.includes(m[1]); }
+    return false;
+  });
+}
+const body = El('body', {});
+const sb = El('nav', {class:'s1hub-sb'}, body);
+const hub = {
+  landing: El('a', {class:'s1hub-item', href:'/sales/landing'}, sb),
+  c360:    El('a', {class:'s1hub-item', href:'/client360'}, sb),
+  feed:    El('a', {class:'s1hub-feed', href:'/feedback'}, body),
+  script:  El('script', {src:'/hub-help.js'}, body),
+  css:     El('link', {href:'/hub-help.css'}, body)};
+const app = {
+  link: El('a', {href:'/projects'}, body),
+  img:  El('img', {src:'/files/x.png'}, body),
+  form: El('form', {action:'/api/render'}, body)};
+const fetches=[];
+global.window = { fetch:(i,o)=>{fetches.push(i); return Promise.resolve();} };
+global.XMLHttpRequest = function(){};
+global.XMLHttpRequest.prototype = { open:function(){} };
+global.MutationObserver = function(){ return { observe(){} }; };
+global.document = { body, documentElement: body, readyState:'complete',
+                    addEventListener(){} };
+__SHIM__
+window.fetch('/api/render');
+window.fetch('/hub-help.js');
+console.log(JSON.stringify({
+  hub: Object.fromEntries(Object.entries(hub).map(([k,e])=>
+        [k, e.getAttribute('href') || e.getAttribute('src')])),
+  app: Object.fromEntries(Object.entries(app).map(([k,e])=>
+        [k, e.getAttribute('href') || e.getAttribute('src') || e.getAttribute('action')])),
+  fetches}));
+"""
+
+
+def basepath_shim():
+    import json as _json
+    import re as _re
+    import subprocess as _sp
+    import tempfile as _tf
+
+    print("\nthe base-path shim leaves the Hub's chrome alone")
+    print("-" * 60)
+
+    src = Path("modules/ad_builder/src/basepath.ts").read_text()
+    m = _re.search(r"const shim = `(.*?)`;\n", src, _re.S)
+    if not m:
+        check("the shim can be read out of basepath.ts", False,
+              "the `const shim = ` template moved")
+        return
+    shim = m.group(1).replace("${JSON.stringify(base)}",
+                              _json.dumps("/tools/display-ads"))
+    shim = shim.replace("<script>", "", 1)
+    shim = shim[:shim.rindex("</script>")]
+
+    with _tf.TemporaryDirectory() as tmp:
+        script = Path(tmp, "t.js")
+        script.write_text(BASEPATH_FIXTURE.replace("__SHIM__", shim))
+        proc = _sp.run(["node", str(script)], capture_output=True, text=True,
+                       timeout=60)
+    if proc.returncode != 0:
+        check("the shim runs under node", False,
+              (proc.stderr or proc.stdout).strip()[:300])
+        return
+    out = _json.loads(proc.stdout.strip().splitlines()[-1])
+
+    # The Hub's own URLs, untouched.
+    check("a sidebar link keeps its Hub path",
+          out["hub"]["landing"] == "/sales/landing", out["hub"]["landing"])
+    check("...and so does Client 360",
+          out["hub"]["c360"] == "/client360", out["hub"]["c360"])
+    check("the feedback tab is not rewritten",
+          out["hub"]["feed"] == "/feedback", out["hub"]["feed"])
+    check("nor is the Hub's help script",
+          out["hub"]["script"] == "/hub-help.js", out["hub"]["script"])
+    check("nor its stylesheet",
+          out["hub"]["css"] == "/hub-help.css", out["hub"]["css"])
+
+    # ...and this app's URLs still get the mount prefix, which is the whole
+    # reason the shim exists.
+    check("a page link is still prefixed",
+          out["app"]["link"] == "/tools/display-ads/projects", out["app"]["link"])
+    check("so is an image",
+          out["app"]["img"] == "/tools/display-ads/files/x.png", out["app"]["img"])
+    check("so is a form action",
+          out["app"]["form"] == "/tools/display-ads/api/render", out["app"]["form"])
+    check("patched fetch prefixes this app's calls",
+          out["fetches"][0] == "/tools/display-ads/api/render", out["fetches"][0])
+    check("but leaves a Hub asset alone",
+          out["fetches"][1] == "/hub-help.js", out["fetches"][1])
 
 
 if __name__ == "__main__":
