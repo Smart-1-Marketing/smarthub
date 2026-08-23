@@ -44,7 +44,14 @@ export function withBase(req: IncomingMessage, html: string): string {
   const shim = `<script>(function(){
 var B=${JSON.stringify(base)};
 window.S1_BASE=B;
-function pre(u){return (typeof u==='string'&&u.charAt(0)==='/'&&u.charAt(1)!=='/'&&u.indexOf(B+'/')!==0)?B+u:u;}
+/* The Hub injects its sidebar, help layer and /hub-*.js assets into this page
+   AFTER this service has produced it. Those URLs are the Hub's, not ours:
+   prefixing them points the whole sidebar back into this service, which
+   answers "No route for GET /sales/landing" and looks like the Hub is
+   broken. /hub- is the Hub's own asset prefix (it is in the Hub's CHROMELESS
+   list for the same reason). */
+function ours(u){return u.indexOf('/hub-')!==0;}
+function pre(u){return (typeof u==='string'&&u.charAt(0)==='/'&&u.charAt(1)!=='/'&&ours(u)&&u.indexOf(B+'/')!==0)?B+u:u;}
 var f=window.fetch;
 window.fetch=function(i,o){return f.call(this,(typeof i==='string')?pre(i):i,o);};
 var xo=XMLHttpRequest.prototype.open;
@@ -53,7 +60,12 @@ function fix(r){if(!r||!r.querySelectorAll)return;
  var s='[href^="/"],[src^="/"],[action^="/"]';
  var all=(r.matches&&r.matches(s))?[r]:[];
  all=all.concat(Array.prototype.slice.call(r.querySelectorAll(s)));
- all.forEach(function(el){['href','src','action'].forEach(function(a){
+ all.forEach(function(el){
+  /* Same reason: anything inside the Hub's chrome is the Hub's. s1hub- is its
+     reserved class prefix, so this catches the sidebar, the feedback tab and
+     anything it grows later without listing them one by one. */
+  if(el.closest&&el.closest('[class*="s1hub-"]'))return;
+  ['href','src','action'].forEach(function(a){
   var v=el.getAttribute(a); if(!v)return; var n=pre(v); if(n!==v)el.setAttribute(a,n);});});}
 function boot(){fix(document.body||document.documentElement);
  new MutationObserver(function(ms){ms.forEach(function(m){
