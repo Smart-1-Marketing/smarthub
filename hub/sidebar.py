@@ -6,6 +6,15 @@ page right to make room. Below 950px the sidebar collapses to the floating
 chip so phone layouts are untouched.
 """
 
+# Ordered the way the work runs, not the way the code grew: what you sell,
+# what you make, then the systems underneath. Utilities went last because
+# Diagnostics, System Status and Users are things you go looking for when
+# something is wrong -- putting them third pushed the actual tools below the
+# fold on a laptop.
+#
+# The keys are what render_sidebar() matches `active` against, so they are
+# fixed points: reordering or relabelling is free, renaming a key silently
+# stops that page highlighting itself in the nav.
 _ITEMS = [
     ("dashboard", "/", "&#127968;", "Dashboard"),
     ("c360", "/client360", "&#127919;", "Client 360"),
@@ -20,15 +29,13 @@ _ITEMS = [
     ("io_builder", "/tools/io/", "&#128221;", "IO Builder"),
     ("leads", "/sales/leads", "&#128229;", "Leads"),
     ("landing", "/sales/landing", "&#128187;", "Landing Pages"),
-    ("_sec3", "", "", "Utilities"),
-    ("creative", "/creative", "&#127912;", "Creative"),
-    ("qa", "/qa", "&#9989;", "QA Reports"),
-    ("activity", "/activity", "&#128220;", "Activity Log"),
-    ("diagnostics", "/diagnostics", "&#128300;", "Diagnostics"),
-    ("users", "/diagnostics/users", "&#128100;", "Users"),
-    ("status", "/status", "&#128678;", "System Status"),
     ("_sec4", "", "", "Tools"),
-    ("tools", "/tools", "&#128295;", "Tools"),
+    ("creative", "/creative", "&#127912;", "Creative"),
+    # "Client Tools", not "Tools" -- a "Tools" item inside a "Tools" section
+    # reads as though it might be the section header repeated, and gives no
+    # hint of what is behind it. The URL is unchanged.
+    ("tools", "/tools", "&#128295;", "Client Tools"),
+    ("qa", "/qa", "&#9989;", "QA Reports"),
     ("_secseo", "", "", "SEO"),
     ("seo", "/seo", "&#128269;", "SEO Clients"),
     ("scans", "/scans/", "&#128200;", "Site Scans"),
@@ -37,6 +44,14 @@ _ITEMS = [
     ("google", "/google/", "&#128202;", "Google"),
     ("sites", "/sites/", "&#127760;", "Sites"),
     ("suite", "/suite/", "&#129520;", "Suite"),
+    ("_sec3", "", "", "Utilities"),
+    ("diagnostics", "/diagnostics", "&#128300;", "Diagnostics"),
+    ("status", "/status", "&#128678;", "System Status"),
+    ("users", "/diagnostics/users", "&#128100;", "Users"),
+    # Not named in the reshuffle, and it had to land somewhere rather than be
+    # dropped: it is a system-wide record read for the same reason as the three
+    # above, so it sits with them rather than among the tools that write to it.
+    ("activity", "/activity", "&#128220;", "Activity Log"),
 ]
 
 _CSS = """
