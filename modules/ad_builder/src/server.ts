@@ -42,7 +42,7 @@ import { notify } from './notify';
 import { discoverBrand, normalizeDomain } from './brandfetch';
 import { BrandCache } from './brand-cache';
 import { renderOverview, renderOverviewPdf } from './overview';
-import { ALLOWED_FORMATS, folderFor, signUpload, type AssetKind } from './assets';
+import { ALLOWED_FORMATS, assetUrlIsSafe, folderFor, signUpload, type AssetKind } from './assets';
 import { CloudinaryService, slug } from './cloudinary';
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -1306,6 +1306,59 @@ const server = http.createServer(async (req, res) => {
         if (p) { p.landingAnalysis = analysis; projects.save(p); }
       }
       return json(res, 200, analysis, cors);
+    }
+
+    // Turn a chosen picture into a background this concept can render.
+    //
+    // The chooser hands back a URL -- from the landing page, from stock, from
+    // an AI generation -- but CreativeConcept.backgroundImage is a local path,
+    // because the composer reads pixels rather than fetching. So the choosing
+    // and the applying are two steps, and this is the second: fetch it once,
+    // fit it to the image budget, and hand back the path the campaign should
+    // carry. Doing it here rather than in the browser also keeps the fetch
+    // behind the same SSRF guard every other asset goes through.
+    if (route === 'POST /api/background/apply') {
+      const cors = corsHeaders(req.headers.origin);
+      const body = JSON.parse(await readBody(req, 20_000)) as
+        { requestId?: string; url?: string };
+      const requestId = String(body.requestId ?? '').trim();
+      const url = String(body.url ?? '').trim();
+      if (!requestId) return json(res, 400, { error: 'Which campaign?' }, cors);
+      if (!url) return json(res, 400, { error: 'Pick a picture first.' }, cors);
+
+      // A relative /files/... URL is something this renderer already produced
+      // (a stock pick or an AI generation), so it is read off disk rather than
+      // fetched back out of ourselves over the network.
+      let source = url;
+      if (url.startsWith('/files/')) {
+        const local = path.join(OUT, url.replace(/^\/files\//, ''));
+        if (!fs.existsSync(local)) {
+          return json(res, 404, { error: 'That image is no longer on disk. Choose another.' }, cors);
+        }
+        source = local;
+      } else {
+        const safe = assetUrlIsSafe(url);
+        if (!safe.ok) {
+          return json(res, 400, { error: `That image cannot be fetched (${safe.reason}).` }, cors);
+        }
+      }
+
+      try {
+        const cacheDir = path.join(OUT, 'cache', requestId);
+        fs.mkdirSync(cacheDir, { recursive: true });
+        const local = source.startsWith('/') && fs.existsSync(source)
+          ? source
+          : await resolveAsset(source, { cacheDir });
+        // Same budget pass the intake path applies, so a 4 MB hero does not
+        // ride into every size at full weight.
+        const fitted = await fitImageToBudget(
+          local, path.join(cacheDir, `bg-${Date.now().toString(36)}.jpg`));
+        return json(res, 200, { ok: true, path: fitted.file }, cors);
+      } catch (e: any) {
+        return json(res, 502, {
+          error: `That image could not be prepared (${e?.message ?? e}).`,
+        }, cors);
+      }
     }
 
     // Pictures already on the landing page, offered as ad backgrounds. One of

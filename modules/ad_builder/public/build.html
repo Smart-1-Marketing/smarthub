@@ -195,6 +195,24 @@
   .notecount { font-size: 10.5px; letter-spacing: 0; background: var(--line);
     color: var(--ink-2); border-radius: 9px; padding: 1px 7px; font-weight: 700; }
 
+  /* Background chooser: four sources, one panel. */
+  .bgmodes { display: grid; gap: 5px; margin-bottom: 8px; }
+  .bgmode { text-align: left; font: inherit; font-size: 12px; padding: 7px 10px;
+    background: #fff; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+  .bgmode:hover { border-color: var(--ink-2); }
+  .bgmode.on { border-color: var(--accent, #2563eb);
+    box-shadow: 0 0 0 1px var(--accent, #2563eb) inset; font-weight: 600; }
+  .bgresults:not(:empty) { margin-bottom: 8px; }
+  .bgmsg { font-size: 11.5px; color: var(--ink-2); display: block; margin-bottom: 6px; }
+  .bggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+  .bgthumb { padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+    background: #fff; cursor: pointer; display: block; font: inherit; }
+  .bgthumb img { width: 100%; height: 54px; object-fit: cover; display: block; }
+  .bgthumb span { display: block; font-size: 10px; color: var(--ink-2); padding: 2px 4px; }
+  .bgthumb:hover { border-color: var(--ink-2); }
+  .bgthumb.on { border-color: var(--accent, #2563eb);
+    box-shadow: 0 0 0 1px var(--accent, #2563eb) inset; }
+
   /* Layout families, chosen by looking rather than by reading a dropdown. */
   .famgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
     gap: 8px; margin-bottom: 8px; }
@@ -343,6 +361,19 @@
       '<div class="group"><h3>Copy for ' + esc(state.size) + '</h3>' + fields +
         '<div style="font-size:11.5px;color:var(--ink-2);margin-top:4px">' +
         'Edits apply to this size only. Clear a field to fall back to the default copy.</div></div>' +
+      '<div class="group"><h3>Background</h3>' +
+        '<div class="bgmodes">' +
+          '<button type="button" class="bgmode' + (concept().backgroundImage ? '' : ' on') + '" data-bgmode="none">Solid brand colour</button>' +
+          '<button type="button" class="bgmode" data-bgmode="landing">From their landing page</button>' +
+          '<button type="button" class="bgmode" data-bgmode="stock">Suggested photos</button>' +
+          '<button type="button" class="bgmode" data-bgmode="ai">Have AI make one</button>' +
+        '</div>' +
+        '<div id="bgResults" class="bgresults"></div>' +
+        '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="bgNote">' +
+          (concept().backgroundImage
+            ? 'A photo background is applied to this concept.'
+            : 'This concept uses the flat brand colour.') +
+        '</div></div>' +
       '<div class="group"><h3>Layout</h3>' +
         '<div class="famgrid" id="famGrid">' + familyCards() + '</div>' +
         '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div></div>' +
@@ -366,6 +397,9 @@
         updateCounts();
         schedule();
       });
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgmode]'), function (el) {
+      el.addEventListener('click', function () { chooseBackground(el.dataset.bgmode, el); });
     });
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-family]'), function (el) {
       el.addEventListener('click', function () {
@@ -394,6 +428,140 @@
         preview();
       });
     });
+  }
+
+  /* ------------------------------------------------- background chooser
+     Four ways to put a picture behind the ad, in one place, because the
+     question "what goes behind this" is one question however it gets
+     answered. Nothing is applied until a thumbnail is clicked -- searching
+     and generating produce candidates, the same rule the intake form uses.
+
+     A source that fails says so where the pictures would have been. An empty
+     result with no explanation reads as "there is nothing", which is a
+     different and usually wrong answer. */
+  function bgResults() { return $('bgResults'); }
+
+  function bgSay(html) { bgResults().innerHTML = html; }
+
+  function bgBusy(what) {
+    bgSay('<span class="bgmsg">' + esc(what) + '</span>');
+  }
+
+  function chooseBackground(mode, btn) {
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgmode]'),
+      function (el) { el.classList.toggle('on', el === btn); });
+
+    if (mode === 'none') {
+      delete concept().backgroundImage;
+      delete concept().backgroundOverlay;
+      state.dirty = true;
+      bgSay('');
+      $('bgNote').textContent = 'This concept uses the flat brand colour.';
+      preview();
+      return;
+    }
+
+    if (mode === 'landing') {
+      bgBusy('Reading their landing page\u2026');
+      post('/api/landing/images', { projectId: state.projectId || undefined,
+                                    url: state.doc.landingPage || undefined })
+        .then(function (d) {
+          if (!d.images || !d.images.length) {
+            bgSay('<span class="bgmsg">' +
+              esc((d.warnings && d.warnings[0]) ||
+                  'Nothing on that page is big enough for a background.') + '</span>');
+            return;
+          }
+          bgGrid(d.images.map(function (i) {
+            return { url: i.url, label: i.width + '\u00d7' + i.height };
+          }), 'landing');
+        })
+        .catch(function () { bgSay('<span class="bgmsg">Could not read the landing page.</span>'); });
+      return;
+    }
+
+    if (mode === 'stock') {
+      bgBusy('Finding photos that fit this campaign\u2026');
+      var c = concept();
+      post('/api/images/search', {
+        business: state.doc.campaign.client || '',
+        promoting: effective('headline') || '',
+        benefit: effective('support') || '',
+        offer: effective('offer') || ''
+      })
+        .then(function (d) {
+          var cands = d.candidates || [];
+          if (!cands.length) {
+            bgSay('<span class="bgmsg">' + esc(d.reason || 'No stock photos came back.') + '</span>');
+            return;
+          }
+          bgGrid(cands.map(function (x) { return { url: x.url, label: '' }; }), 'stock');
+        })
+        .catch(function () { bgSay('<span class="bgmsg">Photo search is unavailable.</span>'); });
+      return;
+    }
+
+    if (mode === 'ai') {
+      bgBusy('Drawing something \u2014 this takes a few seconds\u2026');
+      post('/api/images/generate', {
+        business: state.doc.campaign.client || '',
+        promoting: effective('headline') || '',
+        benefit: effective('support') || ''
+      })
+        .then(function (d) {
+          var cands = d.candidates || (d.url ? [{ url: d.url }] : []);
+          if (!cands.length) {
+            bgSay('<span class="bgmsg">' + esc(d.reason || d.error ||
+              'Image generation is not configured.') + '</span>');
+            return;
+          }
+          bgGrid(cands.map(function (x) { return { url: x.url, label: '' }; }), 'ai');
+        })
+        .catch(function () { bgSay('<span class="bgmsg">Image generation is unavailable.</span>'); });
+    }
+  }
+
+  function bgGrid(items, mode) {
+    bgSay('<p class="bgmsg">Click one to put it behind this concept.</p>' +
+      '<div class="bggrid">' + items.map(function (it, i) {
+        return '<button type="button" class="bgthumb" data-pick="' + i + '"' +
+          ' title="' + esc(it.url) + '">' +
+          '<img src="' + esc(it.url) + '" alt="" loading="lazy">' +
+          (it.label ? '<span>' + esc(it.label) + '</span>' : '') + '</button>';
+      }).join('') + '</div>');
+    Array.prototype.forEach.call(bgResults().querySelectorAll('[data-pick]'), function (el) {
+      el.addEventListener('click', function () {
+        applyBackground(items[Number(el.dataset.pick)].url, mode, el);
+      });
+    });
+  }
+
+  /* The chooser has a URL; the renderer needs a local file. The server does
+     that step so the fetch stays behind the same guard as every other asset. */
+  function applyBackground(url, mode, el) {
+    Array.prototype.forEach.call(bgResults().querySelectorAll('.bgthumb'),
+      function (t) { t.classList.remove('on'); });
+    if (el) el.classList.add('on');
+    $('bgNote').textContent = 'Preparing that picture\u2026';
+    post('/api/background/apply', { requestId: state.requestId, url: url })
+      .then(function (d) {
+        if (!d.ok || !d.path) {
+          $('bgNote').textContent = d.error || 'That picture could not be used.';
+          return;
+        }
+        concept().backgroundImage = d.path;
+        state.dirty = true;
+        $('bgNote').textContent = 'Photo background applied to this concept (' + mode + ').';
+        preview();
+      })
+      .catch(function () { $('bgNote').textContent = 'That picture could not be used.'; });
+  }
+
+  function post(url, body) {
+    return fetch(url, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json(); });
   }
 
   /* A family is chosen by looking at it. Each card draws the family's real

@@ -174,3 +174,15 @@ test('a lazy-loaded image still resolves through data-src', () => {
   const urls = extractImageUrls(html, 'https://example.test/lp').map((f) => f.url);
   assert.ok(urls.includes('https://example.test/real-photo.png'));
 });
+
+test('a picture the asset guard would refuse is never offered', () => {
+  // Applying fetches through assetUrlIsSafe (https only, no internal hosts).
+  // Listing something it will refuse gives a thumbnail that fails on click,
+  // for a reason the person cannot see.
+  const html = `
+    <img src="http://plain.example.com/insecure.jpg">
+    <img src="https://cdn.example.com/fine.jpg">
+    <img src="https://localhost/internal.jpg">`;
+  const urls = extractImageUrls(html, 'https://example.test/lp').map((f) => f.url);
+  assert.deepEqual(urls, ['https://cdn.example.com/fine.jpg']);
+});
