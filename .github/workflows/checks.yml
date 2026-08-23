@@ -31,21 +31,51 @@ jobs:
   checks:
     name: syntax, links and tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+
+    # Postgres rather than SQLite, for the steps that boot the app. Sites Admin
+    # refuses to start without a real Postgres URL and serves wsgi.py's 503
+    # fallback instead, so on SQLite a whole module silently drops out of every
+    # check that boots -- 36 of 37 pages checked, and nothing saying so. This
+    # is a service container, not a credential: it keeps the "no secrets, runs
+    # from a clean checkout" rule above intact, and it also exercises
+    # create_all() under its advisory lock, which is a deploy-time failure mode.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: smarthub
+          POSTGRES_PASSWORD: smarthub
+          POSTGRES_DB: smarthub_ci
+        ports: ['5432:5432']
+        # -U/-d on the probe, or it connects as root, which is not a role
+        # in this cluster: nine FATAL lines in the service log every run,
+        # none of them meaning anything. (A comment inside the folded
+        # scalar below would become part of the docker options string.)
+        options: >-
+          --health-cmd "pg_isready -U smarthub -d smarthub_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+      SECRET_KEY: ci-not-a-real-secret
+      PANEL_PASSWORD: ci-not-a-real-password
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Matches the Dockerfile (python:3.12-slim), so the gate runs what
       # production runs.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install dependencies
         run: |
@@ -62,6 +92,12 @@ jobs:
       - name: JavaScript syntax
         run: python tools/jscheck.py
 
+      # The other half: jscheck skips blocks carrying Jinja, because Node would
+      # reject them for the wrong reason. This balance-checks exactly those, so
+      # "not checked (Jinja)" in the step above is not the end of the story.
+      - name: JavaScript inside Jinja templates
+        run: python tools/checktemplates.py
+
       # Boots the composed app and checks every internal URL literal against
       # the route table of whichever app owns that path. This is the one that
       # catches the mount trap.
@@ -73,6 +109,14 @@ jobs:
 
       - name: JSON store tests
         run: python test_jsonstore.py
+
+      - name: Target area tests
+        run: |
+          if [ -f test_target_areas.py ]; then
+            python test_target_areas.py
+          else
+            echo "test_target_areas.py not on this branch — nothing to run."
+          fi
 
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
@@ -147,3 +191,22 @@ jobs:
               sys.exit(1)
           print("\nthe composed app boots and every checked page responds")
           PY
+
+      # What the BROWSER receives, after HubBar and the hub's after_request
+      # have rewritten the response. Every check above reads source; this reads
+      # the bytes. HubBar injected the sidebar at the first </body> in the
+      # response, and the IO Builder builds two printable documents as
+      # JavaScript template literals that each carry their own </body> -- so
+      # the chrome landed inside a string, closed the page's script early, and
+      # the whole tool rendered blank. Every template was valid. Every link
+      # resolved. Nothing above would have caught it.
+      - name: Rendered pages (chrome is markup, scripts still parse)
+        run: python tools/pagecheck.py --strict
+
+      # The Hub's own defect-pattern check, which otherwise lives behind a
+      # login on a page somebody has to remember to open. Gates on `high` only:
+      # two medium findings stand today (ad_builder and msa never write to the
+      # activity log) and are printed every run, so switching this on did not
+      # start it red.
+      - name: Known defect patterns (/api/integrity)
+        run: python tools/integritycheck.py

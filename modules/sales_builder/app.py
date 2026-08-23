@@ -181,28 +181,51 @@ if DB_BOOT_ERROR:
     logger.error("sales_builder: table creation reported: %s", DB_BOOT_ERROR)
 
 
-def _add_missing_columns() -> None:
-    """Add columns introduced after the quotes table was first created.
+# Columns added to `quotes` after the table was first created, as
+# (column, type). create_all() creates missing TABLES, never missing columns,
+# so the live database -- which has quotes in it already -- would keep working
+# right up until the first query mentioning a delivery column.
+_LATE_QUOTE_COLUMNS = [
+    ("pdf_url", "VARCHAR(600)"),
+    ("client_filed_as", "VARCHAR(64)"),
+    ("suite_contact_id", "VARCHAR(64)"),
+    ("suite_opportunity_id", "VARCHAR(64)"),
+    ("delivered_at", "TIMESTAMP"),
+]
 
-    create_all() creates missing tables, never missing columns, so the live
-    database — which has quotes in it already — would keep working right up
-    until the first query mentioning a delivery column. Each statement is
-    attempted and its failure ignored: "already exists" is the normal case on
-    every boot after the first.
+
+def _add_missing_columns() -> None:
+    """Add the columns above, asking first which ones are actually missing.
+
+    This used to fire all five unconditionally and swallow the failures, on the
+    reasoning that "already exists" is the normal case after the first boot. It
+    is worse than that: all five are declared on the Quote model, so
+    create_all() puts them on a fresh database too and ALL FIVE fail on EVERY
+    boot, on every database, including the first. Two gunicorn workers, so ten
+    Postgres ERROR lines per deploy that mean nothing -- and a log that always
+    carries ten fake errors is a log nobody finds the real one in. CI surfaced
+    it: the Postgres service prints its log at the end of every run.
+
+    modules/image_picker/models.py had the identical bug and the identical fix.
+    ADD COLUMN IF NOT EXISTS would be shorter, and is what modules/sites_admin
+    uses -- but that module talks to Postgres directly, and this one shares the
+    Hub engine, which is SQLite in local development, where the answer is
+    `near "EXISTS": syntax error`. The inspector is the same answer on both.
     """
-    from sqlalchemy import text as _text
-    for sql in (
-        "ALTER TABLE quotes ADD COLUMN pdf_url VARCHAR(600)",
-        "ALTER TABLE quotes ADD COLUMN client_filed_as VARCHAR(64)",
-        "ALTER TABLE quotes ADD COLUMN suite_contact_id VARCHAR(64)",
-        "ALTER TABLE quotes ADD COLUMN suite_opportunity_id VARCHAR(64)",
-        "ALTER TABLE quotes ADD COLUMN delivered_at TIMESTAMP",
-    ):
+    from sqlalchemy import inspect as _inspect, text as _text
+    try:
+        have = {c["name"] for c in _inspect(engine).get_columns("quotes")}
+    except Exception:                                   # noqa: BLE001
+        return                                          # no table: nothing to alter
+    for column, coltype in _LATE_QUOTE_COLUMNS:
+        if column in have:
+            continue
         try:
             with engine.begin() as conn:
-                conn.execute(_text(sql))
+                conn.execute(_text(
+                    f"ALTER TABLE quotes ADD COLUMN {column} {coltype}"))
         except Exception:                               # noqa: BLE001
-            pass
+            pass                                        # raced by the other worker
 
 
 if not DB_BOOT_ERROR:

@@ -13,6 +13,11 @@ _ITEMS = [
     # One entry, because there is one proposal builder. /sales/proposals is the
     # retired standalone tool: it redirects here and serves its archive only.
     ("salesb", "/sales/builder/", "&#128196;", "Proposal Builder"),
+    # Sales, not Tools. It is the last step of the sales flow -- a proposal
+    # becomes an insertion order -- and the Tools page is where staff looked
+    # for it only because that is where its URL happens to live. The mount
+    # stays at /tools/io so every existing link keeps working.
+    ("io_builder", "/tools/io/", "&#128221;", "IO Builder"),
     ("leads", "/sales/leads", "&#128229;", "Leads"),
     ("_sec3", "", "", "Utilities"),
     ("creative", "/creative", "&#127912;", "Creative"),
