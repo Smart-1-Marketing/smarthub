@@ -48,30 +48,58 @@ def init_db(app=None) -> None:
         DB_BOOT_ERROR = str(exc)
 
 
-def _add_missing_columns() -> None:
-    """Add columns introduced after a table was first created.
+# Columns added after their table was first created, as
+# (table, column, type). create_all() creates missing TABLES, never missing
+# columns, so a database that predates one of these keeps working right up
+# until the first query that mentions it.
+_LATE_COLUMNS = [
+    ("image_picker_clients", "kind", "VARCHAR(20) DEFAULT 'prospect'"),
+    ("image_picker_images", "resource_type", "VARCHAR(20) DEFAULT 'image'"),
+    ("image_picker_images", "spec_result", "VARCHAR(10)"),
+    ("image_picker_images", "spec_summary", "TEXT"),
+    ("image_picker_images", "spec_unit", "VARCHAR(60)"),
+]
 
-    create_all() creates missing tables, never missing columns, so a database
-    that predates a new field keeps working right up until the first query that
-    mentions it. Each statement is attempted and its failure ignored, because
-    "already exists" is the normal case on every boot after the first.
+
+def _add_missing_columns() -> None:
+    """Add the columns above, asking first which ones are actually missing.
+
+    This used to fire all five ALTERs unconditionally and swallow the failures,
+    on the reasoning that "already exists" is the normal case after the first
+    boot. It is worse than that: every one of these columns is declared on the
+    model, so create_all() puts them on a fresh database too and ALL FIVE fail
+    on EVERY boot, on every database, forever. Two gunicorn workers, so ten
+    Postgres ERROR lines per deploy that mean nothing -- and a log that always
+    carries ten fake errors is a log nobody reads the real one out of.
+
+    Asking the inspector instead costs one catalogue query per table and
+    normally issues no DDL at all. The try/except stays, but now it covers only
+    what it was supposed to: a genuine race with the other worker between the
+    inspection and the ALTER.
+
+    ADD COLUMN IF NOT EXISTS would be shorter and is what modules/sites_admin
+    uses -- but that module talks to Postgres directly, and this one shares the
+    Hub engine, which is SQLite in local development. SQLite has no IF NOT
+    EXISTS on ADD COLUMN. The inspector is the same answer on both.
     """
-    from sqlalchemy import text as _text
-    stmts = [
-        "ALTER TABLE image_picker_clients ADD COLUMN kind VARCHAR(20) "
-        "DEFAULT 'prospect'",
-        "ALTER TABLE image_picker_images ADD COLUMN resource_type VARCHAR(20) "
-        "DEFAULT 'image'",
-        "ALTER TABLE image_picker_images ADD COLUMN spec_result VARCHAR(10)",
-        "ALTER TABLE image_picker_images ADD COLUMN spec_summary TEXT",
-        "ALTER TABLE image_picker_images ADD COLUMN spec_unit VARCHAR(60)",
-    ]
-    for sql in stmts:
+    from sqlalchemy import inspect as _inspect, text as _text
+    insp = _inspect(_ENGINE)
+    known: dict[str, set[str]] = {}
+    for table, column, coltype in _LATE_COLUMNS:
+        if table not in known:
+            try:
+                known[table] = {c["name"] for c in insp.get_columns(table)}
+            except Exception:                           # noqa: BLE001
+                known[table] = set()                    # no table: nothing to alter
+        if not known[table] or column in known[table]:
+            continue
         try:
             with _ENGINE.begin() as conn:
-                conn.execute(_text(sql))
+                conn.execute(_text(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
+            known[table].add(column)
         except Exception:                               # noqa: BLE001
-            pass
+            pass                                        # raced by the other worker
 
 
 def session():
