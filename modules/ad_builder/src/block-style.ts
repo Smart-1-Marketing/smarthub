@@ -10,9 +10,10 @@
  * So the template stays the default and a concept may carry an override on top
  * of it. Two rules make that safe rather than a way to break the ad:
  *
- * **Only the properties a person is actually choosing.** Not arbitrary partial
- * boxes: no x, no y, no height. Moving a block is a layout decision, and
- * layouts are chosen by picking a family.
+ * **Only the properties a person is actually choosing.** For type that means
+ * no x, no y, no height: moving a block of copy is a layout decision, and
+ * layouts are chosen by picking a family. The logo is the deliberate
+ * exception — see LogoStyle for why.
  *
  * **Everything is clamped to the canvas.** A width that runs the text off the
  * edge is the one change that looks fine in the control panel and produces a
@@ -24,7 +25,7 @@
  * preview and the final render see exactly the same boxes.
  */
 
-import type { HAlign, SizeLayout, TextBox, Weight } from './types';
+import type { HAlign, SizeLayout, TextBox, VAlign, Weight } from './types';
 
 /** The blocks a person can restyle. Geometry-only blocks are deliberately out. */
 export const STYLEABLE = ['headline', 'support', 'offer', 'cta', 'trust'] as const;
@@ -46,7 +47,34 @@ export interface BlockStyle {
   bg?: string;
 }
 
-export type StyleOverrides = Partial<Record<StyleableBlock, BlockStyle>>;
+/**
+ * The logo is the one block a person may move.
+ *
+ * For type, moving a block is a layout decision and layouts are chosen by
+ * picking a family. The logo is different: it is the client's mark, its
+ * correct placement depends on the picture behind it, and "nudge the logo"
+ * is the single most common note on a proof. So position and size are both
+ * allowed here, and both are clamped to the canvas.
+ *
+ * The box is a bounding box, not the drawn size: the renderer contains the
+ * logo inside it, preserving aspect. Making the box bigger makes the logo
+ * bigger only up to its own proportions.
+ */
+export interface LogoStyle {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  align?: HAlign;
+  valign?: VAlign;
+}
+
+export type StyleOverrides = Partial<Record<StyleableBlock, BlockStyle>> & {
+  logo?: LogoStyle;
+};
+
+/** A logo smaller than this is not a logo, it is a smudge. */
+export const MIN_LOGO = 8;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -111,6 +139,40 @@ export function applyBlockStyles(
       (next as any)[key] = patched;
       touched = true;
     }
+  }
+
+  const logo = overrides.logo;
+  if (logo && layout.logo) {
+    const lb: any = { ...layout.logo };
+    let changed = false;
+
+    // Position first, because the size clamps depend on where it ends up.
+    if (typeof logo.x === 'number' && Number.isFinite(logo.x)) {
+      lb.x = clamp(Math.round(logo.x), 0, Math.max(0, canvas.w - MIN_LOGO));
+      changed = true;
+    }
+    if (typeof logo.y === 'number' && Number.isFinite(logo.y)) {
+      lb.y = clamp(Math.round(logo.y), 0, Math.max(0, canvas.h - MIN_LOGO));
+      changed = true;
+    }
+    if (typeof logo.w === 'number' && Number.isFinite(logo.w)) {
+      lb.w = clamp(Math.round(logo.w), MIN_LOGO, Math.max(MIN_LOGO, canvas.w - lb.x));
+      changed = true;
+    }
+    if (typeof logo.h === 'number' && Number.isFinite(logo.h)) {
+      lb.h = clamp(Math.round(logo.h), MIN_LOGO, Math.max(MIN_LOGO, canvas.h - lb.y));
+      changed = true;
+    }
+    // A move can leave the existing box hanging off the edge even when the
+    // size was not touched, so the box is re-fitted either way.
+    if (changed) {
+      lb.w = clamp(lb.w, MIN_LOGO, Math.max(MIN_LOGO, canvas.w - lb.x));
+      lb.h = clamp(lb.h, MIN_LOGO, Math.max(MIN_LOGO, canvas.h - lb.y));
+    }
+    if (logo.align) { lb.align = logo.align; changed = true; }
+    if (logo.valign) { lb.valign = logo.valign; changed = true; }
+
+    if (changed) { next.logo = lb; touched = true; }
   }
 
   return touched ? next : layout;
