@@ -183,10 +183,73 @@ maker = page.get_data(as_text=True)
 # consolidation while still looking like it loaded.
 check("it does not read the retired tool",
       "/sales/proposals/api/proposals" in maker, False)
-check("it reads the live builder's quotes",
-      "/sales/builder/api/quotes" in maker, True)
-check("and that endpoint is a real route",
-      client.get("/sales/builder/api/quotes").status_code, 200)
+check("the client is asked for first",
+      maker.index('id="lpClient"') < maker.index('id="lpProposal"'), True)
+check("client names come from the registry",
+      "/api/clients/search" in maker, True)
+check("and the proposals are scoped to that client",
+      "/api/landing/proposals?client=" in maker, True)
+check("both endpoints are real routes",
+      (client.get("/api/clients/search?q=a").status_code,
+       client.get("/api/landing/proposals?client=x").status_code), (200, 200))
+
+
+section("A client's proposals, saved and uploaded, kept apart")
+
+both = json.loads(
+    client.get("/api/landing/proposals?client=Riverside+HVAC").get_data(as_text=True))
+check("saved and uploaded are separate lists",
+      isinstance(both.get("saved"), list) and isinstance(both.get("uploaded"), list),
+      True)
+check("with a total count", "count" in both, True)
+check("no client asked, nothing guessed",
+      lm.proposals_for("")["count"], 0)
+
+# An uploaded proposal with no readable file must be refused with a reason,
+# not silently built from nothing.
+made = lm.create(client="Riverside HVAC", uploaded_id="no-such-upload",
+                 goal="Book a call", actor="Test")
+check("an unreadable uploaded proposal is refused", "error" in made, True)
+check("and the reason names the file",
+      "file" in made.get("error", "").lower(), True)
+
+# A real uploaded proposal, stored the way this deployment stores one when
+# Cloudinary is not configured: on the data disk, with a RELATIVE url. That
+# url cannot be fetched over HTTP, and reading it as though it could is how
+# every locally stored proposal came back as an empty document.
+import io                                                       # noqa: E402
+from reportlab.pdfgen import canvas as _canvas                  # noqa: E402
+from hub import proposals as hub_proposals                      # noqa: E402
+
+_buf = io.BytesIO()
+_pdf = _canvas.Canvas(_buf)
+for _i, _line in enumerate(["Proposal for Riverside HVAC",
+                            "Monthly budget: $4,500 per month",
+                            "Term: 6 months",
+                            "Products: Connected TV, Digital Radio"]):
+    _pdf.drawString(72, 720 - _i * 18, _line)
+_pdf.showPage()
+_pdf.save()
+
+_rec = hub_proposals.add_proposal("Riverside HVAC", "spring.pdf",
+                                  _buf.getvalue(), date_sent="2026-08-01",
+                                  title="Spring campaign")
+check("the fixture stored locally, not on Cloudinary",
+      _rec.get("storage"), "local")
+check("so its url is relative, not fetchable",
+      _rec.get("url", "").startswith("/"), True)
+
+both2 = lm.proposals_for("Riverside HVAC")
+check("it shows up under uploaded", len(both2["uploaded"]), 1)
+check("and is offered as readable", both2["uploaded"][0]["readable"], True)
+
+from_upload = lm.create(client="Riverside HVAC", uploaded_id=_rec["id"],
+                        goal="Book a service call", actor="Test")
+check("a page builds from it", bool(from_upload.get("ok")), True)
+_row = lm.get(from_upload.get("slug", "")) or {}
+check("recorded as an uploaded proposal", _row.get("proposal_kind"), "uploaded")
+check("and the document's own figure reached the page",
+      (_row.get("brief") or {}).get("monthly"), 4500.0)
 
 for label in ("Bold and promotional", "Clean and trustworthy",
               "Premium and image-led"):
@@ -198,17 +261,17 @@ section("Listing and search")
 
 lm.create(client="Northgate Legal", direction="bold", goal="Book a call",
           actor="Test")
-check("both pages are listed", lm.listing()["count"], 2)
+check("every page is listed", lm.listing()["count"], 3)
 check("search narrows by client", lm.listing(q="northgate")["count"], 1)
 check("and by client filter exactly",
-      lm.listing(client="Riverside HVAC")["count"], 1)
+      lm.listing(client="Riverside HVAC")["count"], 2)
 check("a near-miss name does not match",
       lm.listing(client="Riverside")["count"], 0)
 check("the client list is offered for a filter",
       sorted(lm.listing()["clients"]), ["Northgate Legal", "Riverside HVAC"])
 
 api = json.loads(client.get("/api/landing").get_data(as_text=True))
-check("the API agrees", api.get("count"), 2)
+check("the API agrees", api.get("count"), 3)
 
 # An edit keeps the previous version rather than overwriting it.
 saved = lm.update_html(slug, "<html>edited</html>", "Test")
