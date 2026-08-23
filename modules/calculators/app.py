@@ -235,9 +235,14 @@ def api_unlock(slug):
 @bp.get("/")
 def index():
     stats = {} if store.DB_BOOT_ERROR else store.counts()
-    return render_template("index.html", calcs=catalog.all_calculators(), mount=MOUNT,
+    calcs = catalog.all_calculators()
+    return render_template("index.html", calcs=calcs, mount=MOUNT,
                            stats=stats, db_error=store.DB_BOOT_ERROR,
-                           webhook_set=bool(store.webhook_url(current_app, "digital-audio")),
+                           # What the code does, not what one legacy env var
+                           # says. The old banner read a webhook that stopped
+                           # being the route and cried wolf on every page load.
+                           delivery=store.delivery_status(
+                               current_app, [c["slug"] for c in calcs]),
                            base_url=request.url_root.rstrip("/"))
 
 
@@ -267,8 +272,8 @@ def leads_csv():
 @bp.post("/leads/retry")
 def leads_retry():
     titles = {c["slug"]: c["title"] for c in catalog.all_calculators()}
-    sent, total = store.retry_failed(current_app, titles)
-    return jsonify({"ok": True, "sent": sent, "attempted": total})
+    out = store.retry_failed(current_app, titles)
+    return jsonify({"ok": True, **out})
 
 
 @bp.get("/api/health")
@@ -277,5 +282,6 @@ def health():
         "ok": not bool(store.DB_BOOT_ERROR),
         "calculators": [c["slug"] for c in catalog.all_calculators()],
         "database": "error" if store.DB_BOOT_ERROR else "ok",
-        "webhook_configured": bool(store.webhook_url(current_app, "digital-audio")),
+        "delivery": store.delivery_status(
+            current_app, [c["slug"] for c in catalog.all_calculators()]),
     })

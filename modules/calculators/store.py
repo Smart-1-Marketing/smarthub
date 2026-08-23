@@ -1,10 +1,24 @@
 """Lead storage for the calculators.
 
-Design note: the lead is written to the database *before* the webhook fires, and
-a webhook failure never loses it. The Smart 1 Suite audit found nine of ten apps
-using a fire-and-forget POST as their only persistence, which silently binned
-every lead whenever the webhook URL was unset or GoHighLevel returned a 500.
-Rows here carry a delivery status so a failed send can be retried or exported.
+Design note: the lead is written to the database *before* anything is sent, and
+a delivery failure never loses it. The Smart 1 Suite audit found nine of ten
+apps using a fire-and-forget POST as their only persistence, which silently
+binned every lead whenever the webhook URL was unset or GoHighLevel returned a
+500. Rows here carry a delivery status so a failed send can be retried or
+exported.
+
+## Who delivers, and why the page has to say so honestly
+
+Delivery moved to the Hub's lead panel (`hub/leads.py`), which stores every
+lead centrally and pushes it to Smart 1 Suite over the Contacts API. The page
+here kept reporting on `CALCULATORS_LEAD_WEBHOOK_URL` — a variable that stopped
+being the route on the day that moved — so it announced "nothing is reaching
+Smart 1 Suite" while every lead was arriving. A banner that cries wolf is worse
+than no banner: the next one nobody reads is the real one.
+
+So `delivery_status()` reports what the code actually does, and the page draws
+its banners from that. The legacy per-calculator override still works, and is
+now named as the hazard it is rather than as the thing to go and set.
 """
 
 import json
@@ -206,11 +220,49 @@ def counts():
 
 # --- Webhook -----------------------------------------------------------------
 
+def _override_env(slug):
+    return "CALC_WEBHOOK_" + slug.upper().replace("-", "_")
+
+
 def webhook_url(app, slug):
-    """Per-calculator override wins, then the shared URL."""
-    per = os.environ.get("CALC_WEBHOOK_" + slug.upper().replace("-", "_"))
+    """The legacy per-calculator override, then the legacy shared URL.
+
+    Neither is the delivery route any more — see `delivery_status()`. Kept
+    because a deployment that set one is entitled to have it keep working.
+    """
+    per = os.environ.get(_override_env(slug))
     return (per or app.config.get("CALCULATORS_LEAD_WEBHOOK_URL")
             or os.environ.get("CALCULATORS_LEAD_WEBHOOK_URL") or "").strip()
+
+
+def delivery_status(app, slugs=()):
+    """What actually happens to a calculator lead, in the words of the code.
+
+    `route` is the Hub panel's own delivery mode ("api", "none", or
+    "unavailable" if hub.leads could not be imported at all). `overrides` are
+    the calculators still pointed at a webhook of their own — those bypass the
+    panel completely, so they get no contact id, no central record and no
+    retry. `legacy_fallback` is the shared URL, which is only reached if the
+    panel path raises: it would then post a lead the panel has already stored,
+    which is the double-write the panel exists to prevent.
+    """
+    route, reason = "unavailable", ""
+    try:
+        from hub import leads as hub_leads
+        route = hub_leads.delivery_mode()
+        if route != "api":
+            reason = hub_leads.route_status().get("note", "")
+    except Exception as exc:                        # noqa: BLE001
+        reason = f"hub.leads is not importable here ({type(exc).__name__})."
+    return {
+        "route": route,
+        "reason": reason,
+        "overrides": sorted(s for s in slugs if os.environ.get(_override_env(s))),
+        "legacy_fallback": (app.config.get("CALCULATORS_LEAD_WEBHOOK_URL")
+                            or os.environ.get("CALCULATORS_LEAD_WEBHOOK_URL")
+                            or "").strip() != "",
+        "ok": route == "api",
+    }
 
 
 def send_webhook(app, row, calc_title):
@@ -246,8 +298,9 @@ def send_webhook(app, row, calc_title):
     url = per or webhook_url(app, row.slug)
     if not url:
         set_webhook_status(row.token, "no_url",
-                           "CALCULATORS_LEAD_WEBHOOK_URL is not set — the lead is stored "
-                           "but was not sent to Smart 1 Suite.")
+                           "The Hub lead panel couldn't take this lead and no legacy "
+                           "webhook is set, so it was stored here only. Check "
+                           "/sales/leads.")
         return False
 
     payload = dict(row.contact())
@@ -275,16 +328,38 @@ def send_webhook(app, row, calc_title):
 
 
 def retry_failed(app, titles):
-    """Re-send anything that never landed. Called from the admin page."""
+    """Re-send anything that never landed. Called from the admin page.
+
+    A lead already handed to the Hub panel is **not** re-sent from here.
+    `send_webhook()` captures a *new* panel row every time it runs, so a second
+    call would file the same person twice and there would be nothing to
+    reconcile the two against — the exact failure the panel was built to stop.
+    The panel owns those rows, and its own retry goes back down the same route
+    and is a no-op for anything that already landed, so this delegates to it
+    and reports what came back.
+    """
     sent = 0
     with _session() as s:
         stmt = select(CalculatorLead).where(
             CalculatorLead.unlocked_at.isnot(None),
             CalculatorLead.webhook_status.in_(("failed", "pending", "no_url")))
         rows = s.scalars(stmt.limit(500)).all()
+        queued = s.scalars(select(CalculatorLead).where(
+            CalculatorLead.webhook_status == "queued").limit(500)).all()
+        queued_n = len(queued)
         for r in rows:
             s.expunge(r)
     for r in rows:
         if send_webhook(app, r, titles.get(r.slug, r.slug)):
             sent += 1
-    return sent, len(rows)
+
+    panel = {}
+    if queued_n:
+        try:
+            from hub import leads as hub_leads
+            panel = hub_leads.retry_undelivered()
+        except Exception as exc:                    # noqa: BLE001
+            panel = {"note": f"The lead panel's retry didn't run "
+                             f"({type(exc).__name__})."}
+    return {"sent": sent, "attempted": len(rows), "queued_in_panel": queued_n,
+            "panel": panel}

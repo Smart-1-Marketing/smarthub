@@ -465,7 +465,7 @@ def listing(days: int = 30, source: str = "", page: str = "",
                            if r.get("delivered") and not r.get("contact_id")),
         "needs_attention": sum(1 for r in rows
                                if not r.get("delivered") and not r.get("retryable", True)),
-        **_route_status(stored),
+        **route_status(stored),
     }
 
 
@@ -487,7 +487,7 @@ def _api_evidence(rows: list[dict] | None = None) -> tuple[int, str]:
     return n, last
 
 
-def _route_status(rows: list[dict] | None = None) -> dict:
+def route_status(rows: list[dict] | None = None) -> dict:
     """Which way leads are being written, and anything wrong with that."""
     mode = delivery_mode()
     note = ""

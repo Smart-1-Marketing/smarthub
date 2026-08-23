@@ -70,6 +70,8 @@ a{color:var(--blue)}
           <td>${{ '{:,.0f}'.format(r.lead_value or 0) }}</td>
           <td>
             {% if r.webhook_status == 'sent' %}<span class="tag sent">Sent</span>
+            {% elif r.webhook_status == 'queued' %}<span class="tag pending"
+              title="Stored in the Hub lead panel and waiting on Suite delivery. Retried from there.">In the panel</span>
             {% elif r.webhook_status in ('failed','no_url') %}<span class="tag failed">Not sent</span>
             {% else %}<span class="tag pending">Pending</span>{% endif %}
           </td>

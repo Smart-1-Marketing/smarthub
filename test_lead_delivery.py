@@ -80,7 +80,7 @@ def main():
     print("a leftover webhook URL is not a second route")
     os.environ["HUB_LEAD_WEBHOOK_URL"] = "https://hooks.example/x"
     check("delivery mode with the webhook also set", leads.delivery_mode(), "api")
-    status = leads._route_status()
+    status = leads.route_status()
     check("panel asks for it to be cleared", bool(status["route_warning"]), True)
     check("the ask is titled", bool(status["route_warning_title"]), True)
 

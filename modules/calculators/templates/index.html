@@ -47,10 +47,31 @@ code{display:block;background:#0f2747;color:#dbe8ff;padding:12px;border-radius:9
   {% if db_error %}
     <div class="banner bad"><b>Storage is unavailable.</b> Calculators will refuse to run until this
       clears: {{ db_error }}</div>
-  {% elif not webhook_set %}
-    <div class="banner warn"><b>No Suite webhook set.</b> Leads are being stored here, but nothing is
-      reaching Smart 1 Suite yet. Set <code style="display:inline;padding:2px 6px">CALCULATORS_LEAD_WEBHOOK_URL</code>
-      on Render, then use “Retry failed sends” to push everything captured so far.</div>
+  {% else %}
+    {# Drawn from what the code does. Every unlocked estimate goes to the Hub's
+       lead panel, which delivers to Suite over the Contacts API — so these say
+       something only when that is actually not happening. #}
+    {% if not delivery.ok %}
+      <div class="banner warn"><b>Leads aren’t reaching Smart 1 Suite.</b> They are stored here and in
+        the <a href="/sales/leads">leads panel</a>, and go out as soon as delivery is configured —
+        set <code style="display:inline;padding:2px 6px">GHL_LEAD_LOCATION_ID</code> on Render, then
+        use “Retry failed sends”. {{ delivery.reason }}</div>
+    {% endif %}
+    {% if delivery.overrides %}
+      <div class="banner warn"><b>{{ delivery.overrides|length }} calculator{{ 's' if delivery.overrides|length != 1 }}
+        bypass{{ '' if delivery.overrides|length != 1 else 'es' }} the lead panel.</b>
+        {{ delivery.overrides|join(', ') }} still {{ 'have' if delivery.overrides|length != 1 else 'has' }} a
+        <code style="display:inline;padding:2px 6px">CALC_WEBHOOK_…</code> override set, so
+        {{ 'those leads post' if delivery.overrides|length != 1 else 'that calculator posts' }} straight to a
+        webhook: no Suite contact id, no central record, and no retry if it fails. Clear the override to
+        put {{ 'them' if delivery.overrides|length != 1 else 'it' }} back on the shared route.</div>
+    {% endif %}
+    {% if delivery.legacy_fallback %}
+      <div class="banner warn"><b>A legacy fallback webhook is still set.</b>
+        <code style="display:inline;padding:2px 6px">CALCULATORS_LEAD_WEBHOOK_URL</code> is only reached if
+        the lead panel itself fails — and it would then post a lead the panel has already stored, creating
+        the second contact the panel exists to prevent. Clear it on Render.</div>
+    {% endif %}
   {% endif %}
 
   <div class="bar">
@@ -101,7 +122,14 @@ function retry(){
   fetch('{{ mount }}/leads/retry', {method:'POST'})
     .then(function(r){ return r.json(); })
     .then(function(d){
-      toast(d.sent + ' of ' + d.attempted + ' pending lead(s) sent to Smart 1 Suite.');
+      var msg = d.sent + ' of ' + d.attempted + ' pending lead(s) sent to Smart 1 Suite.';
+      // Leads already handed to the panel are retried there, not re-sent from
+      // here — sending them again would file the same person twice.
+      if (d.queued_in_panel) {
+        msg += ' ' + d.queued_in_panel + ' already in the leads panel; retried there' +
+               ((d.panel && d.panel.delivered) ? ', ' + d.panel.delivered + ' delivered' : '') + '.';
+      }
+      toast(msg);
     })
     .catch(function(){ toast("Couldn't reach the server. Try again."); });
 }
