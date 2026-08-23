@@ -306,12 +306,21 @@ The test files need no pytest and no new dependencies; each runs against a
 temporary data directory and a throwaway SQLite database, so none of them
 touches `/var/data` or the real one.
 
-**All of this runs on every pull request** — `.github/workflows/checks.yml`.
-CI runs the same scripts a person runs, against a real Postgres, so a green
-run means the same thing in both places and no check exists only where nobody
-can reproduce it. Postgres rather than SQLite because Sites Admin refuses to
-start without it and serves the 503 fallback instead: on SQLite a whole module
-drops out of every check that boots the app, and nothing says so.
+**All of this runs on every pull request** — `.github/workflows/checks.yml`,
+the single gate. CI runs the same scripts a person runs, so a green run means
+the same thing in both places and no check exists only where nobody can
+reproduce it.
+
+Two workflows briefly existed: `checks.yml` and a `ci.yml` written in parallel
+on another branch, overlapping on `jscheck` and `linkcheck` and each carrying
+steps the other lacked. They are folded into `checks.yml` — the union, not the
+intersection: the four test files and the composed-app boot from one, and
+`checktemplates`, `pagecheck --strict` and `integritycheck` from the other.
+Two gates disagreeing about what "green" means is worse than either alone.
+
+It runs against a real Postgres rather than SQLite because Sites Admin refuses
+to start without one and serves the 503 fallback instead: on SQLite a whole
+module drops out of every check that boots the app, and nothing says so.
 
 `tools/linkcheck.py` boots the composed app and checks every internal URL
 literal against the route table of whichever app owns that path, so it catches
