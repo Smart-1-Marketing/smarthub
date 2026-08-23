@@ -110,13 +110,6 @@ jobs:
       - name: JSON store tests
         run: python test_jsonstore.py
 
-      - name: Target area tests
-        run: |
-          if [ -f test_target_areas.py ]; then
-            python test_target_areas.py
-          else
-            echo "test_target_areas.py not on this branch — nothing to run."
-          fi
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
@@ -133,6 +126,14 @@ jobs:
       - name: Target area and delivery tests
         # Guarded like the step above, so this workflow stays mergeable on a
         # branch that predates the file.
+        #
+        # RUN THIS FILE EXACTLY ONCE. It calls os.environ.setdefault for
+        # DATABASE_URL, so it uses its throwaway SQLite only when nothing else
+        # has set one -- and this job sets DATABASE_URL to the Postgres service
+        # above, which persists across steps. A second invocation therefore
+        # sees the first one's rows and fails "files one document, not three"
+        # with 3. Two lineages each added a target-areas step and git merged
+        # both cleanly, which is exactly how the duplicate got in.
         run: |
           if [ -f test_target_areas.py ]; then
             python test_target_areas.py
