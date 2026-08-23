@@ -72,6 +72,22 @@ PATTERNS = [
     ("redirect", re.compile(r"""\bredirect\s*\(\s*["'](/[^"'?#\s]*)["']""")),
 ]
 
+# URLs assembled at runtime -- fetch(BASE + "/api/thing"). The path fragment is
+# real, but the base is a variable this tool cannot resolve, so neither
+# "resolves" nor "broken" is an honest verdict and reporting either would make
+# the checker cry wolf. They are *counted* instead, so the summary says how
+# much of the surface went unverified.
+#
+# This is not hypothetical. Three of the Proposal Builder's AI buttons and all
+# four of its IO-conversion calls pointed at paths no app served -- they were
+# built as IO_API_BASE + "/sales/builder/api/...", which exists on neither app
+# -- and every one of them sat here unnoticed because the literal was never in
+# the fetch() call by itself.
+UNCHECKED = [
+    ("concat-fetch", re.compile(
+        r"""\bfetch\s*\(\s*[A-Za-z_$][\w.$]*\s*\+\s*["'`](/[^"'`?#\s${]*)""")),
+]
+
 
 def _unwrap(app):
     """Peel AuthGuard/HubBar and friends until a Flask app appears."""
@@ -138,8 +154,9 @@ class Routes:
         return any(f == stem or f.startswith(stem + "/") for f in self.all)
 
 
-def literals():
+def literals(patterns=None):
     """Every internal URL literal in the repo, with where it came from."""
+    patterns = patterns or PATTERNS
     found = collections.defaultdict(list)
     for dirpath, dirnames, filenames in os.walk(ROOT):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
@@ -155,7 +172,7 @@ def literals():
             except OSError:
                 continue
             for n, line in enumerate(text.splitlines(), 1):
-                for kind, rx in PATTERNS:
+                for kind, rx in patterns:
                     for m in rx.finditer(line):
                         found[m.group(1)].append((rel, n, kind))
     return found
@@ -164,6 +181,7 @@ def literals():
 def scan():
     routes = Routes()
     found = literals()
+    unchecked = literals(UNCHECKED)
     broken, prefixes, checked = [], 0, 0
     for url in sorted(found):
         # Protocol-relative, and anything still holding a Jinja or JS
@@ -188,7 +206,7 @@ def scan():
         mount, _, _ = routes.owner(rule.split("<")[0])
         if mount:
             shadowed.append((rule, mount))
-    return routes, checked, prefixes, broken, shadowed
+    return routes, checked, prefixes, broken, shadowed, unchecked
 
 
 def self_rules(routes):
@@ -197,13 +215,21 @@ def self_rules(routes):
 
 def main(argv):
     quiet = "--quiet" in argv
-    routes, checked, prefixes, broken, shadowed = scan()
+    routes, checked, prefixes, broken, shadowed, unchecked = scan()
 
     if not quiet:
         print("routes: %d across hub + %d mounts" % (len(routes.all),
                                                      len(routes.apps)))
         print("internal URLs checked: %d (%d prefix-only)" % (checked,
                                                               prefixes))
+        if unchecked:
+            # Named, not counted silently: "36 unverified" tells you nothing,
+            # while the list tells you where to look when a button does
+            # nothing and the page looks fine.
+            print("built at runtime, NOT verified: %d" % len(unchecked))
+            for url in sorted(unchecked):
+                where = ", ".join("%s:%d" % (f, n) for f, n, _ in unchecked[url])
+                print("          %-40s %s" % (url, where))
         print()
         for url, mount, where in broken:
             print("BROKEN  %s   [handled by %s]" % (url, mount or "hub app"))

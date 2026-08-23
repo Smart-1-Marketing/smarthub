@@ -44,7 +44,9 @@ from hub.sidebar import render_sidebar
 _MOUNT_ACTIVE = {
     "/google": "google", "/sites": "sites", "/suite": "suite",
     "/scans": "scans",
-    "/sales/builder": "salesb", "/sales/proposals": "props",
+    # Both point at the one sidebar entry: /sales/proposals is the retired
+    # standalone builder and redirects to /sales/builder.
+    "/sales/builder": "salesb", "/sales/proposals": "salesb",
     "/tools/image": "tools", "/tools/pdf": "tools", "/tools/seo-images": "tools",
     "/tools/image-creator": "tools", "/tools/bg-remover": "tools",
     "/tools/utm": "tools",
@@ -257,7 +259,7 @@ if sites:
 img, img_fb = _try_load("img_app", ("modules", "image_optimizer", "app.py"), "Image Optimizer")
 pdf, pdf_fb = _try_load("pdf_app", ("modules", "pdf_optimizer", "app.py"), "PDF Optimizer")
 suite, suite_fb = _try_load("suite_app", ("modules", "suite_panel", "app.py"), "Suite Control Panel")
-salesb, salesb_fb = _try_load("salesb_app", ("modules", "sales_builder", "app.py"), "Sales Builder")
+salesb, salesb_fb = _try_load("salesb_app", ("modules", "sales_builder", "app.py"), "Proposal Builder")
 
 try:
     import importlib as _il
@@ -266,7 +268,7 @@ try:
 except Exception as _pb_exc:  # noqa: BLE001
     import traceback
     traceback.print_exc()
-    propb, propb_fb = None, _fallback_app("Proposal Builder", str(_pb_exc))
+    propb, propb_fb = None, _fallback_app("Proposal Builder archive", str(_pb_exc))
 
 try:
     import importlib as _il_msa

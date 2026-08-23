@@ -531,7 +531,14 @@ const industryIdeas={
 const incomeOptions=["No income targeting","Under $50,000","$50,000–$74,999","$75,000–$99,999","$100,000–$149,999","$150,000–$199,999","$200,000+"];
 const daypartOptions=["No dayparting — run all day","Weekdays only","Business hours","Evenings","Weekends","Custom schedule"];
 const state={
- date:new Date().toLocaleDateString("en-US"),orderNumber:"",orderNumberStorage:"",ioType:"",partner:"",salesContact:"",salesEmail:"",client:"",url:"",clientContactName:"",clientContactEmail:"",clientContactPhone:"",brandfetch:{status:"not requested",name:"",domain:"",description:"",logo:"",colors:[],fonts:[],links:[],company:{}},landingMode:"",landingUrl:"",landingPageReviews:[],geoType:"",geoOrigin:"",geoRadius:"",geoDMA:"",geoOther:"",geoZipcodes:"",geo:"",industry:"",descriptionMode:"",description:"",
+ date:new Date().toLocaleDateString("en-US"),orderNumber:"",orderNumberStorage:"",ioType:"",partner:"",salesContact:"",salesEmail:"",client:"",url:"",clientContactName:"",clientContactEmail:"",clientContactPhone:"",brandfetch:{status:"not requested",name:"",domain:"",description:"",logo:"",colors:[],fonts:[],links:[],company:{}},landingMode:"",landingUrl:"",landingPageReviews:[],
+ // targetAreas is the campaign's real geography: one entry per place it runs.
+ // The geoType/geoOrigin/... fields below describe the area being entered
+ // right now and are committed into targetAreas when the rep says there are
+ // no more. geo stays the single combined string every downstream reader --
+ // the IO PDF, the Suite webhook's geographic_target -- has always taken.
+ targetAreas:[],targetAreaName:"",
+ geoType:"",geoOrigin:"",geoRadius:"",geoDMA:"",geoState:"",geoOther:"",geoZipcodes:"",geo:"",industry:"",descriptionMode:"",description:"",
  sameDates:null,start:"",end:"",dayparting:"",objectives:[],kpis:[],creativeSource:"",gender:"",ages:[],income:[],audiences:[],audienceNotes:"",
  selectedCategories:[],currentCategory:"",selected:[],items:[],creativeAssets:[],creativeChecklist:{},internalWarnings:[],generatedDocuments:{},aiDescription:"",exclusions:"",strategy:{},recommendations:[],managementFee:"",creativeFee:"",campaignOwner:"",specialInstructions:"",frequencyCap:"",trackingPlan:{primaryConversion:"",secondaryConversions:[],ga4:"",gtm:"",callTracking:"",thankYouPage:"",offlineImport:"",verifier:""},guardrailWarnings:[],mediaMixRecommendation:{},mediaMixDecision:"",naming:{}
 };
@@ -557,12 +564,15 @@ function baseFlow(){
   {key:"clientContactPhone",q:"What is the client contact's phone number? Type NONE to skip."},
   {key:"landingMode",q:"Will the campaign use one landing page or multiple landing pages?",options:["One landing page","Multiple landing pages by product"]},
   {key:"landingUrl",q:"What landing-page URL should be used for all products?",condition:()=>state.landingMode==="One landing page"},
-  {key:"geoType",q:"How should the geographic targeting area be defined?",options:["City/ZIP Code + Radius","DMA","Other"]},
+  {key:"targetAreaName",q:"What should this target area be called? A name you'd use on a call — \u201cCarmel showroom\u201d, \u201cNorth trade area\u201d. Type SKIP to name it after its geography."},
+  {key:"geoType",q:"How should this target area be defined?",options:["City/ZIP Code + Radius","DMA","Statewide","National","Other"]},
   {key:"geoOrigin",q:"What city or ZIP Code should the radius start from?",condition:()=>state.geoType==="City/ZIP Code + Radius"},
   {key:"geoRadius",q:"What radius in miles should be used?",condition:()=>state.geoType==="City/ZIP Code + Radius"},
   {key:"geoZipcodes",q:"",condition:()=>state.geoType==="City/ZIP Code + Radius"},
   {key:"geoDMA",q:"What DMA should be targeted?",condition:()=>state.geoType==="DMA"},
+  {key:"geoState",q:"Which state should be targeted?",condition:()=>state.geoType==="Statewide"},
   {key:"geoOther",q:"Please detail the geographic area that should be targeted.",condition:()=>state.geoType==="Other"},
+  {key:"moreTargetAreas",q:"",options:["Add another target area","No — that's every area"]},
   {key:"industry",q:"What industry category best describes the client?"},
   {key:"descriptionMode",q:"Would you like SMART1 to build the business description, or do you already have one?",options:["Build one for me","I have one"]},
   {key:"description",q:"Enter the business description.",condition:()=>state.descriptionMode==="I have one"},
@@ -630,7 +640,7 @@ async function fetchZipcodesForRadius(){
   const data=await res.json().catch(()=>({}));
   if(!res.ok)throw new Error(data.error||"ZIP lookup failed");
   state.geoZipcodes=data.zipcodes||"";
-  state.geo=`${state.geoOrigin} + ${state.geoRadius}-mile radius | ZIP Codes: ${state.geoZipcodes}`;
+  refreshCombinedGeo();
   if(data.warning&&!state.internalWarnings.includes(data.warning))state.internalWarnings.push(data.warning);
   addMsg(`${data.count||0} ZIP Codes found:\n${state.geoZipcodes}`);
  }catch(err){
@@ -658,7 +668,7 @@ async function reviewLandingPage(url,product){
 async function generateAIBusinessDescription(){
  const urls=[state.url].filter(Boolean);
  try{
-  const res=await fetch('{{ request.script_root }}/api/generate-business-description',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls,client:state.client,industry:state.industry,geo:state.geo,brandfetch:state.brandfetch})});
+  const res=await fetch('{{ request.script_root }}/api/generate-business-description',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls,client:state.client,industry:state.industry,targetAreas:state.targetAreas||[],geo:state.geo,brandfetch:state.brandfetch})});
   const data=await res.json();
   if(!res.ok)throw new Error(data.error||'Description generation failed');
   state.aiDescription=data.description||'';
@@ -905,6 +915,22 @@ function question(){
    return{key:"geoZipcodes",q:`SMART1 will identify every ZIP Code that appears to touch a ${state.geoRadius}-mile radius around ${state.geoOrigin}. This AI-assisted list can be reviewed and edited before continuing. Type RETRY to run the lookup again, or SKIP to continue and add ZIP Codes later.`};
   }
 
+  if(q.key==="targetAreaName"){
+   const n=(state.targetAreas||[]).length;
+   return{...q,q:n?`Target area ${n+1}. What should this one be called? Type SKIP to name it after its geography.`
+                 :`What should this target area be called? A name you'd use on a call — "Carmel showroom", "North trade area". Type SKIP to name it after its geography.`};
+  }
+
+  if(q.key==="moreTargetAreas"){
+   // Reads back what was just described, so "add another?" is answered
+   // against the area the rep actually entered rather than from memory.
+   const a=currentAreaRecord();
+   const listed=(state.targetAreas||[]).map(x=>"• "+areaLabelText(x));
+   const summary=listed.length?`\n\nTarget areas so far:\n${listed.join("\n")}\n• ${areaLabelText(a)}`
+                              :`\n\nTarget area: ${areaLabelText(a)}`;
+   return{...q,q:`Does this campaign run anywhere else?${summary}`};
+  }
+
   if(q.key==="generatedDescription"){
    const suggestion=buildBusinessDescription();
    return{key:"generatedDescription",q:`SMART1 suggests:
@@ -1144,17 +1170,37 @@ async function submit(raw){
   if(/^retry$/i.test(val)){addMsg("Retrying the ZIP Code lookup…");await fetchZipcodesForRadius();ask();return;}
   const list=(/^skip$/i.test(val))?"":(val||state.geoZipcodes||"");
   state.geoZipcodes=list;
-  state.geo=`${state.geoOrigin} + ${state.geoRadius}-mile radius${list?` | ZIP Codes: ${list}`:" (ZIP list to be added before trafficking)"}`;
+  // refreshCombinedGeo rebuilds `geo` from every committed area plus this
+  // one. Writing the string directly here is what made a second target area
+  // overwrite the first.
+  refreshCombinedGeo();
+  if(!list)addMsg("No ZIP list for this area — it needs one before trafficking.");
   index++;render();ask();return;
  }
+ // "Add another target area" rewinds the flow to the area questions instead
+ // of advancing. Each pass commits one finished area, so the loop can run as
+ // many times as the campaign has locations.
+ if(q.key==="moreTargetAreas"){
+  commitTargetArea();
+  if(/^(y|yes|add|add another|add another target area|1)$/i.test(val.trim())){
+   clearWorkingArea();
+   index=flow.findIndex(f=>f.key==="targetAreaName");
+   addMsg(`Added. ${state.targetAreas.length} target area${state.targetAreas.length===1?"":"s"} so far.`);
+   render();ask();return;
+  }
+  addMsg(`${state.targetAreas.length} target area${state.targetAreas.length===1?"":"s"} recorded:\n`
+         +state.targetAreas.map(a=>"• "+areaLabelText(a)).join("\n"));
+  index++;render();ask();return;
+ }
+
  state[q.key]=val.toUpperCase()==="NONE"?"":val;
+ if(q.key==="targetAreaName"&&/^skip$/i.test(val.trim()))state.targetAreaName="";
  if(q.key==="url"){fetchBrandfetchData(state.url)}   // background — don't block input
  if(q.key==="landingUrl"){reviewLandingPage(state.landingUrl,"Shared campaign landing page")}
  if(q.key==="geoOrigin"||q.key==="geoRadius"){
    if(q.key==="geoRadius")await fetchZipcodesForRadius();
  }
- if(q.key==="geoDMA")state.geo=`DMA: ${state.geoDMA}`;
- if(q.key==="geoOther")state.geo=state.geoOther;
+ if(["geoType","geoOrigin","geoRadius","geoDMA","geoState","geoOther"].indexOf(q.key)>=0)refreshCombinedGeo();
  index++;render();ask()
 }
 function lengthFor(start,end){
@@ -1171,8 +1217,76 @@ function campaignLength(){
 }
 
 
+/* ============================================================
+   TARGET AREAS — one campaign, as many places as it runs in
+   These mirror hub/target_areas.py exactly, so an area described here reads
+   back the same way in the Proposal Builder and in the PDFs.
+   ============================================================ */
+function areaGeoText(a){
+ if(!a)return"";
+ if(a.type==="City/ZIP Code + Radius"||a.type==="City/ZIP + Radius"){
+  const r=Number(a.radius)||0;
+  if(a.origin&&r)return a.origin+" + "+r+"-mile radius";
+  return a.origin||(r?r+"-mile radius":"");}
+ if(a.type==="DMA")return a.dma?(/dma/i.test(a.dma)?a.dma:a.dma+" DMA"):"";
+ if(a.type==="Statewide")return a.state?a.state+" (statewide)":"Statewide";
+ if(a.type==="National")return "National";
+ return a.other||a.origin||"";
+}
+function areaLabelText(a){
+ const g=areaGeoText(a),n=String((a&&a.name)||"").trim();
+ if(!n||!g)return g||n;
+ if(n===g||g.toLowerCase().indexOf(n.toLowerCase())===0)return g;
+ return n+" — "+g;
+}
+function areaLine(a){
+ const z=String((a&&a.zips)||"").match(/\b\d{5}\b/g)||[];
+ return areaLabelText(a)+(z.length?" | ZIP Codes: "+z.join(", "):"");
+}
+/* The area currently being described, as a record. */
+function currentAreaRecord(){
+ return{name:String(state.targetAreaName||"").trim(),type:state.geoType,
+        origin:state.geoOrigin||"",radius:state.geoRadius||"",dma:state.geoDMA||"",
+        state:state.geoState||"",other:state.geoOther||"",zips:state.geoZipcodes||""};
+}
+/* Commit it to the list, then clear the working fields for the next one. */
+function commitTargetArea(){
+ const a=currentAreaRecord();
+ if(!a.name)a.name=areaGeoText(a);
+ if(areaGeoText(a)||a.zips){
+  state.targetAreas=state.targetAreas||[];
+  state.targetAreas.push(a);
+ }
+ refreshCombinedGeo();
+ return a;
+}
+function clearWorkingArea(){
+ state.targetAreaName="";state.geoType="";state.geoOrigin="";state.geoRadius="";
+ state.geoDMA="";state.geoState="";state.geoOther="";state.geoZipcodes="";
+}
+/* geo is the one-string form. Every reader that predates multi-area
+   targeting -- the IO PDF, the Suite webhook -- keeps getting one string,
+   and now it holds every area instead of the first. */
+function refreshCombinedGeo(){
+ const rows=state.targetAreas||[];
+ if(rows.length){state.geo=rows.map(areaLine).join("  ||  ");return;}
+ const a=currentAreaRecord();
+ state.geo=areaGeoText(a)?areaLine(a):"";
+}
+function allAreaZips(){
+ const seen=[];
+ (state.targetAreas||[]).forEach(a=>{
+  (String(a.zips||"").match(/\b\d{5}\b/g)||[]).forEach(z=>{if(seen.indexOf(z)<0)seen.push(z);});
+ });
+ return seen;
+}
+
 function cleanName(value){return String(value||"").trim().replace(/[^A-Za-z0-9]+/g,"_").replace(/^_+|_+$/g,"")}
 function primaryMarketName(){
+ // Campaign names take the first target area. A four-location campaign has no
+ // single market and naming it after all four is unusable in a platform.
+ const first=(state.targetAreas||[])[0];
+ if(first)return cleanName(first.name||areaGeoText(first))||"Market";
  if(state.geoType==="DMA")return cleanName(state.geoDMA);
  if(state.geoType==="City/ZIP Code + Radius")return cleanName(state.geoOrigin);
  return cleanName((state.geoOther||state.geo||"Market").split(/[|,]/)[0]);
@@ -1426,7 +1540,14 @@ function render(){
  const b=state.brandfetch||{};text("f-brand-name",b.name);text("f-brand-domain",b.domain||normalizeWebsiteDomain(state.url));text("f-brand-description",b.description);const colorEl=document.getElementById("f-brand-colors");if(colorEl)colorEl.innerHTML=(b.colors||[]).length?`<div class="brand-colors">${(b.colors||[]).map(c=>`<span class="brand-color"><span class="brand-swatch" style="background:${esc(c)}"></span>${esc(c)}</span>`).join("")}</div>`:"—";text("f-brand-fonts",(b.fonts||[]).join(", "));
  const logoEl=document.getElementById("f-brand-logo");if(logoEl)logoEl.innerHTML=b.logo?`<a href="${esc(b.logo)}" target="_blank"><img class="brand-logo-img" src="${esc(b.logo)}" alt="Brand logo">Open full logo</a><br><small>${esc(b.logo)}</small>`:"—";
  const linksEl=document.getElementById("f-brand-links");if(linksEl)linksEl.innerHTML=(b.links||[]).length?(b.links||[]).map(x=>{const u=typeof x==="string"?x:(x.url||"");const n=typeof x==="string"?x:((x.name?x.name+": ":"")+u);return u?`<a href="${esc(u)}" target="_blank">${esc(n)}</a>`:esc(n)}).join("<br>"):"—";
- text("f-geo",state.geo);text("f-geo-type",state.geoType);text("f-geo-count",state.geoZipcodes?String(state.geoZipcodes.split(",").filter(Boolean).length):"—");text("f-industry",state.industry);text("f-description",state.description);
+ // Every committed area, and every area's ZIP Codes. Reading these from the
+ // working geoZipcodes field showed only the last area's list once a campaign
+ // had more than one.
+ const _areas=state.targetAreas||[];
+ text("f-geo",_areas.length?_areas.map(areaLabelText).join(" | "):state.geo);
+ text("f-geo-type",_areas.length===1?_areas[0].type:(_areas.length?_areas.length+" target areas":state.geoType));
+ const _z=allAreaZips();text("f-geo-count",_z.length?String(_z.length):"—");
+ text("f-industry",state.industry);text("f-description",state.description);
  text("f-objective",state.objectives.join(", "));text("f-kpi",state.kpis.join(", "));text("f-creative-source",state.creativeSource);
  text("f-gender",state.gender);text("f-age",state.ages.join(", "));text("f-income",state.income.length?state.income.join(", "):"No income filter");
  text("f-audience-notes",state.audienceNotes);

@@ -2521,15 +2521,105 @@ def create_hub_app() -> Flask:
                 date_sent=request.form.get("date_sent", ""),
                 title=request.form.get("title", ""),
                 note=request.form.get("note", ""),
-                actor=current_user() or "")
+                actor=current_user() or "",
+                value=request.form.get("value", ""),
+                term=request.form.get("term", "monthly"),
+                status=request.form.get("status", "sent"))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": f"Upload failed: {exc}"}), 500
         audit.log("hub", "proposal_uploaded", actor=current_user(), detail=client,
                   name=record["filename"], date_sent=record["date_sent"])
-        return jsonify({"ok": True, "proposal": record,
+
+        # A proposal that reaches a client is a deal in progress, so it opens an
+        # opportunity in Smart 1 Suite. The contact is looked up first and only
+        # created when the uploader supplies details -- an opportunity attached
+        # to a contact invented from a business name is one no salesperson can
+        # act on, and it duplicates the real contact next time anyone searches.
+        #
+        # The file is already saved by this point. If Suite says it needs a
+        # contact, the response says so and the upload still stands; the
+        # uploader answers and posts to /api/client/proposals/opportunity.
+        suite = _proposal_opportunity(client, record, {
+            "name": request.form.get("contact_name", ""),
+            "email": request.form.get("contact_email", ""),
+            "phone": request.form.get("contact_phone", ""),
+        })
+        if suite.get("ok"):
+            proposals.update_proposal(client, record["id"], {
+                "opportunity_id": suite.get("opportunity_id", "")})
+            record = next((i for i in proposals.list_proposals(client)
+                           if i.get("id") == record["id"]), record)
+        return jsonify({"ok": True, "proposal": record, "suite": suite,
                         "proposals": proposals.list_proposals(client)})
+
+    def _proposal_opportunity(client, record, contact):
+        """File one uploaded proposal as a Smart 1 Suite opportunity."""
+        try:
+            from . import suite_opportunity
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "reason": f"Suite helper unavailable ({type(exc).__name__})."}
+        # The client's own website, from the registry. Looked up by name and
+        # left blank when there is no match -- canonical_domain() reads a URL,
+        # not a client name, and feeding it one produces a plausible-looking
+        # domain that belongs to nobody.
+        website = ""
+        try:
+            from . import clients_registry
+            website = (clients_registry.find_client(client) or {}).get("url", "")
+        except Exception:  # noqa: BLE001
+            pass
+        return suite_opportunity.push_proposal(
+            client=client,
+            title=f"{client} — {record.get('title') or 'Marketing Proposal'}",
+            value=float(record.get("value") or 0), contact=contact,
+            website=website, pdf_url=record.get("url", ""),
+            opportunity_id=str(record.get("opportunity_id") or ""),
+            source="Smart 1 Hub — Client 360")
+
+    @app.route("/api/client/proposals/opportunity", methods=["POST"])
+    def api_client_proposals_opportunity():
+        """Open (or retry) the Suite opportunity for an already-uploaded proposal.
+
+        Separate from the upload so a missing contact costs one extra click
+        rather than a re-upload, and so a proposal filed while Suite was
+        misconfigured can be pushed later without touching the file.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import proposals
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        pid = (body.get("id") or "").strip()
+        if not client or not pid:
+            return jsonify({"error": "client and id are required."}), 400
+        record = next((i for i in proposals.list_proposals(client)
+                       if i.get("id") == pid), None)
+        if record is None:
+            return jsonify({"error": "Not found"}), 404
+        suite = _proposal_opportunity(client, record, body.get("contact") or {})
+        if suite.get("ok"):
+            proposals.update_proposal(client, pid, {
+                "opportunity_id": suite.get("opportunity_id", "")})
+            audit.log("hub", "proposal_opportunity", actor=current_user(),
+                      detail=client, opportunity=suite.get("opportunity_id", ""))
+        return jsonify({"ok": suite.get("ok", False), "suite": suite,
+                        "proposals": proposals.list_proposals(client)})
+
+    @app.route("/api/client/proposals/suite-status")
+    def api_client_proposals_suite_status():
+        """Whether an upload will actually reach Smart 1 Suite."""
+        gate = _require_api()
+        if gate:
+            return gate
+        try:
+            from . import suite_opportunity
+            return jsonify(suite_opportunity.status())
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"ok": False,
+                            "problems": [f"Suite helper unavailable ({type(exc).__name__})."]})
 
     @app.route("/api/client/proposals/update", methods=["POST"])
     def api_client_proposals_update():

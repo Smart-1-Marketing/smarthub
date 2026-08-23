@@ -343,7 +343,7 @@ function findProduct(cat){return rateCard.find(x=>x.category===cat);}
 /* ============================================================
    CONFIG + HELPERS
    ============================================================ */
-let CFG={io_api_base:"https://insertionordersmart.onrender.com",io_app_url:"https://insertionordersmart.onrender.com",ai_enabled:false};
+let CFG={io_api_base:"/tools/io",io_app_url:"/tools/io/?embed=1",ai_enabled:false};
 function lsGet(k,d){try{return localStorage.getItem(k)||d;}catch(e){return d;}}
 function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
 let REP_NAME=lsGet("s1_rep_name",""),REP_EMAIL=lsGet("s1_rep_email","");
@@ -702,7 +702,12 @@ let S=null,QUOTE_ID=null,QUOTE_NUMBER="",step=0,_saveT=null,_lastStep=-1;
 function freshState(){return{
  client:"",url:"",industry:"",descriptionMode:"Build one for me",description:"",
  objectives:[],kpis:[],exclusions:[],
- geoType:"City/ZIP + Radius",geo:"",radius:10,population:0,ages:["25-34","35-44","45-54"],gender:"Both",income:["No income targeting"],
+ // One campaign, several places. geoType/geo/radius are kept in step with
+ // targetAreas[0] on every save so anything not yet area-aware -- the IO
+ // hand-off payload, an old saved quote being re-opened -- still reads a
+ // correct campaign. hub/target_areas.py owns the same conversion server-side.
+ targetAreas:[],geoType:"City/ZIP + Radius",geo:"",radius:10,population:0,
+ ages:["25-34","35-44","45-54"],gender:"Both",income:["No income targeting"],
  audiences:[],budgetMode:"range",budget:8000,months:6,
  items:[],landingMode:"One landing page",landingUrl:"",landing:"",landingReview:"",
  packages:[],selPkg:1,selectedPackage:null,estimates:null,aiEst:null,
@@ -715,7 +720,7 @@ function freshState(){return{
  dirty:false,keepAsIs:false,configured:false
 };}
 async function startNewProposal(){
- S=freshState();QUOTE_ID=null;QUOTE_NUMBER="";step=0;_lastStep=-1;
+ S=freshState();QUOTE_ID=null;QUOTE_NUMBER="";step=0;_lastStep=-1;S._areaView=null;S._areaIx=0;
  nav('builder');renderStep();
  try{const d=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});
   QUOTE_ID=d.quote.id;QUOTE_NUMBER=d.quote.quote_number;drawQuoteTag("Saved as "+QUOTE_NUMBER);}
@@ -726,6 +731,12 @@ async function editQuote(id){
 }
 function editLoaded(q){
  S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;step=0;_lastStep=-1;
+ // A quote saved before multi-area targeting has its geography only in
+ // geoType/geo/radius. The server already converted it (hub/target_areas
+ // from_legacy) and sends the result, so re-opening an old quote shows its
+ // target area rather than an empty list nobody entered.
+ if(!(S.targetAreas||[]).length&&(q.target_areas||[]).length)S.targetAreas=q.target_areas;
+ S._areaView=null;S._areaIx=0;
  nav('builder');renderStep();drawQuoteTag("Editing "+QUOTE_NUMBER+" · rev "+q.revision);
 }
 function drawQuoteTag(t){const el=document.getElementById('quoteTag');if(el)el.textContent=t;}
@@ -741,19 +752,79 @@ async function saveNow(extra){
 }
 function setSave(t){const el=document.getElementById('saveState');if(el)el.textContent=t;}
 
-/* estimator (built-in fallback; AI refines via the IO API) */
+/* ============================================================
+   TARGET AREAS — a campaign runs in as many places as it runs in
+   ============================================================ */
+const AREA_TYPES=["City/ZIP + Radius","DMA","Statewide","National","Other"];
+function uid(){return Math.random().toString(36).slice(2,10);}
+function blankArea(){return{id:uid(),name:"",type:"City/ZIP + Radius",origin:"",radius:10,dma:"",state:"",other:"",zips:"",population:0,notes:""};}
+function areaGeo(a){
+ if(!a)return"";
+ if(a.type==="City/ZIP + Radius"){const r=+a.radius||0;
+  if(a.origin&&r)return a.origin+" + "+r+"-mile radius";
+  return a.origin||(r?r+"-mile radius":"");}
+ if(a.type==="DMA")return a.dma?(/dma/i.test(a.dma)?a.dma:a.dma+" DMA"):"";
+ if(a.type==="Statewide")return a.state?a.state+" (statewide)":"Statewide";
+ if(a.type==="National")return "National";
+ return a.other||a.origin||"";}
+function areaLabel(a){
+ const g=areaGeo(a),n=(a&&a.name||"").trim();
+ if(!n||!g)return g||n;
+ if(n===g||g.toLowerCase().indexOf(n.toLowerCase())===0)return g;
+ return n+" — "+g;}
+function areaComplete(a){
+ if(!a)return false;
+ if(a.type==="Statewide")return !!(a.state||"").trim();
+ if(a.type==="National")return true;
+ if(a.type==="DMA")return !!(a.dma||"").trim();
+ if(a.type==="Other")return !!((a.other||"").trim()||(a.zips||"").trim());
+ return !!(a.origin||"").trim();}
+function areaZips(a){return String((a&&a.zips)||"").match(/\b\d{5}\b/g)||[];}
+function areaPopulation(a){
+ if(!a)return null;
+ if(+a.population>0)return +a.population;
+ if(a.type==="City/ZIP + Radius"){const r=+a.radius||0;return r>0?Math.round(Math.PI*r*r*900):null;}
+ if(a.type==="DMA")return a.dma?1200000:null;
+ if(a.type==="Statewide")return 6500000;
+ if(a.type==="National")return 335000000;
+ return null;}
+function areasSummary(){const rows=S.targetAreas||[];if(!rows.length)return "";
+ const shown=rows.slice(0,2).map(areaLabel),rest=rows.length-shown.length;
+ return shown.join(" · ")+(rest>0?" · +"+rest+" more":"");}
+/* Keep the single-geo fields in step with the list. Everything downstream
+   that predates multi-area targeting -- the IO payload, the review screen --
+   reads these, and letting them drift is how a campaign silently loses three
+   of its four locations at the hand-off. */
+function syncLegacyGeo(){
+ const rows=S.targetAreas||[];
+ if(!rows.length){S.geo="";return;}
+ const first=rows[0];
+ S.geoType=first.type;S.radius=+first.radius||10;
+ S.geo=rows.map(a=>{const z=areaZips(a);return areaLabel(a)+(z.length?" | ZIP Codes: "+z.join(", "):"");}).join("  ||  ");}
+
+/* estimator (built-in fallback; the AI re-estimate sizes each area for real) */
 function ageF(){const map={"18-24":.11,"25-34":.18,"35-44":.17,"45-54":.16,"55-64":.14,"65+":.13};return S.ages.length?S.ages.reduce((s,x)=>s+(map[x]||0),0):.78;}
 function incF(){const has=S.income.filter(x=>x!=="No income targeting");if(!has.length)return 1;const m={"Under $50,000":.4,"$50,000–$74,999":.22,"$75,000–$99,999":.16,"$100,000–$149,999":.15,"$150,000–$199,999":.06,"$200,000+":.05};return Math.min(1,has.reduce((s,x)=>s+(m[x]||0),0))||.5;}
-function computePopulation(){switch(S.geoType){
- case "City/ZIP + Radius":{const r=Math.max(1,+S.radius||10);return Math.round(Math.PI*r*r*900);}
- case "DMA":return 1200000;case "Statewide":return 6500000;case "National":return 335000000;
- default:return +S.population||250000;}}
+function computePopulation(){
+ // Every area the campaign runs in, added up. Overlap is NOT deducted -- two
+ // 10-mile radii five miles apart share most of their people -- so the number
+ // is labelled an estimate wherever it appears.
+ const rows=(S.targetAreas||[]).map(areaPopulation).filter(n=>n);
+ return rows.length?rows.reduce((s,n)=>s+n,0):0;}
 function estimates(){
- if(S.aiEst){const a=S.aiEst;const pop=+a.population||computePopulation();const aud=+a.addressable_audience||Math.round(pop*.85*ageF()*incF());
-  return{pop,aud,hh:+a.households||Math.round(aud/1.9),dev:+a.devices||Math.round(aud*2.3),ai:true,rationale:a.rationale||""};}
- const pop=(S.geoType==="Other"&&S.population)?+S.population:computePopulation();
+ // The AI estimate is per area; totals come back from the server.
+ if(S.aiEst&&S.aiEst.totals){const t=S.aiEst.totals;
+  return{pop:+t.pop||0,aud:+t.aud||0,hh:+t.hh||0,dev:+t.dev||0,ai:true,
+         measured:S.aiEst.measured,unmeasured:S.aiEst.unmeasured||[],note:S.aiEst.note||""};}
+ const pop=computePopulation();
+ // No sizeable area yet is "not measured", not zero. A clean-looking zero is
+ // a wrong answer presented confidently.
+ if(!pop)return{pop:0,aud:0,hh:0,dev:0,ai:false,measured:0,
+                unmeasured:(S.targetAreas||[]).map(areaLabel)};
  const aud=Math.round(pop*.85*ageF()*incF());
- return{pop,aud,hh:Math.round(aud/1.9),dev:Math.round(aud*2.3),ai:false};}
+ return{pop,aud,hh:Math.round(aud/1.9),dev:Math.round(aud*2.3),ai:false,
+        measured:(S.targetAreas||[]).filter(a=>areaPopulation(a)).length,
+        unmeasured:(S.targetAreas||[]).filter(a=>!areaPopulation(a)).map(areaLabel)};}
 function productDelivery(rateValue,rateType,dollars){
  if(rateType==="CPM"&&rateValue>0)return{unit:"impr",val:Math.round(dollars/rateValue*1000)};
  if(rateType==="CPV"&&rateValue>0)return{unit:"views",val:Math.round(dollars/rateValue)};
@@ -791,9 +862,15 @@ function guardrailsJs(){
 function defaultSections(){
  const client=S.client||"the client";
  const goals=(S.objectives.join(", ")||"the campaign goals");
+ const areas=(S.targetAreas||[]).filter(areaComplete);
+ const where=areasSummary()||"the target area";
+ const strategy=areas.length>1
+  ? "This program is built around "+goals.toLowerCase()+", combining the Smart 1 products below across "+areas.length+" target areas — "+where+" — with the frequency needed to drive results in each."
+  : "This program is built around "+goals.toLowerCase()+", combining the Smart 1 products below to reach the right audience in "+where+" with the frequency needed to drive results.";
  return[
   {id:"about",title:"About "+client,kind:"text",enabled:true,body:S.description||""},
-  {id:"strategy",title:"Campaign Strategy",kind:"text",enabled:true,body:"This program is built around "+goals.toLowerCase()+", combining the Smart 1 products below to reach the right audience in "+(S.geo||"the target area")+" with the frequency needed to drive results."},
+  {id:"strategy",title:"Campaign Strategy",kind:"text",enabled:true,body:strategy},
+  {id:"areas",title:"Target Areas",kind:"areas",enabled:true,body:""},
   {id:"reach",title:"Target Audience & Reach",kind:"reach",enabled:true,body:""},
   {id:"mediaplan",title:"Recommended Media Plan",kind:"mediaplan",enabled:true,body:""},
   {id:"packages",title:"Investment Options",kind:"packages",enabled:true,body:""},
@@ -817,6 +894,125 @@ function goal(k){toggle(S.objectives,k);S.items=[];S.kpis=[];saveSoon();renderSt
 function setBudget(v){S.budget=+v||0;S.configured=false;applySeeds();saveSoon();renderStep();}
 
 /* ============================================================
+   TARGET AREA SUB-FLOW
+   ============================================================ */
+function currentArea(){
+ if(!S.targetAreas||!S.targetAreas.length)return null;
+ const i=Math.min(Math.max(0,S._areaIx|0),S.targetAreas.length-1);
+ S._areaIx=i;return S.targetAreas[i];}
+function setArea(k,v){const a=currentArea();if(!a)return;a[k]=v;S.aiEst=null;syncLegacyGeo();saveSoon();}
+function areaEditorStep(){
+ const a=currentArea()||blankArea();
+ const n=S.targetAreas.length,ix=(S._areaIx|0)+1;
+ const first=n<=1;
+ return{eyebrow:"Target Area "+ix+(n>1?" of "+n:""),
+  title:first?"Where should we run it?":"Where else should we run it?",
+  sub:"Name this location, then describe the geography. You can add as many as the campaign needs.",
+  html:`<div class="fld"><label>Name this target area</label>
+   <input value="${esc(a.name||'')}" oninput="setArea('name',this.value)" placeholder="e.g. Carmel showroom, North trade area, Indianapolis metro">
+   <div class="note" style="margin-top:5px">What you'd call this location on a call. It appears on the proposal and travels to the insertion order.</div></div>
+  <div class="two"><div class="fld"><label>Geography type</label>
+   <select onchange="setArea('type',this.value);renderStep()">${opt(AREA_TYPES,a.type)}</select></div>
+   ${a.type==="City/ZIP + Radius"?`<div class="fld"><label>City or ZIP the radius starts from</label><input value="${esc(a.origin||'')}" oninput="setArea('origin',this.value)" placeholder="Carmel, IN"></div>`:''}
+   ${a.type==="DMA"?`<div class="fld"><label>DMA</label><input value="${esc(a.dma||'')}" oninput="setArea('dma',this.value)" placeholder="Indianapolis"></div>`:''}
+   ${a.type==="Statewide"?`<div class="fld"><label>State</label><input value="${esc(a.state||'')}" oninput="setArea('state',this.value)" placeholder="Indiana"></div>`:''}
+   ${a.type==="Other"?`<div class="fld"><label>Describe the area</label><input value="${esc(a.other||'')}" oninput="setArea('other',this.value)" placeholder="Six-county service territory"></div>`:''}
+   ${a.type==="National"?'<div></div>':''}</div>
+  ${a.type==="City/ZIP + Radius"?`<div class="two">
+   <div class="fld"><label>Radius (miles)</label><input type="number" min="1" value="${a.radius||10}" oninput="setArea('radius',Math.max(1,+this.value));drawAreaEst()" style="max-width:160px"></div>
+   <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" id="zipBtn" onclick="lookupZips()">📍 Find the ZIP Codes this radius touches</button></div></div>`:''}
+  ${(a.type==="City/ZIP + Radius"||a.type==="Other")?`<div class="fld"><label>ZIP Codes for this area (optional — the IO needs them before trafficking)</label>
+   <textarea style="min-height:70px" oninput="setArea('zips',this.value);drawAreaEst()" placeholder="46032, 46033, 46074…">${esc(a.zips||'')}</textarea>
+   <div class="note" id="zipNote" style="margin-top:5px"></div></div>`:''}
+  ${a.type==="Other"?`<div class="fld"><label>Approximate population (optional)</label><input type="number" value="${a.population||''}" oninput="setArea('population',+this.value||0);drawAreaEst()" style="max-width:220px"><div class="note" style="margin-top:5px">Without this, an "Other" area is reported as not measured rather than being guessed at.</div></div>`:''}
+  <div class="fld"><label>Notes for this area (optional)</label>
+   <input value="${esc(a.notes||'')}" oninput="setArea('notes',this.value)" placeholder="Weekend traffic only · competitor conquesting · new location opening in March"></div>
+  <div class="bpanel"><div class="ttl">📊 Estimated reach for this area</div><div id="areaEst" class="note"></div></div>
+  <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:16px">
+   <button class="btn btn-good" id="areaSaveBtn" onclick="saveArea()">✓ Save this target area</button>
+   ${n>1||areaComplete(a)?`<button class="btn btn-line" onclick="discardArea()">Discard this area</button>`:''}
+  </div>`,
+  valid:()=>areaComplete(currentArea()),
+  after:drawAreaEst,
+  nextLabel:"✓ Save this target area",
+  onNext:saveArea,
+  onBack:()=>{
+   // Leaving a blank new area behind would leave an unnamed row on the list.
+   const a=currentArea();
+   if(a&&!areaComplete(a))S.targetAreas.splice(S._areaIx,1);
+   if(S.targetAreas.length){S._areaView="list";syncLegacyGeo();saveSoon();renderStep();return true;}
+   return false;   // nothing saved yet — fall through to the previous step
+  }};}
+function areaListStep(){
+ const rows=S.targetAreas||[];
+ const e=estimates();
+ return{eyebrow:"Target Areas",
+  title:rows.length===1?"One target area so far — add another?":rows.length+" target areas — add another?",
+  sub:"Add every location this campaign needs to reach. Each one carries its own geography, ZIP list and notes all the way to the insertion order.",
+  html:`<div class="arealist">${rows.map((a,i)=>{
+    const pop=areaPopulation(a),z=areaZips(a);
+    return `<div class="prod"><div class="pi">📍</div><div class="grow">
+     <h4>${esc(areaLabel(a))||'<span style="color:var(--muted)">Unnamed area</span>'}</h4>
+     <div class="meta">${esc(a.type)}${z.length?' · '+z.length+' ZIP Codes':''} · ${pop?fmt(pop)+' people (est.)':'<b>not measured</b>'}${a.notes?' · '+esc(a.notes):''}</div></div>
+     <button class="btn btn-ghost" style="padding:7px 11px" onclick="editArea(${i})">Edit</button>
+     <button class="x" title="Remove this target area" onclick="removeArea(${i})">✕</button></div>`;}).join('')}</div>
+  <div style="margin-top:14px"><button class="btn btn-primary" onclick="addAnotherArea()">+ Add another target area</button></div>
+  <div class="bpanel" style="margin-top:20px"><div class="ttl">Who we're targeting inside these areas</div>
+   <div class="two" style="margin-top:8px"><div class="fld"><label>Gender</label>
+    <select onchange="S.gender=this.value;S.aiEst=null;saveSoon();drawEst()">${opt(["Both","Male","Female"],S.gender)}</select></div><div></div></div>
+   <div class="ttl" style="margin-top:10px">Age ranges</div>${pillRow(["18-24","25-34","35-44","45-54","55-64","65+"],S.ages,'age')}
+   <div class="ttl" style="margin-top:10px">Household income</div>${pillRow(incomeOptions,S.income,'inc')}</div>
+  <div class="bpanel"><div class="ttl">📊 Smart 1 estimated reach across ${rows.length===1?'this area':'all '+rows.length+' areas'}</div>
+   <div class="estgrid" id="estGrid"></div><div class="note" id="popNote"></div>
+   <div id="areaBreakdown"></div>
+   <div style="margin-top:8px"><a onclick="estimateAudienceAI()" style="cursor:pointer;color:var(--blue);font-weight:700;font-size:13px">↻ Re-estimate every area with Smart 1 AI</a></div></div>`,
+  valid:()=>(S.targetAreas||[]).some(areaComplete),
+  after:drawEst,
+  nextLabel:"Continue →"};}
+function addAnotherArea(){
+ S.targetAreas=S.targetAreas||[];
+ S.targetAreas.push(blankArea());
+ S._areaIx=S.targetAreas.length-1;S._areaView="edit";S.aiEst=null;
+ saveSoon();renderStep();}
+function editArea(i){S._areaIx=i;S._areaView="edit";renderStep();}
+function removeArea(i){
+ const a=S.targetAreas[i];
+ if(areaComplete(a)&&!confirm('Remove "'+areaLabel(a)+'" from this campaign?'))return;
+ S.targetAreas.splice(i,1);S.aiEst=null;
+ if(!S.targetAreas.length){S.targetAreas=[blankArea()];S._areaIx=0;S._areaView="edit";}
+ syncLegacyGeo();saveSoon();renderStep();}
+function discardArea(){
+ S.targetAreas.splice(S._areaIx,1);S.aiEst=null;
+ if(!S.targetAreas.length){S.targetAreas=[blankArea()];S._areaIx=0;}
+ else{S._areaIx=Math.max(0,S._areaIx-1);S._areaView="list";}
+ syncLegacyGeo();saveSoon();renderStep();}
+function saveArea(){
+ const a=currentArea();
+ if(!areaComplete(a)){toast("Fill in where this area is before saving it.");return true;}
+ if(!(a.name||"").trim())a.name=areaGeo(a);
+ S._areaView="list";S.aiEst=null;syncLegacyGeo();saveNow();renderStep();
+ return true;}          // handled here — the wizard does not advance
+function drawAreaEst(){
+ const box=document.getElementById('areaEst');if(!box)return;
+ const a=currentArea(),pop=areaPopulation(a),z=areaZips(a);
+ box.innerHTML=pop
+  ? "About <b>"+fmt(pop)+"</b> people in "+esc(areaGeo(a)||"this area")+(z.length?" · "+z.length+" ZIP Codes listed":"")+". Refined per area by the AI estimate on the next screen."
+  : "Not measured yet — describe the area (or add an approximate population) and Smart 1 can size it.";
+ const zn=document.getElementById('zipNote');
+ if(zn)zn.textContent=z.length?z.length+" ZIP Codes recognised.":"No ZIP Codes yet. The insertion order needs them before trafficking, but the proposal does not.";}
+async function lookupZips(){
+ const a=currentArea();
+ if(!a.origin||!a.radius){toast("Enter the origin city or ZIP and a radius first.");return;}
+ const b=document.getElementById('zipBtn');if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Looking up ZIP Codes…';}
+ try{
+  const d=await api('/sales/builder/api/zipcodes-in-radius',{method:'POST',
+   body:JSON.stringify({origin:a.origin,radius:a.radius})});
+  a.zips=d.zipcodes||"";syncLegacyGeo();saveSoon();renderStep();
+  toast("📍 "+(d.count||0)+" ZIP Codes found — review them before trafficking.");
+ }catch(e){toast("ZIP lookup failed: "+e.message);}
+ finally{const bb=document.getElementById('zipBtn');if(bb){bb.disabled=false;bb.textContent='📍 Find the ZIP Codes this radius touches';}}}
+
+/* ============================================================
    BUILDER STEPS
    ============================================================ */
 const STEPS=[
@@ -835,7 +1031,9 @@ const STEPS=[
     </div>
     ${S.descriptionMode==="Build one for me"
      ? `<div style="margin-top:12px"><button class="btn btn-ghost" id="descBtn" onclick="generateDesc()">✨ Generate description</button>
-        <div class="fld"><label>Generated (editable)</label><textarea oninput="S.description=this.value;saveSoon()" placeholder="Click Generate — or type here.">${esc(S.description)}</textarea></div></div>`
+        <div class="fld"><label>Generated (editable)</label><textarea oninput="S.description=this.value;S.descriptionWarnings=null;saveSoon()" placeholder="Click Generate — or type here.">${esc(S.description)}</textarea></div>
+        <div class="note">Written to Google Business Profile rules — third person, 500–750 characters, no links, phone numbers, prices or sales language — so the same text can be published as-is. Same prompt the IO builder uses.</div>
+        ${(S.descriptionWarnings||[]).length?`<div class="warnbox" style="margin-top:8px"><b>⚠ Google would flag this</b>${S.descriptionWarnings.map(w=>esc(w)).join("<br>")}</div>`:''}</div>`
      : `<div class="fld" style="margin-top:12px"><label>Business description</label><textarea oninput="S.description=this.value;saveSoon()" placeholder="Family & cosmetic dentistry, 4.8 stars…">${esc(S.description)}</textarea></div>`}
    </div>`,
    valid:()=>S.client.trim().length>0}),
@@ -860,18 +1058,17 @@ const STEPS=[
      '<div class="addpill"><input id="excIn" placeholder="Add an exclusion…" onkeydown="if(event.key===\'Enter\'){addCustom(\'exc\',\'excIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'exc\',\'excIn\')">+ Add</button></div></div>',
    valid:()=>true}),
 
- ()=>({eyebrow:"Target Area",title:"Where should we run it?",sub:"Pick the geography — Smart 1 estimates the reach automatically.",
-   html:`<div class="two"><div class="fld"><label>Geo type</label><select onchange="S.geoType=this.value;S.aiEst=null;saveSoon();renderStep()">${opt(["City/ZIP + Radius","DMA","Statewide","National","Other"],S.geoType)}</select></div>
-   <div class="fld"><label>Area label (city, ZIPs, DMA, state…)</label><input value="${esc(S.geo)}" oninput="S.geo=this.value;S.aiEst=null;saveSoon()" placeholder="e.g. Carmel, IN"></div></div>
-   ${S.geoType==="City/ZIP + Radius"?`<div class="fld"><label>Radius (miles)</label><input type="number" min="1" value="${S.radius}" oninput="S.radius=Math.max(1,+this.value);S.aiEst=null;saveSoon();drawEst()" style="max-width:160px"></div>`:''}
-   ${S.geoType==="Other"?`<div class="fld"><label>Approx. population (optional)</label><input type="number" value="${S.population||''}" oninput="S.population=+this.value;S.aiEst=null;saveSoon();drawEst()" style="max-width:220px"></div>`:''}
-   <div class="two"><div class="fld"><label>Gender</label><select onchange="S.gender=this.value;S.aiEst=null;saveSoon();drawEst()">${opt(["Both","Male","Female"],S.gender)}</select></div><div></div></div>
-   <div class="bpanel"><div class="ttl">Age ranges</div>${pillRow(["18-24","25-34","35-44","45-54","55-64","65+"],S.ages,'age')}</div>
-   <div class="bpanel"><div class="ttl">Household income</div>${pillRow(incomeOptions,S.income,'inc')}</div>
-   <div class="bpanel"><div class="ttl">📊 Smart 1 estimated reach for this area</div>
-   <div class="estgrid" id="estGrid"></div><div class="note" id="popNote"></div>
-   <div style="margin-top:8px"><a onclick="estimateAudienceAI()" style="cursor:pointer;color:var(--blue);font-weight:700;font-size:13px">↻ Re-estimate with Smart 1 AI</a></div></div>`,
-   valid:()=>true,after:()=>{if(window._entering&&S.geo&&!S.aiEst&&!S._aiLoading)estimateAudienceAI();else drawEst();}}),
+ /* Target areas. Two views behind one wizard step: an editor for the area
+    being described, and the list, which asks whether there is another one
+    before the wizard moves on. Back walks the sub-flow before it walks the
+    wizard, so leaving a half-typed area never costs the ones already saved. */
+ ()=>{
+  if(!S.targetAreas)S.targetAreas=[];
+  if(!S.targetAreas.length&&S._areaView!=="edit"){S.targetAreas=[blankArea()];S._areaIx=0;S._areaView="edit";}
+  if(S._areaView!=="edit")S._areaView="list";
+  if(S._areaView==="edit")return areaEditorStep();
+  return areaListStep();
+ },
 
  ()=>({eyebrow:"Audience Strategy",title:"Who we target",sub:"Pulled from the industry audience library. Adjust as needed.",
    html:(()=>{const key=INDUSTRY_KEYS[S.industry]||'general';const lib=industryIdeas[key]||industryIdeas.general;
@@ -908,7 +1105,9 @@ const STEPS=[
    valid:()=>true,after:drawPkgs};},
 
  ()=>{ if(!S.sections)S.sections=defaultSections(); S.estimates=estimates(); return{eyebrow:"Proposal Document",title:"Edit the proposal",sub:"These sections become the branded PDF and Word doc. Rename, rewrite, reorder, disable, or add sections. Auto sections (tables) fill from the campaign data.",
-   html:'<div id="secList"></div><div class="addrow"><button class="btn btn-ghost" onclick="addSection()">+ Add a custom section</button><button class="btn btn-line" onclick="S.sections=defaultSections();saveSoon();renderStep()">↺ Reset to defaults</button></div>',
+   html:'<div class="addrow" style="margin-bottom:14px"><button class="btn btn-primary" id="draftBtn" onclick="draftSections()">✨ Write the proposal copy from this campaign</button>'
+    +'<span class="note" style="margin:0">Uses the industry library plus the products, budget and target areas you just built — the tables stay generated from the real numbers.</span></div>'
+    +'<div id="secList"></div><div class="addrow"><button class="btn btn-ghost" onclick="addSection()">+ Add a custom section</button><button class="btn btn-line" onclick="S.sections=defaultSections();saveSoon();renderStep()">↺ Reset to defaults</button></div>',
    valid:()=>true,after:drawSections};},
 
  ()=>{ buildPackages();S.estimates=estimates(); return{eyebrow:"Review & Save",title:"Ready to deliver",sub:"Everything is saved under "+(QUOTE_NUMBER||"a new quote number")+". Generate the branded PDF, export Word, and mark it Sent when it goes to the client.",
@@ -918,54 +1117,84 @@ const STEPS=[
 function renderStep(){
  if(!S)return;
  const d=STEPS[step]();window._entering=(_lastStep!==step);_lastStep=step;
+ window._stepDesc=d;
  const st=document.getElementById('stage');
  st.innerHTML=`<div class="eyebrow">${d.eyebrow}</div><h1 class="q">${d.title}</h1><div class="sub">${d.sub}</div>${d.html}`;
  document.getElementById('stepLabel').textContent='Step '+(step+1)+' of '+STEPS.length;
  document.getElementById('bar').style.width=((step+1)/STEPS.length*100)+'%';
- document.getElementById('backBtn').style.visibility=step===0?'hidden':'visible';
- document.getElementById('nextBtn').textContent=d.isLast?'Finish & back to dashboard':'Continue →';
+ // Back stays available inside a sub-flow even on step 0 of the wizard,
+ // because there it means "back out of this area", not "leave the wizard".
+ document.getElementById('backBtn').style.visibility=(step===0&&!d.onBack)?'hidden':'visible';
+ document.getElementById('nextBtn').textContent=d.nextLabel||(d.isLast?'Finish & back to dashboard':'Continue →');
  if(d.after)d.after();window._valid=d.valid;syncNext();window.scrollTo(0,0);
 }
 function syncNext(){const b=document.getElementById('nextBtn');if(b)b.disabled=window._valid?!window._valid():false;}
-function nextStep(){const d=STEPS[step]();if(d.valid&&!d.valid())return;saveNow();
- if(step<STEPS.length-1){step++;renderStep();}else{toast("Saved. "+(QUOTE_NUMBER||"")+" is on the dashboard.");nav('dashboard');}}
-function prevStep(){if(step>0){step--;renderStep();}}
+function nextStep(){
+ const d=STEPS[step]();
+ if(d.valid&&!d.valid())return;
+ // A step can handle Continue itself -- the target-area editor saves the area
+ // and returns to the list rather than advancing the wizard.
+ if(d.onNext&&d.onNext()===true)return;
+ saveNow();
+ if(step<STEPS.length-1){step++;renderStep();}
+ else{toast("Saved. "+(QUOTE_NUMBER||"")+" is on the dashboard.");nav('dashboard');}}
+function prevStep(){
+ const d=window._stepDesc||STEPS[step]();
+ if(d.onBack&&d.onBack()===true)return;   // the step walked its own sub-flow
+ if(step>0){step--;renderStep();}}
 
 /* step widgets */
 function drawEst(){const e=estimates();const g=document.getElementById('estGrid');if(!g)return;
  const L=S._aiLoading?' loading':'';
- g.innerHTML=`<div class="est${L}"><b>${S._aiLoading?'—':fmt(e.pop)}</b><span>Est. population</span></div><div class="est${L}"><b>${S._aiLoading?'—':fmt(e.aud)}</b><span>Addressable audience</span></div><div class="est${L}"><b>${S._aiLoading?'—':fmt(e.hh)}</b><span>Households</span></div><div class="est${L}"><b>${S._aiLoading?'—':fmt(e.dev)}</b><span>Devices</span></div>`;
+ // An unmeasured campaign shows a dash, not a zero. "0 households" reads as a
+ // finding; it is the absence of one.
+ const val=n=>S._aiLoading?'—':(e.measured?fmt(n):'—');
+ g.innerHTML=`<div class="est${L}"><b>${val(e.pop)}</b><span>Est. population</span></div><div class="est${L}"><b>${val(e.aud)}</b><span>Addressable audience</span></div><div class="est${L}"><b>${val(e.hh)}</b><span>Households</span></div><div class="est${L}"><b>${val(e.dev)}</b><span>Devices</span></div>`;
  const n=document.getElementById('popNote');
- if(n){if(S._aiLoading)n.innerHTML='<span class="spin"></span>Smart 1 is sizing this area…';
-  else if(e.ai)n.textContent="✨ Smart 1 AI estimate. "+(e.rationale||"");
-  else n.textContent="Built-in estimate — the AI re-estimate refines it from the named area.";}
+ if(n){
+  if(S._aiLoading)n.innerHTML='<span class="spin"></span>Smart 1 is sizing '+((S.targetAreas||[]).length>1?'each target area':'this area')+'…';
+  else{
+   const bits=[];
+   bits.push(e.ai?"✨ Smart 1 AI estimate, per area.":"Built-in estimate — the AI re-estimate sizes each area for real.");
+   if(e.note)bits.push(e.note);
+   if((e.unmeasured||[]).length)bits.push("Not measured: "+e.unmeasured.join(", ")+".");
+   n.textContent=bits.join(" ");}}
+ const b=document.getElementById('areaBreakdown');
+ if(b){
+  const rows=(S.aiEst&&S.aiEst.areas)||null;
+  b.innerHTML=(rows&&rows.length>1)
+   ? '<div style="margin-top:10px;font-size:12.5px;color:#33415C">'+rows.map(r=>
+      '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid var(--line)"><span>'+esc(r.label)+'</span><b>'
+      +(r.measured?fmt(r.aud)+' addressable':'not measured')+'</b></div>').join('')+'</div>'
+   : '';}
  S.estimates=e;}
 async function estimateAudienceAI(){
- if(!S.geo){toast("Enter an area label first (city, ZIPs, DMA, or state).");return;}
+ const ready=(S.targetAreas||[]).filter(areaComplete);
+ if(!ready.length){toast("Add a target area first.");return;}
  S._aiLoading=true;drawEst();
- try{const r=await fetch(CFG.io_api_base+"/sales/builder/api/estimate-audience",{method:"POST",headers:{"Content-Type":"application/json"},
-   body:JSON.stringify({geoType:S.geoType,area:S.geo,radius:S.radius,industry:S.industry,gender:S.gender,ages:S.ages,income:S.income})});
-  const d=await r.json();
-  if(d&&d.ok&&d.estimate){S.aiEst=d.estimate;S._aiLoading=false;drawEst();saveSoon();toast("✨ AI sized this area.");return;}
-  throw new Error((d&&(d.error||d.detail))||("HTTP "+r.status));
+ try{const d=await api('/sales/builder/api/estimate-audience',{method:'POST',
+   body:JSON.stringify({areas:ready,industry:S.industry,gender:S.gender,ages:S.ages,income:S.income})});
+  S.aiEst=d;S._aiLoading=false;drawEst();saveSoon();
+  toast(d.ai?("✨ Smart 1 sized "+d.measured+" area"+(d.measured===1?"":"s")+".")
+            :("Sized "+d.measured+" area"+(d.measured===1?"":"s")+" from the built-in model."));
  }catch(e){S.aiEst=null;S._aiLoading=false;drawEst();toast("Couldn't reach the AI ("+e.message+"). Showing the built-in estimate.");}}
 async function generateDesc(){
  const b=document.getElementById('descBtn');if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Generating…';}
- try{const r=await fetch(CFG.io_api_base+"/sales/builder/api/generate-business-description",{method:"POST",headers:{"Content-Type":"application/json"},
-   body:JSON.stringify({urls:[S.url].filter(Boolean),client:S.client,industry:S.industry,geo:S.geo,brandfetch:{}})});
-  const d=await r.json();
-  if(d&&d.description){S.description=d.description;saveSoon();renderStep();toast("✨ Description generated.");return;}
-  throw new Error((d&&(d.error||d.detail))||("HTTP "+r.status));
+ try{const d=await api('/sales/builder/api/generate-business-description',{method:'POST',
+   body:JSON.stringify({urls:[S.url].filter(Boolean),client:S.client,industry:S.industry,
+                        areas:(S.targetAreas||[]).filter(areaComplete),geo:S.geo,brandfetch:{}})});
+  if(d&&d.description){S.description=d.description;S.descriptionWarnings=d.warnings||[];saveSoon();renderStep();
+   toast((d.warnings&&d.warnings.length)?"✨ Generated — check the Google rules note below.":"✨ Description generated.");return;}
+  throw new Error((d&&(d.error||d.detail))||"the AI returned nothing");
  }catch(e){const c=S.client||'The business';S.description=S.description||(c+" is a "+(S.industry||"local").toLowerCase()+" business serving customers in "+(S.geo||"its service area")+". It provides products and services designed to meet the needs of customers in this category, with a focus on quality, responsiveness, and local expertise.");
   renderStep();toast("Couldn't reach the AI ("+e.message+"). Used a placeholder you can edit.");}}
 async function reviewLandingAI(){
  if(!S.landingUrl){toast("Enter a landing page URL first.");return;}
  S._lpLoading=true;drawLanding();
- try{const r=await fetch(CFG.io_api_base+"/sales/builder/api/review-landing-page",{method:"POST",headers:{"Content-Type":"application/json"},
+ try{const d=await api('/sales/builder/api/review-landing-page',{method:'POST',
    body:JSON.stringify({url:S.landingUrl,client:S.client,product:"Campaign landing page",objectives:S.objectives})});
-  const d=await r.json();
   if(d&&d.review){S.landingReview=d.review;S._lpLoading=false;drawLanding();saveSoon();toast("✨ Landing page reviewed.");return;}
-  throw new Error((d&&(d.error||d.detail))||("HTTP "+r.status));
+  throw new Error((d&&(d.error||d.detail))||"the AI returned nothing");
  }catch(e){S._lpLoading=false;drawLanding();toast("Couldn't review the page ("+e.message+").");}}
 function drawLanding(){
  const b=document.getElementById('lpBtn');if(b){b.disabled=!!S._lpLoading;b.innerHTML=S._lpLoading?'<span class="spin"></span>Reviewing…':'🔍 Review landing page';}
@@ -1019,6 +1248,18 @@ function drawSections(){const host=document.getElementById('secList');if(!host)r
 function moveSec(i,d){const j=i+d;if(j<0||j>=S.sections.length)return;const t=S.sections[i];S.sections[i]=S.sections[j];S.sections[j]=t;saveSoon();drawSections();}
 function delSec(i){if(!confirm("Delete the \""+S.sections[i].title+"\" section from this proposal?"))return;S.sections.splice(i,1);saveSoon();drawSections();}
 function addSection(){S.sections.push({id:"custom"+Date.now(),title:"New Section",kind:"text",enabled:true,body:""});saveSoon();drawSections();}
+async function draftSections(){
+ if(!CFG.ai_enabled){toast("Writing the copy needs OPENAI_API_KEY on the server.");return;}
+ const written=(S.sections||[]).filter(x=>x.kind==='text'&&(x.body||'').trim()).length;
+ if(written&&!confirm("Rewrite the "+written+" section"+(written===1?"":"s")+" that already have copy? Table sections are untouched."))return;
+ const b=document.getElementById('draftBtn');if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Writing…';}
+ try{
+  const d=await api('/sales/builder/api/ai/draft-sections',{method:'POST',body:JSON.stringify({data:S})});
+  let n=0;
+  (S.sections||[]).forEach(sec=>{if(d.sections&&d.sections[sec.id]){sec.body=d.sections[sec.id];n++;}});
+  saveNow();renderStep();toast("✨ Wrote "+n+" section"+(n===1?"":"s")+" — edit anything before it goes out.");
+ }catch(e){toast("Couldn't write the copy: "+e.message);}
+ finally{const bb=document.getElementById('draftBtn');if(bb){bb.disabled=false;bb.textContent='✨ Write the proposal copy from this campaign';}}}
 async function aiRewrite(i){
  const ins=(document.getElementById('aiIns'+i).value||"").trim()||"make it clearer and more client-friendly";
  const text=S.sections[i].body||"";
@@ -1035,7 +1276,9 @@ function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPacka
  const g=guardrailsJs();
  return `<div class="bpanel"><ul style="list-style:none;padding:0;margin:0">
   ${row('Quote #',esc(QUOTE_NUMBER||'assigned on save'))}${row('Client',esc(S.client||'—'))}${row('Goals',esc(S.objectives.join(', ')||'—'))}
-  ${row('Target area',esc(S.geo||S.geoType))}${row('Est. audience / households',fmt(e.aud)+' / '+fmt(e.hh))}
+  ${row((S.targetAreas||[]).length>1?'Target areas ('+S.targetAreas.length+')':'Target area',
+        (S.targetAreas||[]).length?S.targetAreas.map(a=>esc(areaLabel(a))).join('<br>'):esc(S.geo||S.geoType))}
+  ${row('Est. audience / households',e.measured?(fmt(e.aud)+' / '+fmt(e.hh)):'not measured')}
   ${row('Products',esc(S.items.map(i=>i.product).join(', ')||'—'))}
   ${row('Featured package',esc(sel.name||'—')+' · '+money(sel.monthly||0)+'/mo')}
   ${row('Campaign total',money(sel.total||0)+' over '+S.months+' months')}
@@ -1045,11 +1288,58 @@ function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPacka
    <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:8px">
     <button class="btn btn-good" onclick="finishAndPdf()">📄 Save &amp; open branded PDF</button>
     <button class="btn btn-line" onclick="saveNow().then(()=>location.href='/sales/builder/api/quotes/'+QUOTE_ID+'/docx')">📝 Export Word copy</button>
-    <button class="btn btn-gold" onclick="markSent()">📤 Mark as Sent to client</button>
+    <button class="btn btn-gold" id="deliverBtn" onclick="deliverProposal()">📤 Send to client &amp; file in Smart 1 Suite</button>
    </div>
-   <div class="note" style="margin-top:10px">The PDF is archived with ${esc(QUOTE_NUMBER||'the quote')} in the database — anyone can look it up later, edit it, duplicate it, or convert it to an IO.</div></div>`;}
+   <div id="deliverOut"></div>
+   <div class="note" style="margin-top:10px">Sending files the PDF on ${esc(S.client||'the client')}'s record so it shows on Client 360, and opens an opportunity in Smart 1 Suite. The archive copy stays with ${esc(QUOTE_NUMBER||'the quote')} either way.</div></div>`;}
 async function finishAndPdf(){await saveNow({bump_revision:true});if(QUOTE_ID)window.open('/sales/builder/api/quotes/'+QUOTE_ID+'/pdf','_blank');}
-async function markSent(){await saveNow({status:"Sent"});toast((QUOTE_NUMBER||"Quote")+" marked Sent — it now shows in Awaiting Client.");}
+
+/* Deliver: PDF -> client record -> Smart 1 Suite opportunity.
+   Suite is the step that can come back with a question. When it holds no
+   contact for this client we ask for one rather than inventing a contact out
+   of the business name -- that is how a Suite account fills up with records
+   nobody can call. The proposal is already saved and filed by then, so
+   answering is a second click, not a redo. */
+async function deliverProposal(contact){
+ const b=document.getElementById('deliverBtn');
+ if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Sending…';}
+ const out=document.getElementById('deliverOut');
+ try{
+  await saveNow({bump_revision:true});
+  const d=await api('/sales/builder/api/quotes/'+QUOTE_ID+'/deliver',{method:'POST',
+   body:JSON.stringify(contact?{contact}:{})});
+  const su=d.suite||{};
+  let html='<div class="gap" style="margin-top:12px"><b>✅ Proposal sent</b><br>';
+  html+=d.pdf_url?('<a class="open-link" href="'+esc(d.pdf_url)+'" target="_blank" rel="noopener">Open the client PDF ↗</a><br>')
+                 :'The PDF is archived here. Cloudinary is not configured, so there is no shareable link.<br>';
+  html+=d.filed?('Filed on '+esc(S.client)+"'s record.<br>"):(esc(d.filed_note||'')+'<br>');
+  if(su.ok)html+='Smart 1 Suite opportunity '+esc(su.opportunity_id||'')+' for '+esc((su.contact||{}).name||(su.contact||{}).email||'the contact on file')+'.';
+  else if(su.needs_contact)html+='<b>Smart 1 Suite needs a contact.</b> '+esc(su.reason||'');
+  else html+='No Suite opportunity: '+esc(su.reason||'unknown');
+  html+='</div>';
+  if(su.needs_contact)html+=contactAskHtml(su.suggest||{});
+  out.innerHTML=html;
+  if(su.ok)toast("📤 Sent, filed and opened in Smart 1 Suite.");
+  else if(su.needs_contact)toast("Saved and filed — Smart 1 Suite needs the contact's details.");
+  else toast("Saved and filed. "+(su.reason||""));
+  refreshLists();
+ }catch(e){out.innerHTML='<div class="warnbox">Delivery failed: '+esc(e.message)+'</div>';}
+ finally{const bb=document.getElementById('deliverBtn');if(bb){bb.disabled=false;bb.textContent='📤 Send to client & file in Smart 1 Suite';}}}
+function contactAskHtml(sug){
+ return `<div class="bpanel" style="margin-top:10px"><div class="ttl">Who is the contact at ${esc(S.client||'this client')}?</div>
+  <div class="note" style="margin-top:4px">Smart 1 Suite has no matching contact. A name plus an email or a phone number creates one and opens the opportunity against it.</div>
+  <div class="two" style="margin-top:8px">
+   <div class="fld"><label>Contact name</label><input id="ctName" value="${esc(sug.name||S.clientContactName||'')}" placeholder="Jane Smith"></div>
+   <div class="fld"><label>Email</label><input id="ctEmail" type="email" value="${esc(sug.email||S.clientContactEmail||'')}" placeholder="jane@client.com"></div></div>
+  <div class="fld"><label>Phone</label><input id="ctPhone" value="${esc(sug.phone||S.clientContactPhone||'')}" placeholder="(317) 555-0123" style="max-width:260px"></div>
+  <button class="btn btn-primary" onclick="submitContact()">Create the contact &amp; opportunity</button></div>`;}
+function submitContact(){
+ const name=(document.getElementById('ctName').value||'').trim();
+ const email=(document.getElementById('ctEmail').value||'').trim();
+ const phone=(document.getElementById('ctPhone').value||'').trim();
+ if(!name||(!email&&!phone)){toast("A name and either an email or a phone number are needed.");return;}
+ S.clientContactName=name;S.clientContactEmail=email;S.clientContactPhone=phone;
+ deliverProposal({name,email,phone});}
 
 /* ============================================================
    CONVERT-TO-IO WIZARD
@@ -1161,7 +1451,7 @@ function ioDataPayload(){
   "Review and sign the insertion order"];
  const internalRequirements=items.map(i=>({title:i.product+" — "+i.category,items:[
   "Monthly budget: "+money(i.budget)+" · campaign total: "+money(i.campaignBudget),
-  "Geography: "+(st.geo||st.geoType||""),
+  "Geography: "+((st.targetAreas||[]).length?(st.targetAreas||[]).map(areaLabel).join(" | "):(st.geo||st.geoType||"")),
   "Audience: "+((st.audiences||[]).join(", ")||"per proposal"),
   "Landing page: "+(a.landingUrl||st.landingUrl||"TBD"),
   "KPIs: "+((st.kpis||[]).join(", ")||"")]}));
@@ -1171,7 +1461,11 @@ function ioDataPayload(){
   clientContactName:a.clientContactName,clientContactEmail:a.clientContactEmail,clientContactPhone:a.clientContactPhone,
   salesContact:a.salesContact,salesEmail:a.salesEmail,
   sameDates:true,start:a.startDate,end:a.endDate||"Ongoing",
-  objectives:st.objectives||[],kpis:st.kpis||[],geo:(st.geo||"")+(st.geoType==="City/ZIP + Radius"?" + "+st.radius+" mi radius":""),
+  objectives:st.objectives||[],kpis:st.kpis||[],
+  // Every target area, not the first one with a radius glued on. targetAreas
+  // is what the IO builder reads now; geo stays as the one-string form the
+  // IO PDF and the Suite webhook have always taken.
+  targetAreas:st.targetAreas||[],geo:st.geo||"",
   audiences:st.audiences||[],incomes:st.income||[],dayparting:"",
   creativeSource:a.creativeSource,creativeFee:a.creativeFee,managementFee:a.managementFeeAck,
   exclusions:(st.exclusions||[]).join(", "),
@@ -1191,24 +1485,24 @@ async function runConvert(){
  const base=CFG.io_api_base;
  try{
   log('<span class="spin"></span>Requesting the next IO order number…');
-  const on=await(await fetch(base+"/sales/builder/api/next-order-number",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
+  const on=await(await fetch(base+"/api/next-order-number",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
   if(!on||!on.order_number)throw new Error("The IO API did not return an order number.");
   const orderNumber=on.order_number;
   log("✅ Order number <b>#"+esc(orderNumber)+"</b>"+(on.warning?" <span style='color:#8a6410'>("+esc(on.warning)+")</span>":""));
   const payload=ioDataPayload();payload.orderNumber=orderNumber;
   log('<span class="spin"></span>Generating the customer PDF…');
-  const cp=await(await fetch(base+"/sales/builder/api/generate-client-pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})).json();
+  const cp=await(await fetch(base+"/api/generate-client-pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})).json();
   if(!cp||!cp.ok)throw new Error("Customer PDF failed: "+((cp&&(cp.error||cp.detail))||"unknown"));
   log("✅ Customer PDF ready");
   log('<span class="spin"></span>Generating the internal PDF…');
-  const ip=await(await fetch(base+"/sales/builder/api/generate-internal-pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})).json();
+  const ip=await(await fetch(base+"/api/generate-internal-pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})).json();
   if(!ip||!ip.ok)throw new Error("Internal PDF failed: "+((ip&&(ip.error||ip.detail))||"unknown"));
   log("✅ Internal PDF ready");
   let submitted=false;
   if(CONV.submit){
    log('<span class="spin"></span>Submitting to Smart 1 Suite / GoHighLevel…');
    const sub=Object.assign({},payload,{client_pdf_url:cp.url,internal_pdf_url:ip.url});
-   const sr=await(await fetch(base+"/sales/builder/api/submit-io",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(sub)})).json();
+   const sr=await(await fetch(base+"/api/submit-io",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(sub)})).json();
    if(sr&&sr.ok){submitted=true;log("✅ Sent to Smart 1 Suite");}
    else log("⚠ Smart 1 Suite submit failed: "+esc((sr&&sr.error)||"unknown")+" — you can submit from the IO builder later.");
   }
@@ -1237,6 +1531,29 @@ async function runConvert(){
  drawRep();
  try{const c=await api('/sales/builder/api/config');CFG=Object.assign(CFG,c);}catch(e){}
  const savedIo=lsGet("s1_io_app_url","");if(savedIo)CFG.io_app_url=savedIo;
+
+ // Deep links from Client 360 and from the retired /sales/proposals builder.
+ // ?quote=<id> opens an existing quote; ?prefill=1&client=…&url=… starts a new
+ // one with the client already filled in.
+ const qs=new URLSearchParams(location.search);
+ if(qs.get('quote')){await editQuote(qs.get('quote'));return;}
+ if(qs.get('prefill')){
+  await startNewProposal();
+  const map={client:'client',url:'url',industry:'industry',
+             contactName:'clientContactName',contactEmail:'clientContactEmail',
+             contactPhone:'clientContactPhone',salesContact:'salesContact'};
+  let filled=false;
+  Object.keys(map).forEach(k=>{const v=(qs.get(k)||'').trim();if(v){S[map[k]]=v;filled=true;}});
+  // city/state/zip arrive from Client 360 and describe where the client is, so
+  // they seed the first target area rather than being dropped.
+  const where=[qs.get('city'),qs.get('state')].filter(Boolean).join(', ')||(qs.get('zip')||'');
+  if(where){
+   const a=blankArea();a.origin=where;a.name=where;
+   S.targetAreas=[a];S._areaIx=0;S._areaView="list";syncLegacyGeo();filled=true;
+  }
+  if(filled){saveNow();renderStep();toast("Client details filled from Client 360.");}
+  return;
+ }
  nav('dashboard');
 })();
 </script>

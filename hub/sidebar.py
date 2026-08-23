@@ -10,8 +10,9 @@ _ITEMS = [
     ("dashboard", "/", "&#127968;", "Dashboard"),
     ("c360", "/client360", "&#127919;", "Client 360"),
     ("_sec2", "", "", "Sales"),
-    ("salesb", "/sales/builder/", "&#129534;", "Sales Builder"),
-    ("props", "/sales/proposals/", "&#128196;", "Proposal Builder"),
+    # One entry, because there is one proposal builder. /sales/proposals is the
+    # retired standalone tool: it redirects here and serves its archive only.
+    ("salesb", "/sales/builder/", "&#128196;", "Proposal Builder"),
     ("leads", "/sales/leads", "&#128229;", "Leads"),
     ("_sec3", "", "", "Utilities"),
     ("creative", "/creative", "&#127912;", "Creative"),
