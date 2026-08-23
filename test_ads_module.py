@@ -368,6 +368,7 @@ def run():
     r = g(f"http://127.0.0.1:{PORT}/", timeout=10)
     check("the Hub shell outside the mount is untouched", "Hub shell" in r.text)
 
+    gallery_background_source()
     basepath_shim()
 
     server.shutdown()
@@ -449,6 +450,86 @@ console.log(JSON.stringify({
         [k, e.getAttribute('href') || e.getAttribute('src') || e.getAttribute('action')])),
   fetches}));
 """
+
+
+def gallery_background_source():
+    """What the background chooser is allowed to offer from a client gallery.
+
+    The filtering is the whole feature. A finished display ad in that list
+    puts last month's headline and the logo behind this month's ad, and the
+    brief for the chooser is explicit that a logo must never be inside the
+    picture -- so both are excluded here rather than being caught by whoever
+    is looking at the proof.
+    """
+    print("\nthe client gallery as a background source")
+    print("-" * 60)
+
+    from hub import ad_builder_link
+    from modules.image_picker import models as ip
+
+    ip.init_db()
+    if ip.DB_BOOT_ERROR:
+        check("the image gallery tables exist", False, ip.DB_BOOT_ERROR)
+        return
+
+    name = "Northside Roofing"
+    db = ip.session()
+    try:
+        gallery = ip.PickerClient(name=name, slug=ip.slugify(name),
+                                  industry_key="homeservices",
+                                  share_token=ip.new_token())
+        db.add(gallery)
+        db.commit()
+
+        def add(pid, kind, **kw):
+            row = ip.SavedImage(
+                client_id=gallery.id, provider="test", provider_image_id=pid,
+                cloudinary_public_id=pid,
+                cloudinary_url=f"https://res.cloudinary.com/x/{pid}.jpg",
+                collection_kind=kind, **kw)
+            db.add(row)
+            return row
+
+        add("crew", "upload", width=1600, height=900)
+        add("van", "upload", width=1200, height=800)
+        add("thumb", "upload", width=120, height=90)         # too small
+        add("brochure", "upload", width=1200, height=1600,
+            resource_type="raw")                             # a PDF
+        add("last-months-ad", ad_builder_link.GALLERY_KIND, width=970, height=250)
+        add("their-logo", ad_builder_link.LOGO_KIND, width=600, height=200)
+        add("unmeasured", "upload")                          # no dimensions
+        db.commit()
+    finally:
+        db.close()
+
+    res = ad_builder_link.client_gallery(name)
+    offered = {i["public_id"] for i in res["images"]}
+
+    check("a client photograph is offered", "crew" in offered, str(offered))
+    check("a finished display ad is not",
+          "last-months-ad" not in offered,
+          "an ad behind an ad prints the headline twice")
+    check("nor is the saved logo", "their-logo" not in offered)
+    check("nor is a PDF filed in the same gallery", "brochure" not in offered)
+    check("a picture too small to be a background is left out",
+          "thumb" not in offered)
+    # Absent data reads as "not measured", not as zero -- filtering on
+    # (width or 0) < 300 would drop every row filed before dimensions were
+    # recorded, which is the oldest and often best material.
+    check("an unmeasured picture is still offered", "unmeasured" in offered)
+    check("...and says so rather than showing a size",
+          next((i["label"] for i in res["images"]
+                if i["public_id"] == "unmeasured"), "") == "size not recorded")
+    check("the label carries the real dimensions",
+          next((i["label"] for i in res["images"]
+                if i["public_id"] == "crew"), "") == "1600\u00d7900")
+
+    empty = ad_builder_link.client_gallery("Nobody We Know Ltd")
+    check("an unknown client returns no images and says why",
+          empty["ok"] and not empty["images"] and "gallery" in empty["note"],
+          str(empty))
+    check("no client at all is answered, not crashed",
+          ad_builder_link.client_gallery("")["images"] == [])
 
 
 def basepath_shim():

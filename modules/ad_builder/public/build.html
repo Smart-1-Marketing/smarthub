@@ -406,6 +406,8 @@
         '<div class="bgmodes">' +
           '<button type="button" class="bgmode' + (concept().backgroundImage ? '' : ' on') + '" data-bgmode="none">Solid brand colour</button>' +
           '<button type="button" class="bgmode" data-bgmode="landing">From their landing page</button>' +
+          '<button type="button" class="bgmode" data-bgmode="gallery">From their image gallery</button>' +
+          '<button type="button" class="bgmode" data-bgmode="upload">Upload a picture</button>' +
           '<button type="button" class="bgmode" data-bgmode="stock">Suggested photos</button>' +
           '<button type="button" class="bgmode" data-bgmode="ai">Have AI make one</button>' +
         '</div>' +
@@ -680,6 +682,48 @@
       return;
     }
 
+    if (mode === 'gallery') {
+      var who = clientName();
+      if (!who) {
+        bgSay('<span class="bgmsg">This build has no client on it yet, so ' +
+              'there is no gallery to read.</span>');
+        return;
+      }
+      bgBusy('Reading ' + who + '\u2019s gallery\u2026');
+      /* The Hub owns this one. The renderer does not know who our clients are
+         and must not learn -- the basepath shim puts the mount prefix on the
+         front, so standalone this correctly 404s rather than half-working. */
+      fetch('/_hub/gallery?client=' + encodeURIComponent(who))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.images || !d.images.length) {
+            bgSay('<span class="bgmsg">' + esc(d.note ||
+              'Nothing in that gallery can be used as a background.') +
+              ' Try uploading one.</span>');
+            return;
+          }
+          bgGrid(d.images.map(function (i) {
+            return { url: i.url, label: i.label || '' };
+          }), 'gallery');
+        })
+        .catch(function () {
+          bgSay('<span class="bgmsg">That gallery could not be read.</span>');
+        });
+      return;
+    }
+
+    if (mode === 'upload') {
+      bgSay('<p class="bgmsg">Pick a picture from this computer. A wide photo ' +
+            'works best \u2014 1200px or more across. It is filed into the ' +
+            'client\u2019s gallery too, so nobody has to find it again.</p>' +
+            '<input type="file" id="bgFile" accept="image/png,image/jpeg,image/webp">');
+      var picker = $('bgFile');
+      if (picker) picker.addEventListener('change', function () {
+        uploadBackground(this.files && this.files[0]);
+      });
+      return;
+    }
+
     if (mode === 'stock') {
       bgBusy('Finding photos that fit this campaign\u2026');
       var c = concept();
@@ -719,6 +763,82 @@
         })
         .catch(function () { bgSay('<span class="bgmsg">Image generation is unavailable.</span>'); });
     }
+  }
+
+  /* Who this build is for. The intake writes the business onto the brand and
+     the Hub writes it onto the campaign; either one is the client, and asking
+     for both means a build started from the standalone form still finds the
+     gallery. */
+  function clientName() {
+    var c = state.doc && state.doc.campaign;
+    if (!c) return '';
+    return (c.client || (c.brand && c.brand.name) || '').trim();
+  }
+
+  /* A file the browser holds is not something the renderer can fetch, so it
+     goes to Cloudinary first -- signed by the server, uploaded straight from
+     here, and only then applied as a URL like every other source. The signature
+     covers folder, tags and timestamp exactly; sending any other field would
+     make Cloudinary reject it as tampered. */
+  var MAX_UPLOAD = 12 * 1024 * 1024;
+
+  function uploadBackground(file) {
+    if (!file) return;
+    if (file.size > MAX_UPLOAD) {
+      bgSay('<span class="bgmsg">That file is ' +
+        Math.round(file.size / 1048576) + 'MB. Pick one under 12MB.</span>');
+      return;
+    }
+    bgBusy('Uploading ' + file.name + '\u2026');
+    post('/api/assets/upload-signature', {
+      client: clientName() || 'Smart 1 Marketing',
+      campaign: (state.doc.campaign.campaignName || 'display ads'),
+      kind: 'background',
+      filename: file.name
+    })
+      .then(function (sig) {
+        if (!sig || !sig.uploadUrl) {
+          throw new Error(sig && sig.error ||
+            'Uploads are not configured on the server.');
+        }
+        var fd = new FormData();
+        fd.append('file', file);
+        fd.append('api_key', sig.apiKey);
+        fd.append('timestamp', sig.timestamp);
+        fd.append('signature', sig.signature);
+        fd.append('folder', sig.folder);
+        fd.append('tags', sig.tags);
+        return fetch(sig.uploadUrl, { method: 'POST', body: fd })
+          .then(function (r) { return r.json(); });
+      })
+      .then(function (up) {
+        if (!up || !up.secure_url) {
+          throw new Error((up && up.error && up.error.message) ||
+            'Cloudinary refused that file.');
+        }
+        fileUploadToGallery(up, file.name);
+        bgGrid([{ url: up.secure_url,
+                  label: (up.width && up.height)
+                    ? up.width + '\u00d7' + up.height : '' }], 'upload');
+        applyBackground(up.secure_url, 'upload',
+                        bgResults().querySelector('.bgthumb'));
+      })
+      .catch(function (e) {
+        bgSay('<span class="bgmsg">' + esc(e.message ||
+          'That upload did not work.') + '</span>');
+      });
+  }
+
+  /* Best effort, and deliberately not awaited: the background is already
+     applied by the time this runs, and a gallery that is briefly unwritable
+     should cost the filing, not the picture. */
+  function fileUploadToGallery(up, filename) {
+    var who = clientName();
+    if (!who) return;
+    post('/_hub/gallery', {
+      client: who, url: up.secure_url, public_id: up.public_id || '',
+      filename: filename || '', width: up.width || 0, height: up.height || 0
+    }).catch(function () {});
   }
 
   function bgGrid(items, mode) {

@@ -129,6 +129,141 @@ def save_client_logo(*, client_name: str, url: str, public_id: str = "",
         return {"ok": False, "error": "That logo could not be saved."}
 
 
+# Kinds that must never be offered as a background.
+#
+# A finished display ad already carries the headline, the offer and the logo,
+# so putting one behind a new ad prints all three twice; and the saved logo is
+# the one thing the brief says must never appear inside the picture. Both are
+# in the gallery because filing them there is right -- they just are not
+# photographs, and this list is what keeps that distinction.
+NOT_A_BACKGROUND = (LOGO_KIND, GALLERY_KIND)
+
+# Wide enough to carry a background at the largest banner Smart 1 runs
+# (970x250). Matches MIN_WIDTH in the renderer's landing-images.ts, which is
+# the other chooser that measures before it offers.
+MIN_BACKGROUND_WIDTH = 300
+
+
+def client_gallery(client_name: str, limit: int = 48) -> dict:
+    """Photographs already filed for this client, newest first.
+
+    The best background is usually one the client has already given us, and
+    every one of those is in their gallery: uploads they sent, stock a person
+    picked for them, images pulled off their site. So the chooser reads the
+    gallery rather than asking anyone to find the file again.
+
+    Never raises. This is one of six ways to pick a background; a gallery that
+    cannot be read should cost this source, not the panel.
+    """
+    name = str(client_name or "").strip()
+    if not name:
+        return {"ok": True, "client": "", "images": [], "note":
+                "This build has no client on it yet, so there is no gallery."}
+    try:
+        from modules.image_picker.filing import gallery_for_name
+        from modules.image_picker.models import SavedImage, session
+        from sqlalchemy import select
+
+        db = session()
+        try:
+            gallery = gallery_for_name(db, name)
+            if gallery is None:
+                return {"ok": True, "client": name, "images": [], "note":
+                        f"There is no image gallery for {name} yet."}
+            rows = db.execute(
+                select(SavedImage)
+                .where(SavedImage.client_id == gallery.id)
+                .order_by(SavedImage.created_at.desc(), SavedImage.id.desc())
+                .limit(400)
+            ).scalars().all()
+        finally:
+            db.close()
+    except Exception as exc:                           # noqa: BLE001
+        logger.warning("display_ads: could not read the gallery for %s: %s",
+                       name, exc)
+        return {"ok": True, "client": name, "images": [], "note":
+                "That client's gallery could not be read just now."}
+
+    images, too_small = [], 0
+    for row in rows:
+        url = str(row.cloudinary_url or "")
+        if not url.startswith("https://"):
+            continue
+        if (row.collection_kind or "") in NOT_A_BACKGROUND:
+            continue
+        # A PDF of the brochure is filed in the gallery on purpose. It is not
+        # a picture, and the renderer cannot rasterise it into a background.
+        if (row.resource_type or "image") != "image":
+            continue
+        # Width is nullable, and an unmeasured image is not a small one.
+        # Filtering on `(row.width or 0) < 300` would silently drop every row
+        # filed before dimensions were recorded -- the oldest and often best
+        # photographs a client sent.
+        if row.width and row.width < MIN_BACKGROUND_WIDTH:
+            too_small += 1
+            continue
+        images.append({
+            "url": url,
+            "public_id": row.cloudinary_public_id or "",
+            "width": row.width or 0,
+            "height": row.height or 0,
+            "label": (f"{row.width}×{row.height}" if row.width and row.height
+                      else "size not recorded"),
+            "alt": row.alt_text or "",
+            "kind": row.collection_kind or "",
+            "saved_at": row.created_at.isoformat() if row.created_at else "",
+        })
+        if len(images) >= max(1, int(limit)):
+            break
+
+    note = ""
+    if not images:
+        note = (f"{name}'s gallery has nothing that can be used as a "
+                f"background yet." if rows else
+                f"{name}'s gallery is empty.")
+        if too_small:
+            note = (f"Every picture in {name}'s gallery is under "
+                    f"{MIN_BACKGROUND_WIDTH}px wide — too small for a "
+                    f"background.")
+    return {"ok": True, "client": name, "images": images, "note": note}
+
+
+def save_to_gallery(*, client_name: str, url: str, public_id: str = "",
+                    filename: str = "", width: int = 0, height: int = 0,
+                    actor: str = "") -> dict:
+    """File a picture somebody just uploaded into the client's gallery.
+
+    An upload that only ever exists on one ad concept is a file nobody can
+    find again -- the next person to build for this client uploads it a second
+    time. Filing it means the gallery source above offers it from then on,
+    which is the whole reason the two sources sit next to each other.
+    """
+    name = str(client_name or "").strip()
+    url = str(url or "").strip()
+    if not name:
+        return {"ok": False, "error": "Which client is this picture for?"}
+    if not url.startswith("https://"):
+        return {"ok": False, "error": "A gallery picture needs a stored "
+                                      "https URL."}
+    try:
+        from modules.image_picker.filing import file_asset
+        return file_asset(
+            client_name=name,
+            public_id=public_id or url.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+            url=url,
+            kind="upload",
+            label="Uploaded for display ads",
+            filename=filename or "",
+            alt=f"Uploaded for {name}'s display ads",
+            width=width or None, height=height or None,
+            provider="display_ads",
+            saved_by=actor or "display-ad-builder",
+        )
+    except Exception as exc:                           # noqa: BLE001
+        logger.warning("display_ads: could not file an upload for %s: %s",
+                       name, exc)
+        return {"ok": False, "error": "That picture could not be filed."}
+
 # --------------------------------------------------------------- renderer API
 
 def _api(method: str, path: str, payload: dict | None = None,
@@ -597,6 +732,41 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
             client_name=body.get("client", ""),
             url=body.get("url", ""),
             public_id=body.get("public_id", ""),
+            actor=_user() or "",
+        )
+        return jsonify(res), (200 if res.get("ok") else 400)
+
+    @bp.route("/gallery", methods=["GET"])
+    def gallery_route():
+        """The client's own photographs, for the background chooser.
+
+        Lives on the Hub side because the renderer does not know who our
+        clients are and must not learn -- the same reason start and attach are
+        here. The editor fetches it through the basepath shim, so a relative
+        "/_hub/gallery" resolves under the mount and 404s standalone, which is
+        the honest answer there.
+        """
+        return jsonify(client_gallery(request.args.get("client", ""),
+                                      limit=int(request.args.get("limit") or 48)))
+
+    @bp.route("/gallery", methods=["POST"])
+    def gallery_save_route():
+        """File a just-uploaded background into the client's gallery."""
+        body = request.form if request.form else (request.get_json(silent=True) or {})
+
+        def _int(v):
+            try:
+                return int(v or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        res = save_to_gallery(
+            client_name=body.get("client", ""),
+            url=body.get("url", ""),
+            public_id=body.get("public_id", ""),
+            filename=body.get("filename", ""),
+            width=_int(body.get("width")),
+            height=_int(body.get("height")),
             actor=_user() or "",
         )
         return jsonify(res), (200 if res.get("ok") else 400)
