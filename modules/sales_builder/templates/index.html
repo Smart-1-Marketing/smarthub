@@ -193,6 +193,11 @@
   iframe.ioframe{width:100%;height:calc(100vh - 130px);border:0;border-radius:14px;background:#fff;box-shadow:var(--shadow)}
   .empty{padding:40px;text-align:center;color:var(--muted)}
   .clientcard{border:1px solid var(--line);border-radius:13px;background:#fff;padding:16px 18px;margin-top:12px;box-shadow:var(--shadow)}
+  .clienthit{border:1px solid var(--line);border-radius:10px;background:#fff;
+    padding:9px 12px;margin-top:6px;cursor:pointer;transition:border-color .12s,background .12s}
+  .clienthit:hover{border-color:var(--blue);background:#f6faff}
+  .clienthit b{display:block;color:var(--navy);font-size:13.5px}
+  .clienthit span{color:var(--muted);font-size:11.5px}
   .clientcard h3{margin:0 0 3px;font-size:15px;color:var(--navy)}
   .clientcard .meta{font-size:12px;color:var(--muted)}
   /* Discovery, two across. Twelve yes/no/unknown rows in a single column is
@@ -1529,8 +1534,19 @@ const STEPS=[
    valid:()=>S.objectives.length>0}),
 
  ()=>({eyebrow:"Customer & Industry",title:"Tell us about the customer",sub:"Smart 1 builds the business description from the website automatically.",
-   html:`<div class="fld"><label>Client / business name</label><input value="${esc(S.client)}" oninput="S.client=this.value;saveSoon();syncNext()" placeholder="Riverstone Dental Group"></div>
-   <div class="two"><div class="fld"><label>Website</label><input value="${esc(S.url)}" oninput="S.url=this.value;saveSoon()" placeholder="riverstonedental.com"></div>
+   html:`<div class="cards" style="margin-bottom:4px">
+    ${card("🔎","An existing client","Search the client list and attach this proposal to their record",S.clientMode!=="new",`setClientMode('existing')`)}
+    ${card("✨","A new client","Someone we do not have on file yet",S.clientMode==="new",`setClientMode('new')`)}
+   </div>
+   ${S.clientMode!=="new"?`<div class="bpanel"><div class="ttl">🔎 Find the client</div>
+    <div class="addrow" style="margin-top:8px">
+     <input id="clientQ" value="${esc(S._clientQ||'')}" placeholder="Name or website — riverstone, riverstonedental.com" oninput="searchClientsSoon(this.value)" style="flex:1;min-width:220px">
+     <button class="btn btn-ghost" onclick="searchClients(document.getElementById('clientQ').value)">Search</button></div>
+    <div id="clientHits"></div>
+    ${S.clientKey?`<div class="note" style="margin-top:8px;color:#1a6a3c"><b>✓ Attached to ${esc(S.client)}</b>${S.url?' · '+esc(S.url):''} — everything this proposal produces files onto that record. <a onclick="detachClient()" style="cursor:pointer;color:var(--blue);font-weight:700">Change</a></div>`:''}
+   </div>`:''}
+   <div class="fld"><label>Client / business name</label><input value="${esc(S.client)}" oninput="S.client=this.value;S.clientKey='';saveSoon();syncNext()" placeholder="Riverstone Dental Group"></div>
+   <div class="two"><div class="fld"><label>Website</label><input value="${esc(S.url)}" oninput="S.url=this.value;S.clientKey='';saveSoon()" placeholder="riverstonedental.com"></div>
    <div class="fld"><label>Industry</label><select onchange="S.industry=this.value;saveSoon();renderStep()"><option value="">Select…</option>${opt(INDUSTRIES,S.industry)}</select></div></div>
    <div class="bpanel"><div class="ttl">Business description</div>
     <div class="cards" style="margin-top:6px">
@@ -1544,7 +1560,8 @@ const STEPS=[
         ${(S.descriptionWarnings||[]).length?`<div class="warnbox" style="margin-top:8px"><b>⚠ Google would flag this</b>${S.descriptionWarnings.map(w=>esc(w)).join("<br>")}</div>`:''}</div>`
      : `<div class="fld" style="margin-top:12px"><label>Business description</label><textarea oninput="S.description=this.value;saveSoon()" placeholder="Family & cosmetic dentistry, 4.8 stars…">${esc(S.description)}</textarea></div>`}
    </div>`,
-   valid:()=>S.client.trim().length>0}),
+   valid:()=>S.client.trim().length>0&&(S.clientMode==="new"||!!S.clientKey),
+   after:()=>{if(S.clientMode!=="new"&&!S.clientKey&&(S._clientQ||"").trim())drawClientHits();}}),
 
  ()=>{ if(!S.landing)S.landing=landingRec();
    return{eyebrow:"Landing Page",title:"Where does the traffic land?",sub:"Enter the landing page early so Smart 1 can review it before you price the campaign.",
@@ -1810,6 +1827,67 @@ async function estimateAudienceAI(){
   toast(d.ai?("✨ Smart 1 sized "+d.measured+" area"+(d.measured===1?"":"s")+".")
             :("Sized "+d.measured+" area"+(d.measured===1?"":"s")+" from the built-in model."));
  }catch(e){S.aiEst=null;S._aiLoading=false;drawEst();toast("Couldn't reach the AI ("+e.message+"). Showing the built-in estimate.");}}
+/* ============================================================
+   NEW OR EXISTING CLIENT
+   A proposal typed against a name we already hold under a slightly different
+   spelling is a proposal that files nowhere -- Client 360 shows nothing, the
+   Suite opportunity attaches to a second contact, and the billing audit
+   reports a client with one proposal and no history.
+
+   So the step asks which it is, and searching attaches the real record.
+   `clientKey` is hub/client_key.py's derived key (d:<domain> where there is a
+   URL, n:<name-slug> where there is not) -- carried on the quote so the
+   filing path knows which record this belongs to, never used as a substitute
+   for the name itself.
+   ============================================================ */
+function setClientMode(mode){
+ S.clientMode=mode;
+ if(mode==="new")S.clientKey="";
+ saveSoon();renderStep();}
+function detachClient(){S.clientKey="";saveSoon();renderStep();}
+let _clientTimer=null;
+function searchClientsSoon(q){
+ S._clientQ=q;
+ clearTimeout(_clientTimer);
+ _clientTimer=setTimeout(()=>searchClients(q),260);}
+async function searchClients(q){
+ S._clientQ=q;
+ const host=document.getElementById('clientHits');
+ if(!host)return;
+ if(!String(q||"").trim()){host.innerHTML='';return;}
+ host.innerHTML='<div class="note" style="margin-top:8px"><span class="spin"></span>Searching…</div>';
+ try{
+  const d=await api('/api/clients/search?limit=8&q='+encodeURIComponent(q));
+  S._clientHits=d.clients||[];
+ }catch(e){
+  /* Say it failed. A search that silently returns nothing reads as "this
+     client does not exist", which is how a duplicate record gets created. */
+  host.innerHTML='<div class="warnbox" style="margin-top:8px">Could not search the client list: '+esc(e.message)+'. You can still type the name below.</div>';
+  return;
+ }
+ drawClientHits();}
+function drawClientHits(){
+ const host=document.getElementById('clientHits');if(!host)return;
+ const hits=S._clientHits||[];
+ if(!hits.length){
+  host.innerHTML='<div class="note" style="margin-top:8px">No client matches that. If they are genuinely new, choose <b>A new client</b> above — do not type a name here that we already hold under another spelling.</div>';
+  return;}
+ host.innerHTML='<div style="margin-top:9px">'+hits.map(c=>`
+  <div class="clienthit" onclick="attachClient(${esc(JSON.stringify(JSON.stringify(c)))})">
+   <b>${esc(c.name||'—')}</b>
+   <span>${esc(c.domain||c.url||'no website on file')}${c.product_count?' · '+c.product_count+' product'+(c.product_count===1?'':'s'):''}${c.is_house?' · house account':''}</span>
+  </div>`).join('')+'</div>';}
+function attachClient(raw){
+ let c;try{c=JSON.parse(raw);}catch(e){return;}
+ S.client=c.name||S.client;
+ /* Only overwrite the URL when the record has one. A client on file with no
+    website must not blank a URL the rep has already typed. */
+ if(c.url||c.domain)S.url=c.url||c.domain;
+ S.clientKey=c.key||"";
+ S.clientMode="existing";
+ saveSoon();renderStep();
+ toast("Attached to "+(c.name||"that client")+".");}
+
 async function generateDesc(){
  const b=document.getElementById('descBtn');if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Generating…';}
  try{const d=await api('/sales/builder/api/generate-business-description',{method:'POST',

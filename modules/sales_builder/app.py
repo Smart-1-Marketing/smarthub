@@ -312,6 +312,21 @@ def compute_guardrails(state):
 # =====================================================================
 # Serialization
 # =====================================================================
+def _client_key(name, url):
+    """Which client record this quote belongs to, joined the shared way.
+
+    hub/client_key.py is the single place that decides what a client is --
+    d:<domain> where there is a URL, n:<name-slug> where there is not. Matching
+    on the name alone is what attributed "Acme" to whichever of Acme Plumbing,
+    Acme Roofing and Acme Electric came out of a dict first.
+    """
+    try:
+        from hub import client_key as hub_client_key
+        return hub_client_key.client_key(name or "", url or "")
+    except Exception:                                       # noqa: BLE001
+        return ""
+
+
 def quote_json(q, include_data=False):
     state = {}
     try:
@@ -333,6 +348,11 @@ def quote_json(q, include_data=False):
         "products_summary": q.products_summary,
         "goals_summary": q.goals_summary,
         "geo_summary": q.geo_summary,
+        # Derived on read, never stored. CLAUDE.md: a stored key goes stale the
+        # moment a client is renamed in Knack, and create_all() would not add
+        # the column to the live Postgres anyway -- every local test would pass
+        # against a column that was silently absent in production.
+        "client_key": _client_key(q.client, q.website),
         "revision": q.revision,
         "io_number": q.io_number,
         "io_client_pdf_url": q.io_client_pdf_url,
