@@ -24,6 +24,7 @@ import { buildCampaign, type Submission } from './intake';
 import { loadTemplates } from './registry';
 import { ProjectStore } from './projects';
 import { analyzeLandingPage } from './landing';
+import { landingImages } from './landing-images';
 import { checkAuth, denied, rateLimit, sessionCookie, configuredToken, sweepBuckets, intakeCodeOk, intakeAllowed } from './auth';
 import { runDiagnostics } from './diagnostics';
 import { renderDiagnostics } from './diagnostics-page';
@@ -1305,6 +1306,31 @@ const server = http.createServer(async (req, res) => {
         if (p) { p.landingAnalysis = analysis; projects.save(p); }
       }
       return json(res, 200, analysis, cors);
+    }
+
+    // Pictures already on the landing page, offered as ad backgrounds. One of
+    // the five ways to choose one; the others are the client's gallery, an
+    // upload, stock search and AI generation.
+    if (route === 'POST /api/landing/images') {
+      const cors = corsHeaders(req.headers.origin);
+      const body = JSON.parse(await readBody(req, 20_000)) as
+        { url?: string; projectId?: string; minWidth?: number };
+      let target = String(body.url ?? '').trim();
+      // Falling back to the project's own landing page means the build screen
+      // does not have to re-send something it already stored.
+      if (!target && body.projectId) {
+        target = String(projects.get(body.projectId)?.landingPage ?? '').trim();
+      }
+      if (!target) return json(res, 400, { error: 'Provide a landing page URL' }, cors);
+      if (!/^https?:\/\//i.test(target)) target = 'https://' + target;
+
+      const minWidth = Number.isFinite(body.minWidth as number)
+        ? Math.max(1, Math.min(4000, Number(body.minWidth)))
+        : undefined;
+      // landingImages never throws: an unreadable page returns an empty list
+      // and a warning, which is what the chooser should show.
+      const found = await landingImages(target, { minWidth });
+      return json(res, 200, found, cors);
     }
 
     /* -------------------------------------------------------------- projects */
