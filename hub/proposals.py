@@ -332,14 +332,20 @@ def add_proposal(client: str, filename: str, data: bytes, date_sent: str = "",
 
 
 def update_proposal(client: str, pid: str, updates: dict) -> dict | None:
-    """Edit the date sent, title or note on an uploaded proposal."""
+    """Edit the date sent, title, note or Suite opportunity id of a proposal.
+
+    `opportunity_id` is writable so the Suite push can record what it created
+    without a second store; keyed on it, `upsert_from_ghl` then updates this
+    same row when GoHighLevel fires a status change instead of appending a
+    duplicate beside it.
+    """
     items = list_proposals(client)
     hit = next((i for i in items if i.get("id") == pid), None)
     if hit is None:
         return None
     if "date_sent" in updates:
         hit["date_sent"] = _iso_date(updates["date_sent"], hit.get("date_sent", ""))
-    for key, cap in (("title", 200), ("note", 500)):
+    for key, cap in (("title", 200), ("note", 500), ("opportunity_id", 64)):
         if key in updates:
             hit[key] = str(updates[key] or "").strip()[:cap]
     _write(client, items)

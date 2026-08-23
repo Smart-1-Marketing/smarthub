@@ -1,21 +1,100 @@
-"""Bracket balance for JavaScript: string, comment, template and regex aware.
+"""Syntax-check every piece of JavaScript in the repo, including inline blocks.
 
-There is no node on the machine this gets developed on, so this stands in for
-`node --check`. It will not catch every syntax error, but it catches the one
-that actually happens when a script edits template-literal HTML in place: an
-unbalanced brace, or a backtick that never closes. Both of those take a page
-from "one broken panel" to "blank screen", and both are invisible to a diff.
+`node --check hub/static/*.js` covers the standalone files. It does not cover
+the JavaScript written directly into Jinja templates, which is where most of
+this codebase's browser code actually lives — the diagnostics page, the leads
+panel, Client 360. A syntax error there is invisible until somebody opens the
+page and a panel silently never renders.
 
-    python tools/jscheck.py hub/static/*.js
+Templates are not valid JavaScript on their own: a block containing `{% if %}`
+or `{{ value }}` is Jinja, and Node would reject it for the wrong reason. Those
+blocks get the bracket-balance check below instead — string, comment, template
+and regex aware, and tolerant of Jinja because it never has to parse it. That
+will not catch every syntax error, but it catches the one that actually
+happens when a script edits template-literal HTML in place: an unbalanced
+brace, or a backtick that never closes. Both take a page from "one broken
+panel" to "blank screen", and both are invisible in a diff.
 
-Templates need real nesting, not a counter. `${items.map(x => `<li>${x}</li>`)}`
-puts a template inside an interpolation inside a template, and an object
-literal inside `${...}` has braces of its own. A first version of this counted
-`${` and `}` and reported half this codebase as broken, which is worse than no
-checker: it trains you to ignore it. So the template marker goes on the same
-stack as every other bracket.
+Anything neither check could look at is *reported* as unchecked rather than
+quietly passed — an unchecked file counted as a pass is the failure mode this
+repo keeps writing checks against.
+
+Exits non-zero on the first real syntax error, so it can gate a release.
+
+    python3 tools/jscheck.py
 """
-import sys
+from __future__ import annotations
+
+import pathlib
+import subprocess
+import tempfile
+from html.parser import HTMLParser
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SKIP_DIRS = {"_attic", "__pycache__", "node_modules", ".git", "dist", "build"}
+
+# A <script> with one of these types holds data or a client-side template, not
+# JavaScript. Feeding those to node reports a syntax error in something that
+# was never meant to parse.
+NON_JS_TYPES = {"text/template", "text/x-template", "text/html", "application/json",
+                "application/ld+json", "text/plain", "text/x-handlebars-template"}
+
+
+def _skip(path: pathlib.Path) -> bool:
+    return any(part in SKIP_DIRS for part in path.parts)
+
+
+class _ScriptFinder(HTMLParser):
+    """Inline <script> bodies, found by parsing rather than by pattern.
+
+    The regex version of this matched the literal text `<script>` sitting
+    inside a textarea's placeholder attribute and reported a syntax error in a
+    hint string. An HTML parser knows the difference between a tag and a
+    quoted attribute value that happens to contain one, which is the whole
+    reason to use one.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.blocks: list[str] = []
+        self._depth = 0
+        self._keep = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "script":
+            return
+        self._depth += 1
+        a = {k.lower(): (v or "") for k, v in attrs}
+        # External scripts have no inline body; non-JS types are not JavaScript.
+        self._keep = ("src" not in a
+                      and a.get("type", "").split(";")[0].strip().lower()
+                      not in NON_JS_TYPES)
+
+    def handle_data(self, data):
+        if self._depth and self._keep and data.strip():
+            self.blocks.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "script" and self._depth:
+            self._depth -= 1
+            self._keep = False
+
+
+def _node_check(source: str, label: str) -> str:
+    """"" if it parses, else the error text."""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                     encoding="utf-8") as fh:
+        fh.write(source)
+        tmp = fh.name
+    try:
+        r = subprocess.run(["node", "--check", tmp], capture_output=True, text=True)
+        if r.returncode == 0:
+            return ""
+        # The temp path in the error is noise; the label is what locates it.
+        return (r.stderr or r.stdout).replace(tmp, label).strip()
+    finally:
+        pathlib.Path(tmp).unlink(missing_ok=True)
+
 
 BS = "\\"
 
@@ -176,15 +255,76 @@ def check(src, name):
         return "%s: unclosed %s from line %d" % (name, what, opened_at)
     return None
 
+def main() -> int:
+    if subprocess.run(["node", "--version"], capture_output=True).returncode != 0:
+        print("node is not available, so no JavaScript was checked.")
+        return 1
+
+    checked = skipped = 0
+    failures: list[str] = []
+
+    for path in sorted(ROOT.rglob("*.js")):
+        if _skip(path.relative_to(ROOT)):
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        err = _node_check(path.read_text(encoding="utf-8", errors="ignore"), rel)
+        checked += 1
+        if err:
+            failures.append(f"{rel}\n{err}")
+
+    jinja_skipped: list[str] = []
+    for path in sorted(ROOT.rglob("*.html")):
+        if _skip(path.relative_to(ROOT)):
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        try:
+            html = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        finder = _ScriptFinder()
+        try:
+            finder.feed(html)
+        except Exception:                                 # noqa: BLE001
+            # Unparseable markup: report it rather than counting it as clean.
+            failures.append(f"{rel}\ncould not be parsed as HTML")
+            continue
+        for i, block in enumerate(finder.blocks):
+            if not block.strip():
+                continue
+            if "{%" in block or "{{" in block:
+                # Node cannot read this, but the balance checker can: it walks
+                # the source character by character and never has to
+                # understand a {{ value }} it passes over.
+                err = check(block, f"{rel} (inline block {i + 1})")
+                skipped += 1
+                if err:
+                    failures.append(f"{rel} inline block {i + 1}\n{err}")
+                else:
+                    jinja_skipped.append(f"{rel} block {i + 1}")
+                continue
+            err = _node_check(block, f"{rel} (inline block {i + 1})")
+            checked += 1
+            if err:
+                failures.append(f"{rel} inline block {i + 1}\n{err}")
+
+    print(f"node-checked {checked} JavaScript block(s); "
+          f"balance-checked {skipped} more that carry Jinja syntax")
+    if jinja_skipped:
+        # Named, not just counted. These passed the balance check, which is
+        # real but partial — the number alone would read like full coverage.
+        for s in jinja_skipped[:15]:
+            print(f"  balance only (Jinja, not node-checked): {s}")
+        if len(jinja_skipped) > 15:
+            print(f"  …and {len(jinja_skipped) - 15} more")
+
+    if failures:
+        print(f"\n{len(failures)} JavaScript syntax error(s):\n")
+        for f in failures:
+            print(f + "\n")
+        return 1
+    print("no JavaScript syntax errors.")
+    return 0
+
 
 if __name__ == "__main__":
-    failed = 0
-    for path in sys.argv[1:]:
-        with open(path, encoding="utf-8", errors="ignore") as fh:
-            err = check(fh.read(), path)
-        if err:
-            failed = 1
-            print("FAIL  " + err)
-        else:
-            print("OK    " + path)
-    sys.exit(failed)
+    raise SystemExit(main())

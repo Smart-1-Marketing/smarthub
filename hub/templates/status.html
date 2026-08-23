@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Status — Smart 1 Hub{% endblock %}
 {% block content %}
-<div class="page-head"><h2>System Status</h2><p>Live checks of every key, token &amp; connection the Hub depends on</p></div>
+<div class="page-head"><h2 data-tour="status-checks">System Status {{ help_dot('hub.status.checks') if help_dot is defined else '' }}</h2><p>Live checks of every key, token &amp; connection the Hub depends on</p></div>
 <div class="card">
   <div class="card-h"><h3>Diagnostics</h3><div class="right"><button class="btn-ghost" onclick="load()">&#8635; Run checks</button></div></div>
   <div class="card-b flush"><table id="checks"><tbody><tr><td class="empty">Running live checks… <span class="spin"></span></td></tr></tbody></table></div>
@@ -19,7 +19,7 @@
   <div class="card-b"><p class="muted" style="font-size:13px">The Suite module has its own Status tab that additionally live-checks snapshot scope and media-upload scope on your GHL token.</p></div>
 </div>
 <div class="card">
-  <div class="card-h"><h3>Error Log</h3><div class="right">
+  <div class="card-h"><h3 data-tour="status-errors">Error Log {{ help_dot('hub.status.errors') if help_dot is defined else '' }}</h3><div class="right">
     <button class="btn-ghost" onclick="loadErrors()">&#8635; Refresh</button>
     <button class="btn-ghost" onclick="clearErrors()" style="color:#b91c1c">Clear log</button>
   </div></div>

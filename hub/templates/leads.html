@@ -2,7 +2,7 @@
 {% block title %}Leads — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h2>Leads</h2>
+  <h2 data-tour="leads-store">Leads {{ help_dot('hub.leads.store') if help_dot is defined else '' }}</h2>
   <p>Everything captured by a landing page or a calculator, tagged with the page
      that produced it. Leads are stored here first and then forwarded to Smart 1
      Suite &mdash; so a Suite outage delays a lead rather than losing it.</p>
@@ -51,17 +51,41 @@ function loadLeads(){
     });
 }
 
+var HELP_DELIVERY = {{ (help_dot('hub.leads.delivery') if help_dot is defined else '')|tojson }};
+var HELP_CONVERT  = {{ (help_dot('hub.leads.convert')  if help_dot is defined else '')|tojson }};
+
 function renderLeads(d){
-  document.getElementById('leadWarn').innerHTML = d.note
-    ? '<div style="background:#fff4d7;color:#8a5a00;padding:10px 14px;border-radius:9px;'+
-      'font-size:13px;margin-bottom:14px">'+esc(d.note)+'</div>' : '';
+  document.getElementById('leadWarn').innerHTML =
+    (d.route_warning
+      ? '<div style="background:#fdecea;color:#8a1c12;padding:10px 14px;border-radius:9px;'+
+        'font-size:13px;margin-bottom:14px"><b>Two delivery routes configured.</b> '+
+        esc(d.route_warning)+'</div>' : '')+
+    (d.note
+      ? '<div style="background:#fff4d7;color:#8a5a00;padding:10px 14px;border-radius:9px;'+
+        'font-size:13px;margin-bottom:14px">'+esc(d.note)+'</div>' : '');
 
   document.getElementById('leadStats').innerHTML =
     '<div class="diag-row"><span class="diag-pill p-ok">'+d.count+'</span>'+
     '<span class="diag-name">Leads</span><span class="diag-detail">'+
     'in the last '+d.days+' days · '+d.with_pdf+' with a report attached'+
     (d.undelivered ? ' · <b>'+d.undelivered+' not yet in Suite</b>' : ' · all delivered')+
+    (d.needs_attention ? ' · <b>'+d.needs_attention+' need attention</b>' : '')+
+    (d.converted ? ' · '+d.converted+' converted to clients' : '')+
     '</span></div>'+
+    '<div class="diag-row"><span class="diag-pill p-'+
+      (d.route==='api'?'ok':d.route==='webhook'?'warn':'error')+'">'+
+      esc(d.route||'none')+'</span><span class="diag-name">Delivery route</span>'+
+      '<span class="diag-detail">Leads are written to Smart 1 Suite via the <b>'+
+      esc(d.route_label||'')+'</b>.'+
+      (d.route==='api'
+        ? ' '+d.confirmed+' of '+d.count+' carry a Suite contact id, which is what '+
+          'confirms the contact exists rather than just that the request was accepted.'
+        : d.route==='webhook'
+          ? ' A webhook confirms only that Suite accepted the request — there is no '+
+            'contact id to check against.'
+          : '')+
+      ' <a href="/api/leads/ghl/preflight?find=1" target="_blank" rel="noopener">Run preflight</a>'+
+      '</span></div>'+
     (d.by_page.length
       ? '<div class="diag-row"><span class="diag-pill p-off">'+d.by_page.length+
         '</span><span class="diag-name">Pages</span><span class="diag-detail">'+
@@ -77,9 +101,12 @@ function renderLeads(d){
   document.getElementById('leadTable').innerHTML =
     '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
     '<thead><tr>'+
-    ['Captured','Name','Contact','Page','Report','Suite'].map(function(h){
+    ['Captured','Name','Contact','Page','Report','Suite','Client'].map(function(h){
+      // The table is drawn from a fetch, so these bubbles arrive after load.
+      // hub-help.js watches for that; a dot added here behaves like any other.
+      var dot = h === 'Suite' ? HELP_DELIVERY : (h === 'Client' ? HELP_CONVERT : '');
       return '<th style="text-align:left;padding:6px;font-size:11px;color:#94a3b8;'+
-             'text-transform:uppercase;letter-spacing:.5px">'+h+'</th>';}).join('')+
+             'text-transform:uppercase;letter-spacing:.5px">'+h+dot+'</th>';}).join('')+
     '</tr></thead><tbody>'+
     d.leads.map(function(l){
       return '<tr>'+
@@ -98,16 +125,50 @@ function renderLeads(d){
             'rel="noopener">Open PDF</a>':'<span class="muted">—</span>')+'</td>'+
         '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
           (l.delivered
-            ? '<span class="pill ok">sent</span>'
-            : '<span class="pill err" title="'+esc(l.last_error||'')+'">queued</span>')+
+            ? (l.contact_id
+                ? '<span class="pill ok" title="Suite contact '+esc(l.contact_id)+'">in Suite</span>'
+                : '<span class="pill ok" title="Accepted by the webhook. No contact id — '+
+                  'delivery is not confirmed beyond the request being accepted.">sent</span>')
+            : (l.retryable===false
+                ? '<span class="pill err" title="'+esc(l.last_error||'')+'">needs attention</span>'
+                : '<span class="pill err" title="'+esc(l.last_error||'')+'">queued</span>'))+
+          '</td>'+
+        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
+          (l.converted_at
+            ? '<span class="pill ok" title="Linked '+esc((l.converted_at||"").slice(0,10))+
+              '">'+esc(l.client||'client')+'</span>'
+            : '<button class="um-btn" onclick="convertLead(\''+esc(l.id||'')+'\')">'+
+              'Link to client</button>')+
           '</td></tr>';
     }).join('')+'</tbody></table>';
+}
+
+// Linking a lead to the client it became. The account itself is created in
+// Knack -- that is what billing reads -- so this asks for the name and refuses
+// one the registry does not know, rather than inventing a client here and
+// leaving the Hub disagreeing with the invoice.
+function convertLead(id){
+  if(!id) return;
+  var name = prompt('Which client did this prospect become?\n\n'+
+                    'Type the account name exactly as it appears in the Hub. '+
+                    'The account must already exist in Knack.');
+  if(name === null) return;
+  name = name.trim();
+  if(!name) return;
+  fetch('/api/leads/convert',{
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({id:id, client:name})
+  }).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){ loadLeads(); } else { alert(d.error || 'That could not be linked.'); }
+  }).catch(function(){ alert('That could not be linked.'); });
 }
 
 function retryLeads(){
   fetch('/api/leads/retry',{method:'POST',credentials:'same-origin'})
     .then(function(r){return r.json();}).then(function(d){
-      alert(d.note || (d.delivered+' delivered, '+d.still_failing+' still queued.'));
+      alert(d.note || (d.delivered+' delivered, '+d.still_failing+' still queued'+
+                       (d.needs_attention? ', '+d.needs_attention+' need attention':'')+'.'));
       loadLeads();
     }).catch(function(){ alert('Could not retry.'); });
 }

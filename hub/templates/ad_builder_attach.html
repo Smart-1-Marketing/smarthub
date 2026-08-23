@@ -2,7 +2,7 @@
 {% block title %}Attach creative to a client — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h2>Attach creative to a client</h2>
+  <h2 data-tour="ads-attach">Attach creative to a client {{ help_dot('display_ads.attach.filing') if help_dot is defined else '' }}</h2>
   <p>Files the finished ads into that client's gallery, tagged with the date,
      size, weight and whether they meet the spec. The files are not copied —
      the gallery points at the ones the builder already produced.</p>

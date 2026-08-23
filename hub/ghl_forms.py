@@ -165,8 +165,19 @@ def _delta(now: int, before: int) -> dict:
 
 def summary(client: str, location_id: str = "", period: str = "this_month") -> dict:
     """Forms with submissions in the period, against the one before it."""
-    loc = (location_id or os.environ.get("GHL_COMPANY_ID")
-           or os.environ.get("SUITE_COMPANY_ID") or "").strip()
+    # The forms API keys on a *location*. This previously fell back to
+    # GHL_COMPANY_ID / SUITE_COMPANY_ID, which are agency ids — so with no
+    # explicit location it asked for the agency's forms and got an empty list
+    # back, indistinguishable from a client who simply has no submissions.
+    loc = (location_id or os.environ.get("GHL_LEAD_LOCATION_ID")
+           or os.environ.get("GHL_ACCOUNTING_LOCATION_ID") or "").strip()
+    company = (os.environ.get("GHL_COMPANY_ID")
+               or os.environ.get("SUITE_COMPANY_ID") or "").strip()
+    if loc and company and loc == company:
+        return {"error": "The configured location id is the agency company id, "
+                         "not a sub-account. Set GHL_LEAD_LOCATION_ID to the "
+                         "sub-account id.",
+                "forms": [], "period": period}
     if not _token() or not loc:
         return {"error": "No Smart 1 Suite token or location id for this client.",
                 "forms": [], "period": period}

@@ -242,6 +242,31 @@ def _engine_use(src: str) -> tuple[bool, bool]:
     return (builds, shared)
 
 
+def _resolves_through_key(root, module: str) -> bool:
+    """Does this module actually go through hub/client_key for its identity?
+
+    Source-read, like the rest of this report, and deliberately literal: it
+    looks for the import, not for a comment saying the module should have one.
+    That distinction is why the engine check above is parsed rather than
+    grepped — a promise in a comment counted as evidence once already.
+    """
+    import pathlib
+    base = pathlib.Path(root) / ("modules/" + module if module != "hub" else "hub")
+    if not base.exists():
+        return False
+    for p in base.rglob("*.py"):
+        if "__pycache__" in p.parts:
+            continue
+        try:
+            src = p.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if re.search(r"from\s+hub\.client_key\s+import|import\s+hub\.client_key",
+                     src):
+            return True
+    return False
+
+
 def structure_report() -> dict:
     """Where client data actually lives, and where it can drift apart.
 
@@ -303,16 +328,57 @@ def structure_report() -> dict:
             "where": own_modules,
         })
     if len(keys_used) > 1:
-        risks.append({
-            "level": "high",
-            "title": f"A client is identified {len(keys_used)} different ways",
-            "detail": "There is no single client table. " + ", ".join(keys_used) +
-                      " are used across modules with nothing joining them, so "
-                      "the same client can exist several times under slightly "
-                      "different names. This is what makes the billing audit "
-                      "report false alarms.",
-            "where": sorted({k['module'] for k in client_keys}),
-        })
+        # The columns are still different — that part is structural and would
+        # take a migration to change. What matters is whether anything joins
+        # them, so check for the joiner rather than assuming it is absent.
+        # This check reported "nothing joining them" for as long as that was
+        # true; it has to stop saying so when it stops being true, or the
+        # diagnostics page trains people to ignore it.
+        joined = (root / "hub" / "client_key.py").is_file()
+        users = sorted({k["module"] for k in client_keys
+                        if _resolves_through_key(root, k["module"])})
+        unjoined = sorted({k["module"] for k in client_keys}) if not joined else \
+            [m for m in sorted({k["module"] for k in client_keys}) if m not in users]
+        if not joined:
+            risks.append({
+                "level": "high",
+                "title": f"A client is identified {len(keys_used)} different ways",
+                "detail": "There is no single client table. " + ", ".join(keys_used) +
+                          " are used across modules with nothing joining them, so "
+                          "the same client can exist several times under slightly "
+                          "different names. This is what makes the billing audit "
+                          "report false alarms.",
+                "where": sorted({k['module'] for k in client_keys}),
+            })
+        elif unjoined:
+            risks.append({
+                "level": "medium",
+                "title": f"{len(unjoined)} module(s) not on the shared client key",
+                "detail": "hub/client_key.py derives one client key from "
+                          "whatever a module holds, and " + ", ".join(users) +
+                          " resolve through it. These do not, so their records "
+                          "still can't be grouped with anybody else's. "
+                          "/api/clients/crosswalk shows what is and isn't "
+                          "joined right now.",
+                "where": unjoined,
+            })
+        else:
+            risks.append({
+                "level": "low",
+                "title": f"{len(keys_used)} client key columns, joined on read",
+                "detail": "The columns still differ — " + ", ".join(keys_used) +
+                          " — because changing them needs a migration and "
+                          "create_all() does not do migrations. They are joined "
+                          "instead by a key derived on read in "
+                          "hub/client_key.py, so a client renamed in Knack is "
+                          "re-joined on the next request and there is no second "
+                          "copy to drift. /api/clients/crosswalk lists every "
+                          "client that exists in more than one module, every "
+                          "one filed under more than one name, and every record "
+                          "with no URL on file that therefore cannot be joined "
+                          "to anything.",
+                "where": users,
+            })
     try:
         from .extensions import legacy_databases
         leftovers = legacy_databases()
@@ -475,15 +541,23 @@ def resolve_by_url(value: str) -> dict:
     }
 
 
-def url_audit(limit: int = 500) -> dict:
-    """Every client with no usable URL, and every domain with several names."""
+def url_audit(limit: int = 2000) -> dict:
+    """Every client with no usable URL, and every domain with several names.
+
+    The cap used to be 500 against a registry of ~950, and `checked` reported
+    the full count regardless — so this said it had checked every client and
+    quietly missed nine of the eleven duplicate domains. A report that stops
+    early has to say it stopped early; a clean-looking number that was never
+    measured is the failure mode this codebase keeps hitting.
+    """
     rows, by_domain = [], {}
     try:
         from hub import clients_registry
         clients = clients_registry.all_clients()
     except Exception:                                     # noqa: BLE001
         clients = []
-    for c in clients[:limit]:
+    examined = clients[:limit]
+    for c in examined:
         name = _clean(c.get("name"))
         if not name:
             continue
@@ -495,12 +569,18 @@ def url_audit(limit: int = 500) -> dict:
         by_domain.setdefault(dom, set()).add(name)
     dupes = [{"domain": d, "clients": sorted(n)}
              for d, n in by_domain.items() if len(n) > 1]
+    note = ("A client with no URL can't be joined to a scan, a brand lookup, "
+            "or anything else keyed on domain — they are invisible to every "
+            "cross-tool report.")
+    if len(clients) > len(examined):
+        note += (f" Only the first {len(examined)} of {len(clients)} clients "
+                 f"were checked, so this is a floor, not a total.")
     return {
-        "checked": len(clients),
+        "checked": len(examined),
+        "clients_on_file": len(clients),
+        "truncated": len(clients) > len(examined),
         "missing_url": rows,
         "duplicate_domains": dupes,
         "unique_domains": len(by_domain),
-        "note": "A client with no URL can't be joined to a scan, a brand "
-                "lookup, or anything else keyed on domain — they are invisible "
-                "to every cross-tool report.",
+        "note": note,
     }
