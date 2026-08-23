@@ -14,6 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyBlockStyles, MAX_TYPE, MIN_LOGO, MIN_TYPE } from '../src/block-style';
+import { listFamilies } from '../src/fonts';
 import type { SizeLayout } from '../src/types';
 
 function layout(): SizeLayout {
@@ -104,6 +105,26 @@ test('nonsense numbers are ignored rather than propagated', () => {
   const out = applyBlockStyles(layout(), { headline: { size: NaN, w: Infinity } });
   assert.deepEqual((out as any).headline.size, [12, 20], 'size untouched');
   assert.equal((out as any).headline.w, 260, 'width untouched');
+});
+
+test('a block can take a family the renderer actually has', () => {
+  const family = listFamilies()[0];
+  const out = applyBlockStyles(layout(), { headline: { font: family } });
+  assert.equal((out as any).headline.font, family);
+});
+
+test('a family the renderer does not have is dropped, not passed on', () => {
+  // resolveFont falls back to Montserrat predictably, so accepting this would
+  // render one face while the control still showed the name that was asked
+  // for -- the ad looks wrong and the panel says it is right.
+  const out = applyBlockStyles(layout(), { headline: { font: 'Helvetica Neue LT Pro' } });
+  assert.equal((out as any).headline.font, undefined);
+});
+
+test('an unavailable family does not discard the edits beside it', () => {
+  const out = applyBlockStyles(layout(), { headline: { font: 'Nonesuch', size: 30 } });
+  assert.equal((out as any).headline.font, undefined);
+  assert.equal((out as any).headline.size[1], 30, 'the size still applied');
 });
 
 /* ------------------------------------------------------------------ logo */

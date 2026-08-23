@@ -231,7 +231,11 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
     if (!spec || !raw) return;
     const text = spec.uppercase ? raw.toUpperCase() : raw;
     const weight = spec.weight ?? (role === 'headline' || role === 'offer' ? 'bold' : 'regular');
-    const family = role === 'headline' || role === 'offer' ? brand.fonts.headline : brand.fonts.body;
+    // A block may name its own family; otherwise it takes the brand's face for
+    // its role. The per-block value is validated upstream, so an unavailable
+    // name never reaches here as something resolveFont would silently swap.
+    const family = spec.font
+      ?? (role === 'headline' || role === 'offer' ? brand.fonts.headline : brand.fonts.body);
     const font = resolveFont(family, weight);
 
     const fit = fitText({
@@ -286,7 +290,7 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
   if (layout.cta && copy.cta && !noBakedCta) {
     const cb = layout.cta;
     const label = cb.uppercase === false ? copy.cta : copy.cta.toUpperCase();
-    const font = resolveFont(brand.fonts.body, cb.weight ?? 'bold');
+    const font = resolveFont(cb.font ?? brand.fonts.body, cb.weight ?? 'bold');
     const fit = fitText({
       font,
       text: label,
