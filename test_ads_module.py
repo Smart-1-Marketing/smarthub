@@ -524,6 +524,25 @@ def gallery_background_source():
           next((i["label"] for i in res["images"]
                 if i["public_id"] == "crew"), "") == "1600\u00d7900")
 
+    # The loop the upload source depends on: a picture filed from the editor
+    # has to come back out of the gallery source, or the next person uploads
+    # the same photo again.
+    saved = ad_builder_link.save_to_gallery(
+        client_name=name, url="https://res.cloudinary.com/x/just-uploaded.jpg",
+        public_id="just-uploaded", filename="premises.jpg",
+        width=1800, height=1200, actor="todd@smart1marketing.com")
+    check("an uploaded background files into the gallery", saved.get("ok"),
+          str(saved))
+    check("...and the gallery source then offers it",
+          "just-uploaded" in {i["public_id"] for i in
+                              ad_builder_link.client_gallery(name)["images"]})
+    check("a picture with no https URL is refused in words",
+          ad_builder_link.save_to_gallery(client_name=name, url="ftp://x/y.jpg")
+          .get("error", "").startswith("A gallery picture"))
+    check("and one with no client is refused rather than guessed at",
+          not ad_builder_link.save_to_gallery(
+              client_name="", url="https://res.cloudinary.com/x/z.jpg")["ok"])
+
     empty = ad_builder_link.client_gallery("Nobody We Know Ltd")
     check("an unknown client returns no images and says why",
           empty["ok"] and not empty["images"] and "gallery" in empty["note"],
