@@ -1074,6 +1074,24 @@ def build_proposal_pdf(q, state):
                                 + ", ".join(results["metrics"]) + ".", st_body))
             if results.get("traditional_note"):
                 story.append(_p(results["traditional_note"], st_body))
+        elif kind == "zips":
+            # The trafficking reference, at the back. Monospaced and small on
+            # purpose: it is a list to be checked against, not read.
+            rows = [["Target Area", "ZIP Codes"]]
+            for area in campaign_areas(state):
+                codes = hub_areas.zip_list(area)
+                if codes:
+                    rows.append([_p(hub_areas.label(area), st_small),
+                                 _p(", ".join(codes), st_small)])
+            if len(rows) > 1:
+                zt = Table(rows, colWidths=[2.1 * inch, 5.3 * inch], repeatRows=1)
+                zt.setStyle(TableStyle(_head_style_rows()))
+                story.append(zt)
+            else:
+                story.append(_p("No ZIP Codes were captured for this campaign. "
+                                "The insertion order needs them before trafficking.",
+                                st_small))
+
 
     # Footer
     story += [Spacer(1, 16),
@@ -1266,6 +1284,16 @@ def build_proposal_docx(q, state):
             d.add_paragraph(f"Estimated population {int(est.get('pop') or 0):,} · addressable audience "
                             f"{int(est.get('aud') or 0):,} · households {int(est.get('hh') or 0):,} · "
                             f"devices {int(est.get('dev') or 0):,}")
+        elif kind == "zips":
+            wrote = False
+            for area in campaign_areas(state):
+                codes = hub_areas.zip_list(area)
+                if codes:
+                    d.add_paragraph(f"{hub_areas.label(area)} — {', '.join(codes)}")
+                    wrote = True
+            if not wrote:
+                d.add_paragraph("No ZIP Codes were captured for this campaign. "
+                                "The insertion order needs them before trafficking.")
 
     p = d.add_paragraph("Smart 1 Marketing · smart1marketing.com · This proposal is valid for 30 days.")
     hcolor(p, 8, MUTED_D, bold=False, center=True)

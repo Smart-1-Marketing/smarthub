@@ -173,6 +173,18 @@ OUTLINE = [
         "guidance": "A three-step checklist: sign the agreement, complete the onboarding "
                     "questionnaire, book the 30-minute kickoff call.",
     },
+    {
+        # Last on purpose. The ZIP list is the one part of a proposal nobody
+        # reads and trafficking cannot launch without -- a hundred five-digit
+        # numbers in the middle of the audience section buries the strategy
+        # it sits inside, and dropping them means the IO gets built from a
+        # radius somebody re-derives by hand. At the back it is reference,
+        # which is what it is.
+        "id": "zips", "title": "ZIP Codes Targeted", "kind": "zips", "enabled": True,
+        "purpose": "The trafficking reference: every ZIP each target area covers.",
+        "guidance": "Generated, not written. One line per target area, listing the "
+                    "ZIP Codes it covers. Say nothing above it beyond what it is for.",
+    },
 ]
 
 # Sections that are never removed. `roi` is mandatory by directive; without

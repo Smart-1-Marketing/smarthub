@@ -1117,6 +1117,7 @@ const PROPOSAL_OUTLINE=[
  {id:"kpis",title:"How We Measure Success",kind:"kpis",purpose:"The metrics we are judged on."},
  {id:"roi",title:"Expected Results & ROI",kind:"roi",purpose:"What the money buys, computed from the rate card. Required."},
  {id:"next",title:"Next Steps",kind:"text",purpose:"Sign, onboard, kick off."},
+ {id:"zips",title:"ZIP Codes Targeted",kind:"zips",purpose:"The trafficking reference — every ZIP each area covers. Generated, and last on purpose."},
 ];
 const REQUIRED_SECTIONS=["roi","mediaplan","packages"];
 const SUITE_TIERS=[
@@ -1237,12 +1238,23 @@ function areaEditorStep(){
    ${a.type==="Statewide"?`<div class="fld"><label>State</label><input value="${esc(a.state||'')}" oninput="setArea('state',this.value)" placeholder="Indiana"></div>`:''}
    ${a.type==="Other"?`<div class="fld"><label>Describe the area</label><input value="${esc(a.other||'')}" oninput="setArea('other',this.value)" placeholder="Six-county service territory"></div>`:''}
    ${a.type==="National"?'<div></div>':''}</div>
-  ${a.type==="City/ZIP + Radius"?`<div class="two">
-   <div class="fld"><label>Radius (miles)</label><input type="number" min="1" value="${a.radius||10}" oninput="setArea('radius',Math.max(1,+this.value));drawAreaEst()" style="max-width:160px"></div>
-   <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" id="zipBtn" onclick="lookupZips()">📍 Find the ZIP Codes this radius touches</button></div></div>`:''}
-  ${(a.type==="City/ZIP + Radius"||a.type==="Other")?`<div class="fld"><label>ZIP Codes for this area (optional — the IO needs them before trafficking)</label>
-   <textarea style="min-height:70px" oninput="setArea('zips',this.value);drawAreaEst()" placeholder="46032, 46033, 46074…">${esc(a.zips||'')}</textarea>
-   <div class="note" id="zipNote" style="margin-top:5px"></div></div>`:''}
+  ${a.type==="City/ZIP + Radius"?`<div class="fld"><label>Radius (miles)</label><input type="number" min="1" value="${a.radius||10}" oninput="setArea('radius',Math.max(1,+this.value));drawAreaEst()" style="max-width:160px"></div>`:''}
+  ${(a.type==="City/ZIP + Radius"||a.type==="Other")?(()=>{
+   /* Finding the ZIPs is an action, and the list itself is reference. It used
+      to be an always-open textarea of a hundred five-digit numbers sitting
+      between the radius and the notes, which buried the rest of the step.
+      The list lives at the foot of the proposal now; here it is a count, a
+      button, and an editor behind a toggle for the times it needs correcting. */
+   const z=areaZips(a);
+   return `<div class="bpanel" style="margin-top:12px"><div class="ttl">📍 ZIP Codes for this area</div>
+    <div class="note" style="margin-top:4px">${z.length
+      ? '<b>'+z.length+' ZIP Code'+(z.length===1?'':'s')+'</b> captured. They print at the back of the proposal and travel to the insertion order.'
+      : 'None yet. The insertion order needs them before trafficking.'}</div>
+    <div class="addrow" style="margin-top:9px">
+     ${a.type==="City/ZIP + Radius"?`<button class="btn ${z.length?'btn-line':'btn-primary'}" id="zipBtn" onclick="lookupZips()">📍 ${z.length?'Find them again':'Find the ZIP Codes this radius touches'}</button>`:''}
+     <button class="btn btn-ghost" onclick="S._zipEdit=!S._zipEdit;renderStep()">${S._zipEdit?'✓ Done':'✎ Enter or edit them by hand'}</button></div>
+    ${S._zipEdit?`<div class="fld" style="margin-top:10px"><textarea style="min-height:70px" oninput="setArea('zips',this.value);drawAreaEst()" placeholder="46032, 46033, 46074…">${esc(a.zips||'')}</textarea></div>`:''}
+    <div class="note" id="zipNote" style="margin-top:5px"></div></div>`;})():''}
   ${a.type==="Other"?`<div class="fld"><label>Approximate population (optional)</label><input type="number" value="${a.population||''}" oninput="setArea('population',+this.value||0);drawAreaEst()" style="max-width:220px"><div class="note" style="margin-top:5px">Without this, an "Other" area is reported as not measured rather than being guessed at.</div></div>`:''}
   <div class="fld"><label>Notes for this area (optional)</label>
    <input value="${esc(a.notes||'')}" oninput="setArea('notes',this.value)" placeholder="Weekend traffic only · competitor conquesting · new location opening in March"></div>
@@ -1387,6 +1399,14 @@ function previewTable(sec,e){
  if(k==="mediaplan")return mediaPlanEditor();
  if(k==="packages")return investmentTable();
  if(k==="roi")return roiTable();
+ if(k==="zips"){
+  /* Every ZIP, at the back of the document. Trafficking cannot launch
+     without this list and nobody reads it in the middle of the strategy. */
+  const rows=(S.targetAreas||[]).filter(areaComplete).map(a=>[a,areaZips(a)]).filter(r=>r[1].length);
+  if(!rows.length)return '<div class="dnote">No ZIP Codes captured yet. Find them on the target-area step — the insertion order needs them before trafficking.</div>';
+  return dtable(["Target area","ZIP Codes"],rows.map(([a,z])=>
+   [esc(areaLabel(a))+'<br><span style="color:var(--muted)">'+z.length+' ZIP Code'+(z.length===1?'':'s')+'</span>',
+    '<span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.7">'+z.map(esc).join(", ")+'</span>']));}
  return '';}
 function dtable(head,rows){
  return `<table class="dtbl"><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`

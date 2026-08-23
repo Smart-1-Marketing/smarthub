@@ -74,8 +74,13 @@ section("the 13-part structure")
 from hub import proposal_spec as spec                              # noqa: E402
 
 ids = [s["id"] for s in spec.OUTLINE]
-check("the outline is ordered cover-first, next-steps-last",
-      ids[0] == "cover" and ids[-1] == "next", ids[:1] + ids[-1:])
+# The narrative runs cover to next steps. The ZIP list follows it as an
+# appendix rather than sitting inside the audience section, where a hundred
+# five-digit numbers buried the strategy they belonged to.
+check("the narrative is ordered cover-first, next-steps-last",
+      ids[0] == "cover" and ids[-2] == "next", ids[:1] + ids[-2:])
+check("and the trafficking appendix comes after it",
+      ids[-1] == "zips", ids[-1])
 for needed in ("summary", "objectives", "friction", "areas", "channels",
                "mediaplan", "creative", "technology", "reporting", "timeline",
                "packages", "roi", "next"):
@@ -665,8 +670,10 @@ section("every section can be written, one request at a time")
 # ---------------------------------------------------------------------------
 plan_state = _copy.deepcopy(fresh_doc)
 plan_ids = [s["id"] for s in builder.writable_sections(plan_state)]
-check("the cover is the only section with nothing to write",
-      "cover" not in plan_ids and len(plan_ids) == len(spec.OUTLINE) - 1,
+UNWRITTEN = {"cover", "zips"}
+check("only the cover and the ZIP appendix have nothing to write",
+      not (UNWRITTEN & set(plan_ids))
+      and len(plan_ids) == len(spec.OUTLINE) - len(UNWRITTEN),
       plan_ids)
 for needed in ("mediaplan", "packages", "roi", "reach", "timeline"):
     check(f"the generated section {needed} still takes intro copy",
@@ -764,8 +771,24 @@ check("an undecided one does",
 served_plan = api("post", "/sales/builder/api/ai/section-plan",
                   json={"data": discovery_state})
 check("the wizard is told exactly what will be written",
-      len(served_plan["sections"]) == len(spec.OUTLINE) - 1,
+      len(served_plan["sections"]) == len(spec.OUTLINE) - 2,
       len(served_plan["sections"]))
+# The ZIP list is the one section trafficking cannot launch without, and it is
+# now generated at the back rather than typed into the middle of the audience
+# section. Worth proving it survives into the documents that get sent.
+zip_state = dict(quote_state, targetAreas=[
+    {"name": "Carmel", "type": "City/ZIP + Radius", "origin": "Carmel, IN",
+     "radius": 10, "zips": "46032, 46033, 46074"}])
+zip_quote = api("post", "/sales/builder/api/quotes", json={"data": zip_state})["quote"]
+zip_pdf = http.get(f"/sales/builder/api/quotes/{zip_quote['id']}/pdf")
+check("a proposal with ZIP Codes still renders its PDF",
+      zip_pdf.status_code == 200 and zip_pdf.data[:4] == b"%PDF", zip_pdf.status_code)
+zip_docx = http.get(f"/sales/builder/api/quotes/{zip_quote['id']}/docx")
+check("and its Word copy", zip_docx.status_code == 200 and len(zip_docx.data) > 2000)
+check("the ZIP appendix is generated, never handed to the writer",
+      "zips" not in [x["id"] for x in builder.writable_sections(zip_state)],
+      [x["id"] for x in builder.writable_sections(zip_state)])
+
 check("and which of those carry a generated table",
       any(s["has_table"] for s in served_plan["sections"])
       and any(not s["has_table"] for s in served_plan["sections"]))
