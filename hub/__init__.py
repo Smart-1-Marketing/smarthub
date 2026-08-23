@@ -1115,6 +1115,80 @@ def create_hub_app() -> Flask:
                      "submitter may have used a different form."),
         })
 
+    # ---- Landing Page Maker -------------------------------------------
+    #
+    # These sit on the HUB app, and /sales is deliberately not a mount --
+    # /sales/builder and /sales/proposals are, but the prefix itself is not,
+    # so /sales/landing reaches this app. Adding a "/sales" mount later would
+    # make every route below unreachable without erroring; /api/integrity
+    # checks for exactly that.
+    @app.route("/sales/landing")
+    def page_landing_maker():
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        return render_template("landing_maker.html", user=current_user(),
+                               active="landing", directions=lm.DIRECTIONS)
+
+    @app.route("/sales/landing/p/<slug>")
+    def page_landing_preview(slug):
+        """The built page itself. Public, and deliberately ungated.
+
+        It is a landing page: the people it is built for are prospects on a
+        client's campaign, not staff with a Hub login. It returns the stored
+        HTML verbatim, and because the hub app is the dispatcher default
+        rather than something wrapped in HubBar, no staff sidebar is injected
+        into it -- which is what keeps internal navigation off a page that may
+        be pasted onto a client's own domain.
+        """
+        from . import landing_maker as lm
+        row = lm.get(slug)
+        if not row:
+            return "No such landing page.", 404
+        return row.get("page_html", ""), 200, {"Content-Type": "text/html"}
+
+    @app.route("/api/landing")
+    def api_landing_list():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        return jsonify(lm.listing(request.args.get("client", ""),
+                                  request.args.get("q", "")))
+
+    @app.route("/api/landing", methods=["POST"])
+    def api_landing_create():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        # An upload arrives as multipart, everything else as JSON. Reading
+        # request.form for the multipart case matters: get_json() is empty
+        # there, so a file upload would otherwise lose the goal and offer.
+        body = request.get_json(silent=True) or {}
+        text = str(body.get("text") or "")
+        up = request.files.get("file") if request.files else None
+        if up and up.filename:
+            text = _read_document(up.read(8 * 1024 * 1024), up.filename)
+            body = {**request.form.to_dict(), **body}
+        return jsonify(lm.create(
+            proposal_id=str(body.get("proposal_id") or ""),
+            client=str(body.get("client") or ""), text=text,
+            direction=str(body.get("direction") or "trust"),
+            goal=str(body.get("goal") or ""), offer=str(body.get("offer") or ""),
+            actor=current_user() or ""))
+
+    @app.route("/api/landing/<page_id>", methods=["POST"])
+    def api_landing_save(page_id):
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        body = request.get_json(silent=True) or {}
+        return jsonify(lm.update_html(page_id, str(body.get("html") or ""),
+                                      current_user() or ""))
+
     @app.route("/api/providers")
     def api_providers():
         """Every provider, configured or not, with what breaks when it isn't.
@@ -3242,8 +3316,17 @@ def create_hub_app() -> Flask:
     # Editing five modules' templates would fix today and break again the next
     # time one is added. Injecting on the way out covers every one of them, and
     # anything registered later, automatically.
+    #
+    # "/sales/landing/p/" is a built landing page, served to a prospect on a
+    # client's campaign and often pasted onto the client's own domain. The
+    # staff sidebar, the help layer and the feedback tab must never appear on
+    # one: it leaks internal navigation to a third party and makes the page
+    # look broken. The maker itself, at /sales/landing, is a staff page and
+    # keeps its chrome -- which is why this is the longer prefix and not
+    # "/sales/landing".
     CHROMELESS = ("/login", "/signup", "/reset", "/signin", "/account",
-                  "/connect", "/api/", "/assets/", "/hub-", "/static/")
+                  "/connect", "/api/", "/assets/", "/hub-", "/static/",
+                  "/sales/landing/p/")
 
     @app.after_request
     def _inject_sidebar_response(resp):

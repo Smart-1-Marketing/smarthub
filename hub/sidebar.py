@@ -14,6 +14,7 @@ _ITEMS = [
     # retired standalone tool: it redirects here and serves its archive only.
     ("salesb", "/sales/builder/", "&#128196;", "Proposal Builder"),
     ("leads", "/sales/leads", "&#128229;", "Leads"),
+    ("landing", "/sales/landing", "&#128187;", "Landing Pages"),
     ("_sec3", "", "", "Utilities"),
     ("creative", "/creative", "&#127912;", "Creative"),
     ("qa", "/qa", "&#9989;", "QA Reports"),
