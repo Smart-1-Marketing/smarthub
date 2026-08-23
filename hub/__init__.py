@@ -69,19 +69,44 @@ def _read_document(raw: bytes, filename: str) -> str:
 
 
 def _proposal_text_for(client: str, filename: str) -> str:
-    """Fetch a proposal already uploaded against a client and read it."""
+    """Read a proposal already uploaded against a client.
+
+    Two storages, and only one of them is a URL. With Cloudinary configured
+    the record holds an https link and is fetched. Without it the file went to
+    the data disk and the record holds a RELATIVE path -- "/api/client/…" --
+    which requests cannot fetch and which used to make every locally stored
+    proposal silently unreadable: the fetch raised, the except swallowed it,
+    and the caller got "" as though the document were empty. Local files are
+    read off the disk instead, which is also the faster answer.
+
+    The record's own stored location is used, never one a caller supplies:
+    this reads a URL, so accepting one would be an SSRF hole.
+    """
     try:
         from . import proposals
-        import requests as _r
         for rec in proposals.list_proposals(client):
-            if rec.get("filename") == filename or rec.get("id") == filename:
-                url = rec.get("url")
-                if not url:
-                    return ""
+            if not (rec.get("filename") == filename or rec.get("id") == filename):
+                continue
+            url = str(rec.get("url") or "")
+            name = rec.get("filename", "")
+            if url.startswith("http://") or url.startswith("https://"):
+                import requests as _r
                 resp = _r.get(url, timeout=30)
                 if not resp.ok:
                     return ""
-                return _read_document(resp.content, rec.get("filename", ""))
+                return _read_document(resp.content, name)
+            if url:
+                path = os.path.join(proposals._local_dir(),
+                                    os.path.basename(url))
+                # basename() above, and this check, because a filename is the
+                # one part of the record a person typed.
+                if os.path.commonpath([os.path.realpath(path),
+                                       os.path.realpath(proposals._local_dir())]
+                                      ) != os.path.realpath(proposals._local_dir()):
+                    return ""
+                with open(path, "rb") as fh:
+                    return _read_document(fh.read(), name)
+            return ""
     except Exception:  # noqa: BLE001
         pass
     return ""
@@ -1212,6 +1237,20 @@ def create_hub_app() -> Flask:
         return jsonify(lm.listing(request.args.get("client", ""),
                                   request.args.get("q", "")))
 
+    @app.route("/api/landing/proposals")
+    def api_landing_proposals():
+        """Both kinds of proposal on one client, for the picker.
+
+        The page asks for the client first, because "which proposal?" is only
+        answerable once you know whose. A global list of every proposal in the
+        Hub is the wrong question and gets longer every week.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        return jsonify(lm.proposals_for(request.args.get("client", "")))
+
     @app.route("/api/landing", methods=["POST"])
     def api_landing_create():
         gate = _require_api()
@@ -1229,6 +1268,7 @@ def create_hub_app() -> Flask:
             body = {**request.form.to_dict(), **body}
         return jsonify(lm.create(
             proposal_id=str(body.get("proposal_id") or ""),
+            uploaded_id=str(body.get("uploaded_id") or ""),
             client=str(body.get("client") or ""), text=text,
             direction=str(body.get("direction") or "trust"),
             goal=str(body.get("goal") or ""), offer=str(body.get("offer") or ""),

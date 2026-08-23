@@ -12,28 +12,33 @@
   <div class="card-h"><h3>New landing page</h3></div>
   <div class="card-b">
     <div style="display:grid;grid-template-columns:1fr;gap:14px">
+      <!-- The client comes first. "Which proposal?" is only answerable once
+           you know whose, and a global list of every proposal in the Hub gets
+           longer every week. -->
       <div>
-        <label class="lp-l">Start from</label>
-        <select id="lpSource" onchange="lpSourceChanged()" class="lp-i">
-          <option value="proposal">A saved proposal</option>
-          <option value="upload">A proposal I'll upload</option>
-          <option value="client">Just a client — no proposal yet</option>
-        </select>
+        <label class="lp-l">Client</label>
+        <input id="lpClient" class="lp-i" list="lp-client-list" autocomplete="off"
+               placeholder="Start typing a client name…" oninput="lpClientTyped()">
+        <datalist id="lp-client-list"></datalist>
       </div>
 
-      <div id="lpProposalRow">
+      <div>
         <label class="lp-l">Proposal</label>
-        <select id="lpProposal" class="lp-i"><option value="">Loading…</option></select>
+        <select id="lpProposal" class="lp-i" onchange="lpProposalChanged()">
+          <option value="">Pick a client first</option>
+        </select>
+        <p class="muted" style="font-size:12px;margin:5px 0 0" id="lpPropNote">
+          Saved proposals are the ones built in the Proposal Builder. Uploaded
+          ones were written elsewhere and attached to the client's record —
+          both work, and the page is built from whichever you pick.</p>
       </div>
 
       <div id="lpUploadRow" hidden>
         <label class="lp-l">Proposal file (PDF or Word)</label>
         <input type="file" id="lpFile" accept=".pdf,.doc,.docx" class="lp-i">
-      </div>
-
-      <div id="lpClientRow" hidden>
-        <label class="lp-l">Client</label>
-        <input id="lpClient" class="lp-i" placeholder="Start typing a client name…" autocomplete="off">
+        <p class="muted" style="font-size:12px;margin:5px 0 0">
+          For a proposal that isn't on the client's record yet. It is read for
+          this page only — it does not get filed against the client.</p>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr;gap:14px">
@@ -95,37 +100,95 @@
 <script>
 function $(id){ return document.getElementById(id); }
 
-function lpSourceChanged(){
-  var v = $('lpSource').value;
-  $('lpProposalRow').hidden = v !== 'proposal';
-  $('lpUploadRow').hidden   = v !== 'upload';
-  $('lpClientRow').hidden   = v !== 'client';
+/* --- client first, then that client's proposals ---------------------- */
+
+var lpClientTimer = null, lpLastClient = "";
+
+function lpClientTyped(){
+  clearTimeout(lpClientTimer);
+  lpClientTimer = setTimeout(lpClientSettled, 250);
 }
 
-/* Load proposals so the common path is one click, not a search.
-   This reads the LIVE builder. /sales/proposals is the retired tool and
-   answers 404 to every api/ path, so pointing at it would leave the picker
-   permanently empty while still looking like it had loaded. */
-fetch('/sales/builder/api/quotes?limit=200', {credentials:'same-origin'})
-  .then(function(r){ return r.json(); })
-  .then(function(d){
-    var list = d.quotes || [];
-    var sel = $('lpProposal');
-    if(!list.length){
-      sel.innerHTML = '<option value="">No saved proposals — upload one instead</option>';
-      return;
-    }
-    sel.innerHTML = list.map(function(p){
-      var name = p.client || '(unnamed)';
-      var tail = p.products_summary || p.package || '';
-      return '<option value="'+esc(p.id)+'">'+esc(name)+
-             (p.quote_number ? ' — '+esc(p.quote_number) : '')+
-             (tail ? ' · '+esc(tail.slice(0,60)) : '')+'</option>';
-    }).join('');
-  })
-  .catch(function(){
-    $('lpProposal').innerHTML = '<option value="">Couldn\'t load proposals</option>';
-  });
+/* Suggestions come from the client registry, so a page is filed under the
+   same spelling the rest of the Hub uses. */
+function lpClientSettled(){
+  var name = $('lpClient').value.trim();
+  if(name.length >= 2){
+    fetch('/api/clients/search?q=' + encodeURIComponent(name),
+          {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        $('lp-client-list').innerHTML = (d.clients||[]).map(function(c){
+          return '<option value="'+esc(c.name||c)+'">'; }).join('');
+      })
+      .catch(function(){});
+  }
+  if(name !== lpLastClient){ lpLastClient = name; lpLoadProposals(name); }
+}
+
+function lpLoadProposals(name){
+  var sel = $('lpProposal');
+  if(!name){
+    sel.innerHTML = '<option value="">Pick a client first</option>';
+    lpProposalChanged();
+    return;
+  }
+  sel.innerHTML = '<option value="">Loading…</option>';
+  fetch('/api/landing/proposals?client=' + encodeURIComponent(name),
+        {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var html = '';
+      if(d.saved && d.saved.length){
+        html += '<optgroup label="Saved in the Proposal Builder">';
+        html += d.saved.map(function(q){
+          var bits = [q.quote_number || ('#'+q.id)];
+          if(q.products) bits.push(q.products.slice(0,50));
+          if(q.monthly) bits.push('$'+q.monthly+'/mo');
+          return '<option value="saved:'+esc(q.id)+'">'+esc(bits.join(' · '))+'</option>';
+        }).join('');
+        html += '</optgroup>';
+      }
+      if(d.uploaded && d.uploaded.length){
+        html += '<optgroup label="Uploaded to the client record">';
+        html += d.uploaded.map(function(u){
+          var bits = [u.title || u.filename];
+          if(u.date_sent) bits.push(u.date_sent);
+          /* A row with no file behind it cannot be read, so it is offered
+             disabled rather than failing after the click. */
+          return '<option value="uploaded:'+esc(u.id)+'"'+
+                 (u.readable ? '' : ' disabled')+'>'+
+                 esc(bits.join(' · ')) + (u.readable ? '' : ' — no file') +
+                 '</option>';
+        }).join('');
+        html += '</optgroup>';
+      }
+      html += '<optgroup label="Other">' +
+              '<option value="upload">Upload a proposal file now…</option>' +
+              '<option value="none">No proposal — build from the client record</option>' +
+              '</optgroup>';
+      sel.innerHTML = html;
+
+      var note = $('lpPropNote');
+      if(!d.count){
+        note.textContent = 'No proposals on this client yet — upload one, or '+
+                           'build the page from the client record.';
+        sel.value = 'none';
+      } else if(d.note){
+        note.textContent = d.note;
+      }
+      lpProposalChanged();
+    })
+    .catch(function(){
+      sel.innerHTML = '<option value="none">Could not load proposals — '+
+                      'build from the client record</option>';
+      lpProposalChanged();
+    });
+}
+
+function lpProposalChanged(){
+  $('lpUploadRow').hidden = $('lpProposal').value !== 'upload';
+}
 
 function esc(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -134,21 +197,37 @@ function esc(s){
 
 function lpCreate(){
   var btn = $('lpBuild'), msg = $('lpMsg');
-  var src = $('lpSource').value;
+  var client = $('lpClient').value.trim();
+  var pick = $('lpProposal').value;
+
+  if(!client){
+    msg.style.color = '#b42318';
+    msg.textContent = 'Pick a client first.';
+    return;
+  }
+
   var body = {
+    client: client,
     goal: $('lpGoal').value.trim(),
     offer: $('lpOffer').value.trim(),
     direction: (document.querySelector('input[name=lpDir]:checked')||{}).value || 'trust'
   };
-  if(src === 'proposal') body.proposal_id = $('lpProposal').value;
-  if(src === 'client')   body.client = $('lpClient').value.trim();
+  /* One select carries both kinds, so the prefix says which id this is. */
+  if(pick.indexOf('saved:') === 0)    body.proposal_id = pick.slice(6);
+  if(pick.indexOf('uploaded:') === 0) body.uploaded_id = pick.slice(9);
+
+  if(pick === 'upload' && !($('lpFile').files && $('lpFile').files[0])){
+    msg.style.color = '#b42318';
+    msg.textContent = 'Choose a file, or pick a different option.';
+    return;
+  }
 
   btn.disabled = true;
   msg.style.color = '';
   msg.textContent = 'Reading the proposal and writing the page…';
 
   var send;
-  if(src === 'upload' && $('lpFile').files[0]){
+  if(pick === 'upload'){
     var fd = new FormData();
     fd.append('file', $('lpFile').files[0]);
     Object.keys(body).forEach(function(k){ fd.append(k, body[k]); });
@@ -210,23 +289,28 @@ function lpLoad(){
     .catch(function(){ $('lpList').innerHTML = '<p class="muted">Could not load.</p>'; });
 }
 
-/* Arriving from "proposal saved -> build a page" preselects it, so the
-   handoff is one click rather than finding it in a list again. */
+/* Arriving from "proposal saved -> build a page" carries the client, so the
+   proposal list is already the right one when the page settles. */
 (function(){
-  var pid = new URLSearchParams(location.search).get('proposal');
+  var qs = new URLSearchParams(location.search);
+  var name = qs.get('client') || '';
+  var pid = qs.get('proposal') || '';
+  if(name){
+    $('lpClient').value = name;
+    lpLastClient = name;
+    lpLoadProposals(name);
+  }
   if(!pid) return;
-  $('lpSource').value = 'proposal';
-  lpSourceChanged();
   var tries = 0;
   var t = setInterval(function(){
     var sel = $('lpProposal');
-    if(sel && sel.querySelector('option[value="'+pid+'"]')){
-      sel.value = pid; clearInterval(t);
+    if(sel && sel.querySelector('option[value="saved:'+pid+'"]')){
+      sel.value = 'saved:' + pid; lpProposalChanged(); clearInterval(t);
     } else if(++tries > 20){ clearInterval(t); }
   }, 150);
 })();
 
-lpSourceChanged();
+lpProposalChanged();
 lpLoad();
 </script>
 {% endblock %}

@@ -220,10 +220,16 @@ services:
       # it; only hub/ad_builder_proxy.py talks to it.
       - key: ADBUILDER_PORT
         value: "8791"
-      # Renders, project state and the brand cache. The renderer's own default
-      # is a directory inside the image, which Render replaces on every deploy
-      # -- a finished ad package would disappear with the next release. The
-      # mounted disk is the only durable place in this container.
+      # Renders, project state and the brand cache, on the mounted disk --
+      # the renderer's own default is inside the image, which Render replaces
+      # on every deploy.
+      #
+      # Kept here for a service created FROM this blueprint, but do not rely on
+      # it: the live smart1-hub takes its environment from the dashboard, so
+      # this entry never reached it and the boot log read `output dir:
+      # /app/modules/ad_builder/out` for weeks. docker-start.sh now defaults
+      # the same path when /var/data is mounted, which is what actually makes
+      # it durable. The same caveat applies to every value below.
       - key: OUTPUT_DIR
         value: /var/data/adbuilder-out
       # The public intake form is closed unless one of these is set. Staff

@@ -154,10 +154,81 @@ def _spec_from_quote(proposal_id: str) -> tuple[dict | None, str, str]:
                 pass
 
 
+def proposals_for(client: str) -> dict:
+    """Both kinds of proposal on one client, kept apart rather than merged.
+
+    A quote built here has a number, a revision and a status this Hub owns.
+    An uploaded proposal is a file with a date on it. Flattening the two into
+    one row shape means inventing values for half the columns, and an invented
+    "Draft" on a document nobody here drafted is the sort of confident wrong
+    answer this codebase treats as worse than an error. So they come back
+    labelled and the page groups them.
+    """
+    want = re.sub(r"[^a-z0-9]+", "", str(client or "").lower())
+    out = {"client": client, "saved": [], "uploaded": [], "note": "", "count": 0}
+    if not want:
+        return out
+
+    # Saved quotes, from the live builder's table.
+    try:
+        from modules.sales_builder.app import Quote, SessionLocal
+        db = SessionLocal()
+        try:
+            for q in (db.query(Quote)
+                        .order_by(Quote.updated_at.desc()).limit(400).all()):
+                if re.sub(r"[^a-z0-9]+", "", str(q.client or "").lower()) != want:
+                    continue
+                out["saved"].append({
+                    "id": str(q.id),
+                    "quote_number": q.quote_number or "",
+                    "status": q.status or "",
+                    "products": q.products_summary or "",
+                    "monthly": q.monthly_budget or 0,
+                    "updated": q.updated_at.isoformat() if q.updated_at else "",
+                })
+        finally:
+            db.close()
+    except Exception:                                   # noqa: BLE001
+        out["note"] = "Saved proposals could not be read."
+
+    # Proposals written elsewhere and uploaded onto the client record.
+    try:
+        from hub import proposals as hub_proposals
+        for rec in hub_proposals.list_proposals(client):
+            out["uploaded"].append({
+                "id": rec.get("id", ""),
+                "title": rec.get("title") or rec.get("filename", ""),
+                "filename": rec.get("filename", ""),
+                "date_sent": rec.get("date_sent", ""),
+                "value": rec.get("value", 0),
+                "kind": rec.get("kind", ""),
+                "readable": bool(rec.get("url")),
+            })
+    except Exception:                                   # noqa: BLE001
+        out["note"] = (out["note"] + " Uploaded proposals could not be read.").strip()
+
+    out["count"] = len(out["saved"]) + len(out["uploaded"])
+    return out
+
+
 def brief_from_proposal(proposal_id: str = "", client: str = "",
-                        text: str = "") -> dict:
+                        text: str = "", uploaded_id: str = "") -> dict:
     """Everything known about the campaign, before any copy is written."""
     spec, source = None, ""
+
+    # A proposal written elsewhere and uploaded onto the client record. Read
+    # from the record's own stored URL rather than one the caller supplies --
+    # a caller-supplied URL here would be an SSRF hole.
+    if uploaded_id and client and not text:
+        try:
+            from hub import _proposal_text_for
+            text = _proposal_text_for(client, uploaded_id) or ""
+        except Exception:                               # noqa: BLE001
+            text = ""
+        if not text:
+            return {"missing": ["a readable file on that uploaded proposal"],
+                    "client": client, "thin": True}
+
     if proposal_id:
         spec, found_client, source = _spec_from_quote(proposal_id)
         if spec:
@@ -177,7 +248,8 @@ def brief_from_proposal(proposal_id: str = "", client: str = "",
     if not spec and text:
         from hub.campaign_spec import from_proposal_text
         spec = from_proposal_text(text, client).to_dict()
-        source = "uploaded proposal"
+        source = (f"uploaded proposal {uploaded_id}" if uploaded_id
+                  else "uploaded proposal")
     if not spec and client:
         from hub.campaign_spec import from_client
         spec = from_client(client).to_dict()
@@ -321,8 +393,8 @@ def write_copy(brief: dict, goal: str, offer: str) -> dict:
 
 def create(proposal_id: str = "", client: str = "", text: str = "",
            direction: str = "trust", goal: str = "", offer: str = "",
-           actor: str = "") -> dict:
-    brief = brief_from_proposal(proposal_id, client, text)
+           actor: str = "", uploaded_id: str = "") -> dict:
+    brief = brief_from_proposal(proposal_id, client, text, uploaded_id)
     if brief["missing"]:
         return {"error": "Still needed: " + ", ".join(brief["missing"])}
     copy = write_copy(brief, goal, offer)
@@ -339,7 +411,9 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
         "id": page_id,
         "slug": f"{_slug(brief['client'])}-{page_id[:6]}",
         "client": brief["client"],
-        "proposal_id": proposal_id,
+        "proposal_id": proposal_id or uploaded_id,
+        "proposal_kind": ("saved" if proposal_id else
+                          "uploaded" if uploaded_id else ""),
         "campaign": brief.get("campaign") or offer or goal,
         "direction": direction,
         "goal": goal, "offer": offer,
@@ -356,7 +430,8 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
     try:
         from hub import audit
         audit.log("landing_maker", "created", actor=actor or None,
-                  client=brief["client"], proposal=proposal_id or None,
+                  client=brief["client"],
+                  proposal=proposal_id or uploaded_id or None,
                   direction=direction)
     except Exception:                                   # noqa: BLE001
         pass

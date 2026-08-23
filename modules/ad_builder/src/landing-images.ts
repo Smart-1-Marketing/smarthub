@@ -26,6 +26,8 @@
 
 import sharp from 'sharp';
 
+import { assetUrlIsSafe } from './assets';
+
 const UA = 'Mozilla/5.0 (compatible; Smart1AdBuilder/1.0; +https://smart1marketing.com)';
 
 /** Below this a picture cannot carry an ad background at any useful size. */
@@ -127,6 +129,12 @@ export function extractImageUrls(html: string, pageUrl: string): ImageCandidate[
     if (!/^https?:/i.test(abs)) return;
     // See the note at the top: on a marketing page this is the logo.
     if (/\.svg($|[?#])/i.test(abs)) return;
+    // Offer only what can actually be applied. Applying a background fetches
+    // it through the same guard every other asset uses -- https only, no
+    // internal hosts -- so listing a picture that guard will refuse produces
+    // a chooser where clicking a thumbnail fails for a reason the person
+    // cannot see. Better not to offer it.
+    if (!assetUrlIsSafe(abs).ok) return;
     const key = abs.split('#')[0];
     if (seen.has(key)) return;
     seen.add(key);

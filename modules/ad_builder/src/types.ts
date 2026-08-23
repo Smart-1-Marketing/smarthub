@@ -78,6 +78,11 @@ export interface HeroSet {
 }
 
 export interface CreativeConcept {
+  /** Per-block type and CTA-fill overrides on top of the template's boxes.
+   *  Applied in render.ts right after the layout loads, clamped to the canvas
+   *  -- see block-style.ts for why only these properties and not a free
+   *  partial box. */
+  styleOverrides?: import('./block-style').StyleOverrides;
   /** Optional full-bleed background photo (path). When set, the composer
    *  paints it across the whole canvas under a legibility overlay instead of
    *  using the flat brand background. Used by the image-background option on
