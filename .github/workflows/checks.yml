@@ -110,7 +110,16 @@ jobs:
       - name: JSON store tests
         run: python test_jsonstore.py
 
-      - name: Target area tests
+      - name: Target area and delivery tests
+        # Once. This ran twice for a while -- the same file under two step
+        # names -- and the second run failed where the first passed, because
+        # each run gets a fresh HUB_DATA_DIR but they share one Postgres, and
+        # jsonstore restores the previous run's writes into the empty
+        # directory. The duplicate step was the bug; the test is now hermetic
+        # against it either way.
+        #
+        # Guarded so this workflow stays mergeable on a branch predating the
+        # file.
         run: |
           if [ -f test_target_areas.py ]; then
             python test_target_areas.py
@@ -128,16 +137,6 @@ jobs:
             python test_lead_delivery.py
           else
             echo "test_lead_delivery.py not on this branch — nothing to run."
-          fi
-
-      - name: Target area and delivery tests
-        # Guarded like the step above, so this workflow stays mergeable on a
-        # branch that predates the file.
-        run: |
-          if [ -f test_target_areas.py ]; then
-            python test_target_areas.py
-          else
-            echo "test_target_areas.py not on this branch — nothing to run."
           fi
 
       - name: Proposal specification and creative gate tests
