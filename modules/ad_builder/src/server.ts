@@ -173,6 +173,13 @@ const server = http.createServer(async (req, res) => {
     url.pathname.startsWith('/api/campaigns') ||
     url.pathname.startsWith('/api/project') ||
     url.pathname.startsWith('/api/build/') ||
+    // Both are editor-only: they fetch a picture on the server's behalf and
+    // write it into a campaign's cache directory. The SSRF guard and the rate
+    // limiter already stood behind them, but the only caller is build.html,
+    // which is internal and reaches them through the Hub proxy with the admin
+    // token attached -- so there is no reason to leave the work open.
+    route === 'POST /api/background/apply' ||
+    route === 'POST /api/logo/apply' ||
     url.pathname.startsWith('/api/diagnostics') ||
     (url.pathname.startsWith('/files/') && !url.pathname.startsWith('/files/imagery/') && !url.pathname.startsWith('/files/gallery/') && !url.pathname.startsWith('/files/deliveries/') && !url.pathname.startsWith('/files/renders/')) ||
     route === 'POST /api/render' ||
@@ -1357,6 +1364,73 @@ const server = http.createServer(async (req, res) => {
       } catch (e: any) {
         return json(res, 502, {
           error: `That image could not be prepared (${e?.message ?? e}).`,
+        }, cors);
+      }
+    }
+
+    /* Replace the client's logo from inside the editor.
+     *
+     * The same shape as the background apply above, and for the same reason:
+     * the chooser holds a URL and the renderer needs a prepared local file.
+     * The difference is what preparing means. A logo goes through reworkLogo
+     * first, which flattens a near-uniform border to transparency -- a white
+     * box around a logo sitting on a coloured ad is the single most common
+     * note on a proof -- and then through the weight budget with the alpha
+     * channel kept, because a logo that loses transparency to a JPEG pass has
+     * had the box put back.
+     *
+     * reworkLogo never redraws the mark. It trims and cleans what is there.
+     * A logo an AI invented is not the client's logo.
+     *
+     * This returns the path and changes nothing: the editor holds the campaign
+     * document and saves it, so the logo lands through the same write as every
+     * other edit rather than through a second one that could disagree with it.
+     */
+    if (route === 'POST /api/logo/apply') {
+      const cors = corsHeaders(req.headers.origin);
+      const body = JSON.parse(await readBody(req, 20_000)) as
+        { requestId?: string; url?: string; publicId?: string; reversed?: boolean };
+      const requestId = String(body.requestId ?? '').trim();
+      const url = String(body.url ?? '').trim();
+      const publicId = String(body.publicId ?? '').trim();
+      if (!requestId) return json(res, 400, { error: 'Which campaign?' }, cors);
+      if (!url && !publicId) return json(res, 400, { error: 'Pick a logo first.' }, cors);
+
+      let source = publicId ? `cloudinary:${publicId}` : url;
+      if (!publicId && url.startsWith('/files/')) {
+        const local = path.join(OUT, url.replace(/^\/files\//, ''));
+        if (!fs.existsSync(local)) {
+          return json(res, 404, { error: 'That logo is no longer on disk. Choose another.' }, cors);
+        }
+        source = local;
+      } else if (!publicId) {
+        const safe = assetUrlIsSafe(url);
+        if (!safe.ok) {
+          return json(res, 400, { error: `That logo cannot be fetched (${safe.reason}).` }, cors);
+        }
+      }
+
+      try {
+        const cacheDir = path.join(OUT, 'cache', requestId,
+          'relogo-' + Date.now().toString(36));
+        fs.mkdirSync(cacheDir, { recursive: true });
+        const local = source.startsWith('/') && fs.existsSync(source)
+          ? source
+          : await resolveAsset(source, { cacheDir, label: 'logo' });
+        const reworked = await reworkLogo(local, cacheDir, { reversed: body.reversed });
+        const fitted = await fitImageToBudget(
+          reworked.primary, path.join(cacheDir, 'logo-final.png'), { keepAlpha: true });
+        const out: { ok: true; path: string; reverse?: string } =
+          { ok: true, path: fitted.file };
+        if (reworked.reverse) {
+          const rev = await fitImageToBudget(
+            reworked.reverse, path.join(cacheDir, 'logo-rev-final.png'), { keepAlpha: true });
+          out.reverse = rev.file;
+        }
+        return json(res, 200, out, cors);
+      } catch (e: any) {
+        return json(res, 502, {
+          error: `That logo could not be prepared (${e?.message ?? e}).`,
         }, cors);
       }
     }

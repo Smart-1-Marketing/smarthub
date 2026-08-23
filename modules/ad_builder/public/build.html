@@ -459,6 +459,10 @@
         setBlockStyle(el.dataset.style, el.dataset.prop, el.value);
       });
     });
+    var logoPicker = $('logoFile');
+    if (logoPicker) logoPicker.addEventListener('change', function () {
+      replaceLogo(this.files && this.files[0]);
+    });
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgmode]'), function (el) {
       el.addEventListener('click', function () { chooseBackground(el.dataset.bgmode, el); });
     });
@@ -540,6 +544,15 @@
           opt('', 'Layout', lg.valign) + opt('top', 'Top', lg.valign) +
           opt('middle', 'Middle', lg.valign) + opt('bottom', 'Bottom', lg.valign) +
         '</select></label>' +
+      '</div>' +
+      '<div class="bsrow" style="grid-template-columns:1fr">' +
+        '<label>Replace the logo' +
+          '<input type="file" id="logoFile"' +
+          ' accept="image/png,image/svg+xml,image/jpeg,image/webp"></label>' +
+      '</div>' +
+      '<div id="logoNote" style="font-size:11.5px;color:var(--ink-2);margin:2px 0 6px">' +
+        'A new logo applies to every size, and is remembered for this ' +
+        'client\u2019s future builds.' +
       '</div>' +
       '<button type="button" class="bsclear" data-style="logo" data-prop="*">' +
         'Put the logo back' +
@@ -827,6 +840,94 @@
         bgSay('<span class="bgmsg">' + esc(e.message ||
           'That upload did not work.') + '</span>');
       });
+  }
+
+  /* Replacing the client's mark.
+     
+     Three steps rather than one, and each is somewhere different on purpose:
+     Cloudinary stores the file, the renderer prepares it (transparency, then
+     the weight budget with the alpha kept), and the Hub remembers it. Skipping
+     the last one is how the same wrong logo gets corrected on every build
+     forever, one build at a time. */
+  function replaceLogo(file) {
+    if (!file) return;
+    if (file.size > MAX_UPLOAD) {
+      logoSay('That file is ' + Math.round(file.size / 1048576) +
+              'MB. Pick one under 12MB.');
+      return;
+    }
+    logoSay('Uploading ' + file.name + '\u2026');
+    post('/api/assets/upload-signature', {
+      client: clientName() || 'Smart 1 Marketing',
+      campaign: (state.doc.campaign.campaignName || 'display ads'),
+      kind: 'logo',
+      filename: file.name
+    })
+      .then(function (sig) {
+        if (!sig || !sig.uploadUrl) {
+          throw new Error(sig && sig.error ||
+            'Uploads are not configured on the server.');
+        }
+        var fd = new FormData();
+        fd.append('file', file);
+        fd.append('api_key', sig.apiKey);
+        fd.append('timestamp', sig.timestamp);
+        fd.append('signature', sig.signature);
+        fd.append('folder', sig.folder);
+        fd.append('tags', sig.tags);
+        return fetch(sig.uploadUrl, { method: 'POST', body: fd })
+          .then(function (r) { return r.json(); })
+          .then(function (up) {
+            if (!up || !up.secure_url) {
+              throw new Error((up && up.error && up.error.message) ||
+                'Cloudinary refused that file.');
+            }
+            logoSay('Preparing it \u2014 clearing the background and fitting '
+                    + 'the weight\u2026');
+            return post('/api/logo/apply', {
+              requestId: state.requestId, url: up.secure_url
+            }).then(function (d) { return { d: d, up: up }; });
+          });
+      })
+      .then(function (r) {
+        if (!r.d || !r.d.ok || !r.d.path) {
+          throw new Error(r.d && r.d.error || 'That logo could not be used.');
+        }
+        var brand = state.doc.campaign.brand;
+        brand.logos = brand.logos || {};
+        brand.logos.primary = r.d.path;
+        if (r.d.reverse) brand.logos.reverse = r.d.reverse;
+        state.dirty = true;
+        rememberLogo(r.up);
+        logoSay('New logo applied to every size. Save to keep it.');
+        preview();
+      })
+      .catch(function (e) {
+        logoSay(e.message || 'That logo could not be used.');
+      });
+  }
+
+  function logoSay(msg) {
+    var el = $('logoNote');
+    if (el) el.textContent = msg;
+  }
+
+  /* The Hub owns "which logo does this client use", the same way it owns the
+     gallery. Best effort: the logo is already on the ad by now, and a note
+     that cannot be written should not undo the change in front of someone. */
+  function rememberLogo(up) {
+    var who = clientName();
+    if (!who) return;
+    post('/_hub/logo', {
+      client: who, url: up.secure_url, public_id: up.public_id || ''
+    })
+      .then(function (d) {
+        if (d && d.ok) {
+          logoSay('New logo applied to every size, and remembered for ' +
+                  who + '\u2019s future builds. Save to keep it on this one.');
+        }
+      })
+      .catch(function () {});
   }
 
   /* Best effort, and deliberately not awaited: the background is already
