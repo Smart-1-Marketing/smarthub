@@ -279,6 +279,38 @@ can tell what stops if they pause the campaign.
 quote saved against the previous eight-section layout keeps its copy and gains
 whichever required sections it is missing on the next save.
 
+### Discovery drives the recommendation, and the proposal is read before it is edited
+
+The four "what are they already doing" questions were captured and never read
+— a rep could answer all four and the document came out identical.
+`hub/current_marketing.py` makes them mean something and adds the three that
+change what we recommend: are they retargeting, are they optimised for AI
+search, are they happy with their website. The gaps become the **We Suggest
+They Should** list, shown in its own colour so it reads as advice rather than
+another form field, and whatever the rep keeps is written into the proposal's
+friction section.
+
+The last question is the one with money behind it: are they running
+traditional media, and do we *supplement* it or *move* some of that budget.
+The answer sets the proposal's posture and reaches Expected Results & ROI —
+but the guidance handed to the writer also **forbids arguing it**. A model
+given "they want to shift budget to digital" writes a case against radio, and
+a proposal that opens by calling a client's existing spend wasted loses the
+room before the media plan is read. `test_proposal_spec.py` asserts those
+three prohibitions are still in the text.
+
+The Proposal Document step opens on a **preview** — the document as the client
+will read it, prose and real tables — with edit, AI rewrite and hide on every
+section, and the media plan editable in place so changing one budget does not
+mean walking back three steps. The section-order list is still there behind a
+toggle. Writing the copy runs **one request per section** so the loader can
+name what it is working on and one failed section does not cost the other
+twelve.
+
+The PDF scales its type down as the document grows (`_type_scale`), bounded at
+0.82. An ordinary proposal is not shrunk at all: "lower the fonts when
+necessary" means when there is more than usual in it, not always.
+
 ### Video and audio are asked about before they are priced
 
 `hub/creative_needs.py`. A Connected TV or digital radio buy that reaches an

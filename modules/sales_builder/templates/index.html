@@ -167,7 +167,176 @@
   @keyframes sp{to{transform:rotate(360deg)}}
   .warnbox{background:#fdeeee;border:1px solid #f2c3bd;border-radius:11px;padding:12px 15px;margin-top:13px;font-size:12.5px;color:#8c2f24}
   .warnbox b{display:block;margin-bottom:4px}
-  /* section editor */
+  /* ============================================================
+   PROPOSAL PREVIEW
+   The document as the client will read it. Every section renders the same
+   content the PDF will: prose where the section is prose, the real table
+   where it is a table. A section can be edited in place, rewritten by the
+   AI, or hidden -- and the media plan can be re-costed here rather than
+   sending the rep back three steps to change one budget.
+   ============================================================ */
+function drawPreview(){
+ const host=document.getElementById('docPreview');if(!host)return;
+ const e=S.estimates||estimates();
+ host.innerHTML=`<div class="paperdoc">
+  <div class="docband">SMART 1 MARKETING</div>
+  <h2 class="doctitle">Marketing Proposal — ${esc(S.client||'Client')}</h2>
+  <div class="docsub">${esc(QUOTE_NUMBER||'Draft')} · ${esc(new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}))}${S.salesContact?' · Prepared by '+esc(S.salesContact):''}</div>
+  ${S.sections.map((sec,i)=>previewSection(sec,i,e)).join('')}
+ </div>`;}
+function previewSection(sec,i,e){
+ const req=isRequired(sec);
+ const editing=S._editSec===sec.id;
+ const tools=`<div class="dtools">
+   <button class="ic" title="${editing?'Done editing':'Edit this section'}" onclick="toggleEditSec('${sec.id}')">${editing?'✓':'✎'}</button>
+   <button class="ic" title="Rewrite with AI" onclick="rewriteSecById('${sec.id}')">✨</button>
+   <button class="ic" title="${req?'Required — every Smart 1 proposal includes this':(sec.enabled?'Hide from the proposal':'Show in the proposal')}" ${req?'disabled style="opacity:.3;cursor:not-allowed"':''} onclick="${req?'':`toggleSec('${sec.id}')`}">${sec.enabled?'👁':'🚫'}</button>
+  </div>`;
+ if(!sec.enabled)
+  return `<div class="docsec off"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
+   <div class="note">Hidden — this section will not appear in the PDF.</div></div>`;
+ const body=editing
+  ? `<textarea class="dedit" oninput="S.sections[${i}].body=this.value;saveSoon()" placeholder="${sec.kind==='text'?'Section copy…':'Short intro above the table…'}">${esc(sec.body||'')}</textarea>`
+  : (sec.body?`<div class="dbody">${esc(sec.body).replace(/\n/g,'<br>')}</div>`
+             :`<div class="note dempty">No copy yet — ✨ writes it, or ✎ to type it.</div>`);
+ return `<div class="docsec"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
+  ${body}${previewTable(sec,e)}</div>`;}
+
+/* The generated tables, rendered as the PDF renders them. These are never
+   editable text: they are computed from the campaign, and a proposal whose
+   prose and tables disagree is the failure the whole spec is built around. */
+function previewTable(sec,e){
+ const k=sec.kind;
+ if(k==="areas"){const rows=(S.targetAreas||[]).filter(areaComplete);if(!rows.length)return '';
+  return dtable(["Target area","Coverage","Est. population"],rows.map(a=>{
+   const pop=areaPopulation(a),z=areaZips(a);
+   return [esc(areaLabel(a)),esc(a.notes||(z.length?z.length+" ZIP Codes":a.type)),pop?fmt(pop):"<b>Not measured</b>"];}));}
+ if(k==="reach")return dgrid([["Est. population",e.measured?fmt(e.pop):"—"],["Addressable audience",e.measured?fmt(e.aud):"—"],["Households",e.measured?fmt(e.hh):"—"],["Devices",e.measured?fmt(e.dev):"—"]]);
+ if(k==="friction"){const picks=suggestions();if(!picks.length)return '';
+  return dtable(["We suggest they should","Why"],picks.map(pk=>[esc(pk.title),esc(pk.detail)]));}
+ if(k==="channels"){if(!S.items.length)return '';
+  return dtable(["Channel","Role in the funnel","Primary KPI"],S.items.map(it=>{const r=channelRole(it);return [esc(it.product),esc(r[0]),esc(r[1])];}));}
+ if(k==="creative"){const rows=creativeRows();if(!rows.length)return '';
+  return dtable(["Medium","Campaign spend","Creative"],rows.map(r=>[esc(r.label),money(r.spend),esc(creativePhrase(r))]));}
+ if(k==="timeline")return dtable(["Phase","What happens"],TIMELINE_PHASES.map(t=>[esc(t[0])+"<br>"+esc(t[1]),esc(t[2])]));
+ if(k==="kpis")return S.kpis.length?`<div class="dnote">KPIs: ${esc(S.kpis.join(', '))}</div>`:'';
+ if(k==="mediaplan")return mediaPlanEditor();
+ if(k==="packages")return investmentTable();
+ if(k==="roi")return roiTable();
+ return '';}
+function dtable(head,rows){
+ return `<table class="dtbl"><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`
+  +rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')+`</tbody></table>`;}
+function dgrid(pairs){
+ return `<div class="dgrid">${pairs.map(p=>`<div><b>${p[1]}</b><span>${esc(p[0])}</span></div>`).join('')}</div>`;}
+const TIMELINE_PHASES=[
+ ["Weeks 1–2","Setup & Onboarding","Admin access collected, tracking pixels placed, conversion actions defined, audience and geography built, Smart 1 Suite provisioned."],
+ ["Weeks 3–4","Production & Integration","Creative produced or supplied and approved, landing pages reviewed, workflow automations mapped in the Smart 1 Suite, tracking verified end to end before a cent is spent."],
+ ["Month 2+","Execution & Scaling","Campaigns live, weekly pacing and bid optimisation, creative performance checks, budget shifted toward what proves out, first full performance review delivered."]];
+function channelRole(it){
+ const c=String(it.category||"").toUpperCase(),m=mediumOf(it);
+ if(/SEARCH ENGINE MARKETING|PAY PER CLICK/.test(c))return ["Bottom of funnel — captures demand that is already searching","Cost per lead and conversion rate"];
+ if(/SEARCH ENGINE OPTIMIZATION/.test(c))return ["Compounding — organic and AI-answer visibility","Ranked terms, map-pack visibility and organic leads"];
+ if(/RETARGETING/.test(c))return ["Bottom of funnel — brings back the people who already came","Return visits and cost per conversion"];
+ if(m==="video")return ["Top of funnel — builds awareness and trust on the screens the household already watches","Completed views and completion rate"];
+ if(m==="audio")return ["Mid funnel — reaches the 79% of digital audio time spent with no screen at all","Reach, frequency and listen-through"];
+ if(m==="social")return ["Mid funnel — consideration and re-engagement in feed","Engaged sessions and cost per lead"];
+ if(m==="display")return ["Full funnel — precision targeting and retargeting against the people already in market","Click-through rate and cost per action"];
+ return ["Supports the campaign","Cost per action"];}
+function creativePhrase(r){
+ if(r.answer==="has")return "Supplied by the client";
+ if(r.answer==="client")return "Produced by Smart 1 — "+money(r.fee)+" one-time";
+ if(r.answer==="comp")return "Produced by Smart 1 at no charge";
+ return "To be confirmed before launch";}
+
+/* The media plan is editable here: budgets, deletions and additions, without
+   walking back three steps to change one number. */
+function mediaPlanEditor(){
+ const months=Math.max(1,+S.months||1);
+ return `<table class="dtbl editable"><thead><tr><th>Product</th><th>Category</th><th>Rate</th><th style="text-align:right">Monthly</th><th style="text-align:right">Total (${months} mo)</th><th></th></tr></thead><tbody>`
+  +S.items.map((it,ix)=>`<tr>
+    <td><b>${esc(it.product)}</b></td><td>${esc(it.category)}</td>
+    <td>${esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
+    <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)"></td>
+    <td style="text-align:right">${money((it.dollars||0)*months)}</td>
+    <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`).join('')
+  +`<tr class="dtot"><td colspan="3">Campaign total</td>
+     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))}</td>
+     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)}</td><td></td></tr>`
+  +`</tbody></table>
+   <div class="addrow" style="margin-top:8px"><select id="pvAddCat">${productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')}</select>
+    <button class="btn btn-ghost" onclick="previewAddItem()">+ Add product</button>
+    <span class="note" style="margin:0">Changing the plan here re-costs the packages, the ROI table and the creative gate.</span></div>
+   ${previewGuards()}`;}
+function previewSetDollars(ix,v){
+ S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
+ const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
+ S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
+ buildPackages();S.aiEst=S.aiEst;saveSoon();drawPreview();}
+function previewRemoveItem(ix){
+ const it=S.items[ix];
+ if(!confirm('Remove "'+(it.product||'this product')+'" from the media plan?'))return;
+ S.items.splice(ix,1);applySeeds();buildPackages();saveSoon();drawPreview();}
+function previewAddItem(){
+ const cat=document.getElementById('pvAddCat').value,p=findProduct(cat)||{};
+ if(S.items.some(i=>i.category===cat)){toast("That category is already in the mix.");return;}
+ S.items.push({label:p.label,category:cat,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,pctSeed:15,dollars:0});
+ applySeeds();buildPackages();saveSoon();drawPreview();
+ toast("Added — set its monthly budget.");}
+function previewGuards(){
+ const g=guardrailsJs(),need=creativeUnresolved();
+ let h='';
+ if(g.length)h+=`<div class="warnbox" style="margin-top:10px"><b>🛡 Guardrails</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`;
+ if(need.length)h+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
+  +need.map(m=>esc(MEDIUM_LABEL[m].split(" (")[0])+" is in the plan and no spot has been confirmed.").join("<br>")+`</div>`;
+ return h;}
+function investmentTable(){
+ const t=chosenTier(),media=S.items.reduce((a,b)=>a+(+b.dollars||0),0)||+((S.selectedPackage||{}).monthly||S.budget||0);
+ const fees=creativeFees(),months=Math.max(1,+S.months||1);
+ const recur=t.monthly+media,rows=[
+  ["Smart 1 Suite — "+t.name,money(t.monthly),"Monthly"],
+  ["Media spend",money(media),"Monthly"]];
+ if(fees)rows.push(["Creative production",money(fees),"One-time"]);
+ rows.push(["Total first month",money(recur+fees),""]);
+ rows.push(["Total campaign ("+months+" mo)",money(recur*months+fees),""]);
+ return dtable(["","Amount","Recurs"],rows.map(r=>[esc(r[0]),r[1],esc(r[2])]));}
+function roiTable(){
+ const months=Math.max(1,+S.months||1);
+ let impr=0,views=0;const unpriced=[];
+ const rows=S.items.map(it=>{
+  const d=+it.dollars||0;let units=null,label="";
+  if(it.rate==="CPM"&&it.rateValue>0){units=Math.round(d/it.rateValue*1000);label="impressions/month";impr+=units*months;}
+  else if(it.rate==="CPV"&&it.rateValue>0){units=Math.round(d/it.rateValue);label="views/month";views+=units*months;}
+  else unpriced.push(it.product);
+  return [esc(it.product),money(d),money(d*months),units?fmt(units)+" "+label:"Not impression-based"];});
+ if(!rows.length)return '';
+ const bits=[];if(impr)bits.push(fmt(impr)+" impressions");if(views)bits.push(fmt(views)+" video views");
+ rows.push(["<b>Campaign total</b>","<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))+"</b>",
+            "<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)+"</b>","<b>"+(bits.join(" · ")||"—")+"</b>"]);
+ let h=dtable(["Product","Monthly","Campaign ("+months+" mo)","Estimated delivery"],rows);
+ if(unpriced.length)h+=`<div class="dnote">Not in the delivery totals (no impression-based rate): ${esc(unpriced.join(', '))}.</div>`;
+ const t=(S.traditional||{});
+ if(t.running==="Yes"&&t.posture)h+=`<div class="dnote">${t.posture==="shift"
+   ?"Every figure above is attributable to the channel that produced it. That is the difference worth weighing against the traditional spend."
+   :"These figures cover the digital portion of the plan; they sit alongside the traditional buy rather than replacing it."}</div>`;
+ return h;}
+function toggleEditSec(id){S._editSec=S._editSec===id?null:id;saveNow();drawPreview();}
+function toggleSec(id){
+ const sec=S.sections.find(x=>x.id===id);if(!sec||isRequired(sec))return;
+ sec.enabled=!sec.enabled;saveSoon();drawPreview();}
+async function rewriteSecById(id){
+ const i=S.sections.findIndex(x=>x.id===id);if(i<0)return;
+ if(!CFG.ai_enabled){toast("AI rewriting needs OPENAI_API_KEY on the server.");return;}
+ toast("✨ Rewriting "+S.sections[i].title+"…");
+ try{
+  const d=await api('/sales/builder/api/ai/draft-sections',{method:'POST',
+   body:JSON.stringify({data:S,section:id})});
+  if(d.sections&&d.sections[id]){S.sections[i].body=d.sections[id];saveNow();drawPreview();
+   toast("✨ "+S.sections[i].title+" rewritten.");return;}
+  toast((d.breaches&&Object.keys(d.breaches).length)?"The rewrite broke a proposal rule and was discarded.":"The AI returned nothing for that section.");
+ }catch(e){toast("Rewrite failed: "+e.message);}}
+
+/* section editor */
   .sec{border:1px solid var(--line);border-radius:12px;background:#fff;margin-top:12px;overflow:hidden}
   .sec .shead{display:flex;align-items:center;gap:10px;padding:11px 14px;background:#f7fafd;border-bottom:1px solid #edf2f7}
   .sec .shead input[type=text]{flex:1;border:1px solid transparent;background:transparent;font-weight:800;color:var(--navy);font-size:14px;padding:5px 7px;border-radius:7px;font-family:inherit}
@@ -196,6 +365,36 @@
   .clientcard .meta{font-size:12px;color:var(--muted)}
   @media(max-width:1000px){.cols{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:720px){.cards,.cards.c3,.estgrid,.pkgs,.two,.three{grid-template-columns:1fr}}
+  /* ---- proposal preview: the document as the client will read it ---- */
+  .paperdoc{background:#fff;border:1px solid var(--line);border-radius:14px;
+    padding:0 0 26px;box-shadow:var(--shadow);overflow:hidden}
+  .docband{background:var(--navy);color:#fff;text-align:center;font-weight:800;
+    letter-spacing:.08em;font-size:13px;padding:12px}
+  .doctitle{color:var(--navy);text-align:center;font-size:22px;margin:20px 26px 4px}
+  .docsub{color:var(--muted);text-align:center;font-size:12.5px;margin:0 26px 8px}
+  .docsec{padding:16px 26px 4px;border-top:1px solid var(--line);margin-top:12px}
+  .docsec.off{opacity:.5}
+  .dhead{display:flex;align-items:center;gap:10px}
+  .dhead h3{color:var(--navy);font-size:15px;margin:0;flex:1}
+  .dtools{display:flex;gap:4px;opacity:.45;transition:opacity .15s}
+  .docsec:hover .dtools{opacity:1}
+  .dbody{font-size:13.5px;line-height:1.62;color:#33415C;margin-top:8px;white-space:pre-wrap}
+  .dempty{margin-top:8px}
+  .dedit{width:100%;min-height:130px;margin-top:8px;font:13.5px/1.6 inherit;
+    border:2px solid var(--blue);border-radius:10px;padding:11px;box-sizing:border-box}
+  .dtbl{width:100%;border-collapse:collapse;margin-top:11px;font-size:12px}
+  .dtbl th{background:var(--navy);color:#fff;text-align:left;padding:7px 9px;font-weight:700}
+  .dtbl td{border:1px solid var(--line);padding:7px 9px;vertical-align:top;color:#33415C}
+  .dtbl tr.dtot td{background:var(--sky,#eef3f8);font-weight:700;color:var(--navy)}
+  .dmoney{width:96px;text-align:right;padding:5px 7px;border:1px solid #b6c4d4;border-radius:6px;font:12px inherit}
+  .dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px;margin-top:11px}
+  .dgrid div{background:#f6faff;border:1px solid var(--line);border-radius:10px;padding:11px;text-align:center}
+  .dgrid b{display:block;color:var(--navy);font-size:19px}
+  .dgrid span{color:var(--muted);font-size:11px}
+  .dnote{color:var(--muted);font-size:11.5px;margin-top:7px;line-height:1.5}
+  /* ---- the section-by-section writing loader ---- */
+  .progress{height:9px;background:#e8edf3;border-radius:20px;overflow:hidden}
+  .progress .bar{height:100%;background:var(--blue);border-radius:20px;transition:width .3s ease}
 </style>
 </head>
 <body data-module="sales_builder">
@@ -714,7 +913,13 @@ function freshState(){return{
  // {answer:"has"|"client"|"comp", fee:number, confirmed:bool}
  creativePlan:{},suiteTier:{},
  packages:[],selPkg:1,selectedPackage:null,estimates:null,aiEst:null,
- mkt:{seo:"",paidSearch:"",socialPosting:"",paidSocial:""},
+ // Discovery. The last three questions are the ones that change what we
+ // recommend; `traditional` is the one with money behind it. Mirrors
+ // hub/current_marketing.py.
+ mkt:{seo:"",paidSearch:"",socialPosting:"",paidSocial:"",
+      retargeting:"",aiOptimized:"",websiteHappy:""},
+ traditional:{running:"",detail:"",budget:"",posture:""},
+ suggestDismissed:[],
  sections:null,
  salesContact:REP_NAME||"",salesEmail:REP_EMAIL||"",
  clientContactName:"",clientContactEmail:"",clientContactPhone:"",
@@ -757,6 +962,56 @@ async function saveNow(extra){
  }catch(e){setSave("⚠ Not saved: "+e.message);}
 }
 function setSave(t){const el=document.getElementById('saveState');if(el)el.textContent=t;}
+
+/* ============================================================
+   WE SUGGEST THEY SHOULD — mirrors hub/current_marketing.py
+   The discovery answers used to be captured and never read. These turn them
+   into advice the rep can keep or dismiss, and what is kept reaches the
+   proposal's Current Friction Points section.
+   ============================================================ */
+const DISCOVERY_QUESTIONS=[
+ {key:"seo",label:"Doing SEO / local listings?"},
+ {key:"paidSearch",label:"Running paid search (Google / Bing)?"},
+ {key:"socialPosting",label:"Posting on social media regularly?"},
+ {key:"paidSocial",label:"Running paid social media ads?"},
+ {key:"retargeting",label:"Retargeting visitors to their website?"},
+ {key:"aiOptimized",label:"Optimizing for AI search (AI Overviews, ChatGPT)?"},
+ {key:"websiteHappy",label:"Happy with their website?"},
+];
+const SUGGESTION_RULES=[
+ {key:"retargeting",when:["No","Unknown"],title:"Retarget the people who already visited",
+  detail:"Someone who has already been to the site is the cheapest conversion available and the easiest audience to reach again. Website retargeting runs at $4.75 CPM on the card and needs only a pixel on the site."},
+ {key:"aiOptimized",when:["No","Unknown"],title:"Get the site readable by AI search",
+  detail:"Search is turning into an answer engine — AI Overviews, ChatGPT and Siri increasingly answer instead of linking. Being cited needs accurate schema markup, fast pages and clean directory listings across the local platforms."},
+ {key:"websiteHappy",when:["No"],title:"Fix the page the media points at",
+  detail:"Paid media cannot outrun a landing page that does not convert — it just buys more people to lose. If they are not happy with the site, that is the first thing to fix, before the budget scales."},
+ {key:"seo",when:["No","Unknown"],title:"Claim the organic and map results",
+  detail:"Paid media stops the day the budget stops. Local listings and organic visibility compound, and they feed the same review and ranking signals AI search reads."},
+ {key:"paidSearch",when:["No"],title:"Capture the demand already searching",
+  detail:"Everything else in this plan creates demand. Paid search catches the people who already have it and are typing the words right now — usually the lowest cost per lead on the plan."},
+ {key:"paidSocial",when:["No"],title:"Re-engage in feed",
+  detail:"Paid social is where an audience that has met the brand once gets met again, cheaply, with a different message."},
+];
+const TRADITIONAL_SUGGESTION={
+ supplement:{key:"traditional",title:"Make the traditional buy measurable",
+  detail:"They are already spending on traditional media. Digital around it is what makes the whole thing attributable: the same households reached on connected TV and streaming audio, with every response landing in the Smart 1 Suite where it can be counted."},
+ shift:{key:"traditional",title:"Move some of the traditional budget where it can be counted",
+  detail:"The traditional spend reaches people; what it cannot do is tell them which half worked. Shifting a portion into targeted digital keeps the reach and adds attribution — worth testing with a share of the budget rather than all of it."},
+};
+function suggestions(){
+ const dismissed=S.suggestDismissed||[];
+ const out=SUGGESTION_RULES.filter(r=>!dismissed.includes(r.key)&&r.when.includes(S.mkt[r.key]||""))
+  .map(r=>({key:r.key,title:r.title,detail:r.detail}));
+ const t=S.traditional||{};
+ if(t.running==="Yes"&&!dismissed.includes("traditional")&&TRADITIONAL_SUGGESTION[t.posture])
+  out.push(Object.assign({},TRADITIONAL_SUGGESTION[t.posture]));
+ return out;}
+function dismissSuggestion(key){
+ S.suggestDismissed=(S.suggestDismissed||[]).concat([key]);saveSoon();renderStep();}
+function restoreSuggestions(){S.suggestDismissed=[];saveSoon();renderStep();}
+function traditionalReady(){
+ const t=S.traditional||{};
+ return t.running!=="Yes"||["supplement","shift"].includes(t.posture);}
 
 /* ============================================================
    CREATIVE GATE — mirrors hub/creative_needs.py exactly
@@ -933,7 +1188,7 @@ const PROPOSAL_OUTLINE=[
  {id:"cover",title:"Cover",kind:"cover",purpose:"Professionalism and visual authority."},
  {id:"summary",title:"Executive Summary",kind:"text",purpose:"A yes from the C-suite even if they read nothing else."},
  {id:"objectives",title:"Objectives & Success Criteria",kind:"text",purpose:"Show we listened. Primary and secondary."},
- {id:"friction",title:"Current Friction Points",kind:"text",purpose:"Where the current marketing is losing money."},
+ {id:"friction",title:"Current Friction Points",kind:"friction",purpose:"Where the current marketing is losing money — and the We Suggest They Should list you kept."},
  {id:"areas",title:"Audience & Market Strategy",kind:"areas",purpose:"Precision targeting, area by area."},
  {id:"reach",title:"Addressable Audience",kind:"reach",purpose:"How many people this actually reaches."},
  {id:"channels",title:"Recommended Channel Strategy",kind:"channels",purpose:"Every channel's role in the funnel and its KPI."},
@@ -1005,7 +1260,37 @@ function landingRec(){const g=S.objectives;
 function card(em2,t,d,on,click){return `<div class="choice${on?' on':''}" onclick="${click}"><div class="em">${em2}</div><div><h3>${t}</h3><p>${d}</p></div><div class="tick"></div></div>`;}
 function pillRow(list,arr,kind){return '<div>'+list.map(v=>`<span class="pill${arr.includes(v)?' on':''}" onclick="pill('${kind}',this.dataset.v)" data-v="${esc(v)}">${esc(v)}</span>`).join('')+'</div>';}
 function opt(list,cur){return list.map(x=>`<option ${cur===x?'selected':''}>${esc(x)}</option>`).join('');}
-function seg(label,key){return `<div class="fld"><label>${label}</label><div>`+["Yes","No","Unknown"].map(o=>`<span class="pill${S.mkt[key]===o?' on':''}" onclick="S.mkt['${key}']='${o}';saveSoon();renderStep()">${o}</span>`).join('')+`</div></div>`;}
+function seg(label,key){
+ // "__traditional" is the one question that does not live on S.mkt: its
+ // answer opens a whole sub-form, so it is kept with its detail and posture.
+ const trad=key==="__traditional";
+ const cur=trad?((S.traditional||{}).running||""):S.mkt[key];
+ const set=trad?"setTraditional('running',":"setMkt('"+key+"',";
+ return `<div class="fld"><label>${label}</label><div>`
+  +["Yes","No","Unknown"].map(o=>`<span class="pill${cur===o?' on':''}" onclick="${set}'${o}')">${o}</span>`).join('')
+  +`</div></div>`;}
+function setMkt(key,value){S.mkt[key]=value;saveSoon();renderStep();}
+function setTraditional(key,value){
+ S.traditional=Object.assign({},S.traditional,{[key]:value});
+ // Answering "No" or "Unknown" clears a posture chosen earlier, so a stale
+ // "move their budget" cannot survive the answer that made it meaningless.
+ if(key==="running"&&value!=="Yes")S.traditional.posture="";
+ saveSoon();
+ if(key==="detail"||key==="budget")syncNext();else renderStep();}
+function suggestBlock(){
+ const picks=suggestions(),dismissed=(S.suggestDismissed||[]).length;
+ if(!picks.length){
+  return `<div class="bpanel" style="border-color:#bfe3c8;background:#f3fbf5"><div class="ttl">✅ We Suggest They Should</div>
+   <div class="note" style="margin-top:6px">${dismissed?'Everything suggested has been dismissed. <a onclick="restoreSuggestions()" style="cursor:pointer;color:var(--blue);font-weight:700">Bring them back</a>':'Nothing to flag yet — answer the questions above and any gaps show up here.'}</div></div>`;}
+ return `<div class="bpanel" style="border-color:#bfe3c8;background:#f3fbf5">
+  <div class="ttl" style="color:#1c6b32">✅ We Suggest They Should</div>
+  <div class="note" style="margin-top:4px;color:#2a6b3c">Our advice, from the answers above. What you keep is written into the proposal's friction section — dismiss anything that does not apply.</div>
+  <div style="margin-top:10px">${picks.map(pk=>`
+   <div class="prod" style="background:#fff;border-color:#cfe8d6">
+    <div class="pi" style="background:#e6f5ea">💡</div>
+    <div class="grow"><h4 style="color:#1c6b32">${esc(pk.title)}</h4><div class="meta">${esc(pk.detail)}</div></div>
+    <button class="x" title="Not for this client" onclick="dismissSuggestion('${pk.key}')">✕</button></div>`).join('')}</div>
+  ${dismissed?`<div class="note" style="margin-top:8px"><a onclick="restoreSuggestions()" style="cursor:pointer;color:var(--blue);font-weight:700">Restore ${dismissed} dismissed</a></div>`:''}</div>`;}
 function pill(kind,v){const m={exc:S.exclusions,age:S.ages,inc:S.income,aud:S.audiences,kpi:S.kpis};toggle(m[kind],v);if(kind==='age'||kind==='inc')S.aiEst=null;saveSoon();renderStep();if(kind==='age'||kind==='inc')drawEst();}
 function addCustom(kind,id){const el=document.getElementById(id);const v=(el.value||'').trim();if(!v)return;const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};if(!m[kind].includes(v))m[kind].push(v);el.value='';saveSoon();renderStep();}
 function goal(k){toggle(S.objectives,k);S.items=[];S.kpis=[];saveSoon();renderStep();}
@@ -1166,9 +1451,33 @@ const STEPS=[
     <div class="fld" style="margin-top:6px"><textarea oninput="S.landing=this.value;saveSoon()" style="min-height:80px">${esc(S.landing)}</textarea></div></div>`,
    valid:()=>true,after:drawLanding};},
 
- ()=>({eyebrow:"Current Marketing",title:"What are they already doing?",sub:"Knowing what's running today shows where the gaps and quick wins are.",
-   html:`<div class="bpanel">${seg("Doing SEO / local listings?","seo")}${seg("Running paid search (Google / Bing)?","paidSearch")}${seg("Posting on social media regularly?","socialPosting")}${seg("Running paid social media ads?","paidSocial")}</div>`,
-   valid:()=>true}),
+ /* Discovery. Every answer here changes something downstream: the gaps drive
+    the "We suggest they should" list, and the traditional-media answer sets
+    the proposal's whole posture toward the budget they already spend. */
+ ()=>({eyebrow:"Current Marketing",title:"What are they already doing?",
+   sub:"Every answer changes the recommendation. Unknown is a real answer — it means we have not confirmed it.",
+   html:`<div class="bpanel"><div class="ttl">📋 What's running today</div>
+    ${DISCOVERY_QUESTIONS.map(q=>seg(q.label,q.key)).join('')}</div>
+
+   <div class="bpanel"><div class="ttl">📻 Traditional media</div>
+    ${seg("Are they doing traditional media (radio, TV, print, outdoor, direct mail)?","__traditional")}
+    ${(S.traditional||{}).running==="Yes"?`
+     <div class="fld" style="margin-top:10px"><label>What do we know about it? Which media, which stations or vendors, how long it has been running</label>
+      <textarea style="min-height:78px" placeholder="e.g. :30s on WBNS morning drive since last spring, a billboard on 315, quarterly newspaper inserts" oninput="setTraditional('detail',this.value)">${esc((S.traditional||{}).detail||'')}</textarea></div>
+     <div class="fld"><label>Budget or estimate, if we have one</label>
+      <input value="${esc((S.traditional||{}).budget||'')}" placeholder="e.g. $6,000/mo, or ~$70k a year — an estimate is fine" oninput="setTraditional('budget',this.value)" style="max-width:340px">
+      <div class="note" style="margin-top:5px">An estimate is worth more than a blank. It sets the scale of the decision below.</div></div>
+     <div class="bpanel" style="background:#fbfcfe;margin-top:12px"><div class="ttl">Do we supplement it, or move some of it?</div>
+      <div class="cards" style="margin-top:8px">
+       ${card("➕","Supplement their media","Digital around what they already run, making the whole thing measurable",(S.traditional||{}).posture==="supplement",`setTraditional('posture','supplement')`)}
+       ${card("🔀","Look to move budget to digital","Argue for reallocating a share of it into media that reports a number",(S.traditional||{}).posture==="shift",`setTraditional('posture','shift')`)}
+      </div>
+      <div class="note" style="margin-top:8px">This sets the proposal's posture, not its volume — the copy mentions it once where it is relevant and never argues against their existing spend.</div></div>`:''}
+    ${(S.traditional||{}).running==="No"?'<div class="note" style="margin-top:8px">Digital only, then — nothing to position around.</div>':''}
+    ${(S.traditional||{}).running==="Unknown"?'<div class="note" style="margin-top:8px">Worth finding out before the proposal goes out: it is usually the largest number in the room.</div>':''}
+   </div>
+   ${suggestBlock()}`,
+   valid:()=>traditionalReady()}),
 
  ()=>({eyebrow:"Guardrails",title:"Anything to avoid?",sub:"Flag exclusions, negative keywords, or restricted audiences up front (feeds the IO's exclusions field).",
    html:'<div class="bpanel"><div class="ttl">🚫 Exclusions / things to avoid</div>'+
@@ -1245,11 +1554,28 @@ const STEPS=[
     +'<div class="cards c3" style="margin-top:10px">'+SUITE_TIERS.map(t=>card("🧠",t.name+" · "+money(t.monthly)+"/mo",t.specs,chosenTier().name===t.name,`pickTier('${t.name}')`)).join('')+'</div></div>',
    valid:()=>true,after:drawPkgs};},
 
- ()=>{ if(!S.sections)S.sections=defaultSections(); S.estimates=estimates(); return{eyebrow:"Proposal Document",title:"Edit the proposal",sub:"These sections become the branded PDF and Word doc. Rename, rewrite, reorder, disable, or add sections. Auto sections (tables) fill from the campaign data.",
-   html:'<div class="addrow" style="margin-bottom:14px"><button class="btn btn-primary" id="draftBtn" onclick="draftSections()">✨ Write the proposal copy from this campaign</button>'
-    +'<span class="note" style="margin:0">Uses the industry library plus the products, budget and target areas you just built — the tables stay generated from the real numbers.</span></div>'
-    +'<div id="secList"></div><div class="addrow"><button class="btn btn-ghost" onclick="addSection()">+ Add a custom section</button><button class="btn btn-line" onclick="S.sections=defaultSections();saveSoon();renderStep()">↺ Reset to defaults</button></div>',
-   valid:()=>true,after:drawSections};},
+ /* The proposal, as the client will read it. Two views behind one step:
+    the preview -- what the PDF will say, section by section, each editable
+    in place -- and the list editor for reordering and adding sections. The
+    preview comes first because reading the document is how you find out
+    whether it is any good; a stack of textareas is not the document. */
+ ()=>{ if(!S.sections)S.sections=defaultSections(); S.estimates=estimates();
+   if(S._docView!=="list")S._docView="preview";
+   const preview=S._docView==="preview";
+   return{eyebrow:"Proposal Document",
+   title:preview?"Read it before you send it":"Sections, in order",
+   sub:preview?"This is the document. Edit any section in place, have the AI rewrite it, or hide it — and change the media plan without leaving the page."
+              :"Rename, reorder, hide or add sections. The required ones stay.",
+   html:`<div class="addrow" style="margin-bottom:14px">
+     <button class="btn ${preview?'btn-primary':'btn-line'}" onclick="S._docView='preview';renderStep()">👁 Preview</button>
+     <button class="btn ${preview?'btn-line':'btn-primary'}" onclick="S._docView='list';renderStep()">☰ Section order</button>
+     <button class="btn btn-good" id="draftBtn" onclick="draftSections()">✨ Write every section</button>
+     <span class="note" style="margin:0">Writes each section from the campaign you just built — the tables stay generated from the real numbers.</span></div>
+    <div id="draftProgress"></div>`
+    +(preview
+      ? '<div id="docPreview"></div>'
+      : '<div id="secList"></div><div class="addrow"><button class="btn btn-ghost" onclick="addSection()">+ Add a custom section</button><button class="btn btn-line" onclick="S.sections=defaultSections();saveSoon();renderStep()">↺ Reset to defaults</button></div>'),
+   valid:()=>true,after:()=>{preview?drawPreview():drawSections();}};},
 
  ()=>{ buildPackages();S.estimates=estimates(); return{eyebrow:"Review & Save",title:"Ready to deliver",sub:"Everything is saved under "+(QUOTE_NUMBER||"a new quote number")+". Generate the branded PDF, export Word, and mark it Sent when it goes to the client.",
    html:reviewHtml(),valid:()=>true,isLast:true};}
@@ -1447,18 +1773,56 @@ function delSec(i){
  if(!confirm("Delete the \""+S.sections[i].title+"\" section from this proposal?"))return;
  S.sections.splice(i,1);saveSoon();drawSections();}
 function addSection(){S.sections.push({id:"custom"+Date.now(),title:"New Section",kind:"text",enabled:true,body:""});saveSoon();drawSections();}
+/* Writes the proposal a section at a time, so the loader can name what it is
+   working on. One request per section: a single spinner for a minute tells a
+   rep nothing and looks hung, and one failed section no longer costs the
+   other twelve. */
 async function draftSections(){
  if(!CFG.ai_enabled){toast("Writing the copy needs OPENAI_API_KEY on the server.");return;}
- const written=(S.sections||[]).filter(x=>x.kind==='text'&&(x.body||'').trim()).length;
- if(written&&!confirm("Rewrite the "+written+" section"+(written===1?"":"s")+" that already have copy? Table sections are untouched."))return;
- const b=document.getElementById('draftBtn');if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Writing…';}
- try{
-  const d=await api('/sales/builder/api/ai/draft-sections',{method:'POST',body:JSON.stringify({data:S})});
-  let n=0;
-  (S.sections||[]).forEach(sec=>{if(d.sections&&d.sections[sec.id]){sec.body=d.sections[sec.id];n++;}});
-  saveNow();renderStep();toast("✨ Wrote "+n+" section"+(n===1?"":"s")+" — edit anything before it goes out.");
- }catch(e){toast("Couldn't write the copy: "+e.message);}
- finally{const bb=document.getElementById('draftBtn');if(bb){bb.disabled=false;bb.textContent='✨ Write the proposal copy from this campaign';}}}
+ let plan;
+ try{plan=(await api('/sales/builder/api/ai/section-plan',{method:'POST',body:JSON.stringify({data:S})})).sections||[];}
+ catch(e){toast("Couldn't work out what to write: "+e.message);return;}
+ if(!plan.length){toast("There are no sections to write.");return;}
+ const written=plan.filter(p=>p.has_copy).length;
+ if(written&&!confirm("Rewrite all "+plan.length+" sections? "+written+" already have copy, and their current text will be replaced."))return;
+
+ const b=document.getElementById('draftBtn');if(b)b.disabled=true;
+ S._drafting={total:plan.length,done:0,now:"",failed:[]};
+ drawDraftProgress();
+ for(const item of plan){
+  S._drafting.now=item.title;drawDraftProgress();
+  try{
+   const d=await api('/sales/builder/api/ai/draft-sections',{method:'POST',
+    body:JSON.stringify({data:S,section:item.id})});
+   if(d.sections&&d.sections[item.id]){
+    const ix=S.sections.findIndex(x=>x.id===item.id);
+    if(ix>=0)S.sections[ix].body=d.sections[item.id];
+   }else{
+    // A section discarded for breaking a proposal rule is named, not
+    // silently skipped -- otherwise it just looks like it wrote nothing.
+    S._drafting.failed.push(item.title+((d.breaches&&Object.keys(d.breaches).length)?" (broke a proposal rule)":""));
+   }
+  }catch(e){S._drafting.failed.push(item.title+" ("+e.message+")");}
+  S._drafting.done++;drawDraftProgress();
+ }
+ const failed=S._drafting.failed.slice();
+ S._drafting=null;
+ saveNow();renderStep();
+ if(b)b.disabled=false;
+ toast(failed.length?("Wrote "+(plan.length-failed.length)+" of "+plan.length+" — "+failed.length+" need another go.")
+                    :("✨ Wrote all "+plan.length+" sections — read them before they go out."));
+}
+function drawDraftProgress(){
+ const host=document.getElementById('draftProgress');if(!host)return;
+ const d=S._drafting;
+ if(!d){host.innerHTML='';return;}
+ const pct=Math.round(100*d.done/Math.max(1,d.total));
+ host.innerHTML=`<div class="bpanel" style="margin-bottom:14px">
+  <div class="ttl"><span class="spin"></span> Writing the proposal — ${d.done} of ${d.total} sections</div>
+  <div class="progress" style="margin-top:9px"><div class="bar" style="width:${pct}%"></div></div>
+  <div class="note" style="margin-top:7px">${d.now?'Now writing: <b>'+esc(d.now)+'</b>':'Starting…'}</div>
+  ${d.failed.length?`<div class="note" style="color:#8a6410">Needs another go: ${d.failed.map(esc).join(', ')}</div>`:''}</div>`;}
+
 async function aiRewrite(i){
  const ins=(document.getElementById('aiIns'+i).value||"").trim()||"make it clearer and more client-friendly";
  const text=S.sections[i].body||"";

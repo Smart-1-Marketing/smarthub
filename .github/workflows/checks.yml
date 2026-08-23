@@ -130,10 +130,12 @@ jobs:
         # RUN THIS FILE EXACTLY ONCE. It calls os.environ.setdefault for
         # DATABASE_URL, so it uses its throwaway SQLite only when nothing else
         # has set one -- and this job sets DATABASE_URL to the Postgres service
-        # above, which persists across steps. A second invocation therefore
-        # sees the first one's rows and fails "files one document, not three"
-        # with 3. Two lineages each added a target-areas step and git merged
-        # both cleanly, which is exactly how the duplicate got in.
+        # above, which persists across steps. Each run also gets a fresh
+        # HUB_DATA_DIR, and jsonstore restores the previous run's writes into
+        # that empty directory, so a second invocation sees the first one's
+        # rows and fails "files one document, not three" with 3. Two lineages
+        # each added a target-areas step and git merged both cleanly, which is
+        # exactly how the duplicate got in.
         run: |
           if [ -f test_target_areas.py ]; then
             python test_target_areas.py

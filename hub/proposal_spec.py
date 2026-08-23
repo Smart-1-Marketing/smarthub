@@ -76,7 +76,11 @@ OUTLINE = [
                     "Use the client's own stated goals where they gave them.",
     },
     {
-        "id": "friction", "title": "Current Friction Points", "kind": "text", "enabled": True,
+        # `friction` rather than `text`: the section renders the kept
+        # "We suggest they should" recommendations underneath its copy, so
+        # the advice reaches the client rather than staying in the wizard.
+        "id": "friction", "title": "Current Friction Points", "kind": "friction",
+        "enabled": True,
         "purpose": "Name where the current marketing is losing money.",
         "guidance": "Identify structural roadblocks, not personal criticism: a bolted-on "
                     "tech stack with separate logins, no central CRM so hot leads cool "

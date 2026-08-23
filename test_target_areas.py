@@ -323,6 +323,20 @@ check("the branded PDF builds", pdf.status_code == 200 and len(pdf.data) > 2000,
 docx = http.get(f"/sales/builder/api/quotes/{quote['id']}/docx")
 check("so does the Word copy", docx.status_code == 200 and len(docx.data) > 2000)
 
+# Start this client's shelf empty. HUB_DATA_DIR is a fresh temporary
+# directory every run, but the *database* behind it may not be: jsonstore
+# mirrors every write, and a miss on disk restores from that mirror. Against a
+# persistent DATABASE_URL -- CI's Postgres, or a developer's real one -- the
+# previous run's filings reappear in the empty directory and the counts below
+# come out two high, which is exactly how this file failed in CI while passing
+# on every laptop.
+from hub import seo as _seo                                        # noqa: E402
+_shelf = _seo.load_store("Riverstone Dental")
+_shelf["uploaded_proposals"] = []
+_seo.save_store("Riverstone Dental", _shelf)
+check("the client starts with nothing filed",
+      api("get", "/api/client/proposals?client=Riverstone+Dental")["proposals"] == [])
+
 # Delivering the same revision repeatedly must file one document, not three.
 # Every click of Send -- including the one after answering the Suite contact
 # question -- runs this path.
