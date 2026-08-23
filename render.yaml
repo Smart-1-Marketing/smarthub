@@ -19,10 +19,8 @@ services:
         sync: false
       - key: GHL_COMPANY_ID
         sync: false
-      # Smart 1 Marketing sub-account — where proposal opportunities are filed.
-      - key: SMART1_LOCATION_ID
-        sync: false
-      # Optional; discovered from the API when blank.
+      # Proposal opportunities are filed into GHL_LEAD_LOCATION_ID (below).
+      # Optional; the pipeline is discovered from the API when blank.
       - key: GHL_PIPELINE_ID
         sync: false
       - key: GHL_PIPELINE_STAGE_ID

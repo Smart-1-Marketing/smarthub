@@ -128,6 +128,24 @@ jobs:
             echo "test_lead_delivery.py not on this branch — nothing to run."
           fi
 
+      - name: Target area and delivery tests
+        # Guarded like the step above, so this workflow stays mergeable on a
+        # branch that predates the file.
+        run: |
+          if [ -f test_target_areas.py ]; then
+            python test_target_areas.py
+          else
+            echo "test_target_areas.py not on this branch — nothing to run."
+          fi
+
+      - name: Proposal specification and creative gate tests
+        run: |
+          if [ -f test_proposal_spec.py ]; then
+            python test_proposal_spec.py
+          else
+            echo "test_proposal_spec.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a
@@ -146,7 +164,14 @@ jobs:
           c.post("/login", data={"password": "ci-test-password", "name": "CI"})
 
           pages = ["/", "/status", "/diagnostics", "/sales/leads",
-                   "/api/integrity", "/api/leads", "/login/health"]
+                   "/api/integrity", "/api/leads", "/login/health",
+                   # The proposal builder and Client 360 render the largest
+                   # templates in the repo and are where a bad section kind or
+                   # a template typo surfaces as a 500 rather than a test
+                   # failure. /sales/proposals is the retired builder's
+                   # redirect; a 3xx here is the correct answer.
+                   "/sales/builder/", "/sales/proposals/", "/tools/io/",
+                   "/client360", "/tools"]
           bad = []
           for url in pages:
               try:

@@ -78,7 +78,10 @@ from hub.webargs import clamp_int
 # edited anyway, so it moves onto the shared implementations rather than
 # keeping local copies of geography, prompt and Suite logic.
 from hub import business_description as hub_desc
+from hub import creative_needs as hub_creative
 from hub import industries as hub_industries
+from hub import proposal_spec as hub_spec
+from hub import rate_card as hub_rate_card
 from hub import target_areas as hub_areas
 
 # Activity logging. Guarded so this module still runs standalone, but
@@ -265,6 +268,10 @@ def compute_gaps(state):
         gaps.append({"key": "contact", "label": "Client contact name, email, and phone"})
     if blank(s.get("startDate")):
         gaps.append({"key": "dates", "label": "Exact campaign start date (and end date or ongoing)"})
+    # Video and audio each need their own answer before the plan is priced --
+    # a Connected TV buy with no spot is a launch date nobody can hit. Display
+    # is still the one blanket question below it.
+    gaps.extend(hub_creative.gaps(s))
     if blank(s.get("creativeSource")):
         gaps.append({"key": "creative", "label": "Creative assets — client provides, or Smart 1 builds (creative fee)"})
     tp = s.get("trackingPlan") or {}
@@ -336,6 +343,7 @@ def quote_json(q, include_data=False):
         "gaps": compute_gaps(state),
         "guardrails": compute_guardrails(state),
         "target_areas": campaign_areas(state),
+        "creative": hub_creative.evaluate(state),
         "pdf_url": q.pdf_url or "",
         "suite_opportunity_id": q.suite_opportunity_id or "",
         "delivered_at": q.delivered_at.isoformat() if q.delivered_at else "",
@@ -666,6 +674,112 @@ def _money(n):
         return str(n)
 
 
+def investment_lines(state, q):
+    """Platform, media and one-time production, kept apart.
+
+    The specification requires recurring SaaS fees to be separated from media
+    spend and one-time setup. Blending them is how a client comes to believe
+    the platform stops costing money when they pause a campaign.
+    """
+    state = state or {}
+    months = max(1, int(getattr(q, "months", 0) or state.get("months") or 1))
+    monthly_media = float(getattr(q, "monthly_budget", 0) or 0) or \
+        sum(float(i.get("dollars") or 0) for i in state.get("items") or [])
+
+    lines = []
+    suite = state.get("suiteTier") or {}
+    if suite.get("include") is not False:
+        tier = suite if suite.get("name") else hub_spec.suggested_tier(monthly_media)
+        lines.append({"label": f"Smart 1 Suite — {tier['name']} ({tier.get('specs', '')})",
+                      "amount": float(tier.get("monthly") or 0),
+                      "recurs": "Monthly", "kind": "saas"})
+    lines.append({"label": "Media spend", "amount": round(monthly_media, 2),
+                  "recurs": "Monthly", "kind": "media"})
+
+    creative = hub_creative.evaluate(state)
+    for row in creative["media"]:
+        if row["answer"] == hub_creative.CLIENT_PAYS and row["fee"]:
+            lines.append({"label": f"{row['label'].split(' (')[0]} creative production",
+                          "amount": float(row["fee"]), "recurs": "One-time",
+                          "kind": "setup"})
+    try:
+        extra = float(str(state.get("creativeFee") or "0").replace("$", "").replace(",", ""))
+    except ValueError:
+        extra = 0.0
+    if extra:
+        lines.append({"label": "Display creative production", "amount": extra,
+                      "recurs": "One-time", "kind": "setup"})
+
+    recurring = sum(l["amount"] for l in lines if l["recurs"] == "Monthly")
+    one_time = sum(l["amount"] for l in lines if l["recurs"] == "One-time")
+    return {"lines": lines, "recurring_monthly": round(recurring, 2),
+            "one_time": round(one_time, 2),
+            "first_month": round(recurring + one_time, 2),
+            "campaign_total": round(recurring * months + one_time, 2),
+            "months": months}
+
+
+def _head_style_rows():
+    """The navy-header table style every generated section uses."""
+    return [("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]
+
+
+def _head_style():
+    return TableStyle(_head_style_rows())
+
+
+# What each medium does in the customer journey, and what it is judged on.
+# Awareness channels measured on clicks is the single most common way a good
+# campaign gets called a failure.
+_CHANNEL_ROLE = {
+    hub_creative.VIDEO: ("Top of funnel — builds awareness and trust on the "
+                         "screens the household already watches",
+                         "Completed views and completion rate"),
+    hub_creative.AUDIO: ("Mid funnel — reaches the 79% of digital audio time "
+                         "spent with no screen at all",
+                         "Reach, frequency and listen-through"),
+    hub_creative.SOCIAL: ("Mid funnel — consideration and re-engagement in feed",
+                          "Engaged sessions and cost per lead"),
+    hub_creative.DISPLAY: ("Full funnel — precision targeting and retargeting "
+                           "against the people already in market",
+                           "Click-through rate and cost per action"),
+    hub_creative.OTHER: ("Supports the campaign", "Cost per action"),
+}
+
+
+def _channel_role(item):
+    medium = hub_creative.medium_of(item)
+    category = str(item.get("category") or "").upper()
+    if "SEARCH ENGINE MARKETING" in category or "PAY PER CLICK" in category:
+        return ("Bottom of funnel — captures demand that is already searching",
+                "Cost per lead and conversion rate")
+    if "SEARCH ENGINE OPTIMIZATION" in category:
+        return ("Compounding — organic and AI-answer visibility",
+                "Ranked terms, map-pack visibility and organic leads")
+    if "RETARGETING" in category:
+        return ("Bottom of funnel — brings back the people who already came",
+                "Return visits and cost per conversion")
+    return _CHANNEL_ROLE.get(medium, _CHANNEL_ROLE[hub_creative.OTHER])
+
+
+def _creative_phrase(row):
+    """What the creative gate decided, phrased for a client-facing document."""
+    if row["answer"] == hub_creative.HAS:
+        return "Supplied by the client"
+    if row["answer"] == hub_creative.CLIENT_PAYS:
+        return f"Produced by Smart 1 — {_money(row['fee'])} one-time"
+    if row["answer"] == hub_creative.COMP:
+        return "Produced by Smart 1 at no charge"
+    return "To be confirmed before launch"
+
+
 def build_proposal_pdf(q, state):
     title = f"S1M Proposal - {q.quote_number} - {q.client or 'Client'}"
     buf = BytesIO()
@@ -775,6 +889,27 @@ def build_proposal_pdf(q, state):
                                         ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
                 story.append(mt)
         elif kind == "packages":
+            # Recurring platform licensing, recurring media and one-time
+            # production, shown apart. A client reading one blended number
+            # cannot tell what stops if they pause the media.
+            invest = investment_lines(state, q)
+            rows = [["", "Amount", "Recurs"]]
+            for line in invest["lines"]:
+                rows.append([_p(line["label"], st_small), _money(line["amount"]),
+                             _p(line["recurs"], st_small)])
+            rows.append(["Total first month", _money(invest["first_month"]), ""])
+            rows.append([f"Total campaign ({q.months} mo)",
+                         _money(invest["campaign_total"]), ""])
+            it = Table(rows, colWidths=[4.2 * inch, 1.6 * inch, 1.6 * inch], repeatRows=1)
+            style = _head_style_rows()
+            for offset in (2, 1):
+                style.append(("BACKGROUND", (0, len(rows) - offset),
+                              (-1, len(rows) - offset), SOFT))
+                style.append(("FONTNAME", (0, len(rows) - offset),
+                              (-1, len(rows) - offset), "Helvetica-Bold"))
+            it.setStyle(TableStyle(style))
+            story += [it, Spacer(1, 8)]
+
             pkgs = state.get("packages") or []
             if pkgs:
                 selname = (state.get("selectedPackage") or {}).get("name")
@@ -799,6 +934,74 @@ def build_proposal_pdf(q, state):
             kpis = state.get("kpis") or []
             if kpis:
                 story.append(_p("KPIs: " + ", ".join(kpis), st_body))
+        elif kind == "channels":
+            # Every channel with its role in the funnel and its KPI. The
+            # specification forbids listing channels without that mapping.
+            rows = [["Channel", "Role in the funnel", "Primary KPI"]]
+            for item in state.get("items") or []:
+                role, kpi = _channel_role(item)
+                rows.append([_p(item.get("product") or "", st_small),
+                             _p(role, st_small), _p(kpi, st_small)])
+            if len(rows) > 1:
+                ct = Table(rows, colWidths=[2.3 * inch, 3.1 * inch, 2.0 * inch], repeatRows=1)
+                ct.setStyle(_head_style())
+                story.append(ct)
+        elif kind == "creative":
+            plan = hub_creative.evaluate(state)
+            if plan["media"]:
+                rows = [["Medium", "Campaign spend", "Creative"]]
+                for row in plan["media"]:
+                    rows.append([_p(row["label"], st_small),
+                                 _money(row["spend"]),
+                                 _p(_creative_phrase(row), st_small)])
+                kt = Table(rows, colWidths=[2.9 * inch, 1.5 * inch, 3.0 * inch], repeatRows=1)
+                kt.setStyle(_head_style())
+                story.append(kt)
+        elif kind == "timeline":
+            rows = [["Phase", "What happens"]]
+            for phase in hub_spec.TIMELINE:
+                rows.append([_p(f"{phase['phase']}\n{phase['title']}", st_small),
+                             _p(phase["detail"], st_small)])
+            tt = Table(rows, colWidths=[1.7 * inch, 5.7 * inch], repeatRows=1)
+            tt.setStyle(_head_style())
+            story.append(tt)
+        elif kind == "roi":
+            results = expected_results(state)
+            rows = [["Product", "Monthly", f"Campaign ({results['months']} mo)",
+                     "Rate", "Estimated delivery"]]
+            for row in results["rows"]:
+                # "Not impression-based" rather than a blank or a zero: a
+                # management fee has no impressions, and either alternative
+                # reads as a product that delivers nothing.
+                delivery = (f"{row['units']:,} {row['unit_label']}" if row["units"]
+                            else "Not impression-based")
+                rows.append([_p(row["product"], st_small), _money(row["monthly"]),
+                             _money(row["campaign"]), _p(row["rate"], st_small),
+                             _p(delivery, st_small)])
+            totals = results["totals"]
+            summary = []
+            if totals["impressions"]:
+                summary.append(f"{totals['impressions']:,} impressions")
+            if totals["views"]:
+                summary.append(f"{totals['views']:,} video views")
+            rows.append(["Campaign total", _money(totals["monthly"]),
+                         _money(totals["campaign"]), "",
+                         _p(" · ".join(summary) or "—", st_small)])
+            rt = Table(rows, colWidths=[2.0 * inch, 1.0 * inch, 1.15 * inch,
+                                        1.25 * inch, 2.0 * inch], repeatRows=1)
+            style = _head_style_rows()
+            style.append(("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), SOFT))
+            style.append(("FONTNAME", (0, len(rows) - 1), (-1, len(rows) - 1),
+                          "Helvetica-Bold"))
+            rt.setStyle(TableStyle(style))
+            story.append(rt)
+            if results["unpriced"]:
+                story.append(_p("Not included in the delivery totals (no "
+                                "impression-based rate): "
+                                + ", ".join(results["unpriced"]) + ".", st_small))
+            if results["metrics"]:
+                story.append(_p("Tracked and reported monthly in the Smart 1 Suite: "
+                                + ", ".join(results["metrics"]) + ".", st_body))
 
     # Footer
     story += [Spacer(1, 16),
@@ -941,6 +1144,45 @@ def build_proposal_docx(q, state):
                     row[i + 1].text = _money(pkg.get(key))
         elif kind == "kpis" and state.get("kpis"):
             d.add_paragraph("KPIs: " + ", ".join(state.get("kpis") or []))
+        elif kind == "channels":
+            for item in state.get("items") or []:
+                role, kpi = _channel_role(item)
+                d.add_paragraph(f"{item.get('product') or ''} — {role}. Measured on: {kpi}.")
+        elif kind == "creative":
+            for row in hub_creative.evaluate(state)["media"]:
+                d.add_paragraph(f"{row['label']} — {_money(row['spend'])} campaign. "
+                                f"{_creative_phrase(row)}.")
+        elif kind == "timeline":
+            for phase in hub_spec.TIMELINE:
+                d.add_paragraph(f"{phase['phase']} · {phase['title']} — {phase['detail']}")
+        elif kind == "roi":
+            results = expected_results(state)
+            t4 = d.add_table(rows=1, cols=4)
+            t4.style = "Light Grid Accent 1"
+            hdr = t4.rows[0].cells
+            for i, htxt in enumerate(["Product", "Monthly",
+                                      f"Campaign ({results['months']} mo)",
+                                      "Estimated delivery"]):
+                hdr[i].text = htxt
+                hdr[i].paragraphs[0].runs[0].font.bold = True
+            for row in results["rows"]:
+                cells = t4.add_row().cells
+                cells[0].text = row["product"]
+                cells[1].text = _money(row["monthly"])
+                cells[2].text = _money(row["campaign"])
+                cells[3].text = (f"{row['units']:,} {row['unit_label']}" if row["units"]
+                                 else "Not impression-based")
+            totals = results["totals"]
+            bits = []
+            if totals["impressions"]:
+                bits.append(f"{totals['impressions']:,} impressions")
+            if totals["views"]:
+                bits.append(f"{totals['views']:,} video views")
+            if bits:
+                d.add_paragraph("Campaign delivery: " + " · ".join(bits))
+            if results["metrics"]:
+                d.add_paragraph("Tracked in the Smart 1 Suite: "
+                                + ", ".join(results["metrics"]) + ".")
         elif kind == "reach" and state.get("estimates"):
             est = state.get("estimates") or {}
             d.add_paragraph(f"Estimated population {int(est.get('pop') or 0):,} · addressable audience "
@@ -998,55 +1240,228 @@ def industry_template(state):
     return None
 
 
+# =====================================================================
+# Expected Results & ROI — computed, never written
+# =====================================================================
+def expected_results(state):
+    """What the money actually buys, product by product, from the rate card.
+
+    Directive: every proposal ends with this section. It is calculated here
+    rather than asked of the model, because a projection written next to a
+    media plan it contradicts is worse than no projection — and a model given
+    a budget will produce impression counts that look authoritative and are
+    invented.
+
+    Anything without a CPM or CPV — a management fee, a flat monthly, a custom
+    quote — reports no units at all rather than a plausible number. That is
+    most of the value of doing it this way.
+    """
+    state = state or {}
+    months = max(1, int(state.get("months") or 1))
+    rows, totals = [], {"impressions": 0, "views": 0, "monthly": 0.0}
+    unpriced = []
+
+    for item in state.get("items") or []:
+        try:
+            monthly = float(item.get("dollars") or 0)
+        except (TypeError, ValueError):
+            monthly = 0.0
+        totals["monthly"] += monthly
+        product = hub_rate_card.find(item.get("label") or item.get("product") or "")
+        if product is None:
+            # Fall back to the rate the wizard carried, so an off-card product
+            # a rep added by hand is still estimated rather than dropped.
+            product = {"rate_type": item.get("rate"), "rate_value": item.get("rateValue"),
+                       "listed_rate": item.get("rate") or ""}
+        delivery = hub_rate_card.estimate_delivery(product, monthly)
+        units = delivery.get("units")
+        if units and delivery["unit_label"].startswith("impressions"):
+            totals["impressions"] += units * months
+        elif units:
+            totals["views"] += units * months
+        if not units:
+            unpriced.append(str(item.get("product") or ""))
+        rows.append({
+            "product": item.get("product") or "",
+            "category": item.get("category") or "",
+            "medium": hub_creative.medium_of(item),
+            "monthly": monthly,
+            "campaign": round(monthly * months, 2),
+            "rate": product.get("listed_rate") or "",
+            "units": units,
+            "unit_label": delivery.get("unit_label") or "",
+            "note": delivery.get("note") or "",
+        })
+
+    totals["campaign"] = round(totals["monthly"] * months, 2)
+    return {
+        "rows": rows, "months": months, "totals": totals,
+        # Named, so the section can say which products are not represented in
+        # the headline number instead of quietly under-reporting.
+        "unpriced": unpriced,
+        "metrics": _tracked_metrics(state),
+    }
+
+
+def _tracked_metrics(state):
+    """What we will report on, drawn from the campaign's own KPIs and media."""
+    metrics = list((state or {}).get("kpis") or [])
+    media = {hub_creative.medium_of(i) for i in (state or {}).get("items") or []}
+    if hub_creative.VIDEO in media:
+        metrics += ["Completed video views", "Video completion rate"]
+    if hub_creative.AUDIO in media:
+        metrics += ["Audio listen-through rate"]
+    if any(m in media for m in (hub_creative.DISPLAY, hub_creative.SOCIAL)):
+        metrics += ["Click-through rate", "Cost per click"]
+    metrics += ["Cost per lead", "Lead-to-close rate (from the Smart 1 Suite)"]
+    seen, out = set(), []
+    for m in metrics:
+        key = str(m).strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(str(m).strip())
+    return out[:10]
+
+
+# =====================================================================
+# Proposal sections — the Smart 1 13-part structure
+# =====================================================================
 def ensure_sections(state):
-    if state.get("sections"):
+    """The proposal's sections, seeded from the Smart 1 specification.
+
+    `hub.proposal_spec.OUTLINE` owns the structure; this fills the prose the
+    rep can then edit or have the AI write. A quote saved against the old
+    eight-section layout keeps its sections — its copy is real work — but
+    gains any *required* section it is missing, because a proposal without
+    Expected Results & ROI is one the specification does not permit.
+    """
+    existing = state.get("sections")
+    if existing:
+        have = {str(sec.get("id")) for sec in existing if isinstance(sec, dict)}
+        seeded = _seeded_sections(state)
+        for spec in hub_spec.OUTLINE:
+            if spec["id"] in hub_spec.REQUIRED and spec["id"] not in have:
+                addition = next(s for s in seeded if s["id"] == spec["id"])
+                existing.append(addition)
         return state
+    state["sections"] = _seeded_sections(state)
+    return state
+
+
+def _seeded_sections(state):
     client = state.get("client") or "the client"
     goals = ", ".join(state.get("objectives") or []) or "the campaign goals"
     areas = campaign_areas(state)
     where = hub_areas.summary(areas, limit=3) or "the target area"
     template = industry_template(state)
+    months = max(1, int(state.get("months") or 1))
+    segments = hub_spec.audience_segments_for(state.get("industry", ""))
 
-    # The strategy paragraph says how many places this runs in. A four-location
-    # client whose proposal talks about "the target area" reads as though we
-    # were quoting one of their rooftops.
-    if len(areas) > 1:
-        strategy = (f"This program is built around {goals.lower()}, combining the Smart 1 products "
-                    f"below across {len(areas)} target areas — {where} — with the frequency needed "
-                    f"to drive results in each.")
-    else:
-        strategy = (f"This program is built around {goals.lower()}, combining the Smart 1 products "
-                    f"below to reach the right audience in {where} with the frequency needed to "
-                    f"drive results.")
+    sections = hub_spec.default_sections()
+    body = {}
+
+    body["summary"] = (
+        f"{client} has the demand; what is missing is a single system that captures it "
+        f"and proves what it produced. This plan puts Smart 1 media in front of the "
+        f"right households in {where} and routes every response into the Smart 1 Suite, "
+        f"where it is answered, nurtured and measured. Over {months} months the goal is "
+        f"{goals.lower()} — reported against business outcomes, not impressions.")
     if template:
-        strategy = template["intro"] + "\n\n" + strategy
+        body["summary"] = template["intro"] + "\n\n" + body["summary"]
 
-    state["sections"] = [
-        {"id": "about", "title": f"About {client}", "kind": "text", "enabled": True,
-         "body": state.get("description") or ""},
-        {"id": "strategy", "title": "Campaign Strategy", "kind": "text", "enabled": True,
-         "body": strategy},
-        {"id": "areas", "title": "Target Areas", "kind": "areas", "enabled": True, "body": ""},
-        {"id": "reach", "title": "Target Audience & Reach", "kind": "reach", "enabled": True, "body": ""},
-        {"id": "mediaplan", "title": "Recommended Media Plan", "kind": "mediaplan", "enabled": True, "body": ""},
-        {"id": "packages", "title": "Investment Options", "kind": "packages", "enabled": True, "body": ""},
-        {"id": "kpis", "title": "How We Measure Success", "kind": "kpis", "enabled": True, "body":
-            "Reporting is provided monthly with the KPIs below, reviewed together to optimize the plan."},
-        {"id": "landing", "title": "Landing Page Recommendation", "kind": "text", "enabled": True,
-         "body": state.get("landing") or ""},
-        {"id": "next", "title": "Next Steps", "kind": "text", "enabled": True,
-         "body": "1. Approve the recommended package.\n2. Smart 1 finalizes the insertion order and "
-                 "creative plan.\n3. Campaign launches after tracking is verified."},
-    ]
+    body["objectives"] = (
+        "Primary\n" + "\n".join(f"• {o}" for o in (state.get("objectives") or
+                                                    ["To be confirmed with the client"]))
+        + "\n\nSecondary\n"
+        "• A lower, measurable cost per acquisition\n"
+        "• One vendor and one dashboard instead of a stack of logins\n"
+        "• Reporting the client can open themselves, at any time")
+
+    body["friction"] = (
+        "Most of the money lost in local marketing is lost after the click, not before "
+        "it. The patterns worth checking here:\n"
+        "• A bolted-on tech stack — separate tools for email, forms, reviews and calls, "
+        "each with its own login and none of them talking to each other.\n"
+        "• No central CRM, so an inbound lead cools while it waits for someone to "
+        "notice it.\n"
+        "• Fixed-schedule advertising that runs the same way regardless of weather, "
+        "foot traffic or real-time intent.")
+
+    if segments:
+        body["areas"] = (
+            "Targeting is built area by area from named third-party segments rather "
+            "than broad demographics:\n"
+            + "\n".join(f"• {seg}" for seg in segments))
+
+    if template and template.get("channels"):
+        body["channels"] = (
+            "Each channel below has a job in the customer journey:\n"
+            + "\n".join(f"• {ch}" for ch in template["channels"]))
+
     if template and template.get("triggers"):
-        # Demand triggers are the most persuasive thing in the industry
-        # library and the standalone builder's proposals always led with them.
-        state["sections"].insert(3, {
-            "id": "triggers", "title": "Demand Triggers We Activate On",
-            "kind": "text", "enabled": True,
-            "body": "Budget is concentrated on the moments that produce revenue:\n"
-                    + "\n".join("• " + str(t) for t in template["triggers"])})
-    return state
+        body["channels"] = (body.get("channels", "") +
+                            "\n\nBudget is concentrated on the moments that produce "
+                            "revenue: " + ", ".join(template["triggers"]) + ".").strip()
+
+    body["mediaplan"] = (
+        "The split below is weighted toward the stage of the funnel this campaign has "
+        "to move. Every rate is the Smart 1 card rate — there is no markup between the "
+        "line item and what runs.")
+
+    body["creative"] = _creative_section_body(state)
+
+    body["technology"] = (
+        "The Smart 1 Suite is the central nervous system of this campaign. Every call, "
+        "form, chat and message the media generates lands in one inbox, and the Suite "
+        "goes to work immediately: Missed Call Text Back so a missed call becomes a "
+        "conversation instead of a lost lead, automated text and email follow-up, "
+        "online scheduling, and automated review requests that compound into local "
+        "search visibility. The media creates the opportunity; the Suite is what turns "
+        "it into revenue you can trace.")
+
+    body["reporting"] = (
+        "Optimisation is a routine, not a promise: bids adjusted against delivery and "
+        "cost per action, negative keywords and placement exclusions updated, creative "
+        "checked against performance and rotated before it fatigues. Everything reports "
+        "into one live dashboard inside the Smart 1 Suite that you can open whenever "
+        "you want, rather than waiting for a monthly PDF.")
+
+    body["packages"] = (
+        "Platform licensing, media spend and any one-time production are listed "
+        "separately below so it is clear what recurs and what does not.")
+
+    body["roi"] = (
+        "The delivery figures below are calculated from the Smart 1 rate card at the "
+        "budgets in this plan — they are what the money buys, not a forecast. The "
+        "Smart 1 Suite is the single source of truth for what those impressions "
+        "produced: every lead is attributed to the channel that created it, so the "
+        "spend can be judged against the business, not against a click count.")
+
+    body["next"] = "\n".join(f"{i}. {step}" for i, step in
+                              enumerate(hub_spec.NEXT_STEPS, 1))
+
+    for section in sections:
+        if section["id"] in body and body[section["id"]]:
+            section["body"] = body[section["id"]]
+    return sections
+
+
+def _creative_section_body(state):
+    """Messaging themes plus what the creative gate actually decided."""
+    lines = [
+        "Three messaging themes carry the campaign, rotated so no one execution "
+        "fatigues:",
+        "• Problem / Agitate / Solution — name the frustration the customer already "
+        "has, make it concrete, then resolve it.",
+        "• Proof — the specific, verifiable reason to choose this business over the "
+        "one down the road.",
+        "• Urgency without gimmick — the real reason now is better than later "
+        "(season, capacity, availability), never a manufactured countdown.",
+    ]
+    summary = hub_creative.summary_line(state)
+    if summary:
+        lines += ["", "Creative source: " + summary + "."]
+    return "\n".join(lines)
 
 
 # =====================================================================
@@ -1117,13 +1532,25 @@ def ai_rewrite():
     instruction = str(body.get("instruction") or "make it clearer and more client-friendly").strip()
     if not text:
         return jsonify({"ok": False, "error": "Text is required"}), 400
-    prompt = ("Rewrite the following marketing-proposal section for Smart 1 Marketing. Instruction: "
-              + instruction + ". Keep it factual, professional, and client-facing. Return only the "
-              "rewritten text, no preamble.\n\n" + text)
+    # The standing directives apply to a rewrite exactly as they do to a first
+    # draft. They were not applied here at all, so "make it punchier" could
+    # walk copy straight past the Smart 1 Labs exclusion or invent a statistic.
+    guidance = hub_spec.guidance_for(str(body.get("section") or ""))
+    prompt = (hub_spec.system_prompt(body.get("data") or {}) + "\n\n"
+              "Rewrite the proposal section below. Instruction: " + instruction + ".\n"
+              + (f"What this section is for: {guidance}\n" if guidance else "")
+              + "Return only the rewritten text, no preamble.\n\n" + text)
     try:
-        return jsonify({"ok": True, "text": _openai_response(prompt, 2500)})
-    except Exception as exc:
+        rewritten = _openai_response(prompt, 2500)
+    except Exception as exc:                            # noqa: BLE001
         return jsonify({"ok": False, "error": "AI rewrite failed", "detail": str(exc)}), 502
+    problems = hub_spec.violations(rewritten)
+    if problems:
+        # Returned unchanged rather than silently handing back copy that
+        # breaks a rule: the rep asked for a rewrite, not for a rule waiver.
+        return jsonify({"ok": True, "text": text, "warnings": problems
+                        + ["The rewrite was discarded and your text kept."]})
+    return jsonify({"ok": True, "text": rewritten, "warnings": []})
 
 
 @app.post("/api/ai/draft-sections")
@@ -1169,7 +1596,12 @@ def ai_draft_sections():
                       "monthly": i.get("dollars")} for i in (state.get("items") or [])],
         "landing_page": state.get("landingUrl") or "",
         "landing_recommendation": state.get("landing") or "",
+        "creative_source": hub_creative.summary_line(state),
+        "suite_tier": hub_spec.suggested_tier(
+            (state.get("selectedPackage") or {}).get("monthly")
+            or state.get("budget") or 0)["name"],
         "sections_to_write": [{"id": sec.get("id"), "title": sec.get("title"),
+                               "guidance": hub_spec.guidance_for(sec.get("id")),
                                "current": sec.get("body") or ""} for sec in writable],
     }
     if template:
@@ -1178,22 +1610,22 @@ def ai_draft_sections():
         facts["channels_we_sell_here"] = template["channels"]
 
     prompt = (
-        "You are a senior media strategist at Smart 1 Marketing, a full-service digital agency "
-        "(geofenced display, Connected TV, streaming audio, digital out-of-home, weather-triggered "
-        "advertising). Write the narrative copy for the client-facing proposal described below.\n\n"
-        "Rules:\n"
+        # The standing directives, the audience segments and the operating
+        # facts that apply to this campaign all come from hub.proposal_spec,
+        # so the rules land in one place rather than in a prompt literal that
+        # drifts every time someone edits this route.
+        hub_spec.system_prompt(state) + "\n\n"
+        "Write the narrative copy for the client-facing proposal described below.\n\n"
+        "Output rules:\n"
         "- Return STRICT JSON only: {\"sections\": [{\"id\": \"...\", \"body\": \"...\"}]}, one entry per "
         "id in sections_to_write, and no other keys.\n"
-        "- Use ONLY the facts given. Do not invent statistics, client results, awards, case studies, "
-        "impression counts, or prices. Every number in the plan is already in the tables the client "
-        "will see next to your copy; contradicting one is worse than omitting it.\n"
-        "- When target_area_count is above 1, write about all of the areas rather than one of them.\n"
-        "- Each section is 2 to 4 short paragraphs, plain professional English, second person about "
-        "the client's business. No headings, no bullet characters unless the current copy uses them.\n"
+        "- Each section answers the `guidance` given for it. Follow that guidance.\n"
+        "- Each section is 2 to 4 short paragraphs, plain professional English. No "
+        "headings; keep bullet characters only where the current copy uses them.\n"
         "- Keep anything factual the current copy already states.\n\n"
         + json.dumps(facts, ensure_ascii=False))
     try:
-        result = _json_from_ai(_openai_response(prompt, 5000))
+        result = _json_from_ai(_openai_response(prompt, 6000))
         written = {str(sec.get("id")): str(sec.get("body") or "")
                    for sec in (result.get("sections") or []) if sec.get("id")}
     except Exception as exc:                            # noqa: BLE001
@@ -1201,12 +1633,59 @@ def ai_draft_sections():
         return jsonify({"ok": False, "error": "AI draft failed", "detail": str(exc)}), 502
     if not written:
         return jsonify({"ok": False, "error": "The AI returned no sections."}), 502
-    return jsonify({"ok": True, "sections": written})
+
+    # A directive is a rule, not a request. Copy that breaks one is dropped
+    # rather than shown to a rep who would have to notice it -- the Smart 1
+    # Labs exclusion is the whole reason this check exists.
+    breaches = {}
+    for sec_id, text in list(written.items()):
+        problems = hub_spec.violations(text)
+        if problems:
+            breaches[sec_id] = problems
+            del written[sec_id]
+    if not written:
+        return jsonify({"ok": False, "error": "Every section the AI returned broke a "
+                                              "proposal rule and was discarded.",
+                        "breaches": breaches}), 502
+    return jsonify({"ok": True, "sections": written, "breaches": breaches})
 
 
 # =====================================================================
 # Campaign intelligence — served here, not fetched from the IO app
 # =====================================================================
+@app.post("/api/creative-check")
+def api_creative_check():
+    """What the creative gate still needs to be told about this media plan.
+
+    Server-side as well as in the wizard, because the answer travels onto the
+    insertion order and into the PDF -- and because the wizard's classifier is
+    a mirror of `hub.creative_needs`, not the authority on it.
+    """
+    body = request.get_json(force=True) or {}
+    state = body.get("data") or body
+    result = hub_creative.evaluate(state)
+    result["comp_confirm_under"] = hub_creative.COMP_CONFIRM_UNDER
+    result["typical_production"] = hub_creative.TYPICAL_PRODUCTION
+    result["summary"] = hub_creative.summary_line(state)
+    return jsonify({"ok": True, **result})
+
+
+@app.get("/api/proposal-spec")
+def api_proposal_spec():
+    """The Smart 1 proposal specification the wizard builds against."""
+    return jsonify({
+        "ok": True,
+        "outline": [{"id": s["id"], "title": s["title"], "kind": s["kind"],
+                     "purpose": s["purpose"], "required": s["id"] in hub_spec.REQUIRED}
+                    for s in hub_spec.OUTLINE],
+        "saas_tiers": hub_spec.SAAS_TIERS,
+        "timeline": hub_spec.TIMELINE,
+        "next_steps": hub_spec.NEXT_STEPS,
+        "comp_confirm_under": hub_creative.COMP_CONFIRM_UNDER,
+        "typical_production": hub_creative.TYPICAL_PRODUCTION,
+    })
+
+
 @app.get("/api/industries")
 def api_industries():
     """The industry library, for the wizard's picker."""
