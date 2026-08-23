@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Landing Pages — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Landing Pages</h2>
+  <p>Build a campaign page from a proposal. It reads the client, the products
+     being sold and their brand, so the page, the ads and the IO all say the
+     same thing.</p>
+</div>
+
+<div class="card" style="margin-bottom:18px">
+  <div class="card-h"><h3>New landing page</h3></div>
+  <div class="card-b">
+    <div style="display:grid;grid-template-columns:1fr;gap:14px">
+      <div>
+        <label class="lp-l">Start from</label>
+        <select id="lpSource" onchange="lpSourceChanged()" class="lp-i">
+          <option value="proposal">A saved proposal</option>
+          <option value="upload">A proposal I'll upload</option>
+          <option value="client">Just a client — no proposal yet</option>
+        </select>
+      </div>
+
+      <div id="lpProposalRow">
+        <label class="lp-l">Proposal</label>
+        <select id="lpProposal" class="lp-i"><option value="">Loading…</option></select>
+      </div>
+
+      <div id="lpUploadRow" hidden>
+        <label class="lp-l">Proposal file (PDF or Word)</label>
+        <input type="file" id="lpFile" accept=".pdf,.doc,.docx" class="lp-i">
+      </div>
+
+      <div id="lpClientRow" hidden>
+        <label class="lp-l">Client</label>
+        <input id="lpClient" class="lp-i" placeholder="Start typing a client name…" autocomplete="off">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr;gap:14px">
+        <div>
+          <label class="lp-l">What should the page get people to do?</label>
+          <input id="lpGoal" class="lp-i" placeholder="Book a viewing · Request a quote · Call today">
+        </div>
+        <div>
+          <label class="lp-l">Offer or hook <span class="muted">(optional)</span></label>
+          <input id="lpOffer" class="lp-i" placeholder="Free spring service with every purchase">
+          <p class="muted" style="font-size:12px;margin:5px 0 0">
+            Only put something here if it's real. The page won't invent an
+            offer, a review or a guarantee that isn't in the material.</p>
+        </div>
+      </div>
+
+      <div>
+        <label class="lp-l">Design direction</label>
+        <div id="lpDirections" style="display:grid;gap:10px">
+          {% for key, d in directions.items() %}
+          <label class="lp-dir">
+            <input type="radio" name="lpDir" value="{{ key }}"
+                   {% if key == 'trust' %}checked{% endif %}>
+            <span><b>{{ d.label }}</b><br>
+              <span class="muted" style="font-size:12.5px">{{ d.note }}</span></span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div>
+        <button class="um-btn" id="lpBuild" onclick="lpCreate()">Build the page</button>
+        <span id="lpMsg" class="muted" style="font-size:13px;margin-left:10px"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-h"><h3>Pages built</h3>
+    <div class="right">
+      <input id="lpSearch" placeholder="Search client, campaign or headline…"
+             oninput="lpDebounce()" class="lp-i" style="min-width:260px;margin:0">
+    </div>
+  </div>
+  <div class="card-b" id="lpList"><p class="muted">Loading…</p></div>
+</div>
+
+<style>
+.lp-l{display:block;font-size:12.5px;font-weight:600;margin:0 0 5px}
+.lp-i{width:100%;padding:9px 11px;border:1px solid var(--line,#cfd7df);
+      border-radius:8px;font:14px inherit;background:#fff}
+.lp-dir{display:flex;gap:11px;align-items:flex-start;border:1px solid #e2e8f0;
+        border-radius:9px;padding:12px 14px;cursor:pointer}
+.lp-dir:has(input:checked){border-color:#1769AA;background:#f4f9fd}
+.lp-dir input{margin-top:3px;flex:none}
+</style>
+
+<script>
+function $(id){ return document.getElementById(id); }
+
+function lpSourceChanged(){
+  var v = $('lpSource').value;
+  $('lpProposalRow').hidden = v !== 'proposal';
+  $('lpUploadRow').hidden   = v !== 'upload';
+  $('lpClientRow').hidden   = v !== 'client';
+}
+
+/* Load proposals so the common path is one click, not a search.
+   This reads the LIVE builder. /sales/proposals is the retired tool and
+   answers 404 to every api/ path, so pointing at it would leave the picker
+   permanently empty while still looking like it had loaded. */
+fetch('/sales/builder/api/quotes?limit=200', {credentials:'same-origin'})
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    var list = d.quotes || [];
+    var sel = $('lpProposal');
+    if(!list.length){
+      sel.innerHTML = '<option value="">No saved proposals — upload one instead</option>';
+      return;
+    }
+    sel.innerHTML = list.map(function(p){
+      var name = p.client || '(unnamed)';
+      var tail = p.products_summary || p.package || '';
+      return '<option value="'+esc(p.id)+'">'+esc(name)+
+             (p.quote_number ? ' — '+esc(p.quote_number) : '')+
+             (tail ? ' · '+esc(tail.slice(0,60)) : '')+'</option>';
+    }).join('');
+  })
+  .catch(function(){
+    $('lpProposal').innerHTML = '<option value="">Couldn\'t load proposals</option>';
+  });
+
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});
+}
+
+function lpCreate(){
+  var btn = $('lpBuild'), msg = $('lpMsg');
+  var src = $('lpSource').value;
+  var body = {
+    goal: $('lpGoal').value.trim(),
+    offer: $('lpOffer').value.trim(),
+    direction: (document.querySelector('input[name=lpDir]:checked')||{}).value || 'trust'
+  };
+  if(src === 'proposal') body.proposal_id = $('lpProposal').value;
+  if(src === 'client')   body.client = $('lpClient').value.trim();
+
+  btn.disabled = true;
+  msg.style.color = '';
+  msg.textContent = 'Reading the proposal and writing the page…';
+
+  var send;
+  if(src === 'upload' && $('lpFile').files[0]){
+    var fd = new FormData();
+    fd.append('file', $('lpFile').files[0]);
+    Object.keys(body).forEach(function(k){ fd.append(k, body[k]); });
+    send = fetch('/api/landing', {method:'POST', credentials:'same-origin', body: fd});
+  } else {
+    send = fetch('/api/landing', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  }
+
+  send.then(function(r){ return r.json(); })
+    .then(function(d){
+      btn.disabled = false;
+      if(d.error){ msg.style.color='#b42318'; msg.textContent = d.error; return; }
+      msg.style.color = '#147d52';
+      msg.textContent = d.note || 'Built.';
+      window.open(d.preview, '_blank');
+      lpLoad();
+    })
+    .catch(function(){
+      btn.disabled = false;
+      msg.style.color='#b42318';
+      msg.textContent = 'That did not go through.';
+    });
+}
+
+var lpTimer = null;
+function lpDebounce(){ clearTimeout(lpTimer); lpTimer = setTimeout(lpLoad, 250); }
+
+function lpLoad(){
+  fetch('/api/landing?q=' + encodeURIComponent($('lpSearch').value),
+        {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d.pages || !d.pages.length){
+        $('lpList').innerHTML = '<p class="muted">No landing pages yet.</p>';
+        return;
+      }
+      $('lpList').innerHTML =
+        '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+        '<thead><tr>'+['Client','Campaign','Headline','Style','Built',''].map(function(h){
+          return '<th style="text-align:left;padding:6px;font-size:11px;color:#94a3b8;'+
+                 'text-transform:uppercase;letter-spacing:.5px">'+h+'</th>';}).join('')+
+        '</tr></thead><tbody>'+
+        d.pages.map(function(p){
+          return '<tr>'+
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa"><b>'+esc(p.client)+'</b></td>'+
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+esc(p.campaign||'—')+'</td>'+
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+esc(p.headline||'')+'</td>'+
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
+              '<span class="pill neutral">'+esc(d.directions[p.direction]||p.direction)+'</span></td>'+
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;white-space:nowrap">'+
+              esc((p.created||'').replace('T',' ').slice(0,16))+'</td>'+
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;text-align:right">'+
+              '<a class="um-btn" href="/sales/landing/p/'+esc(p.slug)+'" target="_blank">Open</a></td>'+
+            '</tr>';
+        }).join('')+'</tbody></table>'+
+        '<p class="muted" style="font-size:12px;margin-top:8px">'+d.count+' page(s).</p>';
+    })
+    .catch(function(){ $('lpList').innerHTML = '<p class="muted">Could not load.</p>'; });
+}
+
+/* Arriving from "proposal saved -> build a page" preselects it, so the
+   handoff is one click rather than finding it in a list again. */
+(function(){
+  var pid = new URLSearchParams(location.search).get('proposal');
+  if(!pid) return;
+  $('lpSource').value = 'proposal';
+  lpSourceChanged();
+  var tries = 0;
+  var t = setInterval(function(){
+    var sel = $('lpProposal');
+    if(sel && sel.querySelector('option[value="'+pid+'"]')){
+      sel.value = pid; clearInterval(t);
+    } else if(++tries > 20){ clearInterval(t); }
+  }, 150);
+})();
+
+lpSourceChanged();
+lpLoad();
+</script>
+{% endblock %}

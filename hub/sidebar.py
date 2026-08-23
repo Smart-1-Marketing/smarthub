@@ -19,6 +19,7 @@ _ITEMS = [
     # stays at /tools/io so every existing link keeps working.
     ("io_builder", "/tools/io/", "&#128221;", "IO Builder"),
     ("leads", "/sales/leads", "&#128229;", "Leads"),
+    ("landing", "/sales/landing", "&#128187;", "Landing Pages"),
     ("_sec3", "", "", "Utilities"),
     ("creative", "/creative", "&#127912;", "Creative"),
     ("qa", "/qa", "&#9989;", "QA Reports"),

@@ -48,6 +48,17 @@ twice unless it takes the leader lock in `hub/scheduler.py`. Same reason
 `create_all()` is wrapped in a Postgres advisory lock — concurrent `CREATE
 TABLE` produces a `pg_type_typname_nsp_index` unique violation on every deploy.
 
+**The hub app injects its chrome into every HTML response it returns.** The
+`after_request` in `hub/__init__.py` adds the sidebar, the help layer and the
+feedback tab to any 200 `text/html` reply whose path is not in `CHROMELESS`.
+That is right for a staff page and wrong for anything a client or a prospect
+sees, and it fires on *hub* routes — `bare_prefixes` in `wsgi.py` only covers
+dispatcher-mounted modules, so it does not save you here. A built landing page
+under `/sales/landing/p/` is served to a prospect and is often pasted onto the
+client's own domain; it is in `CHROMELESS` for that reason, and the entry is
+the longer prefix so the maker at `/sales/landing` keeps its chrome. Any new
+public hub route needs the same treatment. `test_landing_maker.py` asserts it.
+
 **Bubbles mount on late-rendered content.** Client 360, the SEO client page
 and Image Creator draw panels from a fetch. `hub-help.js` runs a debounced
 MutationObserver for this. A bubble added to a JS-rendered panel works; one
@@ -355,6 +366,7 @@ python3 test_ads_module.py         # the Node ad builder behind its proxy
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math
+python3 test_landing_maker.py      # built pages stay public and chrome-free
 ```
 
 The test files need no pytest and no new dependencies; each runs against a

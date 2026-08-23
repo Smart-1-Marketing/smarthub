@@ -117,6 +117,8 @@ jobs:
           else
             echo "test_target_areas.py not on this branch — nothing to run."
           fi
+      - name: Landing page maker tests
+        run: python test_landing_maker.py
 
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
@@ -171,7 +173,9 @@ jobs:
                    # failure. /sales/proposals is the retired builder's
                    # redirect; a 3xx here is the correct answer.
                    "/sales/builder/", "/sales/proposals/", "/tools/io/",
-                   "/client360", "/tools"]
+                   "/client360", "/tools",
+                   # The landing maker, and the API its page calls.
+                   "/sales/landing", "/api/landing"]
           bad = []
           for url in pages:
               try:
