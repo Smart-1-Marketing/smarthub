@@ -405,7 +405,7 @@
         '<div style="font-size:11.5px;color:var(--ink-2)">Only installed families render. An unknown name falls back and is flagged in checks.</div>' +
       '</div>' +
       '<div class="group"><h3>Text boxes for ' + esc(state.size) + '</h3>' +
-        blockStyleControls() +
+        blockStyleControls() + logoStyleControls() +
         '<div style="font-size:11.5px;color:var(--ink-2);margin-top:2px">' +
         'Blank means "use the layout\u2019s own setting". Sizes are a ceiling \u2014 ' +
         'long copy still shrinks to fit. Width is where the line wraps, and is ' +
@@ -479,6 +479,47 @@
     ['offer', 'Offer'], ['cta', 'Button'], ['trust', 'Proof point']
   ];
 
+  /* The logo is the one thing a person may move. "Nudge the logo" is the most
+     common note on a proof, and where it belongs depends on the picture behind
+     it, which is why this sits next to the background chooser rather than in a
+     layout menu. The box is a bounding box: the renderer contains the logo
+     inside it, so a wider box makes a wide logo bigger and a tall one no
+     taller. Everything is clamped to the canvas server-side. */
+  function logoStyleControls() {
+    var lg = (concept().styleOverrides || {}).logo || {};
+    return '<div class="blockstyle">' +
+      '<div class="bsname">Logo</div>' +
+      '<div class="bsrow">' +
+        '<label>Left' +
+          '<input type="number" step="1" placeholder="auto" data-style="logo" data-prop="x"' +
+          ' value="' + (lg.x === undefined ? '' : lg.x) + '"></label>' +
+        '<label>Top' +
+          '<input type="number" step="1" placeholder="auto" data-style="logo" data-prop="y"' +
+          ' value="' + (lg.y === undefined ? '' : lg.y) + '"></label>' +
+      '</div>' +
+      '<div class="bsrow">' +
+        '<label>Box width' +
+          '<input type="number" min="8" step="1" placeholder="auto" data-style="logo" data-prop="w"' +
+          ' value="' + (lg.w === undefined ? '' : lg.w) + '"></label>' +
+        '<label>Box height' +
+          '<input type="number" min="8" step="1" placeholder="auto" data-style="logo" data-prop="h"' +
+          ' value="' + (lg.h === undefined ? '' : lg.h) + '"></label>' +
+      '</div>' +
+      '<div class="bsrow">' +
+        '<label>Anchor across<select data-style="logo" data-prop="align">' +
+          opt('', 'Layout', lg.align) + opt('left', 'Left', lg.align) +
+          opt('center', 'Centre', lg.align) + opt('right', 'Right', lg.align) +
+        '</select></label>' +
+        '<label>Anchor down<select data-style="logo" data-prop="valign">' +
+          opt('', 'Layout', lg.valign) + opt('top', 'Top', lg.valign) +
+          opt('middle', 'Middle', lg.valign) + opt('bottom', 'Bottom', lg.valign) +
+        '</select></label>' +
+      '</div>' +
+      '<button type="button" class="bsclear" data-style="logo" data-prop="*">' +
+        'Put the logo back' +
+      '</button></div>';
+  }
+
   function styleOf(block) {
     var all = concept().styleOverrides || {};
     return all[block] || {};
@@ -537,12 +578,23 @@
     var st = c.styleOverrides[block];
 
     var value = String(raw == null ? '' : raw).trim();
+    if (prop === '*') {
+      // "Put it back" -- drop every override on this block at once.
+      delete c.styleOverrides[block];
+      if (!Object.keys(c.styleOverrides).length) delete c.styleOverrides;
+      state.dirty = true;
+      schedule();
+      return;
+    }
     if (value === '') {
       // Blank is "use the layout's own setting", not zero.
       delete st[prop];
-    } else if (prop === 'size' || prop === 'w') {
+    } else if (prop === 'size' || prop === 'w' || prop === 'h' ||
+               prop === 'x' || prop === 'y') {
       var n = Number(value);
-      if (!isFinite(n) || n <= 0) { delete st[prop]; } else { st[prop] = n; }
+      // A position of 0 is meaningful (flush to the edge); a size of 0 is not.
+      var floor = (prop === 'x' || prop === 'y') ? 0 : 1;
+      if (!isFinite(n) || n < floor) { delete st[prop]; } else { st[prop] = n; }
     } else {
       st[prop] = value;
     }

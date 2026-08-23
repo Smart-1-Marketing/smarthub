@@ -13,7 +13,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyBlockStyles, MAX_TYPE, MIN_TYPE } from '../src/block-style';
+import { applyBlockStyles, MAX_TYPE, MIN_LOGO, MIN_TYPE } from '../src/block-style';
 import type { SizeLayout } from '../src/types';
 
 function layout(): SizeLayout {
@@ -104,4 +104,48 @@ test('nonsense numbers are ignored rather than propagated', () => {
   const out = applyBlockStyles(layout(), { headline: { size: NaN, w: Infinity } });
   assert.deepEqual((out as any).headline.size, [12, 20], 'size untouched');
   assert.equal((out as any).headline.w, 260, 'width untouched');
+});
+
+/* ------------------------------------------------------------------ logo */
+
+test('the logo can be moved, unlike a block of copy', () => {
+  const l = { ...layout(), logo: { x: 20, y: 20, w: 100, h: 30 } } as any;
+  const out = applyBlockStyles(l, { logo: { x: 150, y: 200 } }) as any;
+  assert.equal(out.logo.x, 150);
+  assert.equal(out.logo.y, 200);
+});
+
+test('a logo moved near the edge has its box re-fitted, not left hanging off', () => {
+  // x 250 on a 300-wide canvas leaves 50px. The untouched 100px box would
+  // otherwise run 50px past the edge and clip the client's mark.
+  const l = { ...layout(), logo: { x: 20, y: 20, w: 100, h: 30 } } as any;
+  const out = applyBlockStyles(l, { logo: { x: 250 } }) as any;
+  assert.equal(out.logo.x, 250);
+  assert.equal(out.logo.w, 50, 'box shrunk to the room left');
+});
+
+test('logo position is clamped inside the canvas', () => {
+  const l = { ...layout(), logo: { x: 20, y: 20, w: 100, h: 30 } } as any;
+  const out = applyBlockStyles(l, { logo: { x: 9999, y: -50 } }) as any;
+  assert.ok(out.logo.x <= 300 - MIN_LOGO, 'x kept on canvas');
+  assert.equal(out.logo.y, 0, 'negative y pulled back to the top edge');
+});
+
+test('a logo cannot be shrunk to a smudge', () => {
+  const l = { ...layout(), logo: { x: 20, y: 20, w: 100, h: 30 } } as any;
+  const out = applyBlockStyles(l, { logo: { w: 1, h: 1 } }) as any;
+  assert.equal(out.logo.w, MIN_LOGO);
+  assert.equal(out.logo.h, MIN_LOGO);
+});
+
+test('logo alignment passes through', () => {
+  const l = { ...layout(), logo: { x: 20, y: 20, w: 100, h: 30 } } as any;
+  const out = applyBlockStyles(l, { logo: { align: 'right', valign: 'bottom' } }) as any;
+  assert.equal(out.logo.align, 'right');
+  assert.equal(out.logo.valign, 'bottom');
+});
+
+test('a logo override on a layout with no logo is skipped', () => {
+  const out = applyBlockStyles(layout(), { logo: { x: 10 } }) as any;
+  assert.equal(out.logo, undefined);
 });
