@@ -36,6 +36,98 @@ logger = logging.getLogger(__name__)
 # made" separately from stock picks and client uploads.
 GALLERY_KIND = "display_ad"
 
+# The logo a person chose for this client's ads, when it is not the one
+# Brandfetch finds. Filed into the same gallery rather than a table of its own:
+# it is a client image, the gallery is already Cloudinary-backed and already
+# backed up, and a stored logo nobody can see or change is how a wrong one
+# survives for a year. Filing it here means it shows up on the client's gallery
+# page like everything else.
+LOGO_KIND = "ad_logo"
+
+
+def client_logo(client_name: str) -> dict | None:
+    """The logo saved for this client's ads, or None.
+
+    Never raises: this runs while someone is starting a build, and a gallery
+    that cannot be read should cost them the remembered logo, not the build.
+    """
+    name = str(client_name or "").strip()
+    if not name:
+        return None
+    try:
+        from modules.image_picker.filing import gallery_for_name
+        from modules.image_picker.models import SavedImage, session
+        from sqlalchemy import select
+
+        db = session()
+        try:
+            gallery = gallery_for_name(db, name)
+            if gallery is None:
+                return None
+            row = db.execute(
+                select(SavedImage)
+                .where(SavedImage.client_id == gallery.id,
+                       SavedImage.collection_kind == LOGO_KIND)
+                # id as the tiebreak: two saves in the same second would
+                # otherwise come back in whatever order the database chose,
+                # and "the newest logo" would be a coin flip.
+                .order_by(SavedImage.created_at.desc(), SavedImage.id.desc())
+            ).scalars().first()
+            if row is None or not row.cloudinary_url:
+                return None
+            return {
+                "url": row.cloudinary_url,
+                "public_id": row.cloudinary_public_id or "",
+                "saved_by": row.saved_by or "",
+                "saved_at": row.created_at.isoformat() if row.created_at else "",
+            }
+        finally:
+            db.close()
+    except Exception as exc:                           # noqa: BLE001
+        logger.warning("display_ads: could not read the saved logo for %s: %s",
+                       name, exc)
+        return None
+
+
+def save_client_logo(*, client_name: str, url: str, public_id: str = "",
+                     actor: str = "") -> dict:
+    """Remember this logo as the one this client's ads should use.
+
+    Filed rather than overwritten: the gallery keeps every version and
+    client_logo() takes the newest, so a wrong choice is corrected by saving
+    the right one rather than by finding and deleting a row.
+    """
+    name = str(client_name or "").strip()
+    url = str(url or "").strip()
+    if not name:
+        return {"ok": False, "error": "Which client is this logo for?"}
+    if not url.startswith("https://"):
+        return {"ok": False,
+                "error": "A saved logo needs a stored https URL, so future "
+                         "builds can still fetch it."}
+    try:
+        from modules.image_picker.filing import file_asset
+        res = file_asset(
+            client_name=name,
+            public_id=public_id or url.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+            url=url,
+            kind=LOGO_KIND,
+            label="Logo for display ads",
+            alt=f"{name} logo used on display ads",
+            provider="display_ads",
+            saved_by=actor or "system",
+        )
+        if res.get("ok"):
+            try:
+                from hub import audit
+                audit.log("display_ads", "logo_saved", actor=actor, client=name)
+            except Exception:                          # noqa: BLE001
+                pass
+        return res
+    except Exception as exc:                           # noqa: BLE001
+        logger.warning("display_ads: could not save the logo for %s: %s", name, exc)
+        return {"ok": False, "error": "That logo could not be saved."}
+
 
 # --------------------------------------------------------------- renderer API
 
@@ -339,6 +431,11 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
             business=client_name, website=website, campaign=campaign,
             contact=contact, email=email, phone=phone, actor=actor)
 
+    # A logo this client's ads have used before wins over whatever Brandfetch
+    # finds, because somebody chose it on purpose. The renderer already ranks
+    # pickedLogoUrl above discovery, so this needs no change on that side.
+    saved_logo = client_logo(client_name) if kind == "client" else None
+
     payload = {
         "business": client_name,
         "website": website or "https://smart1marketing.com",
@@ -353,6 +450,8 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
         "honeypot": "",
         "elapsedMs": 5000,
     }
+    if saved_logo:
+        payload["pickedLogoUrl"] = saved_logo["url"]
     ok, data = _api("POST", "/api/requests", payload, timeout=(10, 120))
     if not ok:
         return {"ok": False,
@@ -365,11 +464,19 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
         audit.log("display_ads", "build_started", actor=actor,
                   client=client_name, campaign=campaign, request=request_id,
                   proposal=proposal_id or None, kind=kind,
-                  lead=lead_id or None)
+                  lead=lead_id or None,
+                  saved_logo=bool(saved_logo) or None)
     except Exception:                                  # noqa: BLE001
         pass
     return {"ok": True, "request_id": request_id, "client": client_name,
-            "kind": kind, "lead_id": lead_id}
+            "kind": kind, "lead_id": lead_id,
+            # Said out loud. A logo that changes with no explanation is the
+            # kind of thing nobody can account for six months later when
+            # someone asks why this client's ads look different.
+            "logo_note": (
+                f"Using the logo saved for {client_name} rather than the one "
+                f"found on their site."
+                if saved_logo else "")}
 
 
 # --------------------------------------------------------------------- routes
@@ -408,6 +515,7 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
                 proposals = []
         return render_template("ad_builder_start.html", client=client,
                                kind="client" if client else "",
+                               saved_logo=client_logo(client) if client else None,
                                form={}, proposals=proposals,
                                url_prefix=url_prefix, error="")
 
@@ -439,6 +547,7 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
             return render_template("ad_builder_start.html",
                                    client=body.get("client", ""),
                                    kind=kind, form=body, proposals=[],
+                                   saved_logo=None,
                                    url_prefix=url_prefix,
                                    error=res.get("error", "")), 400
         return jsonify(res), (200 if res.get("ok") else 400)
@@ -469,6 +578,27 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         res = attach_ads(project=project,
                          client_name=body.get("client") or project.get("client", ""),
                          sizes=sizes, actor=_user() or "")
+        return jsonify(res), (200 if res.get("ok") else 400)
+
+    @bp.route("/logo", methods=["GET", "POST"])
+    def client_logo_route():
+        """Read or set the logo this client's ads should use.
+
+        GET so the build screen can say which logo is in force; POST to
+        remember a new one for every future build.
+        """
+        if request.method == "GET":
+            name = str(request.args.get("client") or "").strip()
+            found = client_logo(name) if name else None
+            return jsonify({"ok": True, "client": name, "logo": found})
+
+        body = request.form if request.form else (request.get_json(silent=True) or {})
+        res = save_client_logo(
+            client_name=body.get("client", ""),
+            url=body.get("url", ""),
+            public_id=body.get("public_id", ""),
+            actor=_user() or "",
+        )
         return jsonify(res), (200 if res.get("ok") else 400)
 
     @bp.route("/clients", methods=["GET"])

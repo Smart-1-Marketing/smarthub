@@ -51,6 +51,19 @@
           the prospect side.</p>
       </div>
 
+      {% if saved_logo %}
+      <div class="field" data-when="client">
+        <div style="display:flex;gap:10px;align-items:center;border:1px solid var(--line);
+                    border-radius:8px;padding:9px 11px;background:#fff">
+          <img src="{{ saved_logo.url }}" alt=""
+               style="height:26px;width:auto;max-width:110px;object-fit:contain;flex:none">
+          <span style="font-size:12px;color:var(--muted);text-transform:none;font-weight:400">
+            This client has a saved logo, so the build will use it instead of the
+            one on their website.</span>
+        </div>
+      </div>
+      {% endif %}
+
       <div class="field" data-when="prospect">
         <label for="prospect_name">Business name</label>
         <input id="prospect_name" name="prospect_name" autocomplete="off"
