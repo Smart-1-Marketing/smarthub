@@ -1780,7 +1780,10 @@ def widgets_page():
             widgets=[w.as_row(_base_url()) for w in rows],
             base_url=_base_url(), defaults=widget_state.DEFAULTS,
             reuse_days=REUSE_DAYS,
-            webhook_set=bool(hub_leads and hub_leads.webhook_url()),
+            # The Hub picks the route; the widget has none of its own. Ask what
+            # it resolved to rather than for a webhook URL that no longer
+            # delivers anything.
+            leads_route=(hub_leads.delivery_mode() if hub_leads else "none"),
             insites_ok=is_configured(), warnings=config_warnings())
     finally:
         db.close()

@@ -13,8 +13,21 @@ It also means no single place to answer "how many leads did we get last week,
 and from which pages?"
 
 So: every source writes here first. The row exists before anything is sent
-anywhere. Delivery to GoHighLevel is a separate, retryable step against a
-single webhook.
+anywhere. Delivery to GoHighLevel is a separate, retryable step down a single
+route.
+
+## There is one route, and it is the API
+
+Delivery used to be a POST to an inbound Suite webhook. That route is retired.
+It confirmed only that GoHighLevel accepted a request, never that a contact
+exists, and while both were configured the Hub had to keep explaining that it
+was picking one of them. `hub/ghl_contacts.py` writes the contact over the
+Contacts API and gets an id back, which is the thing that makes "delivered"
+mean something.
+
+`HUB_LEAD_WEBHOOK_URL` is now read for one reason only: to say that a value is
+still sitting there and should be cleared. Setting it does not give the Hub a
+delivery route back.
 
 ## The order matters
 
@@ -37,6 +50,8 @@ from datetime import datetime, timedelta, timezone
 
 _LOCK = threading.Lock()
 STORE_NAME = "leads.jsonl"
+# Retired. Read only so the panel can say "this is still set, clear it" — the
+# Hub has no code path that posts to it any more.
 WEBHOOK_ENV = "HUB_LEAD_WEBHOOK_URL"
 
 # --- Rate limit on the public capture endpoint ----------------------------
@@ -220,22 +235,34 @@ def _rewrite(rows: list[dict]) -> None:
     os.replace(tmp, _path())        # atomic — a crash can't truncate the file
 
 
-def webhook_url() -> str:
+def retired_webhook_url() -> str:
+    """The leftover HUB_LEAD_WEBHOOK_URL value, if one is still set.
+
+    Not a delivery route — nothing in the Hub posts to it. It is read so the
+    lead panel can point at a variable that should be cleared, and so that
+    clearing it is a visible, finishable job rather than a note in someone's
+    head. Render stores quotes literally, hence the stripping.
+    """
     return (os.environ.get(WEBHOOK_ENV) or "").strip().strip('"').strip("'")
 
 
 def delivery_mode() -> str:
-    """"api", "webhook" or "none" — the one path a lead is written down.
+    """"api" or "none" — the one path a lead is written down.
 
-    Chosen from configuration, once, not per lead. That is the whole design:
-    the API and the webhook both *create a contact*, so anything that can pick
-    between them per attempt can write the same lead twice. A timeout is the
-    case that matters — the API may well have succeeded and simply not told us
-    — and that is exactly when a "fallback" would duplicate.
+    Chosen from configuration, once, not per lead. Both the API and the old
+    inbound webhook *create a contact*, so anything that could pick between
+    them per attempt could write the same lead twice. A timeout is the case
+    that matters — the API may well have succeeded and simply not told us —
+    and that is exactly when a "fallback" would duplicate.
 
-    So there is no fallback. If API delivery is configured it is the only path;
-    the webhook is what runs until it is. The retry queue in this module is the
-    safety net, and it retries down this same path.
+    So there is one route and no fallback. The webhook route has been retired
+    outright rather than left configured-but-unused: while both were set the
+    Hub could only say "I am not the one duplicating your contacts", which is
+    a weaker thing to be able to say than "there is nothing here to fire".
+    Setting HUB_LEAD_WEBHOOK_URL now does nothing.
+
+    The retry queue in this module is the safety net, and it retries down this
+    same path.
     """
     try:
         from hub import ghl_contacts
@@ -243,7 +270,7 @@ def delivery_mode() -> str:
             return "api"
     except Exception:                                   # noqa: BLE001
         pass
-    return "webhook" if webhook_url() else "none"
+    return "none"
 
 
 def _deliver_api(row: dict) -> dict:
@@ -276,43 +303,16 @@ def deliver(row: dict) -> dict:
         row["last_error"] = ""
         return row
 
-    mode = delivery_mode()
-    if mode == "api":
+    if delivery_mode() == "api":
         return _deliver_api(row)
-    if mode == "none":
-        row["last_error"] = (
-            "No delivery route is configured, so nothing was sent. Set "
-            "GHL_LEAD_LOCATION_ID (with GHL_PRIVATE_TOKEN) to deliver over the "
-            f"API, or {WEBHOOK_ENV} to use the inbound webhook. The lead is "
-            "stored and can be retried once one of them is set.")
-        return row
 
-    url = webhook_url()
-    row["route"] = "webhook"
-    payload = {
-        "source": row["source"], "page": row["page"],
-        "name": row["name"], "email": row["email"], "phone": row["phone"],
-        "company": row["company"], "client": row["client"],
-        "pdf_url": row["pdf_url"], "captured_at": row["created"],
-        # Tag with the page so GHL workflows can route by where it came from.
-        "tags": [t for t in ("smart1-hub", row["source"], row["page"]) if t],
-        "extra": row.get("fields") or {},
-    }
-    try:
-        import requests
-        r = requests.post(url, json=payload, timeout=20)
-        row["attempts"] = row.get("attempts", 0) + 1
-        if r.ok:
-            row["delivered"] = True
-            row["delivered_at"] = _now()
-            row["last_error"] = ""
-        else:
-            # A 4xx/5xx is not an exception — the earlier suite audit found
-            # exactly this swallowed, and leads lost silently for hours.
-            row["last_error"] = f"GoHighLevel returned HTTP {r.status_code}."
-    except Exception as exc:                            # noqa: BLE001
-        row["attempts"] = row.get("attempts", 0) + 1
-        row["last_error"] = f"Couldn't reach GoHighLevel ({type(exc).__name__})."
+    # "none". Nothing is sent, and the lead keeps its place in the queue —
+    # this is a configuration problem, not a lost lead.
+    row["last_error"] = (
+        "Suite API delivery isn't configured, so nothing was sent. Set "
+        "GHL_LEAD_LOCATION_ID (with GHL_PRIVATE_TOKEN) and retry. The inbound "
+        f"webhook route is retired, so setting {WEBHOOK_ENV} will not deliver "
+        "anything. The lead is stored and will go out once the API is set up.")
     return row
 
 
@@ -325,8 +325,7 @@ def capture_and_deliver(source: str, page: str, fields: dict,
     _update(row)
     return {"ok": True, "lead_id": row["id"], "delivered": row["delivered"],
             "contact_id": row.get("contact_id", ""),
-            "note": (("Sent to Smart 1 Suite." if not row.get("contact_id")
-                      else "Created in Smart 1 Suite.") if row["delivered"]
+            "note": ("Created in Smart 1 Suite." if row["delivered"]
                      else "Saved. " + (row["last_error"] or
                                        "Delivery will be retried."))}
 
@@ -411,11 +410,10 @@ def retry_undelivered(limit: int = 50) -> dict:
 
     note = ""
     if mode == "none":
-        note = ("No delivery route is configured, so nothing could be sent. "
-                f"Set GHL_LEAD_LOCATION_ID for API delivery, or {WEBHOOK_ENV}.")
+        note = ("Suite API delivery isn't configured, so nothing could be sent. "
+                "Set GHL_LEAD_LOCATION_ID (with GHL_PRIVATE_TOKEN) and retry.")
     elif failed:
-        note = (f"{failed} still undelivered over the "
-                f"{'Suite API' if mode == 'api' else 'inbound webhook'}.")
+        note = f"{failed} still undelivered over the Suite API."
     if blocked:
         note += (f" {blocked} need attention rather than a retry — their last "
                  "error was a configuration or data problem, not a network one.")
@@ -427,8 +425,9 @@ def listing(days: int = 30, source: str = "", page: str = "",
             undelivered_only: bool = False) -> dict:
     """The lead panel."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, min(365, days)))
+    stored = _read_all()
     rows = []
-    for r in _read_all():
+    for r in stored:
         try:
             when = datetime.fromisoformat(r.get("created", ""))
         except ValueError:
@@ -456,19 +455,44 @@ def listing(days: int = 30, source: str = "", page: str = "",
         "by_page": sorted(by_page.items(), key=lambda kv: -kv[1]),
         "sources": sorted({r.get("source") for r in rows if r.get("source")}),
         "days": days,
-        "webhook_set": bool(webhook_url()),
+        # Not a route any more — the panel uses this to say "clear this".
+        "webhook_still_set": bool(retired_webhook_url()),
         "confirmed": sum(1 for r in rows if r.get("contact_id")),
+        # Delivered before the API route existed: accepted by the retired
+        # webhook, with no contact id to check. Counted separately so the
+        # window's "delivered" number isn't read as "confirmed in Suite".
+        "webhook_era": sum(1 for r in rows
+                           if r.get("delivered") and not r.get("contact_id")),
         "needs_attention": sum(1 for r in rows
                                if not r.get("delivered") and not r.get("retryable", True)),
-        **_route_status(),
+        **_route_status(stored),
     }
 
 
-def _route_status() -> dict:
+def _api_evidence(rows: list[dict] | None = None) -> tuple[int, str]:
+    """(contacts written over the API, when the last one landed).
+
+    The panel's answer to "does the API route look right?" — which is the
+    question standing between here and switching the old webhook trigger off
+    in Suite. A contact id is the only evidence that counts: it is what the
+    webhook could never produce.
+    """
+    n, last = 0, ""
+    for r in (_read_all() if rows is None else rows):
+        if r.get("contact_id"):
+            n += 1
+            when = str(r.get("delivered_at") or r.get("created") or "")
+            if when > last:                 # ISO-8601 UTC sorts as text
+                last = when
+    return n, last
+
+
+def _route_status(rows: list[dict] | None = None) -> dict:
     """Which way leads are being written, and anything wrong with that."""
     mode = delivery_mode()
     note = ""
     warning = ""
+    title = ""
     reason = ""
     try:
         from hub import ghl_contacts
@@ -476,28 +500,41 @@ def _route_status() -> dict:
     except Exception as exc:                            # noqa: BLE001
         reason = f"hub.ghl_contacts didn't import ({type(exc).__name__})."
 
+    api_contacts, api_last = _api_evidence(rows)
+    leftover = retired_webhook_url()
+
     if mode == "none":
-        note = ("Nothing is reaching Smart 1 Suite — no delivery route is "
-                "configured. Leads are being stored and can be retried once "
-                "one is. " + reason)
-    elif mode == "webhook":
-        note = (f"Delivering over the inbound webhook ({WEBHOOK_ENV}). This "
-                "confirms only that Suite accepted the request, not that a "
-                "contact exists. Set GHL_LEAD_LOCATION_ID to deliver over the "
-                "API and get a contact id back. " + reason)
-        # Both routes live is the one configuration that can double-write, and
-        # only if something still posts to the webhook directly. Delivery here
-        # picks one route, so the Hub won't — but a landing page pointed
-        # straight at the webhook URL would, and that is worth saying out loud.
-    elif mode == "api" and webhook_url():
-        warning = (f"Both routes are configured. The Hub is using the API and "
-                   f"will not also fire the webhook, so it won't duplicate — "
-                   f"but anything still posting directly to the {WEBHOOK_ENV} "
-                   f"URL, or a Suite workflow still triggered by it, will "
-                   f"create a second contact. Retire the webhook trigger in "
-                   f"Suite and unset {WEBHOOK_ENV} once the API route looks "
-                   f"right.")
+        note = ("Nothing is reaching Smart 1 Suite — API delivery is not "
+                "configured. Leads are being stored and can be retried once it "
+                "is. " + reason)
+        if leftover:
+            note += (f" {WEBHOOK_ENV} is set, but that route is retired and the "
+                     f"Hub no longer posts to it — it is not a fallback.")
+    elif leftover:
+        # The Hub itself can no longer double-write: there is one route and
+        # nothing left that fires the webhook. What remains is outside this
+        # codebase — a Suite workflow still triggered by that URL, or a page
+        # posting straight at it — so name those two and stop describing this
+        # as "two routes configured", which it no longer is.
+        title = "Finish retiring the lead webhook"
+        warning = (
+            f"{WEBHOOK_ENV} is still set on this deployment. The Hub no longer "
+            f"delivers over it — that route is retired — so nothing here will "
+            f"create a second contact. What still can is outside the Hub: a "
+            f"Suite workflow triggered by that URL, or a page posting directly "
+            f"to it. Turn the trigger off in Suite, then clear {WEBHOOK_ENV} on "
+            f"Render. ")
+        warning += (
+            f"The API route has written {api_contacts} Suite "
+            f"{'contact' if api_contacts == 1 else 'contacts'}, most recently "
+            f"{api_last[:10]}, so it is carrying the leads."
+            if api_contacts else
+            "No lead has been written over the API route yet, though — get one "
+            "through first, so the trigger is switched off after the "
+            "replacement is proven rather than before.")
+
     return {"route": mode, "note": note, "route_warning": warning,
+            "route_warning_title": title,
+            "api_contacts": api_contacts, "api_last": api_last,
             "route_label": {"api": "Smart 1 Suite API",
-                            "webhook": "inbound webhook",
                             "none": "not configured"}[mode]}

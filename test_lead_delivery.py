@@ -3,8 +3,9 @@
 The one property worth protecting here is that **a lead is never written
 twice**. Everything else in this file exists to hold that line:
 
-* a route is chosen once from configuration, so the API and the webhook can
-  never both fire for one lead;
+* there is exactly one route — the Suite API. The inbound webhook is retired,
+  and a leftover HUB_LEAD_WEBHOOK_URL is not a second route and not a
+  fallback;
 * a row that already carries a contact id is not re-sent;
 * a timeout — where we genuinely cannot know whether the write landed — is
   retried through upsert, which matches the existing contact rather than
@@ -76,11 +77,27 @@ def main():
     os.environ["GHL_LEAD_LOCATION_ID"] = "LOC456"
     check("delivery mode", leads.delivery_mode(), "api")
 
-    print("both routes configured still selects exactly one")
+    print("a leftover webhook URL is not a second route")
     os.environ["HUB_LEAD_WEBHOOK_URL"] = "https://hooks.example/x"
-    check("delivery mode with webhook also set", leads.delivery_mode(), "api")
-    check("warns about the second route",
-          bool(leads._route_status()["route_warning"]), True)
+    check("delivery mode with the webhook also set", leads.delivery_mode(), "api")
+    status = leads._route_status()
+    check("panel asks for it to be cleared", bool(status["route_warning"]), True)
+    check("the ask is titled", bool(status["route_warning_title"]), True)
+
+    print("and it is not a fallback when the API is unconfigured")
+    # Every name ghl_contacts will accept as a location, so an inherited one
+    # in the developer's shell can't quietly keep API delivery switched on.
+    saved = {n: os.environ.pop(n) for n in ghl_contacts.LOCATION_ENV
+             if n in os.environ}
+    responds(200, {"contact": {"id": "SHOULD_NOT_BE_REACHED"}})
+    before = CALLS["n"]
+    check("delivery mode with only the webhook set", leads.delivery_mode(), "none")
+    row0 = leads.deliver(leads.capture("x", "/y", {"email": "w@example.com"}))
+    check("delivered", row0["delivered"], False)
+    check("requests made", CALLS["n"] - before, 0)
+    check("says the webhook is retired", "retired" in row0["last_error"], True)
+    os.environ.update(saved)
+    check("delivery mode once the location is back", leads.delivery_mode(), "api")
 
     print("a successful upsert records the contact id")
     responds(200, {"contact": {"id": "CONTACT_ABC", "new": True}})
