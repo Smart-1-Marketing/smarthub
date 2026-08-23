@@ -2883,7 +2883,12 @@ def create_hub_app() -> Flask:
 })();
 </script>"""
         addition = autosearch + bar
-        body = body.replace(b"</body>", addition + b"</body>", 1) if b"</body>" in body else body + addition
+        # The last </body>, not the first — see the note in wsgi.py's HubBar.
+        # A page that builds a printable document as a JavaScript string
+        # carries its own </body> inside a template literal, and injecting
+        # there breaks the page's script instead of ending the document.
+        _cut = body.rfind(b"</body>")
+        body = (body[:_cut] + addition + body[_cut:]) if _cut >= 0 else body + addition
         return app.response_class(body, mimetype="text/html")
 
     @app.route("/static/<path:filename>")
@@ -3382,7 +3387,10 @@ def create_hub_app() -> Flask:
                 body = body.replace(
                     b"</head>",
                     b'<link rel="stylesheet" href="/hub-help.css"></head>', 1)
-            resp.set_data(body.replace(b"</body>", bar + extra + b"</body>", 1))
+            # The last </body>, not the first — see the note in wsgi.py's
+            # HubBar. These are blueprint pages we do not control either.
+            cut = body.rfind(b"</body>")
+            resp.set_data(body[:cut] + bar + extra + body[cut:])
         except Exception:  # noqa: BLE001 — never break a page over navigation
             pass
         return resp

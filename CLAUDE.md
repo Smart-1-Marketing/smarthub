@@ -246,10 +246,64 @@ one as a live quote. What moved across: the industry library (now
 filing the finished proposal onto the client record.
 
 Delivering a proposal now files it on the client and opens an opportunity in
-Smart 1 Suite. It looks up the contact first and **asks** when there is none,
+Smart 1 Suite, through `hub/ghl_contacts.py` — one token, one location id and
+one contact write path for the whole Hub. `hub/suite_opportunity.py` keeps
+only the pipeline and opportunity logic that is genuinely its own. It briefly
+resolved the location itself and fell back to `GHL_COMPANY_ID`, which on this
+deployment holds the same value as the company id: a companyId used as a
+locationId files against the *agency*, so every opportunity would have landed
+where nobody goes looking. It looks up the contact first and **asks** when
+there is none,
 rather than creating one from the business name — an opportunity attached to a
 contact nobody can call is worse than no opportunity, and it duplicates the
 real contact next time anyone searches.
+
+### The proposal has a specification, and it is data
+
+`hub/proposal_spec.py` owns the 13-part outline, the standing directives, the
+audience partner taxonomy, the Suite tiers and the operating facts a proposal
+may cite. The builder, the PDF, the Word export and the AI prompt all read it,
+so changing what a proposal contains is one edit rather than four.
+
+Three of those directives are checked rather than merely requested. Copy that
+mentions **Smart 1 Labs** is discarded before a rep sees it — a prompt is a
+request, and "the model was told not to" is not evidence that it did not. The
+**Expected Results & ROI** section is *computed* from `hub/rate_card.py`, never
+written: a management fee reports no impressions at all rather than a plausible
+number, because a projection that contradicts the media plan printed above it
+is worse than no projection. And the **Investment Summary** keeps recurring
+platform licensing apart from media spend and one-time production, so a client
+can tell what stops if they pause the campaign.
+
+`roi`, `mediaplan` and `packages` cannot be deleted from a proposal. An older
+quote saved against the previous eight-section layout keeps its copy and gains
+whichever required sections it is missing on the next save.
+
+### Video and audio are asked about before they are priced
+
+`hub/creative_needs.py`. A Connected TV or digital radio buy that reaches an
+insertion order with no spot behind it is a launch date nobody can hit, so
+those two mediums are gated: does the client have creative, and if not does
+the client pay or does Smart 1 comp it. **A comp on a medium spending under
+$1,500 across the flight gets one explicit confirmation, with the number
+shown**, and that confirmation lapses if the budget is later cut below what
+was confirmed. Display is not gated — six banner sizes is a $250 rate-card
+line.
+
+The classifier is the whole gate, and it cannot work from the rate card's
+categories: four programmatic **video** products are filed under DISPLAY
+beside banner inventory, and three of the four have names that identify
+nothing — "Programmatic - Targeted" is $17.00 CPM video while "Category" next
+to it is $4.25 CPM display. So those four are named explicitly, and
+`/api/integrity` has a high-severity check that fires if one is renamed on the
+card. Without it a renamed product silently reverts to the keyword guess, gets
+read as display, and the gate stops asking while every screen still looks
+healthy.
+
+The wizard carries a JavaScript mirror of the classifier and both constants so
+the Creative step reacts as a rep edits the plan; `test_proposal_spec.py`
+asserts the two agree on every product, exactly as `test_target_areas.py` does
+for the area helpers.
 
 ## The one module that is not Python
 
@@ -302,17 +356,38 @@ only found by running it.
 ```bash
 python3 -c "import ast,pathlib; [ast.parse(p.read_text(errors='ignore')) \
   for p in pathlib.Path('.').rglob('*.py') if '_attic' not in p.parts]"
-node --check hub/static/*.js
-python tools/linkcheck.py
-python3 test_jsonstore.py        # the database mirror really restores
-python3 test_ads_module.py       # the Node ad builder behind its proxy
-python3 test_target_areas.py     # target areas, delivery, the Suite push
-python3 test_landing_maker.py    # built pages stay public and chrome-free
+python tools/jscheck.py            # every .js file and inline block, via node
+python tools/checktemplates.py     # the Jinja-carrying blocks jscheck skips
+python tools/linkcheck.py          # every internal URL resolves
+python tools/pagecheck.py          # the page the browser actually receives
+python tools/integritycheck.py     # known defect patterns
+python3 test_jsonstore.py          # the database mirror really restores
+python3 test_ads_module.py         # the Node ad builder behind its proxy
+python3 test_target_areas.py       # target areas, delivery, the Suite push
+python3 test_lead_delivery.py      # one write path per lead
+python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math
+python3 test_landing_maker.py      # built pages stay public and chrome-free
 ```
 
-These test files need no pytest and no new dependencies; each runs against
-a temporary data directory and a throwaway SQLite database, so none of them
+The test files need no pytest and no new dependencies; each runs against a
+temporary data directory and a throwaway SQLite database, so none of them
 touches `/var/data` or the real one.
+
+**All of this runs on every pull request** — `.github/workflows/checks.yml`,
+the single gate. CI runs the same scripts a person runs, so a green run means
+the same thing in both places and no check exists only where nobody can
+reproduce it.
+
+Two workflows briefly existed: `checks.yml` and a `ci.yml` written in parallel
+on another branch, overlapping on `jscheck` and `linkcheck` and each carrying
+steps the other lacked. They are folded into `checks.yml` — the union, not the
+intersection: the four test files and the composed-app boot from one, and
+`checktemplates`, `pagecheck --strict` and `integritycheck` from the other.
+Two gates disagreeing about what "green" means is worse than either alone.
+
+It runs against a real Postgres rather than SQLite because Sites Admin refuses
+to start without one and serves the 503 fallback instead: on SQLite a whole
+module drops out of every check that boots the app, and nothing says so.
 
 `tools/linkcheck.py` boots the composed app and checks every internal URL
 literal against the route table of whichever app owns that path, so it catches
@@ -321,6 +396,33 @@ standalone and 404s under a mount. It exits non-zero, so it can gate a
 release. **Run it after touching any module template**: that one bug was live
 on seven landing pages for two days, and it took down the lead capture on all
 of them without anything looking wrong.
+
+`tools/pagecheck.py` asks a different question: not what the template says,
+but what the browser receives *after* `HubBar` and the hub's `after_request`
+have rewritten the response. Both inject the sidebar and five script tags into
+HTML they did not write, and injecting into the wrong place breaks the page
+while leaving every template valid and every link resolving. That is not
+hypothetical — HubBar injected at the FIRST `</body>` in the response, and the
+IO Builder builds two printable documents as JavaScript template literals that
+each carry their own `</body>`, so the sidebar landed inside a string, closed
+the page's script early, and the entire tool rendered blank. It checks that
+the chrome arrives as an *element* (`html.parser` goes raw-text inside
+`<script>` exactly as a browser does, so chrome hidden in a literal is not
+seen) and that every browser-delimited script block still parses.
+
+`tools/jscheck.py` and `tools/checktemplates.py` split the JavaScript between
+them. jscheck hands every file and every inline block to `node --check`, the
+real parser, but *skips* blocks containing `{% %}` or `{{ }}` because Jinja is
+not JavaScript and Node would reject it for the wrong reason. checktemplates
+is what checks those: it blanks the Jinja to same-width filler, so line numbers
+still line up, and runs a bracket/string/template balance check over what is
+left. Neither is redundant — jscheck is stricter on what it can read, and
+checktemplates is the only thing that reads the rest.
+
+`tools/integritycheck.py` runs `/api/integrity` from the command line and
+fails on `high` findings. Two `medium` ones stand today (`ad_builder` and
+`msa` never write to the activity log); it prints them every run rather than
+failing on them, so switching it on did not start life red.
 
 Then boot through `wsgi.application` (not just the hub app — that's how mount
 shadowing hides) and request the pages you touched. `/api/integrity` reports

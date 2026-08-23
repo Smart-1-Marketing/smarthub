@@ -57,8 +57,9 @@ var HELP_CONVERT  = {{ (help_dot('hub.leads.convert')  if help_dot is defined el
 function renderLeads(d){
   document.getElementById('leadWarn').innerHTML =
     (d.route_warning
-      ? '<div style="background:#fdecea;color:#8a1c12;padding:10px 14px;border-radius:9px;'+
-        'font-size:13px;margin-bottom:14px"><b>Two delivery routes configured.</b> '+
+      ? '<div style="background:#fff4d7;color:#8a5a00;padding:10px 14px;border-radius:9px;'+
+        'font-size:13px;margin-bottom:14px"><b>'+
+        esc(d.route_warning_title||'Check the delivery route')+'.</b> '+
         esc(d.route_warning)+'</div>' : '')+
     (d.note
       ? '<div style="background:#fff4d7;color:#8a5a00;padding:10px 14px;border-radius:9px;'+
@@ -73,17 +74,19 @@ function renderLeads(d){
     (d.converted ? ' · '+d.converted+' converted to clients' : '')+
     '</span></div>'+
     '<div class="diag-row"><span class="diag-pill p-'+
-      (d.route==='api'?'ok':d.route==='webhook'?'warn':'error')+'">'+
+      (d.route==='api'?'ok':'error')+'">'+
       esc(d.route||'none')+'</span><span class="diag-name">Delivery route</span>'+
       '<span class="diag-detail">Leads are written to Smart 1 Suite via the <b>'+
-      esc(d.route_label||'')+'</b>.'+
+      esc(d.route_label||'')+'</b> — the only route there is, since the inbound '+
+      'webhook was retired.'+
       (d.route==='api'
         ? ' '+d.confirmed+' of '+d.count+' carry a Suite contact id, which is what '+
-          'confirms the contact exists rather than just that the request was accepted.'
-        : d.route==='webhook'
-          ? ' A webhook confirms only that Suite accepted the request — there is no '+
-            'contact id to check against.'
-          : '')+
+          'confirms the contact exists rather than just that the request was accepted.'+
+          (d.webhook_era
+            ? ' '+d.webhook_era+' older '+(d.webhook_era===1?'lead was':'leads were')+
+              ' sent over the retired webhook and have no contact id to check.'
+            : '')
+        : '')+
       ' <a href="/api/leads/ghl/preflight?find=1" target="_blank" rel="noopener">Run preflight</a>'+
       '</span></div>'+
     (d.by_page.length
@@ -127,8 +130,8 @@ function renderLeads(d){
           (l.delivered
             ? (l.contact_id
                 ? '<span class="pill ok" title="Suite contact '+esc(l.contact_id)+'">in Suite</span>'
-                : '<span class="pill ok" title="Accepted by the webhook. No contact id — '+
-                  'delivery is not confirmed beyond the request being accepted.">sent</span>')
+                : '<span class="pill ok" title="Accepted by the retired webhook. No contact '+
+                  'id — delivery was never confirmed beyond the request being accepted.">sent</span>')
             : (l.retryable===false
                 ? '<span class="pill err" title="'+esc(l.last_error||'')+'">needs attention</span>'
                 : '<span class="pill err" title="'+esc(l.last_error||'')+'">queued</span>'))+

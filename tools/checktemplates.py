@@ -1,4 +1,4 @@
-"""Run the JS balance check over the inline <script> blocks in templates.
+"""Run the JS balance check over the inline <script> blocks in HTML.
 
 Most of this app's front end lives inside Jinja templates rather than .js
 files, so checking only hub/static and modules/*/static misses the majority of
@@ -19,7 +19,15 @@ SCRIPT = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.S)
 
 def templates():
     seen = set()
-    for pattern in ("hub/templates/**/*.html", "modules/**/templates/**/*.html"):
+    # Not just templates/. A third of this app's inline JavaScript lives in
+    # static HTML a module serves directly — modules/*/public/, a couple of
+    # static/ directories, and hub/partner_pages/ — and none of it was
+    # checked. modules/suite_panel/public/index.html alone carries 500 lines
+    # of it. The name of the tool is now slightly wrong; the coverage is not.
+    for pattern in ("hub/templates/**/*.html", "hub/partner_pages/**/*.html",
+                    "modules/**/templates/**/*.html",
+                    "modules/**/public/**/*.html",
+                    "modules/**/static/**/*.html"):
         for path in pathlib.Path(".").glob(pattern):
             if "_attic" in path.parts or path in seen:
                 continue

@@ -12,9 +12,12 @@ set"}` into a response nobody reads. The feature has never fired in
 production. It is the same env-name drift that broke the Pexels key, with the
 same shape: the code was fine, the name was not.
 
-This module reads the names the deployment actually uses (via
-`hub.config.settings` where it can), and discovers the pipeline and stage from
-the API rather than requiring two more ids nobody has set.
+The token and the sub-account id come from `hub.ghl_contacts`, which is the
+one place this codebase agrees on how to address GoHighLevel — and which
+refuses a company id used as a location id, a mix-up that would file every
+opportunity against the agency instead of the Smart 1 Marketing sub-account.
+The pipeline and its stage are discovered from the API rather than requiring
+two more ids nobody has set.
 
 ## Contact before opportunity
 
@@ -66,23 +69,52 @@ def _env(*names: str) -> str:
 
 
 def _token() -> str:
-    try:
-        from .config import settings
-        if settings.ghl_token and not settings.is_placeholder(settings.ghl_token):
-            return settings.ghl_token
-    except Exception:                                   # noqa: BLE001
-        pass
-    # GHL_PRIVATE_INTEGRATION_TOKEN is the Proposal Builder's old spelling. It
-    # is accepted rather than renamed, per the rule that config takes every
-    # spelling in use instead of forcing a change in the Render dashboard.
-    return _env("GHL_PRIVATE_TOKEN", "SMART1SUITE_PRIVATE_TOKEN",
-                "GHL_PRIVATE_INTEGRATION_TOKEN")
+    """The Suite token, from `hub.ghl_contacts`.
+
+    Not read here any more. That module is the one place this codebase agrees
+    on how to talk to GoHighLevel, and two modules resolving the same
+    credential from different name lists is how the Pexels key ended up fixed
+    twice.
+    """
+    from . import ghl_contacts
+    tok = ghl_contacts.token()
+    if tok:
+        return tok
+    # GHL_PRIVATE_INTEGRATION_TOKEN is the retired Proposal Builder's spelling,
+    # kept so an installation still carrying it does not silently stop working.
+    return _env("GHL_PRIVATE_INTEGRATION_TOKEN")
 
 
 def location_id() -> str:
-    """The Smart 1 Marketing sub-account every proposal opportunity goes into."""
-    return _env("SMART1_LOCATION_ID", "GHL_LOCATION_ID", "GHL_BLOG_LOCATION_ID",
-                "GHL_COMPANY_ID", "SUITE_COMPANY_ID")
+    """The Smart 1 Marketing sub-account every proposal opportunity goes into.
+
+    Delegated to `hub.ghl_contacts.location_id()`, which refuses a value that
+    matches the agency company id.
+
+    This function used to fall back to GHL_COMPANY_ID / SUITE_COMPANY_ID, and
+    on this deployment those hold the same value — so every opportunity would
+    have been filed against the *agency* rather than the sub-account, where
+    nobody would go looking for it. `ghl_contacts` documents that companyId and
+    locationId are different id spaces; this now honours it.
+
+    Returns "" rather than raising, because `status()` and `push_proposal()`
+    both report configuration problems in words instead of failing.
+    """
+    try:
+        from . import ghl_contacts
+        return ghl_contacts.location_id()
+    except Exception:                                   # noqa: BLE001 — NotConfigured
+        return ""
+
+
+def location_problem() -> str:
+    """Why there is no usable location id, in words a person can act on."""
+    try:
+        from . import ghl_contacts
+        ghl_contacts.location_id()
+        return ""
+    except Exception as exc:                            # noqa: BLE001
+        return str(exc)
 
 
 def configured() -> bool:
@@ -96,8 +128,9 @@ def status() -> dict:
     if not token:
         problems.append("No Suite token — set GHL_PRIVATE_TOKEN.")
     if not loc:
-        problems.append("No Smart 1 Marketing location id — set "
-                        "SMART1_LOCATION_ID to the sub-account id.")
+        problems.append(location_problem() or
+                        "No Smart 1 Marketing location id — set "
+                        "GHL_LEAD_LOCATION_ID to the sub-account id.")
     return {"ok": not problems, "token_set": token, "location_id": loc,
             "pipeline": _env("GHL_PIPELINE_ID") or "(discovered from the API)",
             "problems": problems}
@@ -193,30 +226,35 @@ def find_contact(email: str = "", phone: str = "", company: str = "",
 def create_contact(business: str, contact_name: str = "", email: str = "",
                    phone: str = "", website: str = "", city: str = "",
                    state: str = "", postal: str = "", source: str = "") -> dict:
-    """Create the contact a rep just supplied details for."""
-    loc = location_id()
-    parts = str(contact_name or "").strip().split()
-    first = parts[0] if parts else (str(business or "").strip() or "Prospect")
-    last = " ".join(parts[1:])
-    data = _call("POST", "/contacts/upsert", body={
-        "locationId": loc,
-        "firstName": first,
-        "lastName": last,
-        "email": str(email or "").strip() or None,
-        "phone": str(phone or "").strip() or None,
-        "companyName": str(business or "").strip() or None,
-        "website": str(website or "").strip() or None,
-        "city": str(city or "").strip() or None,
-        "state": str(state or "").strip() or None,
-        "postalCode": str(postal or "").strip() or None,
-        "source": source or "Smart 1 Proposal Builder",
-        "tags": ["proposal-builder"],
+    """Create the contact a rep just supplied details for.
+
+    Written through `hub.ghl_contacts.upsert()` rather than a second
+    POST /contacts/upsert of our own. One write path per contact is the rule
+    that module was built around: it upserts (so a retry updates rather than
+    duplicates), and it treats a 2xx with no contact id as a failure, because
+    without the id there is nothing to prove the contact exists.
+    """
+    from . import ghl_contacts
+    result = ghl_contacts.upsert({
+        "name": str(contact_name or "").strip() or str(business or "").strip(),
+        "email": str(email or "").strip(),
+        "phone": str(phone or "").strip(),
+        "company": str(business or "").strip(),
+        "website": str(website or "").strip(),
+        "city": str(city or "").strip(),
+        "state": str(state or "").strip(),
+        "zip": str(postal or "").strip(),
+        "source": source or "proposal-builder",
     })
-    raw = data.get("contact") or data
-    row = _contact_row(raw)
-    if not row["id"]:
-        raise SuiteError("Smart 1 Suite created no contact id.")
-    return row
+    if not result.get("ok"):
+        raise SuiteError(result.get("error") or
+                         "Smart 1 Suite created no contact id, so the contact "
+                         "cannot be confirmed.")
+    return {"id": result["contact_id"],
+            "name": str(contact_name or "").strip(),
+            "email": str(email or "").strip(),
+            "phone": str(phone or "").strip(),
+            "company": str(business or "").strip()}
 
 
 # -------------------------------------------------------------- pipelines ---
