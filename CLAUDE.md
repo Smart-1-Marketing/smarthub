@@ -235,7 +235,14 @@ one as a live quote. What moved across: the industry library (now
 filing the finished proposal onto the client record.
 
 Delivering a proposal now files it on the client and opens an opportunity in
-Smart 1 Suite. It looks up the contact first and **asks** when there is none,
+Smart 1 Suite, through `hub/ghl_contacts.py` — one token, one location id and
+one contact write path for the whole Hub. `hub/suite_opportunity.py` keeps
+only the pipeline and opportunity logic that is genuinely its own. It briefly
+resolved the location itself and fell back to `GHL_COMPANY_ID`, which on this
+deployment holds the same value as the company id: a companyId used as a
+locationId files against the *agency*, so every opportunity would have landed
+where nobody goes looking. It looks up the contact first and **asks** when
+there is none,
 rather than creating one from the business name — an opportunity attached to a
 contact nobody can call is worse than no opportunity, and it duplicates the
 real contact next time anyone searches.

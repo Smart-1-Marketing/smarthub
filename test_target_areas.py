@@ -245,8 +245,11 @@ section("the Suite push asks rather than invents")
 # ---------------------------------------------------------------------------
 from hub import suite_opportunity as suite                         # noqa: E402
 
+# Every name the token or the location could come from, including the ones
+# hub/ghl_contacts.py reads -- suite_opportunity delegates to it now.
 for name in ("GHL_PRIVATE_TOKEN", "SMART1SUITE_PRIVATE_TOKEN",
-             "GHL_PRIVATE_INTEGRATION_TOKEN", "SMART1_LOCATION_ID",
+             "GHL_PRIVATE_INTEGRATION_TOKEN", "GHL_LEAD_LOCATION_ID",
+             "SMART1_MARKETING_LOCATION_ID", "GHL_ACCOUNTING_LOCATION_ID",
              "GHL_LOCATION_ID", "GHL_BLOG_LOCATION_ID", "GHL_COMPANY_ID",
              "SUITE_COMPANY_ID"):
     os.environ.pop(name, None)
@@ -254,6 +257,24 @@ status = suite.status()
 check("an unconfigured Suite says so in words",
       not status["ok"] and any("GHL_PRIVATE_TOKEN" in p for p in status["problems"]),
       status)
+check("and names the location setting the rest of the Hub uses",
+      any("GHL_LEAD_LOCATION_ID" in p for p in status["problems"]), status["problems"])
+
+# The bug this delegation closes: companyId and locationId are different id
+# spaces, and on this deployment both env vars hold the same value. Filing an
+# opportunity against the agency puts it where nobody looks for it.
+os.environ["GHL_PRIVATE_TOKEN"] = "pit-test-token"
+os.environ["GHL_COMPANY_ID"] = "SAME_ID_BOTH_PLACES"
+os.environ["GHL_LEAD_LOCATION_ID"] = "SAME_ID_BOTH_PLACES"
+check("a company id used as a location id is refused, not used",
+      suite.location_id() == "", suite.location_id())
+check("and the refusal explains which id is wanted",
+      "sub-account" in suite.location_problem(), suite.location_problem())
+os.environ["GHL_LEAD_LOCATION_ID"] = "REAL_SUBACCOUNT_ID"
+check("a genuine sub-account id is accepted",
+      suite.location_id() == "REAL_SUBACCOUNT_ID", suite.location_id())
+for name in ("GHL_PRIVATE_TOKEN", "GHL_COMPANY_ID", "GHL_LEAD_LOCATION_ID"):
+    os.environ.pop(name, None)
 result = suite.push_proposal(client="Riverstone Dental")
 check("and pushing reports it rather than raising",
       result["ok"] is False and "GHL_PRIVATE_TOKEN" in result["reason"], result)
