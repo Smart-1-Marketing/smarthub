@@ -618,6 +618,21 @@ function baseFlow(){
   {key:"income",q:"Which household income levels should be targeted? Select all that apply, then choose Continue.",multi:true,options:incomeOptions},
   {key:"audiences",q:"Which audiences should be targeted? Select all that apply, or add the SMART1 suggestions, then choose Continue.",multi:true,dynamicOptions:suggestedAudienceOptions},
   {key:"audienceNotes",q:"Add any custom audience notes or type NONE."},
+  /* ---- what the proposal quoted, one product at a time ----
+     Only when a proposal was read and left something to settle. These used
+     to be a sentence -- "Not on the rate card, so not selected: X, Y. Add
+     the matching product yourself" -- printed once into a chat log the rep
+     scrolls past. The client agreed to those products; stating them and
+     moving on is how they failed to reach the document that bills. */
+  {key:"intakeMode",q:"",condition:()=>intakeRows().length>0&&!PROPOSAL.intakeMode,
+   options:["Walk me through them one at a time","Fill in what you can, ask only what you can't"]},
+  {key:"intakeProduct",q:"",condition:()=>intakeActive()},
+  {key:"intakeDescribe",q:"",condition:()=>intakeActive()&&intakeNeeds("description")},
+  {key:"intakeBasis",q:"",condition:()=>intakeActive()&&intakeNeeds("basis"),
+   options:["Monthly","One time"]},
+  {key:"intakeTerm",q:"",condition:()=>intakeActive()&&intakeNeeds("term_months")},
+  {key:"intakeAmount",q:"",condition:()=>intakeActive()&&intakeNeeds("amount")},
+  {key:"intakeNext",q:"",condition:()=>intakeActive()},
   {key:"productCategory",q:"Choose a product category.",options:productCategories},
   {key:"selected",q:"Choose all products needed from this category, then choose Continue.",multi:true,dynamicOptions:()=>productsForCategory(state.currentCategory)},
   {key:"moreCategory",q:"Would you like to add products from another category?",options:["Yes","No"]},
@@ -638,6 +653,158 @@ function baseFlow(){
   {key:"exclusions",q:"Are there any exclusions, negative keywords, restricted audiences, placements, geographic areas, competitors, or other items we should be aware of? Type NONE if there are none."}
  ];
 }
+/* ============================================================
+   PROPOSAL PRODUCT INTAKE
+   Every product the reader pulled out of a proposal, asked about one at a
+   time. Mirrors hub/product_intake.py, which the server fills in on
+   /api/io/from-proposal -- the classification is done there so the matcher
+   is the same one the Proposal Builder uses.
+
+   Three states, and the rule is that none of them is ever merely reported:
+
+     matched   the card has it. Confirm the money and the term.
+     near      the card has candidates and none is certain. Offer them and
+               let the rep pick -- never auto-pick, because the wrong product
+               on an IO is the error nobody catches until it bills.
+     unknown   nothing resembles it. Offer Consulting & Strategic Services
+               with a description in the client's words, rather than dropping
+               a product the client agreed to buy.
+   ============================================================ */
+const CONSULTING_PRODUCT="Consulting & Strategic Services";
+const INTAKE_SKIP="Not on this IO — leave it off";
+
+function intakeRows(){return (PROPOSAL&&PROPOSAL.intake)||[];}
+function intakeCurrent(){const r=intakeRows();return r[PROPOSAL.intakeIx||0]||null;}
+function intakeActive(){return !!intakeCurrent();}
+
+/* What the current product still needs. Order matters: the product has to be
+   settled before it is worth asking what it costs.
+
+   In "fill in what you can" mode the cost-basis questions are skipped for a
+   product the card matched outright and the proposal priced -- there the
+   answer is defensible from the document. It is never skipped for a product
+   the rep had to choose or name: the card cannot tell a monthly retainer from
+   a one-time build, and guessing is how an IO bills six times what was
+   agreed. The assumption is stated in the summary, not buried. */
+function intakeNeeds(field){
+ const e=intakeCurrent();if(!e)return false;
+ if(!e.product)return false;                       // still choosing the product
+ if(PROPOSAL.intakeMode==="bulk"&&e.assumed&&field!=="description")return false;
+ if(field==="description")return !!e.consulting&&!String(e.description||"").trim();
+ if(field==="basis")return !String(e.basis||"").trim();
+ if(field==="term_months")return e.basis==="monthly"&&!(+e.term_months>0);
+ if(field==="amount")return !(+e.amount>0);
+ return false;
+}
+
+function intakeShortName(name){
+ let n=String(name||"").split(" - This is")[0];
+ n=n.split("  *If you")[0].split(" - channels may include")[0];
+ n=n.replace(/\s+/g," ").trim();
+ return n.length>60?n.slice(0,57)+"…":n;
+}
+
+/* The question text for whichever intake question is current. */
+function intakeQuestion(q){
+ const e=intakeCurrent();if(!e)return q;
+ const name=e.query||intakeShortName(e.product)||"that product";
+ const pos=(PROPOSAL.intakeIx||0)+1,total=intakeRows().length;
+ const head=`Product ${pos} of ${total} from the proposal — `;
+
+ if(q.key==="intakeMode"){
+  const rows=intakeRows(),ask=rows.filter(r=>!r.product).length;
+  return {...q,q:`The proposal names ${rows.length} product${rows.length===1?"":"s"}. `
+   +(ask?`${ask} of them ${ask===1?"does not":"do not"} match the rate card outright and ${ask===1?"needs":"need"} a decision either way. `:"")
+   +`For the rest I can take the product and the price from the document and assume a monthly cost over the campaign term — I'll show you what I assumed.`};
+ }
+
+ if(q.key==="intakeProduct"&&!e.product){
+  const opts=(e.candidates||[]).map(c=>intakeShortName(c.product));
+  opts.push(CONSULTING_PRODUCT,INTAKE_SKIP);
+  const lead=(e.status==="near")
+   ? `${head}the proposal quoted “${name}”. Which rate-card product is that?`
+   : `${head}“${name}” is not on the rate card. Add it as ${CONSULTING_PRODUCT}, or pick the product it matches.`;
+  return {...q,q:lead+(e.amount?`\n\nThe proposal shows ${money(e.amount)} against it.`:""),options:opts};
+ }
+ if(q.key==="intakeProduct"){
+  /* Matched outright. Still shown, still confirmable -- a rep who knows the
+     reader misread something needs somewhere to say so. */
+  const opts=[intakeShortName(e.product)];
+  if(!e.consulting)opts.push(CONSULTING_PRODUCT);   // it already is one
+  opts.push(INTAKE_SKIP);
+  return {...q,q:`${head}“${name}” matched ${intakeShortName(e.product)}. Type Y to keep it, or choose another product.`,options:opts};
+ }
+ if(q.key==="intakeDescribe")
+  return {...q,q:`${head}describe what “${name}” covers, in the words the client agreed to. This is what the trafficking team will read.`};
+ if(q.key==="intakeBasis")
+  return {...q,q:`${head}is ${intakeShortName(e.product)} a monthly cost or a one-time cost? A proposal that says a dollar figure has not said which, and the IO bills the difference.`};
+ if(q.key==="intakeTerm")
+  return {...q,q:`${head}how many months does ${intakeShortName(e.product)} run for?`};
+ if(q.key==="intakeAmount")
+  return {...q,q:`${head}what is the ${e.basis==="one_time"?"one-time":"monthly"} amount for ${intakeShortName(e.product)}?`
+    +(e.amount?` The proposal shows ${money(e.amount)} — type Y to use it.`:"")};
+ if(q.key==="intakeNext"){
+  const left=intakeRows().length-((PROPOSAL.intakeIx||0)+1);
+  return {...q,q:intakeSummaryText()+(left>0
+    ? `\n\n${left} more product${left===1?"":"s"} from the proposal to settle.`
+    : `\n\nThat is every product the proposal named. Continue to add anything it missed.`),
+   options:(e.assumed?["That's right","Actually it's a one-time cost"]:[])
+    .concat(left>0?["Next product"]:["Continue"])};
+ }
+ return q;
+}
+
+/* Months to assume when the campaign has not said. The shared dates are the
+   best evidence there is; one month is the honest floor, not twelve. */
+function intakeDefaultTerm(){
+ try{
+  if(state.start&&state.end){
+   const r=lengthFor(state.start,state.end);
+   if(r&&r.months>=1)return Math.round(r.months);
+  }
+ }catch(err){}
+ return 1;
+}
+
+function intakeSummaryText(){
+ const e=intakeCurrent();if(!e)return "";
+ if(!e.product||e.skipped)return `Left off the IO: “${e.query}”.`;
+ const per=e.basis==="one_time"?money(e.amount)+" one time"
+   :`${money(e.amount)}/mo × ${e.term_months} month${+e.term_months===1?"":"s"}`;
+ /* Say which of these was answered and which was assumed. An assumption a
+    rep cannot see is the same problem as no assumption at all. */
+ return `${e.assumed?"Assumed":"Added"} ${intakeShortName(e.product)} — ${per}.`
+   +(e.assumed?" Say so now if that should be a one-time cost.":"");
+}
+
+/* Commit the finished product onto the IO exactly as the ordinary product
+   picker would, so nothing downstream has to know it came from a proposal. */
+function intakeCommit(e){
+ if(!e||!e.product||e.skipped)return;
+ const label=(typeof cardLabelFor==="function"&&cardLabelFor(e.product))||e.product;
+ if(!state.selected.includes(label))state.selected.push(label);
+ const cat=(productConfig[label]||{}).category||e.category||"";
+ if(cat&&!state.selectedCategories.includes(cat))state.selectedCategories.push(cat);
+ /* A one-time cost is spread across the flight rather than dropped or
+    charged every month. Both are wrong in a way that survives review. */
+ const months=Math.max(1,+e.term_months||+state.termMonths||1);
+ const monthly=e.basis==="one_time"?Math.round(+e.amount/months):Math.round(+e.amount);
+ if(monthly>0)PROPOSAL.budgets[label]=monthly;
+ PROPOSAL.intakeCommitted=PROPOSAL.intakeCommitted||[];
+ PROPOSAL.intakeCommitted.push({
+  product:label,quoted:e.query,basis:e.basis,amount:+e.amount||0,
+  term_months:+e.term_months||months,consulting:!!e.consulting,
+  description:e.description||""});
+ /* A consulting line has no rate card entry, so its description is the only
+    thing that says what was sold. It goes onto the IO's special
+    instructions, which is what trafficking actually reads. */
+ if(e.consulting&&e.description){
+  const line=`${CONSULTING_PRODUCT} (${e.query}): ${e.description}`;
+  state.specialInstructions=state.specialInstructions
+   ? state.specialInstructions+"\n"+line : line;
+ }
+}
+
 function nextValidIndex(i){
  /* Two reasons to walk past a question: its own condition says it doesn't
     apply, or the proposal we converted from already answered it. The second
@@ -959,13 +1126,116 @@ function question(){
    return{key:"geoZipcodes",q:`SMART1 will identify every ZIP Code that appears to touch a ${state.geoRadius}-mile radius around ${state.geoOrigin}. This AI-assisted list can be reviewed and edited before continuing. Type RETRY to run the lookup again, or SKIP to continue and add ZIP Codes later.`};
   }
 
+  if(String(q.key||"").indexOf("intake")===0)return intakeQuestion(q);
+
   if(q.key==="targetAreaName"){
    const n=(state.targetAreas||[]).length;
    return{...q,q:n?`Target area ${n+1}. What should this one be called? Type SKIP to name it after its geography.`
                  :`What should this target area be called? A name you'd use on a call — "Carmel showroom", "North trade area". Type SKIP to name it after its geography.`};
   }
 
-  if(q.key==="moreTargetAreas"){
+  if(String(q.key||"").indexOf("intake")===0){
+  const v=val.trim();
+
+  if(q.key==="intakeMode"){
+   PROPOSAL.intakeMode=/one at a time/i.test(v)?"each":"bulk";
+   if(PROPOSAL.intakeMode==="bulk"){
+    /* Only what the document actually supports: a product the card matched
+       and a price the proposal printed. The term comes from the campaign,
+       and the monthly assumption is recorded on the row so the summary can
+       say it was assumed rather than answered. */
+    const months=Math.max(1,+state.termMonths||intakeDefaultTerm()||1);
+    intakeRows().forEach(r=>{
+     if(r.product&&+r.amount>0&&!r.consulting){
+      r.basis="monthly";r.term_months=months;r.assumed=true;
+     }
+    });
+   }
+   index++;render();ask();return;
+  }
+
+  const e=intakeCurrent();
+  if(!e){index++;render();ask();return;}
+
+  if(q.key==="intakeProduct"){
+   if(v===INTAKE_SKIP||/^(skip|none|no)$/i.test(v)){
+    /* Skipped deliberately, and recorded as such. "Not selected" was the old
+       behaviour precisely because nobody had decided -- a skip somebody chose
+       is a different thing and is worth being able to tell apart. */
+    e.skipped=true;e.product="";
+    addMsg(`Left off: “${e.query}”.`);
+    index=flow.findIndex(f=>f.key==="intakeNext");render();ask();return;
+   }
+   if(v===CONSULTING_PRODUCT||/^consult/i.test(v)){
+    e.consulting=true;e.product=CONSULTING_PRODUCT;e.category="ADD-ON PRODUCT";
+   }else if(/^y$/i.test(v)&&e.product){
+    /* keeps the matched product */
+   }else{
+    /* A candidate the rep picked, or a product name they typed. Resolve it
+       against the card the same way the reader did rather than trusting the
+       typed string -- otherwise a near-miss becomes a product code nothing
+       downstream recognises. */
+    const label=(typeof cardLabelFor==="function"&&cardLabelFor(v))||"";
+    if(!label&&!(e.candidates||[]).some(c=>intakeShortName(c.product)===v)){
+     addMsg(`⚠ “${v}” is not a product on the rate card. Choose one of the options, ${CONSULTING_PRODUCT}, or ${INTAKE_SKIP}.`);
+     ask();return;
+    }
+    const full=(e.candidates||[]).find(c=>intakeShortName(c.product)===v);
+    e.product=full?full.product:(productConfig[label]||{}).product||label||v;
+    e.category=full?full.category:(productConfig[label]||{}).category||"";
+    e.consulting=false;
+   }
+   e.status="matched";
+   index++;render();ask();return;
+  }
+
+  if(q.key==="intakeDescribe"){e.description=v;index++;render();ask();return;}
+
+  if(q.key==="intakeBasis"){
+   e.basis=/^one/i.test(v)?"one_time":"monthly";
+   if(e.basis==="one_time")e.term_months=1;
+   index++;render();ask();return;
+  }
+
+  if(q.key==="intakeTerm"){
+   const n=parseInt(String(v).replace(/[^0-9]/g,""),10);
+   if(!(n>0)){addMsg("⚠ Enter the number of months as a number, for example 6.");ask();return;}
+   e.term_months=n;index++;render();ask();return;
+  }
+
+  if(q.key==="intakeAmount"){
+   let n=/^y$/i.test(v)?+e.amount:parseFloat(String(v).replace(/[^0-9.]/g,""));
+   if(!(n>0)){addMsg("⚠ Enter the amount as a number, for example 2500.");ask();return;}
+   e.amount=n;index++;render();ask();return;
+  }
+
+  if(q.key==="intakeNext"){
+   if(/one-time/i.test(v)){
+    /* Correcting an assumption, not answering the next-product question. */
+    e.basis="one_time";e.term_months=1;e.assumed=false;
+    addMsg(`${intakeShortName(e.product)} recorded as a one-time cost of ${money(e.amount)}.`);
+    ask();return;
+   }
+   intakeCommit(e);
+   const next=(PROPOSAL.intakeIx||0)+1;
+   if(next<intakeRows().length){
+    PROPOSAL.intakeIx=next;
+    index=flow.findIndex(f=>f.key==="intakeProduct");
+    render();ask();return;
+   }
+   /* Done. Clearing the list is what switches intakeActive() off, so the
+      six questions above stop applying and the ordinary product picker
+      follows -- a rep still adds anything the proposal did not mention. */
+   PROPOSAL.intake=[];PROPOSAL.intakeIx=0;
+   const done=(PROPOSAL.intakeCommitted||[]).length;
+   addMsg(done
+    ? `${done} product${done===1?"":"s"} from the proposal are on this IO with their budgets and terms. Add anything it missed from the categories below.`
+    : "Nothing from the proposal was added. Choose the products for this IO below.");
+   index++;render();ask();return;
+  }
+ }
+
+ if(q.key==="moreTargetAreas"){
    // Reads back what was just described, so "add another?" is answered
    // against the area the rep actually entered rather than from memory.
    const a=currentAreaRecord();
@@ -2392,7 +2662,11 @@ document.addEventListener("keydown",e=>{
    - The first press of Back releases every skip, so anything read off the
      document can be corrected rather than being locked in behind a question
      that never gets asked. */
-const PROPOSAL={filled:{},budgets:{},skip:false};
+const PROPOSAL={filled:{},budgets:{},skip:false,
+ /* Products the reader pulled out of the proposal, each still carrying the
+    question it needs answered. Emptied once the interview has walked them,
+    which is what turns the intake questions off. */
+ intake:[],intakeIx:0,intakeCommitted:[]};
 
 /* A question the proposal already answered. Only while skipping is armed --
    goBack() disarms it, and then these ask normally with the proposal's value
@@ -2539,21 +2813,37 @@ function prefillFromProposal(){
      +"review or change anything I took from it.");
    }
    if(matched.length){
-    /* Short names. Several rate-card products carry their whole description in
-       the product field ("Advanced TV - Targeted - This is played on all
-       streaming services..."), and three of those in one line is unreadable. */
-    const shortName=l=>{
-     const n=String((productConfig[l]||{}).product||l).split(/\s+-\s+/)[0].trim();
-     return n.length>48?n.slice(0,45)+"…":n;
-    };
-    addMsg("Pre-selected from the rate card: "+matched.map(shortName).join(", ")
+    addMsg("Pre-selected from the rate card: "+matched.map(intakeShortName).join(", ")
      +". You'll still confirm the product list and every budget — a proposal "
      +"quotes a price, an IO bills it.");
    }
-   if(unmatched.length){
-    addMsg("Not on the rate card, so not selected: "+unmatched.join(", ")+". Add the matching product yourself if it belongs on this IO.");
+
+   /* Every product the proposal named, queued as questions rather than
+      printed as a sentence. This block used to say "Not on the rate card, so
+      not selected: X, Y" and carry on -- which read like information and was
+      actually the whole decision, handed back as a line in a log the rep had
+      already scrolled past. The client agreed to those products.
+
+      The classification comes from the server (hub/product_intake.py), so the
+      matcher here is the one the Proposal Builder uses. */
+   PROPOSAL.intake=(d.product_intake||[]).filter(e=>e&&e.query);
+   PROPOSAL.intakeIx=0;
+   const settle=PROPOSAL.intake.length;
+   if(settle){
+    const un=(d.intake_summary||{}).unknown||0;
+    addMsg("I'll walk the "+settle+" product"+(settle===1?"":"s")+" the proposal named, one at a time — what each one is, whether it is monthly or one-time, and for how long."
+      +(un?" "+un+" of them "+(un===1?"is":"are")+" not on the rate card; I'll ask what to do with "+(un===1?"it":"those")+" rather than dropping "+(un===1?"it":"them")+".":""));
+   }else if(unmatched.length){
+    /* The intake could not be built -- the reader worked but the classifier
+       did not. Say so, rather than silently reverting to the old sentence. */
+    addMsg("I couldn't classify these against the rate card: "+unmatched.join(", ")
+     +". Add them from the categories when you get to the product step.");
    }
+
    if(d.note)addMsg(d.note);
+   /* The reader's own open questions. These are genuinely notes -- they are
+      about the document, not about a product that has to reach the IO -- so
+      listing them is right where listing products was not. */
    (d.ask||[]).forEach(q2=>addMsg("• "+q2));
    ask();
   })
