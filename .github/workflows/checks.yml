@@ -110,22 +110,6 @@ jobs:
       - name: JSON store tests
         run: python test_jsonstore.py
 
-      - name: Target area and delivery tests
-        # Once. This ran twice for a while -- the same file under two step
-        # names -- and the second run failed where the first passed, because
-        # each run gets a fresh HUB_DATA_DIR but they share one Postgres, and
-        # jsonstore restores the previous run's writes into the empty
-        # directory. The duplicate step was the bug; the test is now hermetic
-        # against it either way.
-        #
-        # Guarded so this workflow stays mergeable on a branch predating the
-        # file.
-        run: |
-          if [ -f test_target_areas.py ]; then
-            python test_target_areas.py
-          else
-            echo "test_target_areas.py not on this branch — nothing to run."
-          fi
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
@@ -137,6 +121,26 @@ jobs:
             python test_lead_delivery.py
           else
             echo "test_lead_delivery.py not on this branch — nothing to run."
+          fi
+
+      - name: Target area and delivery tests
+        # Guarded like the step above, so this workflow stays mergeable on a
+        # branch that predates the file.
+        #
+        # RUN THIS FILE EXACTLY ONCE. It calls os.environ.setdefault for
+        # DATABASE_URL, so it uses its throwaway SQLite only when nothing else
+        # has set one -- and this job sets DATABASE_URL to the Postgres service
+        # above, which persists across steps. Each run also gets a fresh
+        # HUB_DATA_DIR, and jsonstore restores the previous run's writes into
+        # that empty directory, so a second invocation sees the first one's
+        # rows and fails "files one document, not three" with 3. Two lineages
+        # each added a target-areas step and git merged both cleanly, which is
+        # exactly how the duplicate got in.
+        run: |
+          if [ -f test_target_areas.py ]; then
+            python test_target_areas.py
+          else
+            echo "test_target_areas.py not on this branch — nothing to run."
           fi
 
       - name: Proposal specification and creative gate tests
