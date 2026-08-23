@@ -54,10 +54,11 @@
       runs and leads are still captured, but no deep scan will start until
       <code>INSITES_API_KEY</code> is set.</div>
   {% endif %}
-  {% if not webhook_set %}
-    <div class="warn"><b>No lead webhook is set.</b> Leads are stored in the
+  {% if leads_route != 'api' %}
+    <div class="warn"><b>Lead delivery isn't configured.</b> Leads are stored in the
       <a href="/sales/leads">leads panel</a> and can be retried from there, but nothing
-      reaches Smart 1 Suite until <code>HUB_LEAD_WEBHOOK_URL</code> is set.</div>
+      reaches Smart 1 Suite until <code>GHL_LEAD_LOCATION_ID</code> is set. The old
+      <code>HUB_LEAD_WEBHOOK_URL</code> route is retired and is not a fallback.</div>
   {% endif %}
   {% for w in warnings %}<div class="warn">{{ w }}</div>{% endfor %}
 
@@ -127,7 +128,7 @@
       &mdash; in about five seconds, <b>free</b>, and show them a score and the
       three worst findings.</p>
     <p style="margin:0 0 8px">To see the rest they give a name, business, email
-      and phone. The lead is written to the database, the webhook fires, and
+      and phone. The lead is written to the database, delivery to Suite starts, and
       <b>only then</b> does a paid Insites audit start &mdash; so no anonymous
       visitor and no bot can ever spend a credit.</p>
     <p style="margin:0 0 8px">A domain already scanned in the last {{ reuse_days }}

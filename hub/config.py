@@ -217,8 +217,9 @@ class Settings:
                      and self.ghl_lead_location_id != self.ghl_company_id),
                 False,
                 "GHL_LEAD_LOCATION_ID — the Smart 1 Marketing sub-account id, "
-                "which must not be the agency company id. Without it leads fall "
-                "back to HUB_LEAD_WEBHOOK_URL, which cannot confirm delivery."),
+                "which must not be the agency company id. This is now the only "
+                "delivery route: the HUB_LEAD_WEBHOOK_URL webhook is retired, so "
+                "without this leads are stored and queued, not delivered."),
             row("Simvoly", bool(self.simvoly_key), False, "SIMVOLY_API_KEY — Sites admin."),
         ]
 
