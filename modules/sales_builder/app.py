@@ -1797,6 +1797,9 @@ def api_proposal_spec():
         "next_steps": hub_spec.NEXT_STEPS,
         "comp_confirm_under": hub_creative.COMP_CONFIRM_UNDER,
         "typical_production": hub_creative.TYPICAL_PRODUCTION,
+        # The joint minimum rule, so the wizard blocks exactly what the IO
+        # blocks rather than carrying a second opinion about the same number.
+        "minimums": hub_rate_card.minimums_for_js(),
     })
 
 

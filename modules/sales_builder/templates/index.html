@@ -851,6 +851,28 @@ function traditionalReady(){
    a set of six banners is a $250 line off the rate card, while a :30 spot
    that does not exist is a launch date nobody can hit.
    ============================================================ */
+/* ============================================================
+   THE JOINT MINIMUM RULE
+   Mirrors hub/rate_card.py. One table for the proposal and the insertion
+   order alike -- these used to be two rules nobody had compared, the
+   proposal checking a category table while the IO derived a floor from each
+   product's listed rate, so the same line could pass one document and be
+   refused by the other after the client had already seen the number.
+   test_proposal_spec.py asserts this mirror still matches Python.
+   ============================================================ */
+const MIN_MONTHLY_DEFAULT=500;
+const MIN_BY_CATEGORY={"DIGITAL RADIO": 1000, "IP TARGETS": 1000, "OTT": 1500, "SEARCH ENGINE MARKETING / PAY PER CLICK": 400, "SEARCH ENGINE OPTIMIZATION": 500};
+const MIN_BY_PRODUCT={};
+/* The line's own category wins: "Programmatic - Targeted" exists under both
+   DIGITAL RADIO and DISPLAY and carries a different floor in each. */
+function minimumFor(product,category){
+ const n=String(product||"").trim().toLowerCase();
+ if(MIN_BY_PRODUCT[n]!==undefined)return MIN_BY_PRODUCT[n];
+ const c=String(category||"").trim().toUpperCase();
+ if(MIN_BY_CATEGORY[c]!==undefined)return MIN_BY_CATEGORY[c];
+ return MIN_MONTHLY_DEFAULT;
+}
+
 const COMP_CONFIRM_UNDER=1500;
 const TYPICAL_PRODUCTION={video:750,audio:250};
 const MEDIUM_LABEL={video:"Video (CTV, streaming, YouTube, pre-roll)",
@@ -1007,7 +1029,16 @@ function recommendItems(){
  applySeeds();}
 function guardrailsJs(){
  const warns=[];
- S.items.forEach(i=>{if((i.category||"").includes("SEARCH ENGINE MARKETING")&&i.dollars>0&&i.dollars<1500)warns.push("Search budget "+money(i.dollars)+"/mo is below the $1,500 monthly minimum.");});
+ /* The joint rule, not a third opinion. This line used to hold paid search
+    to $1,500 while hub/rate_card.py said $500 and the IO derived its own
+    floor from the listed rate -- three numbers for one question, and the
+    strictest of them blocked campaigns the IO would have written happily.
+    Paid search is now $400 in one place and every document reads it there. */
+ S.items.forEach(i=>{
+  const min=minimumFor(i.product,i.category);
+  if(i.dollars>0&&i.dollars<min)
+   warns.push((i.product||i.category||"That product")+" at "+money(i.dollars)+"/mo is below its "+money(min)+" monthly minimum — the IO will not accept it.");
+ });
  if(S.months<3)warns.push("Campaign term under 3 months — most Smart 1 programs need 3+ months to optimize.");
  if(S.items.length>4&&S.budget/Math.max(S.items.length,1)<750)warns.push("Budget is split across many products — consider fewer products for impact.");
  if((S.creativeSource||"").startsWith("Smart 1")&&!S.creativeFee)warns.push("Smart 1 is building creative but no creative fee is set.");

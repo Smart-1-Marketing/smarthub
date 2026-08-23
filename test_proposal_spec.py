@@ -299,6 +299,97 @@ except FileNotFoundError:
 except subprocess.CalledProcessError as exc:
     check("the wizard's creative helpers run", False, exc.stderr[:300])
 
+# ---------------------------------------------------------------------------
+section("one minimum rule, read by both documents")
+# ---------------------------------------------------------------------------
+# There were three numbers for this one question. The wizard held paid search
+# to $1,500 in a hardcoded line, hub/rate_card.py said $500, and the IO derived
+# its own floor from each product's listed rate. The strictest of the three
+# blocked campaigns the IO would have written without complaint, and nothing on
+# any screen said the three disagreed.
+from hub import rate_card as rc                                    # noqa: E402
+
+check("paid search is quotable at $400", rc.minimum_for("Pay Per Click") == 400,
+      rc.minimum_for("Pay Per Click"))
+check("and blocked below it",
+      any(g["level"] == "block" for g in
+          rc.guardrails([{"product": "Pay Per Click", "monthly": 380}])))
+check("a $420 paid-search-only plan clears both the line and the plan floor",
+      not any(g["level"] == "block" for g in
+              rc.guardrails([{"product": "Pay Per Click", "monthly": 420}])))
+
+# The short name is what every document here stores; the card carries the whole
+# description in the same field. Exact-only lookup missed them, and each miss
+# was a silent default rather than an error.
+check("a short product name still resolves to its category",
+      (rc.find("Connected TV - Targeted") or {}).get("category") == "OTT")
+check("so Connected TV keeps OTT's $1,500 floor rather than the default",
+      rc.minimum_for("Connected TV - Targeted") == 1500,
+      rc.minimum_for("Connected TV - Targeted"))
+# ...but an anchored match only. "Category" is a real product name; a
+# contains-match either way round would let it swallow any longer phrase.
+check("the match is anchored, not a substring",
+      (rc.find("Targeted") or {}) == {} or
+      (rc.find("Targeted") or {}).get("product", "").lower().startswith("targeted"))
+
+# "Programmatic - Targeted" exists under DIGITAL RADIO at $18 CPM audio and
+# under DISPLAY at $17 CPM. find() can only return one of them, so the line's
+# own category has to win or one of the two gets the wrong floor.
+check("an ambiguous product takes the floor of the category it was bought in",
+      [any(g["level"] == "block" for g in rc.guardrails(
+           [{"product": "Programmatic - Targeted", "category": c, "monthly": 900}]))
+       for c in ("DIGITAL RADIO", "DISPLAY")] == [True, False])
+
+for name, tmpl in (("wizard", os.path.join(ROOT, "modules", "sales_builder",
+                                           "templates", "index.html")),
+                   ("insertion order", os.path.join(ROOT, "modules", "io_builder",
+                                                    "templates", "index.html"))):
+    src = open(tmpl, encoding="utf-8").read()
+    got = {}
+    for const in ("MIN_MONTHLY_DEFAULT", "MIN_BY_CATEGORY", "MIN_BY_PRODUCT"):
+        m = re.search(r"const %s=(.*?);\n" % const, src, re.S)
+        got[const] = json.loads(m.group(1)) if m else None
+    check(f"the {name} mirrors the default minimum",
+          got["MIN_MONTHLY_DEFAULT"] == rc.MIN_MONTHLY_DEFAULT, got["MIN_MONTHLY_DEFAULT"])
+    check(f"the {name} mirrors every category minimum",
+          got["MIN_BY_CATEGORY"] == rc.MIN_BY_CATEGORY, got["MIN_BY_CATEGORY"])
+    check(f"the {name} mirrors the per-product overrides",
+          got["MIN_BY_PRODUCT"] == rc.MIN_BY_PRODUCT, got["MIN_BY_PRODUCT"])
+
+# And that the mirrored function agrees with Python product by product, not
+# merely that the table was copied.
+MIN_CASES = [("Pay Per Click", "SEARCH ENGINE MARKETING / PAY PER CLICK"),
+             ("Connected TV - Targeted", "OTT"),
+             ("Podcasts - Targeted", "DIGITAL RADIO"),
+             ("Category", "DISPLAY"),
+             ("Programmatic - Targeted", "DIGITAL RADIO"),
+             ("Programmatic - Targeted", "DISPLAY"),
+             ("Something Nobody Sells", "")]
+min_js = ""
+for token in ("const MIN_MONTHLY_DEFAULT=", "const MIN_BY_CATEGORY=",
+              "const MIN_BY_PRODUCT=", "function minimumFor("):
+    i = js_source.index(token)
+    ends = [j for j in (js_source.find("\nfunction ", i + 10),
+                        js_source.find("\nconst ", i + 10),
+                        js_source.find("\n/*", i + 10)) if j > 0]
+    min_js += js_source[i:min(ends)] + "\n"
+harness = (min_js + "\nconst M=" + json.dumps(MIN_CASES) + ";\n"
+           "console.log(JSON.stringify(M.map(x=>minimumFor(x[0],x[1]))));\n")
+js_path2 = os.path.join(_TMP, "minimums.js")
+open(js_path2, "w", encoding="utf-8").write(harness)
+try:
+    js_mins = json.loads(subprocess.run(["node", js_path2], capture_output=True,
+                                        text=True, timeout=30, check=True).stdout)
+    py_mins = [rc.minimum_for(p, c) for p, c in MIN_CASES]
+    check("the wizard and the server floor every product identically",
+          js_mins == py_mins,
+          [f"{p}/{c}: js={j} py={y}" for (p, c), j, y
+           in zip(MIN_CASES, js_mins, py_mins) if j != y])
+except FileNotFoundError:
+    print("  skip node is not installed — minimum agreement unchecked")
+except subprocess.CalledProcessError as exc:
+    check("the wizard's minimum helper runs", False, exc.stderr[:300])
+
 # Check the two constants match too — a threshold that differs between the
 # screen and the server means the wizard asks and the server does not care.
 js_threshold = re.search(r"COMP_CONFIRM_UNDER\s*=\s*(\d+)", js_source)
