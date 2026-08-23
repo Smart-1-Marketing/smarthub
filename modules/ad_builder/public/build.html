@@ -195,6 +195,24 @@
   .notecount { font-size: 10.5px; letter-spacing: 0; background: var(--line);
     color: var(--ink-2); border-radius: 9px; padding: 1px 7px; font-weight: 700; }
 
+  /* What happens after Save. Sits between the toolbar and the bench so it is
+     read on the way back to the work, not hunted for. */
+  .nextstep { position: relative; margin: 0 0 12px; padding: 12px 40px 12px 14px;
+    border: 1px solid var(--line); border-left: 3px solid var(--accent, #2563eb);
+    border-radius: 8px; background: #fff; }
+  .nsmsg { font-size: 13px; margin-bottom: 9px; }
+  .nsmsg.bad { color: #b3261e; }
+  .nsacts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .nsbtn { text-align: left; font: inherit; padding: 8px 11px; background: #fff;
+    border: 1px solid var(--line); border-radius: 7px; cursor: pointer;
+    display: flex; flex-direction: column; gap: 2px; max-width: 15rem; }
+  .nsbtn:hover { border-color: var(--ink-2); }
+  .nsbtn b { font-size: 12.5px; }
+  .nsbtn span { font-size: 11px; color: var(--ink-2); line-height: 1.3; }
+  .nsbtn:disabled { opacity: .55; cursor: default; }
+  .nsclose { position: absolute; top: 7px; right: 9px; border: 0; background: none;
+    font-size: 19px; line-height: 1; color: var(--ink-2); cursor: pointer; padding: 2px 5px; }
+
   /* Per-block text styling. */
   .blockstyle { border: 1px solid var(--line); border-radius: 7px; padding: 8px 9px;
     margin-bottom: 7px; background: #fff; }
@@ -281,6 +299,12 @@
   <a class="btn" id="attachClient" href="#" style="display:none">Attach to client</a>
   <div id="deliveries" style="display:none;margin-top:10px;font-size:13px"></div>
   <button class="btn primary" id="renderAll">Render all sizes</button>
+</div>
+
+<div class="nextstep" id="nextStep" hidden>
+  <div class="nsmsg" id="nsMsg"></div>
+  <div class="nsacts" id="nsActs"></div>
+  <button type="button" class="nsclose" id="nsClose" aria-label="Dismiss">&times;</button>
 </div>
 
 <div class="bench" id="bench">
@@ -986,16 +1010,106 @@
     state.platform = this.value; state.sizeStatus = {}; preview();
   });
 
+  /* Saving used to flash the word "Saved" for 1.6 seconds and stop, which
+     answers "did that work" and not "what now". The edits are done, the ad
+     is not delivered, and nothing on screen says what the remaining steps
+     are -- so this names them, in the order they actually happen, and offers
+     duplicating the set as one of them. */
   $('save').addEventListener('click', function () {
-    fetch('/api/campaign/' + encodeURIComponent(state.requestId), {
+    var btn = this; btn.disabled = true;
+    saveCampaign()
+      .then(function () {
+        btn.disabled = false;
+        $('saved').classList.add('on');
+        setTimeout(function () { $('saved').classList.remove('on'); }, 1600);
+        showNextSteps('Saved. Nothing is delivered to the client yet \u2014 here is what is left.');
+      })
+      .catch(function () {
+        btn.disabled = false;
+        showNextSteps('That did not save. Your edits are still on screen; try again.', true);
+      });
+  });
+
+  function saveCampaign() {
+    return fetch('/api/campaign/' + encodeURIComponent(state.requestId), {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(state.doc)
-    }).then(function () {
+    }).then(function (r) {
+      if (!r.ok) throw new Error('save failed');
       state.dirty = false;
-      $('saved').classList.add('on');
-      setTimeout(function () { $('saved').classList.remove('on'); }, 1600);
+      return r;
     });
-  });
+  }
+
+  function projectIdForCurrent() {
+    var row = (window.__campaignList || []).filter(function (c) {
+      return c.requestId === state.requestId;
+    })[0];
+    return row && row.projectId;
+  }
+
+  function showNextSteps(message, isError) {
+    var bar = $('nextStep');
+    $('nsMsg').textContent = message;
+    $('nsMsg').className = 'nsmsg' + (isError ? ' bad' : '');
+
+    var acts = [];
+    if (!isError) {
+      acts.push(['Render all sizes', 'render',
+                 'Build every size in this family, not just the one on screen.']);
+      if (projectIdForCurrent()) {
+        acts.push(['Duplicate this ad set', 'clone',
+                   'A fresh copy on its own number. Change the background, ' +
+                   'the words or the layout on the copy and leave this one alone.']);
+      }
+      var proof = $('proofLink');
+      if (proof && proof.style.display !== 'none' && proof.href && proof.href !== '#') {
+        acts.push(['Open the client proof', 'proof', 'What the client sees.']);
+      }
+    }
+    $('nsActs').innerHTML = acts.map(function (a) {
+      return '<button type="button" class="nsbtn" data-next="' + a[1] + '">' +
+        '<b>' + esc(a[0]) + '</b><span>' + esc(a[2]) + '</span></button>';
+    }).join('');
+
+    Array.prototype.forEach.call($('nsActs').querySelectorAll('[data-next]'), function (el) {
+      el.addEventListener('click', function () { runNextStep(el.dataset.next, el); });
+    });
+    bar.hidden = false;
+  }
+
+  function runNextStep(what, el) {
+    if (what === 'render') { $('renderAll').click(); $('nextStep').hidden = true; return; }
+    if (what === 'proof') { window.open($('proofLink').href, '_blank', 'noopener'); return; }
+    if (what !== 'clone') return;
+
+    var pid = projectIdForCurrent();
+    if (!pid) { $('nsMsg').textContent = 'This build has no project record to copy.'; return; }
+    el.disabled = true;
+    $('nsMsg').textContent = 'Copying the set\u2026';
+    // Save first: a duplicate of unsaved edits is a duplicate of the wrong ad.
+    saveCampaign()
+      .then(function () {
+        return fetch('/api/project/' + encodeURIComponent(pid) + '/clone', { method: 'POST' })
+          .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); });
+      })
+      .then(function (res) {
+        el.disabled = false;
+        if (!res.ok || !res.b.requestId) {
+          $('nsMsg').textContent = res.b.error || 'That could not be copied.';
+          return;
+        }
+        // Land on the copy, so the next change edits the duplicate rather than
+        // the original -- which is the whole reason for duplicating.
+        window.location.search = '?request=' + encodeURIComponent(res.b.requestId);
+      })
+      .catch(function () {
+        el.disabled = false;
+        $('nsMsg').textContent = 'That could not be copied.';
+      });
+  }
+
+  $('nsClose').addEventListener('click', function () { $('nextStep').hidden = true; });
 
   $('renderAll').addEventListener('click', function () {
     var btn = this; btn.disabled = true; btn.textContent = 'Rendering…';
