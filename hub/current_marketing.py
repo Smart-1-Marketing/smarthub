@@ -55,6 +55,11 @@ QUESTIONS = [
     {"key": "retargeting", "label": "Retargeting visitors to their website?"},
     {"key": "aiOptimized", "label": "Optimizing for AI search (AI Overviews, ChatGPT)?"},
     {"key": "websiteHappy", "label": "Happy with their website?"},
+    {"key": "reputation", "label": "Managing reviews and reputation?"},
+    {"key": "email", "label": "Running email campaigns?"},
+    {"key": "chat", "label": "Chat widget on the site?"},
+    {"key": "callTracking", "label": "Tracking inbound calls?"},
+    {"key": "texting", "label": "Texting customers?"},
 ]
 
 # One suggestion per gap. `when` is the answers that trigger it: a "No" is a
@@ -90,7 +95,7 @@ SUGGESTION_RULES = [
                   "convert — it just buys more people to lose. If they are not "
                   "happy with the site, that is the first thing to fix, before "
                   "the budget scales.",
-        "products": ["Smart 1 Sites", "Web Development"],
+        "products": ["Smart 1 Site / 2-5 pages", "WordPress Website"],
     },
     {
         "key": "seo", "when": (NO, UNKNOWN),
@@ -107,14 +112,58 @@ SUGGESTION_RULES = [
                   "catches the people who already have it and are typing the "
                   "words right now — usually the lowest cost per lead on the "
                   "plan.",
-        "products": ["PPC Google & Bing Campaign Management"],
+        "products": ["Pay Per Click"],
     },
     {
         "key": "paidSocial", "when": (NO,),
         "title": "Re-engage in feed",
         "detail": "Paid social is where an audience that has met the brand "
                   "once gets met again, cheaply, with a different message.",
-        "products": ["Facebook | Instagram - Targeted Paid Social Media"],
+        "products": ["Facebook | Instagram - Targeted Paid Social Media Advertising"],
+    },
+]
+
+SUGGESTION_RULES += [
+    {
+        "key": "callTracking", "when": (NO, UNKNOWN),
+        "title": "Count the calls the media produces",
+        "detail": "A local campaign's best leads arrive as phone calls, and an "
+                  "untracked call is a conversion the report cannot show. "
+                  "Without it the plan gets judged on the half of the response "
+                  "that happens to leave a form fill behind.",
+        "products": ["Call Tracking", "Smart 1 Suite"],
+    },
+    {
+        "key": "reputation", "when": (NO, UNKNOWN),
+        "title": "Get the reviews working for the ads",
+        "detail": "Star rating is the first thing a click sees and it feeds "
+                  "the same local signals AI search reads. Media pointed at a "
+                  "three-star listing pays more for every conversion it gets.",
+        "products": ["Local Business Boost", "Smart 1 Suite"],
+    },
+    {
+        "key": "chat", "when": (NO,),
+        "title": "Answer the visitors who will not fill in a form",
+        "detail": "Chat catches the people who want an answer now and would "
+                  "otherwise leave. It is the cheapest lift available to a "
+                  "landing page that traffic is already being bought for.",
+        "products": ["Smart 1 Suite", "Smart 1 Site / 2-5 pages"],
+    },
+    {
+        "key": "texting", "when": (NO,),
+        "title": "Reply the way the lead expects",
+        "detail": "Speed to lead decides most local sales, and a text is "
+                  "answered where a voicemail is not. The Suite already holds "
+                  "the numbers the campaign produces.",
+        "products": ["Smart 1 Suite", "Snap Management Fee & Texting for Snap"],
+    },
+    {
+        "key": "email", "when": (NO,),
+        "title": "Use the list they already own",
+        "detail": "Email reaches people who have already bought or enquired, "
+                  "at no media cost per impression. It is the one channel "
+                  "here that does not need a budget to reach an audience.",
+        "products": ["List Provided Email", "Email Template Creation"],
     },
 ]
 
@@ -157,6 +206,24 @@ def answered(state) -> int:
     """How many discovery questions have an answer. Feeds the step's validity."""
     mkt = _answers(state)
     return sum(1 for q in QUESTIONS if mkt.get(q["key"]) in ANSWERS)
+
+
+def unanswered(state) -> list[dict]:
+    """The discovery questions still blank.
+
+    Every one of them is required. A blank is not a "no" and it is not an
+    "unknown" either -- it is nobody having asked, and it was reaching the
+    proposal as though the client simply did not do that thing. Unknown is on
+    the form precisely so there is an honest answer available when the rep
+    genuinely does not know.
+    """
+    mkt = _answers(state)
+    return [q for q in QUESTIONS if mkt.get(q["key"]) not in ANSWERS]
+
+
+def complete(state) -> bool:
+    """Whether discovery can be left behind."""
+    return not unanswered(state)
 
 
 def suggestions(state) -> list[dict]:

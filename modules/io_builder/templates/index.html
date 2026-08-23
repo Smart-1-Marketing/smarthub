@@ -449,6 +449,24 @@ const objectiveKPIs={
  "Event Promotion":["Registrations","Ticket Sales","RSVP Conversions","Event Page Visits"]
 };
 
+/* ============================================================
+   THE JOINT MINIMUM RULE
+   Mirrors hub/rate_card.py, and is the same table the Proposal Builder
+   carries. This document used to derive its own floor from each product's
+   listed rate while the proposal checked a category table, so a line could
+   be quoted at a price this page then refused -- after the client had seen
+   the number. test_proposal_spec.py asserts both mirrors match Python.
+   ============================================================ */
+const MIN_MONTHLY_DEFAULT=500;
+const MIN_BY_CATEGORY={"DIGITAL RADIO": 1000, "IP TARGETS": 1000, "OTT": 1500, "SEARCH ENGINE MARKETING / PAY PER CLICK": 400, "SEARCH ENGINE OPTIMIZATION": 500};
+const MIN_BY_PRODUCT={};
+function minimumFor(product,category){
+ const n=String(product||"").trim().toLowerCase();
+ if(MIN_BY_PRODUCT[n]!==undefined)return MIN_BY_PRODUCT[n];
+ const c=String(category||"").trim().toUpperCase();
+ if(MIN_BY_CATEGORY[c]!==undefined)return MIN_BY_CATEGORY[c];
+ return MIN_MONTHLY_DEFAULT;
+}
 const rateCard=[{"label":"PROGRAMMATIC CAMPAIGN — Select Tactics - Comes with Retargeting","category":"PROGRAMMATIC CAMPAIGN","product":"Select Tactics - Comes with Retargeting","listedRate":"5.50 /CPM","retail":"","description":"Creation of Custom Audience with could include Category, Demographic, Behaviorial, Contextual, Job Title, Mobile Category, Mobile Behaviorial, Mobile Geo Fence, and Retargeting.","requirements":"Requires Pixel Placement on Client Website","timeline":"3 Business Days","rateType":"CPM","rateValue":5.5},{"label":"OUTREACH — RON (Run of Network)","category":"OUTREACH","product":"RON (Run of Network)","listedRate":"$3.50 / CPM","retail":"","description":"Geographic Target Only","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":3.5},{"label":"OUTREACH — Category","category":"OUTREACH","product":"Category","listedRate":"$4.25 / CPM","retail":"","description":"Websites your customer would visit regularly.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":4.25},{"label":"OUTREACH — Demographic","category":"OUTREACH","product":"Demographic","listedRate":"$4.25 / CPM","retail":"","description":"Target Gender, Age, or Income Range","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":4.25},{"label":"OUTREACH — Behavioral","category":"OUTREACH","product":"Behavioral","listedRate":"$4.25 / CPM","retail":"","description":"Segments are identified by history of searches and online content consumption.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":4.25},{"label":"OUTREACH — Contextual","category":"OUTREACH","product":"Contextual","listedRate":"$4.25 / CPM","retail":"","description":"Targets ads next to relevent content on a website.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":4.25},{"label":"OUTREACH — Advanced Audience","category":"OUTREACH","product":"Advanced Audience","listedRate":"$5.50 / CPM","retail":"","description":"Combination of Demographic and Behavioral Information to target ads.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":5.5},{"label":"OUTREACH — Native Display","category":"OUTREACH","product":"Native Display","listedRate":"$13.20 / CPM","retail":"","description":"Your message surrounded by content, fully integrated into the natural site experience.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":13.2},{"label":"OUTREACH — Job Title","category":"OUTREACH","product":"Job Title","listedRate":"$7.00 / CPM","retail":"","description":"Targeted ads are served to job title segments as users visit any site across the web.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":7.0},{"label":"OUTREACH — Temperature","category":"OUTREACH","product":"Temperature","listedRate":"$8.00 / CPM","retail":"","description":"Ads served based on Temperature - precipitation or other weather patterns.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":8.0},{"label":"RETARGETING — Website Retargeting","category":"RETARGETING","product":"Website Retargeting","listedRate":"$4.75 / CPM","retail":"","description":"Target previous website visitors as they browse the internet.","requirements":"Requires Pixel Placement on Client Website","timeline":"2 Business Days","rateType":"CPM","rateValue":4.75},{"label":"RETARGETING — Facebook / Instagram Retargeting - No Impression Guarantee - Frequency Cap Allowed","category":"RETARGETING","product":"Facebook / Instagram Retargeting - No Impression Guarantee - Frequency Cap Allowed","listedRate":"25% Mgmt Fee","retail":"","description":"Target previous website visitors on Facebook and Instagram.","requirements":"Requires Facebook Access Requires Pixel Placement on Client Website","timeline":"3 Business Days","rateType":null,"rateValue":null},{"label":"MOBILE ONLY — RON (Run of Network)","category":"MOBILE ONLY","product":"RON (Run of Network)","listedRate":"$3.50 / CPM","retail":"","description":"Geographic Target Only","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":3.5},{"label":"MOBILE ONLY — Category","category":"MOBILE ONLY","product":"Category","listedRate":"$4.00 / CPM","retail":"","description":"Websites your customer would visit regularly.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":4.0},{"label":"MOBILE ONLY — Behavioral","category":"MOBILE ONLY","product":"Behavioral","listedRate":"$4.00 / CPM","retail":"","description":"Segments are identified by history of searches and online content consumption.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":4.0},{"label":"MOBILE ONLY — In-Store Visits","category":"MOBILE ONLY","product":"In-Store Visits","listedRate":"$9.00 / CPM","retail":"","description":"We find the user online and then track them going to a physical location.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":9.0},{"label":"MOBILE ONLY — Geo-Fence","category":"MOBILE ONLY","product":"Geo-Fence","listedRate":"$5.00 / CPM","retail":"","description":"Pinpoint a target audience within a specific area in real time.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":5.0},{"label":"MOBILE ONLY — Geo-Fence :: Targeted","category":"MOBILE ONLY","product":"Geo-Fence :: Targeted","listedRate":"$5.75 / CPM","retail":"","description":"Pinpoint a target audience within a specific area in real time with either Behavioral or Demographic Targeting.","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":5.75},{"label":"LOCATION LOOKBACK — Demographic","category":"LOCATION LOOKBACK","product":"Demographic","listedRate":"$7.50 / CPM","retail":"","description":"Look Back as early as 2 Weeks up to 1 Year","requirements":"","timeline":"3 Business Days","rateType":"CPM","rateValue":7.5},{"label":"LOCATION LOOKBACK — Behavioral","category":"LOCATION LOOKBACK","product":"Behavioral","listedRate":"$7.50 / CPM","retail":"","description":"Look Back as early as 2 Weeks up to 1 Year","requirements":"","timeline":"3 Business Days","rateType":"CPM","rateValue":7.5},{"label":"LOCATION LOOKBACK — Brand Affinity","category":"LOCATION LOOKBACK","product":"Brand Affinity","listedRate":"$7.50 / CPM","retail":"","description":"Look Back as early as 2 Weeks up to 1 Year","requirements":"Restaurants & Coffee Shops / Automotive / Grocery, Convenience, & Drug Stores / Apparel, Shoes, & Accessories / General Retail / Gas Stations / Financial","timeline":"3 Business Days","rateType":"CPM","rateValue":7.5},{"label":"LOCATION LOOKBACK — List Provided Locations","category":"LOCATION LOOKBACK","product":"List Provided Locations","listedRate":"$7.50 / CPM","retail":"","description":"Look Back 1 Month / 3 Months / 6 Months / 1 Year","requirements":"Must Provide List of Locations","timeline":"3 Business Days","rateType":"CPM","rateValue":7.5},{"label":"OUTREACH — Programmatic - RON (Run of Network)","category":"OUTREACH","product":"Programmatic - RON (Run of Network)","listedRate":"$14.00 / CPM","retail":"","description":"Geographic Target Only","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":14.0},{"label":"OUTREACH — Programmatic - Targeted","category":"OUTREACH","product":"Programmatic - Targeted","listedRate":"$17.00 / CPM","retail":"","description":"Pinpoint a target audience within a specific area with either Behavioral or Demographic Targeting","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":17.0},{"label":"OUTREACH — Premium: Non-Skippable","category":"OUTREACH","product":"Premium: Non-Skippable","listedRate":"$23.00/ CPM","retail":"","description":"Larger Video Players / Premium Spots on Page / Must watch entire video","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":23.0},{"label":"OUTREACH — Premium Native Video","category":"OUTREACH","product":"Premium Native Video","listedRate":"$26.00 / CPM","retail":"","description":"***Does NOT run on CTV - only websites / apps - no streaming services - desktop / mobile / tablets","requirements":"","timeline":"2 Business Days","rateType":"CPM","rateValue":26.0},{"label":"YOUTUBE — TrueView","category":"YOUTUBE","product":"TrueView","listedRate":"$0.20 / CPV","retail":"","description":":12 / :15 / :30 Spots - Only pay when video is watched. Geographic Target Only.","requirements":"YouTube Account Access Required","timeline":"3 Business Days","rateType":"CPV","rateValue":0.2},{"label":"YOUTUBE — TrueView - Targeted","category":"YOUTUBE","product":"TrueView - Targeted","listedRate":"$0.25 / CPV","retail":"","description":":12 / :15 / :30 Spots - Only pay when video is watched. Select Demographic or Behavioral Target.","requirements":"YouTube Account Access Required","timeline":"3 Business Days","rateType":"CPV","rateValue":0.25},{"label":"YOUTUBE — Bumpers","category":"YOUTUBE","product":"Bumpers","listedRate":"$15.00 / CPM","retail":"","description":":06 Spots / Non-Skippable","requirements":"YouTube Account Access Required","timeline":"3 Business Days","rateType":"CPM","rateValue":15.0},{"label":"SEARCH ENGINE MARKETING / PAY PER CLICK — Pay Per Click","category":"SEARCH ENGINE MARKETING / PAY PER CLICK","product":"Pay Per Click","listedRate":"15% Mgmt from Retail Cost","retail":"","description":"Text Ads on Google / Bing / Yahoo","requirements":"","timeline":"3 Business Days","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE MARKETING / PAY PER CLICK — Google Grant","category":"SEARCH ENGINE MARKETING / PAY PER CLICK","product":"Google Grant","listedRate":"$125 One time set up fee","retail":"","description":"","requirements":"","timeline":"","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE MARKETING / PAY PER CLICK — Google Grant","category":"SEARCH ENGINE MARKETING / PAY PER CLICK","product":"Google Grant","listedRate":"15% Mgmt fee monthly","retail":"","description":"","requirements":"","timeline":"","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE MARKETING / PAY PER CLICK — Local Service Ads (LSA)","category":"SEARCH ENGINE MARKETING / PAY PER CLICK","product":"Local Service Ads (LSA)","listedRate":"$125 One time set up fee","retail":"","description":"We claim and file the necessary documents for Google.  Have background checks put through and complete the final documents necessary to launch.","requirements":"6 Month Minimum Contract","timeline":"15 Business Days *May take longer due to background checks required by Google.","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE MARKETING / PAY PER CLICK — Local Service Ads (LSA)","category":"SEARCH ENGINE MARKETING / PAY PER CLICK","product":"Local Service Ads (LSA)","listedRate":"15% Mgmt fee monthly","retail":"","description":"","requirements":"6 Month Minimum Contract","timeline":"","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE MARKETING / PAY PER CLICK — Pay Per Click - Shopping","category":"SEARCH ENGINE MARKETING / PAY PER CLICK","product":"Pay Per Click - Shopping","listedRate":"15% Mgmt from Retail Cost","retail":"","description":"Shopping Ads on Google using Merchant Center Feed.","requirements":"Google Merchant Center access required.","timeline":"3 Business Days","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE MARKETING / PAY PER CLICK — Shopping Campaign Merchant Center Set Up","category":"SEARCH ENGINE MARKETING / PAY PER CLICK","product":"Shopping Campaign Merchant Center Set Up","listedRate":"Custom Quote Required","retail":"","description":"Feed that connects shopping campaign to Google.","requirements":"","timeline":"10 Business Days","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE OPTIMIZATION — Search Engine Optimization","category":"SEARCH ENGINE OPTIMIZATION","product":"Search Engine Optimization","listedRate":"50% of Retail Cost / Custom Quote Required","retail":"","description":"On and Off Site optimizations to increase the volume and quality of traffic to a website from search engines.","requirements":"6 Month Minimum Contract","timeline":"5 Business Days","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE OPTIMIZATION — Local Business Boost","category":"SEARCH ENGINE OPTIMIZATION","product":"Local Business Boost","listedRate":"$75 Per Location / Per Month","retail":"","description":"Claim, Optimize, Manage & Monitor across 50+ directories + Google My Business (GMB) management & optimization + Google review generation (up to 200 texts/mo/location)","requirements":"6 Month Minimum Contract","timeline":"5 Business Days","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE OPTIMIZATION — Additional Location for LBB (Local Business Boost), inclusive of Google Review Generation","category":"SEARCH ENGINE OPTIMIZATION","product":"Additional Location for LBB (Local Business Boost), inclusive of Google Review Generation","listedRate":"$65 Per Location / Per Month","retail":"","description":"Additional location to Local Business Boost package","requirements":"6 Month Minimum Contract","timeline":"5 Business Days","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE OPTIMIZATION — A La Carte :: Local Business Listing Management","category":"SEARCH ENGINE OPTIMIZATION","product":"A La Carte :: Local Business Listing Management","listedRate":"$35.00 Per Location / Per Month","retail":"","description":"Claim, Optimize, Manage & Monitor listings in the search engine results for local searches.","requirements":"6 Month Minimum Contract","timeline":"5 Business Days","rateType":null,"rateValue":null},{"label":"SEARCH ENGINE OPTIMIZATION — Google Analytics Consultation","category":"SEARCH ENGINE OPTIMIZATION","product":"Google Analytics Consultation","listedRate":"Custom Quote Required","retail":"","description":"Let our experts install / update / repair / create goals within clients Google Analytics.","requirements":"","timeline":"5 Business Days","rateType":null,"rateValue":null},{"label":"DISPLAY — Facebook | Instagram - Awareness Paid Social Media Advertising","category":"DISPLAY","product":"Facebook | Instagram - Awareness Paid Social Media Advertising","listedRate":"25% Mgmt Fee","retail":"","description":"Geographic Target with clicks to your page or site","requirements":"Social Media Channels Access Required","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"DISPLAY — Facebook | Instagram - Targeted Paid Social Media Advertising","category":"DISPLAY","product":"Facebook | Instagram - Targeted Paid Social Media Advertising","listedRate":"25% Mgmt Fee","retail":"","description":"Geographic plus one of Demographic or Behavioral tactics implemented to reach a specific audience.","requirements":"Social Media Channels Access Required","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"DISPLAY — Programmatic Paid Social Media Advertising - Budget Based - No Impression Guarantee","category":"DISPLAY","product":"Programmatic Paid Social Media Advertising - Budget Based - No Impression Guarantee","listedRate":"25% Mgmt Fee","retail":"","description":"Blended paid social media paid advertising that allows for more than one tactic to be implemented. Includes Social Media Retargeting","requirements":"Social Media Channels Access Required","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"DISPLAY — Facebook / Instagram Retargeting - No Impression Guarantee - Frequency Cap Allowed","category":"DISPLAY","product":"Facebook / Instagram Retargeting - No Impression Guarantee - Frequency Cap Allowed","listedRate":"25% Mgmt Fee","retail":"","description":"Target previous website visitors on Facebook and Instagram.","requirements":"Requires Facebook Access Requires Pixel Placement on Client Website","timeline":"3 Business Days","rateType":null,"rateValue":null},{"label":"DISPLAY — Facebook - Leads","category":"DISPLAY","product":"Facebook - Leads","listedRate":"25% Mgmt Fee","retail":"","description":"Fill out a form in the ad and allow a business to follow up.","requirements":"Social Media Channels Access Required","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"DISPLAY — Facebook - Boosted Posts","category":"DISPLAY","product":"Facebook - Boosted Posts","listedRate":"$20.00 / Per Post","retail":"","description":"Get more people to see and engage with your Post or Page.","requirements":"Social Media Channels Access Required","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"VIDEO — Facebook | Instagram - Paid Social Media Video Advertising","category":"VIDEO","product":"Facebook | Instagram - Paid Social Media Video Advertising","listedRate":"25% Mgmt Fee","retail":"","description":"Share your client goal and a Smart1 will decide what targeting and platform is best suited.","requirements":"Social Media Channels Access Required","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"VIDEO — LinkedIn - Display & Text Ads - Budget Based - No Impression Guarantee","category":"VIDEO","product":"LinkedIn - Display & Text Ads - Budget Based - No Impression Guarantee","listedRate":"25% Mgmt Fee","retail":"","description":"Get your business in front of specific audiences - and drive them to your website or landing page.","requirements":"LinkedIn Access Required","timeline":"3 Business Days","rateType":null,"rateValue":null},{"label":"VIDEO — Pinterest - Paid Social Media Advertising","category":"VIDEO","product":"Pinterest - Paid Social Media Advertising","listedRate":"25% Management Fee","retail":"","description":"Share your client goal and a Smart1 will decide what targeting is best suited.","requirements":"Social Media Channels Access Required","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"VIDEO — Snapchat - Paid Social Media Advertising","category":"VIDEO","product":"Snapchat - Paid Social Media Advertising","listedRate":"25% Management Fee","retail":"","description":"Share your client goal and a Smart1 will decide what targeting is best suited.","requirements":"Social Media Channels Access Required","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"VIDEO — Twitter - Paid Social Media Advertising","category":"VIDEO","product":"Twitter - Paid Social Media Advertising","listedRate":"25% Management Fee","retail":"","description":"Share your client goal and a Smart1 will decide what targeting is best suited.","requirements":"Social Media Channels Access Required","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"VIDEO — Tik Tok - Paid Social Media Advertising","category":"VIDEO","product":"Tik Tok - Paid Social Media Advertising","listedRate":"25% Management Fee (minimum daily budget of $35 or $1,068 monthly)","retail":"","description":"Share your client goal and a Smart1 will decide what targeting is best suited.","requirements":"Social Media Channels Access Required","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"SOCIAL MEDIA MANAGEMENT — Social Media Management","category":"SOCIAL MEDIA MANAGEMENT","product":"Social Media Management","listedRate":"199.0","retail":"","description":"Cultivate awareness, connections, and engagement on social media channels. Up to 15 posts per month.","requirements":"All Social Media Channels Administrative Access Required.","timeline":"5 Business Days","rateType":null,"rateValue":199.0},{"label":"DISPLAY & VIDEO — IP Targeted Display - List is supplied or purchased seperately","category":"DISPLAY & VIDEO","product":"IP Targeted Display - List is supplied or purchased seperately","listedRate":"18.0","retail":"","description":"Target a users IP address to deliver display ads.","requirements":"30,000 Impression Minimum monthly                                              ( 3 month minimum )","timeline":"3 Business Days","rateType":null,"rateValue":18.0},{"label":"DISPLAY & VIDEO — IP Targeted Display - New Movers","category":"DISPLAY & VIDEO","product":"IP Targeted Display - New Movers","listedRate":"25.0","retail":"","description":"Target new movers to deliver display ads.","requirements":"30,000 Impression Minimum monthly                                              ( 3 month minimum )","timeline":"3 Business Days","rateType":null,"rateValue":25.0},{"label":"DISPLAY & VIDEO — IP Targeted Display - Venue Replay","category":"DISPLAY & VIDEO","product":"IP Targeted Display - Venue Replay","listedRate":"19.5","retail":"","description":"Uses locations to target IP in a unique location/s","requirements":"30,000 Impression Minimum monthly                                              ( 3 month minimum )","timeline":"3 Business Days","rateType":null,"rateValue":19.5},{"label":"DISPLAY & VIDEO — IP Targeted Video - List is supplied or purchased seperately","category":"DISPLAY & VIDEO","product":"IP Targeted Video - List is supplied or purchased seperately","listedRate":"31.0","retail":"","description":"Target a users IP address to deliver video ads.","requirements":"30,000 Impression Minimum monthly                                              ( 3 month minimum )","timeline":"3 Business Days","rateType":null,"rateValue":31.0},{"label":"ADD-ON PRODUCT — Purchase/Rented IP Targeting List","category":"ADD-ON PRODUCT","product":"Purchase/Rented IP Targeting List","listedRate":"Custom Quote Required","retail":"","description":"Purchase of address list to match goals of campaign.","requirements":"","timeline":"5 Business Days","rateType":null,"rateValue":null},{"label":"DIGITAL RADIO — Programmatic - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc…  *If you require specifc channel(s) a custom quote is required.","category":"DIGITAL RADIO","product":"Programmatic - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc…  *If you require specifc channel(s) a custom quote is required.","listedRate":"$18 CPM / add $3 for speciality targeting (niche, dayparting, etc.)","retail":"","description":"Layer a behavioral target on your digital radio spot to find the right audience.","requirements":"","timeline":"3 Business Days","rateType":"CPM","rateValue":18.0},{"label":"DIGITAL RADIO — Programmatic - Run of Site (ROS)","category":"DIGITAL RADIO","product":"Programmatic - Run of Site (ROS)","listedRate":"$13.50 CPM","retail":"","description":"","requirements":"","timeline":"3 Business Days","rateType":"CPM","rateValue":13.5},{"label":"DIGITAL RADIO — Podcasts - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc…  *If you require specifc channel(s) a custom quote is required.","category":"DIGITAL RADIO","product":"Podcasts - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc…  *If you require specifc channel(s) a custom quote is required.","listedRate":"$18 CPM /  add $3 for speciality targeting (niche, dayparting, etc.)","retail":"","description":"Layer a behavioral target on your digital radio spot to find the right audience.","requirements":"","timeline":"3 Business Days","rateType":"CPM","rateValue":18.0},{"label":"DIGITAL RADIO — Podcasts - Run of Site (ROS)","category":"DIGITAL RADIO","product":"Podcasts - Run of Site (ROS)","listedRate":"$13.50 CPM","retail":"","description":"","requirements":"","timeline":"3 Business Days","rateType":"CPM","rateValue":13.5},{"label":"DIGITAL RADIO — Optional Companion Banner","category":"DIGITAL RADIO","product":"Optional Companion Banner","listedRate":"Free with other Tactic selected","retail":"","description":"300x250 .jpeg - will run along side of Radio ads when streaming.","requirements":"","timeline":"3 Business Days","rateType":null,"rateValue":null},{"label":"OTT — Connected TV - Targeted  - This is played on televisions only  *If you require specifc channel(s) a custom quote is required.","category":"OTT","product":"Connected TV - Targeted  - This is played on televisions only  *If you require specifc channel(s) a custom quote is required.","listedRate":"$35.00 / CPM","retail":"","description":"Behavioral or Demographic along with DMA or Larger target.","requirements":"","timeline":"3 Business Days","rateType":"CPM","rateValue":35.0},{"label":"OTT — Advanced TV - Targeted - This is played on all streaming services, all devices and connected apps  *If you require specifc channel(s) a custom quote is required.","category":"OTT","product":"Advanced TV - Targeted - This is played on all streaming services, all devices and connected apps  *If you require specifc channel(s) a custom quote is required.","listedRate":"$25.00 / CPM","retail":"","description":"Full Video Solution inclusive of targeting an audience.","requirements":"","timeline":"3 Business Days","rateType":"CPM","rateValue":25.0},{"label":"EMAIL MARKETING — List Provided Email","category":"EMAIL MARKETING","product":"List Provided Email","listedRate":"$100.00 Per Send","retail":"","description":"Email Blast to emails provided by client.","requirements":"Up to 5,000 Email Addresses","timeline":"3 Business Days","rateType":null,"rateValue":null},{"label":"EMAIL MARKETING — Behavioral Targeted Email - Purchasing Data","category":"EMAIL MARKETING","product":"Behavioral Targeted Email - Purchasing Data","listedRate":"$20.00 / CPM","retail":"","description":"Email Blast to emails purchased by client that match goals of campaign.","requirements":"50,000 Send Minimum","timeline":"5 Business Days","rateType":"CPM","rateValue":20.0},{"label":"ADD-ON PRODUCT — Email Targeting List - Purchasing Data","category":"ADD-ON PRODUCT","product":"Email Targeting List - Purchasing Data","listedRate":"Custom Quote Required","retail":"","description":"Purchase of email list to match goals of campaign.","requirements":"","timeline":"5 Business Days","rateType":null,"rateValue":null},{"label":"ADD-ON PRODUCT — Email Template Creative Production","category":"ADD-ON PRODUCT","product":"Email Template Creative Production","listedRate":"100.0","retail":"","description":"Includes 1 round of revisions. Edits for supplemental campaigns at $25/each with one round of revisions.","requirements":"","timeline":"5 Business Days","rateType":null,"rateValue":100.0},{"label":"ADD-ON PRODUCT — 1st Phone Number - with area code","category":"ADD-ON PRODUCT","product":"1st Phone Number - with area code","listedRate":"$15.00 / Month","retail":"","description":"Dynamic Phone Number for Pay Per Click Conversion Tracking.","requirements":"","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"ADD-ON PRODUCT — Additional Phone Numbers - with area code","category":"ADD-ON PRODUCT","product":"Additional Phone Numbers - with area code","listedRate":"$10.00 / Month","retail":"","description":"Dynamic Phone Number for Pay Per Click Conversion Tracking.","requirements":"","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"ADD-ON PRODUCT — 1st Toll Free Number","category":"ADD-ON PRODUCT","product":"1st Toll Free Number","listedRate":"$20.00 / Month","retail":"","description":"Dynamic Toll Free Number for Pay Per Click Conversion Tracking.","requirements":"","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"ADD-ON PRODUCT — Additional Toll Free Numbers","category":"ADD-ON PRODUCT","product":"Additional Toll Free Numbers","listedRate":"$10.00 / Month","retail":"","description":"Dynamic Toll Free Number for Pay Per Click Conversion Tracking.","requirements":"","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"WEB DEVELOPMENT — WordPress Website","category":"WEB DEVELOPMENT","product":"WordPress Website","listedRate":"Custom Quote Required","retail":"","description":"Mobile Responsive website built on WordPress platform.","requirements":"","timeline":"Will Come in Quote","rateType":null,"rateValue":null},{"label":"WEB DEVELOPMENT — E-Commerce Website","category":"WEB DEVELOPMENT","product":"E-Commerce Website","listedRate":"Custom Quote Required","retail":"","description":"Mobile Responsive E-Commerce website built on Shopify platform.","requirements":"","timeline":"Will Come in Quote","rateType":null,"rateValue":null},{"label":"WEB DEVELOPMENT — Landing Page","category":"WEB DEVELOPMENT","product":"Landing Page","listedRate":"$100 One Time Fee or $19 per month","retail":"","description":"Single web page to land an advertising campaign with call to action and lead form.","requirements":"Includes 1 round of revisions","timeline":"5 Business Days","rateType":null,"rateValue":null},{"label":"WEB DEVELOPMENT — Smart 1 Snap","category":"WEB DEVELOPMENT","product":"Smart 1 Snap","listedRate":"$499 / One time set up fee","retail":"","description":"5 page Snap","requirements":"","timeline":"5 Business Days","rateType":null,"rateValue":null},{"label":"WEB DEVELOPMENT — Snap Management Fee & Texting for Snap","category":"WEB DEVELOPMENT","product":"Snap Management Fee & Texting for Snap","listedRate":"$75 / Month","retail":"","description":"Includes 500 Texts, hosting, and 1 hour of changes monthly","requirements":"","timeline":"","rateType":null,"rateValue":null},{"label":"WEB DEVELOPMENT — Monthly Website Hosting & Maintenance (standard Wordpress site)","category":"WEB DEVELOPMENT","product":"Monthly Website Hosting & Maintenance (standard Wordpress site)","listedRate":"$75.00 / Month","retail":"","description":"","requirements":"12 Month Minimum","timeline":"","rateType":null,"rateValue":null},{"label":"WEB DEVELOPMENT — Smart 1 Site / 2-5 pages","category":"WEB DEVELOPMENT","product":"Smart 1 Site / 2-5 pages","listedRate":"$349.50 / One time / $24.50 per month hosting","retail":"","description":"Hosting for Smart 1 built websites. Includes 1 hour of website changes.","requirements":"12 Month Minimum","timeline":"","rateType":null,"rateValue":null},{"label":"WEB DEVELOPMENT — Smart 1 Site / 6-25 pages","category":"WEB DEVELOPMENT","product":"Smart 1 Site / 6-25 pages","listedRate":"Starting $599.50 / One time / $39.50 per month hosting","retail":"","description":"Hosting for Smart 1 built websites. Includes 1 hour of website changes.","requirements":"12 Month Minimum","timeline":"","rateType":null,"rateValue":null},{"label":"WEB DEVELOPMENT — Smart 1 Site / 26+ pages","category":"WEB DEVELOPMENT","product":"Smart 1 Site / 26+ pages","listedRate":"Starting at $779.50 / One time / $49.50 per month hosting","retail":"","description":"Hosting for Smart 1 built websites. Includes 1 hour of website changes.","requirements":"12 Month Minimum","timeline":"","rateType":null,"rateValue":null},{"label":"WEB DEVELOPMENT — Smart 1 Site / ecommerce","category":"WEB DEVELOPMENT","product":"Smart 1 Site / ecommerce","listedRate":"Custom Quote Required","retail":"","description":"Mobile Responsive website built on Smart 1 Site platform.","requirements":"12 Month Minimum","timeline":"Will Come in Quote","rateType":null,"rateValue":null},{"label":"CREATIVE / DESIGN SERVICES — Standard Set of 6 Ad Creation","category":"CREATIVE / DESIGN SERVICES","product":"Standard Set of 6 Ad Creation","listedRate":"250.0","retail":"","description":"","requirements":"Includes 1 round of revisions","timeline":"2 Business Days","rateType":null,"rateValue":250.0},{"label":"CREATIVE / DESIGN SERVICES — Social Media Ad Creation per platform","category":"CREATIVE / DESIGN SERVICES","product":"Social Media Ad Creation per platform","listedRate":"35.0","retail":"","description":"","requirements":"Includes 1 round of revisions","timeline":"2 Business Days","rateType":null,"rateValue":35.0},{"label":"CREATIVE / DESIGN SERVICES — Email Template Creation","category":"CREATIVE / DESIGN SERVICES","product":"Email Template Creation","listedRate":"100.0","retail":"","description":"","requirements":"Includes 1 round of revisions","timeline":"3 Business Days","rateType":null,"rateValue":100.0},{"label":"CREATIVE / DESIGN SERVICES — Expandable / Rich Media Ad Creation","category":"CREATIVE / DESIGN SERVICES","product":"Expandable / Rich Media Ad Creation","listedRate":"$20.00 / Hour","retail":"","description":"","requirements":"Includes 1 round of revisions.","timeline":"2 Business Days","rateType":null,"rateValue":null},{"label":"CREATIVE / DESIGN SERVICES — Custom Creative / Design Project","category":"CREATIVE / DESIGN SERVICES","product":"Custom Creative / Design Project","listedRate":"Custom Quote Required","retail":"","description":"","requirements":"","timeline":"Will Come in Quote","rateType":null,"rateValue":null},{"label":"SMART 1 SIGNAGE — Digital Outdoor & Indoor Signage","category":"SMART 1 SIGNAGE","product":"Digital Outdoor & Indoor Signage","listedRate":"Custom Quote Required","retail":"","description":"Digital Billboards, Gas Stations, Malls, Universities, Workout Facilities","requirements":"Includes 1 round of revisions","timeline":"5 Business Days","rateType":null,"rateValue":null}];
 // ---- Smart 1 taxonomy renames (applied at load; edit here to adjust) ----
 const CATEGORY_RENAME={
@@ -600,6 +618,21 @@ function baseFlow(){
   {key:"income",q:"Which household income levels should be targeted? Select all that apply, then choose Continue.",multi:true,options:incomeOptions},
   {key:"audiences",q:"Which audiences should be targeted? Select all that apply, or add the SMART1 suggestions, then choose Continue.",multi:true,dynamicOptions:suggestedAudienceOptions},
   {key:"audienceNotes",q:"Add any custom audience notes or type NONE."},
+  /* ---- what the proposal quoted, one product at a time ----
+     Only when a proposal was read and left something to settle. These used
+     to be a sentence -- "Not on the rate card, so not selected: X, Y. Add
+     the matching product yourself" -- printed once into a chat log the rep
+     scrolls past. The client agreed to those products; stating them and
+     moving on is how they failed to reach the document that bills. */
+  {key:"intakeMode",q:"",condition:()=>intakeRows().length>0&&!PROPOSAL.intakeMode,
+   options:["Walk me through them one at a time","Fill in what you can, ask only what you can't"]},
+  {key:"intakeProduct",q:"",condition:()=>intakeActive()},
+  {key:"intakeDescribe",q:"",condition:()=>intakeActive()&&intakeNeeds("description")},
+  {key:"intakeBasis",q:"",condition:()=>intakeActive()&&intakeNeeds("basis"),
+   options:["Monthly","One time"]},
+  {key:"intakeTerm",q:"",condition:()=>intakeActive()&&intakeNeeds("term_months")},
+  {key:"intakeAmount",q:"",condition:()=>intakeActive()&&intakeNeeds("amount")},
+  {key:"intakeNext",q:"",condition:()=>intakeActive()},
   {key:"productCategory",q:"Choose a product category.",options:productCategories},
   {key:"selected",q:"Choose all products needed from this category, then choose Continue.",multi:true,dynamicOptions:()=>productsForCategory(state.currentCategory)},
   {key:"moreCategory",q:"Would you like to add products from another category?",options:["Yes","No"]},
@@ -620,6 +653,158 @@ function baseFlow(){
   {key:"exclusions",q:"Are there any exclusions, negative keywords, restricted audiences, placements, geographic areas, competitors, or other items we should be aware of? Type NONE if there are none."}
  ];
 }
+/* ============================================================
+   PROPOSAL PRODUCT INTAKE
+   Every product the reader pulled out of a proposal, asked about one at a
+   time. Mirrors hub/product_intake.py, which the server fills in on
+   /api/io/from-proposal -- the classification is done there so the matcher
+   is the same one the Proposal Builder uses.
+
+   Three states, and the rule is that none of them is ever merely reported:
+
+     matched   the card has it. Confirm the money and the term.
+     near      the card has candidates and none is certain. Offer them and
+               let the rep pick -- never auto-pick, because the wrong product
+               on an IO is the error nobody catches until it bills.
+     unknown   nothing resembles it. Offer Consulting & Strategic Services
+               with a description in the client's words, rather than dropping
+               a product the client agreed to buy.
+   ============================================================ */
+const CONSULTING_PRODUCT="Consulting & Strategic Services";
+const INTAKE_SKIP="Not on this IO — leave it off";
+
+function intakeRows(){return (PROPOSAL&&PROPOSAL.intake)||[];}
+function intakeCurrent(){const r=intakeRows();return r[PROPOSAL.intakeIx||0]||null;}
+function intakeActive(){return !!intakeCurrent();}
+
+/* What the current product still needs. Order matters: the product has to be
+   settled before it is worth asking what it costs.
+
+   In "fill in what you can" mode the cost-basis questions are skipped for a
+   product the card matched outright and the proposal priced -- there the
+   answer is defensible from the document. It is never skipped for a product
+   the rep had to choose or name: the card cannot tell a monthly retainer from
+   a one-time build, and guessing is how an IO bills six times what was
+   agreed. The assumption is stated in the summary, not buried. */
+function intakeNeeds(field){
+ const e=intakeCurrent();if(!e)return false;
+ if(!e.product)return false;                       // still choosing the product
+ if(PROPOSAL.intakeMode==="bulk"&&e.assumed&&field!=="description")return false;
+ if(field==="description")return !!e.consulting&&!String(e.description||"").trim();
+ if(field==="basis")return !String(e.basis||"").trim();
+ if(field==="term_months")return e.basis==="monthly"&&!(+e.term_months>0);
+ if(field==="amount")return !(+e.amount>0);
+ return false;
+}
+
+function intakeShortName(name){
+ let n=String(name||"").split(" - This is")[0];
+ n=n.split("  *If you")[0].split(" - channels may include")[0];
+ n=n.replace(/\s+/g," ").trim();
+ return n.length>60?n.slice(0,57)+"…":n;
+}
+
+/* The question text for whichever intake question is current. */
+function intakeQuestion(q){
+ const e=intakeCurrent();if(!e)return q;
+ const name=e.query||intakeShortName(e.product)||"that product";
+ const pos=(PROPOSAL.intakeIx||0)+1,total=intakeRows().length;
+ const head=`Product ${pos} of ${total} from the proposal — `;
+
+ if(q.key==="intakeMode"){
+  const rows=intakeRows(),ask=rows.filter(r=>!r.product).length;
+  return {...q,q:`The proposal names ${rows.length} product${rows.length===1?"":"s"}. `
+   +(ask?`${ask} of them ${ask===1?"does not":"do not"} match the rate card outright and ${ask===1?"needs":"need"} a decision either way. `:"")
+   +`For the rest I can take the product and the price from the document and assume a monthly cost over the campaign term — I'll show you what I assumed.`};
+ }
+
+ if(q.key==="intakeProduct"&&!e.product){
+  const opts=(e.candidates||[]).map(c=>intakeShortName(c.product));
+  opts.push(CONSULTING_PRODUCT,INTAKE_SKIP);
+  const lead=(e.status==="near")
+   ? `${head}the proposal quoted “${name}”. Which rate-card product is that?`
+   : `${head}“${name}” is not on the rate card. Add it as ${CONSULTING_PRODUCT}, or pick the product it matches.`;
+  return {...q,q:lead+(e.amount?`\n\nThe proposal shows ${money(e.amount)} against it.`:""),options:opts};
+ }
+ if(q.key==="intakeProduct"){
+  /* Matched outright. Still shown, still confirmable -- a rep who knows the
+     reader misread something needs somewhere to say so. */
+  const opts=[intakeShortName(e.product)];
+  if(!e.consulting)opts.push(CONSULTING_PRODUCT);   // it already is one
+  opts.push(INTAKE_SKIP);
+  return {...q,q:`${head}“${name}” matched ${intakeShortName(e.product)}. Type Y to keep it, or choose another product.`,options:opts};
+ }
+ if(q.key==="intakeDescribe")
+  return {...q,q:`${head}describe what “${name}” covers, in the words the client agreed to. This is what the trafficking team will read.`};
+ if(q.key==="intakeBasis")
+  return {...q,q:`${head}is ${intakeShortName(e.product)} a monthly cost or a one-time cost? A proposal that says a dollar figure has not said which, and the IO bills the difference.`};
+ if(q.key==="intakeTerm")
+  return {...q,q:`${head}how many months does ${intakeShortName(e.product)} run for?`};
+ if(q.key==="intakeAmount")
+  return {...q,q:`${head}what is the ${e.basis==="one_time"?"one-time":"monthly"} amount for ${intakeShortName(e.product)}?`
+    +(e.amount?` The proposal shows ${money(e.amount)} — type Y to use it.`:"")};
+ if(q.key==="intakeNext"){
+  const left=intakeRows().length-((PROPOSAL.intakeIx||0)+1);
+  return {...q,q:intakeSummaryText()+(left>0
+    ? `\n\n${left} more product${left===1?"":"s"} from the proposal to settle.`
+    : `\n\nThat is every product the proposal named. Continue to add anything it missed.`),
+   options:(e.assumed?["That's right","Actually it's a one-time cost"]:[])
+    .concat(left>0?["Next product"]:["Continue"])};
+ }
+ return q;
+}
+
+/* Months to assume when the campaign has not said. The shared dates are the
+   best evidence there is; one month is the honest floor, not twelve. */
+function intakeDefaultTerm(){
+ try{
+  if(state.start&&state.end){
+   const r=lengthFor(state.start,state.end);
+   if(r&&r.months>=1)return Math.round(r.months);
+  }
+ }catch(err){}
+ return 1;
+}
+
+function intakeSummaryText(){
+ const e=intakeCurrent();if(!e)return "";
+ if(!e.product||e.skipped)return `Left off the IO: “${e.query}”.`;
+ const per=e.basis==="one_time"?money(e.amount)+" one time"
+   :`${money(e.amount)}/mo × ${e.term_months} month${+e.term_months===1?"":"s"}`;
+ /* Say which of these was answered and which was assumed. An assumption a
+    rep cannot see is the same problem as no assumption at all. */
+ return `${e.assumed?"Assumed":"Added"} ${intakeShortName(e.product)} — ${per}.`
+   +(e.assumed?" Say so now if that should be a one-time cost.":"");
+}
+
+/* Commit the finished product onto the IO exactly as the ordinary product
+   picker would, so nothing downstream has to know it came from a proposal. */
+function intakeCommit(e){
+ if(!e||!e.product||e.skipped)return;
+ const label=(typeof cardLabelFor==="function"&&cardLabelFor(e.product))||e.product;
+ if(!state.selected.includes(label))state.selected.push(label);
+ const cat=(productConfig[label]||{}).category||e.category||"";
+ if(cat&&!state.selectedCategories.includes(cat))state.selectedCategories.push(cat);
+ /* A one-time cost is spread across the flight rather than dropped or
+    charged every month. Both are wrong in a way that survives review. */
+ const months=Math.max(1,+e.term_months||+state.termMonths||1);
+ const monthly=e.basis==="one_time"?Math.round(+e.amount/months):Math.round(+e.amount);
+ if(monthly>0)PROPOSAL.budgets[label]=monthly;
+ PROPOSAL.intakeCommitted=PROPOSAL.intakeCommitted||[];
+ PROPOSAL.intakeCommitted.push({
+  product:label,quoted:e.query,basis:e.basis,amount:+e.amount||0,
+  term_months:+e.term_months||months,consulting:!!e.consulting,
+  description:e.description||""});
+ /* A consulting line has no rate card entry, so its description is the only
+    thing that says what was sold. It goes onto the IO's special
+    instructions, which is what trafficking actually reads. */
+ if(e.consulting&&e.description){
+  const line=`${CONSULTING_PRODUCT} (${e.query}): ${e.description}`;
+  state.specialInstructions=state.specialInstructions
+   ? state.specialInstructions+"\n"+line : line;
+ }
+}
+
 function nextValidIndex(i){
  /* Two reasons to walk past a question: its own condition says it doesn't
     apply, or the proposal we converted from already answered it. The second
@@ -941,13 +1126,116 @@ function question(){
    return{key:"geoZipcodes",q:`SMART1 will identify every ZIP Code that appears to touch a ${state.geoRadius}-mile radius around ${state.geoOrigin}. This AI-assisted list can be reviewed and edited before continuing. Type RETRY to run the lookup again, or SKIP to continue and add ZIP Codes later.`};
   }
 
+  if(String(q.key||"").indexOf("intake")===0)return intakeQuestion(q);
+
   if(q.key==="targetAreaName"){
    const n=(state.targetAreas||[]).length;
    return{...q,q:n?`Target area ${n+1}. What should this one be called? Type SKIP to name it after its geography.`
                  :`What should this target area be called? A name you'd use on a call — "Carmel showroom", "North trade area". Type SKIP to name it after its geography.`};
   }
 
-  if(q.key==="moreTargetAreas"){
+  if(String(q.key||"").indexOf("intake")===0){
+  const v=val.trim();
+
+  if(q.key==="intakeMode"){
+   PROPOSAL.intakeMode=/one at a time/i.test(v)?"each":"bulk";
+   if(PROPOSAL.intakeMode==="bulk"){
+    /* Only what the document actually supports: a product the card matched
+       and a price the proposal printed. The term comes from the campaign,
+       and the monthly assumption is recorded on the row so the summary can
+       say it was assumed rather than answered. */
+    const months=Math.max(1,+state.termMonths||intakeDefaultTerm()||1);
+    intakeRows().forEach(r=>{
+     if(r.product&&+r.amount>0&&!r.consulting){
+      r.basis="monthly";r.term_months=months;r.assumed=true;
+     }
+    });
+   }
+   index++;render();ask();return;
+  }
+
+  const e=intakeCurrent();
+  if(!e){index++;render();ask();return;}
+
+  if(q.key==="intakeProduct"){
+   if(v===INTAKE_SKIP||/^(skip|none|no)$/i.test(v)){
+    /* Skipped deliberately, and recorded as such. "Not selected" was the old
+       behaviour precisely because nobody had decided -- a skip somebody chose
+       is a different thing and is worth being able to tell apart. */
+    e.skipped=true;e.product="";
+    addMsg(`Left off: “${e.query}”.`);
+    index=flow.findIndex(f=>f.key==="intakeNext");render();ask();return;
+   }
+   if(v===CONSULTING_PRODUCT||/^consult/i.test(v)){
+    e.consulting=true;e.product=CONSULTING_PRODUCT;e.category="ADD-ON PRODUCT";
+   }else if(/^y$/i.test(v)&&e.product){
+    /* keeps the matched product */
+   }else{
+    /* A candidate the rep picked, or a product name they typed. Resolve it
+       against the card the same way the reader did rather than trusting the
+       typed string -- otherwise a near-miss becomes a product code nothing
+       downstream recognises. */
+    const label=(typeof cardLabelFor==="function"&&cardLabelFor(v))||"";
+    if(!label&&!(e.candidates||[]).some(c=>intakeShortName(c.product)===v)){
+     addMsg(`⚠ “${v}” is not a product on the rate card. Choose one of the options, ${CONSULTING_PRODUCT}, or ${INTAKE_SKIP}.`);
+     ask();return;
+    }
+    const full=(e.candidates||[]).find(c=>intakeShortName(c.product)===v);
+    e.product=full?full.product:(productConfig[label]||{}).product||label||v;
+    e.category=full?full.category:(productConfig[label]||{}).category||"";
+    e.consulting=false;
+   }
+   e.status="matched";
+   index++;render();ask();return;
+  }
+
+  if(q.key==="intakeDescribe"){e.description=v;index++;render();ask();return;}
+
+  if(q.key==="intakeBasis"){
+   e.basis=/^one/i.test(v)?"one_time":"monthly";
+   if(e.basis==="one_time")e.term_months=1;
+   index++;render();ask();return;
+  }
+
+  if(q.key==="intakeTerm"){
+   const n=parseInt(String(v).replace(/[^0-9]/g,""),10);
+   if(!(n>0)){addMsg("⚠ Enter the number of months as a number, for example 6.");ask();return;}
+   e.term_months=n;index++;render();ask();return;
+  }
+
+  if(q.key==="intakeAmount"){
+   let n=/^y$/i.test(v)?+e.amount:parseFloat(String(v).replace(/[^0-9.]/g,""));
+   if(!(n>0)){addMsg("⚠ Enter the amount as a number, for example 2500.");ask();return;}
+   e.amount=n;index++;render();ask();return;
+  }
+
+  if(q.key==="intakeNext"){
+   if(/one-time/i.test(v)){
+    /* Correcting an assumption, not answering the next-product question. */
+    e.basis="one_time";e.term_months=1;e.assumed=false;
+    addMsg(`${intakeShortName(e.product)} recorded as a one-time cost of ${money(e.amount)}.`);
+    ask();return;
+   }
+   intakeCommit(e);
+   const next=(PROPOSAL.intakeIx||0)+1;
+   if(next<intakeRows().length){
+    PROPOSAL.intakeIx=next;
+    index=flow.findIndex(f=>f.key==="intakeProduct");
+    render();ask();return;
+   }
+   /* Done. Clearing the list is what switches intakeActive() off, so the
+      six questions above stop applying and the ordinary product picker
+      follows -- a rep still adds anything the proposal did not mention. */
+   PROPOSAL.intake=[];PROPOSAL.intakeIx=0;
+   const done=(PROPOSAL.intakeCommitted||[]).length;
+   addMsg(done
+    ? `${done} product${done===1?"":"s"} from the proposal are on this IO with their budgets and terms. Add anything it missed from the categories below.`
+    : "Nothing from the proposal was added. Choose the products for this IO below.");
+   index++;render();ask();return;
+  }
+ }
+
+ if(q.key==="moreTargetAreas"){
    // Reads back what was just described, so "add another?" is answered
    // against the area the rep actually entered rather than from memory.
    const a=currentAreaRecord();
@@ -1369,10 +1657,15 @@ function calculateGuardrails(){
  const geoScale=geographyScale();
  state.items.forEach(item=>{
   const cfg=productConfig[item.product]||{};
+  /* The joint rule. A flat-fee product still cannot be sold under its own
+     listed price, so that floor stays -- but the campaign minimum now comes
+     from the shared table rather than from whichever number this page
+     happened to derive, and the proposal enforces the identical one. */
   const listed=parseMoney(cfg.listedRate);
-  const minBudget=listed>0 && !/CPM|CPV/i.test(cfg.listedRate||"") ? listed : 0;
+  const flatFloor=listed>0 && !/CPM|CPV/i.test(cfg.listedRate||"") ? listed : 0;
+  const minBudget=Math.max(flatFloor,minimumFor(cfg.product||item.product,cfg.category));
   if(minBudget && Number(item.budget||0)<minBudget){
-   warnings.push({type:"budget_below_minimum",product:cfg.product,message:`${cfg.product}: monthly budget ${money(item.budget||0)} appears below the listed minimum or base rate of ${money(minBudget)}.`});
+   warnings.push({type:"budget_below_minimum",product:cfg.product,message:`${cfg.product}: monthly budget ${money(item.budget||0)} is below the ${money(minBudget)} monthly minimum.`});
   }
   const minMonths=parseMinimumMonths(item);
   const run=lengthFor(item.start,item.end).months;
@@ -2369,7 +2662,11 @@ document.addEventListener("keydown",e=>{
    - The first press of Back releases every skip, so anything read off the
      document can be corrected rather than being locked in behind a question
      that never gets asked. */
-const PROPOSAL={filled:{},budgets:{},skip:false};
+const PROPOSAL={filled:{},budgets:{},skip:false,
+ /* Products the reader pulled out of the proposal, each still carrying the
+    question it needs answered. Emptied once the interview has walked them,
+    which is what turns the intake questions off. */
+ intake:[],intakeIx:0,intakeCommitted:[]};
 
 /* A question the proposal already answered. Only while skipping is armed --
    goBack() disarms it, and then these ask normally with the proposal's value
@@ -2516,21 +2813,37 @@ function prefillFromProposal(){
      +"review or change anything I took from it.");
    }
    if(matched.length){
-    /* Short names. Several rate-card products carry their whole description in
-       the product field ("Advanced TV - Targeted - This is played on all
-       streaming services..."), and three of those in one line is unreadable. */
-    const shortName=l=>{
-     const n=String((productConfig[l]||{}).product||l).split(/\s+-\s+/)[0].trim();
-     return n.length>48?n.slice(0,45)+"…":n;
-    };
-    addMsg("Pre-selected from the rate card: "+matched.map(shortName).join(", ")
+    addMsg("Pre-selected from the rate card: "+matched.map(intakeShortName).join(", ")
      +". You'll still confirm the product list and every budget — a proposal "
      +"quotes a price, an IO bills it.");
    }
-   if(unmatched.length){
-    addMsg("Not on the rate card, so not selected: "+unmatched.join(", ")+". Add the matching product yourself if it belongs on this IO.");
+
+   /* Every product the proposal named, queued as questions rather than
+      printed as a sentence. This block used to say "Not on the rate card, so
+      not selected: X, Y" and carry on -- which read like information and was
+      actually the whole decision, handed back as a line in a log the rep had
+      already scrolled past. The client agreed to those products.
+
+      The classification comes from the server (hub/product_intake.py), so the
+      matcher here is the one the Proposal Builder uses. */
+   PROPOSAL.intake=(d.product_intake||[]).filter(e=>e&&e.query);
+   PROPOSAL.intakeIx=0;
+   const settle=PROPOSAL.intake.length;
+   if(settle){
+    const un=(d.intake_summary||{}).unknown||0;
+    addMsg("I'll walk the "+settle+" product"+(settle===1?"":"s")+" the proposal named, one at a time — what each one is, whether it is monthly or one-time, and for how long."
+      +(un?" "+un+" of them "+(un===1?"is":"are")+" not on the rate card; I'll ask what to do with "+(un===1?"it":"those")+" rather than dropping "+(un===1?"it":"them")+".":""));
+   }else if(unmatched.length){
+    /* The intake could not be built -- the reader worked but the classifier
+       did not. Say so, rather than silently reverting to the old sentence. */
+    addMsg("I couldn't classify these against the rate card: "+unmatched.join(", ")
+     +". Add them from the categories when you get to the product step.");
    }
+
    if(d.note)addMsg(d.note);
+   /* The reader's own open questions. These are genuinely notes -- they are
+      about the document, not about a product that has to reach the IO -- so
+      listing them is right where listing products was not. */
    (d.ask||[]).forEach(q2=>addMsg("• "+q2));
    ask();
   })

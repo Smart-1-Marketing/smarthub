@@ -173,6 +173,36 @@ OUTLINE = [
         "guidance": "A three-step checklist: sign the agreement, complete the onboarding "
                     "questionnaire, book the 30-minute kickoff call.",
     },
+    {
+        # After Next Steps, before the trafficking appendix. A client who says
+        # yes asks "and what would more look like?", and until now the answer
+        # was improvised on a call. It belongs on the document -- but only
+        # with numbers that are already defensible, which is why neither route
+        # invents one: raising a line quotes the Accelerated package printed
+        # two sections above, and adding one quotes the rate card's own
+        # minimum for that product.
+        "id": "growth", "title": "Recommended Budgets", "kind": "growth",
+        "enabled": True,
+        "purpose": "What more would look like: raise a budget, or add what "
+                   "discovery says is missing.",
+        "guidance": "Introduce the options in a sentence or two. Never argue "
+                    "for them and never imply the plan above is inadequate — "
+                    "the plan above is the recommendation. These are what a "
+                    "client who asks for more should be shown. Do not restate "
+                    "the figures; the table carries them.",
+    },
+    {
+        # Last on purpose. The ZIP list is the one part of a proposal nobody
+        # reads and trafficking cannot launch without -- a hundred five-digit
+        # numbers in the middle of the audience section buries the strategy
+        # it sits inside, and dropping them means the IO gets built from a
+        # radius somebody re-derives by hand. At the back it is reference,
+        # which is what it is.
+        "id": "zips", "title": "ZIP Codes Targeted", "kind": "zips", "enabled": True,
+        "purpose": "The trafficking reference: every ZIP each target area covers.",
+        "guidance": "Generated, not written. One line per target area, listing the "
+                    "ZIP Codes it covers. Say nothing above it beyond what it is for.",
+    },
 ]
 
 # Sections that are never removed. `roi` is mandatory by directive; without

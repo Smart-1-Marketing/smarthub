@@ -167,174 +167,6 @@
   @keyframes sp{to{transform:rotate(360deg)}}
   .warnbox{background:#fdeeee;border:1px solid #f2c3bd;border-radius:11px;padding:12px 15px;margin-top:13px;font-size:12.5px;color:#8c2f24}
   .warnbox b{display:block;margin-bottom:4px}
-  /* ============================================================
-   PROPOSAL PREVIEW
-   The document as the client will read it. Every section renders the same
-   content the PDF will: prose where the section is prose, the real table
-   where it is a table. A section can be edited in place, rewritten by the
-   AI, or hidden -- and the media plan can be re-costed here rather than
-   sending the rep back three steps to change one budget.
-   ============================================================ */
-function drawPreview(){
- const host=document.getElementById('docPreview');if(!host)return;
- const e=S.estimates||estimates();
- host.innerHTML=`<div class="paperdoc">
-  <div class="docband">SMART 1 MARKETING</div>
-  <h2 class="doctitle">Marketing Proposal — ${esc(S.client||'Client')}</h2>
-  <div class="docsub">${esc(QUOTE_NUMBER||'Draft')} · ${esc(new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}))}${S.salesContact?' · Prepared by '+esc(S.salesContact):''}</div>
-  ${S.sections.map((sec,i)=>previewSection(sec,i,e)).join('')}
- </div>`;}
-function previewSection(sec,i,e){
- const req=isRequired(sec);
- const editing=S._editSec===sec.id;
- const tools=`<div class="dtools">
-   <button class="ic" title="${editing?'Done editing':'Edit this section'}" onclick="toggleEditSec('${sec.id}')">${editing?'✓':'✎'}</button>
-   <button class="ic" title="Rewrite with AI" onclick="rewriteSecById('${sec.id}')">✨</button>
-   <button class="ic" title="${req?'Required — every Smart 1 proposal includes this':(sec.enabled?'Hide from the proposal':'Show in the proposal')}" ${req?'disabled style="opacity:.3;cursor:not-allowed"':''} onclick="${req?'':`toggleSec('${sec.id}')`}">${sec.enabled?'👁':'🚫'}</button>
-  </div>`;
- if(!sec.enabled)
-  return `<div class="docsec off"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
-   <div class="note">Hidden — this section will not appear in the PDF.</div></div>`;
- const body=editing
-  ? `<textarea class="dedit" oninput="S.sections[${i}].body=this.value;saveSoon()" placeholder="${sec.kind==='text'?'Section copy…':'Short intro above the table…'}">${esc(sec.body||'')}</textarea>`
-  : (sec.body?`<div class="dbody">${esc(sec.body).replace(/\n/g,'<br>')}</div>`
-             :`<div class="note dempty">No copy yet — ✨ writes it, or ✎ to type it.</div>`);
- return `<div class="docsec"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
-  ${body}${previewTable(sec,e)}</div>`;}
-
-/* The generated tables, rendered as the PDF renders them. These are never
-   editable text: they are computed from the campaign, and a proposal whose
-   prose and tables disagree is the failure the whole spec is built around. */
-function previewTable(sec,e){
- const k=sec.kind;
- if(k==="areas"){const rows=(S.targetAreas||[]).filter(areaComplete);if(!rows.length)return '';
-  return dtable(["Target area","Coverage","Est. population"],rows.map(a=>{
-   const pop=areaPopulation(a),z=areaZips(a);
-   return [esc(areaLabel(a)),esc(a.notes||(z.length?z.length+" ZIP Codes":a.type)),pop?fmt(pop):"<b>Not measured</b>"];}));}
- if(k==="reach")return dgrid([["Est. population",e.measured?fmt(e.pop):"—"],["Addressable audience",e.measured?fmt(e.aud):"—"],["Households",e.measured?fmt(e.hh):"—"],["Devices",e.measured?fmt(e.dev):"—"]]);
- if(k==="friction"){const picks=suggestions();if(!picks.length)return '';
-  return dtable(["We suggest they should","Why"],picks.map(pk=>[esc(pk.title),esc(pk.detail)]));}
- if(k==="channels"){if(!S.items.length)return '';
-  return dtable(["Channel","Role in the funnel","Primary KPI"],S.items.map(it=>{const r=channelRole(it);return [esc(it.product),esc(r[0]),esc(r[1])];}));}
- if(k==="creative"){const rows=creativeRows();if(!rows.length)return '';
-  return dtable(["Medium","Campaign spend","Creative"],rows.map(r=>[esc(r.label),money(r.spend),esc(creativePhrase(r))]));}
- if(k==="timeline")return dtable(["Phase","What happens"],TIMELINE_PHASES.map(t=>[esc(t[0])+"<br>"+esc(t[1]),esc(t[2])]));
- if(k==="kpis")return S.kpis.length?`<div class="dnote">KPIs: ${esc(S.kpis.join(', '))}</div>`:'';
- if(k==="mediaplan")return mediaPlanEditor();
- if(k==="packages")return investmentTable();
- if(k==="roi")return roiTable();
- return '';}
-function dtable(head,rows){
- return `<table class="dtbl"><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`
-  +rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')+`</tbody></table>`;}
-function dgrid(pairs){
- return `<div class="dgrid">${pairs.map(p=>`<div><b>${p[1]}</b><span>${esc(p[0])}</span></div>`).join('')}</div>`;}
-const TIMELINE_PHASES=[
- ["Weeks 1–2","Setup & Onboarding","Admin access collected, tracking pixels placed, conversion actions defined, audience and geography built, Smart 1 Suite provisioned."],
- ["Weeks 3–4","Production & Integration","Creative produced or supplied and approved, landing pages reviewed, workflow automations mapped in the Smart 1 Suite, tracking verified end to end before a cent is spent."],
- ["Month 2+","Execution & Scaling","Campaigns live, weekly pacing and bid optimisation, creative performance checks, budget shifted toward what proves out, first full performance review delivered."]];
-function channelRole(it){
- const c=String(it.category||"").toUpperCase(),m=mediumOf(it);
- if(/SEARCH ENGINE MARKETING|PAY PER CLICK/.test(c))return ["Bottom of funnel — captures demand that is already searching","Cost per lead and conversion rate"];
- if(/SEARCH ENGINE OPTIMIZATION/.test(c))return ["Compounding — organic and AI-answer visibility","Ranked terms, map-pack visibility and organic leads"];
- if(/RETARGETING/.test(c))return ["Bottom of funnel — brings back the people who already came","Return visits and cost per conversion"];
- if(m==="video")return ["Top of funnel — builds awareness and trust on the screens the household already watches","Completed views and completion rate"];
- if(m==="audio")return ["Mid funnel — reaches the 79% of digital audio time spent with no screen at all","Reach, frequency and listen-through"];
- if(m==="social")return ["Mid funnel — consideration and re-engagement in feed","Engaged sessions and cost per lead"];
- if(m==="display")return ["Full funnel — precision targeting and retargeting against the people already in market","Click-through rate and cost per action"];
- return ["Supports the campaign","Cost per action"];}
-function creativePhrase(r){
- if(r.answer==="has")return "Supplied by the client";
- if(r.answer==="client")return "Produced by Smart 1 — "+money(r.fee)+" one-time";
- if(r.answer==="comp")return "Produced by Smart 1 at no charge";
- return "To be confirmed before launch";}
-
-/* The media plan is editable here: budgets, deletions and additions, without
-   walking back three steps to change one number. */
-function mediaPlanEditor(){
- const months=Math.max(1,+S.months||1);
- return `<table class="dtbl editable"><thead><tr><th>Product</th><th>Category</th><th>Rate</th><th style="text-align:right">Monthly</th><th style="text-align:right">Total (${months} mo)</th><th></th></tr></thead><tbody>`
-  +S.items.map((it,ix)=>`<tr>
-    <td><b>${esc(it.product)}</b></td><td>${esc(it.category)}</td>
-    <td>${esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
-    <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)"></td>
-    <td style="text-align:right">${money((it.dollars||0)*months)}</td>
-    <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`).join('')
-  +`<tr class="dtot"><td colspan="3">Campaign total</td>
-     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))}</td>
-     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)}</td><td></td></tr>`
-  +`</tbody></table>
-   <div class="addrow" style="margin-top:8px"><select id="pvAddCat">${productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')}</select>
-    <button class="btn btn-ghost" onclick="previewAddItem()">+ Add product</button>
-    <span class="note" style="margin:0">Changing the plan here re-costs the packages, the ROI table and the creative gate.</span></div>
-   ${previewGuards()}`;}
-function previewSetDollars(ix,v){
- S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
- const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
- S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
- buildPackages();S.aiEst=S.aiEst;saveSoon();drawPreview();}
-function previewRemoveItem(ix){
- const it=S.items[ix];
- if(!confirm('Remove "'+(it.product||'this product')+'" from the media plan?'))return;
- S.items.splice(ix,1);applySeeds();buildPackages();saveSoon();drawPreview();}
-function previewAddItem(){
- const cat=document.getElementById('pvAddCat').value,p=findProduct(cat)||{};
- if(S.items.some(i=>i.category===cat)){toast("That category is already in the mix.");return;}
- S.items.push({label:p.label,category:cat,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,pctSeed:15,dollars:0});
- applySeeds();buildPackages();saveSoon();drawPreview();
- toast("Added — set its monthly budget.");}
-function previewGuards(){
- const g=guardrailsJs(),need=creativeUnresolved();
- let h='';
- if(g.length)h+=`<div class="warnbox" style="margin-top:10px"><b>🛡 Guardrails</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`;
- if(need.length)h+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
-  +need.map(m=>esc(MEDIUM_LABEL[m].split(" (")[0])+" is in the plan and no spot has been confirmed.").join("<br>")+`</div>`;
- return h;}
-function investmentTable(){
- const t=chosenTier(),media=S.items.reduce((a,b)=>a+(+b.dollars||0),0)||+((S.selectedPackage||{}).monthly||S.budget||0);
- const fees=creativeFees(),months=Math.max(1,+S.months||1);
- const recur=t.monthly+media,rows=[
-  ["Smart 1 Suite — "+t.name,money(t.monthly),"Monthly"],
-  ["Media spend",money(media),"Monthly"]];
- if(fees)rows.push(["Creative production",money(fees),"One-time"]);
- rows.push(["Total first month",money(recur+fees),""]);
- rows.push(["Total campaign ("+months+" mo)",money(recur*months+fees),""]);
- return dtable(["","Amount","Recurs"],rows.map(r=>[esc(r[0]),r[1],esc(r[2])]));}
-function roiTable(){
- const months=Math.max(1,+S.months||1);
- let impr=0,views=0;const unpriced=[];
- const rows=S.items.map(it=>{
-  const d=+it.dollars||0;let units=null,label="";
-  if(it.rate==="CPM"&&it.rateValue>0){units=Math.round(d/it.rateValue*1000);label="impressions/month";impr+=units*months;}
-  else if(it.rate==="CPV"&&it.rateValue>0){units=Math.round(d/it.rateValue);label="views/month";views+=units*months;}
-  else unpriced.push(it.product);
-  return [esc(it.product),money(d),money(d*months),units?fmt(units)+" "+label:"Not impression-based"];});
- if(!rows.length)return '';
- const bits=[];if(impr)bits.push(fmt(impr)+" impressions");if(views)bits.push(fmt(views)+" video views");
- rows.push(["<b>Campaign total</b>","<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))+"</b>",
-            "<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)+"</b>","<b>"+(bits.join(" · ")||"—")+"</b>"]);
- let h=dtable(["Product","Monthly","Campaign ("+months+" mo)","Estimated delivery"],rows);
- if(unpriced.length)h+=`<div class="dnote">Not in the delivery totals (no impression-based rate): ${esc(unpriced.join(', '))}.</div>`;
- const t=(S.traditional||{});
- if(t.running==="Yes"&&t.posture)h+=`<div class="dnote">${t.posture==="shift"
-   ?"Every figure above is attributable to the channel that produced it. That is the difference worth weighing against the traditional spend."
-   :"These figures cover the digital portion of the plan; they sit alongside the traditional buy rather than replacing it."}</div>`;
- return h;}
-function toggleEditSec(id){S._editSec=S._editSec===id?null:id;saveNow();drawPreview();}
-function toggleSec(id){
- const sec=S.sections.find(x=>x.id===id);if(!sec||isRequired(sec))return;
- sec.enabled=!sec.enabled;saveSoon();drawPreview();}
-async function rewriteSecById(id){
- const i=S.sections.findIndex(x=>x.id===id);if(i<0)return;
- if(!CFG.ai_enabled){toast("AI rewriting needs OPENAI_API_KEY on the server.");return;}
- toast("✨ Rewriting "+S.sections[i].title+"…");
- try{
-  const d=await api('/sales/builder/api/ai/draft-sections',{method:'POST',
-   body:JSON.stringify({data:S,section:id})});
-  if(d.sections&&d.sections[id]){S.sections[i].body=d.sections[id];saveNow();drawPreview();
-   toast("✨ "+S.sections[i].title+" rewritten.");return;}
-  toast((d.breaches&&Object.keys(d.breaches).length)?"The rewrite broke a proposal rule and was discarded.":"The AI returned nothing for that section.");
- }catch(e){toast("Rewrite failed: "+e.message);}}
 
 /* section editor */
   .sec{border:1px solid var(--line);border-radius:12px;background:#fff;margin-top:12px;overflow:hidden}
@@ -361,8 +193,25 @@ async function rewriteSecById(id){
   iframe.ioframe{width:100%;height:calc(100vh - 130px);border:0;border-radius:14px;background:#fff;box-shadow:var(--shadow)}
   .empty{padding:40px;text-align:center;color:var(--muted)}
   .clientcard{border:1px solid var(--line);border-radius:13px;background:#fff;padding:16px 18px;margin-top:12px;box-shadow:var(--shadow)}
+  .basisrow{flex-basis:100%;display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+    margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
+  .basisrow .pill{margin:0}
+  .clienthit{border:1px solid var(--line);border-radius:10px;background:#fff;
+    padding:9px 12px;margin-top:6px;cursor:pointer;transition:border-color .12s,background .12s}
+  .clienthit:hover{border-color:var(--blue);background:#f6faff}
+  .clienthit b{display:block;color:var(--navy);font-size:13.5px}
+  .clienthit span{color:var(--muted);font-size:11.5px}
   .clientcard h3{margin:0 0 3px;font-size:15px;color:var(--navy)}
   .clientcard .meta{font-size:12px;color:var(--muted)}
+  /* Discovery, two across. Twelve yes/no/unknown rows in a single column is
+     a page of scrolling for what is really one screen of questions. */
+  .disc2{display:grid;grid-template-columns:1fr 1fr;gap:2px 22px;margin-top:8px}
+  .disc2 .fld{margin-top:8px}
+  .disc2 .fld label{display:block;margin-bottom:5px}
+  /* Guardrail choices, three across -- same reason. */
+  .pillrow.c3{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+  .pillrow.c3 .pill{margin:0;text-align:center}
+  @media(max-width:820px){.disc2,.pillrow.c3{grid-template-columns:1fr}}
   @media(max-width:1000px){.cols{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:720px){.cards,.cards.c3,.estgrid,.pkgs,.two,.three{grid-template-columns:1fr}}
   /* ---- proposal preview: the document as the client will read it ---- */
@@ -693,7 +542,7 @@ function rowHtml(x){
    <button class="ic" title="Branded PDF" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄</button>
    <button class="ic" title="Word copy" onclick="location.href='/sales/builder/api/quotes/${x.id}/docx'">📝</button>
    <button class="ic" title="Duplicate as new quote" onclick="dupQuote(${x.id})">📋</button>
-   ${x.status==='Approved'?`<button class="ic gold" title="Convert to IO" onclick="openConvert(${x.id})">🔁</button>`:""}
+   ${x.status!=='Converted'?`<button class="ic gold" title="${x.status==='Approved'?'Convert to IO':'Convert to IO — this quote is '+x.status.toLowerCase()+', so check it is agreed first'}" onclick="openConvert(${x.id})">🔁</button>`:""}
   </div></td></tr>`;
 }
 function uploadedRowHtml(x){
@@ -757,7 +606,13 @@ function drawRows(){
  const tb=document.getElementById('rows');if(!tb)return;
  tb.innerHTML=merged.map(r=>r.html).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
 }
-function quickConvert(){const c=LIST.filter(x=>x.status==='Approved');if(!c.length){toast("No approved proposals yet — mark a quote Approved first, then convert it.");return;}openConvert(c[0].id);}
+function quickConvert(){
+ const approved=LIST.filter(x=>x.status==='Approved');
+ const any=LIST.filter(x=>x.status!=='Converted');
+ const pick=approved[0]||any[0];
+ if(!pick){toast("Nothing to convert yet — build a proposal first.");return;}
+ if(!approved.length)toast("No approved proposal yet — opening the most recent. Check it is agreed before you write the IO.");
+ openConvert(pick.id);}
 async function aiDraft(){
  const v=(document.getElementById('aiAsk').value||"").trim();
  if(!v){toast("Type what you need — e.g. \"$6k/mo for an HVAC company in Carmel, lead gen\"");return;}
@@ -939,6 +794,7 @@ async function editQuote(id){
 }
 function editLoaded(q){
  S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;step=0;_lastStep=-1;
+ S.growth=q.growth||null;
  // A quote saved before multi-area targeting has its geography only in
  // geoType/geo/radius. The server already converted it (hub/target_areas
  // from_legacy) and sends the result, so re-opening an old quote shows its
@@ -956,8 +812,14 @@ async function saveNow(extra){
  try{S.creativeSummary=creativeSummary();}catch(e){}
  setSave("Saving…");
  try{
-  if(!QUOTE_ID){const d=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});QUOTE_ID=d.quote.id;QUOTE_NUMBER=d.quote.quote_number;}
-  else await api('/sales/builder/api/quotes/'+QUOTE_ID,{method:'PUT',body:JSON.stringify(Object.assign({data:S},extra||{}))});
+  /* growth is computed by the server, not stored on the quote's data. Kept
+     off S's saved shape deliberately: it is derived from the plan, the
+     packages and the discovery answers, and a stale copy of it would be a
+     recommended budget that no longer matches the plan it sits under. */
+  let saved=null;
+  if(!QUOTE_ID){saved=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});QUOTE_ID=saved.quote.id;QUOTE_NUMBER=saved.quote.quote_number;}
+  else saved=await api('/sales/builder/api/quotes/'+QUOTE_ID,{method:'PUT',body:JSON.stringify(Object.assign({data:S},extra||{}))});
+  if(saved&&saved.quote&&saved.quote.growth)S.growth=saved.quote.growth;
   setSave("✓ Saved "+(QUOTE_NUMBER||""));drawQuoteTag((QUOTE_NUMBER?QUOTE_NUMBER+" · ":"")+"autosaving");
  }catch(e){setSave("⚠ Not saved: "+e.message);}
 }
@@ -977,20 +839,35 @@ const DISCOVERY_QUESTIONS=[
  {key:"retargeting",label:"Retargeting visitors to their website?"},
  {key:"aiOptimized",label:"Optimizing for AI search (AI Overviews, ChatGPT)?"},
  {key:"websiteHappy",label:"Happy with their website?"},
+ {key:"reputation",label:"Managing reviews and reputation?"},
+ {key:"email",label:"Running email campaigns?"},
+ {key:"chat",label:"Chat widget on the site?"},
+ {key:"callTracking",label:"Tracking inbound calls?"},
+ {key:"texting",label:"Texting customers?"},
 ];
 const SUGGESTION_RULES=[
- {key:"retargeting",when:["No","Unknown"],title:"Retarget the people who already visited",
+ {key:"retargeting",when:["No", "Unknown"],title:"Retarget the people who already visited",
   detail:"Someone who has already been to the site is the cheapest conversion available and the easiest audience to reach again. Website retargeting runs at $4.75 CPM on the card and needs only a pixel on the site."},
- {key:"aiOptimized",when:["No","Unknown"],title:"Get the site readable by AI search",
-  detail:"Search is turning into an answer engine — AI Overviews, ChatGPT and Siri increasingly answer instead of linking. Being cited needs accurate schema markup, fast pages and clean directory listings across the local platforms."},
+ {key:"aiOptimized",when:["No", "Unknown"],title:"Get the site readable by AI search",
+  detail:"Search is turning into an answer engine \u2014 AI Overviews, ChatGPT and Siri increasingly answer instead of linking. Being cited needs accurate schema markup, fast pages and clean directory listings across the local platforms."},
  {key:"websiteHappy",when:["No"],title:"Fix the page the media points at",
-  detail:"Paid media cannot outrun a landing page that does not convert — it just buys more people to lose. If they are not happy with the site, that is the first thing to fix, before the budget scales."},
- {key:"seo",when:["No","Unknown"],title:"Claim the organic and map results",
+  detail:"Paid media cannot outrun a landing page that does not convert \u2014 it just buys more people to lose. If they are not happy with the site, that is the first thing to fix, before the budget scales."},
+ {key:"seo",when:["No", "Unknown"],title:"Claim the organic and map results",
   detail:"Paid media stops the day the budget stops. Local listings and organic visibility compound, and they feed the same review and ranking signals AI search reads."},
  {key:"paidSearch",when:["No"],title:"Capture the demand already searching",
-  detail:"Everything else in this plan creates demand. Paid search catches the people who already have it and are typing the words right now — usually the lowest cost per lead on the plan."},
+  detail:"Everything else in this plan creates demand. Paid search catches the people who already have it and are typing the words right now \u2014 usually the lowest cost per lead on the plan."},
  {key:"paidSocial",when:["No"],title:"Re-engage in feed",
   detail:"Paid social is where an audience that has met the brand once gets met again, cheaply, with a different message."},
+ {key:"callTracking",when:["No", "Unknown"],title:"Count the calls the media produces",
+  detail:"A local campaign's best leads arrive as phone calls, and an untracked call is a conversion the report cannot show. Without it the plan gets judged on the half of the response that happens to leave a form fill behind."},
+ {key:"reputation",when:["No", "Unknown"],title:"Get the reviews working for the ads",
+  detail:"Star rating is the first thing a click sees and it feeds the same local signals AI search reads. Media pointed at a three-star listing pays more for every conversion it gets."},
+ {key:"chat",when:["No"],title:"Answer the visitors who will not fill in a form",
+  detail:"Chat catches the people who want an answer now and would otherwise leave. It is the cheapest lift available to a landing page that traffic is already being bought for."},
+ {key:"texting",when:["No"],title:"Reply the way the lead expects",
+  detail:"Speed to lead decides most local sales, and a text is answered where a voicemail is not. The Suite already holds the numbers the campaign produces."},
+ {key:"email",when:["No"],title:"Use the list they already own",
+  detail:"Email reaches people who have already bought or enquired, at no media cost per impression. It is the one channel here that does not need a budget to reach an audience."},
 ];
 const TRADITIONAL_SUGGESTION={
  supplement:{key:"traditional",title:"Make the traditional buy measurable",
@@ -1012,6 +889,14 @@ function restoreSuggestions(){S.suggestDismissed=[];saveSoon();renderStep();}
 function traditionalReady(){
  const t=S.traditional||{};
  return t.running!=="Yes"||["supplement","shift"].includes(t.posture);}
+/* Every discovery answer is required. A blank was reaching the proposal as
+   though the client simply did not do that thing -- which is a different
+   claim from "we did not ask". Unknown is on the form precisely so there is
+   an honest answer available when nobody knows. */
+function discoveryUnanswered(){
+ return DISCOVERY_QUESTIONS.filter(q=>!["Yes","No","Unknown"].includes((S.mkt||{})[q.key]));}
+function discoveryReady(){
+ return discoveryUnanswered().length===0&&!!(S.traditional||{}).running&&traditionalReady();}
 
 /* ============================================================
    CREATIVE GATE — mirrors hub/creative_needs.py exactly
@@ -1019,6 +904,28 @@ function traditionalReady(){
    a set of six banners is a $250 line off the rate card, while a :30 spot
    that does not exist is a launch date nobody can hit.
    ============================================================ */
+/* ============================================================
+   THE JOINT MINIMUM RULE
+   Mirrors hub/rate_card.py. One table for the proposal and the insertion
+   order alike -- these used to be two rules nobody had compared, the
+   proposal checking a category table while the IO derived a floor from each
+   product's listed rate, so the same line could pass one document and be
+   refused by the other after the client had already seen the number.
+   test_proposal_spec.py asserts this mirror still matches Python.
+   ============================================================ */
+const MIN_MONTHLY_DEFAULT=500;
+const MIN_BY_CATEGORY={"DIGITAL RADIO": 1000, "IP TARGETS": 1000, "OTT": 1500, "SEARCH ENGINE MARKETING / PAY PER CLICK": 400, "SEARCH ENGINE OPTIMIZATION": 500};
+const MIN_BY_PRODUCT={};
+/* The line's own category wins: "Programmatic - Targeted" exists under both
+   DIGITAL RADIO and DISPLAY and carries a different floor in each. */
+function minimumFor(product,category){
+ const n=String(product||"").trim().toLowerCase();
+ if(MIN_BY_PRODUCT[n]!==undefined)return MIN_BY_PRODUCT[n];
+ const c=String(category||"").trim().toUpperCase();
+ if(MIN_BY_CATEGORY[c]!==undefined)return MIN_BY_CATEGORY[c];
+ return MIN_MONTHLY_DEFAULT;
+}
+
 const COMP_CONFIRM_UNDER=1500;
 const TYPICAL_PRODUCTION={video:750,audio:250};
 const MEDIUM_LABEL={video:"Video (CTV, streaming, YouTube, pre-roll)",
@@ -1101,10 +1008,25 @@ function areaComplete(a){
  if(a.type==="Other")return !!((a.other||"").trim()||(a.zips||"").trim());
  return !!(a.origin||"").trim();}
 function areaZips(a){return String((a&&a.zips)||"").match(/\b\d{5}\b/g)||[];}
+/* People per square mile inside a radius, mirroring hub/target_areas.py.
+   This was a flat 900 -- roughly a county average -- but a radius is drawn on
+   a city, deliberately centred on where the people are, so every campaign's
+   reach read low. Density falls as the radius grows because a bigger circle
+   keeps reaching into land nobody lives on.
+
+   A step table rather than a curve, on purpose: the last two times this
+   arithmetic disagreed with Python it was floating point (3.14159 vs Math.PI,
+   then int() vs Math.round). Integers off a shared table cannot drift.
+   test_target_areas.py asserts both sides agree. */
+const DENSITY_BY_RADIUS=[[5, 2600], [10, 2100], [25, 1400], [50, 800]];
+const DENSITY_BEYOND=500;
+function densityFor(r){
+ for(const [limit,density] of DENSITY_BY_RADIUS)if(r<=limit)return density;
+ return DENSITY_BEYOND;}
 function areaPopulation(a){
  if(!a)return null;
  if(+a.population>0)return +a.population;
- if(a.type==="City/ZIP + Radius"){const r=+a.radius||0;return r>0?Math.round(Math.PI*r*r*900):null;}
+ if(a.type==="City/ZIP + Radius"){const r=+a.radius||0;return r>0?Math.round(Math.PI*r*r*densityFor(r)):null;}
  if(a.type==="DMA")return a.dma?1200000:null;
  if(a.type==="Statewide")return 6500000;
  if(a.type==="National")return 335000000;
@@ -1175,7 +1097,16 @@ function recommendItems(){
  applySeeds();}
 function guardrailsJs(){
  const warns=[];
- S.items.forEach(i=>{if((i.category||"").includes("SEARCH ENGINE MARKETING")&&i.dollars>0&&i.dollars<1500)warns.push("Search budget "+money(i.dollars)+"/mo is below the $1,500 monthly minimum.");});
+ /* The joint rule, not a third opinion. This line used to hold paid search
+    to $1,500 while hub/rate_card.py said $500 and the IO derived its own
+    floor from the listed rate -- three numbers for one question, and the
+    strictest of them blocked campaigns the IO would have written happily.
+    Paid search is now $400 in one place and every document reads it there. */
+ S.items.forEach(i=>{
+  const min=minimumFor(i.product,i.category);
+  if(i.dollars>0&&i.dollars<min)
+   warns.push((i.product||i.category||"That product")+" at "+money(i.dollars)+"/mo is below its "+money(min)+" monthly minimum — the IO will not accept it.");
+ });
  if(S.months<3)warns.push("Campaign term under 3 months — most Smart 1 programs need 3+ months to optimize.");
  if(S.items.length>4&&S.budget/Math.max(S.items.length,1)<750)warns.push("Budget is split across many products — consider fewer products for impact.");
  if((S.creativeSource||"").startsWith("Smart 1")&&!S.creativeFee)warns.push("Smart 1 is building creative but no creative fee is set.");
@@ -1201,6 +1132,7 @@ const PROPOSAL_OUTLINE=[
  {id:"kpis",title:"How We Measure Success",kind:"kpis",purpose:"The metrics we are judged on."},
  {id:"roi",title:"Expected Results & ROI",kind:"roi",purpose:"What the money buys, computed from the rate card. Required."},
  {id:"next",title:"Next Steps",kind:"text",purpose:"Sign, onboard, kick off."},
+ {id:"zips",title:"ZIP Codes Targeted",kind:"zips",purpose:"The trafficking reference — every ZIP each area covers. Generated, and last on purpose."},
 ];
 const REQUIRED_SECTIONS=["roi","mediaplan","packages"];
 const SUITE_TIERS=[
@@ -1258,7 +1190,7 @@ function landingRec(){const g=S.objectives;
 
 /* helper renderers */
 function card(em2,t,d,on,click){return `<div class="choice${on?' on':''}" onclick="${click}"><div class="em">${em2}</div><div><h3>${t}</h3><p>${d}</p></div><div class="tick"></div></div>`;}
-function pillRow(list,arr,kind){return '<div>'+list.map(v=>`<span class="pill${arr.includes(v)?' on':''}" onclick="pill('${kind}',this.dataset.v)" data-v="${esc(v)}">${esc(v)}</span>`).join('')+'</div>';}
+function pillRow(list,arr,kind,cls){return '<div class="pillrow'+(cls?' '+cls:'')+'">'+list.map(v=>`<span class="pill${arr.includes(v)?' on':''}" onclick="pill('${kind}',this.dataset.v)" data-v="${esc(v)}">${esc(v)}</span>`).join('')+'</div>';}
 function opt(list,cur){return list.map(x=>`<option ${cur===x?'selected':''}>${esc(x)}</option>`).join('');}
 function seg(label,key){
  // "__traditional" is the one question that does not live on S.mkt: its
@@ -1321,12 +1253,23 @@ function areaEditorStep(){
    ${a.type==="Statewide"?`<div class="fld"><label>State</label><input value="${esc(a.state||'')}" oninput="setArea('state',this.value)" placeholder="Indiana"></div>`:''}
    ${a.type==="Other"?`<div class="fld"><label>Describe the area</label><input value="${esc(a.other||'')}" oninput="setArea('other',this.value)" placeholder="Six-county service territory"></div>`:''}
    ${a.type==="National"?'<div></div>':''}</div>
-  ${a.type==="City/ZIP + Radius"?`<div class="two">
-   <div class="fld"><label>Radius (miles)</label><input type="number" min="1" value="${a.radius||10}" oninput="setArea('radius',Math.max(1,+this.value));drawAreaEst()" style="max-width:160px"></div>
-   <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" id="zipBtn" onclick="lookupZips()">📍 Find the ZIP Codes this radius touches</button></div></div>`:''}
-  ${(a.type==="City/ZIP + Radius"||a.type==="Other")?`<div class="fld"><label>ZIP Codes for this area (optional — the IO needs them before trafficking)</label>
-   <textarea style="min-height:70px" oninput="setArea('zips',this.value);drawAreaEst()" placeholder="46032, 46033, 46074…">${esc(a.zips||'')}</textarea>
-   <div class="note" id="zipNote" style="margin-top:5px"></div></div>`:''}
+  ${a.type==="City/ZIP + Radius"?`<div class="fld"><label>Radius (miles)</label><input type="number" min="1" value="${a.radius||10}" oninput="setArea('radius',Math.max(1,+this.value));drawAreaEst()" style="max-width:160px"></div>`:''}
+  ${(a.type==="City/ZIP + Radius"||a.type==="Other")?(()=>{
+   /* Finding the ZIPs is an action, and the list itself is reference. It used
+      to be an always-open textarea of a hundred five-digit numbers sitting
+      between the radius and the notes, which buried the rest of the step.
+      The list lives at the foot of the proposal now; here it is a count, a
+      button, and an editor behind a toggle for the times it needs correcting. */
+   const z=areaZips(a);
+   return `<div class="bpanel" style="margin-top:12px"><div class="ttl">📍 ZIP Codes for this area</div>
+    <div class="note" style="margin-top:4px">${z.length
+      ? '<b>'+z.length+' ZIP Code'+(z.length===1?'':'s')+'</b> captured. They print at the back of the proposal and travel to the insertion order.'
+      : 'None yet. The insertion order needs them before trafficking.'}</div>
+    <div class="addrow" style="margin-top:9px">
+     ${a.type==="City/ZIP + Radius"?`<button class="btn ${z.length?'btn-line':'btn-primary'}" id="zipBtn" onclick="lookupZips()">📍 ${z.length?'Find them again':'Find the ZIP Codes this radius touches'}</button>`:''}
+     <button class="btn btn-ghost" onclick="S._zipEdit=!S._zipEdit;renderStep()">${S._zipEdit?'✓ Done':'✎ Enter or edit them by hand'}</button></div>
+    ${S._zipEdit?`<div class="fld" style="margin-top:10px"><textarea style="min-height:70px" oninput="setArea('zips',this.value);drawAreaEst()" placeholder="46032, 46033, 46074…">${esc(a.zips||'')}</textarea></div>`:''}
+    <div class="note" id="zipNote" style="margin-top:5px"></div></div>`;})():''}
   ${a.type==="Other"?`<div class="fld"><label>Approximate population (optional)</label><input type="number" value="${a.population||''}" oninput="setArea('population',+this.value||0);drawAreaEst()" style="max-width:220px"><div class="note" style="margin-top:5px">Without this, an "Other" area is reported as not measured rather than being guessed at.</div></div>`:''}
   <div class="fld"><label>Notes for this area (optional)</label>
    <input value="${esc(a.notes||'')}" oninput="setArea('notes',this.value)" placeholder="Weekend traffic only · competitor conquesting · new location opening in March"></div>
@@ -1415,6 +1358,244 @@ async function lookupZips(){
  }catch(e){toast("ZIP lookup failed: "+e.message);}
  finally{const bb=document.getElementById('zipBtn');if(bb){bb.disabled=false;bb.textContent='📍 Find the ZIP Codes this radius touches';}}}
 
+  /* ============================================================
+   PROPOSAL PREVIEW
+   The document as the client will read it. Every section renders the same
+   content the PDF will: prose where the section is prose, the real table
+   where it is a table. A section can be edited in place, rewritten by the
+   AI, or hidden -- and the media plan can be re-costed here rather than
+   sending the rep back three steps to change one budget.
+   ============================================================ */
+function drawPreview(){
+ const host=document.getElementById('docPreview');if(!host)return;
+ const e=S.estimates||estimates();
+ host.innerHTML=`<div class="paperdoc">
+  <div class="docband">SMART 1 MARKETING</div>
+  <h2 class="doctitle">Marketing Proposal — ${esc(S.client||'Client')}</h2>
+  <div class="docsub">${esc(QUOTE_NUMBER||'Draft')} · ${esc(new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}))}${S.salesContact?' · Prepared by '+esc(S.salesContact):''}</div>
+  ${S.sections.map((sec,i)=>previewSection(sec,i,e)).join('')}
+ </div>`;}
+function previewSection(sec,i,e){
+ const req=isRequired(sec);
+ const editing=S._editSec===sec.id;
+ const tools=`<div class="dtools">
+   <button class="ic" title="${editing?'Done editing':'Edit this section'}" onclick="toggleEditSec('${sec.id}')">${editing?'✓':'✎'}</button>
+   <button class="ic" title="Rewrite with AI" onclick="rewriteSecById('${sec.id}')">✨</button>
+   <button class="ic" title="${req?'Required — every Smart 1 proposal includes this':(sec.enabled?'Hide from the proposal':'Show in the proposal')}" ${req?'disabled style="opacity:.3;cursor:not-allowed"':''} onclick="${req?'':`toggleSec('${sec.id}')`}">${sec.enabled?'👁':'🚫'}</button>
+  </div>`;
+ if(!sec.enabled)
+  return `<div class="docsec off"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
+   <div class="note">Hidden — this section will not appear in the PDF.</div></div>`;
+ const body=editing
+  ? `<textarea class="dedit" oninput="S.sections[${i}].body=this.value;saveSoon()" placeholder="${sec.kind==='text'?'Section copy…':'Short intro above the table…'}">${esc(sec.body||'')}</textarea>`
+  : (sec.body?`<div class="dbody">${esc(sec.body).replace(/\n/g,'<br>')}</div>`
+             :`<div class="note dempty">No copy yet — ✨ writes it, or ✎ to type it.</div>`);
+ return `<div class="docsec"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
+  ${body}${previewTable(sec,e)}</div>`;}
+
+/* The generated tables, rendered as the PDF renders them. These are never
+   editable text: they are computed from the campaign, and a proposal whose
+   prose and tables disagree is the failure the whole spec is built around. */
+function previewTable(sec,e){
+ const k=sec.kind;
+ if(k==="areas"){const rows=(S.targetAreas||[]).filter(areaComplete);if(!rows.length)return '';
+  return dtable(["Target area","Coverage","Est. population"],rows.map(a=>{
+   const pop=areaPopulation(a),z=areaZips(a);
+   return [esc(areaLabel(a)),esc(a.notes||(z.length?z.length+" ZIP Codes":a.type)),pop?fmt(pop):"<b>Not measured</b>"];}));}
+ if(k==="reach")return dgrid([["Est. population",e.measured?fmt(e.pop):"—"],["Addressable audience",e.measured?fmt(e.aud):"—"],["Households",e.measured?fmt(e.hh):"—"],["Devices",e.measured?fmt(e.dev):"—"]]);
+ if(k==="friction"){const picks=suggestions();if(!picks.length)return '';
+  return dtable(["We suggest they should","Why"],picks.map(pk=>[esc(pk.title),esc(pk.detail)]));}
+ if(k==="channels"){if(!S.items.length)return '';
+  return dtable(["Channel","Role in the funnel","Primary KPI"],S.items.map(it=>{const r=channelRole(it);return [esc(it.product),esc(r[0]),esc(r[1])];}));}
+ if(k==="creative"){const rows=creativeRows();if(!rows.length)return '';
+  return dtable(["Medium","Campaign spend","Creative"],rows.map(r=>[esc(r.label),money(r.spend),esc(creativePhrase(r))]));}
+ if(k==="timeline")return dtable(["Phase","What happens"],TIMELINE_PHASES.map(t=>[esc(t[0])+"<br>"+esc(t[1]),esc(t[2])]));
+ if(k==="kpis")return S.kpis.length?`<div class="dnote">KPIs: ${esc(S.kpis.join(', '))}</div>`:'';
+ if(k==="mediaplan")return mediaPlanEditor();
+ if(k==="packages")return investmentTable();
+ if(k==="roi")return roiTable();
+ if(k==="growth")return growthTable();
+ if(k==="zips"){
+  /* Every ZIP, at the back of the document. Trafficking cannot launch
+     without this list and nobody reads it in the middle of the strategy. */
+  const rows=(S.targetAreas||[]).filter(areaComplete).map(a=>[a,areaZips(a)]).filter(r=>r[1].length);
+  if(!rows.length)return '<div class="dnote">No ZIP Codes captured yet. Find them on the target-area step — the insertion order needs them before trafficking.</div>';
+  return dtable(["Target area","ZIP Codes"],rows.map(([a,z])=>
+   [esc(areaLabel(a))+'<br><span style="color:var(--muted)">'+z.length+' ZIP Code'+(z.length===1?'':'s')+'</span>',
+    '<span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.7">'+z.map(esc).join(", ")+'</span>']));}
+ return '';}
+/* Recommended budgets: what "more" looks like, editable here.
+
+   Neither column invents a number. Raising a line quotes the Accelerated
+   package already printed two sections above; adding one quotes the rate
+   card's own monthly minimum for that product -- the smallest honest figure
+   rather than a guess at what they might spend. A product with no card entry
+   is offered to be quoted rather than given a price nobody can stand behind.
+
+   The server computes all of it (growth_options in app.py). This renders what
+   it returned and writes any edit back onto the quote, so the proposal, the
+   PDF and the Word copy all show the same figures. */
+function growthRows(){return (S.growth&&S.growth.any)?S.growth:null;}
+function growthTable(){
+ const g=growthRows();
+ if(!g||!g.any)return '<div class="dnote">Nothing to recommend beyond the plan above — every product the discovery answers pointed at is already on it.</div>';
+ const months=g.months||1;
+ let html='';
+ if(g.increases.length){
+  html+='<div class="dnote" style="margin-top:10px"><b>Raise a budget already on the plan</b></div>'
+   +`<table class="dtbl"><thead><tr><th>Product</th><th style="text-align:right">Quoted</th><th style="text-align:right">Recommended</th><th style="text-align:right">More per month</th><th style="text-align:right">Over ${months} mo</th><th></th></tr></thead><tbody>`
+   +g.increases.map(r=>`<tr>
+     <td><b>${esc(r.product)}</b>${r.custom?' <span style="color:var(--muted);font-size:10.5px">edited</span>':''}</td>
+     <td style="text-align:right">${money(r.current)}</td>
+     <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${r.suggested}" onchange="setGrowth('inc:${esc(r.product)}',+this.value)"></td>
+     <td style="text-align:right">${money(r.uplift)}</td>
+     <td style="text-align:right">${money(r.campaign)}</td>
+     <td><button class="x" title="Do not offer this" onclick="dropGrowth('inc:${esc(r.product)}')">✕</button></td></tr>`).join('')
+   +`<tr class="dtot"><td colspan="3">Additional monthly</td><td style="text-align:right">${money(g.increase_monthly)}</td><td style="text-align:right">${money(g.increase_monthly*months)}</td><td></td></tr></tbody></table>`;
+ }
+ if(g.additions.length){
+  html+='<div class="dnote" style="margin-top:14px"><b>Add what the discovery answers pointed at</b></div>'
+   +`<table class="dtbl"><thead><tr><th>Product</th><th>Why</th><th style="text-align:right">From</th><th style="text-align:right">Over ${months} mo</th><th></th></tr></thead><tbody>`
+   +g.additions.map(r=>`<tr>
+     <td><b>${esc(r.product)}</b>${r.category?'<br><span style="color:var(--muted);font-size:11px">'+esc(r.category)+'</span>':''}</td>
+     <td>${esc(r.why||'')}</td>
+     <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${r.suggested||''}" placeholder="quote" onchange="setGrowth('add:${esc(r.product)}',+this.value)"></td>
+     <td style="text-align:right">${r.quoted?money(r.campaign):'<span style="color:var(--muted)">to be quoted</span>'}</td>
+     <td><button class="x" title="Do not offer this" onclick="dropGrowth('add:${esc(r.product)}')">✕</button></td></tr>`).join('')
+   +`</tbody></table>`;
+ }
+ const dropped=(S.growthDropped||[]).length;
+ if(dropped)html+=`<div class="dnote" style="margin-top:8px">${dropped} option${dropped===1?'':'s'} removed. <a onclick="S.growthDropped=[];saveNow();refreshGrowth()" style="cursor:pointer;color:var(--blue);font-weight:700">Restore</a></div>`;
+ html+='<div class="dnote" style="margin-top:8px">Figures a client can act on without a new proposal. Raising a line uses the Accelerated option above; adding one starts at the rate card minimum.</div>';
+ return html;}
+function setGrowth(key,value){
+ S.growthEdits=Object.assign({},S.growthEdits,{[key]:value});
+ saveNow();refreshGrowth();}
+function dropGrowth(key){
+ S.growthDropped=(S.growthDropped||[]).concat([key]);
+ saveNow();refreshGrowth();}
+/* The server owns the arithmetic, so an edit round-trips rather than being
+   recomputed here -- otherwise the preview and the PDF would each carry their
+   own version of the same sum. */
+async function refreshGrowth(){
+ try{
+  const d=await api('/sales/builder/api/quotes/'+QUOTE_ID,{method:'PUT',body:JSON.stringify({data:S})});
+  if(d.quote&&d.quote.growth)S.growth=d.quote.growth;
+ }catch(e){}
+ drawPreview();}
+
+function dtable(head,rows){
+ return `<table class="dtbl"><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`
+  +rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')+`</tbody></table>`;}
+function dgrid(pairs){
+ return `<div class="dgrid">${pairs.map(p=>`<div><b>${p[1]}</b><span>${esc(p[0])}</span></div>`).join('')}</div>`;}
+const TIMELINE_PHASES=[
+ ["Weeks 1–2","Setup & Onboarding","Admin access collected, tracking pixels placed, conversion actions defined, audience and geography built, Smart 1 Suite provisioned."],
+ ["Weeks 3–4","Production & Integration","Creative produced or supplied and approved, landing pages reviewed, workflow automations mapped in the Smart 1 Suite, tracking verified end to end before a cent is spent."],
+ ["Month 2+","Execution & Scaling","Campaigns live, weekly pacing and bid optimisation, creative performance checks, budget shifted toward what proves out, first full performance review delivered."]];
+function channelRole(it){
+ const c=String(it.category||"").toUpperCase(),m=mediumOf(it);
+ if(/SEARCH ENGINE MARKETING|PAY PER CLICK/.test(c))return ["Bottom of funnel — captures demand that is already searching","Cost per lead and conversion rate"];
+ if(/SEARCH ENGINE OPTIMIZATION/.test(c))return ["Compounding — organic and AI-answer visibility","Ranked terms, map-pack visibility and organic leads"];
+ if(/RETARGETING/.test(c))return ["Bottom of funnel — brings back the people who already came","Return visits and cost per conversion"];
+ if(m==="video")return ["Top of funnel — builds awareness and trust on the screens the household already watches","Completed views and completion rate"];
+ if(m==="audio")return ["Mid funnel — reaches the 79% of digital audio time spent with no screen at all","Reach, frequency and listen-through"];
+ if(m==="social")return ["Mid funnel — consideration and re-engagement in feed","Engaged sessions and cost per lead"];
+ if(m==="display")return ["Full funnel — precision targeting and retargeting against the people already in market","Click-through rate and cost per action"];
+ return ["Supports the campaign","Cost per action"];}
+function creativePhrase(r){
+ if(r.answer==="has")return "Supplied by the client";
+ if(r.answer==="client")return "Produced by Smart 1 — "+money(r.fee)+" one-time";
+ if(r.answer==="comp")return "Produced by Smart 1 at no charge";
+ return "To be confirmed before launch";}
+
+/* The media plan is editable here: budgets, deletions and additions, without
+   walking back three steps to change one number. */
+function mediaPlanEditor(){
+ const months=Math.max(1,+S.months||1);
+ return `<table class="dtbl editable"><thead><tr><th>Product</th><th>Category</th><th>Rate</th><th style="text-align:right">Monthly</th><th style="text-align:right">Total (${months} mo)</th><th></th></tr></thead><tbody>`
+  +S.items.map((it,ix)=>`<tr>
+    <td><b>${esc(it.product)}</b></td><td>${esc(it.category)}</td>
+    <td>${esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
+    <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)"></td>
+    <td style="text-align:right">${money((it.dollars||0)*months)}</td>
+    <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`).join('')
+  +`<tr class="dtot"><td colspan="3">Campaign total</td>
+     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))}</td>
+     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)}</td><td></td></tr>`
+  +`</tbody></table>
+   <div class="addrow" style="margin-top:8px"><select id="pvAddCat">${productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')}</select>
+    <button class="btn btn-ghost" onclick="previewAddItem()">+ Add product</button>
+    <span class="note" style="margin:0">Changing the plan here re-costs the packages, the ROI table and the creative gate.</span></div>
+   ${previewGuards()}`;}
+function previewSetDollars(ix,v){
+ S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
+ const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
+ S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
+ buildPackages();S.aiEst=S.aiEst;saveSoon();drawPreview();}
+function previewRemoveItem(ix){
+ const it=S.items[ix];
+ if(!confirm('Remove "'+(it.product||'this product')+'" from the media plan?'))return;
+ S.items.splice(ix,1);applySeeds();buildPackages();saveSoon();drawPreview();}
+function previewAddItem(){
+ const cat=document.getElementById('pvAddCat').value,p=findProduct(cat)||{};
+ if(S.items.some(i=>i.category===cat)){toast("That category is already in the mix.");return;}
+ S.items.push({label:p.label,category:cat,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,pctSeed:15,dollars:0});
+ applySeeds();buildPackages();saveSoon();drawPreview();
+ toast("Added — set its monthly budget.");}
+function previewGuards(){
+ const g=guardrailsJs(),need=creativeUnresolved();
+ let h='';
+ if(g.length)h+=`<div class="warnbox" style="margin-top:10px"><b>🛡 Guardrails</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`;
+ if(need.length)h+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
+  +need.map(m=>esc(MEDIUM_LABEL[m].split(" (")[0])+" is in the plan and no spot has been confirmed.").join("<br>")+`</div>`;
+ return h;}
+function investmentTable(){
+ const t=chosenTier(),media=S.items.reduce((a,b)=>a+(+b.dollars||0),0)||+((S.selectedPackage||{}).monthly||S.budget||0);
+ const fees=creativeFees(),months=Math.max(1,+S.months||1);
+ const recur=t.monthly+media,rows=[
+  ["Smart 1 Suite — "+t.name,money(t.monthly),"Monthly"],
+  ["Media spend",money(media),"Monthly"]];
+ if(fees)rows.push(["Creative production",money(fees),"One-time"]);
+ rows.push(["Total first month",money(recur+fees),""]);
+ rows.push(["Total campaign ("+months+" mo)",money(recur*months+fees),""]);
+ return dtable(["","Amount","Recurs"],rows.map(r=>[esc(r[0]),r[1],esc(r[2])]));}
+function roiTable(){
+ const months=Math.max(1,+S.months||1);
+ let impr=0,views=0;const unpriced=[];
+ const rows=S.items.map(it=>{
+  const d=+it.dollars||0;let units=null,label="";
+  if(it.rate==="CPM"&&it.rateValue>0){units=Math.round(d/it.rateValue*1000);label="impressions/month";impr+=units*months;}
+  else if(it.rate==="CPV"&&it.rateValue>0){units=Math.round(d/it.rateValue);label="views/month";views+=units*months;}
+  else unpriced.push(it.product);
+  return [esc(it.product),money(d),money(d*months),units?fmt(units)+" "+label:"Not impression-based"];});
+ if(!rows.length)return '';
+ const bits=[];if(impr)bits.push(fmt(impr)+" impressions");if(views)bits.push(fmt(views)+" video views");
+ rows.push(["<b>Campaign total</b>","<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))+"</b>",
+            "<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)+"</b>","<b>"+(bits.join(" · ")||"—")+"</b>"]);
+ let h=dtable(["Product","Monthly","Campaign ("+months+" mo)","Estimated delivery"],rows);
+ if(unpriced.length)h+=`<div class="dnote">Not in the delivery totals (no impression-based rate): ${esc(unpriced.join(', '))}.</div>`;
+ const t=(S.traditional||{});
+ if(t.running==="Yes"&&t.posture)h+=`<div class="dnote">${t.posture==="shift"
+   ?"Every figure above is attributable to the channel that produced it. That is the difference worth weighing against the traditional spend."
+   :"These figures cover the digital portion of the plan; they sit alongside the traditional buy rather than replacing it."}</div>`;
+ return h;}
+function toggleEditSec(id){S._editSec=S._editSec===id?null:id;saveNow();drawPreview();}
+function toggleSec(id){
+ const sec=S.sections.find(x=>x.id===id);if(!sec||isRequired(sec))return;
+ sec.enabled=!sec.enabled;saveSoon();drawPreview();}
+async function rewriteSecById(id){
+ const i=S.sections.findIndex(x=>x.id===id);if(i<0)return;
+ if(!CFG.ai_enabled){toast("AI rewriting needs OPENAI_API_KEY on the server.");return;}
+ toast("✨ Rewriting "+S.sections[i].title+"…");
+ try{
+  const d=await api('/sales/builder/api/ai/draft-sections',{method:'POST',
+   body:JSON.stringify({data:S,section:id})});
+  if(d.sections&&d.sections[id]){S.sections[i].body=d.sections[id];saveNow();drawPreview();
+   toast("✨ "+S.sections[i].title+" rewritten.");return;}
+  toast((d.breaches&&Object.keys(d.breaches).length)?"The rewrite broke a proposal rule and was discarded.":"The AI returned nothing for that section.");
+ }catch(e){toast("Rewrite failed: "+e.message);}}
+
 /* ============================================================
    BUILDER STEPS
    ============================================================ */
@@ -1424,8 +1605,19 @@ const STEPS=[
    valid:()=>S.objectives.length>0}),
 
  ()=>({eyebrow:"Customer & Industry",title:"Tell us about the customer",sub:"Smart 1 builds the business description from the website automatically.",
-   html:`<div class="fld"><label>Client / business name</label><input value="${esc(S.client)}" oninput="S.client=this.value;saveSoon();syncNext()" placeholder="Riverstone Dental Group"></div>
-   <div class="two"><div class="fld"><label>Website</label><input value="${esc(S.url)}" oninput="S.url=this.value;saveSoon()" placeholder="riverstonedental.com"></div>
+   html:`<div class="cards" style="margin-bottom:4px">
+    ${card("🔎","An existing client","Search the client list and attach this proposal to their record",S.clientMode!=="new",`setClientMode('existing')`)}
+    ${card("✨","A new client","Someone we do not have on file yet",S.clientMode==="new",`setClientMode('new')`)}
+   </div>
+   ${S.clientMode!=="new"?`<div class="bpanel"><div class="ttl">🔎 Find the client</div>
+    <div class="addrow" style="margin-top:8px">
+     <input id="clientQ" value="${esc(S._clientQ||'')}" placeholder="Name or website — riverstone, riverstonedental.com" oninput="searchClientsSoon(this.value)" style="flex:1;min-width:220px">
+     <button class="btn btn-ghost" onclick="searchClients(document.getElementById('clientQ').value)">Search</button></div>
+    <div id="clientHits"></div>
+    ${S.clientKey?`<div class="note" style="margin-top:8px;color:#1a6a3c"><b>✓ Attached to ${esc(S.client)}</b>${S.url?' · '+esc(S.url):''} — everything this proposal produces files onto that record. <a onclick="detachClient()" style="cursor:pointer;color:var(--blue);font-weight:700">Change</a></div>`:''}
+   </div>`:''}
+   <div class="fld"><label>Client / business name</label><input value="${esc(S.client)}" oninput="S.client=this.value;S.clientKey='';saveSoon();syncNext()" placeholder="Riverstone Dental Group"></div>
+   <div class="two"><div class="fld"><label>Website</label><input value="${esc(S.url)}" oninput="S.url=this.value;S.clientKey='';saveSoon()" placeholder="riverstonedental.com"></div>
    <div class="fld"><label>Industry</label><select onchange="S.industry=this.value;saveSoon();renderStep()"><option value="">Select…</option>${opt(INDUSTRIES,S.industry)}</select></div></div>
    <div class="bpanel"><div class="ttl">Business description</div>
     <div class="cards" style="margin-top:6px">
@@ -1439,7 +1631,8 @@ const STEPS=[
         ${(S.descriptionWarnings||[]).length?`<div class="warnbox" style="margin-top:8px"><b>⚠ Google would flag this</b>${S.descriptionWarnings.map(w=>esc(w)).join("<br>")}</div>`:''}</div>`
      : `<div class="fld" style="margin-top:12px"><label>Business description</label><textarea oninput="S.description=this.value;saveSoon()" placeholder="Family & cosmetic dentistry, 4.8 stars…">${esc(S.description)}</textarea></div>`}
    </div>`,
-   valid:()=>S.client.trim().length>0}),
+   valid:()=>S.client.trim().length>0&&(S.clientMode==="new"||!!S.clientKey),
+   after:()=>{if(S.clientMode!=="new"&&!S.clientKey&&(S._clientQ||"").trim())drawClientHits();}}),
 
  ()=>{ if(!S.landing)S.landing=landingRec();
    return{eyebrow:"Landing Page",title:"Where does the traffic land?",sub:"Enter the landing page early so Smart 1 can review it before you price the campaign.",
@@ -1457,7 +1650,9 @@ const STEPS=[
  ()=>({eyebrow:"Current Marketing",title:"What are they already doing?",
    sub:"Every answer changes the recommendation. Unknown is a real answer — it means we have not confirmed it.",
    html:`<div class="bpanel"><div class="ttl">📋 What's running today</div>
-    ${DISCOVERY_QUESTIONS.map(q=>seg(q.label,q.key)).join('')}</div>
+    <div class="note" style="margin-top:2px">All twelve need an answer. <b>Unknown</b> is a real one — it says we have not confirmed it, which is different from a no.</div>
+    <div class="disc2">${DISCOVERY_QUESTIONS.map(q=>seg(q.label,q.key)).join('')}</div>
+    ${discoveryUnanswered().length?`<div class="note" style="margin-top:10px;color:#8c2f24"><b>${discoveryUnanswered().length} still unanswered:</b> ${discoveryUnanswered().map(q=>esc(q.label.replace(/\?$/,''))).join(' · ')}</div>`:''}</div>
 
    <div class="bpanel"><div class="ttl">📻 Traditional media</div>
     ${seg("Are they doing traditional media (radio, TV, print, outdoor, direct mail)?","__traditional")}
@@ -1477,11 +1672,11 @@ const STEPS=[
     ${(S.traditional||{}).running==="Unknown"?'<div class="note" style="margin-top:8px">Worth finding out before the proposal goes out: it is usually the largest number in the room.</div>':''}
    </div>
    ${suggestBlock()}`,
-   valid:()=>traditionalReady()}),
+   valid:()=>discoveryReady()}),
 
  ()=>({eyebrow:"Guardrails",title:"Anything to avoid?",sub:"Flag exclusions, negative keywords, or restricted audiences up front (feeds the IO's exclusions field).",
    html:'<div class="bpanel"><div class="ttl">🚫 Exclusions / things to avoid</div>'+
-     pillRow(["Exclude current customers","Exclude competitor staff","No off-hours delivery","Brand-safety sensitive","Avoid certain keywords","Sensitive category (health/legal)","Competitor conquesting OK"],S.exclusions,'exc')+
+     pillRow(["Exclude current customers","Exclude competitor staff","No off-hours delivery","Brand-safety sensitive","Avoid certain keywords","Sensitive category (health/legal)","Competitor conquesting OK"],S.exclusions,'exc','c3')+
      '<div class="addpill"><input id="excIn" placeholder="Add an exclusion…" onkeydown="if(event.key===\'Enter\'){addCustom(\'exc\',\'excIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'exc\',\'excIn\')">+ Add</button></div></div>',
    valid:()=>true}),
 
@@ -1496,6 +1691,19 @@ const STEPS=[
   if(S._areaView==="edit")return areaEditorStep();
   return areaListStep();
  },
+
+ /* Measurement sits ahead of the audience and the media mix on purpose.
+    "Cost per lead" and "cost per store visit" are different campaigns, and
+    deciding how this one will be judged before the products are chosen is
+    what makes the mix answer a question rather than fill a budget. It used
+    to come after the plan was already priced, where it could only describe
+    what had been chosen. */
+ ()=>{ if(S.kpis.length===0)S.kpis=[...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].slice(0,6);
+   return{eyebrow:"Measurement",title:"How will this be judged?",sub:"Set this before the products: what counts as success decides which products belong on the plan.",
+   html:'<div class="bpanel"><div class="ttl">📐 KPIs</div>'+pillRow([...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))],S.kpis,'kpi')+
+     '<div class="addpill"><input id="kpiIn" placeholder="Add a KPI…" onkeydown="if(event.key===\'Enter\'){addCustom(\'kpi\',\'kpiIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'kpi\',\'kpiIn\')">+ Add</button></div></div>'
+     +'<div class="note">These travel onto the insertion order and into the proposal\'s Measurement &amp; Reporting section.</div>',
+   valid:()=>S.kpis.length>0};},
 
  ()=>({eyebrow:"Audience Strategy",title:"Who we target",sub:"Pulled from the industry audience library. Adjust as needed.",
    html:(()=>{const key=INDUSTRY_KEYS[S.industry]||'general';const lib=industryIdeas[key]||industryIdeas.general;
@@ -1540,12 +1748,6 @@ const STEPS=[
     +' per medium gets one confirmation — over the campaign, production usually pays for itself above that.</div>',
    valid:()=>creativeUnresolved().length===0};
  },
-
- ()=>{ if(S.kpis.length===0)S.kpis=[...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].slice(0,6);
-   return{eyebrow:"Measurement",title:"KPI framework",sub:"KPIs come straight from the objective→KPI map. Tune them as needed.",
-   html:'<div class="bpanel"><div class="ttl">📐 KPIs</div>'+pillRow([...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))],S.kpis,'kpi')+
-     '<div class="addpill"><input id="kpiIn" placeholder="Add a KPI…" onkeydown="if(event.key===\'Enter\'){addCustom(\'kpi\',\'kpiIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'kpi\',\'kpiIn\')">+ Add</button></div></div>',
-   valid:()=>S.kpis.length>0};},
 
  ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. Pick the featured one.",
    html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Essential ≈ 70%, Recommended = 100%, Accelerated ≈ 150% of budget. Change the budget or products and these rebuild.</div>'
@@ -1593,7 +1795,12 @@ function renderStep(){
  // because there it means "back out of this area", not "leave the wizard".
  document.getElementById('backBtn').style.visibility=(step===0&&!d.onBack)?'hidden':'visible';
  document.getElementById('nextBtn').textContent=d.nextLabel||(d.isLast?'Finish & back to dashboard':'Continue →');
- if(d.after)d.after();window._valid=d.valid;syncNext();window.scrollTo(0,0);
+ if(d.after)d.after();window._valid=d.valid;syncNext();
+ /* Only when the wizard actually moved. renderStep() is also how a step
+    redraws after an answer -- picking a goal, answering a discovery
+    question, toggling a card -- and scrolling to the top on every one of
+    those threw the rep back to the heading mid-question. */
+ if(window._entering)window.scrollTo(0,0);
 }
 function syncNext(){const b=document.getElementById('nextBtn');if(b)b.disabled=window._valid?!window._valid():false;}
 function nextStep(){
@@ -1657,13 +1864,18 @@ function drawEst(){const e=estimates();const g=document.getElementById('estGrid'
  // An unmeasured campaign shows a dash, not a zero. "0 households" reads as a
  // finding; it is the absence of one.
  const val=n=>S._aiLoading?'—':(e.measured?fmt(n):'—');
- g.innerHTML=`<div class="est${L}"><b>${val(e.pop)}</b><span>Est. population</span></div><div class="est${L}"><b>${val(e.aud)}</b><span>Addressable audience</span></div><div class="est${L}"><b>${val(e.hh)}</b><span>Households</span></div><div class="est${L}"><b>${val(e.dev)}</b><span>Devices</span></div>`;
+ const col=(n,label,key)=>`<div class="est${L}"><b>${val(n)}</b><span>${label} <span data-help="sales_builder.areas.${key}"></span></span></div>`;
+ g.innerHTML=col(e.pop,"Est. population","pop")+col(e.aud,"Addressable audience","aud")
+  +col(e.hh,"Households","hh")+col(e.dev,"Devices","dev");
  const n=document.getElementById('popNote');
  if(n){
   if(S._aiLoading)n.innerHTML='<span class="spin"></span>Smart 1 is sizing '+((S.targetAreas||[]).length>1?'each target area':'this area')+'…';
   else{
    const bits=[];
-   bits.push(e.ai?"✨ Smart 1 AI estimate, per area.":"Built-in estimate — the AI re-estimate sizes each area for real.");
+   bits.push(e.ai?"✨ Smart 1 AI estimate, per area."
+    :"Built-in estimate. A radius is sized on an assumed density that falls as it grows ("
+     +DENSITY_BY_RADIUS.map(d=>d[0]+" mi: "+fmt(d[1])).join(", ")+"/sq mi, "+fmt(DENSITY_BEYOND)
+     +" beyond). Overlapping areas are added, not de-duplicated. The AI re-estimate sizes each area for real.");
    if(e.note)bits.push(e.note);
    if((e.unmeasured||[]).length)bits.push("Not measured: "+e.unmeasured.join(", ")+".");
    n.textContent=bits.join(" ");}}
@@ -1686,6 +1898,67 @@ async function estimateAudienceAI(){
   toast(d.ai?("✨ Smart 1 sized "+d.measured+" area"+(d.measured===1?"":"s")+".")
             :("Sized "+d.measured+" area"+(d.measured===1?"":"s")+" from the built-in model."));
  }catch(e){S.aiEst=null;S._aiLoading=false;drawEst();toast("Couldn't reach the AI ("+e.message+"). Showing the built-in estimate.");}}
+/* ============================================================
+   NEW OR EXISTING CLIENT
+   A proposal typed against a name we already hold under a slightly different
+   spelling is a proposal that files nowhere -- Client 360 shows nothing, the
+   Suite opportunity attaches to a second contact, and the billing audit
+   reports a client with one proposal and no history.
+
+   So the step asks which it is, and searching attaches the real record.
+   `clientKey` is hub/client_key.py's derived key (d:<domain> where there is a
+   URL, n:<name-slug> where there is not) -- carried on the quote so the
+   filing path knows which record this belongs to, never used as a substitute
+   for the name itself.
+   ============================================================ */
+function setClientMode(mode){
+ S.clientMode=mode;
+ if(mode==="new")S.clientKey="";
+ saveSoon();renderStep();}
+function detachClient(){S.clientKey="";saveSoon();renderStep();}
+let _clientTimer=null;
+function searchClientsSoon(q){
+ S._clientQ=q;
+ clearTimeout(_clientTimer);
+ _clientTimer=setTimeout(()=>searchClients(q),260);}
+async function searchClients(q){
+ S._clientQ=q;
+ const host=document.getElementById('clientHits');
+ if(!host)return;
+ if(!String(q||"").trim()){host.innerHTML='';return;}
+ host.innerHTML='<div class="note" style="margin-top:8px"><span class="spin"></span>Searching…</div>';
+ try{
+  const d=await api('/api/clients/search?limit=8&q='+encodeURIComponent(q));
+  S._clientHits=d.clients||[];
+ }catch(e){
+  /* Say it failed. A search that silently returns nothing reads as "this
+     client does not exist", which is how a duplicate record gets created. */
+  host.innerHTML='<div class="warnbox" style="margin-top:8px">Could not search the client list: '+esc(e.message)+'. You can still type the name below.</div>';
+  return;
+ }
+ drawClientHits();}
+function drawClientHits(){
+ const host=document.getElementById('clientHits');if(!host)return;
+ const hits=S._clientHits||[];
+ if(!hits.length){
+  host.innerHTML='<div class="note" style="margin-top:8px">No client matches that. If they are genuinely new, choose <b>A new client</b> above — do not type a name here that we already hold under another spelling.</div>';
+  return;}
+ host.innerHTML='<div style="margin-top:9px">'+hits.map(c=>`
+  <div class="clienthit" onclick="attachClient(${esc(JSON.stringify(JSON.stringify(c)))})">
+   <b>${esc(c.name||'—')}</b>
+   <span>${esc(c.domain||c.url||'no website on file')}${c.product_count?' · '+c.product_count+' product'+(c.product_count===1?'':'s'):''}${c.is_house?' · house account':''}</span>
+  </div>`).join('')+'</div>';}
+function attachClient(raw){
+ let c;try{c=JSON.parse(raw);}catch(e){return;}
+ S.client=c.name||S.client;
+ /* Only overwrite the URL when the record has one. A client on file with no
+    website must not blank a URL the rep has already typed. */
+ if(c.url||c.domain)S.url=c.url||c.domain;
+ S.clientKey=c.key||"";
+ S.clientMode="existing";
+ saveSoon();renderStep();
+ toast("Attached to "+(c.name||"that client")+".");}
+
 async function generateDesc(){
  const b=document.getElementById('descBtn');if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Generating…';}
  try{const d=await api('/sales/builder/api/generate-business-description',{method:'POST',
@@ -1714,8 +1987,37 @@ function drawLanding(){
 function drawItems(){const host=document.getElementById('prodList');if(!host)return;
  host.innerHTML=S.items.map((i,ix)=>{const rateLabel=i.rate?(i.rate+' '+(i.rateValue||'')):'Mgmt/flat';
   return `<div class="prod"><div class="pi">${em(i.category)}</div><div class="grow"><h4>${esc(i.product)}</h4><div class="meta">${esc(i.category)} · ${esc(rateLabel)} · ROI ${esc(CATEGORY_ROI[i.category]||'—')}</div></div>
-  <div class="alloc"><input type="number" min="0" step="50" value="${i.dollars||0}" onchange="setItemDollars(${ix},+this.value)"><small>$ / month</small></div>
-  <button class="x" onclick="rmItem(${ix})">✕</button></div>`;}).join('');}
+  <div class="alloc"><input type="number" min="0" step="50" value="${i.dollars||0}" onchange="setItemDollars(${ix},+this.value)"><small>$ / ${i.basis==="one_time"?"one time":"month"}</small></div>
+  <button class="x" onclick="rmItem(${ix})">✕</button>
+  ${basisRow(i,ix)}</div>`;}).join('');}
+/* Monthly or one-time, and for how long -- asked here for the same reason the
+   IO conversion asks it. A dollar figure on its own has not said which, and
+   the difference is what gets billed: a $3,000 line read as monthly over six
+   months is $18,000 the client never agreed to.
+
+   Most lines are monthly for the whole flight, so that is the default and the
+   question only takes a click when it is wrong. A one-time cost is spread
+   across the flight in the plan totals rather than dropped or charged every
+   month -- both of those are wrong in a way that survives review. */
+function basisRow(i,ix){
+ const months=Math.max(1,+S.months||1);
+ const oneTime=i.basis==="one_time";
+ const term=Math.max(1,Math.min(months,+i.termMonths||months));
+ return `<div class="basisrow">
+  <span class="pill${oneTime?'':' on'}" onclick="setBasis(${ix},'monthly')">Monthly</span>
+  <span class="pill${oneTime?' on':''}" onclick="setBasis(${ix},'one_time')">One time</span>
+  ${oneTime
+   ? `<span class="note" style="margin:0">${money(i.dollars||0)} once — ${money(Math.round((i.dollars||0)/months))}/mo across the ${months}-month flight.</span>`
+   : `<span class="note" style="margin:0">for <input type="number" min="1" max="${months}" value="${term}" onchange="setTerm(${ix},+this.value)" class="dmoney" style="width:56px"> of ${months} month${months===1?'':'s'} · ${money((i.dollars||0)*term)} total</span>`}
+ </div>`;}
+function setBasis(ix,basis){
+ S.items[ix].basis=basis;
+ if(basis==="one_time")S.items[ix].termMonths=1;
+ flagDirty();saveSoon();drawItems();drawGuards();}
+function setTerm(ix,n){
+ const months=Math.max(1,+S.months||1);
+ S.items[ix].termMonths=Math.max(1,Math.min(months,n||months));
+ flagDirty();saveSoon();drawItems();}
 function setItemDollars(ix,v){S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
  const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
  S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
@@ -1919,6 +2221,25 @@ function submitContact(){
  S.clientContactName=name;S.clientContactEmail=email;S.clientContactPhone=phone;
  deliverProposal({name,email,phone});}
 
+/* What a line costs across the flight, honouring the basis the rep answered
+   on the media-mix step. Both the review summary and the payload that builds
+   the IO used to multiply by months independently, so a one-time production
+   fee reached the insertion order as a monthly charge. */
+function lineCampaign(i,months){
+ const m=Math.max(1,+months||1),d=+i.dollars||0;
+ if(i.basis==="one_time")return d;
+ const term=Math.max(1,Math.min(m,+i.termMonths||m));
+ return d*term;}
+function lineForIO(i,months,withRate){
+ const row={product:i.product,category:i.category,rate:i.rate,
+  budget:i.basis==="one_time"?0:(+i.dollars||0),
+  campaignBudget:lineCampaign(i,months),
+  basis:i.basis||"monthly",
+  termMonths:i.basis==="one_time"?1:Math.max(1,Math.min(Math.max(1,+months||1),+i.termMonths||Math.max(1,+months||1)))};
+ if(withRate)row.listedRate=i.rate?(i.rate+" "+(i.rateValue||"")):"Managed/flat";
+ if(i.basis==="one_time")row.note="One-time cost of "+money(+i.dollars||0)+".";
+ return row;}
+
 /* ============================================================
    CONVERT-TO-IO WIZARD
    ============================================================ */
@@ -1969,7 +2290,7 @@ function drawConvert(){
    <button class="btn btn-primary" onclick="convToReview()">Review IO →</button>`;
  }else if(CONV.step===1){
   const a=CONV.answers,st=CONV.quote.data||{};
-  const items=(st.items||[]).map(i=>({product:i.product,category:i.category,rate:i.rate,budget:i.dollars||0,campaignBudget:(i.dollars||0)*(st.months||1)}));
+  const items=(st.items||[]).map(i=>lineForIO(i,st.months||1,false));
   body.innerHTML=`
    <div class="dsec">What happens next</div>
    <ol style="font-size:13px;color:#33415C;padding-left:20px;line-height:1.7">
@@ -2018,7 +2339,7 @@ function convToReview(){
 }
 function ioDataPayload(){
  const st=CONV.quote.data||{},a=CONV.answers,q=CONV.quote;
- const items=(st.items||[]).map(i=>({product:i.product,category:i.category,rate:i.rate,listedRate:i.rate?(i.rate+" "+(i.rateValue||"")):"Managed/flat",budget:i.dollars||0,campaignBudget:(i.dollars||0)*(st.months||1)}));
+ const items=(st.items||[]).map(i=>lineForIO(i,st.months||1,true));
  const monthly=items.reduce((s,i)=>s+(i.budget||0),0);
  const total=items.reduce((s,i)=>s+(i.campaignBudget||0),0);
  const customerRequirements=[
@@ -2028,7 +2349,10 @@ function ioDataPayload(){
   "Confirm the landing page: "+(a.landingUrl||st.landingUrl||"TBD"),
   "Review and sign the insertion order"];
  const internalRequirements=items.map(i=>({title:i.product+" — "+i.category,items:[
-  "Monthly budget: "+money(i.budget)+" · campaign total: "+money(i.campaignBudget),
+  (i.basis==="one_time"
+    ? "One-time cost: "+money(i.campaignBudget)
+    : "Monthly budget: "+money(i.budget)+" for "+i.termMonths+" month"+(i.termMonths===1?"":"s")
+      +" · campaign total: "+money(i.campaignBudget)),
   "Geography: "+((st.targetAreas||[]).length?(st.targetAreas||[]).map(areaLabel).join(" | "):(st.geo||st.geoType||"")),
   "Audience: "+((st.audiences||[]).join(", ")||"per proposal"),
   "Landing page: "+(a.landingUrl||st.landingUrl||"TBD"),

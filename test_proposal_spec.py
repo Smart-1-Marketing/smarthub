@@ -74,8 +74,15 @@ section("the 13-part structure")
 from hub import proposal_spec as spec                              # noqa: E402
 
 ids = [s["id"] for s in spec.OUTLINE]
-check("the outline is ordered cover-first, next-steps-last",
-      ids[0] == "cover" and ids[-1] == "next", ids[:1] + ids[-1:])
+# The narrative runs cover to next steps, then two appendices: what more would
+# look like, and the trafficking ZIP list. The ZIPs used to sit inside the
+# audience section, where a hundred five-digit numbers buried the strategy.
+APPENDICES = ["growth", "zips"]
+check("the narrative is ordered cover-first, next-steps-last",
+      ids[0] == "cover" and ids[-len(APPENDICES) - 1] == "next",
+      ids[:1] + ids[-len(APPENDICES) - 1:])
+check("and the appendices come after it, in order",
+      ids[-len(APPENDICES):] == APPENDICES, ids[-len(APPENDICES):])
 for needed in ("summary", "objectives", "friction", "areas", "channels",
                "mediaplan", "creative", "technology", "reporting", "timeline",
                "packages", "roi", "next"):
@@ -299,6 +306,97 @@ except FileNotFoundError:
 except subprocess.CalledProcessError as exc:
     check("the wizard's creative helpers run", False, exc.stderr[:300])
 
+# ---------------------------------------------------------------------------
+section("one minimum rule, read by both documents")
+# ---------------------------------------------------------------------------
+# There were three numbers for this one question. The wizard held paid search
+# to $1,500 in a hardcoded line, hub/rate_card.py said $500, and the IO derived
+# its own floor from each product's listed rate. The strictest of the three
+# blocked campaigns the IO would have written without complaint, and nothing on
+# any screen said the three disagreed.
+from hub import rate_card as rc                                    # noqa: E402
+
+check("paid search is quotable at $400", rc.minimum_for("Pay Per Click") == 400,
+      rc.minimum_for("Pay Per Click"))
+check("and blocked below it",
+      any(g["level"] == "block" for g in
+          rc.guardrails([{"product": "Pay Per Click", "monthly": 380}])))
+check("a $420 paid-search-only plan clears both the line and the plan floor",
+      not any(g["level"] == "block" for g in
+              rc.guardrails([{"product": "Pay Per Click", "monthly": 420}])))
+
+# The short name is what every document here stores; the card carries the whole
+# description in the same field. Exact-only lookup missed them, and each miss
+# was a silent default rather than an error.
+check("a short product name still resolves to its category",
+      (rc.find("Connected TV - Targeted") or {}).get("category") == "OTT")
+check("so Connected TV keeps OTT's $1,500 floor rather than the default",
+      rc.minimum_for("Connected TV - Targeted") == 1500,
+      rc.minimum_for("Connected TV - Targeted"))
+# ...but an anchored match only. "Category" is a real product name; a
+# contains-match either way round would let it swallow any longer phrase.
+check("the match is anchored, not a substring",
+      (rc.find("Targeted") or {}) == {} or
+      (rc.find("Targeted") or {}).get("product", "").lower().startswith("targeted"))
+
+# "Programmatic - Targeted" exists under DIGITAL RADIO at $18 CPM audio and
+# under DISPLAY at $17 CPM. find() can only return one of them, so the line's
+# own category has to win or one of the two gets the wrong floor.
+check("an ambiguous product takes the floor of the category it was bought in",
+      [any(g["level"] == "block" for g in rc.guardrails(
+           [{"product": "Programmatic - Targeted", "category": c, "monthly": 900}]))
+       for c in ("DIGITAL RADIO", "DISPLAY")] == [True, False])
+
+for name, tmpl in (("wizard", os.path.join(ROOT, "modules", "sales_builder",
+                                           "templates", "index.html")),
+                   ("insertion order", os.path.join(ROOT, "modules", "io_builder",
+                                                    "templates", "index.html"))):
+    src = open(tmpl, encoding="utf-8").read()
+    got = {}
+    for const in ("MIN_MONTHLY_DEFAULT", "MIN_BY_CATEGORY", "MIN_BY_PRODUCT"):
+        m = re.search(r"const %s=(.*?);\n" % const, src, re.S)
+        got[const] = json.loads(m.group(1)) if m else None
+    check(f"the {name} mirrors the default minimum",
+          got["MIN_MONTHLY_DEFAULT"] == rc.MIN_MONTHLY_DEFAULT, got["MIN_MONTHLY_DEFAULT"])
+    check(f"the {name} mirrors every category minimum",
+          got["MIN_BY_CATEGORY"] == rc.MIN_BY_CATEGORY, got["MIN_BY_CATEGORY"])
+    check(f"the {name} mirrors the per-product overrides",
+          got["MIN_BY_PRODUCT"] == rc.MIN_BY_PRODUCT, got["MIN_BY_PRODUCT"])
+
+# And that the mirrored function agrees with Python product by product, not
+# merely that the table was copied.
+MIN_CASES = [("Pay Per Click", "SEARCH ENGINE MARKETING / PAY PER CLICK"),
+             ("Connected TV - Targeted", "OTT"),
+             ("Podcasts - Targeted", "DIGITAL RADIO"),
+             ("Category", "DISPLAY"),
+             ("Programmatic - Targeted", "DIGITAL RADIO"),
+             ("Programmatic - Targeted", "DISPLAY"),
+             ("Something Nobody Sells", "")]
+min_js = ""
+for token in ("const MIN_MONTHLY_DEFAULT=", "const MIN_BY_CATEGORY=",
+              "const MIN_BY_PRODUCT=", "function minimumFor("):
+    i = js_source.index(token)
+    ends = [j for j in (js_source.find("\nfunction ", i + 10),
+                        js_source.find("\nconst ", i + 10),
+                        js_source.find("\n/*", i + 10)) if j > 0]
+    min_js += js_source[i:min(ends)] + "\n"
+harness = (min_js + "\nconst M=" + json.dumps(MIN_CASES) + ";\n"
+           "console.log(JSON.stringify(M.map(x=>minimumFor(x[0],x[1]))));\n")
+js_path2 = os.path.join(_TMP, "minimums.js")
+open(js_path2, "w", encoding="utf-8").write(harness)
+try:
+    js_mins = json.loads(subprocess.run(["node", js_path2], capture_output=True,
+                                        text=True, timeout=30, check=True).stdout)
+    py_mins = [rc.minimum_for(p, c) for p, c in MIN_CASES]
+    check("the wizard and the server floor every product identically",
+          js_mins == py_mins,
+          [f"{p}/{c}: js={j} py={y}" for (p, c), j, y
+           in zip(MIN_CASES, js_mins, py_mins) if j != y])
+except FileNotFoundError:
+    print("  skip node is not installed — minimum agreement unchecked")
+except subprocess.CalledProcessError as exc:
+    check("the wizard's minimum helper runs", False, exc.stderr[:300])
+
 # Check the two constants match too — a threshold that differs between the
 # screen and the server means the wizard asks and the server does not care.
 js_threshold = re.search(r"COMP_CONFIRM_UNDER\s*=\s*(\d+)", js_source)
@@ -418,6 +516,45 @@ from hub import current_marketing as cm                            # noqa: E402
 check("the three new questions are asked",
       {"retargeting", "aiOptimized", "websiteHappy"} <= {q["key"] for q in cm.QUESTIONS},
       [q["key"] for q in cm.QUESTIONS])
+check("and the five that came after them",
+      {"reputation", "email", "chat", "callTracking", "texting"}
+      <= {q["key"] for q in cm.QUESTIONS},
+      [q["key"] for q in cm.QUESTIONS])
+check("each of the five raises a suggestion when the answer is no",
+      all(any(r["key"] == k for r in cm.SUGGESTION_RULES)
+          for k in ("reputation", "email", "chat", "callTracking", "texting")))
+
+# Every answer is required. A blank was reaching the proposal as though the
+# client did not do that thing, which is a different claim from "we did not
+# ask" -- and Unknown exists on the form precisely so there is an honest
+# answer for the second case.
+check("a blank discovery step is incomplete", cm.complete({}) is False)
+check("and says exactly which are missing",
+      len(cm.unanswered({})) == len(cm.QUESTIONS))
+half = {"mkt": {q["key"]: cm.YES for q in cm.QUESTIONS[:4]}}
+check("a half-answered one names only the rest",
+      [q["key"] for q in cm.unanswered(half)]
+      == [q["key"] for q in cm.QUESTIONS[4:]])
+check("Unknown counts as answered, because it is an answer",
+      cm.complete({"mkt": {q["key"]: cm.UNKNOWN for q in cm.QUESTIONS}}) is True)
+
+# The wizard carries its own copy so the step can react without a round trip.
+# Twelve questions on one screen and eleven rules behind them is exactly the
+# kind of list that gets edited on one side only.
+wiz = open(os.path.join(ROOT, "modules", "sales_builder", "templates",
+                        "index.html"), encoding="utf-8").read()
+mq = re.search(r"const DISCOVERY_QUESTIONS=\[(.*?)\n\];", wiz, re.S)
+js_keys = re.findall(r'key:"([^"]+)"', mq.group(1)) if mq else []
+check("the wizard asks the same questions, in the same order",
+      js_keys == [q["key"] for q in cm.QUESTIONS], js_keys)
+js_labels = re.findall(r'label:"([^"]+)"', mq.group(1)) if mq else []
+check("with the same wording",
+      js_labels == [q["label"] for q in cm.QUESTIONS],
+      [(a, b) for a, b in zip(js_labels, [q["label"] for q in cm.QUESTIONS]) if a != b])
+mr = re.search(r"const SUGGESTION_RULES=\[(.*?)\n\];", wiz, re.S)
+js_rules = re.findall(r'key:"([^"]+)",when:', mr.group(1)) if mr else []
+check("and holds the same suggestion rules",
+      js_rules == [r["key"] for r in cm.SUGGESTION_RULES], js_rules)
 
 doing_everything = {"mkt": {q["key"]: cm.YES for q in cm.QUESTIONS},
                     "traditional": {"running": cm.NO}}
@@ -535,8 +672,10 @@ section("every section can be written, one request at a time")
 # ---------------------------------------------------------------------------
 plan_state = _copy.deepcopy(fresh_doc)
 plan_ids = [s["id"] for s in builder.writable_sections(plan_state)]
-check("the cover is the only section with nothing to write",
-      "cover" not in plan_ids and len(plan_ids) == len(spec.OUTLINE) - 1,
+UNWRITTEN = {"cover", "zips"}
+check("only the cover and the ZIP appendix have nothing to write",
+      not (UNWRITTEN & set(plan_ids))
+      and len(plan_ids) == len(spec.OUTLINE) - len(UNWRITTEN),
       plan_ids)
 for needed in ("mediaplan", "packages", "roi", "reach", "timeline"):
     check(f"the generated section {needed} still takes intro copy",
@@ -634,8 +773,128 @@ check("an undecided one does",
 served_plan = api("post", "/sales/builder/api/ai/section-plan",
                   json={"data": discovery_state})
 check("the wizard is told exactly what will be written",
-      len(served_plan["sections"]) == len(spec.OUTLINE) - 1,
+      len(served_plan["sections"]) == len(spec.OUTLINE) - 2,
       len(served_plan["sections"]))
+# ---------------------------------------------------------------------------
+# Monthly or one-time, and for how long. A dollar figure on its own has not
+# said which, and the difference is what gets billed: a $3,000 line read as
+# monthly over a six-month flight is $18,000 nobody agreed to.
+basis_base = {"months": 6, "items": [
+    {"category": "OTT", "product": "Connected TV - Targeted",
+     "rate": "CPM", "rateValue": 35.0, "dollars": 3000}]}
+
+
+def _basis(**extra):
+    st = dict(basis_base, items=[dict(basis_base["items"][0], **extra)])
+    return builder.expected_results(st)
+
+
+full = _basis()
+check("a monthly line runs the whole flight by default",
+      (full["rows"][0]["campaign"], full["totals"]["campaign"]) == (18000.0, 18000.0),
+      full["rows"][0])
+
+once = _basis(basis="one_time")
+check("a one-time line bills once, not every month",
+      once["rows"][0]["campaign"] == 3000.0, once["rows"][0]["campaign"])
+check("but still sits in the monthly plan, spread across the flight",
+      once["rows"][0]["monthly"] == 500.0, once["rows"][0]["monthly"])
+check("and delivers its impressions once rather than six times",
+      once["totals"]["impressions"] == full["totals"]["impressions"] // 6,
+      (once["totals"]["impressions"], full["totals"]["impressions"]))
+
+short = _basis(basis="monthly", term_months=None, termMonths=3)
+check("a line that stops early costs only the months it runs",
+      short["rows"][0]["campaign"] == 9000.0, short["rows"][0]["campaign"])
+check("a term longer than the campaign is capped at it",
+      _basis(termMonths=99)["rows"][0]["term_months"] == 6)
+check("and a nonsense term falls back to the campaign length",
+      _basis(termMonths="soon")["rows"][0]["campaign"] == 18000.0)
+
+# The campaign total is the sum of the lines, not the monthly average times the
+# term -- a one-time line and a line that stops early each break that shortcut.
+mixed = builder.expected_results({"months": 6, "items": [
+    dict(basis_base["items"][0]),
+    {"category": "CREATIVE / DESIGN SERVICES", "product": "Standard Set of 6",
+     "dollars": 250, "basis": "one_time"}]})
+check("mixed bases total correctly",
+      mixed["totals"]["campaign"] == 18000.0 + 250.0, mixed["totals"]["campaign"])
+
+# ---------------------------------------------------------------------------
+# Recommended budgets: what "more" looks like, at the foot of the proposal.
+# The point of the section is that neither route invents a number -- raising a
+# line quotes the Accelerated package already printed above it, and adding one
+# quotes the rate card's own minimum. A recommended budget a rep cannot defend
+# on a call is worse than not offering one.
+grow_state = dict(
+    quote_state, months=6,
+    mkt={"retargeting": cm.NO, "aiOptimized": cm.NO, "paidSearch": cm.NO},
+    items=[{"category": "OTT", "product": "Connected TV - Targeted",
+            "rate": "CPM", "rateValue": 35.0, "dollars": 6000}],
+    packages=[{"name": "Accelerated",
+               "lines": [{"product": "Connected TV - Targeted", "dollars": 9000}]}])
+grow = builder.growth_options(grow_state)
+check("raising a line quotes the Accelerated package, not a new number",
+      [(r["current"], r["suggested"]) for r in grow["increases"]] == [(6000.0, 9000.0)],
+      grow["increases"])
+check("and states the uplift over the whole flight",
+      grow["increases"][0]["campaign"] == 3000.0 * 6, grow["increases"][0])
+added = {r["product"]: r["suggested"] for r in grow["additions"]}
+check("additions come from the discovery answers",
+      "Website Retargeting" in added and "Pay Per Click" in added, sorted(added))
+check("and are priced at the rate card's own minimum",
+      added.get("Pay Per Click") == rc.minimum_for("Pay Per Click"), added)
+check("nothing already on the plan is offered as an addition",
+      not any("Connected TV" in p for p in added), sorted(added))
+
+# A product with no card entry gets no price rather than a guess.
+check("a product the card does not carry is offered to be quoted",
+      all(r["quoted"] is False for r in grow["additions"] if not rc.find(r["product"])))
+
+# The rep's edits win, and removals stick.
+edited = builder.growth_options(dict(
+    grow_state, growthEdits={"inc:Connected TV - Targeted": 7500}))
+check("a rep can re-price a recommendation",
+      edited["increases"][0]["suggested"] == 7500.0
+      and edited["increases"][0]["uplift"] == 1500.0, edited["increases"][0])
+dropped = builder.growth_options(dict(
+    grow_state, growthDropped=["inc:Connected TV - Targeted"]))
+check("and remove one entirely", dropped["increases"] == [], dropped["increases"])
+
+check("a plan with nothing to add or raise says so rather than inventing one",
+      builder.growth_options({"months": 3, "items": [], "packages": []})["any"] is False)
+
+# Every product a suggestion names has to exist on the card, or it cannot be
+# priced, added to a plan, or acted on at all. Three named products did not.
+unpriceable = sorted({n for r in cm.SUGGESTION_RULES for n in r["products"]
+                      if not rc.find(n)})
+check("suggestion products use the card's own names",
+      unpriceable == ["Call Tracking", "Smart 1 Suite"], unpriceable)
+
+grow_quote = api("post", "/sales/builder/api/quotes", json={"data": grow_state})["quote"]
+check("the quote carries the computed options", grow_quote["growth"]["any"] is True)
+gpdf = http.get(f"/sales/builder/api/quotes/{grow_quote['id']}/pdf")
+check("a proposal with recommended budgets renders its PDF",
+      gpdf.status_code == 200 and gpdf.data[:4] == b"%PDF", gpdf.status_code)
+gdocx = http.get(f"/sales/builder/api/quotes/{grow_quote['id']}/docx")
+check("and its Word copy", gdocx.status_code == 200 and len(gdocx.data) > 2000)
+
+# The ZIP list is the one section trafficking cannot launch without, and it is
+# now generated at the back rather than typed into the middle of the audience
+# section. Worth proving it survives into the documents that get sent.
+zip_state = dict(quote_state, targetAreas=[
+    {"name": "Carmel", "type": "City/ZIP + Radius", "origin": "Carmel, IN",
+     "radius": 10, "zips": "46032, 46033, 46074"}])
+zip_quote = api("post", "/sales/builder/api/quotes", json={"data": zip_state})["quote"]
+zip_pdf = http.get(f"/sales/builder/api/quotes/{zip_quote['id']}/pdf")
+check("a proposal with ZIP Codes still renders its PDF",
+      zip_pdf.status_code == 200 and zip_pdf.data[:4] == b"%PDF", zip_pdf.status_code)
+zip_docx = http.get(f"/sales/builder/api/quotes/{zip_quote['id']}/docx")
+check("and its Word copy", zip_docx.status_code == 200 and len(zip_docx.data) > 2000)
+check("the ZIP appendix is generated, never handed to the writer",
+      "zips" not in [x["id"] for x in builder.writable_sections(zip_state)],
+      [x["id"] for x in builder.writable_sections(zip_state)])
+
 check("and which of those carry a generated table",
       any(s["has_table"] for s in served_plan["sections"])
       and any(not s["has_table"] for s in served_plan["sections"]))

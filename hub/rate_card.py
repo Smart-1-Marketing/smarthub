@@ -34,14 +34,59 @@ from pathlib import Path
 
 DATA = Path(__file__).parent / "data" / "rate_card.json"
 
-# Minimums the IO builder enforces, so a proposal can't quote below them.
+# ---------------------------------------------------------------------------
+# The joint minimum rule.
+#
+# One table, read by the proposal builder and the insertion order alike. It
+# used to be two rules that had never been compared: the proposal checked this
+# table by category, while the IO derived a floor from each product's listed
+# rate (`minBudget` in its template), so the same product could pass one and
+# fail the other. A proposal that quotes what the IO then refuses to write is
+# the worst of both -- the number has already been in front of the client.
+#
+# `minimum_for()` is the single answer, and `MINIMUMS_FOR_JS` is what the two
+# templates mirror. test_proposal_spec.py asserts the mirrors still agree,
+# exactly as it does for the creative classifier and the area helpers.
+# ---------------------------------------------------------------------------
 MIN_MONTHLY_DEFAULT = 500
 MIN_BY_CATEGORY = {
     "OTT": 1500,
     "DIGITAL RADIO": 1000,
     "IP TARGETS": 1000,          # 30,000 impression monthly minimum
     "SEARCH ENGINE OPTIMIZATION": 500,
+    # Paid search is bought differently from everything above it. The spend is
+    # the client's, billed at 15% management from retail cost, and a genuinely
+    # small local campaign -- one town, a handful of exact-match terms -- runs
+    # a real test at $400. Holding it to the $500 default turned working
+    # campaigns into guardrail blocks on both documents.
+    "SEARCH ENGINE MARKETING / PAY PER CLICK": 400,
 }
+
+# Per product, where the product's own floor differs from its category's.
+MIN_BY_PRODUCT: dict[str, int] = {}
+
+
+def minimum_for(product: str = "", category: str = "") -> int:
+    """The monthly floor for one line, for the proposal and the IO alike.
+
+    Product first, then category, then the default. Naming either is enough --
+    the category is looked up from the card when only the product is given, so
+    a caller holding one of the two never has to find the other.
+    """
+    name = str(product or "").strip().lower()
+    if name in MIN_BY_PRODUCT:
+        return MIN_BY_PRODUCT[name]
+    cat = str(category or "").strip()
+    if not cat and name:
+        cat = str((find(product) or {}).get("category") or "")
+    return MIN_BY_CATEGORY.get(cat.upper(), MIN_MONTHLY_DEFAULT)
+
+
+def minimums_for_js() -> dict:
+    """The whole rule, in the shape both templates mirror."""
+    return {"default": MIN_MONTHLY_DEFAULT,
+            "byCategory": dict(MIN_BY_CATEGORY),
+            "byProduct": dict(MIN_BY_PRODUCT)}
 
 
 @lru_cache(maxsize=1)
@@ -87,7 +132,7 @@ def products() -> list[dict]:
             "description": p.get("description", ""),
             "requirements": p.get("requirements", ""),
             "timeline": p.get("timeline", ""),
-            "min_monthly": MIN_BY_CATEGORY.get(cat, MIN_MONTHLY_DEFAULT),
+            "min_monthly": MIN_BY_CATEGORY.get(cat.upper(), MIN_MONTHLY_DEFAULT),
         })
     return out
 
@@ -104,10 +149,32 @@ def by_category() -> dict[str, list[dict]]:
 
 
 def find(label: str) -> dict | None:
+    """One card product, by label or by product name.
+
+    Exact first, then the card's own name *starting with* what was asked for.
+    Several products carry their whole description in the product field --
+    "Connected TV - Targeted  - This is played on televisions only  *If you
+    require..." -- while every document written here stores the short name a
+    rep would recognise. Exact-only therefore missed them, and each miss
+    became a silent default: Connected TV took the $500 floor instead of
+    OTT's $1,500, and nothing on either document said a lookup had failed.
+
+    The match is one-directional and anchored, which is what keeps it honest.
+    A contains-match either way round would let the short generic product
+    "Category" swallow any longer phrase containing the word. The IO
+    template's `cardLabelFor` uses the same rule, so both ends of the
+    hand-off agree on what counts as a match.
+    """
     want = (label or "").strip().lower()
+    if not want:
+        return None
     for p in products():
         if p["label"].lower() == want or p["product"].lower() == want:
             return p
+    if len(want) > 3:
+        for p in products():
+            if p["product"].lower().startswith(want):
+                return p
     return None
 
 
@@ -162,7 +229,8 @@ def guardrails(items: list[dict]) -> list[dict]:
     for i in items:
         p = find(i.get("product", "")) or {}
         budget = float(i.get("monthly") or 0)
-        minimum = p.get("min_monthly", MIN_MONTHLY_DEFAULT)
+        minimum = minimum_for(i.get("product", ""),
+                              i.get("category") or p.get("category", ""))
         if budget and budget < minimum:
             out.append({
                 "level": "block", "product": i.get("product", ""),
@@ -174,9 +242,16 @@ def guardrails(items: list[dict]) -> list[dict]:
                 "level": "note", "product": i.get("product", ""),
                 "message": f"Client must provide: {p['requirements']}",
             })
-    if items and total < MIN_MONTHLY_DEFAULT:
-        out.append({"level": "block", "product": "",
-                    "message": f"Total monthly is below ${MIN_MONTHLY_DEFAULT:,}."})
+    # The plan floor is the smallest floor any line on it carries, not a flat
+    # default. A single $420 paid-search test clears the $400 line rule; a
+    # blanket $500 total would then block the same plan for being what it was
+    # just told it was allowed to be, and a rep reading two contradictory
+    # blocks learns to ignore both.
+    if items:
+        floor = min(minimum_for(i.get("product", "")) for i in items)
+        if total < floor:
+            out.append({"level": "block", "product": "",
+                        "message": f"Total monthly is below ${floor:,}."})
     if items and not any("mgmt" in (find(i.get("product", "")) or {})
                          .get("listed_rate", "").lower() for i in items):
         out.append({"level": "note", "product": "",

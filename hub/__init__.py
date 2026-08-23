@@ -789,7 +789,62 @@ def create_hub_app() -> Flask:
             return jsonify({"error": "Couldn't read any text from that "
                                      "proposal. If it's a scanned PDF there's "
                                      "no text layer to read."}), 400
-        return jsonify(io_prefill.from_proposal(client, text, name))
+        result = io_prefill.from_proposal(client, text, name)
+
+        # Every product the reader found, classified against the rate card and
+        # carrying the question it still needs answered. The conversion flow
+        # used to receive the same names as a sentence -- "not on the rate
+        # card, so not selected" -- and a product the client agreed to would
+        # quietly fail to reach the document that bills for it.
+        try:
+            from . import product_intake
+            months = 0
+            try:
+                months = int(float(str((result.get("fields") or {})
+                                       .get("term_months") or 0)))
+            except (TypeError, ValueError):
+                months = 0
+            result["product_intake"] = product_intake.read_products(
+                (result.get("fields") or {}).get("products_detail") or [],
+                months=months or 1)
+            result["intake_summary"] = product_intake.summary(
+                result["product_intake"])
+            result["consulting_product"] = product_intake.CONSULTING["product"]
+        except Exception as exc:                            # noqa: BLE001
+            # A reader that works and an intake that does not is still worth
+            # returning -- but never silently. CLAUDE.md: guard boot-time
+            # failures, and record them.
+            app.logger.warning("product intake failed: %s", exc)
+            result["product_intake_error"] = str(exc)
+        return jsonify(result)
+
+    @app.route("/api/products/classify", methods=["POST"])
+    def api_products_classify():
+        """Match free-text product names against the rate card.
+
+        Both builders ask this: the IO while converting a proposal it just
+        read, the Proposal Builder when a rep types a product that is not a
+        catalogue pick. One matcher, so the two cannot disagree about what a
+        client was sold.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import product_intake
+        body = request.get_json(silent=True) or {}
+        names = body.get("products") or body.get("names") or []
+        if isinstance(names, str):
+            names = [names]
+        months = body.get("months") or 1
+        try:
+            months = max(1, int(months))
+        except (TypeError, ValueError):
+            months = 1
+        rows = product_intake.read_products(names, months=months)
+        return jsonify({"ok": True, "products": rows,
+                        "summary": product_intake.summary(rows),
+                        "consulting": product_intake.CONSULTING,
+                        "basis_labels": product_intake.BASIS_LABEL})
 
     @app.route("/api/spec/<source>")
     def api_spec(source):
