@@ -48,8 +48,12 @@ jobs:
           POSTGRES_PASSWORD: smarthub
           POSTGRES_DB: smarthub_ci
         ports: ['5432:5432']
+        # -U/-d on the probe, or it connects as root, which is not a role
+        # in this cluster: nine FATAL lines in the service log every run,
+        # none of them meaning anything. (A comment inside the folded
+        # scalar below would become part of the docker options string.)
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U smarthub -d smarthub_ci"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
