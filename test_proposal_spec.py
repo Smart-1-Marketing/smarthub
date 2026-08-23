@@ -411,6 +411,138 @@ check("no seeded copy breaks a directive",
       all(spec.violations(s["body"]) == [] for s in seeded))
 
 # ---------------------------------------------------------------------------
+section("discovery, and what we suggest they should do")
+# ---------------------------------------------------------------------------
+from hub import current_marketing as cm                            # noqa: E402
+
+check("the three new questions are asked",
+      {"retargeting", "aiOptimized", "websiteHappy"} <= {q["key"] for q in cm.QUESTIONS},
+      [q["key"] for q in cm.QUESTIONS])
+
+doing_everything = {"mkt": {q["key"]: cm.YES for q in cm.QUESTIONS},
+                    "traditional": {"running": cm.NO}}
+check("a client doing everything gets no suggestions",
+      cm.suggestions(doing_everything) == [])
+
+gaps_everywhere = {"mkt": {"retargeting": cm.NO, "aiOptimized": cm.NO,
+                           "websiteHappy": cm.NO, "seo": cm.NO,
+                           "paidSearch": cm.NO, "paidSocial": cm.NO}}
+titles = [s["title"] for s in cm.suggestions(gaps_everywhere)]
+check("not retargeting raises retargeting",
+      any("Retarget" in t for t in titles), titles)
+check("not optimised for AI raises it", any("AI search" in t for t in titles))
+check("an unhappy website raises the website first",
+      any("page the media points at" in t for t in titles))
+check("every suggestion names a product that could deliver it",
+      all(s["products"] for s in cm.suggestions(gaps_everywhere)))
+
+# "Unknown" is a gap we have not confirmed, and worth raising — but an
+# unhappy website is a stated fact, so Unknown there is not a complaint.
+unknowns = {"mkt": {"retargeting": cm.UNKNOWN, "aiOptimized": cm.UNKNOWN,
+                    "websiteHappy": cm.UNKNOWN}}
+unknown_titles = [s["title"] for s in cm.suggestions(unknowns)]
+check("unknown retargeting is still raised",
+      any("Retarget" in t for t in unknown_titles), unknown_titles)
+check("but an unknown opinion of their website is not",
+      not any("page the media points at" in t for t in unknown_titles), unknown_titles)
+
+check("a rep can dismiss a suggestion",
+      cm.suggestions(dict(gaps_everywhere, suggestDismissed=["retargeting"]))
+      != cm.suggestions(gaps_everywhere))
+
+# ---------------------------------------------------------------------------
+section("traditional media")
+# ---------------------------------------------------------------------------
+none_running = {"traditional": {"running": cm.NO}}
+check("no traditional media means no posture to decide", cm.gaps(none_running) == [])
+check("and nothing added to ROI", cm.roi_note(none_running) == "")
+check("and no guidance for the writer", cm.guidance(none_running) == "")
+
+undecided = {"traditional": {"running": cm.YES, "detail": "Radio on WBNS"}}
+check("running it with no posture is a stated gap",
+      [g["key"] for g in cm.gaps(undecided)] == ["traditional_posture"],
+      cm.gaps(undecided))
+
+supplement = {"traditional": {"running": cm.YES, "detail": "Radio on WBNS",
+                              "budget": "$6,000/mo", "posture": cm.SUPPLEMENT}}
+shift = {"traditional": dict(supplement["traditional"], posture=cm.SHIFT)}
+check("choosing a posture closes the gap", cm.gaps(supplement) == [])
+check("what they told us survives into the summary",
+      "WBNS" in cm.traditional_summary(supplement)
+      and "$6,000/mo" in cm.traditional_summary(supplement),
+      cm.traditional_summary(supplement))
+check("supplement and shift give the writer different guidance",
+      cm.guidance(supplement) != cm.guidance(shift))
+check("both carry the detail and the budget",
+      all("WBNS" in cm.guidance(s) and "$6,000/mo" in cm.guidance(s)
+          for s in (supplement, shift)))
+
+# The instruction not to argue matters as much as the posture. A model handed
+# "they want to move budget to digital" writes a case against radio, and a
+# proposal that opens by calling a client's spend wasted loses the room.
+for name, state in (("supplement", supplement), ("shift", shift)):
+    text = cm.guidance(state)
+    check(f"the {name} guidance forbids arguing against their media",
+          "do not argue against their traditional media" in text, text[-160:])
+    check(f"the {name} guidance forbids opening with it", "do not open with it" in text)
+    check(f"the {name} guidance forbids calling their spend wasted",
+          "never claim their existing spend is wasted" in text)
+
+check("supplement and shift say different things in ROI",
+      cm.roi_note(supplement) != cm.roi_note(shift)
+      and cm.roi_note(supplement) and cm.roi_note(shift))
+check("shift is the one that talks about attribution",
+      "attributable" in cm.roi_note(shift), cm.roi_note(shift))
+check("an undecided posture adds nothing to ROI", cm.roi_note(undecided) == "")
+check("the discovery picture reaches the writer's facts",
+      "Radio on WBNS" in cm.for_prompt(dict(gaps_everywhere, **supplement)))
+
+# ---------------------------------------------------------------------------
+section("the PDF scales its type to what it holds")
+# ---------------------------------------------------------------------------
+import copy as _copy                                               # noqa: E402
+
+fresh_doc = {"client": "Scale Co", "months": 6,
+             "items": [{"category": "OTT", "product": "CTV", "dollars": 6000}],
+             "targetAreas": [{"name": "A", "type": "DMA", "dma": "Indy"}]}
+builder.ensure_sections(fresh_doc)
+check("an ordinary proposal is not shrunk at all",
+      builder._type_scale(fresh_doc) == 1.0, builder._type_scale(fresh_doc))
+
+heavy = _copy.deepcopy(fresh_doc)
+heavy["items"] *= 10
+heavy["targetAreas"] *= 8
+for sec in heavy["sections"]:
+    if sec["kind"] in ("text", "friction"):
+        sec["body"] = (sec["body"] or "") + " More copy. " * 90
+heavy_scale = builder._type_scale(heavy)
+check("a document with far more in it shrinks", heavy_scale < 1.0, heavy_scale)
+check("but never below the readable floor",
+      heavy_scale >= builder.TYPE_SCALE_MIN, heavy_scale)
+
+extreme = _copy.deepcopy(heavy)
+extreme["items"] *= 4
+for sec in extreme["sections"]:
+    if sec["kind"] in ("text", "friction"):
+        sec["body"] = (sec["body"] or "") * 3
+check("the floor holds however much is added",
+      builder._type_scale(extreme) == builder.TYPE_SCALE_MIN,
+      builder._type_scale(extreme))
+check("scaling never raises", builder._type_scale({}) == 1.0)
+
+# ---------------------------------------------------------------------------
+section("every section can be written, one request at a time")
+# ---------------------------------------------------------------------------
+plan_state = _copy.deepcopy(fresh_doc)
+plan_ids = [s["id"] for s in builder.writable_sections(plan_state)]
+check("the cover is the only section with nothing to write",
+      "cover" not in plan_ids and len(plan_ids) == len(spec.OUTLINE) - 1,
+      plan_ids)
+for needed in ("mediaplan", "packages", "roi", "reach", "timeline"):
+    check(f"the generated section {needed} still takes intro copy",
+          needed in plan_ids)
+
+# ---------------------------------------------------------------------------
 section("through the running app")
 # ---------------------------------------------------------------------------
 from werkzeug.test import Client                                   # noqa: E402
@@ -479,6 +611,34 @@ check("answering it clears the gaps",
       after["creative"]["ok"] is True
       and not [g for g in after["gaps"] if g["key"].startswith("creative_")],
       after["creative"])
+
+discovery_state = dict(quote_state, mkt={"retargeting": cm.NO, "aiOptimized": cm.NO,
+                                          "websiteHappy": cm.NO},
+                       traditional={"running": cm.YES, "detail": "Radio on WBNS",
+                                    "budget": "$6,000/mo", "posture": cm.SHIFT})
+discovered = api("post", "/sales/builder/api/quotes",
+                 json={"data": discovery_state})["quote"]
+check("the quote carries the suggestions the rep will see",
+      len(discovered["suggestions"]) >= 3,
+      [s["title"] for s in discovered["suggestions"]])
+check("a decided traditional posture raises no gap",
+      "traditional_posture" not in {g["key"] for g in discovered["gaps"]})
+
+undecided_quote = api("post", "/sales/builder/api/quotes",
+                      json={"data": dict(quote_state,
+                                         traditional={"running": cm.YES})})["quote"]
+check("an undecided one does",
+      "traditional_posture" in {g["key"] for g in undecided_quote["gaps"]},
+      [g["key"] for g in undecided_quote["gaps"]])
+
+served_plan = api("post", "/sales/builder/api/ai/section-plan",
+                  json={"data": discovery_state})
+check("the wizard is told exactly what will be written",
+      len(served_plan["sections"]) == len(spec.OUTLINE) - 1,
+      len(served_plan["sections"]))
+check("and which of those carry a generated table",
+      any(s["has_table"] for s in served_plan["sections"])
+      and any(not s["has_table"] for s in served_plan["sections"]))
 
 pdf = http.get(f"/sales/builder/api/quotes/{quote['id']}/pdf")
 check("the 13-part PDF builds", pdf.status_code == 200 and len(pdf.data) > 8000,

@@ -79,6 +79,7 @@ from hub.webargs import clamp_int
 # keeping local copies of geography, prompt and Suite logic.
 from hub import business_description as hub_desc
 from hub import creative_needs as hub_creative
+from hub import current_marketing as hub_discovery
 from hub import industries as hub_industries
 from hub import proposal_spec as hub_spec
 from hub import rate_card as hub_rate_card
@@ -272,6 +273,7 @@ def compute_gaps(state):
     # a Connected TV buy with no spot is a launch date nobody can hit. Display
     # is still the one blanket question below it.
     gaps.extend(hub_creative.gaps(s))
+    gaps.extend(hub_discovery.gaps(s))
     if blank(s.get("creativeSource")):
         gaps.append({"key": "creative", "label": "Creative assets — client provides, or Smart 1 builds (creative fee)"})
     tp = s.get("trackingPlan") or {}
@@ -344,6 +346,7 @@ def quote_json(q, include_data=False):
         "guardrails": compute_guardrails(state),
         "target_areas": campaign_areas(state),
         "creative": hub_creative.evaluate(state),
+        "suggestions": hub_discovery.suggestions(state),
         "pdf_url": q.pdf_url or "",
         "suite_opportunity_id": q.suite_opportunity_id or "",
         "delivered_at": q.delivered_at.isoformat() if q.delivered_at else "",
@@ -780,17 +783,74 @@ def _creative_phrase(row):
     return "To be confirmed before launch"
 
 
+# Roughly how much a section costs in vertical space, so the scale is chosen
+# from what the document actually contains rather than from a page count we
+# would only learn after building it once.
+_SECTION_WEIGHT = {"mediaplan": 3, "packages": 3, "roi": 4, "areas": 2,
+                   "channels": 3, "creative": 2, "timeline": 2, "friction": 2,
+                   "reach": 1, "kpis": 1, "cover": 0}
+
+TYPE_SCALE_MIN = 0.82
+TYPE_SCALE_FULL_UNDER = 38
+
+
+def _type_scale(state) -> float:
+    """How far to shrink the type so a full proposal stays compact.
+
+    Estimated from the content: characters of prose, plus a weight per
+    generated table and a row-count for the two that grow with the campaign.
+    Building the PDF twice to measure the real page count would be exact, but
+    reportlab gives no page count until it has built, and a rep waiting twice
+    as long for a PDF would notice that far more than the half-point of type.
+    """
+    state = state or {}
+    sections = [sec for sec in state.get("sections") or [] if sec.get("enabled", True)]
+    prose = sum(len(str(sec.get("body") or "")) for sec in sections)
+    weight = sum(_SECTION_WEIGHT.get(sec.get("kind"), 1) for sec in sections)
+    # The two tables whose height follows the campaign rather than the outline.
+    weight += len(state.get("items") or []) + len(campaign_areas(state))
+
+    load = prose / 900.0 + weight
+
+    # A freshly seeded proposal — the full outline, its default copy, one
+    # product, one area — measures about 34. That is the baseline a normal
+    # proposal sits at, so it must scale at 1.0: "lower the fonts when
+    # necessary" means when there is more than usual in the document, not
+    # always. Shrinking every proposal by default would just make the type
+    # smaller and prove nothing.
+    if load <= TYPE_SCALE_FULL_UNDER:
+        return 1.0
+    # Ease down to the floor rather than stepping: two proposals of similar
+    # length should not come out at visibly different type sizes.
+    return round(max(TYPE_SCALE_MIN, 1.0 - (load - TYPE_SCALE_FULL_UNDER) * 0.009), 3)
+
+
 def build_proposal_pdf(q, state):
     title = f"S1M Proposal - {q.quote_number} - {q.client or 'Client'}"
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter, rightMargin=0.55 * inch, leftMargin=0.55 * inch,
                             topMargin=0.55 * inch, bottomMargin=0.6 * inch, title=title)
     ss = getSampleStyleSheet()
-    st_title = ParagraphStyle("T", parent=ss["Title"], textColor=NAVY, fontSize=21, leading=25, alignment=TA_CENTER, spaceAfter=2)
-    st_sub = ParagraphStyle("Sub", parent=ss["BodyText"], textColor=MUTED, fontSize=10.5, alignment=TA_CENTER, spaceAfter=10)
-    st_h2 = ParagraphStyle("H2", parent=ss["Heading2"], textColor=NAVY, fontSize=13, leading=16, spaceBefore=13, spaceAfter=5)
-    st_body = ParagraphStyle("B", parent=ss["BodyText"], fontSize=9.5, leading=13, spaceAfter=5)
-    st_small = ParagraphStyle("S", parent=ss["BodyText"], fontSize=8, leading=10.5, textColor=MUTED)
+    # Type scales down as the document grows, so a proposal with a lot in it
+    # stays compact rather than sprawling. Bounded at 0.82: below that the
+    # body copy stops being comfortable to read on paper, and a proposal
+    # nobody wants to read is worse than one that runs an extra page.
+    scale = _type_scale(state)
+
+    def sized(size, leading):
+        return round(size * scale, 1), round(leading * scale, 1)
+
+    ts, tl = sized(21, 25)
+    ss_, sl = sized(10.5, 13)
+    hs, hl = sized(13, 16)
+    bs, bl = sized(9.5, 13)
+    ms, ml = sized(8, 10.5)
+
+    st_title = ParagraphStyle("T", parent=ss["Title"], textColor=NAVY, fontSize=ts, leading=tl, alignment=TA_CENTER, spaceAfter=2)
+    st_sub = ParagraphStyle("Sub", parent=ss["BodyText"], textColor=MUTED, fontSize=ss_, alignment=TA_CENTER, spaceAfter=round(10 * scale))
+    st_h2 = ParagraphStyle("H2", parent=ss["Heading2"], textColor=NAVY, fontSize=hs, leading=hl, spaceBefore=round(13 * scale), spaceAfter=round(5 * scale))
+    st_body = ParagraphStyle("B", parent=ss["BodyText"], fontSize=bs, leading=bl, spaceAfter=round(5 * scale))
+    st_small = ParagraphStyle("S", parent=ss["BodyText"], fontSize=ms, leading=ml, textColor=MUTED)
 
     story = []
     # Branded header band
@@ -934,6 +994,16 @@ def build_proposal_pdf(q, state):
             kpis = state.get("kpis") or []
             if kpis:
                 story.append(_p("KPIs: " + ", ".join(kpis), st_body))
+        elif kind == "friction":
+            picks = hub_discovery.suggestions(state)
+            if picks:
+                rows = [["We suggest they should", "Why"]]
+                for pick in picks:
+                    rows.append([_p(pick["title"], st_small),
+                                 _p(pick["detail"], st_small)])
+                ft = Table(rows, colWidths=[2.4 * inch, 5.0 * inch], repeatRows=1)
+                ft.setStyle(_head_style())
+                story.append(ft)
         elif kind == "channels":
             # Every channel with its role in the funnel and its KPI. The
             # specification forbids listing channels without that mapping.
@@ -1002,6 +1072,8 @@ def build_proposal_pdf(q, state):
             if results["metrics"]:
                 story.append(_p("Tracked and reported monthly in the Smart 1 Suite: "
                                 + ", ".join(results["metrics"]) + ".", st_body))
+            if results.get("traditional_note"):
+                story.append(_p(results["traditional_note"], st_body))
 
     # Footer
     story += [Spacer(1, 16),
@@ -1144,6 +1216,10 @@ def build_proposal_docx(q, state):
                     row[i + 1].text = _money(pkg.get(key))
         elif kind == "kpis" and state.get("kpis"):
             d.add_paragraph("KPIs: " + ", ".join(state.get("kpis") or []))
+        elif kind == "friction":
+            for pick in hub_discovery.suggestions(state):
+                d.add_paragraph(f"We suggest they should {pick['title'][0].lower()}"
+                                f"{pick['title'][1:]} — {pick['detail']}")
         elif kind == "channels":
             for item in state.get("items") or []:
                 role, kpi = _channel_role(item)
@@ -1183,6 +1259,8 @@ def build_proposal_docx(q, state):
             if results["metrics"]:
                 d.add_paragraph("Tracked in the Smart 1 Suite: "
                                 + ", ".join(results["metrics"]) + ".")
+            if results.get("traditional_note"):
+                d.add_paragraph(results["traditional_note"])
         elif kind == "reach" and state.get("estimates"):
             est = state.get("estimates") or {}
             d.add_paragraph(f"Estimated population {int(est.get('pop') or 0):,} · addressable audience "
@@ -1219,6 +1297,17 @@ def quote_docx(qid):
 # =====================================================================
 # Default proposal sections (used when the builder hasn't customized them)
 # =====================================================================
+# Sections the AI may write copy for. The table-backed ones take an intro
+# paragraph above their generated table; only the cover has nothing to say.
+WRITABLE_KINDS = ("text", "friction", "areas", "reach", "channels", "mediaplan",
+                  "creative", "packages", "kpis", "roi", "timeline")
+
+
+def writable_sections(state):
+    return [sec for sec in (state or {}).get("sections") or []
+            if sec.get("kind") in WRITABLE_KINDS and sec.get("enabled", True)]
+
+
 def industry_template(state):
     """The `hub.industries` entry that best fits this quote, or None.
 
@@ -1296,6 +1385,9 @@ def expected_results(state):
     totals["campaign"] = round(totals["monthly"] * months, 2)
     return {
         "rows": rows, "months": months, "totals": totals,
+        # Only says anything when they run traditional media and a posture has
+        # been chosen; otherwise "" and the section renders without it.
+        "traditional_note": hub_discovery.roi_note(state),
         # Named, so the section can say which products are not represented in
         # the headline number instead of quietly under-reporting.
         "unpriced": unpriced,
@@ -1574,8 +1666,15 @@ def ai_draft_sections():
     ensure_sections(state)
     template = industry_template(state)
     areas = campaign_areas(state)
+
+    # One section per request when the caller names one. The wizard writes the
+    # proposal a section at a time so its loader can say which section is
+    # being written rather than spinning on "generating…" for a minute, and so
+    # a single failed section does not cost the other twelve.
+    only = str(body.get("section") or "").strip()
     writable = [sec for sec in state.get("sections") or []
-                if sec.get("kind") == "text" and sec.get("enabled", True)]
+                if sec.get("kind") in WRITABLE_KINDS and sec.get("enabled", True)
+                and (not only or sec.get("id") == only)]
     if not writable:
         return jsonify({"ok": False, "error": "This proposal has no text sections to write."}), 400
 
@@ -1597,11 +1696,21 @@ def ai_draft_sections():
         "landing_page": state.get("landingUrl") or "",
         "landing_recommendation": state.get("landing") or "",
         "creative_source": hub_creative.summary_line(state),
+        # What they already run, what they don't, and where they stand on
+        # their traditional media. `traditional_guidance` carries the posture
+        # AND the instruction not to argue it -- a model handed "they want to
+        # shift budget to digital" writes a case against radio, and a proposal
+        # that opens by calling a client's existing spend wasted loses the
+        # room before the media plan is read.
+        "current_marketing": hub_discovery.for_prompt(state),
+        "traditional_guidance": hub_discovery.guidance(state),
+        "we_suggest": [s["title"] for s in hub_discovery.suggestions(state)],
         "suite_tier": hub_spec.suggested_tier(
             (state.get("selectedPackage") or {}).get("monthly")
             or state.get("budget") or 0)["name"],
         "sections_to_write": [{"id": sec.get("id"), "title": sec.get("title"),
                                "guidance": hub_spec.guidance_for(sec.get("id")),
+                               "has_table": sec.get("kind") not in ("text", "cover"),
                                "current": sec.get("body") or ""} for sec in writable],
     }
     if template:
@@ -1620,12 +1729,17 @@ def ai_draft_sections():
         "- Return STRICT JSON only: {\"sections\": [{\"id\": \"...\", \"body\": \"...\"}]}, one entry per "
         "id in sections_to_write, and no other keys.\n"
         "- Each section answers the `guidance` given for it. Follow that guidance.\n"
+        "- A section marked has_table:true is followed by a generated table of "
+        "real numbers. Write the short paragraph that INTRODUCES it — say what "
+        "the reader is about to look at and why it is shaped this way. Never "
+        "restate the figures; they are directly below your copy and any number "
+        "you write that differs from one of theirs is the error that matters.\n"
         "- Each section is 2 to 4 short paragraphs, plain professional English. No "
         "headings; keep bullet characters only where the current copy uses them.\n"
         "- Keep anything factual the current copy already states.\n\n"
         + json.dumps(facts, ensure_ascii=False))
     try:
-        result = _json_from_ai(_openai_response(prompt, 6000))
+        result = _json_from_ai(_openai_response(prompt, 2000 if only else 6000))
         written = {str(sec.get("id")): str(sec.get("body") or "")
                    for sec in (result.get("sections") or []) if sec.get("id")}
     except Exception as exc:                            # noqa: BLE001
@@ -1684,6 +1798,24 @@ def api_proposal_spec():
         "comp_confirm_under": hub_creative.COMP_CONFIRM_UNDER,
         "typical_production": hub_creative.TYPICAL_PRODUCTION,
     })
+
+
+@app.post("/api/ai/section-plan")
+def api_section_plan():
+    """The sections the wizard should ask for, in order, with their labels.
+
+    Returned rather than derived in JavaScript so the loader counts exactly
+    what the server will write -- a progress bar that says "3 of 9" while the
+    server writes 13 is worse than no progress bar.
+    """
+    body = request.get_json(force=True) or {}
+    state = body.get("data") or {}
+    ensure_sections(state)
+    return jsonify({"ok": True, "sections": [
+        {"id": sec.get("id"), "title": sec.get("title"),
+         "has_table": sec.get("kind") not in ("text", "cover"),
+         "has_copy": bool((sec.get("body") or "").strip())}
+        for sec in writable_sections(state)]})
 
 
 @app.get("/api/industries")
