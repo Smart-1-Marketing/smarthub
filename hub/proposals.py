@@ -65,6 +65,79 @@ def _today() -> str:
     return _dt.date.today().isoformat()
 
 
+# ---------------------------------------------------------------------------
+# Quote numbers for uploaded proposals.
+#
+# An uploaded proposal used to have no number at all — its only identity was a
+# 16-hex uuid, and the Proposal Builder's "Quote #" column printed the literal
+# word "Uploaded" where every other row carried a reference someone could say
+# out loud. "What happened with Q-10250?" had no answer for half the pipeline.
+#
+# The series is deliberately its own. Q- numbers are allocated by the Proposal
+# Builder against its own Counter table, and reaching into a module's database
+# from hub/ to share that counter would import a whole Flask app to increment
+# an integer. U- runs parallel to it from the same base, so the two read as
+# siblings and can never collide: a U- number is a quote number AND says where
+# the document came from, which is what the badge in the UI repeats.
+# ---------------------------------------------------------------------------
+QUOTE_PREFIX = "U-"
+QUOTE_BASE = 10199              # first uploaded proposal is U-10200
+_NUMBER_LOCK = __import__("threading").Lock()
+
+
+def _postgres_quote_number():
+    """Next number from a Postgres sequence, or None when there is no Postgres.
+
+    A threading.Lock only holds inside one process and gunicorn runs two
+    workers, so two uploads landing together could read the same counter and
+    be handed the same number. A sequence is atomic across every worker, which
+    no application-level lock can be. Same reasoning, and the same shape, as
+    io_builder's order numbers.
+    """
+    try:
+        from sqlalchemy import text
+
+        from .extensions import engine_for
+        engine = engine_for()
+        if not engine.dialect.name.startswith("postgres"):
+            return None
+        with engine.connect() as cx:
+            cx.execute(text("CREATE SEQUENCE IF NOT EXISTS uploaded_quote_number_seq "
+                            f"START WITH {QUOTE_BASE + 1} INCREMENT BY 1"))
+            cx.commit()
+            value = cx.execute(text("SELECT nextval('uploaded_quote_number_seq')")).scalar()
+            cx.commit()
+        return int(value)
+    except Exception:                                   # noqa: BLE001
+        return None
+
+
+def _counter_path() -> str:
+    from . import jsonstore
+    return os.path.join(jsonstore.data_dir("client-proposals"), "quote-counter.json")
+
+
+def next_quote_number() -> str:
+    """Allocate the next uploaded-proposal number: U-10200, U-10201, ...
+
+    Through jsonstore rather than a bare file write: the Render disk is not
+    backed up, and a counter that resets to zero after a disk swap would hand
+    out numbers that already belong to documents a client has seen.
+    """
+    value = _postgres_quote_number()
+    if value is None:
+        from . import jsonstore
+        path = _counter_path()
+        with _NUMBER_LOCK:
+            current = jsonstore.read_json(path, default={}) or {}
+            try:
+                value = int(current.get("last_quote_number") or QUOTE_BASE) + 1
+            except (TypeError, ValueError):
+                value = QUOTE_BASE + 1
+            jsonstore.write_json(path, {"last_quote_number": value})
+    return f"{QUOTE_PREFIX}{int(value)}"
+
+
 def _iso_date(value, fallback="") -> str:
     """Accept 2026-08-14 or 08/14/2026; empty string when unparseable."""
     s = str(value or "").strip()
@@ -78,12 +151,36 @@ def _iso_date(value, fallback="") -> str:
     return fallback
 
 
-def list_proposals(client: str) -> list[dict]:
+def _backfill_numbers(client: str, items: list[dict]) -> list[dict]:
+    """Give any proposal uploaded before numbering existed a number, once.
+
+    Converted on read rather than by migrating rows nobody has re-opened —
+    the same choice target areas made for its legacy geo fields. The write is
+    best-effort: a store that cannot be written still lists, it just gets
+    asked again next time. Numbers are allocated oldest-first so the series
+    runs in the order the documents were actually sent.
+    """
+    missing = [i for i in items if not str(i.get("quote_number") or "").strip()]
+    if not missing:
+        return items
+    for item in sorted(missing, key=lambda i: (str(i.get("date_sent") or ""),
+                                               str(i.get("uploaded_at") or ""))):
+        item["quote_number"] = next_quote_number()
+    try:
+        _write(client, items)
+    except Exception:                                   # noqa: BLE001 — listing must not fail on a write
+        pass
+    return items
+
+
+def list_proposals(client: str, backfill: bool = True) -> list[dict]:
     """Uploaded proposals for a client, newest date-sent first."""
     items = seo.load_store(client).get("uploaded_proposals", [])
     items = [i for i in items if isinstance(i, dict)]
     items.sort(key=lambda i: (str(i.get("date_sent") or ""),
                               str(i.get("uploaded_at") or "")), reverse=True)
+    if backfill:
+        items = _backfill_numbers(client, items)
     return items
 
 
@@ -337,6 +434,7 @@ def add_proposal(client: str, filename: str, data: bytes, date_sent: str = "",
         "status": (status if status in PROPOSAL_STATUSES else "sent"),
         "status_changed_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "source": "uploaded",
+        "quote_number": next_quote_number(),
     }
     items = list_proposals(client)
     items.insert(0, record)

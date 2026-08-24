@@ -572,6 +572,51 @@ def update_quote(qid):
         db.close()
 
 
+@app.delete("/api/quotes/<int:qid>")
+def delete_quote(qid):
+    """Delete a draft quote.
+
+    Drafts only, and the check is here rather than only in the UI. Every other
+    status means the document left the building: a Sent quote is one a client
+    has read, an Approved one is what an insertion order was agreed from, and
+    a Converted one is the paper trail behind a live campaign. Losing any of
+    those to a mis-click is unrecoverable — there is no undo and no backup of
+    a single row — so the only thing this removes is a draft nobody outside
+    the office has seen.
+
+    A draft that was delivered before being set back to draft still has its
+    filed copy on the client's record; that is a different object in
+    hub.proposals and is deliberately left alone. The response says so rather
+    than implying everything went.
+    """
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        if q.status != "Draft":
+            return jsonify({"ok": False,
+                            "error": f"{q.quote_number} is {q.status.lower()}, not a draft. "
+                                     f"Only drafts can be deleted — mark it Lost or Expired "
+                                     f"instead so the history is kept."}), 409
+
+        number, client = q.quote_number, q.client
+        filed = bool(q.client_filed_as)
+        # No FK and no cascade on Activity.quote_id, so its rows would be left
+        # pointing at an id that no longer exists and the feed would render
+        # entries for a quote nobody can open.
+        db.query(Activity).filter(Activity.quote_id == q.id).delete(synchronize_session=False)
+        db.delete(q)
+        # Logged with no quote_id, because the quote it refers to is gone. The
+        # feed should still be able to say that it was deleted.
+        log_activity(db, None, "🗑️", f"{number} deleted — {client or 'no client'}")
+        db.commit()
+        _audit("quote_deleted", client=client, quote=number)
+        return jsonify({"ok": True, "deleted": number, "filed_copy_kept": filed})
+    finally:
+        db.close()
+
+
 @app.post("/api/quotes/<int:qid>/duplicate")
 def duplicate_quote(qid):
     db = SessionLocal()
