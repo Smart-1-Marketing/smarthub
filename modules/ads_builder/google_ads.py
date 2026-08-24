@@ -232,7 +232,18 @@ def request(method: str, path: str, body=None, *, store=None, customer_id=None,
     if login:
         headers["login-customer-id"] = login
 
-    resp = requests.request(method, base_url() + path, json=body, headers=headers, timeout=TIMEOUT)
+    url = base_url() + path
+    resp = requests.request(method, url, json=body, headers=headers, timeout=TIMEOUT)
+    # Google Ads bills nothing for API access and limits operations per day
+    # instead — Basic access allows 15,000, and a deploy that runs out at 4pm
+    # is blocked until midnight Pacific. Counted whether or not it succeeded:
+    # a refused operation still spent one. /diagnostics compares the daily
+    # total against the ceiling.
+    try:
+        from hub import quotas as _q
+        _q.record_google(url, module="ads_builder", ok=resp.ok)
+    except Exception:                                   # noqa: BLE001
+        pass
     if not resp.ok:
         _raise_for_google(resp)
     return resp.json() if resp.content else {}

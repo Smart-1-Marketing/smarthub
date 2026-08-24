@@ -299,12 +299,28 @@ def _looks_like_image(value: str, key: str = "") -> bool:
 def font_list(q: str = "") -> list[str]:
     """Google Fonts. With a key we return the live catalogue; without one the
     curated list still covers everything the outline asks for."""
-    key = (os.environ.get("GOOGLE_FONTS_API_KEY") or "").strip()
+    # Through hub.config, not os.environ: this deployment sets
+    # GOOGLE_FONTS_API and the spelling here was GOOGLE_FONTS_API_KEY, so the
+    # key was present, the catalogue silently fell back to the curated list,
+    # and nothing said why. photo_search.py in this same module already routes
+    # its keys this way for exactly that reason.
+    try:
+        from hub.config import settings as _settings
+        key = (_settings.google_fonts_key or "").strip()
+    except Exception:                                 # noqa: BLE001
+        key = (os.environ.get("GOOGLE_FONTS_API")
+               or os.environ.get("GOOGLE_FONTS_API_KEY") or "").strip()
     fonts = list(POPULAR_FONTS)
     if key:
+        url = "https://www.googleapis.com/webfonts/v1/webfonts"
         try:
-            r = requests.get("https://www.googleapis.com/webfonts/v1/webfonts",
-                             params={"key": key, "sort": "popularity"}, timeout=TIMEOUT)
+            r = requests.get(url, params={"key": key, "sort": "popularity"},
+                             timeout=TIMEOUT)
+            try:                                      # daily quota, not money
+                from hub import quotas as _q
+                _q.record_google(url, module="image_creator", ok=r.ok)
+            except Exception:                         # noqa: BLE001
+                pass
             if r.ok:
                 fonts = [f["family"] for f in r.json().get("items", [])][:400]
         except Exception:                             # noqa: BLE001

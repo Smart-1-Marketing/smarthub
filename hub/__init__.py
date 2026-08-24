@@ -195,12 +195,20 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/quotas")
     def api_quotas():
-        """Monthly usage against allowances, plus the OpenAI cost estimate."""
+        """Monthly usage against allowances, and every provider cost estimate.
+
+        `?live=1` also asks ElevenLabs and Cloudinary for their own counters,
+        which are the authority on what those two actually bill. Off by
+        default and cached for five minutes: everything else here is a local
+        read of the activity log, and a page that always makes two outbound
+        calls is a page that hangs when someone else's API does.
+        """
         gate = _require_api()
         if gate:
             return gate
         from . import quotas
-        return jsonify(quotas.summary(request.args.get("month")))
+        live = (request.args.get("live") or "").lower() in ("1", "true", "yes", "on")
+        return jsonify(quotas.summary(request.args.get("month"), live=live))
 
     @app.route("/api/backup")
     def api_backup():

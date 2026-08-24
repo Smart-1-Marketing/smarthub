@@ -105,6 +105,26 @@ def _disk_root(kind: str) -> str:
     return path
 
 
+def _note_asset(bucket: str, op: str, nbytes: int, public_id: str) -> None:
+    """Count one Cloudinary operation against the credit estimate.
+
+    The logical bucket ("seo_images", "proposals") is what gets attributed,
+    not the calling module: several modules write into one bucket and the
+    bucket is what a Cloudinary folder listing shows, so it is the label that
+    can be reconciled against their console.
+
+    Only the Cloudinary path records. A write that fell through to the disk
+    costs Cloudinary nothing, and counting it would put storage on the
+    estimate that is not on the bill.
+    """
+    try:
+        from hub import quotas as _q
+        _q.record_asset(module=bucket or "hub", kind=op, nbytes=nbytes,
+                        detail=public_id)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
 def put(kind: str, filename: str, data: bytes, *, client: str = "",
         subpath: str = "", context: dict | None = None,
         overwrite: bool = False, tags: list | tuple | None = None,
@@ -154,6 +174,7 @@ def put(kind: str, filename: str, data: bytes, *, client: str = "",
             context=context or None,
             tags=list(tags) if tags else None,
         )
+        _note_asset(kind, "upload", len(data), public_id)
         return StoredAsset(
             public_id=res.get("public_id", public_id),
             url=res.get("secure_url") or res.get("url", ""),
@@ -213,6 +234,8 @@ def put_remote(kind: str, url: str, *, filename: str = "", client: str = "",
         context=context or None,
         tags=list(tags) if tags else None,
     )
+    _note_asset(kind, "fetch", int(res.get("bytes") or 0),
+                res.get("public_id", ""))
     return StoredAsset(
         public_id=res.get("public_id", ""),
         url=res.get("secure_url") or res.get("url", ""),
@@ -227,6 +250,7 @@ def delete(kind: str, public_id: str, resource_type: str = "raw") -> bool:
             _configure()
             cloudinary.uploader.destroy(public_id, resource_type=resource_type,
                                         invalidate=True)
+            _note_asset(kind, "delete", 0, public_id)
             return True
         path = os.path.join(_disk_root(kind), os.path.basename(public_id))
         if os.path.isfile(path):

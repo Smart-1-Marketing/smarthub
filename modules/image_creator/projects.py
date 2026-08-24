@@ -125,6 +125,13 @@ def _upload_preview(pid: str, data_url: str) -> tuple[str, int, int]:
         res = cloudinary.uploader.upload(
             raw, folder=f"{FOLDER}/previews", public_id=pid,
             overwrite=True, invalidate=True, format="webp", quality="auto")
+        # One Cloudinary operation, for the credit estimate on /diagnostics.
+        try:
+            from hub import quotas as _q
+            _q.record_asset(module="image_creator", nbytes=len(raw),
+                            detail=res.get("public_id", ""))
+        except Exception:                     # noqa: BLE001
+            pass
         return res.get("secure_url", ""), w, h
 
     path = os.path.join(_data_dir(), f"{pid}-preview.webp")
@@ -270,6 +277,13 @@ def export_to_cloudinary(data_url: str, name: str, client: str = "",
         raw, folder=folder, public_id=slugify(name, "export"),
         overwrite=False, unique_filename=True, use_filename=False,
         quality="auto", context={"client": client, "project": project})
+    # One Cloudinary operation, for the credit estimate on /diagnostics.
+    try:
+        from hub import quotas as _q
+        _q.record_asset(module="image_creator", nbytes=len(raw),
+                        detail=res.get("public_id", ""))
+    except Exception:                         # noqa: BLE001
+        pass
     return {"url": res.get("secure_url", ""), "public_id": res.get("public_id", ""),
             "width": res.get("width"), "height": res.get("height"),
             "bytes": res.get("bytes")}

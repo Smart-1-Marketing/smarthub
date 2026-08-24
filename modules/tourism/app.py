@@ -623,6 +623,13 @@ def upload_pdf(pdf_bytes: bytes, body: dict) -> str:
             folder=f"{settings.folder('proposals')}/tourism",
             public_id=f"{slug}-{int(time.time())}",
             overwrite=False, unique_filename=True)
+        # One Cloudinary operation, for the credit estimate on /diagnostics.
+        try:
+            from hub import quotas as _q
+            _q.record_asset(module="tourism", nbytes=len(pdf_bytes),
+                            detail=res.get("public_id", ""))
+        except Exception:                     # noqa: BLE001
+            pass
         return res.get("secure_url", "")
     except Exception as exc:                            # noqa: BLE001
         app.logger.warning("Tourism PDF upload failed: %s", exc)

@@ -137,6 +137,32 @@ def check_untracked_openai() -> list[dict]:
     return out
 
 
+def check_untracked_provider_usage() -> list[dict]:
+    """ElevenLabs, Cloudinary or Google called without recording the usage.
+
+    The same failure as check_untracked_openai above, for the three providers
+    added later. A call site that spends an allowance without recording it
+    does not make the usage page wrong by a little — it makes it wrong by
+    however much that call site spends, silently, and in the reassuring
+    direction.
+
+    The detection lives in hub/quotas.py beside the markers it is looking for,
+    so this and the "blind spots" list on /diagnostics cannot drift apart.
+    """
+    try:
+        from hub.quotas import untracked_provider_calls
+    except Exception as exc:                            # noqa: BLE001
+        return [{"file": "hub/quotas.py", "module": "hub",
+                 "detail": f"Usage tracking could not be read "
+                           f"({type(exc).__name__}), so this check did not run.",
+                 "fix": "Fix the import error in hub/quotas.py."}]
+    out = []
+    for provider, rows in untracked_provider_calls(force=True).items():
+        for row in rows:
+            out.append(dict(row, provider=provider))
+    return out
+
+
 def check_silent_modules() -> list[dict]:
     """A module that never writes to the activity log is unauditable."""
     out = []
@@ -387,6 +413,8 @@ CHECKS = [
     ("pdf_resource_type", "PDF uploaded as an image type", "high", check_pdf_resource_type),
     ("convert_without_resize", "Converts without resizing", "high", check_convert_without_resize),
     ("untracked_openai", "OpenAI spend not recorded", "medium", check_untracked_openai),
+    ("untracked_provider_usage", "ElevenLabs, Cloudinary or Google usage not recorded",
+     "medium", check_untracked_provider_usage),
     ("silent_modules", "Modules that never log", "medium", check_silent_modules),
     ("unclamped_limits", "Unclamped query limits", "medium", check_unclamped_limits),
     ("shadowed_routes", "Routes hidden behind a mount", "high", check_shadowed_routes),

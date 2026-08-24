@@ -74,6 +74,20 @@ def _raise_for(resp, what):
     raise GoogleError(f"{what}: {status} {message}", public)
 
 
+def _note(url, ok=True):
+    """Count one Google API call against the daily quota on /diagnostics.
+
+    Recorded before the error check, because a refused call spent a request
+    against the quota exactly as an accepted one did — and a wall of 429s is
+    the shape a spent quota takes.
+    """
+    try:
+        from hub import quotas as _q
+        _q.record_google(url, module="google_access", ok=ok)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
 def _get(url, token, params=None):
     resp = requests.get(
         url,
@@ -81,6 +95,7 @@ def _get(url, token, params=None):
         params=params or {},
         timeout=TIMEOUT,
     )
+    _note(url, ok=resp.ok)
     if not resp.ok:
         _raise_for(resp, f"GET {url}")
     return resp.json()
@@ -90,6 +105,7 @@ def _post(url, token, body, extra_headers=None):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     headers.update(extra_headers or {})
     resp = requests.post(url, headers=headers, json=body, timeout=TIMEOUT)
+    _note(url, ok=resp.ok)
     if not resp.ok:
         _raise_for(resp, f"POST {url}")
     return resp.json() if resp.text else {}
