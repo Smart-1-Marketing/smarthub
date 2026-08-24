@@ -388,6 +388,22 @@ check("and says so when they are off, rather than showing nothing",
       "blogOffNote" in html)
 check("the fill-in-taxonomy button is on the page", "btnBlogTag" in html)
 
+# The approved-topics upload spent a release inside the collapsed settings
+# drawer, where nobody found it. It changes WHAT gets planned, so it belongs
+# beside the planning question — and this asserts it is not back in the drawer.
+check("the approved-topics upload has its own panel",
+      'class="seoc-topicpanel"' in html)
+check("and sits outside the collapsed settings drawer",
+      html.index('id="ba_topicfile"') > html.index('class="seoc-topicpanel"'),
+      (html.index('id="ba_topicfile"'), html.index('class="seoc-topicpanel"')))
+check("that panel is above the plan question it answers",
+      html.index('class="seoc-topicpanel"') < html.index('id="blogAsk"'))
+check("the panel is not itself hidden",
+      'seoc-topicpanel" style="display:none' not in html)
+check("there is exactly one upload control, not two copies",
+      html.count('id="ba_topicfile"') == 1, html.count('id="ba_topicfile"'))
+check("it says what is loaded without opening anything", "topicSummary" in html)
+
 
 print(f"\n{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

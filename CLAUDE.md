@@ -457,6 +457,13 @@ most **one** new category per post, dedupes case-insensitively and caps the
 counts. The client's set grows deliberately and slowly. Same clamp on the edit
 route, or the rule holds only until someone types into the box.
 
+**The approved-topic upload sits beside the planning question.** It spent a
+release inside the collapsed settings panel, where nobody found it. What a
+setting *changes* decides where it lives: the author and the guardrails are
+set-and-forget and belong in a drawer; the approved list changes what the next
+plan contains, so it sits in the Blogs card in its own panel, above the button
+that acts on it, saying what is loaded without anything being opened.
+
 **An approved topic is reproduced, not paraphrased.** A topic list a client
 signed off in advance is a commitment. `parse_approved_topics()` reads the
 document we emailed them — PDF, Word or pasted text, through the same

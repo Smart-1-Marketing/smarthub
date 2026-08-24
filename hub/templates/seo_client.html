@@ -356,7 +356,7 @@
   <div class="seoc-bset">
     <button class="seoc-bset-toggle" id="btnBlogSet" type="button">
       <span>&#9881; Blog settings</span>
-      <span class="seoc-muted" id="blogSetSummary">author, guidance, approved topics</span>
+      <span class="seoc-muted" id="blogSetSummary">author, categories, guidance</span>
     </button>
     <div id="blogSetBody" style="display:none">
       <div class="seoc-2col" style="margin-bottom:10px">
@@ -389,28 +389,46 @@
         A post whose text contains one is flagged in the table and in the client
         document until it is rewritten.</p>
 
-      <div class="seoc-biz-head">Approved blogs / approved topics</div>
-      <p class="seoc-muted" style="font-size:12px;margin:0 0 8px">
-        The list a client signed off in advance. Upload the document you sent
-        them (PDF, Word or text) and the planner uses those titles first, in
-        order, exactly as written.</p>
-      <div class="seoc-topicbar">
-        <input type="file" id="ba_topicfile" accept=".pdf,.docx,.doc,.txt,.md,.csv">
-        <button class="seoc-btn seoc-small" id="btnTopicUp" type="button">Load topics</button>
-        <label class="seoc-skip" style="font-size:12.5px">
-          <input type="checkbox" id="ba_topicappend"> Add to the list already loaded</label>
-        <span id="topicMsg" class="seoc-muted"></span>
-      </div>
-      <textarea id="ba_topicpaste" rows="3" style="margin-top:8px"
-        placeholder="…or paste the topics here, one per line, and click Load topics."></textarea>
-      <div id="topicList" class="seoc-topiclist" style="display:none"></div>
-      <label class="seoc-skip" style="font-size:12.5px;margin-top:8px;display:block">
-        <input type="checkbox" id="ba_approvedonly"> Plan <b>only</b> the approved
-        topics &mdash; stop when the list runs out rather than inventing more</label>
       <div style="margin-top:12px">
         <button class="seoc-btn seoc-small" id="btnBlogSetSave" type="button">Save blog settings</button>
         <span id="blogSetMsg" class="seoc-muted" style="margin-left:8px"></span>
       </div>
+    </div>
+  </div>
+
+  <!-- The approved-topic list changes WHAT gets planned, so it belongs beside
+       the planning question and not in a settings drawer. It spent a release
+       inside the collapsed panel above and could not be found. -->
+  <div class="seoc-topicpanel">
+    <div class="seoc-biz-head" style="display:flex;justify-content:space-between;
+         align-items:center;gap:10px;flex-wrap:wrap">
+      <span>&#128196; Approved blogs / approved topics
+        <span class="seoc-muted" style="font-weight:400">— optional</span></span>
+      <span class="seoc-muted" id="topicSummary"></span>
+    </div>
+    <p class="seoc-muted" style="font-size:12px;margin:0 0 8px">
+      The list a client signed off in advance. Upload the document you sent them
+      &mdash; PDF, Word or text &mdash; and the planner uses those titles first,
+      in order, <b>exactly as written</b>. A paraphrased title is a topic the
+      client did not approve.</p>
+    <div class="seoc-topicbar">
+      <input type="file" id="ba_topicfile" accept=".pdf,.docx,.doc,.txt,.md,.csv">
+      <button class="seoc-btn seoc-small" id="btnTopicUp" type="button">Load topics</button>
+      <label class="seoc-skip" style="font-size:12.5px">
+        <input type="checkbox" id="ba_topicappend"> Add to the list already loaded</label>
+      <span id="topicMsg" class="seoc-muted"></span>
+    </div>
+    <textarea id="ba_topicpaste" rows="2" style="margin-top:8px;width:100%;box-sizing:border-box;
+      padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;
+      font:13px 'Segoe UI',system-ui,sans-serif"
+      placeholder="…or paste the topics here, one per line, and click Load topics."></textarea>
+    <div id="topicList" class="seoc-topiclist" style="display:none"></div>
+    <label class="seoc-skip" style="font-size:12.5px;margin-top:8px;display:block">
+      <input type="checkbox" id="ba_approvedonly"> Plan <b>only</b> the approved
+      topics &mdash; stop when the list runs out rather than inventing more</label>
+    <div style="margin-top:8px">
+      <button class="seoc-btn seoc-sec seoc-small" id="btnTopicSave" type="button">Save this setting</button>
+      <span id="topicSaveMsg" class="seoc-muted" style="margin-left:8px"></span>
     </div>
   </div>
 
@@ -652,6 +670,9 @@
 #blogSetBody{padding:14px}
 #blogSetBody input,#blogSetBody textarea{width:100%;box-sizing:border-box;padding:8px 10px;
   border:1px solid #e2e8f0;border-radius:8px;font:13px 'Segoe UI',system-ui,sans-serif}
+.seoc-topicpanel{background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;
+  padding:13px 15px;margin-bottom:14px}
+.seoc-topicpanel input[type=file]{font-size:12.5px}
 .seoc-topicbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .seoc-topicbar input[type=file]{border:0;padding:0;font-size:12.5px;width:auto}
 .seoc-topiclist{margin-top:10px;max-height:190px;overflow:auto;border:1px solid #e2e8f0;
@@ -2057,7 +2078,6 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     bits.push((blogSettings.categories||[]).length
       ? 'Categories: '+(blogSettings.categories||[]).join(', ')
       : 'No categories yet');
-    bits.push((blogSettings.approved_topics||[]).length+' approved topic(s)');
     if((blogSettings.avoid||[]).length) bits.push((blogSettings.avoid||[]).length+' never-mention term(s)');
     $('blogSetSummary').textContent=bits.join('  ·  ');
     /* Open on arrival while it is still empty — a collapsed panel is exactly
@@ -2069,6 +2089,11 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   function renderTopics(){
     var t=blogSettings.approved_topics||[];
     var box=$('topicList');
+    var src_=(blogSettings.topics_source||{});
+    $('topicSummary').textContent=t.length
+      ? t.length+' topic(s) loaded'+(src_.filename?' from '+src_.filename:'')
+        +(src_.uploaded?' on '+src_.uploaded:'')
+      : 'none loaded — the planner will invent the topics';
     if(!t.length){ box.style.display='none'; box.innerHTML=''; return; }
     box.style.display='block';
     box.innerHTML=t.map(function(x,i){
@@ -2108,6 +2133,15 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       post('/api/seo/blogs/topics',{client:CLIENT,text:pasted,filename:'pasted list',
                                     append:$('ba_topicappend').checked}).then(done);
     }
+  };
+  $('btnTopicSave').onclick=function(){
+    $('topicSaveMsg').textContent='Saving…';
+    post('/api/seo/blogs/settings',{client:CLIENT,
+      approved_only:$('ba_approvedonly').checked}).then(function(d){
+      if(d.error){ $('topicSaveMsg').textContent=d.error; return; }
+      renderBlogSettings(d.settings);
+      $('topicSaveMsg').textContent='Saved — used on the next plan.';
+    });
   };
   $('btnBlogSetSave').onclick=function(){
     $('blogSetMsg').textContent='Saving…';
