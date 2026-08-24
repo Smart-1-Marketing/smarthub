@@ -439,6 +439,7 @@ python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math
 python3 test_landing_maker.py      # built pages stay public and chrome-free
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
+python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 ```
 
 The test files need no pytest and no new dependencies; each runs against a

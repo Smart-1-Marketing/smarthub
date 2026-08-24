@@ -34,9 +34,19 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import (Flask, Response, jsonify, make_response, redirect,
+                   render_template, request, send_file, url_for)
+
+from hub import audit
 
 app = Flask(__name__)
+
+# A signed agreement is client work, and until now none of it reached the
+# activity log -- /api/integrity has been reporting this module as
+# unattributable since it shipped. Logged with client=, so a signature shows
+# up on that client's 360 record next to everything else we have done for
+# them, which is where anyone would look for it.
+log = audit.for_module("msa")
 
 # This page is mounted PUBLIC -- a client signing an agreement has no staff
 # login. So every write here is reachable by anyone who finds the URL, and
@@ -44,6 +54,16 @@ app = Flask(__name__)
 # delivered into Suite. Six an hour per address is far above what a genuine
 # signer needs and far below what makes a script worth writing.
 SIGN_LIMIT = int(os.environ.get("MSA_SIGN_LIMIT", "6"))
+
+# Who may put this page in an iframe. An ALLOWLIST, not the "*" the scans
+# widget uses -- that one is framed on clients' own domains and has to
+# accept any of them, whereas this is only ever framed on ours and it
+# submits a legally binding signature. A page anyone can frame is a page
+# anyone can lay a transparent button over. Space-separated, CSP syntax.
+FRAME_ANCESTORS = os.environ.get(
+    "MSA_FRAME_ANCESTORS",
+    "'self' https://smart1marketing.com https://*.smart1marketing.com"
+).strip()
 
 
 def _rate_limited(bucket: str, limit: int) -> bool:
@@ -114,15 +134,130 @@ def rendered_body(ctx: dict) -> list[dict]:
             for h, ps in MSA_BODY]
 
 
-@app.get("/")
-def index():
+def _page(embedded: bool = False) -> str:
+    """The signing page. One render, two framings.
+
+    The embedded framing drops the Smart 1 header bar and the footer -- the
+    host page already carries both, and a second logo halfway down someone
+    else's page reads as a broken paste rather than an embed.
+    """
     return render_template("index.html",
                            sections=rendered_body({"company": "{company}",
                                                    "address": "{address}",
                                                    "date": "{date}"}),
                            launch_times=LAUNCH_TIMES,
                            rate_card_note=RATE_CARD_NOTE,
-                           not_ready=bool(_placeholder_count()))
+                           not_ready=bool(_placeholder_count()),
+                           embedded=embedded)
+
+
+@app.get("/")
+def index():
+    return _page()
+
+
+# ---------------------------------------------------------------------------
+# Embedding on smart1marketing.com
+# ---------------------------------------------------------------------------
+
+def _framable(resp):
+    """Let the allowlisted hosts frame this response, and nobody else."""
+    resp.headers["Content-Security-Policy"] = (
+        "frame-ancestors " + FRAME_ANCESTORS)
+    # X-Frame-Options has no allowlist form: any value it could carry would
+    # either forbid the embed outright or be honoured inconsistently, and
+    # some browsers let it override CSP. Dropping it leaves one rule in
+    # charge of the answer rather than two that can disagree.
+    resp.headers.pop("X-Frame-Options", None)
+    return resp
+
+
+@app.get("/embed")
+def embed():
+    """The signing page for an iframe on the marketing site.
+
+    No trailing slash, deliberately. The page's own call is written
+    ``fetch('api/sign')`` -- a same-origin literal, which is the form
+    tools/linkcheck.py can actually verify -- and a relative path resolves
+    against the *directory* of the current URL. From ``/msa/embed`` that is
+    ``/msa/api/sign``, which is right; from ``/msa/embed/`` it would be
+    ``/msa/embed/api/sign``, which is a 404 nobody meets until they have
+    filled in the whole agreement and pressed sign.
+    """
+    return _framable(make_response(_page(embedded=True)))
+
+
+@app.get("/embed/")
+def embed_slash():
+    """A pasted trailing slash redirects rather than 404s.
+
+    The distinction above is real but invisible to whoever is pasting the
+    snippet into a page builder, and getting it wrong would show a client an
+    empty frame on the marketing site. Redirecting costs one hop and means
+    both spellings land on the URL whose relative API path resolves.
+
+    url_for rather than a literal: this app is mounted under /msa by the
+    dispatcher, so a hand-written "/embed" would point at the hub app and a
+    relative "../embed" is resolved by the client. url_for asks the request
+    for its own script root and gets /msa/embed under the mount and /embed
+    standalone, which is right in both.
+    """
+    return redirect(url_for("embed"), code=308)
+
+
+@app.get("/embed.js")
+def embed_js():
+    """One-line drop-in: writes the iframe and keeps it the right height.
+
+    The Hub's URL appears once, in the script's own ``src``, and everything
+    else is derived from it -- so moving the Hub to another host is a
+    one-word edit on the marketing site rather than a hunt through a block
+    of pasted markup.
+
+    A contract is tall, and a tall document inside a fixed iframe means a
+    scrollbar inside a scrollbar -- the single most reliable way to make a
+    client abandon a signing page. So the frame reports its own height.
+    """
+    # Raw: the two regexes below carry \/ and \. and \?, which Python does
+    # not recognise as escapes. It keeps them today and warns, and a future
+    # release makes that an error -- at which point the loader silently stops
+    # matching and every embed on the marketing site shows a frozen frame.
+    js = r"""(function(){
+  var s = document.currentScript;
+  if (!s || !s.src) return;
+  var base = s.src.replace(/\/embed\.js(\?.*)?$/, '');
+  var origin = base.replace(/^(https?:\/\/[^\/]+).*$/, '$1');
+
+  var frame = document.createElement('iframe');
+  frame.src = base + '/embed';
+  frame.title = 'Smart 1 Marketing — Master Services Agreement';
+  frame.loading = 'lazy';
+  frame.setAttribute('scrolling', 'no');
+  frame.style.cssText = 'display:block;width:100%;border:0;' +
+                        'height:' + (s.getAttribute('data-height') || '1200') + 'px;';
+  s.parentNode.insertBefore(frame, s);
+
+  window.addEventListener('message', function(e){
+    /* Both checks, not either. The origin says the message came from the
+       Hub; the source says it came from THIS frame rather than another
+       Hub embed further down the same page. */
+    if (e.origin !== origin) return;
+    if (e.source !== frame.contentWindow) return;
+    var d = e.data || {};
+    if (d.type === 's1msa:height' && d.height) {
+      frame.style.height = d.height + 'px';
+    } else if (d.type === 's1msa:signed') {
+      /* The confirmation renders at the top of the frame, which may be
+         above the fold on the host page -- so a client who has just signed
+         would be looking at whitespace. */
+      try { frame.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+      catch (err) { frame.scrollIntoView(); }
+    }
+  });
+})();"""
+    return _framable(Response(
+        js, mimetype="application/javascript",
+        headers={"Cache-Control": "public, max-age=3600"}))
 
 
 def _placeholder_count() -> int:
@@ -218,6 +353,13 @@ def sign():
     except Exception:                                   # noqa: BLE001
         app.logger.exception("MSA lead capture failed")
 
+    # After the lead write, not before: this records what actually happened,
+    # and whether the durable copy exists is part of that. A signature filed
+    # with pdf_url empty is a real state -- Cloudinary unconfigured -- and
+    # the log should say so rather than imply a stored contract.
+    log("signed", client=company, signer=signer, token=token,
+        stored=bool(pdf_url))
+
     return jsonify({
         "ok": True, "token": token, "pdf_url": pdf_url,
         "download": f"pdf/{token}",
@@ -243,11 +385,17 @@ def download(token: str):
 # ---------------------------------------------------------------------------
 
 def _pdf_dir() -> Path:
-    base = Path("/var/data") if Path("/var/data").is_dir() else \
-        Path(__file__).parent.parent.parent / "data"
-    d = base / "msa"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    """Where the convenience copy of a signed PDF sits.
+
+    jsonstore.data_dir() rather than this module's own /var/data probe, per
+    CLAUDE.md: the answer to "where is the data directory" belongs in one
+    place, and this module having its own copy is how the two spellings drift
+    apart. The PDFs themselves are deliberately NOT mirrored into the
+    database -- they are binaries, not JSON, and Cloudinary already holds the
+    durable copy, which is what /pdf/<token> says when a file is missing.
+    """
+    from hub import jsonstore
+    return Path(jsonstore.data_dir("msa"))
 
 
 def _pdf_path(token: str) -> Path:

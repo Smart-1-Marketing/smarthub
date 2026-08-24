@@ -1,0 +1,70 @@
+<!--
+Master Services Agreement — embed for smart1marketing.com
+=========================================================
+
+Paste ONE of the two blocks below into an HTML block on the page that should
+carry the agreement (Smart 1 Suite / Smart 1 Sites "Custom Code" or "HTML"
+element, WordPress "Custom HTML", or straight into the page template).
+
+Nothing else has to be configured. The signing page is already public — a
+client signing an agreement has no Hub login — and /msa/embed sends the
+frame-ancestors header that lets smart1marketing.com and its subdomains put
+it in a frame. Any other domain is refused, because this page submits a
+legally binding signature and a page anyone can frame is a page anyone can
+lay a transparent button over. To add a domain, set MSA_FRAME_ANCESTORS in
+Render (space-separated, CSP syntax) rather than editing code.
+
+Where the leads go: the signer lands in the Leads panel with the signed PDF
+attached, and the PDF is filed against the client record in Cloudinary. No
+email is sent — the copy on the record is the durable one.
+
+
+OPTION 1 — recommended. The frame resizes itself.
+-------------------------------------------------
+An MSA is long, and a long document inside a fixed-height frame gives the
+client a scrollbar inside a scrollbar, which is the most reliable way to make
+someone abandon a signing page. This loader writes the iframe where the
+script tag sits and grows it to fit, so the page scrolls once. It also
+scrolls the frame into view after signing, so the confirmation is not left
+above the fold.
+
+The Hub URL appears once, in the script's src. Everything else is derived
+from it, so moving the Hub to another host is a one-word edit here.
+
+data-height is only the height used before the first message arrives — set
+it near the finished height to avoid a visible jump on slow connections.
+-->
+
+<script src="https://smart1-hub.onrender.com/msa/embed.js"
+        data-height="1200"></script>
+<noscript>
+  <p><a href="https://smart1-hub.onrender.com/msa/" target="_blank"
+        rel="noopener">Open the Master Services Agreement</a></p>
+</noscript>
+
+
+<!--
+OPTION 2 — plain iframe, for a builder that strips <script>.
+-----------------------------------------------------------
+No auto-resize, so pick a height that fits the finished agreement and check
+it on a phone. The agreement body has its own inner scroll area, so this
+works — it is just less comfortable than Option 1.
+
+Note there is NO trailing slash on /msa/embed. The page calls its own API
+with a relative path, which resolves against the directory of the current
+URL: from /msa/embed that is /msa/api/sign, which is right, and from
+/msa/embed/ it would be /msa/embed/api/sign, which is a 404 the client does
+not meet until they have filled in the whole agreement and pressed sign.
+
+<iframe src="https://smart1-hub.onrender.com/msa/embed"
+        title="Smart 1 Marketing — Master Services Agreement"
+        style="display:block;width:100%;height:1400px;border:0"
+        loading="lazy"></iframe>
+
+
+Linking instead of embedding
+----------------------------
+https://smart1-hub.onrender.com/msa/ is the full page, Smart 1 header and
+all. Use it for a link in an email or a proposal; use the embed above when
+the client should never leave smart1marketing.com to sign.
+-->
