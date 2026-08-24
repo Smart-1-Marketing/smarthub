@@ -369,6 +369,101 @@ check("deleting it twice is a 404, not a 500",
       client.delete("/api/batches/" + batch_id).status_code == 404)
 
 # ---------------------------------------------------------------------------
+print("\nTone is a set of options, and each one instructs")
+# ---------------------------------------------------------------------------
+# A free-text tone box got one of three answers — nothing, "professional", or a
+# sentence pasted since 2023 — so the whole month came out in one register. The
+# options exist to carry the *guidance*, not the label.
+check("every tone option carries an instruction, not just a name",
+      all(t.get("guidance") and len(t["guidance"]) > 20
+          for t in sp.TONES.values()))
+guide = sp.tone_guidance(["friendly", "straight"], "no exclamation marks")
+check("picked tones are combined rather than ranked",
+      "neighbourly" in guide and "Plain and direct" in guide, guide)
+check("and the strategist's own words survive alongside them",
+      "no exclamation marks" in guide, guide)
+check("an unknown tone key is ignored rather than passed through",
+      sp.tone_guidance(["not-a-tone"]) == "")
+check("the browser is handed the tones with their guidance",
+      all(t.get("guidance") for t in sp.spec_payload()["tones"]))
+
+
+# ---------------------------------------------------------------------------
+print("\nSocial media holidays: dated, filtered, and ours")
+# ---------------------------------------------------------------------------
+# The moving ones are computed. A hard-coded Thanksgiving is correct for one
+# year and quietly wrong every year after it, which is the worst kind of wrong
+# — the calendar still renders.
+nov = {h["name"]: h["date"] for h in sp.holidays_for("2026-11")}
+check("Thanksgiving 2026 is the fourth Thursday",
+      nov.get("Thanksgiving") == "2026-11-26", nov.get("Thanksgiving"))
+check("Black Friday is the day after it",
+      nov.get("Black Friday") == "2026-11-27", nov.get("Black Friday"))
+check("Veterans Day is fixed",
+      nov.get("Veterans Day") == "2026-11-11", nov.get("Veterans Day"))
+may = {h["name"]: h["date"] for h in sp.holidays_for("2026-05")}
+check("Mother's Day 2026 is the second Sunday",
+      may.get("Mother's Day") == "2026-05-10", may.get("Mother's Day"))
+check("Memorial Day is the last Monday",
+      may.get("Memorial Day") == "2026-05-25", may.get("Memorial Day"))
+check("and 2027's Thanksgiving is not 2026's",
+      {h["name"]: h["date"] for h in sp.holidays_for("2027-11")}
+      ["Thanksgiving"] == "2027-11-25")
+
+names = [h["name"] for h in sp.holidays_for("2026-02", ["hvac"])]
+check("a day tagged for retail is not offered to a trade client",
+      "Valentine's Day" not in names, names)
+check("...but an untagged day is offered to everyone",
+      "Groundhog Day" in names, names)
+check("every day says the list is ours rather than an authority",
+      all(h["source"] == "house" for h in sp.holidays_for("2026-12")))
+check("the source note reaches the browser",
+      "no authority" in sp.spec_payload()["holiday_source"])
+
+grid = sp.build_grid("2026-11", channels=["facebook"], per_week=3,
+                              holidays=sp.holidays_for("2026-11"))
+marked = [s for s in grid if s.get("holiday")]
+check("every holiday in the month lands on a slot", len(marked) == 4, len(marked))
+check("a holiday slot is filed as seasonal, which is what it is",
+      all(s["type"] == "seasonal" for s in marked))
+check("ids stay sequential in date order once days are inserted",
+      [s["id"] for s in grid] == [f"s{i+1:02d}" for i in range(len(grid))])
+check("the dates stay sorted", [s["date"] for s in grid] == sorted(s["date"] for s in grid))
+blacked = sp.build_grid("2026-11", channels=["facebook"], per_week=3,
+                                 blackout=["2026-11-26"],
+                                 holidays=sp.holidays_for("2026-11"))
+check("a blacked-out date does not come back as a holiday",
+      not any(s["date"] == "2026-11-26" for s in blacked))
+plain = sp.build_grid("2026-11", channels=["facebook"], per_week=3)
+check("and a plan that did not ask for holidays gets none",
+      not any(s.get("holiday") for s in plain))
+
+
+# ---------------------------------------------------------------------------
+print("\nWhat to promote this month reaches the writer")
+# ---------------------------------------------------------------------------
+batch = {"brief": {"tones": ["friendly"], "promote": ["Furnace tune-ups", "Duct cleaning"],
+                   "offers": ""},
+         "slots": []}
+slot = {"id": "s01", "date": "2026-11-26", "type": "seasonal",
+        "channels": ["facebook"], "holiday": "Thanksgiving"}
+prompt = sp.draft_messages(batch, slot, {"client": "Riverstone Heating"})[-1]["content"]
+check("the focus list is in the prompt", "Furnace tune-ups" in prompt, prompt[:200])
+check("it is a focus, not a mandate on every post",
+      "do not force them" in prompt)
+check("the day being marked is named", "Thanksgiving" in prompt)
+check("and the model is told not to invent an offer for it",
+      "Claim no offer or event" in prompt)
+check("the tone instruction travels with it", "neighbourly" in prompt)
+
+flags = sp.validate_copy(
+    "Book a furnace tune-up before the cold sets in.",
+    channels=["facebook"], facts=batch["brief"])
+check("a service named in the promote list is not flagged as invented",
+      not [f for f in flags if f["level"] == "block"], flags)
+
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 60)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

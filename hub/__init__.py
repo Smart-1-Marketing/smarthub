@@ -359,12 +359,69 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/sites-match")
     def api_sites_match():
-        """Propose a client for every unlinked Simvoly project. Read-only."""
+        """Propose a client for every unlinked *live* Simvoly project.
+
+        Read-only. Live only by default: an expired or cancelled project is not
+        a website anybody can visit, and its domain has often been repointed,
+        so linking a client to one attributes them a site that may now belong
+        to somebody else. `?include_inactive=1` shows the rest; the count of
+        what is being left out is in the response either way.
+        """
         gate = _require_api()
         if gate:
             return gate
         from .sites_match import suggest
-        return jsonify(suggest())
+        include = str(request.args.get("include_inactive", "")).lower() in (
+            "1", "true", "yes")
+        return jsonify(suggest(active_only=not include))
+
+    @app.route("/api/client-urls")
+    def api_client_urls():
+        """Clients with no website, and what the rest of the Hub knows.
+
+        The companion to /api/db/urls, which can say who is missing a URL but
+        not do anything about it. This one reads the click-thrus on their live
+        products, the Knack website registry, our Simvoly projects, their site
+        scans and their Google access requests, and proposes the domain those
+        agree on. It writes nothing.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_urls import missing
+        return jsonify(missing(
+            include_found=str(request.args.get("include_found", "")).lower()
+            in ("1", "true", "yes")))
+
+    @app.route("/api/client-urls/accept", methods=["POST"])
+    def api_client_urls_accept():
+        """Record one URL a human recognised. One at a time, on purpose."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_urls import accept
+        body = request.get_json(silent=True) or {}
+        out = accept(body.get("client", ""), body.get("url", ""),
+                     source=body.get("source", ""), actor=current_user() or "")
+        if out.get("ok"):
+            audit.log("hub", "client_url_accepted", actor=current_user(),
+                      client=body.get("client", ""),
+                      detail=out["row"]["domain"])
+        return jsonify(out)
+
+    @app.route("/api/client-urls/clear", methods=["POST"])
+    def api_client_urls_clear():
+        """Undo one. A wrong URL has to be removable without a deploy."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_urls import clear
+        body = request.get_json(silent=True) or {}
+        out = clear(body.get("client", ""))
+        if out.get("ok"):
+            audit.log("hub", "client_url_cleared", actor=current_user(),
+                      client=body.get("client", ""))
+        return jsonify(out)
 
     @app.route("/api/sites-match/apply", methods=["POST"])
     def api_sites_match_apply():

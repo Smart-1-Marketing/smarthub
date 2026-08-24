@@ -18,8 +18,29 @@
     <button class="sm-btn good" id="smApply" onclick="applySel()" disabled>Apply selected</button>
     <label class="sm-only"><input type="checkbox" id="smDomainOnly" checked
       onchange="render()"> Domain matches only</label>
+    <label class="sm-only"><input type="checkbox" id="smInactive"
+      onchange="load()"> Include expired &amp; cancelled sites</label>
   </div>
   <div id="smOut"><p class="sm-muted">Nothing scanned yet.</p></div>
+
+  <h2 class="sm-h2">Clients with no website on file</h2>
+  <p class="sm-sub">
+    A client with no URL can't be joined to a scan, a brand lookup, a Simvoly
+    project or anything else keyed on domain &mdash; they are invisible to every
+    cross-tool report. Their website is rarely actually missing, though: it is in
+    a different table. This reads the click-thru on their live products, the
+    Knack website registry, our own live Simvoly projects, their site scans and
+    their Google access requests, and proposes the domain those agree on.
+    <b>Two independent sources agreeing is close to proof; one is a suggestion.</b>
+    Nothing is written until you accept it.
+  </p>
+  <div class="sm-metrics" id="cuMetrics"></div>
+  <div class="sm-bar">
+    <button class="sm-btn primary" onclick="loadUrls()">Find missing websites</button>
+    <label class="sm-only"><input type="checkbox" id="cuCandidatesOnly" checked
+      onchange="renderUrls()"> Only those we can suggest something for</label>
+  </div>
+  <div id="cuOut"><p class="sm-muted">Not looked yet.</p></div>
 </div>
 
 <style>
@@ -52,6 +73,12 @@ table.sm-t{width:100%;border-collapse:collapse;font-size:13px;min-width:700px}
 .sm-muted{color:#94a3b8;font-size:13px}
 .sm-note{background:#eef5fb;border-left:3px solid #1769AA;border-radius:0 9px 9px 0;
   padding:11px 14px;font-size:12.8px;line-height:1.6;color:#2b4a63;margin-bottom:14px}
+.sm-h2{margin:30px 0 6px;font-size:19px;color:#0d2340}
+.pill.strong{background:#e7f6ef;color:#147d52}
+.pill.possible{background:#fff4d7;color:#a06a00}
+.pill.live{background:#eef5fb;color:#1769AA}
+.cu-src{color:#94a3b8;font-size:11.5px;display:block;margin-top:2px}
+.cu-none{color:#a06a00;font-size:12px}
 </style>
 
 <script>
@@ -61,7 +88,9 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
 
 function load(){
   document.getElementById('smOut').innerHTML='<p class="sm-muted">Scanning…</p>';
-  fetch('/api/sites-match',{credentials:'same-origin'}).then(function(r){return r.json();})
+  var inactive=document.getElementById('smInactive').checked;
+  fetch('/api/sites-match?include_inactive='+(inactive?'1':'0'),
+        {credentials:'same-origin'}).then(function(r){return r.json();})
     .then(function(d){DATA=d;render();})
     .catch(function(){document.getElementById('smOut').innerHTML=
       '<p class="sm-muted">Could not scan.</p>';});
@@ -71,13 +100,20 @@ function render(){
   if(!DATA) return;
   var d=DATA, domainOnly=document.getElementById('smDomainOnly').checked;
   document.getElementById('smMetrics').innerHTML=
-    [['Projects checked',d.checked],['Already linked',d.already_linked],
+    [[d.active_only?'Live projects checked':'All projects checked',d.checked],
+     ['Not live, skipped',d.skipped_inactive||0],
+     ['Already linked',d.already_linked],
      ['Can be matched',d.suggested_count],['No real domain',d.no_domain_count],
      ['No match found',d.unmatched_count]]
     .map(function(x){return '<div class="sm-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
 
   var list=d.suggested.filter(function(m){return !domainOnly||m.confidence==='domain';});
-  var html='<div class="sm-note">'+esc(d.note)+'</div>';
+  var html='<div class="sm-note">'+esc(d.note);
+  var by=d.skipped_by_reason||{};
+  var reasons=Object.keys(by).map(function(k){return esc(k)+' '+by[k];});
+  if(reasons.length){html+='<br><b>Left out:</b> '+reasons.join(' &middot; ')+
+    '. Tick "Include expired &amp; cancelled sites" above to see them.';}
+  html+='</div>';
   html+='<div class="sm-card"><h3>Suggested matches ('+list.length+')</h3>'+
     (list.length?'<table class="sm-t"><thead><tr><th><input type="checkbox" id="smAll" onchange="toggleAll()"></th>'+
     '<th>Site</th><th>Domain</th><th>Client</th><th>Basis</th></tr></thead><tbody>'+
@@ -125,6 +161,82 @@ function confirmMaybe(ui, mi){
    .then(function(r){return r.json();}).then(function(d){
      if(d.error){alert(d.error);return;}
      load();
+   }).catch(function(){alert('That did not go through.');});
+}
+
+/* ---------------------------------------------------------------- websites
+   The second half of this page: not "which Simvoly project is this client's",
+   but "does this client have a website recorded anywhere at all". */
+var URLS=null;
+
+function loadUrls(){
+  document.getElementById('cuOut').innerHTML='<p class="sm-muted">Reading every source…</p>';
+  fetch('/api/client-urls',{credentials:'same-origin'}).then(function(r){return r.json();})
+    .then(function(d){URLS=d;renderUrls();})
+    .catch(function(){document.getElementById('cuOut').innerHTML=
+      '<p class="sm-muted">Could not read the client list.</p>';});
+}
+
+function renderUrls(){
+  if(!URLS) return;
+  var d=URLS, only=document.getElementById('cuCandidatesOnly').checked;
+  if(d.error){document.getElementById('cuOut').innerHTML='<p class="sm-muted">'+esc(d.error)+'</p>';return;}
+
+  document.getElementById('cuMetrics').innerHTML=
+    [['Clients on file',d.clients_on_file],['Have a website',d.with_url],
+     ['No website',d.without_url],['We can suggest one',d.with_candidate],
+     ['Nothing anywhere',d.no_candidate]]
+    .map(function(x){return '<div class="sm-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
+
+  var html='<div class="sm-note">'+esc(d.note)+'</div>';
+
+  /* Which sources actually answered. A source that could not be read is named,
+     because "nothing found" and "not looked at" are different answers and only
+     one of them means the client really has no website anywhere. */
+  html+='<div class="sm-card"><h3>Where we looked</h3><table class="sm-t"><tbody>'+
+    (d.sources||[]).map(function(s){
+      return '<tr><td><b>'+esc(s.label)+'</b></td><td class="sm-muted">'+
+        (s.ok?('read '+(s.rows||0)+' record(s)'+(s.note?' — '+esc(s.note):'')):
+              ('<span class="cu-none">not read: '+esc(s.error||'unavailable')+'</span>'))+
+        '</td></tr>';}).join('')+'</tbody></table></div>';
+
+  var rows=(d.clients||[]).filter(function(c){return !only||c.candidates.length;});
+  html+='<div class="sm-card"><h3>Clients with no website ('+rows.length+')</h3>'+
+    (rows.length?'<table class="sm-t"><thead><tr><th>Client</th><th>Status</th>'+
+    '<th>Candidate website</th><th></th></tr></thead><tbody>'+
+    rows.slice(0,200).map(function(c,ci){
+      var cands=c.candidates.map(function(m,mi){
+        return '<div style="margin-bottom:6px"><b>'+esc(m.domain)+'</b> '+
+          '<span class="pill '+esc(m.confidence)+'">'+esc(m.confidence)+'</span>'+
+          '<span class="cu-src">'+esc(m.why)+'</span></div>';}).join('');
+      var buttons=c.candidates.map(function(m,mi){
+        return '<button class="sm-btn" style="padding:3px 9px;font-size:12px;margin-bottom:5px" '+
+          'onclick="acceptUrl('+ci+','+mi+')">Use '+esc(m.domain)+'</button>';}).join('<br>');
+      return '<tr><td><b>'+esc(c.client)+'</b>'+
+        (c.accepted?'<span class="cu-src">now set to '+esc(c.accepted.domain)+
+          ' by '+esc(c.accepted.accepted_by||'someone')+'</span>':'')+'</td>'+
+        '<td>'+(c.live?'<span class="pill live">running '+c.running_count+'</span>':
+                '<span class="sm-muted">dormant</span>')+'</td>'+
+        '<td>'+(cands||'<span class="cu-none">Nothing in any data set.</span>')+'</td>'+
+        '<td>'+buttons+'</td></tr>';
+    }).join('')+'</tbody></table>':'<p class="sm-muted" style="padding:12px 14px">'+
+    'Nothing to suggest.</p>')+'</div>';
+  document.getElementById('cuOut').innerHTML=html;
+}
+
+function acceptUrl(ci, mi){
+  /* One at a time, and confirmed. Bulk-accepting suggestions is how a plausible
+     wrong domain gets attached to a dozen clients in a single click. */
+  var rows=(URLS.clients||[]).filter(function(c){
+    return !document.getElementById('cuCandidatesOnly').checked||c.candidates.length;});
+  var c=rows[ci], m=c.candidates[mi];
+  if(!confirm('Record '+m.domain+' as the website for "'+c.client+'"?\n\n'+m.why)) return;
+  fetch('/api/client-urls/accept',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:c.client, url:m.url, source:(m.sources||[])[0]||''})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){alert(d.error||'That did not go through.');return;}
+     loadUrls();
    }).catch(function(){alert('That did not go through.');});
 }
 

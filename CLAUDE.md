@@ -231,6 +231,52 @@ Two rules it enforces, both learned the hard way:
 `/api/clients/crosswalk` shows what is joined, what shares a domain, and what
 carries a name with no URL and therefore cannot be joined to anything.
 
+### A client with no URL is invisible, and the URL is usually not missing
+
+`/tools/sites-match` had one half of this: it proposes a client for every
+Simvoly project by domain. It now only proposes **live** ones. Simvoly gives a
+project ACTIVE, TRIAL or EXPIRED, and Sites Admin keeps CANCELLED and SUSPENDED
+beside it for the two states Simvoly cannot express; an expired project's
+domain has usually been repointed or picked up by somebody else, so matching a
+client to one attributes them a website that is no longer theirs. What is
+skipped is counted and named — "we checked 1,200 projects" and "we checked the
+380 that are live" are different claims — and a toggle shows the rest.
+
+The other half is `hub/client_urls.py`. `client_context.url_audit()` could
+already say *which* clients have no URL, which is the useless half: a client
+with no URL cannot be joined to a scan, a brand lookup or anything else keyed
+on domain, and a list of names nobody can act on does not change that. Their
+website is rarely actually missing — it is in a different table. So five are
+read and grouped by canonical domain: the **click-thru on their live
+products** (`knack_products.scan_domains()`), the **Knack website registry**,
+our own **live Simvoly projects**, their **site scans** and their **Google
+access requests** — the last two through `client_key._read_store`, which
+already handles a table that does not exist yet.
+
+**A file host is not a website, and this is not hypothetical.** Run against
+this deployment's product export, *every single* click-thru domain was
+`res.cloudinary.com` (33), `drive.google.com` (22), `we.tl`, `dropbox.com` or
+an S3 bucket — where the creative was delivered from, not where the campaign
+points. Without `NOT_A_WEBSITE` the tool would have proposed Cloudinary as the
+website of thirty-three unrelated clients, a rep would have accepted one
+because the row looked plausible, and every domain-keyed report would then have
+agreed that several companies are the same business. Rejected sightings are
+counted and named on the page rather than coming back as silence.
+
+Agreement is the confidence: two independent sources on one domain is close to
+proof, one is a suggestion, and the proposal shows which sources and why. Names
+match exactly or not at all (`client_key.normalise_name`) — no substring, no
+fuzzy pass. A source that could not be read is reported by name, because
+"Knack is down" and "Knack has nothing for them" must never look alike.
+
+Accepting one writes a small **overlay**, not an edit: Knack owns the client
+record and this Hub does not write to it, so the day the real record gains a
+URL that one wins. `clients_registry.all_clients()` applies the overlay only to
+clients that still have none, marks the row `url_source: "discovered"`, and
+**does not touch `source` or `is_house`** — an earlier shape of this reused
+`house_clients()` for the same job and quietly relabelled real Knack clients as
+ours.
+
 ---
 
 ## Opportunistic migration — read this before editing any module
@@ -413,6 +459,33 @@ which a rep reads before a client does, a month of posts is bulk work that gets
 skimmed. Superlatives warn. Channel limits block. `test_social_plan.py` asserts
 all of it, with deliberately plausible fixtures: the failure mode is not
 gibberish, it is confident and wrong.
+
+**Tone is a set of options, not a text box.** A free-text tone field got one of
+three answers — nothing, "professional", or a sentence pasted since 2023 — so
+every month came out in the same middle register. Each option in `TONES` carries
+the *instruction* rather than the label ("write the way you would talk to
+someone over a fence"), several can be combined, and the free-text box survives
+beside them for a client whose voice is genuinely their own.
+
+**The month is asked what it is promoting.** Without `promote`, the model
+spreads itself evenly across everything the business does, which is how a plan
+ends up promoting the service they least want more of. It is a focus, not a
+mandate: the prompt says not to force it into an educational or community post,
+and a service named there counts as authorised text, so mentioning it is not
+flagged as invented.
+
+**Social media holidays are offered as fill, and the list is ours.** The middle
+of a month drifts into generic filler because a local business does not have
+twenty things happening; a dated hook the audience recognises is better filler
+than an invented one. There is no authority publishing "national days" and the
+lists that circulate contradict each other, so `HOLIDAYS` is deliberately short
+and checkable, every row says `source: house`, and the screen says so. The
+moving ones — Thanksgiving, Mother's Day, Memorial Day — are **computed**, never
+listed: a hard-coded date is right for one year and quietly wrong every year
+after, and the calendar still renders. Days carry `tags`, so one tagged for
+retail is not offered to a roofing company. A holiday landing on an existing
+slot is attached to it; one landing on a non-posting day adds a slot, because a
+day you wanted to mark is no use marked three days late.
 
 **There is no JavaScript mirror of the grid.** Target areas and the creative
 gate each carry one so a wizard can react live, and each needs a test asserting
@@ -823,6 +896,7 @@ python3 test_image_download.py     # image downloads, the shared zip builder
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
 python3 test_video_library.py      # the footage index, its status row, the page's palette
+python3 test_sites_match.py        # live-only matching, and finding a client's missing URL
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 ```

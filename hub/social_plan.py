@@ -161,6 +161,202 @@ POST_TYPES: dict[str, dict] = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Tone
+# ---------------------------------------------------------------------------
+# Tone was a free-text box, and a free-text box asking for tone gets one of
+# three answers: nothing, "professional", or a sentence the strategist wrote
+# once and has pasted ever since. None of those tells the model anything it did
+# not already assume, so the whole month came out in the same middle register.
+#
+# These are options because picking is easier than composing, and because each
+# one carries the *guidance* the model actually needs -- "friendly" is a label,
+# "write the way you'd talk to a neighbour over a fence" is an instruction.
+# More than one can be picked; they are combined rather than ranked, which is
+# how a real house voice is usually described ("warm but straight-talking").
+# The free-text box stays, for the client whose voice is genuinely their own.
+TONES: dict[str, dict] = {
+    "friendly": {
+        "label": "Friendly and local",
+        "guidance": "Warm and neighbourly. Write the way you would talk to "
+                    "someone over a fence, not the way a brochure talks.",
+    },
+    "straight": {
+        "label": "Straight-talking",
+        "guidance": "Plain and direct. Say the thing, then stop. No wind-up "
+                    "and no filler adjectives.",
+    },
+    "expert": {
+        "label": "Expert and reassuring",
+        "guidance": "Knowledgeable without being technical. The reader should "
+                    "feel the business has done this a thousand times.",
+    },
+    "professional": {
+        "label": "Professional",
+        "guidance": "Measured and businesslike. Appropriate where the buyer is "
+                    "another business or the subject is money.",
+    },
+    "playful": {
+        "label": "Playful",
+        "guidance": "Light and a little funny. Never at a customer's expense "
+                    "and never at the expense of being understood.",
+    },
+    "urgent": {
+        "label": "Urgent",
+        "guidance": "Time-sensitive and action-first. Only where a real "
+                    "deadline exists — do not invent one to justify the tone.",
+    },
+    "premium": {
+        "label": "Premium",
+        "guidance": "Understated and confident. Fewer words, no exclamation "
+                    "marks, quality implied rather than claimed.",
+    },
+    "community": {
+        "label": "Community-minded",
+        "guidance": "The business as part of the town. People, places and "
+                    "events a local would recognise.",
+    },
+    "helpful": {
+        "label": "Helpful and practical",
+        "guidance": "Useful first. The reader should be able to act on the "
+                    "post even if they never buy anything.",
+    },
+}
+
+DEFAULT_TONES = ("friendly", "helpful")
+
+
+def tone_guidance(keys, free_text: str = "") -> str:
+    """The tone instruction handed to the writer, from picks plus free text."""
+    picked = [TONES[k] for k in (keys or []) if k in TONES]
+    parts = [f"{t['label']}: {t['guidance']}" for t in picked]
+    extra = str(free_text or "").strip()
+    if extra:
+        parts.append("Also, in the strategist's own words: " + extra)
+    return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Social media holidays
+# ---------------------------------------------------------------------------
+# The gap this fills: a month needs twelve to twenty posts and a local business
+# does not have twenty things happening, so the middle of every month drifts
+# into generic filler nobody engages with. A dated hook the audience already
+# recognises is better filler than an invented one.
+#
+# **This list is ours and says so.** There is no authority publishing "national
+# days", the lists that circulate contradict each other, and inventing one is
+# exactly the failure this codebase keeps guarding against — so the set below
+# is deliberately small and boring: fixed-date US public holidays, plus a few
+# widely-observed days that are unambiguous. `source` is on every row. Adding
+# one is an edit here, on purpose, and the UI says the list is house-maintained
+# so nobody reads it as authoritative.
+#
+# `tags` says which businesses a day actually suits; a day with no tags suits
+# everyone. Suggesting National Pet Day to a roofing company is the kind of
+# irrelevance that teaches people to switch the feature off.
+HOLIDAYS: tuple[dict, ...] = (
+    {"month": 1, "day": 1, "name": "New Year's Day", "kind": "public", "tags": ()},
+    {"month": 1, "day": 15, "name": "National Hat Day", "kind": "observance",
+     "tags": ("retail",)},
+    {"month": 2, "day": 2, "name": "Groundhog Day", "kind": "observance", "tags": ()},
+    {"month": 2, "day": 14, "name": "Valentine's Day", "kind": "observance",
+     "tags": ("retail", "food", "hospitality")},
+    {"month": 3, "day": 17, "name": "St Patrick's Day", "kind": "observance",
+     "tags": ("food", "hospitality", "retail")},
+    {"month": 4, "day": 22, "name": "Earth Day", "kind": "observance",
+     "tags": ("home", "energy", "automotive")},
+    {"month": 5, "day": 5, "name": "Cinco de Mayo", "kind": "observance",
+     "tags": ("food", "hospitality")},
+    {"month": 6, "day": 14, "name": "Flag Day", "kind": "observance", "tags": ()},
+    {"month": 7, "day": 4, "name": "Independence Day", "kind": "public", "tags": ()},
+    {"month": 9, "day": 11, "name": "Patriot Day", "kind": "observance", "tags": ()},
+    {"month": 10, "day": 31, "name": "Halloween", "kind": "observance",
+     "tags": ("retail", "food", "hospitality", "home")},
+    {"month": 11, "day": 11, "name": "Veterans Day", "kind": "public", "tags": ()},
+    {"month": 12, "day": 24, "name": "Christmas Eve", "kind": "observance", "tags": ()},
+    {"month": 12, "day": 25, "name": "Christmas Day", "kind": "public", "tags": ()},
+    {"month": 12, "day": 31, "name": "New Year's Eve", "kind": "observance", "tags": ()},
+)
+
+# Days that move. Computed rather than listed, because a hard-coded date for
+# Thanksgiving is wrong every year after the one it was written in — and a
+# calendar that is quietly wrong is worse than one that is missing a day.
+_FLOATING = (
+    {"name": "Martin Luther King Jr Day", "month": 1, "weekday": 0, "nth": 3,
+     "kind": "public", "tags": ()},
+    {"name": "Presidents' Day", "month": 2, "weekday": 0, "nth": 3,
+     "kind": "public", "tags": ()},
+    {"name": "Mother's Day", "month": 5, "weekday": 6, "nth": 2,
+     "kind": "observance", "tags": ("retail", "food", "hospitality")},
+    {"name": "Memorial Day", "month": 5, "weekday": 0, "nth": -1,
+     "kind": "public", "tags": ()},
+    {"name": "Father's Day", "month": 6, "weekday": 6, "nth": 3,
+     "kind": "observance", "tags": ("retail", "food", "automotive")},
+    {"name": "Labor Day", "month": 9, "weekday": 0, "nth": 1,
+     "kind": "public", "tags": ()},
+    {"name": "Thanksgiving", "month": 11, "weekday": 3, "nth": 4,
+     "kind": "public", "tags": ()},
+    {"name": "Black Friday", "month": 11, "weekday": 4, "nth": 4,
+     "kind": "observance", "tags": ("retail", "food")},
+    {"name": "Small Business Saturday", "month": 11, "weekday": 5, "nth": 4,
+     "kind": "observance", "tags": ("retail", "food", "hospitality")},
+)
+
+HOLIDAY_SOURCE = ("Smart 1's own list, kept in hub/social_plan.py. There is no "
+                  "authority publishing “national days” and the lists that "
+                  "circulate contradict each other, so this one is short and "
+                  "checkable. Check any day you do not recognise before it "
+                  "goes out.")
+
+
+def _nth_weekday(year: int, month: int, weekday: int, nth: int) -> date | None:
+    """The nth <weekday> of a month. nth=-1 means the last one."""
+    days = calendar.monthrange(year, month)[1]
+    hits = [date(year, month, d) for d in range(1, days + 1)
+            if date(year, month, d).weekday() == weekday]
+    if not hits:
+        return None
+    if nth == -1:
+        return hits[-1]
+    return hits[nth - 1] if 0 < nth <= len(hits) else None
+
+
+def holidays_for(month: str, industries=()) -> list[dict]:
+    """Every day in this month worth hanging a post on, dated.
+
+    `industries` filters the tagged ones: a day tagged for retail is offered to
+    a retailer and not to a plumber. Untagged days suit everyone.
+    """
+    year, mon = parse_month(month)
+    wanted = {str(i or "").strip().lower() for i in (industries or []) if i}
+    out: list[dict] = []
+
+    def keep(entry: dict, when: date) -> None:
+        tags = tuple(entry.get("tags") or ())
+        if tags and wanted and not (set(tags) & wanted):
+            return
+        out.append({"date": when.isoformat(), "name": entry["name"],
+                    "kind": entry.get("kind", "observance"),
+                    "tags": list(tags), "source": "house"})
+
+    for entry in HOLIDAYS:
+        if entry["month"] != mon:
+            continue
+        try:
+            keep(entry, date(year, mon, entry["day"]))
+        except ValueError:                  # a day that month does not have
+            continue
+    for entry in _FLOATING:
+        if entry["month"] != mon:
+            continue
+        when = _nth_weekday(year, mon, entry["weekday"], entry["nth"])
+        if when:
+            keep(entry, when)
+    out.sort(key=lambda h: h["date"])
+    return out
+
+
 # Fixed order, so two runs of the same plan produce the same calendar. A grid
 # that reshuffles when you reload is one nobody trusts.
 _TYPE_ORDER = tuple(POST_TYPES.keys())
@@ -258,23 +454,31 @@ def posting_dates(month: str, per_week: int = 3,
 
 
 def build_grid(month: str, *, channels=(), per_week: int = 3,
-               mix: dict | None = None, blackout=()) -> list[dict]:
+               mix: dict | None = None, blackout=(), holidays=()) -> list[dict]:
     """The month as a list of empty slots — dates, channels and post types.
 
     One slot per posting date, carrying every selected channel, because that is
     how the work is actually done: one idea, adapted. A slot per channel per
     date turns a 12-post month into a 36-row spreadsheet nobody reviews.
+
+    `holidays` are the dated hooks the strategist opted into. One landing on a
+    date that already has a slot is attached to it — the post is *about* the
+    day rather than being an extra post — and one landing on a non-posting day
+    adds a slot, because a day you wanted to mark is not much use marked three
+    days late. They are added as `seasonal`, which is what they are.
     """
     picked = [c for c in (channels or DEFAULT_CHANNELS) if c in CHANNELS]
     if not picked:
         picked = list(DEFAULT_CHANNELS)
     dates = posting_dates(month, per_week, blackout)
     types = type_sequence(len(dates), mix)
+    skip = {str(d).strip() for d in (blackout or []) if str(d).strip()}
+
     slots = []
     for i, when in enumerate(dates):
         kind = types[i] if i < len(types) else _TYPE_ORDER[0]
         slots.append({
-            "id": f"s{i + 1:02d}",
+            "id": "",
             "date": when.isoformat(),
             "time": POST_TIMES[i % len(POST_TIMES)],
             "channels": list(picked),
@@ -285,9 +489,37 @@ def build_grid(month: str, *, channels=(), per_week: int = 3,
             "image_url": "",
             "image_public_id": "",
             "image_source": "",
+            "holiday": "",
             "status": "empty",
             "flags": [],
         })
+
+    by_date = {s["date"]: s for s in slots}
+    for hol in holidays or []:
+        when = str(hol.get("date") or "").strip()
+        name = str(hol.get("name") or "").strip()
+        if not when or not name or when in skip:
+            continue
+        existing = by_date.get(when)
+        if existing:
+            existing["holiday"] = name
+            existing["type"] = "seasonal"
+            continue
+        added = {
+            "id": "", "date": when, "time": POST_TIMES[len(slots) % len(POST_TIMES)],
+            "channels": list(picked), "type": "seasonal", "copy": "",
+            "hashtags": [], "link": "", "image_url": "", "image_public_id": "",
+            "image_source": "", "holiday": name, "status": "empty", "flags": [],
+        }
+        slots.append(added)
+        by_date[when] = added
+
+    # Ids are assigned last and in date order, so a plan with holidays in it
+    # still reads top to bottom. They have to be stable across a reload, which
+    # is why they are positional rather than random.
+    slots.sort(key=lambda s: (s["date"], s["time"]))
+    for i, slot in enumerate(slots):
+        slot["id"] = f"s{i + 1:02d}"
     return slots
 
 
@@ -342,9 +574,15 @@ def _allowed_text(facts: dict | None) -> str:
     facts = facts or {}
     parts = [str(facts.get("offers") or ""), str(facts.get("notes") or ""),
              str(facts.get("phone") or ""), str(facts.get("url") or ""),
-             str(facts.get("reviews") or ""), str(facts.get("hours") or "")]
+             str(facts.get("reviews") or ""), str(facts.get("hours") or ""),
+             str(facts.get("tone") or "")]
     for extra in (facts.get("must_include") or []):
         parts.append(str(extra))
+    # What the strategist asked us to promote is something a human typed, so a
+    # service named there is a fact the copy may state. A *price* inside it is
+    # still a price they typed, which is the whole test.
+    for item in (facts.get("promote") or []):
+        parts.append(str(item))
     return " \n".join(parts)
 
 
@@ -507,16 +745,32 @@ def draft_messages(batch: dict, slot: dict, context: dict | None = None) -> list
         facts.append("Authorised offers: none. Mention no offer, discount or price.")
     if brief.get("notes"):
         facts.append(f"Strategist notes: {brief['notes']}")
-    if brief.get("tone"):
-        facts.append(f"Tone: {brief['tone']}")
+    tone = tone_guidance(brief.get("tones"), brief.get("tone"))
+    if tone:
+        facts.append(f"Tone: {tone}")
+    if brief.get("promote"):
+        # The answer to "what are we actually pushing this month". Without it
+        # the model spreads itself evenly across everything the business does,
+        # which is how a month of posts ends up promoting the service they
+        # least want more of.
+        facts.append("Focus this month on: " + "; ".join(
+            str(x) for x in brief["promote"]) +
+            ". Feature these where the post type allows it; do not force them "
+            "into an educational or community post.")
     if brief.get("must_include"):
         facts.append("Must appear somewhere: " + "; ".join(brief["must_include"]))
     if brief.get("avoid"):
         facts.append(f"Never mention: {brief['avoid']}")
 
+    hook = str(slot.get("holiday") or "").strip()
     user = (
         f"Write one post for {slot.get('date')}.\n\n"
-        f"Post type — {type_label(slot.get('type'))}: {spec.get('brief', '')}\n\n"
+        + (f"This post marks {hook}. Tie it to what the business actually "
+           "does — a day named in a post that has nothing to do with the "
+           "business reads as filler, which is what it would be. Claim no "
+           "offer or event for the day unless one is listed below.\n\n"
+           if hook else "")
+        + f"Post type — {type_label(slot.get('type'))}: {spec.get('brief', '')}\n\n"
         f"Channels it will run on:\n" + ("\n".join(voices) or "- Facebook") + "\n\n"
         f"Aim for about {tightest} characters so it reads well on all of them.\n\n"
         "Facts you may use:\n" + "\n".join(f"- {f}" for f in facts) + "\n\n"
@@ -541,8 +795,8 @@ def draft_messages(batch: dict, slot: dict, context: dict | None = None) -> list
 PLANNER_COLUMNS = ("date", "content", "og meta url", "media urls")
 PLANNER_DATE_FORMAT = "%m/%d/%Y %H:%M"
 
-REVIEW_COLUMNS = ("Date", "Time", "Channels", "Post type", "Copy", "Hashtags",
-                  "Link", "Image", "Status", "Needs attention")
+REVIEW_COLUMNS = ("Date", "Time", "Channels", "Post type", "Marks", "Copy",
+                  "Hashtags", "Link", "Image", "Status", "Needs attention")
 
 
 def post_text(slot: dict) -> str:
@@ -591,6 +845,7 @@ def review_csv(batch: dict) -> str:
             slot.get("date", ""), slot.get("time", ""),
             ", ".join(channel_label(c) for c in slot.get("channels") or []),
             type_label(slot.get("type")),
+            str(slot.get("holiday") or ""),
             str(slot.get("copy") or ""),
             " ".join(str(t) for t in slot.get("hashtags") or []),
             str(slot.get("link") or ""),
@@ -614,6 +869,10 @@ def spec_payload() -> dict:
                      for k, v in CHANNELS.items()],
         "types": [{"key": k, "label": v["label"], "brief": v["brief"],
                    "share": v["share"]} for k, v in POST_TYPES.items()],
+        "tones": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
+                  for k, v in TONES.items()],
+        "default_tones": list(DEFAULT_TONES),
+        "holiday_source": HOLIDAY_SOURCE,
         "default_channels": list(DEFAULT_CHANNELS),
         "default_mix": dict(DEFAULT_MIX),
         "times": list(POST_TIMES),

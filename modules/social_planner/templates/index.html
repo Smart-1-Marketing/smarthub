@@ -37,6 +37,10 @@
   .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
   .hint{color:var(--muted);font-size:12px;margin-top:5px;line-height:1.5}
   .picks{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+  .vcheck{display:flex;align-items:center;gap:7px;font-size:13px;color:#1e293b;margin:2px 0 6px}
+  .hol{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+  .hol span{background:#eef2ff;color:#3730a3;border-radius:20px;padding:3px 10px;font-size:11.5px}
+  .tag.hol-tag{background:#eef2ff;color:#3730a3;border-color:#c7d2fe}
   .pick{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 11px;
         font-size:12px;cursor:pointer;user-select:none}
   .pick.on{background:var(--blue);color:#fff;border-color:var(--blue)}
@@ -137,10 +141,33 @@
         <textarea id="notes" rows="3" placeholder="New tech starting, busy season, a new service line, an event they are at"></textarea>
       </div>
     </div>
+    <div style="margin-top:14px">
+      <label class="f">Tone <span class="opt">&mdash; pick as many as fit; each one carries
+        its own instruction to the writer</span></label>
+      <div class="picks" id="tones"></div>
+    </div>
+    <div style="margin-top:14px">
+      <label class="f" for="promote">What should we promote this month?
+        <span class="opt">&mdash; one per line. The products or services this month is
+        actually pushing</span></label>
+      <textarea id="promote" rows="3"
+        placeholder="Furnace tune-ups&#10;Duct cleaning&#10;The new financing option"></textarea>
+      <div class="hint">Without this the month spreads itself evenly across everything the
+        business does &mdash; which is how a plan ends up promoting the service they least
+        want more of. These are fed to the writer as the focus, not forced into every post.</div>
+    </div>
+    <div style="margin-top:14px">
+      <label class="f">Social media holidays <span class="opt">&mdash; dated hooks to fill
+        out the month</span></label>
+      <label class="vcheck"><input type="checkbox" id="useHolidays"> Use the days that fall
+        in this month</label>
+      <div id="holidayList" class="hint"></div>
+    </div>
     <div class="grid3" style="margin-top:13px">
       <div>
-        <label class="f" for="tone">Tone <span class="opt">&mdash; optional</span></label>
-        <input type="text" id="tone" placeholder="Friendly and straightforward">
+        <label class="f" for="tone">Anything else about the voice
+          <span class="opt">&mdash; optional</span></label>
+        <input type="text" id="tone" placeholder="No exclamation marks; they hate the word “solutions”">
       </div>
       <div>
         <label class="f" for="phone">Phone on file <span class="opt">&mdash; optional</span></label>
@@ -191,7 +218,9 @@
 "use strict";
 var BOOT = JSON.parse(document.getElementById("boot").textContent);
 var SPEC = BOOT.spec;
-var state = {client:"", url:"", batch:null, context:null, channels:SPEC.default_channels.slice()};
+var state = {client:"", url:"", batch:null, context:null,
+             channels:SPEC.default_channels.slice(),
+             tones:(SPEC.default_tones || []).slice(), holidays:[]};
 
 function $(id){ return document.getElementById(id); }
 function esc(s){
@@ -233,6 +262,56 @@ $("channels").addEventListener("click", function(ev){
   var at = state.channels.indexOf(key);
   if (at >= 0) { state.channels.splice(at, 1); } else { state.channels.push(key); }
   renderChannels();
+renderTones();
+});
+
+// ---------------------------------------------------------------- tone
+// Options rather than a text box: each carries the instruction the writer
+// actually needs, and picking is easier than composing. The free-text box
+// below them survives for a client whose voice is genuinely their own.
+function renderTones(){
+  $("tones").innerHTML = (SPEC.tones || []).map(function(t){
+    var on = state.tones.indexOf(t.key) >= 0 ? " on" : "";
+    return '<span class="pick' + on + '" data-tone="' + esc(t.key) + '" title="' +
+           esc(t.guidance) + '">' + esc(t.label) + "</span>";
+  }).join("");
+}
+$("tones").addEventListener("click", function(ev){
+  var key = ev.target.getAttribute("data-tone");
+  if (!key) return;
+  var at = state.tones.indexOf(key);
+  if (at >= 0) { state.tones.splice(at, 1); }
+  else if (state.tones.length < 4) { state.tones.push(key); }
+  renderTones();
+});
+
+// ---------------------------------------------------------------- holidays
+// Fetched for the month actually chosen, and filtered by the client's trade —
+// National Pet Day offered to a roofing company is the kind of irrelevance
+// that teaches people to switch a feature off.
+function loadHolidays(){
+  var month = $("month").value;
+  if (!month) { $("holidayList").textContent = "Pick a month first."; return; }
+  $("holidayList").textContent = "Looking…";
+  api("holidays?month=" + encodeURIComponent(month) +
+      "&client=" + encodeURIComponent(state.client || "")).then(function(d){
+    if (!d.ok) { $("holidayList").textContent = d.error || "None found."; state.holidays = []; return; }
+    state.holidays = d.holidays || [];
+    if (!state.holidays.length) {
+      $("holidayList").textContent = "No days on our list fall in that month.";
+      return;
+    }
+    $("holidayList").innerHTML = '<div class="hol">' + state.holidays.map(function(h){
+      return "<span>" + esc(h.date.slice(8)) + " " + esc(h.name) + "</span>";
+    }).join("") + "</div><div style=\"margin-top:6px\">" + esc(d.source) + "</div>";
+  });
+}
+$("useHolidays").addEventListener("change", function(){
+  if (this.checked) { loadHolidays(); }
+  else { $("holidayList").textContent = ""; }
+});
+$("month").addEventListener("change", function(){
+  if ($("useHolidays").checked) { loadHolidays(); }
 });
 
 // ---------------------------------------------------------------- client
@@ -308,10 +387,16 @@ $("build").addEventListener("click", function(){
   if (!state.channels.length) { say("buildmsg", "Pick at least one channel.", "err"); return; }
   $("build").disabled = true;
   say("buildmsg", "Building…");
+  var wantHolidays = $("useHolidays").checked;
   post("batches", {
     client: state.client, url: state.url, month: $("month").value,
     channels: state.channels, per_week: parseInt($("perweek").value, 10),
-    brief: {tone: $("tone").value, offers: $("offers").value, notes: $("notes").value,
+    use_holidays: wantHolidays,
+    holidays: wantHolidays ? state.holidays : [],
+    brief: {tone: $("tone").value, tones: state.tones,
+            promote: $("promote").value.split("\n").map(function(x){ return x.trim(); })
+                       .filter(function(x){ return x.length > 0; }),
+            offers: $("offers").value, notes: $("notes").value,
             phone: $("phone").value, avoid: $("avoid").value}
   }).then(function(d){
     $("build").disabled = false;
@@ -375,7 +460,8 @@ function renderSlots(){
     return '<div class="' + cls + '" data-slot="' + esc(s.id) + '">' +
       '<div class="top">' +
         '<span class="when">' + esc(s.date) + " &middot; " + esc(s.time) + "</span>" +
-        '<span class="tag">' + esc(typeLabel(s.type)) + "</span>" + tags +
+        '<span class="tag">' + esc(typeLabel(s.type)) + "</span>" +
+        (s.holiday ? '<span class="tag hol-tag">' + esc(s.holiday) + "</span>" : "") + tags +
         '<span class="spacer"></span>' +
         '<span class="tag st ' + stCls + '">' + esc(s.status) + "</span>" +
         '<button class="btn sec sm" data-act="draft">' +
