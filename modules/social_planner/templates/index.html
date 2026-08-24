@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Social Content Planner — Smart 1 Hub</title>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
+        --bad:#dc2626;--warn:#b45309;--ok:#16a34a}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
+  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px;max-width:78ch;line-height:1.55}
+  .back{color:var(--blue);text-decoration:none;font-size:13px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+  h2{color:var(--navy);font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:9px}
+  h2 .n{background:var(--navy);color:#fff;width:22px;height:22px;border-radius:50%;
+        display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+  label.f{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+  label.f .opt{font-weight:400;color:var(--muted)}
+  input[type=text],input[type=url],input[type=search],input[type=month],select,textarea{
+    width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+    font:13.5px 'Segoe UI',system-ui,sans-serif;background:#fff}
+  textarea{resize:vertical;line-height:1.55}
+  input:focus,select:focus,textarea:focus{outline:2px solid #bfdbfe;outline-offset:-1px;border-color:var(--blue)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:13px}
+  @media(max-width:880px){.grid,.grid3{grid-template-columns:1fr}}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13.5px 'Segoe UI',system-ui,sans-serif;
+       padding:10px 18px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.sm{padding:6px 12px;font-size:12.5px}
+  .btn.danger{background:#fff;color:var(--bad);border:1px solid #fecaca}
+  .msg{font-size:13px;margin-left:10px;color:var(--muted)}
+  .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+  .hint{color:var(--muted);font-size:12px;margin-top:5px;line-height:1.5}
+  .picks{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+  .pick{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 11px;
+        font-size:12px;cursor:pointer;user-select:none}
+  .pick.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .pick:hover{border-color:var(--blue)}
+  .results{border:1px solid var(--line);border-radius:8px;margin-top:6px;max-height:230px;overflow:auto}
+  .results div{padding:8px 11px;cursor:pointer;font-size:13px;border-bottom:1px solid #eef2f7}
+  .results div:last-child{border-bottom:0}
+  .results div:hover{background:var(--soft)}
+  .results .d{color:var(--muted);font-size:11.5px}
+  .ctx{background:var(--soft);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin-top:12px}
+  .ctx h4{margin:0 0 7px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .ctx p{margin:0 0 6px;font-size:12.5px;line-height:1.55}
+  .swatch{display:inline-block;width:15px;height:15px;border-radius:4px;border:1px solid #cbd5e1;
+          vertical-align:-3px;margin-right:4px}
+  .absent{color:var(--warn);font-size:12.5px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+       padding-bottom:13px;margin-bottom:13px;border-bottom:1px solid var(--line)}
+  .slot{border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin-bottom:11px;background:#fff}
+  .slot.blocked{border-color:#fecaca;background:#fffafa}
+  .slot.approved{border-color:#bbf7d0;background:#f7fefa}
+  .slot .top{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-bottom:9px}
+  .when{font-weight:700;color:var(--navy);font-size:13px}
+  .tag{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:20px;
+       padding:2px 9px;font-size:10.5px;font-weight:700}
+  .tag.ch{background:#f1f5f9;color:#475569}
+  .tag.st{background:#e0f2fe;color:#075985}
+  .tag.st.empty{background:#f1f5f9;color:#64748b}
+  .tag.st.approved{background:#dcfce7;color:#166534}
+  .spacer{flex:1}
+  .count{font-size:11.5px;color:var(--muted)}
+  .flag{font-size:12px;margin-top:6px;padding:6px 9px;border-radius:7px;line-height:1.5}
+  .flag.block{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+  .flag.warn{background:#fffbeb;color:#92400e;border:1px solid #fde68a}
+  .imgrow{display:flex;gap:10px;align-items:center;margin-top:9px}
+  .imgrow img{width:54px;height:54px;object-fit:cover;border-radius:7px;border:1px solid var(--line);flex:none}
+  .imgrow select{flex:1}
+  .empty{text-align:center;color:var(--muted);padding:26px;font-size:13px}
+  .saved{border:1px solid var(--line);border-radius:9px;padding:10px 13px;margin-bottom:8px;
+         display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .saved .who{font-weight:600;color:var(--navy);font-size:13px}
+  .note{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:9px;
+        padding:11px 13px;font-size:12.5px;line-height:1.55;margin-top:11px}
+  .ver{color:var(--muted);font-size:11px;margin-top:26px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/creative">&larr; Creative</a>
+  <h1>Social Content Planner {{ help_dot('social.planner') if help_dot is defined else '' }}</h1>
+  <p class="sub">Build a client's month of organic posts in one pass, then export it for
+    Smart 1 Suite's Social Planner. The plan starts from what the Hub already knows about
+    the client &mdash; their services, their brand, their image gallery &mdash; so the work
+    is editing rather than authoring. Nothing publishes from here: the export is a CSV you
+    upload under Social Planner &rarr; Bulk Upload.</p>
+
+  <div class="card">
+    <h2><span class="n">1</span> Client and month</h2>
+    <div class="grid">
+      <div>
+        <label class="f" for="clientq">Client</label>
+        <input type="search" id="clientq" placeholder="Start typing a client name" autocomplete="off">
+        <div class="results" id="results" hidden></div>
+        <div class="hint" id="chosen"></div>
+      </div>
+      <div>
+        <label class="f" for="month">Month</label>
+        <input type="month" id="month">
+        <label class="f" for="perweek" style="margin-top:11px">Posts per week</label>
+        <select id="perweek">
+          <option value="1">1 &mdash; Wednesdays</option>
+          <option value="2">2 &mdash; Tuesday, Thursday</option>
+          <option value="3" selected>3 &mdash; Monday, Wednesday, Friday</option>
+          <option value="4">4 &mdash; Mon, Tue, Thu, Fri</option>
+          <option value="5">5 &mdash; every weekday</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:13px">
+      <label class="f">Channels</label>
+      <div class="picks" id="channels"></div>
+    </div>
+    <div id="ctx"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span> What they are allowed to say</h2>
+    <p class="hint" style="margin:0 0 12px">Everything below is a fact the writer may use.
+      A price, a discount, a phone number or a deadline that does not appear here is flagged
+      as a blocking problem before the plan can be approved &mdash; not because the model is
+      untrustworthy, but because it has no way to know what the client actually authorised.</p>
+    <div class="grid">
+      <div>
+        <label class="f" for="offers">Authorised offers <span class="opt">&mdash; leave empty and no post will mention one</span></label>
+        <textarea id="offers" rows="3" placeholder="e.g. $89 seasonal tune-up through September"></textarea>
+      </div>
+      <div>
+        <label class="f" for="notes">Notes for the writer <span class="opt">&mdash; what is going on this month</span></label>
+        <textarea id="notes" rows="3" placeholder="New tech starting, busy season, a new service line, an event they are at"></textarea>
+      </div>
+    </div>
+    <div class="grid3" style="margin-top:13px">
+      <div>
+        <label class="f" for="tone">Tone <span class="opt">&mdash; optional</span></label>
+        <input type="text" id="tone" placeholder="Friendly and straightforward">
+      </div>
+      <div>
+        <label class="f" for="phone">Phone on file <span class="opt">&mdash; optional</span></label>
+        <input type="text" id="phone" placeholder="(555) 555-0100">
+      </div>
+      <div>
+        <label class="f" for="avoid">Never mention <span class="opt">&mdash; optional</span></label>
+        <input type="text" id="avoid" placeholder="Competitor names, a service they dropped">
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <button class="btn" id="build">Build the month</button>
+      <span class="msg" id="buildmsg"></span>
+    </div>
+  </div>
+
+  <div class="card" id="planCard" hidden>
+    <h2><span class="n">3</span> The month</h2>
+    <div class="bar">
+      <button class="btn" id="draftAll">Write every empty post</button>
+      <button class="btn sec" id="fillImages">Fill images from the gallery</button>
+      <span class="spacer"></span>
+      <a class="btn sec sm" id="expPlanner" href="#">Social Planner CSV</a>
+      <a class="btn sec sm" id="expReview" href="#">Review sheet</a>
+      <button class="btn sec sm" id="approve">Mark approved</button>
+    </div>
+    <div class="count" id="counts"></div>
+    <div class="msg" id="planmsg"></div>
+    <div class="note" id="csvnote">The Social Planner CSV uses the documented basic
+      column set. Before the first real import, compare its header row with the template
+      Social Planner offers under Bulk Upload &mdash; if HighLevel spells a column
+      differently, the fix is one constant, <code>PLANNER_COLUMNS</code> in
+      <code>hub/social_plan.py</code>.</div>
+    <div id="slots"></div>
+  </div>
+
+  <div class="card">
+    <h2>Saved plans</h2>
+    <div id="saved"><div class="empty">Nothing saved yet.</div></div>
+  </div>
+
+  <p class="ver">Smart 1 Hub {{ version }}</p>
+</div>
+
+<script type="application/json" id="boot">{{ boot|tojson }}</script>
+<script>
+(function(){
+"use strict";
+var BOOT = JSON.parse(document.getElementById("boot").textContent);
+var SPEC = BOOT.spec;
+var state = {client:"", url:"", batch:null, context:null, channels:SPEC.default_channels.slice()};
+
+function $(id){ return document.getElementById(id); }
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+function say(el, text, kind){
+  var node = $(el);
+  node.textContent = text || "";
+  node.className = "msg" + (kind ? " " + kind : "");
+}
+
+// Relative, never rooted. This app is mounted under /tools/social, so a
+// root-relative path here would resolve against the hub app and 404 — the
+// exact bug tools/linkcheck.py was written to catch. (Spelling one out in
+// this comment would itself trip that scanner, which is the point: it reads
+// literals, not intent.)
+function api(path, opts){
+  return fetch("api/" + path, opts).then(function(r){
+    return r.json().catch(function(){ return {ok:false, error:"Server sent something unreadable."}; });
+  });
+}
+function post(path, body){
+  return api(path, {method:"POST", headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify(body || {})});
+}
+
+// ---------------------------------------------------------------- channels
+function renderChannels(){
+  $("channels").innerHTML = SPEC.channels.map(function(c){
+    var on = state.channels.indexOf(c.key) >= 0 ? " on" : "";
+    return '<span class="pick' + on + '" data-ch="' + esc(c.key) + '">' + esc(c.label) + "</span>";
+  }).join("");
+}
+$("channels").addEventListener("click", function(ev){
+  var key = ev.target.getAttribute("data-ch");
+  if (!key) return;
+  var at = state.channels.indexOf(key);
+  if (at >= 0) { state.channels.splice(at, 1); } else { state.channels.push(key); }
+  renderChannels();
+});
+
+// ---------------------------------------------------------------- client
+var timer = null;
+$("clientq").addEventListener("input", function(){
+  clearTimeout(timer);
+  timer = setTimeout(searchClients, 220);
+});
+function searchClients(){
+  var q = $("clientq").value.trim();
+  if (q.length < 2) { $("results").hidden = true; return; }
+  api("clients?q=" + encodeURIComponent(q)).then(function(d){
+    if (!d.ok) { $("results").hidden = true; return; }
+    if (!d.clients.length) {
+      $("results").innerHTML = '<div class="d" style="cursor:default">No client matches that.</div>';
+      $("results").hidden = false;
+      return;
+    }
+    $("results").innerHTML = d.clients.map(function(c){
+      return '<div data-name="' + esc(c.name) + '" data-url="' + esc(c.url) + '">' +
+             esc(c.name) + '<div class="d">' + esc(c.domain || c.url || "no website on file") +
+             "</div></div>";
+    }).join("");
+    $("results").hidden = false;
+  });
+}
+$("results").addEventListener("click", function(ev){
+  var row = ev.target.closest("div[data-name]");
+  if (!row) return;
+  choose(row.getAttribute("data-name"), row.getAttribute("data-url"));
+});
+function choose(name, url){
+  state.client = name;
+  state.url = url || "";
+  $("clientq").value = name;
+  $("results").hidden = true;
+  $("chosen").textContent = "Planning for " + name + ". Loading what we know about them…";
+  api("context?client=" + encodeURIComponent(name) + "&url=" + encodeURIComponent(url || ""))
+    .then(function(d){
+      if (!d.ok) { $("chosen").textContent = d.error || "Context lookup failed."; return; }
+      state.context = d.context;
+      $("chosen").textContent = "Planning for " + name + ".";
+      renderContext(d.context);
+    });
+}
+function renderContext(c){
+  var bits = [];
+  if (c.description) { bits.push("<p>" + esc(c.description.slice(0, 400)) + "</p>"); }
+  if (c.products.length) {
+    bits.push("<p><strong>Running with us:</strong> " + esc(c.products.join(", ")) + "</p>");
+  }
+  if (c.colors.length) {
+    bits.push("<p><strong>Brand:</strong> " + c.colors.map(function(h){
+      return '<span class="swatch" style="background:' + esc(h) + '"></span>' + esc(h);
+    }).join(" ") + "</p>");
+  } else if (c.brand_note) {
+    bits.push('<p class="absent">' + esc(c.brand_note) + "</p>");
+  }
+  if (c.gallery.length) {
+    bits.push("<p><strong>Images on file:</strong> " + c.gallery.length + "</p>");
+  } else {
+    bits.push('<p class="absent">' + esc(c.gallery_note || "No images on file.") +
+              ' <a href="/tools/image-picker/" target="_blank">Add some &rarr;</a></p>');
+  }
+  $("ctx").innerHTML = '<div class="ctx"><h4>What the Hub already knows</h4>' +
+                       bits.join("") + "</div>";
+}
+
+// ---------------------------------------------------------------- build
+$("build").addEventListener("click", function(){
+  if (!state.client) { say("buildmsg", "Pick a client first.", "err"); return; }
+  if (!$("month").value) { say("buildmsg", "Pick a month.", "err"); return; }
+  if (!state.channels.length) { say("buildmsg", "Pick at least one channel.", "err"); return; }
+  $("build").disabled = true;
+  say("buildmsg", "Building…");
+  post("batches", {
+    client: state.client, url: state.url, month: $("month").value,
+    channels: state.channels, per_week: parseInt($("perweek").value, 10),
+    brief: {tone: $("tone").value, offers: $("offers").value, notes: $("notes").value,
+            phone: $("phone").value, avoid: $("avoid").value}
+  }).then(function(d){
+    $("build").disabled = false;
+    if (!d.ok) { say("buildmsg", d.error, "err"); return; }
+    state.batch = d.batch;
+    say("buildmsg", d.batch.slots.length + " slots ready.", "ok");
+    showPlan();
+    loadSaved();
+  });
+});
+
+function showPlan(){
+  $("planCard").hidden = false;
+  var id = state.batch.id;
+  $("expPlanner").href = "api/batches/" + id + "/export.csv?format=planner";
+  $("expReview").href = "api/batches/" + id + "/export.csv?format=review";
+  renderSlots();
+  $("planCard").scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+// ---------------------------------------------------------------- slots
+function typeLabel(key){
+  for (var i = 0; i < SPEC.types.length; i++) {
+    if (SPEC.types[i].key === key) return SPEC.types[i].label;
+  }
+  return key;
+}
+function channelLabel(key){
+  for (var i = 0; i < SPEC.channels.length; i++) {
+    if (SPEC.channels[i].key === key) return SPEC.channels[i].label;
+  }
+  return key;
+}
+function imageOptions(selected){
+  var pool = (state.context && state.context.gallery) || [];
+  var out = ['<option value="">No image</option>'];
+  for (var i = 0; i < pool.length; i++) {
+    var img = pool[i];
+    var on = img.url === selected ? " selected" : "";
+    var label = img.label || img.alt || ("Image " + (i + 1));
+    out.push('<option value="' + esc(img.url) + '" data-pid="' + esc(img.public_id) +
+             '"' + on + ">" + esc(label.slice(0, 70)) + "</option>");
+  }
+  if (selected && pool.every(function(p){ return p.url !== selected; })) {
+    out.push('<option value="' + esc(selected) + '" selected>Current image</option>');
+  }
+  return out.join("");
+}
+function renderSlots(){
+  var batch = state.batch;
+  var html = batch.slots.map(function(s){
+    var blocked = (s.flags || []).some(function(f){ return f.level === "block"; });
+    var cls = "slot" + (s.status === "approved" ? " approved" : (blocked ? " blocked" : ""));
+    var tags = (s.channels || []).map(function(c){
+      return '<span class="tag ch">' + esc(channelLabel(c)) + "</span>";
+    }).join(" ");
+    var flags = (s.flags || []).map(function(f){
+      return '<div class="flag ' + esc(f.level) + '">' + esc(f.message) + "</div>";
+    }).join("");
+    var stCls = s.status === "empty" ? "empty" : (s.status === "approved" ? "approved" : "");
+    return '<div class="' + cls + '" data-slot="' + esc(s.id) + '">' +
+      '<div class="top">' +
+        '<span class="when">' + esc(s.date) + " &middot; " + esc(s.time) + "</span>" +
+        '<span class="tag">' + esc(typeLabel(s.type)) + "</span>" + tags +
+        '<span class="spacer"></span>' +
+        '<span class="tag st ' + stCls + '">' + esc(s.status) + "</span>" +
+        '<button class="btn sec sm" data-act="draft">' +
+          (s.copy ? "Rewrite" : "Write") + "</button>" +
+        '<button class="btn sec sm" data-act="approve">' +
+          (s.status === "approved" ? "Unapprove" : "Approve") + "</button>" +
+      "</div>" +
+      '<textarea rows="4" data-field="copy" placeholder="Empty — nothing has been written for this slot yet.">' +
+        esc(s.copy) + "</textarea>" +
+      '<div class="grid" style="margin-top:8px">' +
+        '<input type="text" data-field="hashtags" placeholder="#hashtags" value="' +
+          esc((s.hashtags || []).join(" ")) + '">' +
+        '<input type="text" data-field="link" placeholder="Link (optional)" value="' +
+          esc(s.link || "") + '">' +
+      "</div>" +
+      '<div class="imgrow">' +
+        (s.image_url ? '<img src="' + esc(s.image_url) + '" alt="">' : "") +
+        '<select data-field="image">' + imageOptions(s.image_url) + "</select>" +
+      "</div>" +
+      flags +
+    "</div>";
+  }).join("");
+  $("slots").innerHTML = html || '<div class="empty">No slots.</div>';
+  renderCounts();
+}
+function renderCounts(){
+  var b = state.batch, drafted = 0, blocks = 0, warns = 0, noimg = 0;
+  b.slots.forEach(function(s){
+    if (s.copy) drafted++;
+    if (!s.image_url) noimg++;
+    (s.flags || []).forEach(function(f){
+      if (f.level === "block") blocks++; else warns++;
+    });
+  });
+  $("counts").textContent = drafted + " of " + b.slots.length + " written · " +
+    noimg + " without an image · " + blocks + " blocking, " + warns + " to check · " +
+    "status: " + b.status;
+}
+
+$("slots").addEventListener("click", function(ev){
+  var act = ev.target.getAttribute("data-act");
+  if (!act) return;
+  var card = ev.target.closest("[data-slot]");
+  var id = card.getAttribute("data-slot");
+  if (act === "draft") { draftOne(id, ev.target); }
+  if (act === "approve") { toggleApprove(id); }
+});
+$("slots").addEventListener("change", function(ev){
+  var field = ev.target.getAttribute("data-field");
+  if (!field) return;
+  var card = ev.target.closest("[data-slot]");
+  var slot = findSlot(card.getAttribute("data-slot"));
+  if (field === "copy") { slot.copy = ev.target.value; }
+  if (field === "hashtags") {
+    slot.hashtags = ev.target.value.split(/\s+/).filter(function(t){ return t; });
+  }
+  if (field === "link") { slot.link = ev.target.value; }
+  if (field === "image") {
+    var opt = ev.target.options[ev.target.selectedIndex];
+    slot.image_url = ev.target.value;
+    slot.image_public_id = opt ? (opt.getAttribute("data-pid") || "") : "";
+  }
+  save();
+});
+
+function findSlot(id){
+  return state.batch.slots.filter(function(s){ return s.id === id; })[0];
+}
+function save(){
+  return fetch("api/batches/" + state.batch.id, {
+    method:"PUT", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({slots: state.batch.slots})
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d.ok) { state.batch = d.batch; renderSlots(); }
+    return d;
+  });
+}
+
+function toggleApprove(id){
+  var slot = findSlot(id);
+  if (!slot.copy) { say("planmsg", "Nothing written in that slot yet.", "err"); return; }
+  slot.status = slot.status === "approved" ? "edited" : "approved";
+  save();
+}
+
+function draftOne(id, button){
+  var slot = findSlot(id);
+  if (button) { button.disabled = true; button.textContent = "Writing…"; }
+  return post("batches/" + state.batch.id + "/draft", {slot: id}).then(function(d){
+    if (!d.ok) {
+      say("planmsg", slot.date + ": " + d.error, "err");
+      if (button) { button.disabled = false; button.textContent = "Write"; }
+      return false;
+    }
+    for (var i = 0; i < state.batch.slots.length; i++) {
+      if (state.batch.slots[i].id === id) { state.batch.slots[i] = d.slot; }
+    }
+    renderSlots();
+    return true;
+  });
+}
+
+// One request per slot, in sequence, so the progress line can name the post
+// being written and one failure costs one post rather than the month.
+$("draftAll").addEventListener("click", function(){
+  var pending = state.batch.slots.filter(function(s){ return !s.copy; });
+  if (!pending.length) { say("planmsg", "Every slot already has copy.", "ok"); return; }
+  $("draftAll").disabled = true;
+  var done = 0, failed = 0;
+  function next(){
+    if (!pending.length) {
+      $("draftAll").disabled = false;
+      say("planmsg", done + " written" + (failed ? ", " + failed + " failed — retry those individually" : "."),
+          failed ? "err" : "ok");
+      return;
+    }
+    var slot = pending.shift();
+    say("planmsg", "Writing " + typeLabel(slot.type).toLowerCase() + " post for " +
+        slot.date + " (" + (done + failed + 1) + " of " + (done + failed + 1 + pending.length) + ")…");
+    draftOne(slot.id, null).then(function(ok){
+      if (ok) { done++; } else { failed++; }
+      next();
+    });
+  }
+  next();
+});
+
+$("fillImages").addEventListener("click", function(){
+  $("fillImages").disabled = true;
+  say("planmsg", "Looking through the gallery…");
+  post("batches/" + state.batch.id + "/images", {}).then(function(d){
+    $("fillImages").disabled = false;
+    if (!d.ok) { say("planmsg", d.error, "err"); return; }
+    if (d.batch) { state.batch = d.batch; renderSlots(); }
+    say("planmsg", d.note || (d.assigned + " assigned."),
+        d.assigned ? "ok" : "err");
+  });
+});
+
+$("approve").addEventListener("click", function(){
+  post("batches/" + state.batch.id + "/status", {status:"approved"}).then(function(d){
+    if (!d.ok) { say("planmsg", d.error, "err"); return; }
+    state.batch = d.batch;
+    renderSlots();
+    say("planmsg", "Approved. Export the Social Planner CSV and upload it in Suite.", "ok");
+  });
+});
+
+// ---------------------------------------------------------------- saved
+function loadSaved(){
+  api("batches").then(function(d){
+    if (!d.ok || !d.batches.length) {
+      $("saved").innerHTML = '<div class="empty">Nothing saved yet.</div>';
+      return;
+    }
+    $("saved").innerHTML = d.batches.map(function(b){
+      return '<div class="saved" data-id="' + esc(b.id) + '">' +
+        '<span class="who">' + esc(b.client) + "</span>" +
+        '<span class="tag">' + esc(b.month) + "</span>" +
+        '<span class="tag st">' + esc(b.status) + "</span>" +
+        '<span class="count">' + b.drafted + "/" + b.slots + " written" +
+        (b.block ? " · " + b.block + " blocking" : "") + "</span>" +
+        '<span class="spacer"></span>' +
+        '<button class="btn sec sm" data-open="1">Open</button>' +
+        '<button class="btn danger sm" data-del="1">Delete</button>' +
+      "</div>";
+    }).join("");
+  });
+}
+$("saved").addEventListener("click", function(ev){
+  var row = ev.target.closest("[data-id]");
+  if (!row) return;
+  var id = row.getAttribute("data-id");
+  if (ev.target.getAttribute("data-open")) { openBatch(id); }
+  if (ev.target.getAttribute("data-del")) {
+    if (!confirm("Delete this plan? The copy in it goes too.")) return;
+    fetch("api/batches/" + id, {method:"DELETE"}).then(function(){ loadSaved(); });
+  }
+});
+function openBatch(id){
+  api("batches/" + id).then(function(d){
+    if (!d.ok) { say("planmsg", d.error, "err"); return; }
+    state.batch = d.batch;
+    state.context = d.context;
+    state.client = d.batch.client;
+    $("clientq").value = d.batch.client;
+    $("chosen").textContent = "Planning for " + d.batch.client + ".";
+    if (d.context) { renderContext(d.context); }
+    $("offers").value = (d.batch.brief || {}).offers || "";
+    $("notes").value = (d.batch.brief || {}).notes || "";
+    $("tone").value = (d.batch.brief || {}).tone || "";
+    $("phone").value = (d.batch.brief || {}).phone || "";
+    $("avoid").value = (d.batch.brief || {}).avoid || "";
+    showPlan();
+  });
+}
+
+// ---------------------------------------------------------------- boot
+renderChannels();
+(function(){
+  var now = new Date();
+  var next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  $("month").value = next.getFullYear() + "-" + ("0" + (next.getMonth() + 1)).slice(-2);
+})();
+if (BOOT.client) { choose(BOOT.client, BOOT.url); }
+loadSaved();
+})();
+</script>
+</body>
+</html>
