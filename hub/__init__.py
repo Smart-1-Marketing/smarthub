@@ -2389,6 +2389,26 @@ def create_hub_app() -> Flask:
         seo.save_store(client, store)
         return jsonify({"ok": True, "questions": blogs.get("questions", [])})
 
+    @app.route("/api/seo/blogs/tag", methods=["POST"])
+    def api_seo_blogs_tag():
+        """Fill in categories and tags on posts planned before they existed."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        ids = [int(i) for i in (body.get("ids") or []) if str(i).isdigit()]
+        try:
+            out = seo.blog_tag_posts(client, ids or None)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": str(exc)})
+        audit.log("hub", "seo_blog_tag", actor=current_user(), client=client,
+                  detail=f"{out['tagged']} posts")
+        return jsonify(out)
+
     @app.route("/api/seo/blogs/settings", methods=["POST"])
     def api_seo_blogs_settings():
         """The default author, the guardrail text and the never-mention list."""
@@ -2452,10 +2472,11 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/seo/publish/instructions", methods=["POST"])
     def api_seo_publish_instructions():
-        """What to paste where, for the CMS the rep just opened.
+        """The prompt the rep pastes into Claude in Chrome, for one CMS.
 
-        Neither CMS has a write API we can use — see hub/cms_publish.py — so
-        this is the deliverable, not a fallback for one.
+        Neither CMS has a write API we can use — see hub/cms_publish.py — so a
+        browser agent driving the admin IS the publishing path, and this
+        endpoint's job is to hand it everything it needs in one block of text.
         """
         gate = _require_api()
         if gate:
@@ -2469,24 +2490,127 @@ def create_hub_app() -> Flask:
             return jsonify({"error": "client is required."}), 400
         if cms not in cms_publish.CMS_KEYS:
             return jsonify({"error": f"Unknown CMS '{cms}'."}), 400
+        if kind not in cms_publish.KINDS:
+            return jsonify({"error": f"Unknown content kind '{kind}'."}), 400
         store = seo.load_store(client)
         site = seo.client_site_url(client, store)
+        wanted = [str(u) for u in (body.get("urls") or [])]
+        settings = None
+
         if kind == "schema":
-            wanted = [str(u) for u in (body.get("urls") or [])]
             pages = store.get("pages", {})
             types = {r["url"]: r["types"] for r in seo.schema_pages_table(client)}
             chosen = [dict(pages[u], url=u, types=types.get(u, []))
                       for u in wanted if u in pages]
-            out = cms_publish.schema_instructions(cms, chosen, site)
+        elif kind == "faqs":
+            from . import faq as _faq
+            chosen = []
+            for url in wanted:
+                page = _faq.get_page(client, url)
+                if page is None:
+                    continue
+                # The accordion travels with the questions: it is what
+                # actually goes on the page, and it carries its own FAQPage
+                # schema so the agent is not asked to paste two things.
+                chosen.append({"url": url, "questions": page.get("questions", []),
+                               "html": _faq.accordion_html(client, [url])})
+        elif kind == "alt":
+            from . import alt_text
+            chosen = alt_text.selected_pages(client, wanted or None)
         else:
             ids = [int(i) for i in (body.get("ids") or []) if str(i).isdigit()]
             posts = {p["id"]: p for p in store.get("blogs", {}).get("posts", [])}
             chosen = [posts[i] for i in ids if i in posts]
-            out = cms_publish.blog_instructions(
-                cms, chosen, seo.blog_settings(client, store), site)
+            settings = seo.blog_settings(client, store)
+
+        out = cms_publish.instructions(cms, kind, chosen, client=client,
+                                       site_url=site, settings=settings,
+                                       placement=str(body.get("placement") or ""))
         audit.log("hub", "seo_publish_instructions", actor=current_user(),
                   client=client, detail=f"{kind} → {cms}: {len(out.get('items', []))}")
         return jsonify(out)
+
+    # ---------------- SEO alt text ----------------
+    @app.route("/api/seo/alt")
+    def api_seo_alt():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import alt_text
+        return jsonify(alt_text.load((request.args.get("name") or "").strip()))
+
+    @app.route("/api/seo/alt/scan", methods=["POST"])
+    def api_seo_alt_scan():
+        """Read the first N sitemap pages and list every image on them."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import alt_text
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        limit = clamp_int(body.get("pages"), alt_text.DEFAULT_PAGES,
+                          1, alt_text.MAX_PAGES)
+        try:
+            out = alt_text.scan(client, limit,
+                                [str(u) for u in (body.get("urls") or [])])
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": str(exc)})
+        audit.log("hub", "seo_alt_scan", actor=current_user(), client=client,
+                  detail=f"{len(out['pages'])} pages, {out['total_images']} images")
+        return jsonify(out)
+
+    @app.route("/api/seo/alt/write", methods=["POST"])
+    def api_seo_alt_write():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import alt_text
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        try:
+            out = alt_text.rewrite(client, [str(u) for u in (body.get("urls") or [])])
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": str(exc)})
+        if not out.get("error"):
+            audit.log("hub", "seo_alt_write", actor=current_user(), client=client,
+                      detail=f"{out.get('written', 0)} images")
+        return jsonify(out)
+
+    @app.route("/api/seo/alt/update", methods=["POST"])
+    def api_seo_alt_update():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import alt_text
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        img = alt_text.set_alt(client, str(body.get("url") or ""),
+                               str(body.get("src") or ""),
+                               str(body.get("alt") or ""))
+        if img is None:
+            return jsonify({"error": "That image is not in the last scan."}), 404
+        return jsonify({"ok": True, "image": img})
+
+    @app.route("/seo/alt/<slug>/code.html")
+    def seo_alt_code(slug):
+        """The rewritten alt text as markup, old tag and new."""
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import alt_text, seo
+        match = next((c for c in seo.seo_clients() if c["slug"] == slug), None)
+        name = match["client"] if match else slug.replace("-", " ")
+        raw = (request.args.get("urls") or "").strip()
+        urls = [u for u in raw.split("\n") if u.strip()] if raw else None
+        body = alt_text.code_view(name, urls)
+        resp = make_response(body)
+        resp.headers["Content-Type"] = "text/plain; charset=utf-8"
+        resp.headers["Content-Disposition"] = f'attachment; filename="{slug}-alt-text.html"'
+        return resp
 
     @app.route("/seo/blogs/<slug>.doc")
     def seo_blogs_doc(slug):

@@ -94,35 +94,37 @@ TICKET_FIELDS = {
     "hosting_only":     "field_3265",   # Hosting Only
     "ecommerce":        "field_3267",   # Ecommerce
     "description":      "field_1923",   # Describe the changes
+    "ready_to_submit":  "field_1696",   # Are you ready to submit?
     "assigner":         "field_1653",   # Assigner
     "status":           "field_1657",   # Status
     "developer":        "field_1729",   # Developer
 }
 
-# Fields written when CREATING a ticket. Status, Assigner and Developer are
-# deliberately absent: a new ticket's status is set by Knack's own workflow,
-# and assigning to a person is a decision made in the Manage step, not at
-# submission. Writing them here would overwrite that workflow.
+# The eight fields a web ticket is made of. The web team named nine and then
+# took Partner Contact back off the form — its id stays pinned above and is
+# still read, like the rest of the object.
+#
+# The wider set this module can read (partner contact, web services, the six
+# service checkboxes, the new website URL, the pause and cancellation fields)
+# is deliberately not written: a form asking for a field nobody fills is how
+# twenty questions turned into four filled-in answers and sixteen blanks.
+#
+# Status, Developer and the lifecycle fields are not here either, and that is
+# unchanged: Knack's own workflow opens a ticket, and assigning a developer is
+# the web team's decision, not the raiser's.
 TICKET_CREATE_FIELDS = (
-    "title", "client", "website", "type", "billable", "description",
-    "assigner", "media_partner", "partner_contact", "notify_partner",
-    "web_services", "new_website_url",
-    # The web-service checkboxes. Set at submission because they describe
-    # what's being asked for, not how it gets handled.
-    "build_website", "hosting_maint", "hourly_maint", "purchase_domain",
-    "hosting_only", "ecommerce",
+    "title", "client", "media_partner", "website",
+    "type", "billable", "description",
+    # Last, because it is the act of submitting rather than a detail of the
+    # ticket: Knack's own workflow reads it.
+    "ready_to_submit",
 )
 
-# Fields editable in the Manage Ticket section.
-TICKET_MANAGE_FIELDS = (
-    "client", "website", "type", "billable", "description", "status",
-    "assigner", "developer", "media_partner", "partner_contact",
-    "notify_partner", "web_services", "new_website_url",
-    # Lifecycle fields — only meaningful once a ticket is being worked.
-    "pause_reason", "cancel_reason", "cancel_date", "resume_date",
-    "build_website", "hosting_maint", "hourly_maint", "purchase_domain",
-    "hosting_only", "ecommerce",
-)
+# Fields editable in the Manage Ticket section — the same nine without Title,
+# which is not editable after creation: renaming a ticket breaks the thread for
+# whoever raised it.
+TICKET_MANAGE_FIELDS = tuple(k for k in TICKET_CREATE_FIELDS if k != "title")
+
 
 # The label Knack shows for each field. A form can then name a field before
 # the live schema has been read, and a field whose label is renamed still
@@ -150,6 +152,7 @@ TICKET_LABELS = {
     "hosting_only":     "Hosting Only",
     "ecommerce":        "Ecommerce",
     "description":      "Describe the changes",
+    "ready_to_submit":  "Are you ready to submit?",
     "assigner":         "Assigner",
     "status":           "Status",
     "developer":        "Developer",
@@ -161,15 +164,10 @@ TICKET_LABELS = {
 # forgotten here appears at the end of the form instead of silently not
 # existing at all, which is the failure this module has already had once.
 TICKET_GROUPS = (
-    ("The ticket",   ("title", "client", "website", "type", "billable",
-                      "description")),
-    ("Media partner", ("media_partner", "partner_contact", "notify_partner")),
-    ("Web services", ("web_services", "new_website_url", "build_website",
-                      "hosting_maint", "hourly_maint", "purchase_domain",
-                      "hosting_only", "ecommerce")),
-    ("Handling",     ("status", "assigner", "developer")),
-    ("Pause / cancel", ("pause_reason", "cancel_reason", "cancel_date",
-                        "resume_date")),
+    ("The ticket",    ("title", "client", "website", "type", "billable",
+                       "description")),
+    ("Media partner", ("media_partner",)),
+    ("Submit",        ("ready_to_submit",)),
 )
 
 # How many records a connection field's picker offers. A connection needs a
@@ -177,6 +175,19 @@ TICKET_GROUPS = (
 CONNECTION_LIMIT = int(os.environ.get("KNACK_CONNECTION_LIMIT", "500"))
 
 _RECORD_ID = re.compile(r"^[0-9a-f]{24}$", re.I)
+
+
+def field_ids() -> dict:
+    """The pinned ids with their environment overrides applied.
+
+    `field_map()` is this plus the two fields still discovered by label, which
+    costs a schema read. This one touches nothing, so a caller that only wants
+    the ids — the audit module at /tools/tickets builds its field map from
+    them — does not have to reach Knack, or be import-order sensitive, to get
+    what this file already knows.
+    """
+    return {key: (os.environ.get(f"KNACK_TICKET_{key.upper()}") or fid).strip()
+            for key, fid in TICKET_FIELDS.items()}
 
 
 def field_map() -> dict:
@@ -188,9 +199,7 @@ def field_map() -> dict:
     """
     if "map" in _schema_cache:
         return _schema_cache["map"]
-    m = {}
-    for key, fid in TICKET_FIELDS.items():
-        m[key] = (os.environ.get(f"KNACK_TICKET_{key.upper()}") or fid).strip()
+    m = field_ids()
     # Date isn't in the confirmed set — still discovered.
     m["date"] = _find_field("date created", "created", "date")
     m["requested_by"] = _find_field("requested by", "submitted by", "created by")
@@ -434,16 +443,16 @@ def create_ticket(client: str, website: str, subject: str,
                   values: dict | None = None) -> dict:
     """Create a web ticket in Knack against the confirmed field ids.
 
-    `values` is the rest of the ticket, keyed by TICKET_FIELDS name: the type,
-    the billing flag, the media partner and contact, the web-service
-    checkboxes, the new website URL. Only the keys in TICKET_CREATE_FIELDS are
-    accepted, and each is checked against the live field before it is sent —
-    Knack refuses a whole record over one bad dropdown value, so a value it
-    would refuse is dropped here and named in the result instead.
+    `values` is the rest of the ticket, keyed by TICKET_FIELDS name: the media
+    partner and their contact, the type, the billing flag, and the ready-to-
+    submit answer Knack's workflow reads. Only the keys in
+    TICKET_CREATE_FIELDS are accepted, and each is checked against the live
+    field before it is sent — Knack refuses a whole record over one bad
+    dropdown value, so a value it would refuse is dropped here and named in
+    the result instead.
 
-    Status and Developer are still not written — Knack's own workflow sets the
-    opening status, and assigning a developer is a decision made in Manage
-    Ticket. Writing either at submission would override that.
+    Status and Developer are not written — Knack's own workflow sets the
+    opening status, and assigning a developer is the web team's decision.
 
     `extra` is {field_id: value} for fields this signature does not name — the
     due date the SEO tasks set, for one. It keeps the old connection guard, so
@@ -464,18 +473,19 @@ def create_ticket(client: str, website: str, subject: str,
     vals["description"] = body
     # The named arguments are defaults: an explicit value from the form wins.
     for key, value in (("client", client), ("website", website),
-                       ("type", ticket_type), ("billable", billable),
-                       ("assigner", requested_by or author)):
+                       ("type", ticket_type), ("billable", billable)):
         if value and not vals.get(key):
             vals[key] = value
     payload, rejected = _build_payload(TICKET_CREATE_FIELDS, vals, meta)
 
-    # requested_by is discovered by label rather than pinned, so it is not in
-    # TICKET_CREATE_FIELDS and is written here.
-    rb = m.get("requested_by")
+    # Attribution, written but never asked for: Assigner is pinned, Requested
+    # By is discovered by label, and neither is a question anyone answers — so
+    # neither is in the write set. They are still written, because a ticket the
+    # web team cannot put a name to is a ticket they have to come asking about.
     who = requested_by or author
-    if rb and who and meta.get(rb, {}).get("type") != "connection":
-        payload.setdefault(rb, who)
+    for fid in (m.get("assigner"), m.get("requested_by")):
+        if fid and who and meta.get(fid, {}).get("type") != "connection":
+            payload.setdefault(fid, who)
 
     for fid, value in (extra or {}).items():
         if not fid or value in (None, ""):

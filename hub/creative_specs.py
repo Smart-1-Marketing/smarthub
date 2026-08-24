@@ -316,6 +316,33 @@ UNITS: list[dict[str, Any]] = [
     {"id": "tiktok_profile", "channel": "tiktok", "name": "Profile Image",
      "kind": "image", "formats": ["jpg", "jpeg", "png"], "ratios": [(1, 1)],
      "max_bytes": 50 * KB},
+
+    # ---- GPT ads ---------------------------------------------------------
+    # NOT from the 2025 kit — this one is transcribed from the platform's own
+    # creative requirement sheet, which is why it carries `source`. It is here
+    # rather than in the GPT Ads module because the question it answers ("will
+    # this file be rejected?") is asked in three places already: on upload, on
+    # an insertion order, and by the gallery. A second copy of the numbers in a
+    # module is how the "cap the longest edge" rule ended up being fixed twice.
+    #
+    # 1:1 is *required*, so it is a `ratios` entry and a fail. 256x256 is
+    # *recommended*, so it is `min_size` and a warn — a 200px square runs, it
+    # just runs soft, and collapsing those two into one warning is what taught
+    # people to ignore warnings. No file-weight ceiling is published for this
+    # placement, so none is invented: there is no max_bytes here on purpose.
+    {"id": "gpt_ads_square", "channel": "gpt_ads", "name": "Static Square Image",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "ratios": [(1, 1)], "min_size": (256, 256),
+     "source": "GPT ads creative requirements",
+     "notes": ["1:1 is required. 256x256 is the recommended minimum, not the "
+               "target — supply the highest-quality brand-approved version, "
+               "because the platform can downsize and cannot upsize.",
+               "No file-weight ceiling is published for this placement, so "
+               "none is enforced here.",
+               "No format list is published either. JPG and PNG are what is "
+               "accepted here because every ad platform takes them — a WebP "
+               "that turns out to be rejected is a launch date missed, and "
+               "nothing is gained by being first to try one."]},
 ]
 
 BY_ID = {u["id"]: u for u in UNITS}
@@ -341,12 +368,20 @@ CHANNEL_LABELS = {
     "linkedin": "LinkedIn",
     "snapchat": "Snapchat",
     "tiktok": "TikTok",
+    "gpt_ads": "GPT Ads",
 }
 
 # Product text -> channels, most specific pattern first. A product can map to
 # several channels: a display buy legitimately accepts desktop, mobile and
 # tablet units, and a file only has to satisfy one of them.
 _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
+    # First, because "GPT display" must not be read as a display buy by the
+    # generic `display` pattern near the bottom of this list.
+    # "GPT" alone, because the product is written a dozen ways — "GPT Ads",
+    # "ChatGPT display ads", "OpenAI ads" — and "GPT display ads" reaching the
+    # generic display pattern below would judge a 1:1 square against banner
+    # sizes and pass nothing.
+    (r"chat\s*gpt|\bgpt\b|openai\s+ads?", ["gpt_ads"]),
     (r"native.*video", ["native_video"]),
     (r"native", ["native_display"]),
     (r"you\s*tube|trueview|bumper", ["youtube"]),
@@ -681,5 +716,9 @@ def catalogue() -> dict:
             "units": [],
         })
         c["units"].append({k: v for k, v in u.items() if k != "channel"})
+    # Most units come from the kit; a few (GPT ads) come from a platform's own
+    # requirement sheet and carry their own `source`. Saying "Creative Spec Kit
+    # 2025" over all of them would misattribute those.
     return {"channels": list(chans.values()),
-            "source": "S1M Creative Spec Kit 2025"}
+            "source": "S1M Creative Spec Kit 2025, plus the platform "
+                      "requirement sheets noted on individual units"}

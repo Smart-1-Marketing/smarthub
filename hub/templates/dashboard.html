@@ -141,13 +141,19 @@ const fmt=n=>Number(n||0).toLocaleString();
 function trendHtml(t,money){
   if(!t) return '';
   const one=(d,label)=>{
+    // Every comparison names the month it is against. The label is short
+    // because the card is; the month is in the tooltip, and in the "not yet"
+    // text, so a dash says which month is missing rather than reading as a
+    // fault. A snapshot is taken the first time the dashboard is opened in a
+    // month, so the first month after a deploy has nothing to compare to.
+    const when=(d&&d.period)?d.period:label.slice(3);
     if(!d||!d.available)
-      return '<span class="t-none" title="No '+esc(label.slice(3))+' snapshot yet">– '+esc(label)+'</span>';
+      return '<span class="t-none" title="No snapshot for '+esc(when)+' — the first reading of a month is taken the first time this page is opened in it">– '+esc(label)+'</span>';
     const arrow=d.dir==='up'?'&#9650;':d.dir==='down'?'&#9660;':'&#9644;';
     const cls=d.dir==='up'?'t-up':d.dir==='down'?'t-down':'t-flat';
     const n=(money?'$':'')+fmt(Math.abs(d.diff));
     const pct=(d.pct===null||d.pct===undefined)?'':' ('+Math.abs(d.pct)+'%)';
-    return '<span class="'+cls+'" title="was '+(money?'$':'')+fmt(d.from)+'">'
+    return '<span class="'+cls+'" title="'+esc(when)+': was '+(money?'$':'')+fmt(d.from)+'">'
       +arrow+' '+n+pct+' '+esc(label)+'</span>';
   };
   return '<div class="k-trend">'+one(t.last_month,'vs last mo')
@@ -176,7 +182,12 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
   trend('k-hm-sub','hm_monthly',true);
 
   // ---- second row: billing rollup + month-over-month movement ----
-  const vs=s.last_period?('vs '+s.last_period):'vs last month';
+  // These four come from the Knack export's own lastM/thisM flags, so they
+  // describe the export's month. When that is not this month they are history,
+  // and the card says which month rather than implying it is current.
+  const vs=s.export_stale
+    ? ('in the '+(s.this_period||'export')+' export')
+    : (s.last_period?('vs '+s.last_period):'vs last month');
   $('k-total').textContent='$'+fmt(s.estimated_total_monthly);
   trend('k-total-sub','estimated_total_monthly',true);
   $('k-new').textContent=fmt(s.new_customers);
@@ -192,7 +203,10 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
     const m=s.website_movement;
     $('k-move').textContent=(m>0?'+':'')+fmt(m);
     $('k-move').style.color=m>0?'var(--ok)':(m<0?'var(--danger)':'');
-    $('k-move-sub').textContent='active sites '+vs;
+    // Movement is snapshot-derived, not export-derived: it names the month it
+    // actually compared against, which after a gap is not last month.
+    $('k-move-sub').textContent='active sites'
+      +(s.website_movement_from?(' vs '+s.website_movement_from):' vs last month');
   }
   if(s.seo_clients!==null&&s.seo_clients!==undefined){
     $('k-seo').textContent=fmt(s.seo_clients);

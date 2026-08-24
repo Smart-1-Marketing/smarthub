@@ -1643,6 +1643,92 @@ def blog_write(client: str, ids: list[int], limit: int = 3) -> dict:
             "ai_error": ai_error}
 
 
+def blog_tag_posts(client: str, ids: list[int] | None = None) -> dict:
+    """Fill in categories and tags on posts that have none.
+
+    Re-planning would do it, but re-planning replaces every title and throws
+    away written content — so a plan made before this existed had no way to
+    gain a taxonomy at all, and the table read "not set" on every row with
+    nothing to do about it. This touches ONLY the categories and tags.
+    """
+    from . import blog_spec
+    store = load_store(client)
+    blogs = store.setdefault("blogs", {})
+    posts = blogs.get("posts", [])
+    settings = blog_settings(client, store)
+    wanted = set(ids or [])
+    todo = [p for p in posts
+            if (not wanted or p["id"] in wanted)
+            and not p.get("archived")
+            and not (p.get("categories") and p.get("tags"))]
+    if not todo:
+        return {"tagged": 0, "categories": settings["categories"],
+                "posts": posts, "ai": False}
+
+    known = list(settings["categories"])
+    ctx = _client_context(client, store)
+    ai_error, tagged = "", 0
+    out = None
+    try:
+        # One request for the batch, not one per post: this is a short answer
+        # per title and the failure mode of a slow loop is a rep watching a
+        # spinner for twelve posts' worth of round trips.
+        out = _openai_json(_BLOG_TAG_PROMPT, {
+            "business_info": ctx.get("business_info", {}),
+            "company_guidance": ctx.get("company_guidance", ""),
+            "existing_categories": known,
+            "taxonomy_rules": ctx.get("taxonomy_rules", ""),
+            "posts": [{"id": p["id"], "title": p["title"],
+                       "summary": p.get("summary", "")} for p in todo]})
+    except Exception as exc:  # noqa: BLE001
+        ai_error = str(exc)
+
+    by_id = {}
+    for row in (out or {}).get("posts", []) or []:
+        if isinstance(row, dict) and str(row.get("id", "")).isdigit():
+            by_id[int(row["id"])] = row
+    for post in todo:
+        row = by_id.get(post["id"], {})
+        tax = blog_spec.clamp_taxonomy(
+            row.get("categories") or post.get("categories"),
+            row.get("tags") or post.get("tags"), known)
+        if not tax["tags"]:
+            # No AI and nothing stored: the title's own words beat an empty
+            # column, and a person edits them in the modal.
+            tax["tags"] = blog_spec.clamp_taxonomy(
+                [], _title_keywords(post["title"]), known)["tags"]
+        known = blog_spec.merge_categories(known, tax["categories"])
+        post["categories"], post["tags"] = tax["categories"], tax["tags"]
+        post.setdefault("slug", blog_spec.slugify_title(post["title"]))
+        tagged += 1
+    blogs["categories"] = known
+    save_store(client, store)
+    return {"tagged": tagged, "categories": known, "posts": posts,
+            "ai": bool(os.environ.get("OPENAI_API_KEY")) and not ai_error,
+            "ai_error": ai_error}
+
+
+_STOPWORDS = {"the", "and", "for", "with", "your", "you", "how", "what", "why",
+              "when", "from", "that", "this", "are", "can", "should", "before",
+              "after", "does", "did", "will", "into", "out", "about", "not",
+              "its", "it", "a", "an", "of", "to", "in", "on", "is", "vs"}
+
+
+def _title_keywords(title: str, limit: int = 4) -> list[str]:
+    words = re.findall(r"[a-z][a-z0-9'-]{2,}", str(title or "").lower())
+    return [w for w in dict.fromkeys(words) if w not in _STOPWORDS][:limit]
+
+
+_BLOG_TAG_PROMPT = """You are an SEO content strategist filing a client's existing blog posts.
+Given a list of planned post titles, assign each one categories and tags.
+Rules:
+- Output JSON only: {"posts": [{"id": int, "categories": [str], "tags": [str]}]}.
+- Return one entry per post given, with the SAME id.
+- Categories are the site's structure: reuse "existing_categories" wherever one fits and only
+  invent a category when none of them does. Tags are per-post detail. Follow "taxonomy_rules".
+- Do not rewrite, re-title or comment on the posts. Categories and tags only."""
+
+
 def blogs_doc(client: str, ids=None) -> str:
     """Single Word-openable HTML document with the selected blog posts.
 

@@ -125,6 +125,17 @@ check said yes. `hub/config.py` detects the known placeholders. Render also
 stores quotes literally — `SCANS_CALLBACK_TOKEN="abc"` includes the quotes,
 which silently breaks callback matching.
 
+**A period that comes from a file nobody refreshes is not a period.** The
+dashboard's scorecard trends were keyed on `products.json`'s `thisMonth` —
+a committed export refreshed by hand, which has carried one value since it was
+generated. Every load wrote today's numbers into that one bucket, so a second
+bucket could never appear and every card read "– vs last mo – vs last yr" for
+ever, with Website Movement promising history "next month" in a month that
+would never come. `hub/knack_data._current_period()` reads the clock; the
+export's month now labels only the counts that genuinely come from the export,
+and `export_stale` says when those have gone out of date.
+`test_dashboard_trends.py` moves the clock rather than promising.
+
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
@@ -435,6 +446,19 @@ topic list, the default author and the client's guardrails, read by the planner,
 the writer, the client document and the CMS panel alike, the same way
 `hub/proposal_spec.py` is read by four things at once.
 
+**The settings are visible before there is anything to plan.** The Blogs card
+used to appear only once blogs were switched on in Client Setup, which hid the
+author, the guardrails and the approved-topic list — the things filled in
+*before* planning — until after something had been planned. The card is always
+shown now, says when blogs are off, and opens its settings panel while it is
+still empty. A collapsed panel is exactly as invisible as no panel to somebody
+who does not know it is there.
+
+**A plan made before the taxonomy existed can gain one.** Re-planning would do
+it and would also replace every title and discard written copy, so
+`blog_tag_posts()` fills in categories and tags and touches nothing else —
+otherwise those rows read "not set" forever with nothing to do about it.
+
 **Categories are structure; tags are detail.** A model asked for "categories
 and tags" invents a fresh category almost every time, and twelve posts arrive
 under twelve categories — a sidebar of one-post categories that helps nobody.
@@ -443,6 +467,13 @@ returns goes through `clamp_taxonomy()`, which keeps the known ones, allows at
 most **one** new category per post, dedupes case-insensitively and caps the
 counts. The client's set grows deliberately and slowly. Same clamp on the edit
 route, or the rule holds only until someone types into the box.
+
+**The approved-topic upload sits beside the planning question.** It spent a
+release inside the collapsed settings panel, where nobody found it. What a
+setting *changes* decides where it lives: the author and the guardrails are
+set-and-forget and belong in a drawer; the approved list changes what the next
+plan contains, so it sits in the Blogs card in its own panel, above the button
+that acts on it, saying what is loaded without anything being opened.
 
 **An approved topic is reproduced, not paraphrased.** A topic list a client
 signed off in advance is a commitment. `parse_approved_topics()` reads the
@@ -470,19 +501,43 @@ someone rewrites it. It strips the HTML first: scanning raw markup matched
 guidance box still goes to the model unchecked, because most of it is context —
 how they operate, what they are licensed for, how the warranty works.
 
-## Publishing is a panel, not a button
+## Publishing is a prompt, not a panel and not a button
 
-Every blog post and every JSON-LD block we produce has to be typed into a CMS by
-a person. Smart 1 Sites (the Simvoly whitelabel) exposes projects, plans and
-websites through its API — not blog content — and a client's WordPress is
-someone else's server with someone else's plugins on it. So `hub/cms_publish.py`
-does not pretend to publish. **Browse Smart 1 Sites** and **Browse WordPress**
-sit on both the blog table and the schema table: tick what you are publishing,
-the CMS opens in a new window, and the panel beside it holds that CMS's steps in
-order with every field copy-ready — title, slug, meta description, categories,
-tags, author, featured image, body HTML, or the script block for a schema page.
+Every blog post, JSON-LD block, FAQ accordion and alt tag we produce has to be
+typed into a CMS by somebody. Smart 1 Sites (the Simvoly whitelabel) exposes
+projects, plans and websites through its API — not page content — and a
+client's WordPress is someone else's server with someone else's plugins on it.
+So `hub/cms_publish.py` does not publish, and it no longer asks a rep to retype
+thirty fields either. **It writes a prompt for Claude in Chrome.**
 
-Three things that follow:
+**Claude → Smart 1 Sites** and **Claude → WordPress** sit on the blog table,
+the schema table, the FAQ table and the alt-text table. Tick what is going up,
+the CMS opens in a new window, and the panel hands back one block of text: the
+rules, how that CMS behaves, and the finished content. The rep signs in, pastes
+it into the Claude side panel on that tab, and approves each action.
+
+What that changes about what a good output is:
+
+- **The prompt carries the content, not a description of it.** The browser
+  agent cannot see this Hub, so "add the blog post" is useless — the whole body
+  HTML, the slug, the categories and the author have to be in the pasted text.
+- **It carries the rules that stop it improvising.** Approved copy is
+  reproduced, not paraphrased. A missing field is reported, not guessed at. A
+  category that does not exist is created with the exact name rather than filed
+  under the nearest match. Nothing is published; everything stops as a draft
+  for a human. An agent left to its own judgment on any of those produces
+  something plausible that nobody approved.
+- **It never carries a credential.** This Hub stores the site login and
+  password under Client Setup, and interpolating them into a block of text
+  destined for a chat window is the easiest possible mistake to make here. The
+  human signs in first; the prompt says so and tells the agent not to ask.
+  `test_alt_text.py` asserts no stored credential reaches any of the eight
+  CMS × kind prompts.
+- **The field-by-field list stays underneath it.** Claude in Chrome is not on
+  every machine, and a rep fixing one field should not have to dig it out of a
+  wall of prompt text.
+
+Three things that follow, unchanged from when this was a paste panel:
 
 - **Nothing is invented.** With no site URL on the client there is no WordPress
   admin to open, and the panel says which setting is missing. A guessed
@@ -494,32 +549,197 @@ Three things that follow:
   gives at length — and two projects on one domain returns the search rather
   than picking one, because the wrong pick edits another client's website.
 - **A field with no home says so.** Simvoly's blog has categories and no tag
-  field; the tags still travel, labelled as having nowhere to go, rather than
-  disappearing because there was no box.
+  field; the prompt tells the agent to say so rather than put the tags
+  somewhere else.
+- **Where an FAQ block goes on the page is asked, not left to the agent.**
+  "Somewhere sensible" is how an accordion lands above the hero on one page and
+  in a sidebar on the next. The panel offers the positions (`PLACEMENTS`,
+  default: the last section before the footer) and the answer is written into
+  the prompt as an instruction. Changing it rebuilds the prompt rather than
+  patching the text — a panel showing one position while the clipboard holds
+  another is the worst version of this.
 
 The window is opened in the click handler, before the fetch — a `window.open()`
 inside a promise callback is a popup the browser blocks, and a blocked popup
 looks exactly like a button that does nothing.
 
-`test_blog_publish.py` asserts all of it: the clamp, the approved titles
-surviving verbatim, the never-mention check firing on the copy and *not* on a
-class name, the flag reaching the document and the panel, and no admin URL
-being invented.
+## Alt text is read from the site, not invented for it
 
-## A web ticket carries twenty fields, and the form asks for all of them
+`hub/alt_text.py`. The Schema Builder and the FAQ Builder both read a client's
+own pages and hand the result to a CMS; alt text was the gap, and it is the
+finding an audit reports most often because fixing it by hand means opening
+every page and writing a sentence per image.
+
+**The first five sitemap pages, by default.** A crawl is one request per page
+against somebody else's server, and a 200-page site is 200 requests before a
+word is written. Five is the home page plus the top-level service pages on
+almost every site we build. The limit is a parameter so a second pass can go
+deeper deliberately, rather than a default that hammers a client's host.
+
+**`alt` absent and `alt=""` are different answers.** An empty alt is a decision
+— this image is decorative — and a missing one is an omission. Report both as
+`""` and every genuinely missing alt hides inside a list of images that were
+already handled correctly, which is exactly the number the audit is counting.
+
+**A decorative image keeps its empty alt.** The whole rewrite path exists to
+fill in blanks, so the one case where blank is *correct* has to survive it: a
+1px spacer described as "air conditioning repair in Dublin" is worse than the
+spacer with no alt at all. `is_decorative()` reads `role="presentation"`, the
+filename hints a builder emits, and a tiny declared size.
+
+**Three of the writing rules are enforced, not requested.** Length (both
+engines and every screen reader truncate around 125 characters), the "image
+of" preamble (a screen reader already says it is an image), and stripped
+markup. Asked politely, a model gets each of them wrong often enough to matter,
+so `_clean_alt()` runs over whatever comes back — and over anything typed by
+hand in the panel, or the rule holds only until someone edits the box.
+
+The output is the same two shapes as schema: **See the code**, which prints the
+old tag and the new one because a find-and-replace needs the string that is
+actually in the file, and the two Claude buttons above.
+
+## Getting a file back out is storage's job, not each module's
+
+`hub/storage.attachment_url()` and `hub/storage.bundle_zip()`. Three modules
+were solving this separately and a fourth was about to.
+
+**A cross-origin `download` attribute does nothing.** Browsers ignore it, so an
+`<a download href="https://res.cloudinary.com/…">` opens the image in a tab and
+the button reads as broken. `fl_attachment` is what actually works — Cloudinary
+sends `Content-Disposition` — and the name after the colon is what the file is
+called on the way down. In the SEO Image Pipeline that is the whole point of
+the tool: a file that lands in Downloads as `v1699_xk3.webp` has lost the work.
+`attachment_url()` rewrites a Cloudinary delivery URL and returns anything else
+unchanged rather than into something that 404s.
+
+**More than one file is a zip, not a loop.** A browser blocks every download
+after the first when they are triggered in sequence, so the person gets one
+file, no error, and no reason to think anything went wrong. `bundle_zip()`
+fetches each stored file, de-duplicates names (two images can genuinely share
+one, and a zip silently keeps only the last), skips what it cannot fetch into a
+`MISSING.txt` *and* returns that list so the page can say so too, and caps both
+file count and total bytes — this streams through the Hub, and an unbounded
+"select all" on a thousand-row archive is the one request that takes two
+gunicorn workers down.
+
+**A zip is delivery, and delivery is what Cloudinary bills.** A credit is a
+gigabyte delivered, so `bundle_zip()` records the bytes it pulled rather than
+the number of files — counting files would make a 40 KB thumbnail and a 4 MB
+hero cost the same on the usage page. Single downloads redirect to the CDN
+instead, so they cost the Hub nothing and are not counted here.
+
+The SEO Image Pipeline's saved step and its project archive both offer download
+of one or several, and the archive's row actions are icons — download, copy
+URL, edit alt, delete — each carrying a rollover that says what it does and, for
+delete, that it cannot be undone. An icon with no label is a guess.
+
+**Every archive row needs an id.** The row's buttons all address it by one, and
+the Image Optimizer's save path wrote rows without it: those images appeared in
+the archive and then ignored every button on their row. `load_archive()`
+backfills once on the first read that finds one missing.
+
+`test_image_download.py` asserts all of it, including that the image picker
+still returns a zip now that it runs on the shared builder.
+
+## A GPT ad is five deliverables, and four of them used to arrive separately
+
+`modules/gpt_ads` (`/tools/gpt-ads`) builds one GPT ad pack for a client and
+hands ad operations a single ZIP. `hub/gpt_ads_spec.py` is the spec — the five
+deliverables on their requirement sheet, the copy limits, the readiness gate,
+the landing-page check, the AI prompts and the export — read by the module, the
+brief and the manifest alike, the same way `hub/proposal_spec.py` is.
+
+Nothing on that sheet is hard. What was slow is that it arrived in five places:
+the image in a thread, the copy in a doc, the URL in an email, the brand
+colours in somebody's memory and the offer in the client's own words three
+weeks ago. A pack went over with four of the five, came back, and the launch
+date moved.
+
+**The image spec is in `hub/creative_specs.py`, not in the module.** 1:1 is
+required so it is a `ratios` entry and a *fail*; 256x256 is recommended so it is
+`min_size` and a *warn* — a 200px square runs, it just runs soft, and collapsing
+those two into one warning is what teaches people to ignore warnings. That unit
+is the one thing in the kit that is **not** transcribed from S1M CREATIVE SPEC
+KIT 2025, so it carries `source` and `catalogue()` no longer claims the kit for
+all of them. No file-weight ceiling and no format list are published for the
+placement: none is invented, and the notes say so.
+
+**The image is measured, never described.** The pixels are read off the bytes
+with `hub.images.dimensions` before anything is stored, and a file that is not
+1:1 is refused at the door with its measured size and a pointer at the resizer.
+A form field saying "1080x1080" over a 1200x628 crop is the ordinary way a
+rejected ad happens, and a red flag on a pack somebody exports anyway is not a
+gate. An upload is stored **exactly as it arrived** — "provide the
+highest-quality brand-approved version" is on the sheet, and re-encoding an
+approved asset to save a few KB is how a logo picks up artefacts nobody
+approved. Only generated squares go through `hub.images.optimise`.
+
+**The landing page is fetched, not ticked.** "Confirmation that the page is
+live and mobile-friendly" is a deliverable, so it is answered by requesting the
+page: status, redirect chain, and whether the document declares a viewport —
+reported as *declares a viewport*, not as *mobile-friendly*, because the first
+is what was measured. A check that could not run says **not measured** and never
+shows a tick, and changing the URL discards the check that belonged to the old
+one rather than leaving a green light against a page nobody has fetched.
+
+**The copy checks are code, and they are the Social Planner's.**
+`hub/gpt_ads_spec.py` imports `MONEY_RE`, `PHONE_RE`, `DEADLINE_RE`,
+`SUPERLATIVE_RE`, `PLACEHOLDER_RE` and `BANNED_PHRASES` from `hub/social_plan.py`
+rather than restating them — same failure mode, so the next fix to those
+patterns lands once. A price, a percentage, a phone number or a deadline that is
+not in the offer or brand fields a human filled in is a **block**; superlatives
+warn. So does an expiry date already in the past, except that one blocks:
+shipping it means running something false.
+
+**The character limits are ours and say so.** The sheet publishes none, so
+`LIMITS` is house guidance, labelled as house guidance on the screen and in the
+brief, and going over is a warning — never a block, because a block implies a
+rejection nobody has published. Everywhere else the sheet is silent, the export
+prints *not supplied* rather than a plausible value.
+
+The ZIP carries the square, `ad-copy.csv`, a plain-text brief in the sheet's own
+section order and `manifest.json`. When the image cannot be embedded the pack
+still goes, with the reason at the top of the brief and in the manifest — three
+files where there should be four is a difference ad ops assumes they caused.
+
+There is **no JavaScript mirror** of the gate. Target areas and the creative
+classifier each carry one and each needs a test proving the halves still agree;
+that cost is paid twice already. Every save returns the server's own readiness
+and the page renders what comes back. `test_gpt_ads.py` asserts all of it.
+
+## A web ticket is eight fields, and the form asks for all eight
 
 `hub/knack_api.py` pins object_107's field ids in `TICKET_FIELDS` — they were
 pinned because label matching broke silently when a label was renamed, which
 is how the Issue column on the Accounting report came to be empty. But pinning
 an id is not the same as asking for its value: Client 360's ticket modal sent
-a title, a website, a description and a name, and every other field on the
-record — the type of ticket, whether the revision is billable, the media
-partner and their contact, the web services asked for, the six service
-checkboxes, the new website URL — was left blank on every ticket the Hub
-raised. `TICKET_CREATE_FIELDS`, `TICKET_MANAGE_FIELDS` and `update_ticket()`
-existed with no caller at all.
+a title, a website, a description and a name, and everything else on the
+record was left blank on every ticket the Hub raised. `TICKET_CREATE_FIELDS`,
+`TICKET_MANAGE_FIELDS` and `update_ticket()` existed with no caller at all.
 
-The form now draws from the live object. It has to: the ids are ours, but a
+The write set is title, client organization, media partner, client website
+URL, type of ticket, revision requires billing, describe the changes, and
+**are you ready to submit** (`field_1696`), which Knack's own workflow reads
+and which a ticket arriving blank leaves sitting in nobody's queue. It is a
+button rather than a question — sending the form is the act of submitting, so
+it opens on yes and one click turns it off for a ticket someone is filing to
+finish later. Revision Requires Billing is two radios, because a field with
+two answers should not hide one behind a click. Partner Contact was on the
+list and came back off it: pinned and read, not asked for.
+
+The website URL opens on the record the ticket was raised from, with the
+client's other sites offered beside it and the box still free text — the site
+that needs the work is not always one we hold a record for.
+
+The wider set this object carries — web services, the six service checkboxes,
+the new website URL, the pause and cancellation fields, status, developer —
+stays pinned and is still **read** for the ticket list. It is deliberately not
+written: a form asking for a field nobody fills is how twenty questions became
+eight answers and twelve blanks. `test_web_tickets.py` asserts that in both
+directions — every one of the eight is written and drawn, and none of the
+others is in either write set.
+
+The form draws from the live object. It has to: the ids are ours, but a
 dropdown's **choices** are Knack's, and Knack refuses the whole record over one
 bad choice — so a value it would refuse is refused here, by name, and the
 ticket is still created. `/api/client/tickets/fields` returns the control each
@@ -541,15 +761,27 @@ Three rules in that path, each of which is a way to lose data quietly:
 - **Title is not editable after creation.** Renaming a ticket breaks the thread
   for whoever raised it, so it is in the create set and not the manage set.
 
-`test_web_tickets.py` holds the twenty ids against the list the web team gave
-us, asserts every one of them is both writable and drawn — pinned but never
-asked for is the exact failure above — and stubs the requests seam so it needs
-no Knack credentials.
+Assigner and the discovered Requested By are written but never asked for —
+nobody types them, and a ticket the web team cannot put a name to is one they
+have to come asking about.
 
-The audit module at `/tools/tickets` keeps its own map of the same object
-(`CONFIRMED_FIELDS`, nine ids, plus label guessing behind its setup page). Two
-maps of one object is a duplication worth collapsing the next time either is
-edited; they agree on every id they share today.
+The audit module at `/tools/tickets` describes the same object, and used to
+keep its own copy of the ids — two maps agreeing only for as long as somebody
+kept them in step. There is one now: the audit's own field names
+(`summary`, `details`, `assignee`, which its reports are written against),
+mapped onto `hub.knack_api.field_ids()`. `field_ids()` is the pinned set with
+its environment overrides applied and no schema read, so a module that only
+wants the ids does not have to reach Knack for them.
+
+That module also used to default its object to `""` and then tell you to go
+and map it, on a deployment where the ids were pinned all along. It defaults
+to the shared object now, and the fields nobody has pinned — the dates, the
+ticket number, priority — are matched against the live object's labels on
+first use, the same match the setup page performs when a person clicks
+Auto-detect. **A saved map still wins**: someone who has corrected a guess
+must not have it re-guessed under them. `test_web_tickets.py` asserts the two
+name sets translate, so a pinned id that moves cannot leave a report column
+reading a field that no longer means what its heading says.
 
 ## The one module that is not Python
 
@@ -616,7 +848,11 @@ python3 test_landing_maker.py      # built pages stay public and chrome-free
 python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
+python3 test_dashboard_trends.py   # the KPI comparisons accumulate and name their months
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
+python3 test_image_download.py     # image downloads, the shared zip builder
+python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
+python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file

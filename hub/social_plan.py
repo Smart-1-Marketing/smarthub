@@ -310,7 +310,12 @@ DEADLINE_RE = re.compile(
     r"|ends?\s+(?:today|tonight|tomorrow|soon|this\s+\w+)|limited[- ]time|while supplies last"
     r"|expires?|last chance|hurry|book by|offer ends)\b", re.I)
 SUPERLATIVE_RE = re.compile(
-    r"\b(?:#\s?1|number one|best in (?:town|the area|the business|class)|the only"
+    # "best in town" is rarely written that tightly — "the best HVAC company in
+    # town" is the ordinary phrasing, and matching only the contiguous form let
+    # the commonest version of this claim through. Up to three words are
+    # allowed between, which is as far as the claim still reads as one phrase.
+    r"\b(?:#\s?1|number one|best(?:\s+\w+){0,3}\s+in (?:town|the area)"
+    r"|best in (?:the business|class)|the only"
     r"|guarantee(?:d|s)?|cheapest|lowest price[sd]?|unbeatable|voted best"
     r"|award[- ]winning|top[- ]rated|fastest in|most trusted|world[- ]class)\b", re.I)
 PLACEHOLDER_RE = re.compile(

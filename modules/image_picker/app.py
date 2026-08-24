@@ -722,50 +722,35 @@ def api_bulk_download():
     if not ids:
         return jsonify({"ok": False, "error": "Nothing was selected."}), 400
 
-    import io as _io
-    import zipfile
-    import requests as _rq
+    # Built through hub.storage.bundle_zip. This was the only copy of the
+    # de-duplicating, partial-set-with-a-MISSING.txt zip builder; the SEO Image
+    # Pipeline needed the same thing, so it moved to the shared storage layer
+    # rather than becoming a second one. The name resolution below stays here,
+    # because it is this gallery's rows that know a raw asset is a PDF.
+    items = []
+    for image_id in ids:
+        row = db.get(SavedImage, image_id)
+        # Scoped to this gallery, so a guessed id cannot reach another
+        # client's images through a share link.
+        if not row or row.client_id != client.id or not row.cloudinary_url:
+            items.append({"url": "", "filename": str(image_id)})
+            continue
+        name = (row.filename or f"{row.provider}-{image_id}").strip() or f"file-{image_id}"
+        if "." not in name.rsplit("/", 1)[-1]:
+            name += ".pdf" if row.resource_type == "raw" else ".jpg"
+        items.append({"url": row.cloudinary_url, "filename": name})
 
-    buf = _io.BytesIO()
-    missing, used = [], set()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for image_id in ids:
-            row = db.get(SavedImage, image_id)
-            if not row or row.client_id != client.id or not row.cloudinary_url:
-                missing.append(str(image_id))
-                continue
-            name = (row.filename or f"{row.provider}-{image_id}").strip() or f"file-{image_id}"
-            if "." not in name.rsplit("/", 1)[-1]:
-                name += ".pdf" if row.resource_type == "raw" else ".jpg"
-            name = name.replace("/", "-")
-            # Two files can genuinely share a name; without this the zip keeps
-            # only the last one and the count silently drops.
-            base, dot, ext = name.rpartition(".")
-            n, candidate = 2, name
-            while candidate.lower() in used:
-                candidate = f"{base}-{n}.{ext}" if dot else f"{name}-{n}"
-                n += 1
-            used.add(candidate.lower())
-            try:
-                r = _rq.get(row.cloudinary_url, timeout=25)
-                r.raise_for_status()
-                z.writestr(candidate, r.content)
-            except Exception:                           # noqa: BLE001
-                missing.append(candidate)
-        if missing:
-            z.writestr("MISSING.txt",
-                       "These files could not be fetched and are not in this "
-                       "zip:\n\n" + "\n".join(missing) + "\n")
+    from hub import storage as _storage
+    blob, missing = _storage.bundle_zip(items, bucket="image_picker")
 
-    buf.seek(0)
     _audit("gallery_download", client=client.name, count=len(ids) - len(missing))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     fname = f"{client.slug}-images-{stamp}.zip"
     from flask import Response
     return Response(
-        buf.getvalue(), mimetype="application/zip",
+        blob, mimetype="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{fname}"',
-                 "Content-Length": str(buf.getbuffer().nbytes)})
+                 "Content-Length": str(len(blob))})
 
 
 @bp.route("/api/saved/<int:image_id>/retry-suite", methods=["POST"])
