@@ -10,9 +10,9 @@ codebase or is one rename away from going wrong:
   writable, and still never be asked for: that is exactly the state Client 360
   was in, with the ids in the module and four boxes on the form. So each must
   be in the write set *and* in the drawing order.
-* **Nothing else is written.** The list is nine fields, not the twenty this
-  object carries. The rest stay pinned so they can be read and shown, and a
-  form that asked for them anyway would be twenty questions for nine answers.
+* **Nothing else is written.** Eight fields, not the twenty this object
+  carries. The rest stay pinned so they can be read and shown, and a form that
+  asked for them anyway would be twenty questions for eight answers.
 * **A value Knack would refuse is refused here, by name.** Knack rejects the
   whole record over one bad dropdown value. Caught here it costs the field and
   the caller is told; not caught, it costs the ticket.
@@ -56,7 +56,6 @@ GIVEN = [
     ("field_1895", "Ticket Title",              "title"),
     ("field_1784", "Client Organization",       "client"),
     ("field_1785", "Media Partner",             "media_partner"),
-    ("field_2481", "Partner Contact",           "partner_contact"),
     ("field_2965", "Client Website URL",        "website"),
     ("field_2973", "Type of Ticket",            "type"),
     ("field_3160", "Revision Requires Billing", "billable"),
@@ -68,6 +67,8 @@ GIVEN = [
 # not written by the Hub. Asking for a field nobody fills is the failure this
 # file exists to catch, in both directions.
 READ_ONLY = [
+    # Named on the list, then taken back off the form. The id stays pinned.
+    ("field_2481", "partner_contact"),
     ("field_1761", "notify_partner"), ("field_3099", "web_services"),
     ("field_1675", "new_website_url"), ("field_3262", "build_website"),
     ("field_3264", "hosting_maint"), ("field_3266", "hourly_maint"),
@@ -244,7 +245,7 @@ def main():
     reset()
     fields = knack_api.ticket_form_fields("create")
     by_key = {f["key"]: f for f in fields}
-    check("nine fields, no more", len(fields), 9)
+    check("eight fields, no more", len(fields), 8)
     check("Type of Ticket is a dropdown", by_key["type"]["control"], "select")
     check("with Knack's own choices", by_key["type"]["choices"], TYPE_CHOICES)
     check("Media Partner is a picker", by_key["media_partner"]["control"], "connection")
@@ -267,14 +268,12 @@ def main():
         "Riverside HVAC", "riversidehvac.com", "Homepage banner swap",
         "Swap the hero image", author="todd", requested_by="Todd",
         values={"type": "Website Change", "billable": "Yes",
-                "media_partner": "Cumulus Media", "partner_contact": "Dana Reid",
-                "ready_to_submit": "Yes"})
+                "media_partner": "Cumulus Media", "ready_to_submit": "Yes"})
     sent = SENT["post"]
     check("ticket title", sent.get("field_1895"), "Homepage banner swap")
     check("client website URL", sent.get("field_2965"), "riversidehvac.com")
     check("type of ticket", sent.get("field_2973"), "Website Change")
     check("revision requires billing", sent.get("field_3160"), "Yes")
-    check("partner contact", sent.get("field_2481"), "Dana Reid")
     check("are you ready to submit", sent.get("field_1696"), "Yes")
     ok("describe the changes carries the body and who sent it",
        "Swap the hero image" in str(sent.get("field_1923"))
@@ -304,10 +303,10 @@ def main():
     rec = knack_api.create_ticket("Riverside HVAC", "riversidehvac.com",
                                   "Bad dropdown", "body",
                                   values={"type": "Something Else",
-                                          "partner_contact": "Dana Reid"})
+                                          "billable": "No"})
     ok("the ticket was still created", bool(rec.get("id")))
     ok("the bad choice never reached Knack", "field_2973" not in (SENT["post"] or {}))
-    check("the good field did", (SENT["post"] or {}).get("field_2481"), "Dana Reid")
+    check("the good field did", (SENT["post"] or {}).get("field_3160"), "No")
     ok("and the refusal names the field and the value",
        any("Type of Ticket" in r and "Something Else" in r
            for r in rec.get("rejected") or []), str(rec.get("rejected")))
@@ -358,7 +357,7 @@ def main():
         for f in FAILURES:
             print("  -", f)
         return 1
-    print("the nine web ticket fields hold: pinned, drawn, and written as Knack wants them")
+    print("the eight web ticket fields hold: pinned, drawn, and written as Knack wants them")
     return 0
 
 

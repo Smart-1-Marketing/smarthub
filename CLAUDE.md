@@ -125,6 +125,17 @@ check said yes. `hub/config.py` detects the known placeholders. Render also
 stores quotes literally — `SCANS_CALLBACK_TOKEN="abc"` includes the quotes,
 which silently breaks callback matching.
 
+**A period that comes from a file nobody refreshes is not a period.** The
+dashboard's scorecard trends were keyed on `products.json`'s `thisMonth` —
+a committed export refreshed by hand, which has carried one value since it was
+generated. Every load wrote today's numbers into that one bucket, so a second
+bucket could never appear and every card read "– vs last mo – vs last yr" for
+ever, with Website Movement promising history "next month" in a month that
+would never come. `hub/knack_data._current_period()` reads the clock; the
+export's month now labels only the counts that genuinely come from the export,
+and `export_stale` says when those have gone out of date.
+`test_dashboard_trends.py` moves the clock rather than promising.
+
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
@@ -506,7 +517,7 @@ surviving verbatim, the never-mention check firing on the copy and *not* on a
 class name, the flag reaching the document and the panel, and no admin URL
 being invented.
 
-## A web ticket is nine fields, and the form asks for all nine
+## A web ticket is eight fields, and the form asks for all eight
 
 `hub/knack_api.py` pins object_107's field ids in `TICKET_FIELDS` — they were
 pinned because label matching broke silently when a label was renamed, which
@@ -516,20 +527,26 @@ a title, a website, a description and a name, and everything else on the
 record was left blank on every ticket the Hub raised. `TICKET_CREATE_FIELDS`,
 `TICKET_MANAGE_FIELDS` and `update_ticket()` existed with no caller at all.
 
-The nine the web team asked for are the write set — title, client
-organization, media partner, partner contact, client website URL, type of
-ticket, revision requires billing, describe the changes, and **are you ready
-to submit** (`field_1696`), which Knack's own workflow reads and which a
-ticket arriving blank leaves sitting in nobody's queue. The form opens that
-one on *yes*, because sending the form is the act of submitting, and still
-lets a rep say no.
+The write set is title, client organization, media partner, client website
+URL, type of ticket, revision requires billing, describe the changes, and
+**are you ready to submit** (`field_1696`), which Knack's own workflow reads
+and which a ticket arriving blank leaves sitting in nobody's queue. It is a
+button rather than a question — sending the form is the act of submitting, so
+it opens on yes and one click turns it off for a ticket someone is filing to
+finish later. Revision Requires Billing is two radios, because a field with
+two answers should not hide one behind a click. Partner Contact was on the
+list and came back off it: pinned and read, not asked for.
+
+The website URL opens on the record the ticket was raised from, with the
+client's other sites offered beside it and the box still free text — the site
+that needs the work is not always one we hold a record for.
 
 The wider set this object carries — web services, the six service checkboxes,
 the new website URL, the pause and cancellation fields, status, developer —
 stays pinned and is still **read** for the ticket list. It is deliberately not
 written: a form asking for a field nobody fills is how twenty questions became
-nine answers and eleven blanks. `test_web_tickets.py` asserts that in both
-directions — every one of the nine is written and drawn, and none of the
+eight answers and twelve blanks. `test_web_tickets.py` asserts that in both
+directions — every one of the eight is written and drawn, and none of the
 others is in either write set.
 
 The form draws from the live object. It has to: the ids are ours, but a
@@ -628,6 +645,7 @@ python3 test_landing_maker.py      # built pages stay public and chrome-free
 python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
+python3 test_dashboard_trends.py   # the KPI comparisons accumulate and name their months
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives

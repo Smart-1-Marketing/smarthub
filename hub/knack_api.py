@@ -100,18 +100,20 @@ TICKET_FIELDS = {
     "developer":        "field_1729",   # Developer
 }
 
-# The nine fields a web ticket is made of. The web team named these — the
-# wider set this module can read (web services, the six service checkboxes,
-# the new website URL, the pause and cancellation fields) stays pinned in
-# TICKET_FIELDS above and is still *read*, but the Hub does not write it: a
-# form asking for a field nobody fills is how twenty questions turned into
-# four filled-in answers and sixteen blanks.
+# The eight fields a web ticket is made of. The web team named nine and then
+# took Partner Contact back off the form — its id stays pinned above and is
+# still read, like the rest of the object.
+#
+# The wider set this module can read (partner contact, web services, the six
+# service checkboxes, the new website URL, the pause and cancellation fields)
+# is deliberately not written: a form asking for a field nobody fills is how
+# twenty questions turned into four filled-in answers and sixteen blanks.
 #
 # Status, Developer and the lifecycle fields are not here either, and that is
 # unchanged: Knack's own workflow opens a ticket, and assigning a developer is
 # the web team's decision, not the raiser's.
 TICKET_CREATE_FIELDS = (
-    "title", "client", "media_partner", "partner_contact", "website",
+    "title", "client", "media_partner", "website",
     "type", "billable", "description",
     # Last, because it is the act of submitting rather than a detail of the
     # ticket: Knack's own workflow reads it.
@@ -164,7 +166,7 @@ TICKET_LABELS = {
 TICKET_GROUPS = (
     ("The ticket",    ("title", "client", "website", "type", "billable",
                        "description")),
-    ("Media partner", ("media_partner", "partner_contact")),
+    ("Media partner", ("media_partner",)),
     ("Submit",        ("ready_to_submit",)),
 )
 
