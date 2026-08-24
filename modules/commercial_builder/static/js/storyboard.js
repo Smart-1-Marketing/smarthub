@@ -13,6 +13,53 @@
     upload: "Uploaded", client_asset: "Client asset", cta: "CTA card",
   };
 
+  // A HeyGen clip takes minutes, so a scene can sit "generating" across a page
+  // load. Polling is keyed by scene id and restarted from renderScenes(), so
+  // re-opening the storyboard picks up a job that was started hours ago
+  // instead of leaving a presenter scene permanently empty.
+  const POLL_MS = 5000;
+  const polling = new Set();
+
+  function heygenJob(scene) {
+    return (scene.asset_meta || {}).heygen_job || null;
+  }
+
+  function spokespersonPending(scene) {
+    const job = heygenJob(scene);
+    if (!job) return false;
+    if ((scene.asset_meta || {}).spokesperson_url) return false;
+    return job.status === "processing" || job.status === "pending";
+  }
+
+  // Deliberately not CB.api: that toasts and throws on ok:false, which would
+  // fire an error toast on every tick of a job that is simply still running.
+  async function pollStatus(sceneId) {
+    const res = await fetch(
+      `${CB.API_ROOT}/api/projects/${projectId}/scenes/${sceneId}/spokesperson/status`);
+    try { return await res.json(); } catch (e) { return { status: "processing" }; }
+  }
+
+  function watchSpokesperson(sceneId) {
+    if (polling.has(sceneId)) return;
+    polling.add(sceneId);
+    (async function tick() {
+      const data = await pollStatus(sceneId);
+      if (data.status === "processing" || data.status === "pending") {
+        setTimeout(tick, POLL_MS);
+        return;
+      }
+      polling.delete(sceneId);
+      if (data.status === "failed") {
+        CB.toast(data.error || "The presenter clip failed to generate.", true);
+      } else if (data.mock) {
+        CB.toast("Mock mode — no presenter video was produced (no HeyGen key set).", true);
+      } else if (data.attached) {
+        CB.toast("Presenter clip attached.");
+      }
+      loadScenes();
+    })();
+  }
+
   // ---------------------------------------------------------------- scenes
   async function loadScenes() {
     const { project } = await CB.api(`/api/projects/${projectId}`);
@@ -41,15 +88,52 @@
 
     node.querySelector(".scene-num").textContent = `${idx + 1} of ${total}${scene.is_cta ? " — CTA" : ""}`;
     node.querySelector(".cb-scene-time").textContent = `${CB.fmtTime(scene.start)} – ${CB.fmtTime(scene.end)}`;
-    node.querySelector(".asset-type-badge").textContent = scene.asset_url
-      ? (ASSET_TYPE_LABEL[scene.asset_type] || "Asset set") : "No asset yet";
+    const job = heygenJob(scene);
+    const pending = spokespersonPending(scene);
+    const presenterUrl = (scene.asset_meta || {}).spokesperson_url;
+    const badge = node.querySelector(".asset-type-badge");
+    if (pending) {
+      // Not "No asset yet" — a job IS running, and a scene that reads as empty
+      // while HeyGen is working invites a rep to generate a second clip.
+      badge.textContent = "Presenter generating…";
+    } else if (job && job.status === "failed") {
+      badge.textContent = "Presenter failed";
+    } else {
+      badge.textContent = scene.asset_url
+        ? (ASSET_TYPE_LABEL[scene.asset_type] || "Asset set") : "No asset yet";
+    }
     const thumb = node.querySelector(".cb-scene-thumb");
     if (scene.asset_thumb_url || scene.asset_url) {
       thumb.style.backgroundImage = `url('${scene.asset_thumb_url || scene.asset_url}')`;
       thumb.textContent = "";
+    } else if (presenterUrl) {
+      // A presenter clip has no poster frame, so the card says what is there
+      // rather than falling through to "No footage selected" on a scene that
+      // does in fact have video on it.
+      thumb.textContent = "Presenter clip";
     } else {
       thumb.textContent = scene.is_cta ? "CTA end card" : "No footage selected";
     }
+
+    const note = node.querySelector(".spokesperson-note");
+    if (pending) {
+      note.innerHTML = '<span class="cb-spinner"></span> Presenter clip is rendering at HeyGen. '
+        + 'This takes a few minutes — you can leave this page and come back.';
+    } else if (job && job.status === "failed") {
+      note.textContent = `Presenter clip failed: ${job.error || "HeyGen reported no reason."}`;
+      note.classList.add("cb-word-count", "warn");
+    } else if (presenterUrl && (scene.asset_meta || {}).spokesperson_over_footage) {
+      note.textContent = "Presenter is keyed over this scene's footage.";
+    } else if (presenterUrl && (scene.asset_meta || {}).spokesperson_mirrored === false) {
+      // A HeyGen URL is signed and expires. Saying so beats a scene that
+      // plays today and 404s next week with nothing to explain it.
+      note.textContent = "Presenter clip is linked from HeyGen, not copied into the "
+        + "client library — it will stop working when the link expires.";
+      note.classList.add("cb-word-count", "warn");
+    } else {
+      note.textContent = "";
+    }
+    if (pending) watchSpokesperson(scene.id);
 
     node.querySelector(".visual-input").value = scene.visual_description || "";
     node.querySelector(".narration-input").value = scene.narration || "";
@@ -197,25 +281,67 @@
     picker.innerHTML = '<div class="cb-card" style="margin-top:10px;padding:12px;"><span class="cb-spinner"></span> Loading presenters…</div>';
     const { presenters, live } = await CB.api(`/api/presenters?client_id=${clientId}`);
     const box = CB.el(`<div class="cb-card" style="margin-top:10px;padding:12px;"></div>`);
-    if (!live) box.appendChild(CB.el(`<p class="cb-hint">Mock mode — no HEYGEN_API_KEY set.</p>`));
+    if (!live) {
+      box.appendChild(CB.el(`<p class="cb-hint">Mock mode — no HeyGen key set, so no video
+        will be produced. Set HEYGEN_API to generate real presenter clips.</p>`));
+    }
+
+    // A scene that already has footage can either keep it, with the presenter
+    // keyed on top, or be replaced by a full-frame presenter. The choice has
+    // to be made BEFORE generating: it decides what background HeyGen is asked
+    // for, and re-deciding later means paying for a second clip.
+    const hasFootage = Boolean(scene.asset_url) && scene.asset_type !== "spokesperson";
+    let overFootage = hasFootage;
+    if (hasFootage) {
+      const choice = CB.el(`<div class="cb-field">
+        <label class="cb-label">This scene already has footage</label>
+        <select class="over-footage-select">
+          <option value="over">Key the presenter over the footage</option>
+          <option value="replace">Replace the footage with a full-frame presenter</option>
+        </select></div>`);
+      choice.querySelector("select").addEventListener("change", (e) => {
+        overFootage = e.target.value === "over";
+      });
+      box.appendChild(choice);
+    }
 
     function section(title, list) {
       if (!list || !list.length) return;
       box.appendChild(CB.el(`<h4>${title}</h4>`));
       const grid = CB.el('<div class="cb-choice-grid"></div>');
       list.forEach((p) => {
+        const avatarId = p.heygen_avatar_id || p.avatar_id || p.id;
+        // The talent roster ships with no HeyGen ids against it. Showing those
+        // five as pickable and failing on click is the placeholder trap: say
+        // up front which of them can actually be used.
+        const usable = p.available !== false && Boolean(avatarId);
         const cell = CB.el(`<div class="cb-choice" style="padding:10px;">
           <div class="cb-choice-title">${p.name}</div>
-          <div class="cb-choice-sub">${p.specialty || ""}</div></div>`);
+          <div class="cb-choice-sub">${usable ? (p.specialty || "")
+            : (p.unavailable_reason || "Not linked to a HeyGen avatar yet.")}</div></div>`);
+        if (!usable) {
+          cell.style.opacity = ".55";
+          cell.style.cursor = "not-allowed";
+          cell.title = p.unavailable_reason || "Not linked to a HeyGen avatar yet.";
+          grid.appendChild(cell);
+          return;
+        }
         cell.addEventListener("click", async () => {
-          const avatarId = p.heygen_avatar_id || p.avatar_id || p.id;
-          if (!avatarId) return CB.toast("This presenter isn't linked to a HeyGen avatar ID yet.", true);
-          await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/spokesperson`, {
-            method: "POST", body: { avatar_id: avatarId, voice_id: selectedVoiceId },
-          });
+          picker.innerHTML = '<div class="cb-card" style="margin-top:10px;padding:12px;">'
+            + '<span class="cb-spinner"></span> Sending the narration to HeyGen…</div>';
+          try {
+            await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/spokesperson`, {
+              method: "POST",
+              body: { avatar_id: avatarId, voice_id: selectedVoiceId, over_footage: overFootage },
+            });
+          } catch (e) {
+            picker.innerHTML = "";
+            return;                       // CB.api has already surfaced the reason
+          }
           picker.innerHTML = "";
-          CB.toast(live ? "Spokesperson clip generating…" : "Spokesperson clip queued (mock mode).");
-          loadScenes();
+          CB.toast(live ? "Presenter clip generating — this takes a few minutes."
+                        : "Mock mode — no presenter video was produced.", !live);
+          await loadScenes();             // re-render starts the poll for this scene
         });
         grid.appendChild(cell);
       });

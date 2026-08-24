@@ -13,6 +13,7 @@ def run_qc(project_dict, client_dict, scenes):
     checks = {}
 
     checks["timing"] = _check_timing(project_dict, scenes)
+    checks["scene_assets"] = _check_scene_assets(scenes)
     checks["voice_fits"] = _check_voice_fits(project_dict)
     checks["cta"] = _check_cta(project_dict, client_dict)
     checks["brand"] = _check_brand(client_dict)
@@ -37,6 +38,59 @@ def _check_timing(project_dict, scenes):
     return {"passed": ok,
             "message": f"Commercial is {total:.1f} seconds (target {target}s)." if ok else
                        f"Commercial is {total:.1f}s but should be {target}s — scenes don't add up."}
+
+
+def _check_scene_assets(scenes):
+    """Every scene has something to show, and nothing is still being made.
+
+    This is the check that was missing while HeyGen clips were generated and
+    never attached: a scene marked "spokesperson" with no asset_url passed
+    every other check, and `creatomate_service.build_source` then emitted an
+    element with no `source` — a blank segment in a commercial a client
+    received, with no error anywhere. An unfinished scene must block the
+    render, not render as nothing.
+    """
+    if not scenes:
+        return {"passed": False, "message": "No scenes in storyboard yet."}
+
+    empty, pending, failed, mocked = [], [], [], []
+    for index, scene in enumerate(scenes, start=1):
+        meta = scene.get("asset_meta") or {}
+        job = meta.get("heygen_job") or {}
+        has_presenter = bool(meta.get("spokesperson_url"))
+        if job and not has_presenter:
+            if job.get("status") == "failed":
+                failed.append(index)
+            elif job.get("_mock"):
+                mocked.append(index)
+            else:
+                pending.append(index)
+            continue
+        # A CTA scene is allowed to be text-only — the end card is drawn as an
+        # overlay, so it needs no footage behind it.
+        if not scene.get("asset_url") and not has_presenter and not scene.get("is_cta"):
+            empty.append(index)
+
+    if failed:
+        return {"passed": False,
+                "message": f"Presenter clip failed on scene(s) {_join(failed)} — regenerate it or "
+                           f"pick different footage before rendering."}
+    if pending:
+        return {"passed": False,
+                "message": f"Presenter clip still generating on scene(s) {_join(pending)}. Wait for "
+                           f"HeyGen to finish — rendering now would leave those scenes blank."}
+    if mocked:
+        return {"passed": False,
+                "message": f"Scene(s) {_join(mocked)} ran the presenter in mock mode, so no video "
+                           f"exists. Set a HeyGen key and regenerate."}
+    if empty:
+        return {"passed": False,
+                "message": f"Scene(s) {_join(empty)} have no footage or presenter on them."}
+    return {"passed": True, "message": f"All {len(scenes)} scenes have an asset attached."}
+
+
+def _join(numbers):
+    return ", ".join(str(n) for n in numbers)
 
 
 def _check_voice_fits(project_dict):

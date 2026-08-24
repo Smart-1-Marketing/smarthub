@@ -19,12 +19,24 @@ import time
 
 import requests
 
-from ..config import OUTPUT_FORMATS, MUSIC_LEVELS, QR_CODE_RULES, LOGO_PERSISTENCE_RULES
+from ..config import (OUTPUT_FORMATS, MUSIC_LEVELS, QR_CODE_RULES, LOGO_PERSISTENCE_RULES,
+                      CHROMA_KEY_COLOR)
 
 API_KEY = os.environ.get("CREATOMATE_API_KEY")
 BASE_URL = "https://api.creatomate.com/v1"
 
 _FORMAT_DIMS = {f["id"]: (f["width"], f["height"]) for f in OUTPUT_FORMATS}
+
+# Track numbers are layers, and elements sharing a track play SEQUENTIALLY
+# rather than stacking — which is why the scenes all share track 1 and
+# everything that has to sit on top of them gets a track of its own. Named
+# here because the ordering matters and a bare integer three functions down
+# does not say why the logo has to outrank the presenter.
+TRACK_SCENES = 1
+TRACK_VOICE = 2
+TRACK_MUSIC = 3
+TRACK_PRESENTER = 4     # keyed spokesperson, above the footage it is keyed over
+TRACK_LOGO_BUG = 5      # the brand mark stays on top of everything
 
 # corner id -> (x anchor%, y anchor%) for overlay placement, with a small
 # inset so nothing sits flush against the frame edge (text-safe area).
@@ -60,12 +72,10 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
 
     video_elements = []
     for scene in scenes:
-        el_type = "text" if scene.get("is_cta") and not scene.get("asset_url") else \
-                  ("video" if (scene.get("asset_url") or "").lower().endswith((".mp4", ".mov", ".webm"))
-                   else "image")
+        el_type = _element_type(scene)
         element = {
             "id": f"scene_{scene['id']}",
-            "track": 1,
+            "track": TRACK_SCENES,
             "time": scene["start"],
             "duration": round(scene["end"] - scene["start"], 2),
             "type": el_type,
@@ -80,6 +90,15 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
             }
         video_elements.append(element)
 
+        # A spokesperson generated to stand over this scene's footage was
+        # rendered against a chroma matte for exactly this moment. Without
+        # this element the clip was either dropped full-frame over the footage
+        # it was supposed to share, or — before it was attached at all — not
+        # present in the render and silently absent from the finished spot.
+        presenter = _presenter_element(scene)
+        if presenter:
+            video_elements.append(presenter)
+
     # Persistent/recurring logo bug (spec: CTV best practices) — a small
     # corner mark that runs the WHOLE commercial, not just the end card, so
     # a viewer who looks away mid-spot still catches the brand. Lives on its
@@ -90,7 +109,7 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
         corner = cta.get("logo_corner", LOGO_PERSISTENCE_RULES["default_corner"])
         x, y = _CORNER_ANCHORS.get(corner, _CORNER_ANCHORS["top-left"])
         video_elements.append({
-            "id": "logo_bug", "track": 4, "time": 0, "duration": float(length_seconds),
+            "id": "logo_bug", "track": TRACK_LOGO_BUG, "time": 0, "duration": float(length_seconds),
             "type": "image", "source": client_logo,
             "width": f"{LOGO_PERSISTENCE_RULES['size_pct']}%", "x": x, "y": y,
             "x_anchor": "50%", "y_anchor": "50%",
@@ -99,7 +118,7 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
     audio_elements = []
     if voice_track_url:
         audio_elements.append({
-            "id": "voice", "track": 2, "time": 0, "type": "audio",
+            "id": "voice", "track": TRACK_VOICE, "time": 0, "type": "audio",
             "source": voice_track_url, "volume": "100%",
         })
     if music_track_url:
@@ -108,7 +127,7 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
         keyframes = _music_ducking_keyframes(scenes, music_low_db, music_ducked_db,
                                               project_dict.get("length_seconds", 30))
         audio_elements.append({
-            "id": "music", "track": 3, "time": 0, "type": "audio",
+            "id": "music", "track": TRACK_MUSIC, "time": 0, "type": "audio",
             "source": music_track_url, "volume": keyframes,
         })
 
@@ -118,6 +137,59 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
         "height": height,
         "elements": video_elements + audio_elements,
     }
+
+
+_VIDEO_SUFFIXES = (".mp4", ".mov", ".webm", ".m4v")
+
+# Asset types that are always video, whatever the URL looks like. A delivery
+# URL does not have to carry a file extension — Cloudinary's often does not —
+# and guessing from the suffix alone typed a spokesperson clip as an image,
+# which renders as a still frame or as nothing at all.
+_VIDEO_ASSET_TYPES = {"spokesperson", "ai_generated", "stock"}
+
+
+def _element_type(scene):
+    url = (scene.get("asset_url") or "")
+    if scene.get("is_cta") and not url:
+        return "text"
+    if not url:
+        return "image"
+    if scene.get("asset_type") in _VIDEO_ASSET_TYPES:
+        return "video"
+    return "video" if url.lower().split("?")[0].endswith(_VIDEO_SUFFIXES) else "image"
+
+
+def _presenter_element(scene):
+    """The keyed spokesperson layer for one scene, or None.
+
+    Only scenes whose presenter was generated to sit OVER footage get one —
+    a full-frame presenter is already the scene's own asset and needs no
+    second element. The key colour comes from the same constant the clip was
+    generated against (config.CHROMA_KEY_COLOR), so the two can never drift.
+
+    As with `build_source` itself, the chroma-key key name is the part most
+    likely to differ between Creatomate API versions; it is the one field to
+    adjust here if your account's schema disagrees.
+    """
+    meta = scene.get("asset_meta") or {}
+    url = meta.get("spokesperson_url")
+    if not url or not meta.get("spokesperson_over_footage"):
+        return None
+    element = {
+        "id": f"presenter_{scene['id']}",
+        "track": TRACK_PRESENTER,
+        "time": scene["start"],
+        "duration": round(scene["end"] - scene["start"], 2),
+        "type": "video",
+        "source": url,
+        "fit": "contain",
+    }
+    if meta.get("chroma_key"):
+        element["chroma_key"] = {
+            "color": meta.get("chroma_key_color") or CHROMA_KEY_COLOR,
+            "threshold": 0.25,
+        }
+    return element
 
 
 def _cta_overlay_elements(cta, project_dict, scene, platform):
