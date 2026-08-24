@@ -125,29 +125,31 @@
         {% for p in sec.paragraphs %}<p>{{ p }}</p>{% endfor %}
         {% endfor %}
 
-        <h3>Campaign Launch Times</h3>
+        <h3>Office Closures</h3>
         <table>
-          <thead><tr><th>Product</th><th>Typical launch</th></tr></thead>
+          <thead><tr><th>Day</th><th>Support</th></tr></thead>
           <tbody>
-          {% for product, timing in launch_times %}
-            <tr><td>{{ product }}</td><td>{{ timing }}</td></tr>
+          {% for day, hours in office_closures %}
+            <tr><td>{{ day }}</td><td>{{ hours }}</td></tr>
           {% endfor %}
           </tbody>
         </table>
 
-        <h3>Rate Card</h3>
+        <h3>Wholesale Rate Card</h3>
         <p>{{ rate_card_note }}</p>
       </div>
     </div>
 
     <div class="card">
       <label class="agree">
-        <input type="checkbox" id="agreeRates">
-        <span>I have read and agree to the <b>rate card</b>.</span>
+        <input type="checkbox" id="agreeTerms">
+        <span>I have read and agree to this <b>Agreement</b>, including the
+              <b>Wholesale Rate Card</b> terms in section 6.</span>
       </label>
       <label class="agree">
-        <input type="checkbox" id="agreeLaunch">
-        <span>I have read and agree to the <b>campaign launch times</b> set out above.</span>
+        <input type="checkbox" id="agreeClosures">
+        <span>I have read and understand the <b>office closures</b> and support
+              hours set out above.</span>
       </label>
 
       <label for="sig" style="margin-top:6px">Type your full name to sign</label>
@@ -216,13 +218,13 @@ fillDoc();
 function check(){
   var ok = $('company').value.trim() && $('address').value.trim()
         && $('signer').value.trim() && $('email').value.trim()
-        && $('sig').value.trim() && $('agreeRates').checked && $('agreeLaunch').checked;
+        && $('sig').value.trim() && $('agreeTerms').checked && $('agreeClosures').checked;
   $('submit').disabled = !ok;
 }
 ['company','address','signer','email','sig'].forEach(function(id){
   $(id).addEventListener('input', check);
 });
-['agreeRates','agreeLaunch'].forEach(function(id){
+['agreeTerms','agreeClosures'].forEach(function(id){
   $(id).addEventListener('change', check);
 });
 
@@ -239,8 +241,8 @@ $('submit').onclick = function(){
       signer: $('sig').value.trim() || $('signer').value.trim(),
       email: $('email').value.trim(),
       phone: $('phone').value.trim(),
-      agree_rates: $('agreeRates').checked,
-      agree_launch: $('agreeLaunch').checked
+      agree_terms: $('agreeTerms').checked,
+      agree_closures: $('agreeClosures').checked
     })
   })
   .then(function(r){ return r.json(); })
