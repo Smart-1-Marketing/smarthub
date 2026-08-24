@@ -575,10 +575,23 @@ Assigner and the discovered Requested By are written but never asked for —
 nobody types them, and a ticket the web team cannot put a name to is one they
 have to come asking about.
 
-The audit module at `/tools/tickets` keeps its own map of the same object
-(`CONFIRMED_FIELDS`, nine ids, plus label guessing behind its setup page). Two
-maps of one object is a duplication worth collapsing the next time either is
-edited; they agree on every id they share today.
+The audit module at `/tools/tickets` describes the same object, and used to
+keep its own copy of the ids — two maps agreeing only for as long as somebody
+kept them in step. There is one now: the audit's own field names
+(`summary`, `details`, `assignee`, which its reports are written against),
+mapped onto `hub.knack_api.field_ids()`. `field_ids()` is the pinned set with
+its environment overrides applied and no schema read, so a module that only
+wants the ids does not have to reach Knack for them.
+
+That module also used to default its object to `""` and then tell you to go
+and map it, on a deployment where the ids were pinned all along. It defaults
+to the shared object now, and the fields nobody has pinned — the dates, the
+ticket number, priority — are matched against the live object's labels on
+first use, the same match the setup page performs when a person clicks
+Auto-detect. **A saved map still wins**: someone who has corrected a guess
+must not have it re-guessed under them. `test_web_tickets.py` asserts the two
+name sets translate, so a pinned id that moves cannot leave a report column
+reading a field that no longer means what its heading says.
 
 ## The one module that is not Python
 

@@ -177,6 +177,19 @@ CONNECTION_LIMIT = int(os.environ.get("KNACK_CONNECTION_LIMIT", "500"))
 _RECORD_ID = re.compile(r"^[0-9a-f]{24}$", re.I)
 
 
+def field_ids() -> dict:
+    """The pinned ids with their environment overrides applied.
+
+    `field_map()` is this plus the two fields still discovered by label, which
+    costs a schema read. This one touches nothing, so a caller that only wants
+    the ids — the audit module at /tools/tickets builds its field map from
+    them — does not have to reach Knack, or be import-order sensitive, to get
+    what this file already knows.
+    """
+    return {key: (os.environ.get(f"KNACK_TICKET_{key.upper()}") or fid).strip()
+            for key, fid in TICKET_FIELDS.items()}
+
+
 def field_map() -> dict:
     """The confirmed ids, with a label-matched fallback for anything absent.
 
@@ -186,9 +199,7 @@ def field_map() -> dict:
     """
     if "map" in _schema_cache:
         return _schema_cache["map"]
-    m = {}
-    for key, fid in TICKET_FIELDS.items():
-        m[key] = (os.environ.get(f"KNACK_TICKET_{key.upper()}") or fid).strip()
+    m = field_ids()
     # Date isn't in the confirmed set — still discovered.
     m["date"] = _find_field("date created", "created", "date")
     m["requested_by"] = _find_field("requested by", "submitted by", "created by")

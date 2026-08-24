@@ -352,6 +352,23 @@ def main():
     check("and the status Knack set", rows[0]["status"], "Open")
 
     print()
+    print("the audit module at /tools/tickets reads the same ids")
+    # Two maps of one object is the duplication CLAUDE.md flagged. There is one
+    # now: the audit module's names, the shared module's ids. This asserts the
+    # translation, so a pinned id that moves cannot leave the report reading a
+    # field that no longer means what its column says.
+    from modules.tickets import config as tickets_config
+    ids = knack_api.field_ids()
+    check("the audit maps the same object",
+          tickets_config.TICKETS_OBJECT, knack_api.TICKETS_OBJECT)
+    for mine, theirs in tickets_config._SHARED.items():
+        ok(f"{mine} is {theirs}",
+           tickets_config.CONFIRMED_FIELDS.get(mine) == ids.get(theirs),
+           f"{tickets_config.CONFIRMED_FIELDS.get(mine)} != {ids.get(theirs)}")
+    ok("and it holds nothing the shared map does not",
+       set(tickets_config.CONFIRMED_FIELDS.values()) <= set(ids.values()))
+
+    print()
     if FAILURES:
         print(f"{len(FAILURES)} FAILED")
         for f in FAILURES:
