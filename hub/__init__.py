@@ -1987,6 +1987,31 @@ def create_hub_app() -> Flask:
                                  actor=current_user() or "")
             return jsonify({"configured": True, "tickets": [], "error": str(exc)})
 
+    @app.route("/api/client/tickets/fields")
+    def api_client_ticket_fields():
+        """The controls a ticket form should draw, from the live object.
+
+        The form asks for this rather than carrying its own copy of the field
+        list: the ids are ours, but the dropdown choices are Knack's, and a
+        form that guesses a choice writes a value Knack refuses — which loses
+        the whole ticket, not the one field.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api
+        scope = "manage" if (request.args.get("scope") or "") == "manage" else "create"
+        if not knack_api.configured():
+            return jsonify({"configured": False, "fields": []})
+        try:
+            return jsonify({"configured": True, "scope": scope,
+                            "object": knack_api.TICKETS_OBJECT,
+                            "fields": knack_api.ticket_form_fields(scope)})
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-tickets", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"configured": True, "fields": [], "error": str(exc)})
+
     @app.route("/api/client/tickets", methods=["POST"])
     def api_client_tickets_create():
         gate = _require_api()
@@ -2006,14 +2031,50 @@ def create_hub_app() -> Flask:
                 client, (body.get("website") or "").strip(), subject,
                 (body.get("description") or "").strip(),
                 author=current_user() or "",
-                requested_by=(body.get("requested_by") or "").strip())
+                requested_by=(body.get("requested_by") or "").strip(),
+                values=body.get("values") or {})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
             return jsonify({"error": str(exc)})
         audit.log("hub", "web_ticket_created", actor=current_user(),
                   detail=f"{client}: {subject[:60]}")
-        return jsonify({"ok": True, "id": rec.get("id")})
+        # `rejected` is reported, never swallowed: a ticket that was created
+        # with half its fields missing must not read as a clean success.
+        return jsonify({"ok": True, "id": rec.get("id"),
+                        "written": rec.get("written") or [],
+                        "rejected": rec.get("rejected") or []})
+
+    @app.route("/api/client/tickets/update", methods=["POST"])
+    def api_client_tickets_update():
+        """Manage Ticket: edit an existing ticket's fields.
+
+        The record id travels in the body rather than the path so the URL
+        stays a literal tools/linkcheck.py can verify — a path built by
+        concatenation is one nothing checks (see CLAUDE.md).
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api
+        body = request.get_json(silent=True) or {}
+        record_id = (body.get("id") or "").strip()
+        values = body.get("values") or {}
+        if not record_id or not isinstance(values, dict) or not values:
+            return jsonify({"error": "id and values are required."}), 400
+        if not knack_api.configured():
+            return jsonify({"error": "Knack isn't configured — set KNACK_APP_ID and "
+                                     "KNACK_API_KEY, then redeploy."}), 400
+        try:
+            res = knack_api.update_ticket(record_id, values)
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-tickets", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"error": str(exc)})
+        if res.get("ok"):
+            audit.log("hub", "web_ticket_updated", actor=current_user(),
+                      detail=f"{record_id}: {', '.join(sorted(values))[:80]}")
+        return jsonify(res)
 
     @app.route("/api/knack/campaign-fields")
     def api_knack_campaign_fields():
