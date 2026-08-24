@@ -50,6 +50,10 @@ _MOUNT_ACTIVE = {
     "/tools/image": "tools", "/tools/pdf": "tools", "/tools/seo-images": "tools",
     "/tools/image-creator": "tools", "/tools/bg-remover": "tools",
     "/tools/utm": "tools",
+    # Creative, not Tools: it produces client-facing copy and pulls from the
+    # image gallery, so it sits with Image Creator rather than with the
+    # housekeeping utilities.
+    "/tools/social": "creative",
     "/tools/io": "io_builder",
     "/tools/radio-promo": "radio_promo",
     "/tools/landing-ads": "landing_ads",
@@ -332,6 +336,15 @@ except Exception as _utm_exc:  # noqa: BLE001
     traceback.print_exc()
     utm, utm_fb = None, _fallback_app("UTM Builder", str(_utm_exc))
 
+try:
+    import importlib as _il_social
+    social = _il_social.import_module("modules.social_planner.app")
+    social_fb = None
+except Exception as _social_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    social, social_fb = None, _fallback_app("Social Content Planner", str(_social_exc))
+
 
 def _install_error_reporter(flask_app, label):
     """Make every module's 500 name its own cause.
@@ -510,6 +523,7 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/image-creator": _mount(imgcreator.app, "/tools/image-creator") if imgcreator else imgcreator_fb,
     "/tools/bg-remover": _mount(bgrem.app, "/tools/bg-remover") if bgrem else bgrem_fb,
     "/tools/utm": _mount(utm.app, "/tools/utm") if utm else utm_fb,
+    "/tools/social": _mount(social.app, "/tools/social") if social else social_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
     "/tools/io": _mount(iob.app, "/tools/io") if iob else iob_fb,
