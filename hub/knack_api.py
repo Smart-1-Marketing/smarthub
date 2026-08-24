@@ -1,10 +1,14 @@
 """Knack REST API — web tickets (object_107) for Client 360.
 
-The Hub discovers object_107's field IDs at runtime from the object schema
-(matching by field label), so nothing is hard-coded against your Knack app.
-Requires KNACK_APP_ID + KNACK_API_KEY.
+The field ids are pinned in TICKET_FIELDS and each is overridable by
+environment variable, because label matching broke silently when a label was
+renamed. What is still read from the live object is everything a *form* needs
+and we cannot know: the field types, the dropdown choices, and the records a
+connection may point at. Requires KNACK_APP_ID + KNACK_API_KEY.
 
-Read AND create tickets only — nothing else is ever written to Knack.
+Read, create and update tickets — nothing else is ever written to Knack.
+The updatable set is TICKET_MANAGE_FIELDS, and Title is not in it: renaming a
+ticket breaks the thread for whoever raised it.
 """
 import json
 import os
@@ -120,6 +124,60 @@ TICKET_MANAGE_FIELDS = (
     "hosting_only", "ecommerce",
 )
 
+# The label Knack shows for each field. A form can then name a field before
+# the live schema has been read, and a field whose label is renamed still
+# reads as the name the team knows it by. The live label wins where there is
+# one — this is the fallback, not the source of truth.
+TICKET_LABELS = {
+    "title":            "Ticket Title",
+    "client":           "Client Organization",
+    "media_partner":    "Media Partner",
+    "partner_contact":  "Partner Contact",
+    "notify_partner":   "Should Partner receive Notifications?",
+    "website":          "Client Website URL",
+    "type":             "Type of Ticket",
+    "billable":         "Revision Requires Billing",
+    "pause_reason":     "Pause Reason",
+    "cancel_reason":    "Cancellation Reason",
+    "cancel_date":      "Cancellation Date",
+    "resume_date":      "Resume Date",
+    "web_services":     "Web Services",
+    "new_website_url":  "New Website URL",
+    "build_website":    "Build Website",
+    "hosting_maint":    "Hosting and Maintenance",
+    "hourly_maint":     "Hourly Maintenance",
+    "purchase_domain":  "Purchase Domain",
+    "hosting_only":     "Hosting Only",
+    "ecommerce":        "Ecommerce",
+    "description":      "Describe the changes",
+    "assigner":         "Assigner",
+    "status":           "Status",
+    "developer":        "Developer",
+}
+
+# The order and grouping a ticket form is drawn in. A key that is in
+# TICKET_CREATE_FIELDS or TICKET_MANAGE_FIELDS but missing here is appended
+# under "Other" rather than dropped: a field added to one of those tuples and
+# forgotten here appears at the end of the form instead of silently not
+# existing at all, which is the failure this module has already had once.
+TICKET_GROUPS = (
+    ("The ticket",   ("title", "client", "website", "type", "billable",
+                      "description")),
+    ("Media partner", ("media_partner", "partner_contact", "notify_partner")),
+    ("Web services", ("web_services", "new_website_url", "build_website",
+                      "hosting_maint", "hourly_maint", "purchase_domain",
+                      "hosting_only", "ecommerce")),
+    ("Handling",     ("status", "assigner", "developer")),
+    ("Pause / cancel", ("pause_reason", "cancel_reason", "cancel_date",
+                        "resume_date")),
+)
+
+# How many records a connection field's picker offers. A connection needs a
+# record id, so the picker is the only way to write one from a form.
+CONNECTION_LIMIT = int(os.environ.get("KNACK_CONNECTION_LIMIT", "500"))
+
+_RECORD_ID = re.compile(r"^[0-9a-f]{24}$", re.I)
+
 
 def field_map() -> dict:
     """The confirmed ids, with a label-matched fallback for anything absent.
@@ -169,57 +227,278 @@ def ticket_value(rec: dict, key: str):
     return _re.sub(r"<[^>]+>", " ", str(rec.get(fid) or "")).strip()
 
 
+def _meta() -> dict:
+    """Live metadata for the tickets object, keyed by field id."""
+    return {f.get("key"): f for f in _fields()}
+
+
+def _norm(value) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+
+def connection_choices(field_id: str) -> list[dict]:
+    """The records a connection field may point at, as {id, label}.
+
+    A connection needs a Knack record id; writing the display name creates
+    nothing and clears the link, which is why create_ticket has always
+    skipped these fields entirely. Offering the real records is what lets a
+    form write one at all.
+
+    Never raises: a picker that cannot be built becomes a text box asking for
+    an id, not a dead form.
+    """
+    key = "conn:" + str(field_id)
+    if key in _schema_cache:
+        return _schema_cache[key]
+    out: list[dict] = []
+    try:
+        f = _meta().get(field_id) or {}
+        obj = (f.get("relationship") or {}).get("object") or ""
+        ident = _object_identifier(obj) if obj else None
+        if obj and ident:
+            r = requests.get(f"{BASE}/objects/{obj}/records", headers=_headers(),
+                             params={"rows_per_page": CONNECTION_LIMIT,
+                                     "sort_field": ident, "sort_order": "asc"},
+                             timeout=20)
+            r.raise_for_status()
+            for rec in (r.json() or {}).get("records", []):
+                label = _plain(rec.get(f"{ident}_raw") or rec.get(ident))
+                if label and rec.get("id"):
+                    out.append({"id": rec.get("id"), "label": label})
+    except Exception:            # noqa: BLE001 — see the docstring
+        out = []
+    _schema_cache[key] = out
+    return out
+
+
+def _control_for(f: dict) -> tuple[str, list]:
+    """Which control a field needs, and what it may be set to."""
+    t = f.get("type")
+    fmt = f.get("format") or {}
+    if t == "connection":
+        return "connection", connection_choices(f.get("key"))
+    if t == "multiple_choice":
+        opts = [str(o) for o in (fmt.get("options") or []) if str(o).strip()]
+        multi = str(fmt.get("type") or "").lower() in ("multi", "checkboxes")
+        return ("multi" if multi else "select"), opts
+    if t == "boolean":
+        return "boolean", []
+    if t in ("date_time", "date"):
+        return "date", []
+    if t in ("paragraph_text", "rich_text"):
+        return "textarea", []
+    return "text", []
+
+
+def ticket_form_fields(scope: str = "create") -> list[dict]:
+    """What a ticket form should draw, read from the live object.
+
+    The field ids are pinned in TICKET_FIELDS, but the *controls* cannot be:
+    a dropdown's choices live in Knack, and a form that guesses them writes a
+    value Knack refuses — which loses the whole record, not the one field.
+    So the choices come from the schema and the ids come from us.
+    """
+    allowed = TICKET_MANAGE_FIELDS if scope == "manage" else TICKET_CREATE_FIELDS
+    m = field_map()
+    meta = _meta()
+    ordered = [(g, k) for g, keys in TICKET_GROUPS for k in keys if k in allowed]
+    placed = {k for _, k in ordered}
+    ordered += [("Other", k) for k in allowed if k not in placed]
+    seen, out = set(), []
+    for group, key in ordered:
+        if key in seen:
+            continue
+        seen.add(key)
+        fid = m.get(key)
+        f = meta.get(fid) or {}
+        control, choices = _control_for(f) if f else ("text", [])
+        out.append({
+            "key": key,
+            "field": fid,
+            "group": group,
+            "label": f.get("label") or TICKET_LABELS.get(key, key),
+            "control": control,
+            "choices": choices,
+            "required": bool(f.get("required")),
+            # False means the pinned id is not on the object any more. The
+            # form still draws the field, and says so, rather than dropping it.
+            "known": bool(f),
+        })
+    return out
+
+
+def coerce_value(key: str, value, meta: dict | None = None) -> tuple:
+    """(what to write, why it cannot be written) — exactly one is set.
+
+    A value Knack would refuse is refused here, with a reason. Knack rejects
+    the whole record rather than the offending field, so a mistyped dropdown
+    choice would cost the ticket; caught here it costs the choice and the
+    caller is told which one.
+    """
+    fid = field_map().get(key)
+    label = TICKET_LABELS.get(key, key)
+    if not fid:
+        return None, f"{label}: no field id is mapped"
+    meta = _meta() if meta is None else meta
+    f = meta.get(fid) or {}
+    label = f.get("label") or label
+    control, choices = _control_for(f) if f else ("text", [])
+    if value in (None, "", [], {}):
+        return None, ""
+    if control == "connection":
+        wanted = value if isinstance(value, list) else [value]
+        ids = []
+        for v in wanted:
+            v = str(v).strip()
+            if _RECORD_ID.match(v):
+                ids.append(v)
+                continue
+            hit = [c for c in choices if _norm(c.get("label")) == _norm(v)]
+            if len(hit) == 1:
+                ids.append(hit[0]["id"])
+            elif choices:
+                return None, (f"{label}: \u201c{v}\u201d matches no record on "
+                              f"this connection (of {len(choices)})")
+            else:
+                return None, f"{label}: needs a Knack record id, not a name"
+        return (ids if len(ids) > 1 else ids[0]), ""
+    if control == "boolean":
+        s = str(value).strip().lower()
+        if s in ("1", "true", "yes", "y", "on", "checked"):
+            return True, ""
+        if s in ("0", "false", "no", "n", "off"):
+            return False, ""
+        return None, f"{label}: expected yes or no, got \u201c{value}\u201d"
+    if control in ("select", "multi"):
+        if not choices:                 # no choices published — treat as text
+            return str(value), ""
+        wanted = value if isinstance(value, list) else [value]
+        picked = []
+        for v in wanted:
+            hit = [o for o in choices if _norm(o) == _norm(v)]
+            if not hit:
+                return None, (f"{label}: \u201c{v}\u201d is not one of its "
+                              f"{len(choices)} choices")
+            picked.append(hit[0])
+        return (picked if control == "multi" else picked[0]), ""
+    return str(value), ""
+
+
+def _build_payload(allowed, values: dict, meta: dict | None = None) -> tuple:
+    """Turn {logical key: value} into {field id: value}, plus what was refused."""
+    meta = _meta() if meta is None else meta
+    m = field_map()
+    payload, rejected = {}, []
+    for key, value in (values or {}).items():
+        if key not in allowed:
+            rejected.append(f"{key}: not writable here")
+            continue
+        out, why = coerce_value(key, value, meta)
+        if why:
+            rejected.append(why)
+            continue
+        if out is None:
+            continue
+        payload[m[key]] = out
+    return payload, rejected
+
+
+def form_value(rec: dict, key: str, meta: dict | None = None):
+    """The value a form control should open on.
+
+    ticket_value() is the human reading of a field; a form needs what can be
+    written back — a record id for a connection, a list for a multi-select.
+    Writing a connection's label back is what clears the link.
+    """
+    fid = field_map().get(key)
+    if not fid:
+        return ""
+    meta = _meta() if meta is None else meta
+    f = meta.get(fid) or {}
+    raw = rec.get(f"{fid}_raw")
+    if f.get("type") == "connection":
+        items = raw if isinstance(raw, list) else ([raw] if raw else [])
+        ids = [i.get("id") for i in items if isinstance(i, dict) and i.get("id")]
+        return ids[0] if len(ids) == 1 else ids
+    if f.get("type") == "boolean":
+        return "" if raw in (None, "") else bool(raw)
+    if f.get("type") == "multiple_choice" and isinstance(raw, list):
+        return [str(x) for x in raw]
+    return ticket_value(rec, key)
+
+
 def create_ticket(client: str, website: str, subject: str,
                   description: str, author: str = "",
                   requested_by: str = "", ticket_type: str = "",
-                  billable: str = "", extra: dict | None = None) -> dict:
+                  billable: str = "", extra: dict | None = None,
+                  values: dict | None = None) -> dict:
     """Create a web ticket in Knack against the confirmed field ids.
 
-    Status and Developer are not written here — Knack's own workflow sets the
+    `values` is the rest of the ticket, keyed by TICKET_FIELDS name: the type,
+    the billing flag, the media partner and contact, the web-service
+    checkboxes, the new website URL. Only the keys in TICKET_CREATE_FIELDS are
+    accepted, and each is checked against the live field before it is sent —
+    Knack refuses a whole record over one bad dropdown value, so a value it
+    would refuse is dropped here and named in the result instead.
+
+    Status and Developer are still not written — Knack's own workflow sets the
     opening status, and assigning a developer is a decision made in Manage
     Ticket. Writing either at submission would override that.
 
     `extra` is {field_id: value} for fields this signature does not name — the
-    due date the SEO tasks set, for one. It goes through the same connection
-    guard as everything else, so a caller cannot use it to write a record id
-    into a connection field by accident.
+    due date the SEO tasks set, for one. It keeps the old connection guard, so
+    a caller cannot write display text into a connection field by accident.
+
+    The returned record carries `written` and `rejected`: what reached Knack,
+    and what did not and why. A field that was quietly dropped is how a form
+    comes to look like it works while half of it goes nowhere.
     """
+    meta = _meta()
     m = field_map()
-    payload = {}
-    conn_types = ("connection",)
-    fields_by_key = {f.get("key"): f for f in _fields()}
-
-    def put_text(key, value):
-        if not key or not value:
-            return
-        f = fields_by_key.get(key, {})
-        if f.get("type") in conn_types:      # never guess connection record ids
-            return
-        payload[key] = value
-
-    put_text(m["title"], subject[:120])
+    vals = {k: v for k, v in (values or {}).items()
+            if v not in (None, "", [], {})}
     body = description
     if author:
         body = f"{description}\n\n— submitted by {author} via Smart 1 Hub"
-    put_text(m["description"], body)
-    put_text(m["website"], website)
-    put_text(m["client"], client)
-    put_text(m["type"], ticket_type)
-    put_text(m["billable"], billable)
-    put_text(m["assigner"], requested_by or author)
-    put_text(m.get("requested_by"), requested_by or author)
-    for key, value in (extra or {}).items():
-        put_text(key, value)
+    vals["title"] = subject[:120]
+    vals["description"] = body
+    # The named arguments are defaults: an explicit value from the form wins.
+    for key, value in (("client", client), ("website", website),
+                       ("type", ticket_type), ("billable", billable),
+                       ("assigner", requested_by or author)):
+        if value and not vals.get(key):
+            vals[key] = value
+    payload, rejected = _build_payload(TICKET_CREATE_FIELDS, vals, meta)
+
+    # requested_by is discovered by label rather than pinned, so it is not in
+    # TICKET_CREATE_FIELDS and is written here.
+    rb = m.get("requested_by")
+    who = requested_by or author
+    if rb and who and meta.get(rb, {}).get("type") != "connection":
+        payload.setdefault(rb, who)
+
+    for fid, value in (extra or {}).items():
+        if not fid or value in (None, ""):
+            continue
+        if meta.get(fid, {}).get("type") == "connection":
+            rejected.append(f"{fid}: connection fields need a record id")
+            continue
+        payload.setdefault(fid, value)
+
     if not payload:
         raise RuntimeError(
             "Nothing writable resolved on "
             f"{TICKETS_OBJECT}. The field ids are pinned in TICKET_FIELDS, so "
-            "this means the object itself changed — check it in Knack.")
+            "this means the object itself changed — check it in Knack."
+            + (f" Refused: {'; '.join(rejected)}" if rejected else ""))
     r = requests.post(f"{BASE}/objects/{TICKETS_OBJECT}/records",
                       headers=_headers(), json=payload, timeout=20)
     if not r.ok:
         raise RuntimeError(f"Knack rejected the ticket (HTTP {r.status_code}): {r.text[:200]}")
-    return r.json()
+    rec = r.json()
+    if not isinstance(rec, dict):
+        return rec
+    return {**rec, "written": sorted(payload), "rejected": rejected}
 
 
 # ---------------- Campaign Change (object_140) / Support (object_121) ----
@@ -384,44 +663,44 @@ def list_tickets(client: str, website: str = "", limit: int = 25) -> list[dict]:
                              "sort_order": "desc"},
                      timeout=20)
     r.raise_for_status()
+    meta = _meta()
     out = []
     for rec in (r.json() or {}).get("records", []):
-        out.append({
+        row = {
             "id": rec.get("id"),
             "title": _plain(rec.get(m["title"])) if m["title"] else "(ticket)",
             "description": _plain(rec.get(m["description"]))[:400] if m["description"] else "",
             "website": _plain(rec.get(m["website"])) if m["website"] else "",
             "status": _plain(rec.get(m["status"])) if m["status"] else "",
             "date": _plain(rec.get(m["date"])) if m["date"] else "",
-        })
+        }
+        # Everything Manage Ticket can edit, in the form the form needs, so
+        # opening a ticket to change one field costs no second read — and so
+        # the type, the billing flag and the web services are visible at all,
+        # which is the whole reason those ids were pinned.
+        row["values"] = {k: form_value(rec, k, meta) for k in TICKET_MANAGE_FIELDS}
+        row["shown"] = {k: ticket_value(rec, k) for k in
+                        ("type", "billable", "developer", "media_partner",
+                         "web_services")}
+        out.append(row)
     return out
 
 
-def update_ticket(record_id: str, **values) -> dict:
+def update_ticket(record_id: str, values: dict | None = None, **kw) -> dict:
     """Update a ticket from the Manage section.
 
-    Only the fields listed in TICKET_MANAGE_FIELDS may be written, so a
-    mistyped key can't quietly write to something else on the record — and
-    Title stays read-only after creation, since renaming a ticket breaks the
-    thread for whoever raised it.
+    Only the keys in TICKET_MANAGE_FIELDS may be written, so a mistyped key
+    cannot quietly write to something else on the record — and Title stays
+    read-only after creation, since renaming a ticket breaks the thread for
+    whoever raised it.
+
+    Connections are writable now: a record id goes through as given, and a
+    name that matches exactly one record on the connected object is resolved
+    to its id. Anything else is refused by name in `rejected` rather than
+    written as display text, which would clear the link.
     """
-    m = field_map()
-    fields_by_key = {f.get("key"): f for f in _fields()}
-    payload = {}
-    rejected = []
-    for key, value in (values or {}).items():
-        if key not in TICKET_MANAGE_FIELDS:
-            rejected.append(key)
-            continue
-        fid = m.get(key)
-        if not fid or value in (None, ""):
-            continue
-        if fields_by_key.get(fid, {}).get("type") == "connection":
-            # A connection needs a Knack record id, not a name. Writing the
-            # display text silently creates nothing and clears the link.
-            rejected.append(f"{key} (connection — needs a record id)")
-            continue
-        payload[fid] = value
+    payload, rejected = _build_payload(TICKET_MANAGE_FIELDS,
+                                       {**(values or {}), **kw})
     if not payload:
         return {"ok": False, "error": "Nothing to update.", "rejected": rejected}
     r = requests.put(f"{BASE}/objects/{TICKETS_OBJECT}/records/{record_id}",

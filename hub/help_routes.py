@@ -90,6 +90,15 @@ def static_campaign_request_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/web-ticket.js")
+def static_web_ticket_js():
+    """The New Web Ticket / Manage Ticket form, root-level for the same reason
+    as campaign-request.js: one copy of the form, reachable from any page that
+    raises a ticket."""
+    return send_from_directory(_STATIC, "web-ticket.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-crumbs.js")
 def static_crumbs_js():
     return send_from_directory(_STATIC, "hub-crumbs.js",
