@@ -285,6 +285,34 @@ def job_backup_json(app) -> dict:
 
 
 # name -> (every N minutes, function, human description)
+def job_refresh_google_index(app) -> dict:
+    """Rebuild the Google account index — the one place the sweep happens.
+
+    This job is why the sweep is affordable at all. It runs under the leader
+    lock, so exactly one worker talks to Google: the Tag Manager pacing in
+    google_finder is a per-process timer, and two workers sweeping meant two
+    independent pacers against a limit Google applies per user. It also means
+    no page ever pays for the sweep — Client 360 and the tool lookups read the
+    stored index, which is a dictionary scan.
+
+    Three hours, offset from the Knack pull so the two are not competing for
+    the same worker: a property created this morning is findable this
+    afternoon, and eight sweeps a day is nothing against the Tag Manager
+    daily quota.
+    """
+    try:
+        from hub import google_index
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"google_index unavailable ({type(exc).__name__})"}
+    try:
+        return google_index.build(force=True)
+    except Exception as exc:                            # noqa: BLE001
+        # A Google outage must not take the scheduler down with it; the stored
+        # index simply ages, and status() reports it as stale rather than
+        # letting a page believe it is current.
+        return {"ok": False, "error": type(exc).__name__}
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -298,6 +326,8 @@ JOBS = {
                           "Re-pull IO products and campaigns from Knack."),
     "invoice_links":     (480, job_refresh_invoice_links,
                           "Refresh public QuickBooks invoice links (3x daily)."),
+    "google_index":      (180, job_refresh_google_index,
+                          "Re-sweep Google and re-join every account to a client."),
 }
 
 

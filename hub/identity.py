@@ -58,6 +58,16 @@ def _csv(name: str) -> set[str]:
     return {x.strip().lower() for x in (os.environ.get(name) or "").split(",") if x.strip()}
 
 
+def _note_google(url: str, ok: bool = True) -> None:
+    """Count a sign-in handshake on the Google usage page. Never raises —
+    an accounting failure must not be able to block a login."""
+    try:
+        from hub import quotas as _q
+        _q.record_google(url, module="identity", ok=ok)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
 def allowed_domains() -> set[str]:
     d = _csv("ALLOWED_LOGIN_DOMAINS")
     return d or {"smart1marketing.com"}
@@ -187,12 +197,17 @@ def complete_google_login(code: str, redirect_uri: str) -> User:
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         }, timeout=20)
+        # Sign-in costs nothing, but it is a Google API call and the usage
+        # page counts every one — a token endpoint climbing without a matching
+        # rise in logins is the shape of a retry loop.
+        _note_google(TOKEN_URL, ok=tok.ok)
         if not tok.ok:
             raise LoginRejected("Google wouldn't complete the sign-in. Try again.")
         access = tok.json().get("access_token", "")
         info = requests.get(USERINFO_URL,
                             headers={"Authorization": f"Bearer {access}"},
                             timeout=20)
+        _note_google(USERINFO_URL, ok=info.ok)
         if not info.ok:
             raise LoginRejected("Couldn't read your Google profile. Try again.")
         data = info.json()

@@ -1,12 +1,22 @@
-"""Universal Stock Video Search (spec section 6) — fans out to Pexels +
-Pixabay simultaneously, merges results, labels FREE vs PREMIUM instead of
-naming the provider."""
+"""Universal Stock Video Search (spec section 6) — fans out to the owned
+library, Pexels and Pixabay simultaneously, merges results, and labels
+OWNED / FREE / PREMIUM instead of naming the provider."""
 
 from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, jsonify, request
 
+from ..config import ASSET_SOURCE_PRIORITY
 from ..services import openai_service, pexels_service, pixabay_service
+
+# Footage we already own, searched through the same shared service the
+# /tools/video-backgrounds page uses. Imported defensively because this module
+# has to keep working when the Hub is not around it — routes/stock.py runs in
+# the standalone mode db.py supports.
+try:
+    from hub import video_library
+except Exception:                            # noqa: BLE001
+    video_library = None
 
 bp = Blueprint("cb_stock", __name__, url_prefix="/api/stock")
 
@@ -27,10 +37,12 @@ def search():
     queries = openai_service.expand_stock_queries(query) if use_ai_queries else [query]
 
     with ThreadPoolExecutor(max_workers=4) as pool:
+        owned_future = pool.submit(_owned, query, orientation, per_provider)
         pexels_futures = [pool.submit(pexels_service.search, q, per_provider, orientation) for q in queries]
         pixabay_futures = [pool.submit(pixabay_service.search, q, per_provider, orientation) for q in queries]
         pexels_results = [r for f in pexels_futures for r in f.result()]
         pixabay_results = [r for f in pixabay_futures for r in f.result()]
+        owned_results = owned_future.result()
 
     # interleave so results don't read as "all Pexels then all Pixabay"
     merged, seen = [], set()
@@ -46,7 +58,60 @@ def search():
             merged.append(item)
             seen.add(item["id"])
 
+    # Owned footage goes in front of everything, not interleaved with it.
+    # ASSET_SOURCE_PRIORITY already says client_asset before free_stock before
+    # premium_stock — a clip we hold costs nothing, needs no licence check and
+    # is the one a producer should reach for first. Ranking it below a Pexels
+    # result would contradict the waterfall the rest of the module follows.
+    merged = owned_results + [m for m in merged if m["id"] not in
+                              {o["id"] for o in owned_results}]
+
     return jsonify({
         "ok": True, "query": query, "queries_used": queries, "results": merged,
-        "providers": {"pexels": pexels_service.is_live(), "pixabay": pixabay_service.is_live()},
+        "priority": ASSET_SOURCE_PRIORITY,
+        "providers": {"owned": _owned_live(),
+                      "pexels": pexels_service.is_live(),
+                      "pixabay": pixabay_service.is_live()},
+        "owned_note": _owned_note(),
     })
+
+
+def _owned_live():
+    return bool(video_library and video_library.ready())
+
+
+def _owned_note():
+    """Why the owned library returned nothing, when it returns nothing.
+
+    Three different causes -- no Hub, Cloudinary unset, indexing not started --
+    and an empty list looks identical for all three. A producer who reads
+    "0 owned results" as "we own nothing relevant" goes and licenses a clip we
+    may already have.
+    """
+    if not video_library:
+        return "The owned library is unavailable outside the Hub."
+    if not video_library.ready():
+        return "CLOUDINARY_URL is not set, so the owned library was not searched."
+    if not video_library.cutoff():
+        return ("Indexing has not started, so no owned footage is searchable "
+                "yet. Existing clips are deliberately out of scope.")
+    return ""
+
+
+def _owned(query, orientation, per_provider):
+    """Owned footage, in the same shape as the stock providers.
+
+    hub.video_library._shape already emits this module's universal asset shape
+    (id/provider/tier/thumbnail/preview_url/full_url/width/height/duration/
+    author/source_url), which is why there is no translation here. Never
+    raises: the owned library going down must not take the stock search with
+    it -- a producer with two thirds of the results can still work.
+    """
+    if not _owned_live():
+        return []
+    try:
+        found = video_library.search(query, orientation=orientation or "",
+                                     limit=per_provider)
+    except Exception:                        # noqa: BLE001
+        return []
+    return found.get("results") or []

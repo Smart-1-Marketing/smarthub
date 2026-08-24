@@ -90,49 +90,59 @@ _ADVICE = {
 def _live_google(client: str, domain: str) -> dict:
     """What the connected Google accounts can actually see for this client.
 
-    Matches on domain first, then on name — a GA property is usually named
-    after the site. Returns blanks rather than raising: an unreachable Google
-    is a reason to show the Knack value, not a reason to fail.
+    ## This used to return nothing, always
+
+    It looped `for item in acct.get("items")` over the rows from
+    `google_finder.connected_accounts()` — which returns `{email,
+    refresh_token, status}` and has never carried an `items` key. The loop
+    body never executed. Every call returned blank ids with `error` empty, so
+    `compare()` below read *recorded_only* — "in Knack, no Google access,
+    request access" — for every client, including the ones whose GA4 property
+    we were administering that afternoon. Nothing raised; the page just
+    quietly said the wrong thing about the entire book.
+
+    It now reads hub/google_index.py, which is the sweep already joined to
+    clients. That is also what makes this cheap enough to call from a page:
+    the previous shape, had it worked, would have had to sweep four Google
+    APIs per client.
     """
     out = {"ga": "", "gtm": "", "ga_name": "", "gtm_name": "",
            "accounts_connected": 0, "error": ""}
     try:
-        from modules.google_finder import app as gf
-        accounts = gf.connected_accounts() or []
-        out["accounts_connected"] = len(accounts)
+        from hub import google_index
     except Exception as exc:                            # noqa: BLE001
-        out["error"] = f"Google module unavailable ({type(exc).__name__})."
+        out["error"] = f"Google index unavailable ({type(exc).__name__})."
         return out
 
-    want_dom = (domain or "").lower()
-    want_name = re.sub(r"[^a-z0-9]+", "", (client or "").lower())
-
-    def looks_like(text: str) -> bool:
-        t = str(text or "").lower()
-        if want_dom and want_dom.split(".")[0] in t:
-            return True
-        n = re.sub(r"[^a-z0-9]+", "", t)
-        return bool(want_name) and (want_name in n or n in want_name)
-
     try:
-        for acct in accounts:
-            for item in (acct.get("items") or []):
-                plat = str(item.get("platform") or "")
-                label = " ".join(str(item.get(k) or "") for k in
-                                 ("name", "account_name", "url", "container_id",
-                                  "property_id", "measurement_id"))
-                if not looks_like(label):
-                    continue
-                if "Analytics" in plat and not out["ga"]:
-                    out["ga"] = str(item.get("measurement_id")
-                                    or item.get("property_id") or "")
-                    out["ga_name"] = str(item.get("name") or "")
-                elif "Tag Manager" in plat and not out["gtm"]:
-                    out["gtm"] = str(item.get("container_id")
-                                     or item.get("public_id") or "")
-                    out["gtm_name"] = str(item.get("name") or "")
+        found = google_index.for_client(client, domain)
     except Exception as exc:                            # noqa: BLE001
-        out["error"] = f"Could not read connected accounts ({type(exc).__name__})."
+        out["error"] = f"Could not read the Google index ({type(exc).__name__})."
+        return out
+
+    out["accounts_connected"] = len(google_index.load().get("accounts") or [])
+
+    # An index that has never been built is not the same as a client with no
+    # Google presence, and saying so is the whole lesson of the bug above.
+    if found.get("never_built"):
+        out["error"] = ("The Google account index has not been built yet, so "
+                        "nothing can be said about live access. It is rebuilt "
+                        "every three hours, or now from /diagnostics.")
+        return out
+
+    for item in found.get("ga4") or []:
+        out["ga"] = str(item.get("resource_id") or "")
+        out["ga_name"] = str(item.get("name") or "")
+        break
+    for item in found.get("gtm") or []:
+        # The public GTM-XXXX id, not the numeric one: that is what is
+        # recorded in Knack and what _norm_gtm compares against.
+        out["gtm"] = str(item.get("resource_id") or "")
+        out["gtm_name"] = str(item.get("name") or "")
+        break
+    if found.get("stale"):
+        out["error"] = ("The Google index is stale, so this reflects the last "
+                        "successful sweep rather than right now.")
     return out
 
 

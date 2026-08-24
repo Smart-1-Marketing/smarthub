@@ -12,6 +12,11 @@ import requests
 
 API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 BASE_URL = "https://api.elevenlabs.io/v1"
+# Named only so usage reporting can price the render: the Flash and Turbo
+# models bill half a credit per character and the rest bill one, so a spend
+# estimate that did not know the model would be wrong by a factor of two.
+# Not sent in the payload — that stays ElevenLabs' account default, as before.
+MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
 
 STYLE_TO_MOCK_VOICE = {
     "Male": "Adam", "Female": "Rachel", "Youthful": "Jessie", "Authoritative": "Marcus",
@@ -78,6 +83,15 @@ def generate_voiceover(text, voice_id, stability=0.5, style=0.5, speed=1.0,
         r = requests.post(f"{BASE_URL}/text-to-speech/{voice_id}", headers=_headers(),
                            json=payload, timeout=30)
         r.raise_for_status()
+        # ElevenLabs bills the character, so the unit is len(spoken_text) —
+        # and it is the *spoken* text, after the pronunciation substitutions
+        # above, because those change the length that was actually sent.
+        try:
+            from hub import quotas as _q
+            _q.record_tts(spoken_text, module="commercial_builder",
+                          model=MODEL, voice=voice_id)
+        except Exception:                                 # noqa: BLE001
+            pass
         if out_path:
             with open(out_path, "wb") as f:
                 f.write(r.content)

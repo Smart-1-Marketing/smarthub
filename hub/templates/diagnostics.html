@@ -126,6 +126,24 @@
     <div id="diag-openai"><p class="diag-loading">Loading…</p></div>
   </section>
 
+  <!-- ---------------- the other metered providers ---------------- -->
+  <section class="diag-card">
+    <h2>Google, ElevenLabs and Cloudinary — estimated usage</h2>
+    <p class="diag-help">
+      Three providers metered in something other than calls, and none of them
+      visible here until now. ElevenLabs bills the <b>character</b> of script,
+      so a 60-second read costs five times a tag. Cloudinary bills in
+      <b>credits</b>, where one credit is a thousand transformations
+      <em>or</em> a gigabyte stored <em>or</em> a gigabyte delivered — so what
+      the Hub uploads is only part of the bill, and Cloudinary&rsquo;s own meter
+      is shown beside it as the authority. Google costs <b>nothing</b>; what
+      runs out there is a daily request quota, which is why it is compared per
+      API and per day rather than per month. A provider nothing has recorded
+      reads <b>not measured</b> rather than showing a confident zero.
+    </p>
+    <div id="diag-estimates"><p class="diag-loading">Loading…</p></div>
+  </section>
+
 </div>
 
 <style>
@@ -184,6 +202,16 @@ table.diag-tbl th{text-align:left;color:#94a3b8;font-weight:600;font-size:.72rem
 table.diag-tbl td{padding:.4rem .5rem;border-bottom:1px solid #f4f7fa}
 table.diag-tbl td.num{text-align:right;font-variant-numeric:tabular-nums}
 .diag-caveat{margin-top:.8rem;font-size:.78rem;color:#94a3b8;line-height:1.55}
+/* The provider's own counter, set apart from the Hub's ledger on purpose:
+   one is what they bill, the other is what we managed to observe, and a
+   reader has to be able to tell which number they are looking at. */
+.diag-account{margin:.6rem 0;padding:.55rem .7rem;border-radius:8px;
+  background:#f8fafc;border:1px solid #eef2f6}
+.diag-account-top{display:flex;align-items:baseline;gap:.5rem;font-size:.82rem}
+.diag-account-top span{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums}
+#diag-estimates .diag-quota{margin-bottom:.9rem}
+table.diag-tbl tr.diag-subrow td{color:#94a3b8;font-size:.74rem;
+  padding-top:0;border-bottom:1px solid #f4f7fa;line-height:1.45}
 @media(max-width:700px){
   .diag-row{flex-wrap:wrap}
   .diag-name{flex:1 0 100%}
@@ -207,6 +235,143 @@ function renderChecks(d){
       '</span>'+
       '<span class="diag-ms">'+(c.ms?c.ms+"ms":"")+'</span>'+
     '</div>').join("");
+}
+
+// ---- Google, ElevenLabs and Cloudinary -------------------------------------
+// One renderer for all three. The API returns them in one shape deliberately,
+// so a fourth metered provider is a table in quotas.py and nothing here.
+function pillFor(state){
+  if(state==="over")  return "error";
+  if(state==="warn")  return "warn";
+  if(state==="error") return "error";
+  if(state==="not_measured") return "unverified";
+  return "ok";
+}
+function stateWord(state){
+  return state==="not_measured" ? "not measured" : state;
+}
+
+// The provider's own counter, when it could be read. Always labelled as
+// theirs: it is the number they bill on, and it is the one the ledger below
+// cannot see all of.
+function accountBlock(a, label){
+  if(!a) return '<p class="diag-caveat">Provider&rsquo;s own counter not requested '+
+    'on this load. Reload the page to fetch it.</p>';
+  if(!a.available) return '<p class="diag-caveat"><b>'+esc(label)+
+    '&rsquo;s own counter: not available.</b> '+esc(a.reason||"")+'</p>';
+  var pct = a.percent==null ? null : Math.min(100, a.percent);
+  return '<div class="diag-account">'+
+    '<div class="diag-account-top"><b>'+esc(label)+'&rsquo;s own counter</b>'+
+      '<span>'+num(a.used)+(a.limit?" / "+num(a.limit):"")+" "+esc(a.unit||"")+
+      (a.tier?" · "+esc(a.tier):"")+(a.plan?" · "+esc(a.plan):"")+'</span></div>'+
+    (pct!==null?'<div class="diag-bar"><i class="'+(pct>=100?"over":pct>=80?"warn":"")+
+      '" style="width:'+pct+'%"></i></div>':'')+
+    (a.storage_gb!=null?'<div class="diag-byline">'+
+      num(a.storage_gb)+' GB stored · '+num(a.bandwidth_gb)+' GB delivered · '+
+      num(a.transformations)+' transformations · '+num(a.objects)+' objects</div>':'')+
+    (a.note?'<div class="diag-byline">'+esc(a.note)+'</div>':'')+
+  '</div>';
+}
+
+function modTable(byModule, cols){
+  var rows = Object.entries(byModule||{});
+  if(!rows.length) return "";
+  return '<table class="diag-tbl"><tr><th>Tool</th>'+
+    cols.map(function(c){return '<th class="num">'+esc(c[0])+'</th>';}).join("")+'</tr>'+
+    rows.map(function(kv){
+      return '<tr><td>'+esc(kv[0])+'</td>'+
+        cols.map(function(c){return '<td class="num">'+c[1](kv[1])+'</td>';}).join("")+
+      '</tr>';
+    }).join("")+'</table>';
+}
+
+function estimateDetail(e){
+  if(e.key==="elevenlabs"){
+    var m = e.measured||{};
+    return '<div class="diag-cost">'+
+        '<div><span>Characters</span><b>'+num(m.characters)+'</b></div>'+
+        '<div><span>Credits</span><b>'+num(m.credits)+'</b></div>'+
+        '<div><span>Renders</span><b>'+num(m.renders)+'</b></div>'+
+        (m.average_characters?'<div><span>Average read</span><b>'+
+          num(m.average_characters)+' chars</b></div>':'')+
+        '<div><span>Month to date</span><b>'+money(e.estimated_cost)+'</b></div>'+
+        '<div><span>Projected month end</span><b>'+money(e.projected_month_end)+'</b></div>'+
+      '</div>'+
+      modTable(e.by_module, [["Renders",function(v){return num(v.renders);}],
+                             ["Characters",function(v){return num(v.characters);}],
+                             ["Cost",function(v){return money(v.cost);}]])+
+      modTable(e.by_model, [["Renders",function(v){return num(v.renders);}],
+                            ["Characters",function(v){return num(v.characters);}],
+                            ["Cost",function(v){return money(v.cost);}]]);
+  }
+  if(e.key==="cloudinary"){
+    var c = e.measured||{};
+    return '<div class="diag-cost">'+
+        '<div><span>Operations</span><b>'+num(c.operations)+'</b></div>'+
+        '<div><span>Uploaded</span><b>'+num(c.mb_added)+' MB</b></div>'+
+        '<div><span>Storage credits added</span><b>'+num(c.storage_credits_added)+'</b></div>'+
+        (c.deletes?'<div><span>Deletes</span><b>'+num(c.deletes)+'</b></div>':'')+
+        (e.estimated_cost!=null?'<div><span>Month to date</span><b>'+
+          money(e.estimated_cost)+'</b></div>':'')+
+      '</div>'+
+      modTable(e.by_module, [["Operations",function(v){return num(v.operations);}],
+                             ["MB",function(v){return num(v.mb);}]]);
+  }
+  if(e.key==="google"){
+    var apis = e.apis||[];
+    if(!apis.length) return "";
+    return '<table class="diag-tbl"><tr><th>API</th><th class="num">Calls this month</th>'+
+      '<th class="num">Today</th><th class="num">Busiest day</th>'+
+      '<th class="num">Daily quota</th><th>State</th></tr>'+
+      apis.map(function(a){
+        return '<tr><td>'+esc(a.label)+'</td>'+
+          '<td class="num">'+num(a.calls)+'</td>'+
+          '<td class="num">'+num(a.today)+'</td>'+
+          '<td class="num">'+(a.busiest_day_calls?num(a.busiest_day_calls)+
+            ' <small>'+esc(a.busiest_day||"")+'</small>':"—")+'</td>'+
+          '<td class="num">'+(a.daily_quota?num(a.daily_quota):
+            '<small>none published</small>')+'</td>'+
+          '<td><span class="diag-pill p-'+pillFor(a.state)+'">'+
+            esc(stateWord(a.state))+'</span></td></tr>'+
+          '<tr class="diag-subrow"><td colspan="6">'+esc(a.note)+'</td></tr>';
+      }).join("")+'</table>'+
+      modTable(e.by_module, [["Calls",function(v){return num(v);}]]);
+  }
+  return "";
+}
+
+function renderEstimates(list){
+  var el = document.getElementById("diag-estimates");
+  if(!el) return;
+  if(!list || !list.length){ el.innerHTML =
+    '<p class="diag-loading">No estimates returned.</p>'; return; }
+  el.innerHTML = list.map(function(e){
+    var headline = e.key==="google" ? num((e.measured||{}).calls)+" calls"
+                 : e.key==="cloudinary" ? num((e.measured||{}).operations)+" operations"
+                 : num((e.measured||{}).characters)+" characters";
+    return '<div class="diag-quota">'+
+      '<div class="diag-quota-top">'+
+        '<span class="diag-pill p-'+pillFor(e.state)+'">'+esc(stateWord(e.state))+'</span>'+
+        '<b>'+esc(e.label)+'</b>'+
+        '<span class="diag-quota-num">'+headline+'</span>'+
+      '</div>'+
+      (e.state==="not_measured"
+        ? '<div class="diag-quota-sub"><b>Nothing recorded this month.</b> That '+
+          'is not the same as nothing spent — it means no call site reported '+
+          'any. The blind spots below, if there are any, say where that could '+
+          'be coming from.</div>'
+        : '<div class="diag-quota-sub">'+esc(e.basis||"")+'</div>')+
+      accountBlock(e.account, e.label)+
+      estimateDetail(e)+
+      (e.rate?'<p class="diag-caveat">'+esc(e.rate)+'</p>':'')+
+      ((e.untracked&&e.untracked.length)?
+        '<p class="diag-caveat"><b>Not counted above:</b> '+
+        e.untracked.map(function(u){return esc(u.file);}).join(", ")+
+        ' — these call '+esc(e.label)+' without recording it, so their share '+
+        'is invisible here.</p>':'')+
+      '<p class="diag-caveat">'+esc(e.caveat||"")+'</p>'+
+    '</div>';
+  }).join("");
 }
 
 function renderQuotas(d){
@@ -489,8 +654,13 @@ function loadAll(force){
   fetch("/api/clients/crosswalk",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderCrosswalk)
     .catch(function(){});
-  fetch("/api/quotas",{credentials:"same-origin"})
-    .then(r=>r.json()).then(d=>{renderQuotas(d);renderOpenAI(d.openai);})
+  // live=1 also asks ElevenLabs and Cloudinary for their own counters. Those
+  // are the numbers those two actually bill on, and the local ledger cannot
+  // see storage, delivery bandwidth or a billing period that is not the
+  // calendar month. Cached server-side for five minutes.
+  fetch("/api/quotas?live=1",{credentials:"same-origin"})
+    .then(r=>r.json())
+    .then(d=>{renderQuotas(d);renderOpenAI(d.openai);renderEstimates(d.estimates);})
     .catch(()=>{});
 }
 loadAll(false);

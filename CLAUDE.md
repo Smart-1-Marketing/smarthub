@@ -67,6 +67,28 @@ added before that observer existed did not.
 **`audit.log()`'s first positional is `module`.** Passing `module=` in the
 extras raises `TypeError` and silently zeroes cost tracking. Use `tool=`.
 
+**A provider is not metered in calls just because you counted calls.**
+`hub/quotas.py` estimates six providers now, and only three of them bill per
+call. ElevenLabs bills the **character** of script, so counting renders makes
+a five-second tag and a sixty-second read cost the same — and the long ones
+are what spend the plan. Cloudinary bills in **credits**, one of which is a
+thousand transformations *or* a gigabyte stored *or* a gigabyte delivered, so
+what the Hub uploads is a fraction of the bill and Cloudinary's own
+`/usage` meter is read as the authority beside it. Google bills **nothing**
+and limits **requests per day**, so a monthly total would never show the
+4pm cliff that actually stops a campaign deploy — `google_estimate()` compares
+per API and per day, and files each call by URL because one helper in Google
+Finder is used against four different APIs. Where a provider publishes no
+ceiling worth citing, none is invented: the row says *not measured* and names
+the environment variable that would set one.
+
+`quotas.record_tts()`, `record_asset()` and `record_google()` are the call-site
+helpers; each is one line and none can raise. An uninstrumented call site is
+worse than a missing feature here, because the page keeps reporting a
+confident, low number — so `/api/integrity` has a check that names any file
+calling one of the three without recording it, and `test_api_usage.py` fails
+on the same list.
+
 **Env var names drifted.** This deployment sets `PEXELS_API` and
 `PIXABAY_API`; much of the code was written against `..._API_KEY`. Config
 accepts both. If a provider reports "no API key set" while the key is clearly
@@ -365,6 +387,45 @@ the Creative step reacts as a rep edits the plan; `test_proposal_spec.py`
 asserts the two agree on every product, exactly as `test_target_areas.py` does
 for the area helpers.
 
+## Social posts are drafted here and published in Suite
+
+`modules/social_planner` (`/tools/social`) builds a client's month of organic
+posts in one pass. `hub/social_plan.py` is the spec — channels, post types and
+their mix, the calendar arithmetic, the copy checks and the CSV layout — read by
+the module, the exporter and the AI prompt alike, the same way
+`hub/proposal_spec.py` is.
+
+**It stops at a CSV on purpose.** Social Planner's write API needs
+`social-media-posting.write`, and `DEFAULT_SCOPES` in `hub/ghl_oauth.py` does
+not request it; adding a scope requires re-consent at the agency, a one-time
+manual step. Ending at the bulk-upload CSV means the drafting pipeline earns its
+keep while that is pending, and works regardless of whether it ever lands. When
+it does, `PickerClient.ghl_location_id` already holds the sub-account id per
+client — that mapping does not need building. **Resolve a client to a location
+by domain, never by name**: posting to the wrong sub-account publishes one
+client's content on another client's page, which is the worst outcome any tool
+in this Hub can produce.
+
+**The copy checks are code, not prompt text.** A price, a percentage, a phone
+number or a deadline that is not in what the strategist typed is a *blocking*
+flag and the plan cannot be approved with one outstanding — unlike a proposal,
+which a rep reads before a client does, a month of posts is bulk work that gets
+skimmed. Superlatives warn. Channel limits block. `test_social_plan.py` asserts
+all of it, with deliberately plausible fixtures: the failure mode is not
+gibberish, it is confident and wrong.
+
+**There is no JavaScript mirror of the grid.** Target areas and the creative
+gate each carry one so a wizard can react live, and each needs a test asserting
+the two halves still agree. That cost is paid twice already; here the calendar
+is one API call and the browser renders what comes back. Keep it that way.
+
+The page hands the browser its vocabulary in a `<script type="application/json">`
+blob rather than interpolating Jinja into a real script block, which is why
+`tools/jscheck.py` can hand that block to `node --check` instead of skipping it.
+`tools/pagecheck.py` did not know that script types other than JavaScript exist
+and failed the page for a syntax error in something that was never code; it now
+shares jscheck's `NON_JS_TYPES` list.
+
 ## The one module that is not Python
 
 The **Display Ad Builder** (`modules/ad_builder`) is a Node service, not a
@@ -427,6 +488,8 @@ python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math
 python3 test_landing_maker.py      # built pages stay public and chrome-free
+python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
+python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 ```
 

@@ -31,6 +31,18 @@
         <a href="/google/history">📜 History & Logs</a>
       </nav>
 
+      {% set lookup_platform = 'gtm' %}
+      {% set lookup_label = 'container' %}
+      {# internal_container_id, not resource_id: the deploy form wants the
+         numeric container id, while the search box wants the public GTM-XXXX
+         one. Filling the wrong one into the wrong box looks like it worked
+         and then deploys nothing. #}
+      {% set lookup_fill = {'resource_id': '#gtm-lookup-q',
+                            'internal_container_id': '#pixel-container-id',
+                            'account_id': '#pixel-account-id',
+                            'google_login': '#pixel-login'} %}
+      {% include "_client_lookup.html" %}
+
       <!-- STANDALONE GTM LOOKUP & AUTO-POPULATE BAR -->
       <div class="manual-lookup-card" style="margin-top:20px; background:#eaf2ff; border-color:#b8d2f8;">
         <h3 style="color:#1a2e58;">🔍 Find GTM Container & Auto-Populate Tools</h3>
