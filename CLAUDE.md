@@ -128,6 +128,22 @@ which silently breaks callback matching.
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
+**Two blueprints must not offer a template of the same name.** Module Jinja
+environments are separate *for a dispatcher-mounted module* — a blueprint
+registered on the hub app shares the hub's environment, and that environment
+resolves a bare name against the hub's own templates first and then each
+blueprint's folder **in registration order**. So `render_template("index.html")`
+does not necessarily get you your own: Calculators and Page Image Optimizer each
+shipped a plain `index.html`, Calculators registers first, and
+`/tools/page-images/` rendered the calculator index and 500'd on `'delivery' is
+undefined`. That one at least announced itself. Calculators also shipped a
+`leads.html`, which the hub's own `leads.html` outranks, so
+`/tools/calculators/leads` answered **200 with the Hub's leads page in it** —
+every template valid, every link resolving, nothing in any log. Name a
+blueprint's templates so nobody else can claim the name: `tickets_*`, `picker_*`
+and `commercial_*` already do, which is why those five were never caught by it.
+`/api/integrity` has a high-severity check for it now.
+
 **A blueprint-registered module is not behind AuthGuard.** `wsgi.py` wraps
 each *dispatcher-mounted* app in `AuthGuard`; a module registered as a
 blueprint on the hub app never passes through it, and the hub app has no

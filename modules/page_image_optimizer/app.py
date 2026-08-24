@@ -95,7 +95,7 @@ def _dedupe(name, taken):
 @bp.get("/")
 def index():
     return render_template(
-        "index.html",
+        "page_images.html",
         batch_size=settings.PAGE_IMAGES_BATCH_SIZE,
         max_edge=settings.SEO_IMAGES_MAX_EDGE,
         alt_max=settings.ALT_MAX_CHARS,
