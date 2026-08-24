@@ -619,6 +619,7 @@ python3 test_web_tickets.py        # the object_107 ids, the form, what a write 
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
+python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 ```
 
 The test files need no pytest and no new dependencies; each runs against a

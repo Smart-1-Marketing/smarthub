@@ -136,6 +136,15 @@ jobs:
             echo "test_msa_embed.py not on this branch — nothing to run."
           fi
 
+      - name: IO Builder start-screen tests
+        # Same skip-rather-than-fail shape as the steps around it.
+        run: |
+          if [ -f test_io_start.py ]; then
+            python test_io_start.py
+          else
+            echo "test_io_start.py not on this branch — nothing to run."
+          fi
+
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.

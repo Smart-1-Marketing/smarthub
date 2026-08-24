@@ -527,13 +527,24 @@ def api_spec_in():
     client = (_rq.args.get("client") or "").strip()
     mode = (_rq.args.get("mode") or "").strip()
     try:
-        from hub.campaign_spec import CampaignSpec, from_client, from_last_io, to_io_payload
+        from hub.campaign_spec import (CampaignSpec, from_client, from_last_io,
+                                       from_quote, to_io_payload)
         if pid:
+            # The live builder's quotes table FIRST. That is where every
+            # proposal written since the consolidation lives; the module
+            # below is the retired tool's read-only archive. Asking only the
+            # archive is how this shipped looking healthy while finding
+            # nothing for any recent proposal -- the same defect the landing
+            # maker had, named in CLAUDE.md.
+            spec = from_quote(pid)
+            if spec is not None:
+                return jsonify(to_io_payload(spec))
             from modules.proposal_builder import store as pstore
             rec = pstore.get_proposal(pid) or {}
             spec_d = rec.get("spec")
             if not spec_d:
-                return jsonify({"error": "That proposal has no campaign data."}), 404
+                return jsonify({"error": "No proposal with that id, in either "
+                                         "the current builder or the archive."}), 404
             return jsonify(to_io_payload(CampaignSpec.from_dict(spec_d)))
         if mode == "renewal" and client:
             spec = from_last_io(client)
@@ -566,6 +577,29 @@ def api_clients():
         "name": c.get("name", ""), "domain": c.get("domain", ""),
         "products": c.get("product_count", 0),
     } for c in rows if c.get("name")]})
+
+
+@app.get("/api/proposals")
+def api_proposals():
+    """Every proposal we hold for one client, for the start screen.
+
+    Both kinds, kept apart: a quote built in the Proposal Builder has a
+    number and a status this Hub owns, an uploaded proposal is a file with a
+    date on it. Flattening them means inventing values for half the columns.
+
+    Client first, because "which proposal?" is only answerable once you know
+    whose, and a global list gets longer every week.
+    """
+    client = (request.args.get("client") or "").strip()
+    if not client:
+        return jsonify({"saved": [], "uploaded": [], "count": 0,
+                        "note": "Pick a client first."})
+    try:
+        from hub.proposals import proposals_for
+        return jsonify(proposals_for(client))
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"saved": [], "uploaded": [], "count": 0,
+                        "note": f"Couldn't read proposals ({type(exc).__name__})."}), 200
 
 
 @app.get("/api/client-context")

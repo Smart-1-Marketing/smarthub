@@ -431,6 +431,70 @@ def _ai_read(client: str, text: str, filename: str = "") -> dict | None:
     }
 
 
+def _read_flight(body: str) -> tuple[str, str]:
+    """Start and end dates the document actually states, as ISO strings.
+
+    Returns ``("", "")`` when it says nothing -- which is a real answer and
+    must stay distinguishable from a date this module computed.
+
+    Only unambiguous forms are accepted. A bare "10/01/26" is not read,
+    because US and international ordering disagree about it and a campaign
+    that starts in October versus January is not a difference to guess at.
+    """
+    if not body:
+        return "", ""
+    sep = r"(?:through|thru|to|until|[-\u2013\u2014])"
+
+    # ISO, the only fully unambiguous numeric form.
+    m = re.search(r"(\d{4}-\d{2}-\d{2})\s*" + sep + r"\s*(\d{4}-\d{2}-\d{2})",
+                  body, re.I)
+    if m:
+        return _iso_or_blank(m.group(1)), _iso_or_blank(m.group(2))
+
+    # "October 1, 2026 through September 30, 2027" -- the month is named, so
+    # the ordering cannot be misread.
+    named = (r"([A-Z][a-z]{2,8})\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})")
+    m = re.search(named + r"\s*" + sep + r"\s*" + named, body, re.I)
+    if m:
+        return (_named_to_iso(m.group(1), m.group(2), m.group(3)),
+                _named_to_iso(m.group(4), m.group(5), m.group(6)))
+
+    # A start on its own, labelled.
+    m = re.search(r"(?:start(?:s|ing)?|launch(?:es|ing)?|flight)\s*"
+                  r"(?:date)?\s*[:\-]?\s*(\d{4}-\d{2}-\d{2})", body, re.I)
+    if m:
+        return _iso_or_blank(m.group(1)), ""
+    m = re.search(r"(?:start(?:s|ing)?|launch(?:es|ing)?|flight)\s*"
+                  r"(?:date)?\s*[:\-]?\s*" + named, body, re.I)
+    if m:
+        return _named_to_iso(m.group(1), m.group(2), m.group(3)), ""
+    return "", ""
+
+
+_MONTHS = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun",
+     "jul", "aug", "sep", "oct", "nov", "dec"], start=1)}
+
+
+def _named_to_iso(month: str, day: str, year: str) -> str:
+    idx = _MONTHS.get(str(month)[:3].lower())
+    if not idx:
+        return ""
+    try:
+        return date(int(year), idx, int(day)).isoformat()
+    except ValueError:
+        return ""
+
+
+def _iso_or_blank(value: str) -> str:
+    """A real calendar date, or nothing. 2026-13-45 parses as text and not as
+    a date, and passing it on would put it straight onto an insertion order."""
+    try:
+        return date.fromisoformat(value).isoformat()
+    except (ValueError, TypeError):
+        return ""
+
+
 def _add_months(start: date, months: int) -> date:
     """The last day of a term of `months` beginning on `start`.
 
@@ -457,7 +521,12 @@ def from_proposal(client: str, text: str, filename: str = "") -> dict:
     fields, sources, found = {}, {}, []
     body = re.sub(r"\s+", " ", text or "")
 
-    money = re.findall(r"\$\s?([\d,]+(?:\.\d{2})?)\s*(?:/|per\s+)?(mo|month|monthly)?",
+    # Whitespace either side of the separator. Written without it, this missed
+    # "$8,500 / month" -- the spaces around the slash broke the match -- and
+    # fell back to the largest LINE ITEM instead of the stated total. That is
+    # the worst shape of failure this file can produce: not a blank, but a
+    # plausible smaller number, on the field the whole IO is priced from.
+    money = re.findall(r"\$\s?([\d,]+(?:\.\d{2})?)\s*(?:/|per)?\s*(mo|month|monthly)?",
                        body, re.I)
     monthlies = [float(m[0].replace(",", "")) for m in money if m[1]]
     if monthlies:
@@ -483,15 +552,35 @@ def from_proposal(client: str, text: str, filename: str = "") -> dict:
         sources["products_mentioned"] = "needs_review"
 
     m = re.search(r"\b(\d{1,2})[-\s]?(?:month|mo)\b", body, re.I)
+    months = int(m.group(1)) if m else 0
     if m:
-        months = int(m.group(1))
         fields["term_months"] = str(months)
         sources["term_months"] = "needs_review"
+
+    # A flight the document actually states beats one computed from today.
+    # This used to skip straight to the computation, so a proposal reading
+    # "2026-10-01 through 2027-09-30" produced next month's first instead --
+    # printed to the rep under the heading "From the proposal I read", which
+    # is the one place an invented value must never appear.
+    read_start, read_end = _read_flight(body)
+    if read_start:
+        fields["start_date"] = read_start
+        sources["start_date"] = "needs_review"
+        if read_end:
+            fields["end_date"] = read_end
+            sources["end_date"] = "needs_review"
+        elif months:
+            fields["end_date"] = _add_months(
+                date.fromisoformat(read_start), months).isoformat()
+            sources["end_date"] = "assumed"
+    elif months:
+        # Nothing stated. Still worth offering a sensible start, but it is a
+        # suggestion and is labelled as one -- see the note assembled below.
         start = date.today().replace(day=1) + timedelta(days=32)
         start = start.replace(day=1)
         fields["start_date"] = start.isoformat()
         fields["end_date"] = _add_months(start, months).isoformat()
-        sources["start_date"] = sources["end_date"] = "needs_review"
+        sources["start_date"] = sources["end_date"] = "assumed"
 
     if client:
         base = from_client(client)
@@ -522,7 +611,10 @@ def from_proposal(client: str, text: str, filename: str = "") -> dict:
         "read_by": read_by,
         "note": ("Read from the proposal and NOT confirmed. A proposal carries "
                  "options and ranges, not committed numbers — check every "
-                 "figure before submitting."),
+                 "figure before submitting."
+                 + (" The campaign dates are a suggested flight, not something "
+                    "the document stated."
+                    if sources.get("start_date") == "assumed" else "")),
     }
 
 

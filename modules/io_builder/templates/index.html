@@ -63,6 +63,30 @@ td{padding:7px;border:1px solid var(--line);vertical-align:top}
 .total-row div{border:2px solid var(--navy);min-width:300px;padding:9px 13px;text-align:right;line-height:1.7}
 .strategy-list{margin:0;padding:13px 18px 7px 28px;border:1px solid var(--line);border-top:0}
 .strategy-list li{margin:0 0 8px;line-height:1.4;font-size:13px}
+/* Start screen. Shown before the first question, because "where does this
+   campaign come from" was previously answerable only by arriving with the
+   right URL parameters -- a rep who opened the tool directly got a blank
+   interview and retyped what the Hub already held. */
+.start-screen{border:1px solid var(--line);background:var(--white);border-radius:9px;padding:16px 18px;margin-bottom:12px}
+.start-screen h2{margin:0 0 4px;font-size:16px;color:var(--navy)}
+.start-screen .lede{margin:0 0 13px;font-size:13px;color:var(--muted);line-height:1.45}
+.start-options{display:grid;gap:9px;grid-template-columns:1fr}
+@media(min-width:760px){.start-options{grid-template-columns:1fr 1fr 1fr}}
+.start-opt{text-align:left;border:1px solid var(--line);background:#fbfcfe;border-radius:8px;padding:11px 12px;cursor:pointer;font:inherit;color:var(--text)}
+.start-opt:hover{border-color:var(--blue);background:var(--sky)}
+.start-opt[aria-pressed="true"]{border-color:var(--blue);background:var(--sky)}
+.start-opt b{display:block;font-size:13.5px;color:var(--navy);margin-bottom:3px}
+.start-opt span{display:block;font-size:12px;color:var(--muted);line-height:1.4}
+.start-panel{margin-top:13px;border-top:1px solid var(--line);padding-top:12px}
+.start-panel input[type=text]{width:100%;padding:9px 11px;border:1px solid #cfd7df;border-radius:7px;font:14px inherit}
+.start-list{margin-top:9px;max-height:230px;overflow:auto}
+.start-row{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--white);border-radius:7px;padding:9px 11px;margin-bottom:6px;cursor:pointer;font:inherit;color:var(--text)}
+.start-row:hover{border-color:var(--blue);background:var(--sky)}
+.start-row b{display:block;font-size:13px;color:var(--navy)}
+.start-row span{font-size:11.5px;color:var(--muted)}
+.start-drop{border:2px dashed #b9c6d6;border-radius:9px;padding:22px 16px;text-align:center;font-size:13px;color:var(--muted);cursor:pointer}
+.start-drop.over{border-color:var(--blue);background:var(--sky);color:var(--navy)}
+.start-back{background:none;border:0;color:var(--blue);font:12px inherit;cursor:pointer;padding:0;margin-top:9px;text-decoration:underline}
 .callout{border-left:5px solid var(--gold);background:#fff8e8;padding:12px 14px;font-size:13px;line-height:1.45}
 .hint{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.4}
 
@@ -161,6 +185,52 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
   <div class="progress"><div id="bar"></div></div>
  </div>
  <div id="s1-totals" style="display:none;margin:0 0 6px;padding:6px 10px;background:#eef3f8;border:1px solid #d5dee9;border-radius:7px;font-size:12px;color:#14284b;font-weight:600"></div>
+<div id="startScreen" class="start-screen" hidden>
+  <h2>Where does this campaign come from?</h2>
+  <p class="lede">Load what already exists instead of retyping it. Everything
+     loaded is shown to you and confirmed in the interview &mdash; a proposal
+     quotes a price, an insertion order bills it, so nothing reaches the IO
+     unchecked.</p>
+  <div class="start-options">
+    <button type="button" class="start-opt" id="optClient" onclick="startChoose('client')">
+      <b>An existing client</b>
+      <span>Their record, a saved proposal, or a renewal of their last IO.</span>
+    </button>
+    <button type="button" class="start-opt" id="optUpload" onclick="startChoose('upload')">
+      <b>A proposal or previous IO</b>
+      <span>Upload a PDF or Word file and I'll read the campaign out of it.</span>
+    </button>
+    <button type="button" class="start-opt" id="optBlank" onclick="startChoose('blank')">
+      <b>Start from scratch</b>
+      <span>Answer every question from the top.</span>
+    </button>
+  </div>
+
+  <div class="start-panel" id="startClientPanel" hidden>
+    <label for="startClientQ" style="font-size:12px;font-weight:600;color:var(--navy)">Find the client</label>
+    <input type="text" id="startClientQ" placeholder="Start typing a client name&hellip;" autocomplete="off">
+    <div class="start-list" id="startClientList"></div>
+    <button type="button" class="start-back" onclick="startChoose('')">&larr; Other ways to start</button>
+  </div>
+
+  <div class="start-panel" id="startSourcePanel" hidden>
+    <div style="font-size:12.5px;color:var(--navy);font-weight:600" id="startSourceHead">What should I load?</div>
+    <div class="start-list" id="startSourceList"></div>
+    <button type="button" class="start-back" onclick="startChoose('client')">&larr; Pick a different client</button>
+  </div>
+
+  <div class="start-panel" id="startUploadPanel" hidden>
+    <div class="start-drop" id="startDrop" tabindex="0" role="button"
+         aria-label="Choose a proposal or insertion order to upload">
+      Drop a proposal or previous IO here, or <b>choose a file</b>.<br>
+      PDF, Word or plain text.
+    </div>
+    <input type="file" id="startFile" accept=".pdf,.docx,.doc,.txt,application/pdf" style="display:none">
+    <button type="button" class="start-back" onclick="startChoose('')">&larr; Other ways to start</button>
+  </div>
+
+  <div id="startStatus" class="tiny" style="margin-top:10px"></div>
+</div>
  <div class="messages" id="messages" role="log" aria-live="polite" aria-label="Campaign builder conversation"></div>
  <div class="input-row" id="inputRow">
       <div class="answer-control">
@@ -2714,8 +2784,20 @@ function prefillFromProposal(){
    credentials:"same-origin",
    body:JSON.stringify({client:client,filename:src})})
   .then(r=>r.json())
-  .then(d=>{
-   if(d.error){addMsg("Couldn't read that proposal: "+d.error+" You can still fill this in by hand.");ask();return}
+  .then(d=>applyReadPayload(d,client))
+  .catch(()=>{addMsg("Couldn't reach the proposal reader. Filling this in by hand.");ask()});
+ return true;
+}
+
+/* What a read document turns into, applied to the interview.
+
+   Extracted from prefillFromProposal so the three ways of starting share one
+   path: a proposal converted from Client 360, a document uploaded on the
+   start screen, and a client picked from the registry all arrive here. Three
+   copies of this would drift, and the drift would show up as one entry point
+   quietly filling fewer answers than another. */
+function applyReadPayload(d,client){
+   if(d.error){addMsg("Couldn't read that: "+d.error+" You can still fill this in by hand.");ask();return}
    const f=d.fields||{};
 
    /* ---- what the proposal answered, applied to the IO ---- */
@@ -2846,9 +2928,299 @@ function prefillFromProposal(){
       listing them is right where listing products was not. */
    (d.ask||[]).forEach(q2=>addMsg("• "+q2));
    ask();
-  })
-  .catch(()=>{addMsg("Couldn't reach the proposal reader. Filling this in by hand.");ask()});
- return true;
+}
+
+/* =====================================================================
+   The start screen.
+
+   Before this, the only way to begin an IO from something that already
+   existed was to arrive with the right URL parameter -- from Client 360, or
+   from the Proposal Builder's "To IO" button. A rep who opened the tool
+   directly got a blank interview and retyped a campaign the Hub was already
+   holding.
+
+   Three ways in, all landing on the same applyReadPayload():
+
+     client  -> the registry, then their proposals / last IO / plain record
+     upload  -> a PDF or Word file read on the server
+     blank   -> the interview from the top, as before
+
+   Nothing loaded is treated as agreed. The interview still asks; it just
+   stops asking things the document already answered.
+   ===================================================================== */
+var START = {mode:"", client:"", searchTimer:null};
+
+function startEl(id){ return document.getElementById(id); }
+function startSay(msg, bad){
+  var el = startEl("startStatus");
+  if(!el) return;
+  el.textContent = msg || "";
+  el.style.color = bad ? "#b42318" : "var(--muted)";
+}
+
+function showStartScreen(){
+  var sc = startEl("startScreen");
+  if(!sc) return;
+  sc.hidden = false;
+  /* The answer box belongs to a question, and no question has been asked
+     yet. Leaving it live invites a rep to type into nothing. */
+  var row = startEl("inputRow");
+  if(row) row.style.display = "none";
+}
+
+function hideStartScreen(){
+  var sc = startEl("startScreen");
+  if(sc) sc.hidden = true;
+  var row = startEl("inputRow");
+  if(row) row.style.display = "";
+}
+
+function startChoose(mode){
+  START.mode = mode;
+  ["optClient","optUpload","optBlank"].forEach(function(id){
+    var b = startEl(id);
+    if(b) b.setAttribute("aria-pressed", String(
+      (id === "optClient" && mode === "client") ||
+      (id === "optUpload" && mode === "upload") ||
+      (id === "optBlank"  && mode === "blank")));
+  });
+  startEl("startClientPanel").hidden = (mode !== "client");
+  startEl("startUploadPanel").hidden = (mode !== "upload");
+  startEl("startSourcePanel").hidden = true;
+  startSay("");
+  if(mode === "client"){
+    startEl("startClientQ").focus();
+    startClientSearch("");
+  }else if(mode === "blank"){
+    startBlank();
+  }
+}
+
+function startBlank(){
+  hideStartScreen();
+  addMsg("I’m your SMART1 Campaign Builder. Today’s date has been filled automatically. Date questions use the blue calendar field and calendar button. I’ll first identify whether this is a new or revised IO and collect the salesperson contact information, then build the campaign plan and product requirements.");
+  ask();
+}
+
+/* ---- an existing client -------------------------------------------- */
+
+function startClientSearch(q){
+  /* {{ request.script_root }} on our own routes, /api/... bare on the Hub's.
+     This app is mounted at /tools/io, so an unprefixed "/api/clients" is a
+     path the HUB owns -- it would not 404 loudly, it would reach a different
+     app. The script_root form is also the one tools/linkcheck.py can verify,
+     which is how the three calls on this screen were caught before shipping. */
+  var list = startEl("startClientList");
+  list.innerHTML = '<div class="tiny">Searching…</div>';
+  fetch("{{ request.script_root }}/api/clients?q=" + encodeURIComponent(q || ""), {credentials:"same-origin"})
+   .then(function(r){ return r.json(); })
+   .then(function(d){
+     var rows = (d && d.clients) || [];
+     if(!rows.length){
+       /* A name we do not hold is a normal answer, not an error -- a new
+          client has no record yet. Say so and offer the way forward. */
+       list.innerHTML = '<div class="tiny">No client matches that. '
+         + 'A brand-new client won’t be in the registry yet — '
+         + '<button type="button" class="start-back" onclick="startBlank()">'
+         + 'start from scratch</button>.</div>';
+       return;
+     }
+     list.innerHTML = "";
+     rows.forEach(function(c){
+       var b = document.createElement("button");
+       b.type = "button";
+       b.className = "start-row";
+       b.innerHTML = "<b></b><span></span>";
+       b.querySelector("b").textContent = c.name;
+       b.querySelector("span").textContent =
+         (c.domain || "no website on record")
+         + (c.products ? " · " + c.products + " product" + (c.products === 1 ? "" : "s") : "");
+       b.onclick = function(){ startPickClient(c.name); };
+       list.appendChild(b);
+     });
+   })
+   .catch(function(){
+     list.innerHTML = '<div class="tiny">Couldn’t reach the client registry. '
+       + '<button type="button" class="start-back" onclick="startBlank()">'
+       + 'Start from scratch</button> and type the name.</div>';
+   });
+}
+
+/* Which of that client's documents to start from. Asked rather than guessed:
+   a client can have a proposal from last week and an IO from last year, and
+   which one this order continues is a decision, not a lookup. */
+function startPickClient(name){
+  START.client = name;
+  startEl("startClientPanel").hidden = true;
+  startEl("startSourcePanel").hidden = false;
+  startEl("startSourceHead").textContent = "What should I load for " + name + "?";
+  var list = startEl("startSourceList");
+  list.innerHTML = '<div class="tiny">Looking for their proposals…</div>';
+
+  var opts = [];
+  function addOpt(title, sub, fn){
+    opts.push({title:title, sub:sub, fn:fn});
+  }
+  function paint(){
+    list.innerHTML = "";
+    opts.forEach(function(o){
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "start-row";
+      b.innerHTML = "<b></b><span></span>";
+      b.querySelector("b").textContent = o.title;
+      b.querySelector("span").textContent = o.sub;
+      b.onclick = o.fn;
+      list.appendChild(b);
+    });
+  }
+
+  fetch("{{ request.script_root }}/api/proposals?client=" + encodeURIComponent(name), {credentials:"same-origin"})
+   .then(function(r){ return r.json(); })
+   .then(function(d){
+     (d.saved || []).forEach(function(q){
+       addOpt("Proposal " + (q.quote_number || q.id),
+              [q.status, q.products_summary, q.monthly_budget ? "$" + Number(q.monthly_budget).toLocaleString() + "/mo" : ""]
+                .filter(Boolean).join(" · ") || "Saved in the Proposal Builder",
+              function(){ startFromSpec("spec=" + encodeURIComponent(q.id), "proposal " + (q.quote_number || q.id)); });
+     });
+     (d.uploaded || []).forEach(function(u){
+       addOpt(u.filename || "Uploaded proposal",
+              "Uploaded " + (u.date || "") + " — I’ll read the document",
+              function(){ startFromStoredDoc(name, u.filename || u.id); });
+     });
+     addOpt("Their last insertion order",
+            "Renew what actually ran and was billed.",
+            function(){ startFromSpec("client=" + encodeURIComponent(name) + "&mode=renewal", "their last IO"); });
+     addOpt("Just the client record",
+            "Contact, website and address only — build the campaign here.",
+            function(){ startFromSpec("client=" + encodeURIComponent(name), "the client record"); });
+     paint();
+     if(d.note) startSay(d.note);
+   })
+   .catch(function(){
+     addOpt("Their last insertion order", "Renew what actually ran and was billed.",
+            function(){ startFromSpec("client=" + encodeURIComponent(name) + "&mode=renewal", "their last IO"); });
+     addOpt("Just the client record", "Contact, website and address only.",
+            function(){ startFromSpec("client=" + encodeURIComponent(name), "the client record"); });
+     paint();
+     startSay("Couldn’t list their proposals, so those two are what I can offer.", true);
+   });
+}
+
+/* /api/spec-in speaks CampaignSpec; applyReadPayload speaks the reader's
+   shape. One adapter, so there is still only one place that decides what a
+   loaded campaign does to the interview. */
+function specToReadPayload(d){
+  var f = {};
+  var src = d.fields || {};
+  Object.keys(src).forEach(function(k){ f[k] = src[k]; });
+  f.products_detail = (d.products || []).map(function(p){
+    return {product:p.product || "", monthly:p.monthly || 0, note:p.notes || ""};
+  });
+  if(d.monthly_total) f.monthly_budget = d.monthly_total;
+  if(d.campaign_total) f.campaign_total = d.campaign_total;
+  return {fields:f, ask:d.ask || [], note:d.note || "", found:[],
+          /* No server-side product classification on this path, so the
+             interview pre-selects what matches the rate card and names what
+             did not, rather than pretending to a walk-through it cannot
+             drive. */
+          product_intake:[], intake_summary:{}};
+}
+
+function startFromSpec(query, label){
+  startSay("Loading " + label + "…");
+  fetch("{{ request.script_root }}/api/spec-in?" + query, {credentials:"same-origin"})
+   .then(function(r){ return r.json(); })
+   .then(function(d){
+     if(d.error){ startSay(d.error, true); return; }
+     hideStartScreen();
+     addMsg("Starting from " + label + ".");
+     applyReadPayload(specToReadPayload(d), START.client);
+   })
+   .catch(function(){ startSay("Couldn’t load that. Try another option.", true); });
+}
+
+/* A proposal already filed against the client: the server looks it up among
+   that client's stored documents and reads it there, so no URL is fetched on
+   the browser's say-so. */
+function startFromStoredDoc(client, filename){
+  startSay("Reading " + filename + "…");
+  fetch("/api/io/from-proposal", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    credentials:"same-origin",
+    body:JSON.stringify({client:client, filename:filename})})
+   .then(function(r){ return r.json(); })
+   .then(function(d){
+     if(d.error){ startSay(d.error, true); return; }
+     hideStartScreen();
+     addMsg("Starting from " + filename + ".");
+     applyReadPayload(d, client);
+   })
+   .catch(function(){ startSay("Couldn’t read that document.", true); });
+}
+
+/* ---- an uploaded document ------------------------------------------ */
+
+function startUpload(file){
+  if(!file) return;
+  if(file.size > 8 * 1024 * 1024){
+    startSay("That file is over 8 MB, which is the reader’s limit. "
+      + "Try exporting it again, or start from scratch.", true);
+    return;
+  }
+  startSay("Reading " + file.name + "… this can take a few seconds.");
+  var fd = new FormData();
+  fd.append("file", file);
+  if(START.client) fd.append("client", START.client);
+  /* Absolute, and NOT prefixed with the mount root: the reader is a Hub route
+     at the site root while this app is mounted at /tools/io. The fetch
+     wrapper leaves it alone because it is not in OWN_API. */
+  fetch("/api/io/from-proposal", {method:"POST", body:fd, credentials:"same-origin"})
+   .then(function(r){ return r.json(); })
+   .then(function(d){
+     if(d.error){ startSay(d.error, true); return; }
+     hideStartScreen();
+     addMsg("Starting from " + file.name + ".");
+     applyReadPayload(d, START.client);
+   })
+   .catch(function(){
+     startSay("Couldn’t reach the reader. You can still start from scratch.", true);
+   });
+}
+
+function startWireUpload(){
+  var drop = startEl("startDrop"), input = startEl("startFile");
+  if(!drop || !input) return;
+  drop.onclick = function(){ input.click(); };
+  drop.onkeydown = function(e){
+    if(e.key === "Enter" || e.key === " "){ e.preventDefault(); input.click(); }
+  };
+  input.onchange = function(){ startUpload(input.files && input.files[0]); };
+  ["dragenter","dragover"].forEach(function(ev){
+    drop.addEventListener(ev, function(e){
+      e.preventDefault(); e.stopPropagation(); drop.classList.add("over");
+    });
+  });
+  ["dragleave","drop"].forEach(function(ev){
+    drop.addEventListener(ev, function(e){
+      e.preventDefault(); e.stopPropagation(); drop.classList.remove("over");
+    });
+  });
+  drop.addEventListener("drop", function(e){
+    var dt = e.dataTransfer;
+    if(dt && dt.files && dt.files.length) startUpload(dt.files[0]);
+  });
+}
+
+function startWireClientSearch(){
+  var q = startEl("startClientQ");
+  if(!q) return;
+  q.addEventListener("input", function(){
+    clearTimeout(START.searchTimer);
+    START.searchTimer = setTimeout(function(){
+      startClientSearch(q.value.trim());
+    }, 250);
+  });
 }
 
 (function boot(){
@@ -2874,8 +3246,13 @@ function prefillFromProposal(){
    }catch(e){clearDraft();}
   }else{clearDraft();}
  }
- addMsg("I’m your SMART1 Campaign Builder. Today’s date has been filled automatically. Date questions use the blue calendar field and calendar button. I’ll first identify whether this is a new or revised IO and collect the salesperson contact information, then build the campaign plan and product requirements.");
- ask();
+ /* Not straight into question one. Ask where the campaign comes from
+    first -- the answer decides how many of the questions still need
+    asking, and a rep who has a proposal in hand should never have to
+    retype it. startBlank() is the old behaviour, one click away. */
+ startWireClientSearch();
+ startWireUpload();
+ showStartScreen();
 })();
 
 
