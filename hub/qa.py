@@ -1521,15 +1521,31 @@ def google_accounts() -> dict:
 
     st = google_index.status()
     if st["never_built"]:
+        # NOT an empty `rows` list with a note. qa_report.html renders any
+        # report with no rows as "Nothing to report — all clear ✓" and returns
+        # before it ever reaches the note, so the most careful wording in the
+        # world was being replaced on screen by a green tick saying the
+        # opposite. `unavailable` is rendered instead of the all-clear, which
+        # is the whole difference between "we looked and it is fine" and "we
+        # could not look".
+        detail = ""
+        if st["last_error"]:
+            detail = (f" The last attempt, at {st['last_attempt']}, failed: "
+                      f"{st['last_error']}")
+        elif st["last_attempt"]:
+            detail = f" Last attempted at {st['last_attempt']}."
         return {
             "columns": ["Platform", "Resource", "Mapped to", "Matched on",
                         "Google login", "Domains"],
             "rows": [],
-            "note": ("The Google account index has never been built, so there "
-                     "is nothing to list — this is not the same as having no "
-                     "accounts. It rebuilds every three hours; you can also "
-                     "run it now from /diagnostics → Background jobs → "
-                     "google_index."),
+            "unavailable": {
+                "message": ("The Google account index has not been built yet, "
+                            "so there is nothing to list. This is NOT the same "
+                            "as having no Google accounts — nothing has swept "
+                            "them yet." + detail),
+                "action_label": "Build the index now",
+                "action_post": "/api/google/rebuild",
+            },
         }
 
     rows, styles = [], []
@@ -1564,6 +1580,24 @@ def google_accounts() -> dict:
         errs = (f" {len(st['errors'])} connected account(s) failed during the "
                 f"sweep, so their resources are missing from this list: "
                 + ", ".join(str(e.get("email") or "?") for e in st["errors"][:5]) + ".")
+    if not rows:
+        return {
+            "columns": ["Platform", "Resource", "Mapped to", "Matched on",
+                        "Google login", "Domains"],
+            "rows": [],
+            "unavailable": {
+                "message": (f"The index was built {st['built_at']} but found "
+                            f"no Google resources at all across "
+                            f"{len(st['accounts'])} connected login(s). That "
+                            f"is worth investigating rather than reading as "
+                            f"all-clear: either no account is connected, or "
+                            f"the sweep is being refused."
+                            + (f" Errors: {st['errors']}" if st["errors"] else "")),
+                "action_label": "Re-run the sweep",
+                "action_post": "/api/google/rebuild",
+            },
+        }
+
     return {
         "columns": ["Platform", "Resource", "Mapped to", "Matched on",
                     "Google login", "Domains"],

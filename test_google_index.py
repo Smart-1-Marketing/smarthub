@@ -288,6 +288,77 @@ check("and the scheduler is what runs it",
       "google_index" in scheduler.JOBS, True)
 
 
+section("An empty report says which kind of empty it is")
+# The bug this guards: qa_report.html renders ANY report with no rows as
+# "Nothing to report — all clear ✓" and returns before it reaches the note.
+# So a report that could not look was showing a green tick saying the
+# opposite. Reports that cannot look must set `unavailable`, which the page
+# renders instead of the all-clear.
+from hub import qa                                       # noqa: E402
+from hub import jsonstore as _js                         # noqa: E402
+
+_js.write_json(gi._path(), {"built_at": "", "items": [], "accounts": [],
+                            "errors": []})
+rep = qa.google_accounts()
+check("a never-built index does not return bare empty rows",
+      bool(rep.get("unavailable")), True)
+check("...and never claims all-clear", rep["rows"], [])
+check("...and offers a way to fix it",
+      rep["unavailable"]["action_post"], "/api/google/rebuild")
+check("...and says it is not the same as having no accounts",
+      "NOT the same" in rep["unavailable"]["message"], True)
+
+# Built, swept, and genuinely found nothing is also not all-clear.
+_js.write_json(gi._path(), {"built_at": "2026-08-24T09:00:00+00:00",
+                            "items": [], "accounts": [], "errors": []})
+rep = qa.google_accounts()
+check("a built-but-empty index is flagged too",
+      bool(rep.get("unavailable")), True)
+check("...and says it is worth investigating",
+      "investigating" in rep["unavailable"]["message"], True)
+
+# With rows, the normal table comes back and nothing is flagged.
+_js.write_json(gi._path(), payload)
+rep = qa.google_accounts()
+check("a populated index renders a table", len(rep["rows"]), 4)
+check("...and sets no unavailable flag", rep.get("unavailable"), None)
+
+
+section("A failed build leaves a reason, and does not wipe a good index")
+good = dict(payload)
+_js.write_json(gi._path(), good)
+
+
+class _Broken:
+    @staticmethod
+    def get_index(force=False):
+        raise RuntimeError("Google said no")
+
+    @staticmethod
+    def connected_accounts():
+        return [{"email": "a@b.com"}]
+
+
+import sys                                              # noqa: E402
+sys.modules["gf_app"] = _Broken
+try:
+    res = gi.build(force=True)
+finally:
+    sys.modules.pop("gf_app", None)
+
+check("the build reports failure", res["ok"], False)
+check("and names the cause", "RuntimeError" in res["error"], True)
+st = gi.status()
+check("the reason is stored where a reader sees it",
+      "Google said no" in st["last_error"], True)
+check("the attempt is timestamped", bool(st["last_attempt"]), True)
+# Yesterday's accounts, clearly labelled stale, beat no accounts at all.
+check("a failed sweep does NOT wipe the previous index", st["resources"], 4)
+check("...which still reads as built", st["never_built"], False)
+rep = qa.google_accounts()
+check("so the report still lists them", len(rep["rows"]), 4)
+
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
