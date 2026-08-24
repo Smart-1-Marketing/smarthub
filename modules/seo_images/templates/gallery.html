@@ -111,6 +111,8 @@ function render(rows){
           <div class="m">${r.page ? esc(r.page) + ' · ' : ''}${r.width?r.width+'×'+r.height+' · ':''}${kb(r.bytes)}<br>${esc(r.saved_at||'')} · ${esc(r.saved_by||'')}</div>
         </div>
         <div class="acts">
+          <a class="lnk" href="api/gallery/download?id=${encodeURIComponent(r.id)}"
+             title="Download this file, named ${esc(r.filename)}">&#8681; Download</a>
           <a class="lnk" data-copy="${esc(r.id)}">Copy URL</a>
           <a class="lnk" data-tag="${esc(r.id)}">Copy &lt;img&gt;</a>
         </div>

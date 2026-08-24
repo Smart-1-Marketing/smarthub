@@ -435,6 +435,19 @@ topic list, the default author and the client's guardrails, read by the planner,
 the writer, the client document and the CMS panel alike, the same way
 `hub/proposal_spec.py` is read by four things at once.
 
+**The settings are visible before there is anything to plan.** The Blogs card
+used to appear only once blogs were switched on in Client Setup, which hid the
+author, the guardrails and the approved-topic list — the things filled in
+*before* planning — until after something had been planned. The card is always
+shown now, says when blogs are off, and opens its settings panel while it is
+still empty. A collapsed panel is exactly as invisible as no panel to somebody
+who does not know it is there.
+
+**A plan made before the taxonomy existed can gain one.** Re-planning would do
+it and would also replace every title and discard written copy, so
+`blog_tag_posts()` fills in categories and tags and touches nothing else —
+otherwise those rows read "not set" forever with nothing to do about it.
+
 **Categories are structure; tags are detail.** A model asked for "categories
 and tags" invents a fresh category almost every time, and twelve posts arrive
 under twelve categories — a sidebar of one-post categories that helps nobody.
@@ -443,6 +456,13 @@ returns goes through `clamp_taxonomy()`, which keeps the known ones, allows at
 most **one** new category per post, dedupes case-insensitively and caps the
 counts. The client's set grows deliberately and slowly. Same clamp on the edit
 route, or the rule holds only until someone types into the box.
+
+**The approved-topic upload sits beside the planning question.** It spent a
+release inside the collapsed settings panel, where nobody found it. What a
+setting *changes* decides where it lives: the author and the guardrails are
+set-and-forget and belong in a drawer; the approved list changes what the next
+plan contains, so it sits in the Blogs card in its own panel, above the button
+that acts on it, saying what is loaded without anything being opened.
 
 **An approved topic is reproduced, not paraphrased.** A topic list a client
 signed off in advance is a commitment. `parse_approved_topics()` reads the
@@ -470,19 +490,43 @@ someone rewrites it. It strips the HTML first: scanning raw markup matched
 guidance box still goes to the model unchecked, because most of it is context —
 how they operate, what they are licensed for, how the warranty works.
 
-## Publishing is a panel, not a button
+## Publishing is a prompt, not a panel and not a button
 
-Every blog post and every JSON-LD block we produce has to be typed into a CMS by
-a person. Smart 1 Sites (the Simvoly whitelabel) exposes projects, plans and
-websites through its API — not blog content — and a client's WordPress is
-someone else's server with someone else's plugins on it. So `hub/cms_publish.py`
-does not pretend to publish. **Browse Smart 1 Sites** and **Browse WordPress**
-sit on both the blog table and the schema table: tick what you are publishing,
-the CMS opens in a new window, and the panel beside it holds that CMS's steps in
-order with every field copy-ready — title, slug, meta description, categories,
-tags, author, featured image, body HTML, or the script block for a schema page.
+Every blog post, JSON-LD block, FAQ accordion and alt tag we produce has to be
+typed into a CMS by somebody. Smart 1 Sites (the Simvoly whitelabel) exposes
+projects, plans and websites through its API — not page content — and a
+client's WordPress is someone else's server with someone else's plugins on it.
+So `hub/cms_publish.py` does not publish, and it no longer asks a rep to retype
+thirty fields either. **It writes a prompt for Claude in Chrome.**
 
-Three things that follow:
+**Claude → Smart 1 Sites** and **Claude → WordPress** sit on the blog table,
+the schema table, the FAQ table and the alt-text table. Tick what is going up,
+the CMS opens in a new window, and the panel hands back one block of text: the
+rules, how that CMS behaves, and the finished content. The rep signs in, pastes
+it into the Claude side panel on that tab, and approves each action.
+
+What that changes about what a good output is:
+
+- **The prompt carries the content, not a description of it.** The browser
+  agent cannot see this Hub, so "add the blog post" is useless — the whole body
+  HTML, the slug, the categories and the author have to be in the pasted text.
+- **It carries the rules that stop it improvising.** Approved copy is
+  reproduced, not paraphrased. A missing field is reported, not guessed at. A
+  category that does not exist is created with the exact name rather than filed
+  under the nearest match. Nothing is published; everything stops as a draft
+  for a human. An agent left to its own judgment on any of those produces
+  something plausible that nobody approved.
+- **It never carries a credential.** This Hub stores the site login and
+  password under Client Setup, and interpolating them into a block of text
+  destined for a chat window is the easiest possible mistake to make here. The
+  human signs in first; the prompt says so and tells the agent not to ask.
+  `test_alt_text.py` asserts no stored credential reaches any of the eight
+  CMS × kind prompts.
+- **The field-by-field list stays underneath it.** Claude in Chrome is not on
+  every machine, and a rep fixing one field should not have to dig it out of a
+  wall of prompt text.
+
+Three things that follow, unchanged from when this was a paste panel:
 
 - **Nothing is invented.** With no site URL on the client there is no WordPress
   admin to open, and the panel says which setting is missing. A guessed
@@ -494,17 +538,97 @@ Three things that follow:
   gives at length — and two projects on one domain returns the search rather
   than picking one, because the wrong pick edits another client's website.
 - **A field with no home says so.** Simvoly's blog has categories and no tag
-  field; the tags still travel, labelled as having nowhere to go, rather than
-  disappearing because there was no box.
+  field; the prompt tells the agent to say so rather than put the tags
+  somewhere else.
+- **Where an FAQ block goes on the page is asked, not left to the agent.**
+  "Somewhere sensible" is how an accordion lands above the hero on one page and
+  in a sidebar on the next. The panel offers the positions (`PLACEMENTS`,
+  default: the last section before the footer) and the answer is written into
+  the prompt as an instruction. Changing it rebuilds the prompt rather than
+  patching the text — a panel showing one position while the clipboard holds
+  another is the worst version of this.
 
 The window is opened in the click handler, before the fetch — a `window.open()`
 inside a promise callback is a popup the browser blocks, and a blocked popup
 looks exactly like a button that does nothing.
 
-`test_blog_publish.py` asserts all of it: the clamp, the approved titles
-surviving verbatim, the never-mention check firing on the copy and *not* on a
-class name, the flag reaching the document and the panel, and no admin URL
-being invented.
+## Alt text is read from the site, not invented for it
+
+`hub/alt_text.py`. The Schema Builder and the FAQ Builder both read a client's
+own pages and hand the result to a CMS; alt text was the gap, and it is the
+finding an audit reports most often because fixing it by hand means opening
+every page and writing a sentence per image.
+
+**The first five sitemap pages, by default.** A crawl is one request per page
+against somebody else's server, and a 200-page site is 200 requests before a
+word is written. Five is the home page plus the top-level service pages on
+almost every site we build. The limit is a parameter so a second pass can go
+deeper deliberately, rather than a default that hammers a client's host.
+
+**`alt` absent and `alt=""` are different answers.** An empty alt is a decision
+— this image is decorative — and a missing one is an omission. Report both as
+`""` and every genuinely missing alt hides inside a list of images that were
+already handled correctly, which is exactly the number the audit is counting.
+
+**A decorative image keeps its empty alt.** The whole rewrite path exists to
+fill in blanks, so the one case where blank is *correct* has to survive it: a
+1px spacer described as "air conditioning repair in Dublin" is worse than the
+spacer with no alt at all. `is_decorative()` reads `role="presentation"`, the
+filename hints a builder emits, and a tiny declared size.
+
+**Three of the writing rules are enforced, not requested.** Length (both
+engines and every screen reader truncate around 125 characters), the "image
+of" preamble (a screen reader already says it is an image), and stripped
+markup. Asked politely, a model gets each of them wrong often enough to matter,
+so `_clean_alt()` runs over whatever comes back — and over anything typed by
+hand in the panel, or the rule holds only until someone edits the box.
+
+The output is the same two shapes as schema: **See the code**, which prints the
+old tag and the new one because a find-and-replace needs the string that is
+actually in the file, and the two Claude buttons above.
+
+## Getting a file back out is storage's job, not each module's
+
+`hub/storage.attachment_url()` and `hub/storage.bundle_zip()`. Three modules
+were solving this separately and a fourth was about to.
+
+**A cross-origin `download` attribute does nothing.** Browsers ignore it, so an
+`<a download href="https://res.cloudinary.com/…">` opens the image in a tab and
+the button reads as broken. `fl_attachment` is what actually works — Cloudinary
+sends `Content-Disposition` — and the name after the colon is what the file is
+called on the way down. In the SEO Image Pipeline that is the whole point of
+the tool: a file that lands in Downloads as `v1699_xk3.webp` has lost the work.
+`attachment_url()` rewrites a Cloudinary delivery URL and returns anything else
+unchanged rather than into something that 404s.
+
+**More than one file is a zip, not a loop.** A browser blocks every download
+after the first when they are triggered in sequence, so the person gets one
+file, no error, and no reason to think anything went wrong. `bundle_zip()`
+fetches each stored file, de-duplicates names (two images can genuinely share
+one, and a zip silently keeps only the last), skips what it cannot fetch into a
+`MISSING.txt` *and* returns that list so the page can say so too, and caps both
+file count and total bytes — this streams through the Hub, and an unbounded
+"select all" on a thousand-row archive is the one request that takes two
+gunicorn workers down.
+
+**A zip is delivery, and delivery is what Cloudinary bills.** A credit is a
+gigabyte delivered, so `bundle_zip()` records the bytes it pulled rather than
+the number of files — counting files would make a 40 KB thumbnail and a 4 MB
+hero cost the same on the usage page. Single downloads redirect to the CDN
+instead, so they cost the Hub nothing and are not counted here.
+
+The SEO Image Pipeline's saved step and its project archive both offer download
+of one or several, and the archive's row actions are icons — download, copy
+URL, edit alt, delete — each carrying a rollover that says what it does and, for
+delete, that it cannot be undone. An icon with no label is a guess.
+
+**Every archive row needs an id.** The row's buttons all address it by one, and
+the Image Optimizer's save path wrote rows without it: those images appeared in
+the archive and then ignored every button on their row. `load_archive()`
+backfills once on the first read that finds one missing.
+
+`test_image_download.py` asserts all of it, including that the image picker
+still returns a zip now that it runs on the shared builder.
 
 ## A GPT ad is five deliverables, and four of them used to arrive separately
 
@@ -695,6 +819,8 @@ python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
+python3 test_image_download.py     # image downloads, the shared zip builder
+python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives

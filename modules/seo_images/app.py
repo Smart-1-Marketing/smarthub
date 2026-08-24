@@ -120,7 +120,24 @@ _index_lock = threading.Lock()
 # backup. Same atomic write as before, plus a copy that outlives the disk.
 def load_archive() -> list[dict]:
     data = jsonstore.read_json(_INDEX_PATH, default=[])
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        return []
+    # Every row needs an id or it cannot be copied, edited, downloaded or
+    # deleted — the table's buttons all address a row by id. The Image
+    # Optimizer's save path wrote rows without one, so those images appeared
+    # in the archive and then ignored every button on their row. Backfilled
+    # once, on the first read that finds one missing.
+    fixed = False
+    for row in data:
+        if isinstance(row, dict) and not row.get("id"):
+            row["id"] = secrets.token_hex(8)
+            fixed = True
+    if fixed:
+        try:
+            save_archive(data)
+        except Exception:                 # noqa: BLE001
+            pass          # the ids are still right for this request
+    return data
 
 
 def save_archive(rows: list[dict]):
@@ -679,6 +696,7 @@ def api_save_one():
         # alongside everything else rather than only existing in Cloudinary.
         rows = load_archive()
         rows.insert(0, {
+            "id": secrets.token_hex(8),
             "company": company, "url": url,
             "public_id": result.get("public_id", ""),
             "filename": upload.filename, "alt_text": "",
@@ -842,6 +860,67 @@ def api_gallery_update():
                 print("cloudinary context update failed:", exc)
     save_archive(rows)
     return jsonify({"ok": True, "row": hit})
+
+
+@app.route("/api/gallery/download")
+def api_gallery_download_one():
+    """One file, downloaded rather than opened.
+
+    A redirect to Cloudinary with fl_attachment on it, so the bytes go
+    straight from the CDN to the browser and never through here. The name
+    after the flag is the SEO filename, which is the whole point of the tool —
+    a file that lands in Downloads as "v1699_xk3.webp" has lost the work.
+    """
+    rid = (request.args.get("id") or "").strip()
+    row = next((r for r in load_archive() if r.get("id") == rid), None)
+    if row is None:
+        return jsonify({"error": "Not found."}), 404
+    from flask import redirect
+    from hub import storage
+    url = storage.attachment_url(row.get("url", ""),
+                                 row.get("filename") or row.get("seo_filename") or "")
+    if not url:
+        return jsonify({"error": "That record has no stored file."}), 404
+    _log("image_downloaded", detail=row.get("company", ""),
+         name=row.get("filename", ""))
+    return redirect(url)
+
+
+@app.route("/api/gallery/download.zip")
+def api_gallery_download_zip():
+    """Several files as one zip.
+
+    Opening each in its own tab is blocked by every popup blocker past the
+    first, which looks like a button that half works. Built through
+    hub.storage.bundle_zip so this and the image picker share one
+    implementation — and so the bytes pulled through the Hub are counted
+    against the Cloudinary estimate instead of being invisible.
+    """
+    raw = (request.args.get("ids") or "").strip()
+    wanted = [i.strip() for i in raw.split(",") if i.strip()][:200]
+    if not wanted:
+        return jsonify({"error": "Nothing was selected."}), 400
+    by_id = {r.get("id"): r for r in load_archive() if r.get("id")}
+    rows = [by_id[i] for i in wanted if i in by_id]
+    if not rows:
+        return jsonify({"error": "None of those images are in the archive."}), 404
+
+    from hub import storage
+    blob, missing = storage.bundle_zip(
+        [{"url": r.get("url", ""),
+          "filename": r.get("filename") or (r.get("seo_filename", "image") + ".webp")}
+         for r in rows], bucket="seo_images")
+
+    company = str(rows[0].get("company") or "images")
+    same = all(str(r.get("company") or "") == company for r in rows)
+    stamp = _dt.date.today().isoformat()
+    fname = f"{slugify(company if same else 'smart1', 'images')}-images-{stamp}.zip"
+    _log("images_downloaded", detail=company if same else "mixed",
+         count=len(rows) - len(missing))
+    from flask import Response
+    return Response(blob, mimetype="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Length": str(len(blob))})
 
 
 @app.route("/api/gallery/export")
