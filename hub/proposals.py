@@ -492,3 +492,60 @@ def local_file_path(name: str) -> str | None:
         return None
     path = os.path.join(_local_dir(), name)
     return path if os.path.isfile(path) else None
+
+
+def proposals_for(client: str) -> dict:
+    """Both kinds of proposal on one client, kept apart rather than merged.
+
+    A quote built here has a number, a revision and a status this Hub owns.
+    An uploaded proposal is a file with a date on it. Flattening the two into
+    one row shape means inventing values for half the columns, and an invented
+    "Draft" on a document nobody here drafted is the sort of confident wrong
+    answer this codebase treats as worse than an error. So they come back
+    labelled and the page groups them.
+    """
+    want = re.sub(r"[^a-z0-9]+", "", str(client or "").lower())
+    out = {"client": client, "saved": [], "uploaded": [], "note": "", "count": 0}
+    if not want:
+        return out
+
+    # Saved quotes, from the live builder's table.
+    try:
+        from modules.sales_builder.app import Quote, SessionLocal
+        db = SessionLocal()
+        try:
+            for q in (db.query(Quote)
+                        .order_by(Quote.updated_at.desc()).limit(400).all()):
+                if re.sub(r"[^a-z0-9]+", "", str(q.client or "").lower()) != want:
+                    continue
+                out["saved"].append({
+                    "id": str(q.id),
+                    "quote_number": q.quote_number or "",
+                    "status": q.status or "",
+                    "products": q.products_summary or "",
+                    "monthly": q.monthly_budget or 0,
+                    "updated": q.updated_at.isoformat() if q.updated_at else "",
+                })
+        finally:
+            db.close()
+    except Exception:                                   # noqa: BLE001
+        out["note"] = "Saved proposals could not be read."
+
+    # Proposals written elsewhere and uploaded onto the client record.
+    try:
+        from hub import proposals as hub_proposals
+        for rec in hub_proposals.list_proposals(client):
+            out["uploaded"].append({
+                "id": rec.get("id", ""),
+                "title": rec.get("title") or rec.get("filename", ""),
+                "filename": rec.get("filename", ""),
+                "date_sent": rec.get("date_sent", ""),
+                "value": rec.get("value", 0),
+                "kind": rec.get("kind", ""),
+                "readable": bool(rec.get("url")),
+            })
+    except Exception:                                   # noqa: BLE001
+        out["note"] = (out["note"] + " Uploaded proposals could not be read.").strip()
+
+    out["count"] = len(out["saved"]) + len(out["uploaded"])
+    return out

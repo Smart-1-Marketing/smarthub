@@ -872,6 +872,7 @@ python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude p
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
+python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 ```
 
 The test files need no pytest and no new dependencies; each runs against a

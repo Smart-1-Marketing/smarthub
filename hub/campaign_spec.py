@@ -33,6 +33,7 @@ Deliberately:
 """
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -284,6 +285,82 @@ def from_last_io(client: str) -> CampaignSpec | None:
         spec.confidence[k] = AGREED
     spec.recalculate()
     return spec
+
+
+def from_quote(proposal_id: str) -> CampaignSpec | None:
+    """A spec from a proposal the live builder saved.
+
+    There is one Proposal Builder and it keeps quotes in ``quotes``, not in
+    ``modules.proposal_builder.store`` -- that module is the retired tool's
+    read-only archive. Looking only there is how a proposal picker ships
+    empty for every proposal written since the consolidation while appearing
+    to work, which is exactly what happened to the landing maker. Callers
+    should try this first and fall back to the archive, because both kinds of
+    document are real proposals real clients received.
+
+    Marked PROPOSED, not AGREED: a quote is what was offered. What the client
+    actually bought is the question the IO exists to ask.
+    """
+    if not str(proposal_id or "").strip().isdigit():
+        return None
+    db = None
+    try:
+        from modules.sales_builder.app import Quote, SessionLocal
+        db = SessionLocal()
+        q = db.query(Quote).filter(Quote.id == int(proposal_id)).first()
+        if not q:
+            return None
+        try:
+            state = json.loads(q.data or "{}")
+        except (ValueError, TypeError):
+            state = {}
+
+        spec = from_client(q.client or "") if q.client else CampaignSpec()
+        spec.stage = "proposal"
+        spec.source = f"proposal {q.quote_number or proposal_id}"
+        spec.client = q.client or spec.client
+
+        # The quote's own columns are the campaign as it was sold, so they
+        # win over anything the client record inferred.
+        for attr, val in (("website", q.website), ("industry", q.industry),
+                          ("campaign", state.get("campaign") or q.package),
+                          ("objectives", q.goals_summary),
+                          ("geo", q.geo_summary)):
+            if val:
+                setattr(spec, attr, val)
+                spec.confidence[attr] = PROPOSED
+        for attr in ("city", "state", "audience", "start", "end",
+                     "contact_name", "contact_email", "contact_phone"):
+            if state.get(attr):
+                setattr(spec, attr, state[attr])
+                spec.confidence[attr] = PROPOSED
+
+        try:
+            spec.monthly_total = float(q.monthly_budget or 0)
+            if spec.monthly_total:
+                spec.confidence["monthly_total"] = PROPOSED
+                spec.totals_stated = True
+        except (TypeError, ValueError):
+            pass
+
+        # products_summary is the line-up on the proposal the client received.
+        # No amount per line, so the money stays on the total rather than
+        # being split into figures nobody quoted.
+        for name in [p.strip() for p in str(q.products_summary or "").split(",")
+                     if p.strip()]:
+            spec.items.append(LineItem(product=name, confidence=NEEDS))
+
+        spec.notes = ("Loaded from a saved proposal. The figures are what was "
+                      "quoted, not what was agreed.")
+        return spec
+    except Exception:                                   # noqa: BLE001
+        return None
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:                           # noqa: BLE001
+                pass
 
 
 def from_proposal_text(text: str, client: str = "") -> CampaignSpec:
