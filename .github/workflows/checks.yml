@@ -205,6 +205,18 @@ jobs:
             echo "test_video_library.py not on this branch — nothing to run."
           fi
 
+      - name: Web ticket field tests
+        # The pinned object_107 ids, the form built from them, and what a
+        # write may and may not contain. Guarded like the steps above so this
+        # workflow stays mergeable on a branch that predates the file. Needs
+        # no Knack credentials — the requests seam is stubbed.
+        run: |
+          if [ -f test_web_tickets.py ]; then
+            python test_web_tickets.py
+          else
+            echo "test_web_tickets.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a

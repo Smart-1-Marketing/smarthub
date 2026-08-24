@@ -29,6 +29,7 @@
 {% block scripts %}
 <script src="/ask-analytics.js"></script>
 <script src="/campaign-request.js"></script>
+<script src="/web-ticket.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const user_name={{ (user or '')|tojson }};
@@ -1037,7 +1038,11 @@ function render(g,q){
     };
   }
 
-  // ---------- Web tickets: list + create ----------
+  // ---------- Web tickets: list, create, manage ----------
+  // The form itself lives in /web-ticket.js. It draws every field object_107
+  // carries — type, billing, media partner, web services — from the live
+  // object, because the four boxes that used to be here left the rest of the
+  // ticket blank on everything Client 360 raised.
   function loadTickets(){
     const dom=web0&&web0.domain?web0.domain:'';
     fetch('/api/client/tickets?name='+encodeURIComponent(name)+'&website='+encodeURIComponent(dom))
@@ -1046,60 +1051,34 @@ function render(g,q){
         if(d.error){$('c-tickets').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
         const ts=d.tickets||[];
         if(!ts.length){$('c-tickets').innerHTML='<div class="empty">No web tickets for this client yet — create one from any website record above or with "+ New web ticket".</div>';return}
-        $('c-tickets').innerHTML='<table><thead><tr><th>Ticket</th><th>Website</th><th>Status</th><th>Date</th></tr></thead><tbody>'+
-          ts.slice(0,5).map(t=>`<tr><td><b>${esc(t.title)}</b>${t.description?'<div class="muted" style="font-size:12px">'+esc(t.description.slice(0,110))+'</div>':''}</td>
+        const shown=ts.slice(0,5);
+        $('c-tickets').innerHTML='<table><thead><tr><th>Ticket</th><th>Type</th><th>Website</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>'+
+          shown.map((t,i)=>{
+            const sh=t.shown||{};
+            const bill=String(sh.billable||'').toLowerCase();
+            return `<tr><td><b>${esc(t.title)}</b>${t.description?'<div class="muted" style="font-size:12px">'+esc(t.description.slice(0,110))+'</div>':''}</td>
+            <td class="muted">${esc(sh.type||'')}${bill&&bill!=='no'&&bill!=='false'?' <span class="pill neutral">billable</span>':''}</td>
             <td class="muted">${esc(t.website)}</td>
-            <td>${t.status?'<span class="pill neutral">'+esc(t.status)+'</span>':''}</td>
-            <td class="muted">${esc(t.date)}</td></tr>`).join('')+'</tbody></table>'
+            <td>${t.status?'<span class="pill neutral">'+esc(t.status)+'</span>':''}${sh.developer?'<div class="muted" style="font-size:12px">'+esc(sh.developer)+'</div>':''}</td>
+            <td class="muted">${esc(t.date)}</td>
+            <td><a class="open-link tick-edit" data-i="${i}" style="cursor:pointer">Manage</a></td></tr>`;
+          }).join('')+'</tbody></table>'
           +(ts.length>5?'<div class="muted" style="font-size:12px;padding-top:6px">'+(ts.length-5)+' more in Smart 1 Team</div>':'');
+        document.querySelectorAll('.tick-edit').forEach(el=>{
+          el.onclick=()=>{
+            if(!window.WebTicket){alert('The ticket form failed to load. Reload the page and try again.');return}
+            window.WebTicket.manage({ticket:shown[Number(el.dataset.i)],client:name,user:user_name,onsaved:loadTickets});
+          };
+        });
       }).catch(()=>{$('c-tickets').innerHTML='<div class="empty">Web tickets unavailable.</div>'});
   }
   loadTickets();
   function openTicketModal(site,domain){
-    let m=document.getElementById('tickModal');
-    if(m)m.remove();
-    m=document.createElement('div');
-    m.id='tickModal';
-    m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
-    m.innerHTML=`<div style="background:#fff;border-radius:14px;width:560px;max-width:100%;display:flex;flex-direction:column">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line)">
-        <b style="color:var(--navy)">New Web Ticket — ${esc(site||name)}</b>
-        <button id="tickClose" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>
-      <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">
-        <input id="tickSite" placeholder="Website" value="${esc(domain||'')}" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-        <select id="tickReq" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit"><option value="">Requested by…</option></select>
-        <input id="tickSubject" placeholder="Subject — what needs done?" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-        <textarea id="tickDesc" rows="5" placeholder="Details for the web team…" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit"></textarea>
-      </div>
-      <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding:12px 18px;border-top:1px solid var(--line)">
-        <span id="tickMsg" class="muted" style="font-size:12px"></span>
-        <a class="btn-primary" id="tickSend" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Send to Smart 1 Team</a></div></div>`;
-    document.body.appendChild(m);
-    m.onclick=e=>{if(e.target===m)m.remove();};
-    document.getElementById('tickClose').onclick=()=>m.remove();
-    // requested-by names from Knack (objects 161 + 109), same as campaign requests
-    fetch('/api/knack/people').then(r=>r.json()).then(p=>{
-      const sel=document.getElementById('tickReq');
-      if(!sel)return;
-      const names=(p&&p.names)||[];
-      sel.innerHTML='<option value="">Requested by…</option>'
-        +names.map(n=>`<option value="${esc(n)}"${n===user_name?' selected':''}>${esc(n)}</option>`).join('');
-      if(!names.length) sel.innerHTML+=`<option value="${esc(user_name)}" selected>${esc(user_name)}</option>`;
-    }).catch(()=>{});
-    document.getElementById('tickSend').onclick=()=>{
-      const subject=document.getElementById('tickSubject').value.trim();
-      if(!subject){document.getElementById('tickMsg').textContent='Subject is required.';return;}
-      document.getElementById('tickMsg').textContent='Sending…';
-      fetch('/api/client/tickets',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({client:name,website:document.getElementById('tickSite').value.trim(),
-          subject:subject,description:document.getElementById('tickDesc').value.trim(),
-          requested_by:document.getElementById('tickReq').value})})
-        .then(r=>r.json()).then(d=>{
-          if(d.error){document.getElementById('tickMsg').textContent=d.error;return;}
-          m.remove();
-          loadTickets();          // the new ticket appears at the bottom
-        });
-    };
+    if(!window.WebTicket){
+      alert('The ticket form failed to load. Reload the page and try again.');
+      return;
+    }
+    window.WebTicket.open({client:name,site:site,domain:domain,user:user_name,onsaved:loadTickets});
   }
   document.querySelectorAll('.web-ticket').forEach(btn=>{
     btn.onclick=()=>openTicketModal(btn.dataset.site,btn.dataset.domain);

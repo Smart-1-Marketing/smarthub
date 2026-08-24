@@ -43,8 +43,10 @@ DUE_DAYS_SCHEMA = int(os.environ.get("SEO_TASK_SCHEMA_DAYS", "5"))
 BLOG_LEAD_DAYS = int(os.environ.get("SEO_TASK_BLOG_LEAD_DAYS", "2"))
 
 # object_107's Type of Ticket (field_2973) is a dropdown, and Knack rejects a
-# value that is not one of its choices. Left unset unless someone names one,
-# because a guess here fails the whole write rather than one field.
+# value that is not one of its choices. Left unset unless someone names one.
+# A wrong value no longer costs the ticket — create_ticket checks it against
+# the live choices and refuses the field instead — but it does still mean
+# these tickets reach the queue untyped, and the refusal is reported below.
 TICKET_TYPE = os.environ.get("SEO_TASK_TICKET_TYPE", "").strip()
 
 
@@ -130,6 +132,13 @@ def _raise_ticket(client: str, website: str, title: str, body: str,
     except Exception as exc:                            # noqa: BLE001
         # The caller's own work has already succeeded by the time we get here.
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:200]}
+
+    # Anything Knack would have refused is named rather than dropped — an
+    # SEO_TASK_TICKET_TYPE that is not one of the object's choices otherwise
+    # goes unwritten with nothing to say so.
+    refused = created.get("rejected") or []
+    if refused:
+        note = (note + " " if note else "") + "Not written: " + "; ".join(refused)
 
     return {"ok": True, "id": created.get("id") or (created.get("record") or {}).get("id"),
             "due": due.isoformat(), "note": note}
