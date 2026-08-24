@@ -153,6 +153,15 @@ jobs:
             echo "test_api_usage.py not on this branch — nothing to run."
           fi
 
+      - name: Google account index tests
+        # Guarded like the step above, for the same reason.
+        run: |
+          if [ -f test_google_index.py ]; then
+            python test_google_index.py
+          else
+            echo "test_google_index.py not on this branch — nothing to run."
+          fi
+
       - name: Proposal specification and creative gate tests
         run: |
           if [ -f test_proposal_spec.py ]; then

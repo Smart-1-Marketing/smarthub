@@ -32,6 +32,12 @@
         <a href="/google/history">📜 History & Logs</a>
       </nav>
 
+      {% set lookup_platform = 'ga4' %}
+      {% set lookup_label = 'Analytics property' %}
+      {% set lookup_fill = {'resource_id': '#comp-property-id',
+                            'google_login': '#comp-login'} %}
+      {% include "_client_lookup.html" %}
+
       <!-- GA4 NATURAL LANGUAGE "ASK ANALYTICS" -->
       <div id="ask-analytics" class="manual-lookup-card" style="margin-top:20px;">
         <h3>💬 Ask Analytics a Question Directly</h3>

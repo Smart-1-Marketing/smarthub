@@ -3,6 +3,7 @@ import os
 import random
 import secrets
 import sqlite3
+import threading
 import time
 import re
 import logging
@@ -340,6 +341,11 @@ def fetch_ga_items(access_token, google_login):
                         "account_name": account_name,
                         "account_id": account_id,
                         "resource_id": property_id,
+                        # A GA4 property summary carries no website URL at
+                        # all, so this is empty by nature and not by omission.
+                        # hub/google_index.py reports a name match on these as
+                        # weaker for exactly that reason.
+                        "domains": [],
                         "search_extra": f"{property_name} {account_name} {property_id}",
                         "google_login": google_login,
                         "open_url": f"https://analytics.google.com/analytics/web/#/p{property_id}" if property_id else "",
@@ -360,6 +366,17 @@ def fetch_ga_items(access_token, google_login):
 _GTM_MIN_INTERVAL = float(os.environ.get("GTM_MIN_INTERVAL_SECONDS") or 0.35)
 _GTM_MAX_RETRIES = int(os.environ.get("GTM_MAX_RETRIES") or 4)
 _gtm_last_call = [0.0]
+# gunicorn runs --threads 8, so the pacing below was being read and written by
+# eight threads at once: each could see the same "last call" timestamp, each
+# decide no wait was needed, and all eight fire together — which is the burst
+# the pacing exists to prevent. The lock is held across the sleep on purpose.
+# Serialising Tag Manager calls is the entire point; a lock that let them
+# overlap would pace nothing.
+#
+# Two WORKERS are a separate problem a lock cannot solve, and the fix for that
+# is not here: hub/scheduler.py sweeps under the leader lock, so only one
+# worker builds the index and only one paces itself against Google.
+_gtm_lock = threading.Lock()
 
 
 def gtm_get(access_token, url, params=None):
@@ -369,10 +386,11 @@ def gtm_get(access_token, url, params=None):
     sends the first burst too fast and just moves the failures later.
     """
     for attempt in range(_GTM_MAX_RETRIES):
-        gap = time.time() - _gtm_last_call[0]
-        if gap < _GTM_MIN_INTERVAL:
-            time.sleep(_GTM_MIN_INTERVAL - gap)
-        _gtm_last_call[0] = time.time()
+        with _gtm_lock:
+            gap = time.time() - _gtm_last_call[0]
+            if gap < _GTM_MIN_INTERVAL:
+                time.sleep(_GTM_MIN_INTERVAL - gap)
+            _gtm_last_call[0] = time.time()
         try:
             return google_get(access_token, url, params=params)
         except Exception as exc:                        # noqa: BLE001
@@ -438,6 +456,12 @@ def fetch_gtm_items(access_token, google_login):
                         "account_id": account_id,
                         "resource_id": public_id or container_id,
                         "internal_container_id": container_id,
+                        # Explicit, rather than left to be scraped back out of
+                        # search_extra: these domains are how a container gets
+                        # joined to a client, and a join key hidden inside a
+                        # free-text search blob is a join key nothing can rely
+                        # on.
+                        "domains": list(c.get("domainName") or []),
                         "search_extra": f"{domains} {container_name} {public_id}",
                         "google_login": google_login,
                         "open_url": f"https://tagmanager.google.com/#/container/accounts/{account_id}/containers/{container_id}" if account_id and container_id else "",
@@ -522,6 +546,7 @@ def fetch_gmb_items(access_token, google_login):
                         "account_name": account_name,
                         "account_id": account_id,
                         "resource_id": loc_id,
+                        "domains": [website_url] if website_url else [],
                         "search_extra": f"{website_url} {address_str} {claimed_status}".strip(),
                         "google_login": google_login,
                         "open_url": f"https://business.google.com/dashboard/l/{loc_id}" if loc_id else "https://business.google.com/",
@@ -552,6 +577,9 @@ def fetch_gsc_items(access_token, google_login):
                 "account_name": f"Permission: {permission}",
                 "account_id": site_url,
                 "resource_id": site_url,
+                # A Search Console property IS a domain, which makes these
+                # the hardest join in the index.
+                "domains": [clean_domain] if clean_domain else [],
                 "search_extra": f"{clean_domain} {permission}",
                 "google_login": google_login,
                 "open_url": f"https://search.google.com/search-console?resource_id={urlencode({'': site_url})[1:]}",

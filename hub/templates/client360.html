@@ -309,10 +309,27 @@ function render(g,q){
     const gtmM=w.gtm?(String(w.gtm).match(/GTM-[A-Z0-9]+/i)||[])[0]:null;
     if(gtmM&&!gTerms.includes(gtmM))gTerms.push(gtmM);
   });
-  Promise.all(gTerms.slice(0,7).map(t=>
-    fetch('/google/api/search?q='+encodeURIComponent(t))
-      .then(r=>r.status===401?{noauth:true}:r.json()).then(d=>Object.assign({term:t},d)).catch(()=>null)
-  ).concat([
+  // ONE read of the stored Google index, not one live search per term.
+  //
+  // This used to fan out up to seven /google/api/search calls. Each of those
+  // calls get_index(), which on a cold worker sweeps four Google APIs across
+  // every connected login — and the Tag Manager half of that sweep paces
+  // itself at 0.35s per call against 150+ accounts. Seven of them fired at
+  // once, on a page a rep opens to glance at a client. The index is now built
+  // every three hours by the scheduler under the leader lock, and this is a
+  // dictionary lookup.
+  Promise.all([
+    fetch('/api/google/for-client?name='+encodeURIComponent(name)+
+          '&url='+encodeURIComponent(window.__c360domain||''))
+      .then(r=>r.json())
+      .then(d=>{
+        const items=[];
+        ['ga4','gtm','gsc','gbp'].forEach(k=>(d[k]||[]).forEach(it=>items.push(it)));
+        // never_built is not "this client has nothing" — say which it is.
+        return {term:'(index)', results:items, never_built:d.never_built,
+                stale:d.stale};
+      }).catch(()=>null)
+  ].concat([
     // manually attached accounts always show, even when no search term matches
     fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).then(la=>{
       const att=(la||{}).attached||{};
@@ -329,13 +346,15 @@ function render(g,q){
   ])).then(all=>{
     all=all.filter(Boolean);
     if(all.some(a=>a.noauth)){$('c-google').innerHTML='<div class="empty">No Google accounts connected — <a href="/google/">connect in the Google module</a>.</div>';maybeTraffic(name,[]);return}
+    const idx=all.find(a=>a&&a.term==='(index)')||{};
+    if(idx.never_built){$('c-google').innerHTML='<div class="empty">The Google account index has not been built yet — it rebuilds every three hours, or now from <a href="/diagnostics">Diagnostics</a>. This is not the same as this client having no Google accounts.</div>';maybeTraffic(name,[]);return}
     const seen=new Set(),res=[];
     all.forEach(a=>(a.results||[]).forEach(it=>{
       const k=(it.platform||'')+'|'+(it.resource_id||'')+'|'+(it.google_login||'');
       if(!seen.has(k)){seen.add(k);it._via=a.term;res.push(it);}
     }));
     maybeTraffic(name,res);
-    if(!res.length){$('c-google').innerHTML='<div class="empty">No GA4/GTM matches for '+gTerms.map(t=>'\u201c'+esc(t)+'\u201d').join(', ')+' \u2014 you can search &amp; attach one in the Traffic Summary card below.</div>';return}
+    if(!res.length){$('c-google').innerHTML='<div class="empty">Nothing in the Google index is mapped to this client \u2014 you can search &amp; attach one in the Traffic Summary card below, or see <a href="/qa/google-accounts">QA \u2192 Google Accounts &amp; Mapping</a> for resources that could not be joined to anyone.</div>';return}
     res.sort((a,b)=>(b._attached?1:0)-(a._attached?1:0));
     $('c-google').innerHTML=res.slice(0,10).map(it=>`
       <div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
