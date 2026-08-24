@@ -68,7 +68,7 @@ def _furniture(canvas, doc):
     canvas.restoreState()
 
 
-def build_msa_pdf(sections, launch_times, rate_card_note, company: str,
+def build_msa_pdf(sections, office_closures, rate_card_note, company: str,
                   address: str, signer: str, signed_at: datetime,
                   ip: str = "") -> bytes:
     buf = BytesIO()
@@ -96,14 +96,14 @@ def build_msa_pdf(sections, launch_times, rate_card_note, company: str,
         for para in sec["paragraphs"]:
             flow.append(Paragraph(para, st["p"]))
 
-    # Launch times, in the document rather than behind a link — the signature
-    # covers them, so they have to be part of what was signed.
-    flow.append(Paragraph("Campaign Launch Times", st["h"]))
-    rows = [[Paragraph("<b>Product</b>", st["small"]),
-             Paragraph("<b>Typical launch</b>", st["small"])]]
-    for product, timing in launch_times:
-        rows.append([Paragraph(product, st["small"]),
-                     Paragraph(timing, st["small"])])
+    # Section 6.1.b's closures, in the document rather than behind a link —
+    # the signature covers them, so they have to be part of what was signed.
+    flow.append(Paragraph("Office Closures", st["h"]))
+    rows = [[Paragraph("<b>Day</b>", st["small"]),
+             Paragraph("<b>Support</b>", st["small"])]]
+    for day, hours in office_closures:
+        rows.append([Paragraph(day, st["small"]),
+                     Paragraph(hours, st["small"])])
     table = Table(rows, colWidths=[2.1 * inch, w - 2 * MARGIN - 2.1 * inch])
     table.setStyle(TableStyle([
         ("LINEBELOW", (0, 0), (-1, -1), 0.4, LINE),
@@ -115,15 +115,16 @@ def build_msa_pdf(sections, launch_times, rate_card_note, company: str,
     flow.append(table)
     flow.append(Spacer(1, 8))
 
-    flow.append(Paragraph("Rate Card", st["h"]))
+    flow.append(Paragraph("Wholesale Rate Card", st["h"]))
     flow.append(Paragraph(rate_card_note, st["p"]))
 
     # --- signature ---------------------------------------------------
     flow.append(Spacer(1, 16))
     flow.append(Paragraph("Accepted and agreed", st["h"]))
     flow.append(Paragraph(
-        "The signer confirms they have read and agree to the rate card and to "
-        "the campaign launch times set out above.", st["p"]))
+        "The signer confirms they have read and agree to this Agreement, "
+        "including the Wholesale Rate Card terms and the office closures set "
+        "out above.", st["p"]))
     flow.append(Spacer(1, 6))
     flow.append(Paragraph(signer, st["sig"]))
     flow.append(Paragraph(

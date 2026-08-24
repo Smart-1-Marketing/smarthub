@@ -5,17 +5,24 @@ Replaces the Smart1 Solutions page. What it does:
   1. Client fills in company name and address.
   2. Those values drop into the agreement text live, so they're reading the
      document as it will be signed rather than a template with blanks.
-  3. Two checkboxes — the rate card, and the launch times.
+  3. Two checkboxes — the Agreement including the Wholesale Rate Card
+     terms, and the office closures.
   4. They type their name as a signature.
   5. A PDF is generated, stored, and the link is attached to the lead.
   6. They download it.
 
 ## Deliberate differences from the original
 
-**Launch times aren't linked out.** The original pointed at a separate
-Campaign Launch Times page. Agreeing to something that lives behind a link
-you may not have opened is a weak agreement — the times are on this page,
-above the checkbox that refers to them.
+**The closures aren't linked out.** Section 6.1.b of the agreement refers to
+the days support is unavailable. Agreeing to something that lives behind a
+link you may not have opened is a weak agreement, so the table is on this
+page, above the checkbox that refers to it.
+
+**The rate card is not.** Section 6.1.a says rates change, on notice, at most
+once a year — so a copy pasted into this file would be the version current
+when the file was last edited, presented to a client as though it were
+today's. The clause is quoted; the card itself stays the separate document
+the clause says it is.
 
 **No email.** The PDF link is saved on the lead instead. Nobody has to trust
 that a message arrived, and the copy is findable months later against the
@@ -79,7 +86,7 @@ def _rate_limited(bucket: str, limit: int) -> bool:
 # The agreement
 # ---------------------------------------------------------------------------
 #
-# PASTE THE REAL MSA TEXT HERE. Structure:
+# This is the executed MSA text, transcribed as given. Structure:
 #
 #   ("Heading", ["paragraph", "paragraph", ...]),
 #
@@ -88,39 +95,334 @@ def _rate_limited(bucket: str, limit: int) -> bool:
 #
 # Nothing else is interpreted, so an ordinary contract can be pasted almost
 # verbatim. Keep the placeholders spelled exactly as above.
+#
+# ## Two things about this text that are deliberate
+#
+# **The counterparty is the signer.** The source document named Smart 1
+# Marketing itself as "Partner", because it was written when TS Newstart and
+# Smart 1 Marketing were two entities and Smart 1 was the one buying
+# trafficking services. Now that it is one entity trading as the other, that
+# wording would have every client signing an agreement between Smart 1
+# Marketing and Smart 1 Marketing, naming the client nowhere -- and the
+# {company} and {address} fields the page collects would appear in the
+# document not at all. So "Partner" is the signing company. Anything else
+# makes this page a form that produces a contract about somebody else.
+#
+# **Cross-references are left as they were written.** Section 5.3 says "this
+# Section 4" and section 10 cites "Section 4" for confidentiality and
+# "Section 7" for the clause that is actually section 8. Those are errors in
+# the source, but correcting a cross-reference in an executed agreement is a
+# legal edit, not a typo fix, so they are transcribed unchanged and flagged
+# instead. Section 7.3 also refers to an "exhibit A" that is not part of the
+# text supplied.
 
 MSA_BODY: list[tuple[str, list[str]]] = [
-    ("1. Parties", [
-        "This Master Services Agreement (\"Agreement\") is entered into on "
-        "{date} between Smart 1 Marketing (\"Smart 1\") and {company}, "
-        "located at {address} (\"Client\").",
+    ("Parties", [
+        "This Master Services Agreement (\"Agreement\") is between {company}, "
+        "located at {address}, and its Affiliates (collectively \"Partner\") "
+        "and TS Newstart, LLC DBA Smart 1 Marketing (\"S1M\"). This Agreement "
+        "is entered into this {date} (the \"Effective Date\").",
+    ]),
+    ("Recitals", [
+        "A. S1M is in the business of providing digital trafficking services.",
+        "B. Partner desires to engage the services of S1M in connection with "
+        "its digital sales efforts on the terms and conditions provided herein.",
+        "NOW, THEREFORE, the parties hereto, in consideration of the mutual "
+        "covenants and agreements contained herein and other good and valuable "
+        "consideration, the receipt and sufficiency of which are hereby "
+        "acknowledged, agree as follows:",
+    ]),
+    ("1. Definitions", [
+        "a. \"Services\" means the delivery of ad trafficking services and "
+        "related technical support services as further described herein.",
+        "b. \"Affiliate\" means, with respect to an entity, any entity, whether "
+        "incorporated or not, that controls, is controlled by, or under common "
+        "control with the first entity or its corporate parent, where "
+        "\"control\" (or variants of it) shall mean the ability (whether "
+        "directly or indirectly) to direct the affairs of another by means of "
+        "ownership, contract or otherwise.",
+        "c. \"Partner\" shall mean {company} and all Affiliates.",
     ]),
     ("2. Services", [
-        "PLACEHOLDER — paste the Services section from the current MSA here.",
+        "Subject to the terms and conditions of this Agreement, S1M shall "
+        "provide Services to Partner and Partner hereby engages S1M to provide "
+        "the Services. During the term of the Agreement, S1M agrees, as "
+        "applicable and at its sole cost and expense, to the following:",
+        "1. In rendering all Services, S1M shall act at all times in the best "
+        "interest of Partner and shall not take or permit any action which "
+        "would disparage or bring harm to the name, reputation and goodwill of "
+        "Partner or its business.",
+        "2. The Services: (I) Provide forty (40) hours per week of internet "
+        "order trafficking and optimization for Partner\u2019s digital local, "
+        "national and agency campaigns, which shall also include the "
+        "scheduling of automated reports set up 5 business days after campaign "
+        "launch, Monday through Friday, 8:30 a.m. until 5:30 p.m. EST. "
+        "(II) Provide a defined digital workflow process between S1M and the "
+        "Partner utilizing a S1M digital Insertion Order directed to their "
+        "designated support portal (orders@smart1marketing.com). "
+        "(III) Provide testing of the digital creative assets and attach those "
+        "assets to the corresponding campaigns to complete campaign "
+        "trafficking. In addition, S1M will provide feedback to Partner\u2019s "
+        "Digital Group or the client/agency directly if assets either do not "
+        "meet specifications or incur problems during testing. (IV) Provide "
+        "weekly outstanding digital assets reports for Partner\u2019s digital "
+        "campaigns. (V) Consulting and review of services for best practices "
+        "and optimization of content and revenue.",
+        "3. To the extent reasonably practicable, and when advised in writing "
+        "by the Partner as to the specific policy, S1M shall render all "
+        "services consistent with Partner policies.",
     ]),
-    ("3. Fees and Rate Card", [
-        "PLACEHOLDER — paste the Fees section here.",
+    ("3. Payments", [
+        "1. Payment Terms: On or about the first day of each month, S1M will "
+        "invoice Partner for Total Cost owed to S1M for the previous calendar "
+        "month. Any discounts or credits issued will be applied to the "
+        "following month\u2019s invoice. Partner agrees to pay according to the "
+        "term below:",
+        "\u2003a. NET 30 Terms: Partner pays this invoice in full within thirty "
+        "(30) days following the date of the invoice.",
+        "2. Non-Payment: If Partner does not pay the invoice within thirty (30) "
+        "days following the date of the invoice, interest of 3.5% per month "
+        "will be charged on the overdue balance owed to S1M.",
+        "3. Cancellation of Overdue Accounts: S1M reserves the right to suspend "
+        "or terminate services if invoices are more than 90 days overdue, but "
+        "will provide Partner within five (5) business days notice to cure such "
+        "default.",
+        "4. Refunds: Any request for a refund should be made to "
+        "admin@smart1marketing.com. All approved refunds will be made by check "
+        "and only to the address as provided by the Partner.",
+        "5. Credit Card Payments: Payments via credit card will be assessed a "
+        "3.5% convenience fee for each transaction.",
     ]),
-    ("4. Term and Termination", [
-        "PLACEHOLDER — paste the Term section here.",
+    ("4. Term", [
+        "This Agreement will become effective as of the date referenced above "
+        "and shall continue for an initial period of one (1) year "
+        "(\"term\"). This Agreement will auto-renew annually for subsequent "
+        "one (1) year periods (the initial one-year period and each subsequent "
+        "renewal period being a \"Term\"). Partner will provide a written "
+        "sixty (60) day notice prior to auto-renew for non-renewal of services.",
+    ]),
+    ("5. Confidentiality", [
+        "1. Partner obligations: Partner acknowledges that the terms and "
+        "conditions of this Agreement, and any other information provided to "
+        "Partner by S1M marked as \"Confidential\" and/or \"Proprietary\" "
+        "incorporate confidential and proprietary information developed by, "
+        "acquired by, or licensed to S1M. Partner and its Affiliates will take "
+        "all reasonable precautions necessary to safeguard the confidentiality "
+        "of the S1M Information. Neither Partner nor its Affiliates will "
+        "disclose, in whole or in part, any part of the S1M Information to any "
+        "individual or entity, except to those of Partner\u2019s employees or "
+        "consultants who require access for Partner\u2019s authorized use of the "
+        "S1M and agree to comply with the use and nondisclosure restrictions "
+        "applicable to the S1M Confidential Information under this Agreement.",
+        "2. S1M Obligations: S1M acknowledges that, during the Term it will "
+        "have access to Partner\u2019s confidential clientele information, "
+        "Partner and clientele trademarks and other information uploaded by "
+        "Partner to S1M for the purpose of order and creative insertion and "
+        "that such information is confidential and proprietary (\"Partner "
+        "Confidential Information\"). S1M will take all reasonable precautions "
+        "necessary to safeguard the confidentiality of the Partner and "
+        "clientele Confidential Information and prevent the disclosure of the "
+        "Partner and clientele Confidential Information to any individual or "
+        "entity, except to those employees of S1M who require access in "
+        "connection with the provision of the Services hereunder.",
+        "3. Exceptions: the confidentiality obligations set forth in this "
+        "Section 4 shall not apply, or shall cease to apply, to information "
+        "which (I) was publicly available at the time of disclosure to the "
+        "other party, or (II) becomes generally known to the public after "
+        "disclosure to the other party, through no fault of the other party, or "
+        "(III) is disclosed under force of law, governmental regulation or "
+        "court order.",
+    ]),
+    ("6. Service Level Agreement", [
+        "1. Partner acknowledges and understands that except as otherwise "
+        "provided in this Agreement, S1M does not warrant that the services "
+        "will be uninterrupted or error free and that S1M may occasionally "
+        "experience an outage due to internet disruptions or commit an error "
+        "upon order or creative entry. Subject to the foregoing, except for "
+        "system upgrades, the Services provided shall be fully functional and "
+        "operational not less than ninety-seven percent (97%) of the time, "
+        "eight (8) hours per day, Monday through Friday.",
+        "\u2003a. Service Pricing:",
+        "\u2003\u20031. Partner is provided with a Wholesale Rate Card. Service "
+        "Provider will invoice based on the wholesale pricing shown.",
+        "\u2003\u20032. For items on the Rate Card that require a Custom Quote, "
+        "Service Provider will return pricing as a Retail cost to Partner.",
+        "\u2003\u20033. Hourly rates will be invoiced in increments no lower than "
+        "15 minutes.",
+        "\u2003\u20034. Rates are determined by industry demand. Rates are subject "
+        "to change. Changes will be communicated 30 days prior to "
+        "implementation.",
+        "\u2003\u20035. There will be no more than 1 rate change per year. Any such "
+        "rate increase shall not be effective as to existing contracts for a "
+        "term of ninety (90) days following implementation of the new rate.",
+        "\u2003b. Office Closures: there will be no support available on the days "
+        "set out in the Office Closures table below.",
+        "\u2003\u2003S1M also reserves the right for up to 3 additional office "
+        "closures throughout the year. Partner will be sent written "
+        "notification a minimum of 2 weeks in advance with 1 follow up the week "
+        "prior and a reminder the day before.",
+    ]),
+    ("7. Partner Obligations", [
+        "Partner agrees with the following:",
+        "1. Separate written Nondisclosure agreement exists between S1M and "
+        "Partner. That agreement will control and apply according to its terms "
+        "and conditions to all confidential information.",
+        "2. Partner is responsible for the accuracy, quality, and legality of "
+        "the contracts sent to S1M and the means by which they were acquired.",
+        "3. The Partner shall provide reasonable assistance, cooperation, "
+        "timely decisions and support in connection with the provision of "
+        "Services by S1M. Please see exhibit A.",
+        "4. Creative Asset access to digital creative versus server based "
+        "and/or log-ins to Partner creative producers.",
+        "5. Partner shall pay each invoice no later than thirty (30) days after "
+        "receipt.",
+    ]),
+    ("8. Force Majeure", [
+        "To the extent S1M is prevented from performing any of its obligations "
+        "hereunder due to circumstances reasonably beyond its control "
+        "(including, but not limited to, the action or inaction of any "
+        "governmental, civil, or military authority; a strike, lockout or other "
+        "labor dispute; or a fire, flood, war, riot, theft, earthquake or other "
+        "natural disaster, acts of terrorism or other civil disturbance) and "
+        "not involving such party\u2019s negligence, such party shall not be "
+        "liable to the other party for any losses or damages arising out of "
+        "such non-performance. In the event a party hereto is prevented from "
+        "meeting its obligations by such circumstances, and such party is "
+        "unable to provide assurances that recovery will occur within five (5) "
+        "days, or recovery fails to occur within five (5) days, the other party "
+        "hereto shall have the right to terminate this Agreement, effective "
+        "thirty (30) days upon delivery of written notice of the same to the "
+        "other party, and no party shall be liable to any other arising out of "
+        "such termination, except for obligations existing prior to such "
+        "termination.",
+    ]),
+    ("9. Independent Contractor", [
+        "Nothing in this Agreement shall create any joint venture or "
+        "principal-agent relationship between Partner and S1M. No other person "
+        "shall be deemed to be a third party beneficiary of this Agreement. S1M "
+        "agrees to furnish the Services as provided herein as an independent "
+        "contractor using its own means. S1M shall select and shall have full "
+        "and complete control of and responsibility for all employees employed "
+        "or used by S1M in the conduct of S1M independent business and none of "
+        "said employees shall be, or be deemed to be, the employee of Partner "
+        "for any purpose whatsoever, and Partner shall have no duty, liability "
+        "or responsibility, of any kind, to or for the acts or omissions of "
+        "such agents or employees of S1M. S1M further agrees to comply with all "
+        "laws governing employees and agrees to accept exclusive liability for "
+        "the payment of any payroll taxes or contributions for unemployment "
+        "insurance or old age pensions or annuities or social security payments "
+        "which are measured by the wages, salaries, or other remuneration paid "
+        "to the employees of S1M. S1M agrees to comply with all valid "
+        "administrative regulations respecting the assumption of liability for "
+        "such taxes and contributions.",
+    ]),
+    ("10. Termination", [
+        "After the initial Term, either party may terminate this Agreement "
+        "prior to expiration of its Term via written notice in advance of at "
+        "least ninety (90) days or immediately in the event of the other "
+        "party\u2019s material breach of the confidentiality obligations set "
+        "forth in Section 4 hereof. Further, either party may terminate this "
+        "Agreement prior to expiration of its Term: (I) in the event of the "
+        "other party\u2019s material breach of any of the provisions hereof and "
+        "the failure of the breaching party to cure such breach to the "
+        "reasonable satisfaction of the non-breaching party within fifteen (15) "
+        "days after receipt of written notice informing it of such material "
+        "breach, (II) in accordance with the provisions of Section 7 hereof, or "
+        "(III) in the event a petition seeking composition of creditors, the "
+        "protection afforded by the United States Bankruptcy Code or benefit of "
+        "other laws affecting the rights of creditors generally is filed by or "
+        "against the other party and such petition remains unstayed or "
+        "undismissed for a period of thirty (30) days. Upon termination of this "
+        "Agreement, all Services provided to the Partner hereunder will "
+        "terminate.",
+    ]),
+    ("11. Intellectual Property", [
+        "S1M shall retain all right, title, and interest, including copyright, "
+        "computer programming code (including object code and source code), and "
+        "creative materials provided under the Agreement. Partner retains all "
+        "right, title and interest in the creative materials (the \"works\") "
+        "subject to S1M\u2019s underlying ownership in the platform and the tools "
+        "and any templates used in connection with the services provided under "
+        "this Agreement. To the extent permissible by applicable law, all such "
+        "works shall be deemed works made for hire under U.S. Copyright law. "
+        "With respect to all other rights of intellectual property of any type "
+        "related to the works, and to the extent any work is not a work made "
+        "for hire, Partner hereby assigns to S1M all right, title, and interest "
+        "in such works and all intellectual property related thereto. S1M may "
+        "use and distribute works as part of its portfolio for promotional "
+        "purposes.",
+    ]),
+    ("12. General", [
+        "The parties agree to indemnify, defend and hold each other harmless "
+        "for liabilities arising or allegedly arising out of the actions or "
+        "omissions of their respective agents. The terms herein are severable "
+        "allegedly arising out of the action or omissions of their respective "
+        "agents. The terms herein are severable and independently enforceable, "
+        "and are to be applied in accord with Ohio law (without regard to "
+        "conflicts of laws principles), with venue and jurisdiction in any "
+        "court of competent jurisdiction located in Franklin County, Ohio. This "
+        "Agreement may be modified only in a signed, written document executed "
+        "by representatives having actual authority to act on behalf of each of "
+        "the parties hereto. This Agreement was subject to negotiation and "
+        "mutual compromise jointly by the parties prior to signature and "
+        "neither party is entitled to any favorable presumptions regarding how "
+        "it is to be interpreted.",
+    ]),
+    ("13. Non-Solicitation", [
+        "1. Employee Non-Solicit: During the term of engagement with S1M and "
+        "for twenty-four (24) months following the termination of services "
+        "contract for any reason Partner agrees not to directly or indirectly, "
+        "hire, solicit, retain, or encourage to leave the employ of S1M (or "
+        "assist any other person or entity in hiring, soliciting, retaining or "
+        "encouraging) any person who is then or was within six (6) months of "
+        "the date of contract end, an employee of S1M.",
+        "2. Customer Non-Solicit: During the contract period and for "
+        "twenty-four (24) months following the termination of services, Partner "
+        "shall not, directly or indirectly, solicit or induce, or attempt to "
+        "solicit or induce, any customer, supplier, licensee, licensor or other "
+        "business relation of S1M to terminate its relationship or contract "
+        "with the Partner, to cease doing business with the Company, or in any "
+        "way interfere with the relationship between any such customer, "
+        "supplier, licensee or business relation and S1M (including making any "
+        "negative statements or communications concerning S1M or their "
+        "employees).",
     ]),
 ]
 
-# Shown above the checkbox that refers to them, rather than behind a link.
-LAUNCH_TIMES: list[tuple[str, str]] = [
-    ("Connected TV / Streaming Audio", "5–7 business days from receipt of "
-                                       "approved creative and tracking access."),
-    ("Paid Search / Paid Social", "3–5 business days from account access."),
-    ("Data-Targeted Display", "5–7 business days from approved creative."),
-    ("Website SEO", "Work begins within 5 business days; results are "
-                    "cumulative over the term."),
-    ("Creative production", "Add 5–10 business days when Smart 1 is producing "
-                            "the creative."),
+# Section 6.1.b refers to this table rather than to a separate page. The
+# agreement's own words, in the agreement, beats a link the signer may not
+# have opened -- which is why the closures are set out here in full.
+#
+# This replaced a table of campaign launch times. Those were never in the
+# MSA: they were written for a draft of this page, and the checkbox beside
+# them asked the signer to agree to "the campaign launch times set out
+# above". Once the real agreement went in, nothing was set out above, and a
+# signed statement of agreement to a document that does not exist is worse
+# than a missing feature.
+OFFICE_CLOSURES: list[tuple[str, str]] = [
+    ("New Year\u2019s Day", "Closed"),
+    ("Memorial Day", "Closed"),
+    ("Independence Day", "Closed"),
+    ("Labor Day", "Closed"),
+    ("Thanksgiving", "Closed"),
+    ("Friday after Thanksgiving (Black Friday)", "Closed"),
+    ("Christmas Eve", "Open 8:30 a.m. \u2013 12:00 p.m."),
+    ("Christmas Day", "Closed"),
+    ("New Year\u2019s Eve", "Open 8:30 a.m. \u2013 12:00 p.m."),
 ]
 
-RATE_CARD_NOTE = ("Pricing follows the Smart 1 rate card in force on the date "
-                  "of signature. Rates are confirmed on each Insertion Order "
-                  "before any campaign begins.")
+# Section 6.1.a, in the signer's own words rather than ours. The rate card is
+# a separate document by design: it changes, on the notice terms the clause
+# sets out, and a copy pasted in here would be the version that was current
+# when this file was last edited.
+RATE_CARD_NOTE = (
+    "Partner is provided with a Wholesale Rate Card and is invoiced on the "
+    "wholesale pricing shown. Items requiring a Custom Quote are returned as "
+    "a Retail cost. Hourly rates are invoiced in increments no lower than 15 "
+    "minutes. Rates are determined by industry demand and are subject to "
+    "change on 30 days\u2019 notice, with no more than one rate change per year; "
+    "a rate increase does not take effect on an existing contract for ninety "
+    "(90) days after implementation. See section 6 above for the full terms.")
 
 
 def _sub(text: str, ctx: dict) -> str:
@@ -145,7 +447,7 @@ def _page(embedded: bool = False) -> str:
                            sections=rendered_body({"company": "{company}",
                                                    "address": "{address}",
                                                    "date": "{date}"}),
-                           launch_times=LAUNCH_TIMES,
+                           office_closures=OFFICE_CLOSURES,
                            rate_card_note=RATE_CARD_NOTE,
                            not_ready=bool(_placeholder_count()),
                            embedded=embedded)
@@ -310,7 +612,7 @@ def sign():
                 ("your name", signer), ("email", email)) if not val]
     if missing:
         return jsonify({"error": "Still needed: " + ", ".join(missing)}), 400
-    if not (body.get("agree_rates") and body.get("agree_launch")):
+    if not (body.get("agree_terms") and body.get("agree_closures")):
         # Both boxes, server-side. A checkbox enforced only in the browser is
         # not evidence that anyone agreed to anything.
         return jsonify({"error": "Both agreements must be accepted."}), 400
@@ -322,7 +624,7 @@ def sign():
 
     from .pdf import build_msa_pdf
     pdf_bytes = build_msa_pdf(
-        sections=rendered_body(ctx), launch_times=LAUNCH_TIMES,
+        sections=rendered_body(ctx), office_closures=OFFICE_CLOSURES,
         rate_card_note=RATE_CARD_NOTE,
         company=company, address=address, signer=signer,
         signed_at=signed_at, ip=_client_ip())
@@ -346,7 +648,7 @@ def sign():
                     "phone": str(body.get("phone") or ""),
                     "company": company, "address": address,
                     "signed_at": signed_at.isoformat(timespec="seconds"),
-                    "agreed_rate_card": "yes", "agreed_launch_times": "yes",
+                    "agreed_agreement": "yes", "agreed_office_closures": "yes",
                     "signed_ip": _client_ip()},
             pdf_url=pdf_url, client=company,
             meta={"agreement": "MSA", "token": token})

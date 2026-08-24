@@ -152,10 +152,10 @@ import modules.msa.app as msa                                 # noqa: E402
 
 signable = dict(company="Acme Marine, LLC", address="120 Harbor Road, Columbus, OH",
                 signer="Dana Reed", email="dana@acmemarine.com",
-                agree_rates=True, agree_launch=True)
+                agree_terms=True, agree_closures=True)
 
 _real_body = msa.MSA_BODY
-msa.MSA_BODY = [("2. Services", ["PLACEHOLDER — paste the Services section."])]
+msa.MSA_BODY = [("2. Services", ["PLACEHOLDER — paste the Services section."])]  # noqa: E501
 check("signing is refused while a clause is PLACEHOLDER",
       client.post("/msa/api/sign", json=signable).status_code, 503)
 check("and the page says so before they fill anything in",
@@ -198,9 +198,71 @@ check("and carries the client, so it lands on their 360 record",
 msa.MSA_BODY = _real_body
 
 
+section("The agreement is the real one")
+
+# The shipped text, not a fixture. This is the section that would have caught
+# the page going live with template clauses in it.
+_shipped = msa.MSA_BODY
+check("no clause is still template text",
+      any("PLACEHOLDER" in par for _, ps in _shipped for par in ps), False)
+check("health says it is ready to sign",
+      client.get("/msa/health").get_json()["ready"], True)
+check("all thirteen numbered sections are present",
+      [h.split(".")[0] for h, _ in _shipped if h[0].isdigit()],
+      [str(n) for n in range(1, 14)])
+
+rendered = " ".join(par for sec in msa.rendered_body(
+    {"company": "Acme Marine, LLC", "address": "120 Harbor Road", "date": "1 May 2026"})
+    for par in sec["paragraphs"])
+
+# The rename, end to end. "TSN" surviving anywhere would leave a client
+# reading an agreement with a party in it they have never heard of.
+check("the retired party abbreviation is gone", "TSN" in rendered, False)
+check("the entity is named in full",
+      "TS Newstart, LLC DBA Smart 1 Marketing" in rendered, True)
+check("and is referred to as S1M thereafter", rendered.count("S1M") > 20, True)
+
+# The crux. "Partner" is the signing company, so the company and address the
+# page collects have to appear IN the agreement -- not just in the signature
+# block. A document that names neither party the client recognises is the
+# failure this whole page exists to avoid.
+check("the signer's company appears in the agreement",
+      "Acme Marine, LLC" in rendered, True)
+check("and its address does too", "120 Harbor Road" in rendered, True)
+check("Partner is defined as the signer, not as Smart 1 Marketing",
+      '"Partner" shall mean Acme Marine, LLC and all Affiliates' in rendered, True)
+check("the effective date is the date signed", "1 May 2026" in rendered, True)
+
+# Terms a client would query. Each is a number that costs somebody money, so
+# a transcription slip in one of them is expensive and silent.
+for label, phrase in (("NET 30 payment terms", "within thirty (30) days"),
+                      ("3.5% monthly interest", "3.5% per month"),
+                      ("90-day suspension right", "more than 90 days overdue"),
+                      ("one-year auto-renewing term", "one (1) year"),
+                      ("60-day non-renewal notice", "sixty (60) day notice"),
+                      ("97% service level", "ninety-seven percent (97%)"),
+                      ("24-month non-solicit", "twenty-four (24) months"),
+                      ("Ohio venue", "Franklin County, Ohio")):
+    check(f"{label} survived transcription", phrase in rendered, True)
+
+
+section("What the signer agrees to is on the page")
+
+body_now = client.get("/msa/embed").get_data(as_text=True)
+check("the office closures are set out, not linked",
+      "Independence Day" in body_now and "Black Friday" in body_now, True)
+check("Christmas Eve shows the half day",
+      "8:30 a.m. \u2013 12:00 p.m." in body_now, True)
+check("the rate card clause is quoted", "Wholesale Rate Card" in body_now, True)
+# The checkbox must describe something that is actually above it. It used to
+# say "campaign launch times set out above" when nothing was.
+check("no checkbox refers to launch times any more",
+      "launch times" in body_now.lower(), False)
+
+
 section("Both boxes are checked on the server")
 
-for missing in ("agree_rates", "agree_launch"):
+for missing in ("agree_terms", "agree_closures"):
     payload = dict(signable)
     payload[missing] = False
     check(f"{missing} unchecked is refused",
