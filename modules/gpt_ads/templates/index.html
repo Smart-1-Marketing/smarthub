@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPT Ads Builder — Smart 1 Hub</title>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
+        --bad:#dc2626;--warn:#b45309;--ok:#16a34a}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
+  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px;max-width:80ch;line-height:1.55}
+  .back{color:var(--blue);text-decoration:none;font-size:13px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+  h2{color:var(--navy);font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:9px}
+  h2 .n{background:var(--navy);color:#fff;width:22px;height:22px;border-radius:50%;
+        display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+  h2 .state{margin-left:auto;font-size:11.5px;font-weight:700;text-transform:uppercase;
+            letter-spacing:.6px;padding:3px 9px;border-radius:20px}
+  .state.ok{background:#dcfce7;color:#166534}
+  .state.warn{background:#fef3c7;color:#92400e}
+  .state.block{background:#fee2e2;color:#991b1b}
+  .req{color:var(--muted);font-size:12.5px;line-height:1.5;margin:-4px 0 13px}
+  label.f{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+  label.f .opt{font-weight:400;color:var(--muted)}
+  input[type=text],input[type=url],input[type=search],input[type=email],select,textarea{
+    width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+    font:13.5px 'Segoe UI',system-ui,sans-serif;background:#fff}
+  textarea{resize:vertical;line-height:1.55}
+  input:focus,select:focus,textarea:focus{outline:2px solid #bfdbfe;outline-offset:-1px;border-color:var(--blue)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:13px}
+  @media(max-width:880px){.grid,.grid3{grid-template-columns:1fr}}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13.5px 'Segoe UI',system-ui,sans-serif;
+       padding:10px 18px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.sm{padding:6px 12px;font-size:12.5px}
+  .btn.danger{background:#fff;color:var(--bad);border:1px solid #fecaca}
+  .msg{font-size:13px;margin-left:10px;color:var(--muted)}
+  .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+  .hint{color:var(--muted);font-size:12px;margin-top:5px;line-height:1.5}
+  .results{border:1px solid var(--line);border-radius:8px;margin-top:6px;max-height:230px;overflow:auto}
+  .results div{padding:8px 11px;cursor:pointer;font-size:13px;border-bottom:1px solid #eef2f7}
+  .results div:last-child{border-bottom:0}
+  .results div:hover{background:var(--soft)}
+  .results .d{color:var(--muted);font-size:11.5px}
+  .ctx{background:var(--soft);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin-top:12px}
+  .ctx h4{margin:0 0 7px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .ctx p{margin:0 0 6px;font-size:12.5px;line-height:1.55}
+  .swatch{display:inline-block;width:15px;height:15px;border-radius:4px;border:1px solid #cbd5e1;
+          vertical-align:-3px;margin-right:4px}
+  .absent{color:var(--warn);font-size:12.5px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  .spacer{flex:1}
+  .opt-row{display:flex;gap:8px;align-items:flex-start;margin-bottom:7px}
+  .opt-row input{flex:1}
+  .chars{font-size:11.5px;color:var(--muted);min-width:62px;padding-top:10px;text-align:right}
+  .chars.over{color:var(--warn)}
+  .flags{margin:2px 0 9px 0;padding:0;list-style:none}
+  .flags li{font-size:12px;line-height:1.5;padding:3px 8px;border-radius:6px;margin-bottom:3px}
+  .flags li.block{background:#fef2f2;color:#991b1b}
+  .flags li.warn{background:#fffbeb;color:#92400e}
+  .thumb{width:150px;height:150px;object-fit:cover;border-radius:10px;border:1px solid var(--line);background:#fff}
+  .imgrow{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  .imgmeta{flex:1;min-width:240px;font-size:12.5px;line-height:1.6}
+  .gal{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;max-height:260px;overflow:auto}
+  .gal img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer}
+  .gal img:hover{border-color:var(--blue)}
+  .gal .sq{outline:2px solid #bbf7d0}
+  .saved{border:1px solid var(--line);border-radius:9px;padding:10px 13px;margin-bottom:8px;
+         display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .saved .who{font-weight:600}
+  .saved .d{color:var(--muted);font-size:12px}
+  .empty{color:var(--muted);font-size:13px}
+  .ver{color:#94a3b8;font-size:11.5px;text-align:right;margin-top:18px}
+  .pill{font-size:11.5px;border-radius:20px;padding:2px 9px;background:#eef2ff;color:#3730a3}
+  .checklist li{margin-bottom:6px;font-size:13px;line-height:1.5}
+  code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/creative">&larr; Creative</a>
+  <h1>GPT Ads Builder</h1>
+  <p class="sub">Everything ad operations asks for in one file: the 1:1 square image, headline,
+    body and call-to-action options, the destination URL checked live, the brand requirements and
+    the offer in the client's own words. Pick a client and the pack starts with what the Hub already
+    knows about them. The image is measured rather than described, and the landing page is fetched
+    rather than ticked &mdash; a pack is only called ready when nothing is outstanding.</p>
+
+  <div class="card">
+    <h2><span class="n">1</span> Client</h2>
+    <div class="grid">
+      <div>
+        <label class="f" for="clientq">Search clients</label>
+        <input type="search" id="clientq" placeholder="Start typing a client name" autocomplete="off">
+        <div class="results" id="results" hidden></div>
+      </div>
+      <div>
+        <label class="f" for="campaign">Campaign <span class="opt">&mdash; what this ad is for</span></label>
+        <input type="text" id="campaign" placeholder="Fall tune-up promotion">
+      </div>
+    </div>
+    <div class="ctx" id="ctx" hidden></div>
+    <div style="margin-top:14px">
+      <button class="btn" id="start">Start a pack</button>
+      <span class="msg" id="startmsg"></span>
+    </div>
+  </div>
+
+  <div id="packArea" hidden>
+    <div class="card">
+      <h2>Readiness <span class="state" id="readyState">&nbsp;</span></h2>
+      <p class="req" id="readySummary"></p>
+      <ul class="checklist" id="readyList"></ul>
+      <div class="bar" style="margin-top:6px">
+        <form method="post" action="/tools/gpt-ads/api/export.zip" id="zipForm" style="display:inline">
+          <input type="hidden" name="id" id="zipId">
+          <button class="btn" type="submit">Download the handoff pack (.zip)</button>
+        </form>
+        <form method="post" action="/tools/gpt-ads/api/export.csv" id="csvForm" style="display:inline">
+          <input type="hidden" name="id" id="csvId">
+          <button class="btn sec" type="submit">Copy sheet only (.csv)</button>
+        </form>
+        <button class="btn sec" id="markReady">Mark ready to traffic</button>
+        <span class="spacer"></span>
+        <button class="btn danger sm" id="deletePack">Delete pack</button>
+        <span class="msg" id="readymsg"></span>
+      </div>
+      <p class="hint">The ZIP carries the square image, <code>ad-copy.csv</code>, a plain-text brief in
+        the requirement sheet's own order, and <code>manifest.json</code>. Anything still outstanding is
+        printed at the top of the brief rather than left for ad ops to notice.</p>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">3</span> Ad copy options <span class="state" id="stCopy">&nbsp;</span></h2>
+      <p class="req" id="reqCopy"></p>
+      <div class="bar">
+        <button class="btn sm" id="genHeadlines">Write headlines</button>
+        <button class="btn sm" id="genBodies">Write body copy</button>
+        <button class="btn sm" id="genCtas">Suggest CTAs</button>
+        <span class="msg" id="copymsg"></span>
+      </div>
+      <div id="copyBlocks"></div>
+      <p class="hint" id="limitNote"></p>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">1</span> Static square image <span class="state" id="stImage">&nbsp;</span></h2>
+      <p class="req" id="reqImage"></p>
+      <div class="imgrow">
+        <img class="thumb" id="thumb" alt="" hidden>
+        <div class="imgmeta" id="imgmeta"><span class="absent">No image attached yet.</span></div>
+      </div>
+      <div class="grid" style="margin-top:14px">
+        <div>
+          <label class="f" for="imageBrief">What should the image show?
+            <span class="opt">&mdash; for generation</span></label>
+          <textarea id="imageBrief" rows="2"
+            placeholder="A technician servicing a furnace in a clean utility room"></textarea>
+          <div class="bar" style="margin-top:9px">
+            <button class="btn sm" id="genImage">Generate a square</button>
+            <button class="btn sec sm" id="clearImage">Remove image</button>
+          </div>
+          <p class="hint">Generated images carry no text: lettering arrives misspelled often enough that a
+            baked-in headline is a rejected ad, which is why copy is a separate deliverable.</p>
+        </div>
+        <div>
+          <label class="f" for="imageAlt">Describe the image for ad ops</label>
+          <input type="text" id="imageAlt" placeholder="Technician checking a furnace burner">
+          <label class="f" for="file" style="margin-top:11px">Or upload the brand-approved file</label>
+          <input type="file" id="file" accept="image/*">
+          <p class="hint">An upload is stored exactly as it arrived &mdash; nothing is re-encoded. A file
+            that is not 1:1 is refused here with its measured size, rather than discovered by ad ops.</p>
+        </div>
+      </div>
+      <div id="galleryWrap"></div>
+      <span class="msg" id="imgmsg"></span>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">3</span> Landing page <span class="state" id="stLanding">&nbsp;</span></h2>
+      <p class="req" id="reqLanding"></p>
+      <div class="grid">
+        <div>
+          <label class="f" for="landingUrl">Final destination URL</label>
+          <input type="url" id="landingUrl" placeholder="https://example.com/offer">
+        </div>
+        <div>
+          <label class="f" for="tracking">Tracking parameters <span class="opt">&mdash; optional</span></label>
+          <input type="text" id="tracking" placeholder="utm_source=chatgpt&amp;utm_medium=cpc">
+        </div>
+      </div>
+      <div class="bar" style="margin-top:12px">
+        <button class="btn sm" id="checkLanding">Check the page is live</button>
+        <span class="msg" id="landmsg"></span>
+      </div>
+      <div class="ctx" id="landingResult" hidden></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">5</span> Offer details <span class="state" id="stOffer">&nbsp;</span></h2>
+      <p class="req" id="reqOffer"></p>
+      <div class="grid">
+        <div>
+          <label class="f" for="offerSummary">Promotion</label>
+          <textarea id="offerSummary" rows="2" placeholder="$89 furnace tune-up, new customers"></textarea>
+        </div>
+        <div>
+          <label class="f" for="offerProduct">Product or service</label>
+          <textarea id="offerProduct" rows="2" placeholder="Residential furnace maintenance"></textarea>
+        </div>
+      </div>
+      <div class="grid3" style="margin-top:12px">
+        <div>
+          <label class="f" for="offerPricing">Pricing</label>
+          <input type="text" id="offerPricing" placeholder="$89 flat">
+        </div>
+        <div>
+          <label class="f" for="offerEligibility">Eligibility</label>
+          <input type="text" id="offerEligibility" placeholder="New customers only">
+        </div>
+        <div>
+          <label class="f" for="offerExpires">Expires</label>
+          <input type="text" id="offerExpires" placeholder="2026-11-30">
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <label class="f" for="offerRestrictions">Restrictions and small print</label>
+        <textarea id="offerRestrictions" rows="2"
+          placeholder="One per household. Excludes commercial systems."></textarea>
+      </div>
+      <p class="hint">Copy is checked against these fields. A price, a percentage, a phone number or a
+        deadline in the ad that is not here is flagged as something nobody authorised &mdash; and an
+        expiry date already in the past stops the pack.</p>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">4</span> Brand requirements <span class="state" id="stBrand">&nbsp;</span></h2>
+      <p class="req" id="reqBrand"></p>
+      <div class="grid">
+        <div>
+          <label class="f" for="logoUrl">Logo URL</label>
+          <input type="url" id="logoUrl" placeholder="https://…/logo.png">
+          <label class="f" for="logoUsage" style="margin-top:11px">Logo usage rules</label>
+          <input type="text" id="logoUsage" placeholder="Full colour on light backgrounds only">
+          <label class="f" for="tone" style="margin-top:11px">Tone</label>
+          <input type="text" id="tone" placeholder="Straightforward, local, no hype">
+          <label class="f" for="colors" style="margin-top:11px">Brand colours
+            <span class="opt">&mdash; comma separated</span></label>
+          <input type="text" id="colors" placeholder="#1a2e58, #f59e0b">
+        </div>
+        <div>
+          <label class="f" for="claims">Approved claims</label>
+          <textarea id="claims" rows="2" placeholder="Licensed and insured since 1998"></textarea>
+          <label class="f" for="disclaimer" style="margin-top:11px">Disclaimers</label>
+          <textarea id="disclaimer" rows="2" placeholder="Offer valid at participating locations"></textarea>
+          <label class="f" for="legal" style="margin-top:11px">Required legal language</label>
+          <textarea id="legal" rows="2" placeholder="NC licence #12345"></textarea>
+          <label class="f" for="avoid" style="margin-top:11px">Never mention</label>
+          <input type="text" id="avoid" placeholder="A competitor, a service they dropped">
+        </div>
+      </div>
+      <div class="grid" style="margin-top:12px">
+        <div>
+          <label class="f" for="approverName">Approval contact</label>
+          <input type="text" id="approverName" placeholder="Dana Whitfield">
+        </div>
+        <div>
+          <label class="f" for="approverEmail">Approval email</label>
+          <input type="email" id="approverEmail" placeholder="dana@example.com">
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <label class="f" for="notes">Notes for ad operations <span class="opt">&mdash; optional</span></label>
+        <textarea id="notes" rows="2" placeholder="Anything the trafficker needs to know"></textarea>
+      </div>
+      <div class="bar" style="margin-top:14px">
+        <button class="btn" id="save">Save pack</button>
+        <span class="msg" id="savemsg"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Saved packs</h2>
+    <div id="saved"><div class="empty">Nothing saved yet.</div></div>
+  </div>
+
+  <p class="ver">Smart 1 Hub {{ version }}</p>
+</div>
+
+<script type="application/json" id="boot">{{ boot|tojson }}</script>
+<script>
+(function(){
+"use strict";
+var BOOT = JSON.parse(document.getElementById("boot").textContent);
+var SPEC = BOOT.spec;
+var state = {client:"", url:"", pack:null, context:null};
+
+function $(id){ return document.getElementById(id); }
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+function say(id, text, kind){
+  var node = $(id);
+  node.textContent = text || "";
+  node.className = "msg" + (kind ? " " + kind : "");
+}
+
+// Root-relative literals, one per route, with the pack id in the body. Written
+// this way so tools/linkcheck.py can check each path against the route table:
+// a URL assembled from a variable is invisible to it, and a relative path is
+// correct only for as long as nobody moves the mount.
+function post(url, body){
+  return fetch(url, {method:"POST", headers:{"Content-Type":"application/json"},
+                     body:JSON.stringify(body || {})})
+    .then(function(r){
+      return r.json().catch(function(){
+        return {ok:false, error:"Server sent something unreadable."};
+      });
+    });
+}
+function get(url){
+  return fetch(url).then(function(r){
+    return r.json().catch(function(){
+      return {ok:false, error:"Server sent something unreadable."};
+    });
+  });
+}
+function withId(body){
+  var out = body || {};
+  out.id = state.pack ? state.pack.id : "";
+  return out;
+}
+
+// ---------------------------------------------------------------- client
+var timer = null;
+$("clientq").addEventListener("input", function(){
+  clearTimeout(timer);
+  timer = setTimeout(searchClients, 220);
+});
+function searchClients(){
+  var q = $("clientq").value.trim();
+  if (q.length < 2) { $("results").hidden = true; return; }
+  get("/tools/gpt-ads/api/clients?q=" + encodeURIComponent(q)).then(function(d){
+    if (!d.ok || !d.clients) { $("results").hidden = true; return; }
+    if (!d.clients.length) {
+      $("results").innerHTML = '<div class="d" style="cursor:default">No client matches that.</div>';
+      $("results").hidden = false;
+      return;
+    }
+    $("results").innerHTML = d.clients.map(function(c){
+      return '<div data-name="' + esc(c.name) + '" data-url="' + esc(c.url) + '">' +
+             esc(c.name) + '<div class="d">' + esc(c.domain || c.url || "no website on file") +
+             "</div></div>";
+    }).join("");
+    $("results").hidden = false;
+  });
+}
+$("results").addEventListener("click", function(ev){
+  var row = ev.target.closest ? ev.target.closest("div[data-name]") : null;
+  if (!row) return;
+  pickClient(row.getAttribute("data-name"), row.getAttribute("data-url") || "");
+});
+function pickClient(name, url){
+  state.client = name;
+  state.url = url;
+  $("clientq").value = name;
+  $("results").hidden = true;
+  loadContext();
+}
+function loadContext(){
+  if (!state.client) return;
+  $("ctx").hidden = false;
+  $("ctx").innerHTML = "<h4>What we already know</h4><p>Looking&hellip;</p>";
+  get("/tools/gpt-ads/api/context?client=" + encodeURIComponent(state.client) +
+      "&url=" + encodeURIComponent(state.url)).then(function(d){
+    if (!d.ok) { $("ctx").innerHTML = "<h4>Client</h4><p class='absent'>" + esc(d.error) + "</p>"; return; }
+    state.context = d.context;
+    renderContext();
+  });
+}
+function renderContext(){
+  var c = state.context || {};
+  var bits = ["<h4>What we already know</h4>"];
+  bits.push("<p><b>" + esc(state.client) + "</b>" +
+            (c.domain ? " &middot; " + esc(c.domain) : "") + "</p>");
+  if (c.description) { bits.push("<p>" + esc(c.description) + "</p>"); }
+  if (c.products && c.products.length) {
+    bits.push("<p>Running with us: " + esc(c.products.join(", ")) + "</p>");
+  }
+  if (c.colors && c.colors.length) {
+    bits.push("<p>" + c.colors.map(function(h){
+      return '<span class="swatch" style="background:' + esc(h) + '"></span>' + esc(h);
+    }).join(" ") + "</p>");
+  }
+  if (c.brand_note) { bits.push('<p class="absent">' + esc(c.brand_note) + "</p>"); }
+  if (c.gallery_note) { bits.push('<p class="absent">' + esc(c.gallery_note) + "</p>"); }
+  else if (c.gallery && c.gallery.length) {
+    bits.push("<p>" + c.gallery.length + " image(s) in their gallery.</p>");
+  }
+  $("ctx").innerHTML = bits.join("");
+}
+
+// ---------------------------------------------------------------- packs
+$("start").addEventListener("click", function(){
+  if (!state.client) { say("startmsg", "Pick a client first.", "err"); return; }
+  say("startmsg", "Starting…");
+  post("/tools/gpt-ads/api/ads/create",
+       {client:state.client, url:state.url, campaign:$("campaign").value.trim()})
+    .then(function(d){
+      if (!d.ok) { say("startmsg", d.error, "err"); return; }
+      say("startmsg", "");
+      adopt(d);
+      loadSaved();
+    });
+});
+
+function adopt(d){
+  state.pack = d.ad;
+  if (d.context) { state.context = d.context; renderContext(); }
+  $("packArea").hidden = false;
+  $("zipId").value = state.pack.id;
+  $("csvId").value = state.pack.id;
+  fillForm();
+  renderReadiness(d.readiness);
+  renderCopy();
+  renderImage();
+  renderLanding();
+  renderGallery();
+}
+
+function fillForm(){
+  var p = state.pack, o = p.offer || {}, b = p.brand || {}, l = p.landing || {};
+  $("campaign").value = p.campaign || "";
+  $("notes").value = p.notes || "";
+  $("imageBrief").value = p.image_brief || "";
+  $("offerSummary").value = o.summary || "";
+  $("offerProduct").value = o.product || "";
+  $("offerPricing").value = o.pricing || "";
+  $("offerEligibility").value = o.eligibility || "";
+  $("offerExpires").value = o.expires || "";
+  $("offerRestrictions").value = o.restrictions || "";
+  $("logoUrl").value = b.logo_url || "";
+  $("logoUsage").value = b.logo_usage || "";
+  $("tone").value = b.tone || "";
+  $("colors").value = (b.colors || []).join(", ");
+  $("claims").value = b.claims || "";
+  $("disclaimer").value = b.disclaimer || "";
+  $("legal").value = b.legal || "";
+  $("avoid").value = b.avoid || "";
+  $("approverName").value = b.approver_name || "";
+  $("approverEmail").value = b.approver_email || "";
+  $("landingUrl").value = l.url || "";
+  $("tracking").value = l.tracking || "";
+  $("imageAlt").value = (p.image || {}).alt || "";
+}
+
+function formPayload(){
+  return withId({
+    campaign: $("campaign").value.trim(),
+    notes: $("notes").value,
+    image_brief: $("imageBrief").value,
+    image_alt: $("imageAlt").value,
+    offer: {
+      summary: $("offerSummary").value, product: $("offerProduct").value,
+      pricing: $("offerPricing").value, eligibility: $("offerEligibility").value,
+      expires: $("offerExpires").value.trim(), restrictions: $("offerRestrictions").value
+    },
+    brand: {
+      logo_url: $("logoUrl").value.trim(), logo_usage: $("logoUsage").value,
+      tone: $("tone").value, claims: $("claims").value,
+      disclaimer: $("disclaimer").value, legal: $("legal").value,
+      avoid: $("avoid").value, approver_name: $("approverName").value.trim(),
+      approver_email: $("approverEmail").value.trim(),
+      colors: $("colors").value.split(",").map(function(s){ return s.trim(); })
+                .filter(function(s){ return s.length > 0; })
+    },
+    landing: {url: $("landingUrl").value.trim(), tracking: $("tracking").value.trim()},
+    copy: collectCopy()
+  });
+}
+
+function save(then){
+  if (!state.pack) return;
+  say("savemsg", "Saving…");
+  post("/tools/gpt-ads/api/ads/save", formPayload()).then(function(d){
+    if (!d.ok) { say("savemsg", d.error, "err"); return; }
+    say("savemsg", "Saved.", "ok");
+    state.pack = d.ad;
+    renderReadiness(d.readiness);
+    renderCopy();
+    renderLanding();
+    loadSaved();
+    if (then) { then(); }
+  });
+}
+$("save").addEventListener("click", function(){ save(null); });
+
+$("deletePack").addEventListener("click", function(){
+  if (!state.pack) return;
+  if (!window.confirm("Delete this pack? The image stays in the client gallery.")) { return; }
+  post("/tools/gpt-ads/api/ads/delete", withId({})).then(function(d){
+    if (!d.ok) { say("readymsg", d.error, "err"); return; }
+    state.pack = null;
+    $("packArea").hidden = true;
+    loadSaved();
+  });
+});
+
+$("markReady").addEventListener("click", function(){
+  if (!state.pack) return;
+  say("readymsg", "Checking…");
+  post("/tools/gpt-ads/api/ads/status", withId({status:"ready"})).then(function(d){
+    if (!d.ok) { say("readymsg", d.error, "err"); return; }
+    say("readymsg", "Marked ready to traffic.", "ok");
+    state.pack = d.ad;
+    renderReadiness(d.readiness);
+    loadSaved();
+  });
+});
+
+// ---------------------------------------------------------------- readiness
+var SECTION_STATE = {image:"stImage", copy:"stCopy", landing:"stLanding",
+                     brand:"stBrand", offer:"stOffer"};
+
+function renderReadiness(r){
+  if (!r) return;
+  var badge = $("readyState");
+  badge.textContent = r.ready ? "ready" : (r.block + " outstanding");
+  badge.className = "state " + (r.ready ? "ok" : "block");
+  $("readySummary").textContent = r.complete + " of " + r.total +
+    " deliverables complete." + (r.warn ? "  " + r.warn + " thing(s) worth a look." : "");
+  var lines = [];
+  r.sections.forEach(function(s){
+    var node = $(SECTION_STATE[s.key]);
+    if (node) {
+      node.textContent = s.state === "ok" ? "complete" : (s.state === "warn" ? "check" : "incomplete");
+      node.className = "state " + s.state;
+    }
+    if (!s.flags.length) {
+      lines.push("<li>&#10003; <b>" + esc(s.label) + "</b> &mdash; complete</li>");
+      return;
+    }
+    lines.push("<li><b>" + esc(s.label) + "</b><ul class='flags'>" +
+      s.flags.map(function(f){
+        return "<li class='" + esc(f.level) + "'>" +
+               (f.level === "block" ? "Must fix: " : "Check: ") + esc(f.message) + "</li>";
+      }).join("") + "</ul></li>");
+  });
+  $("readyList").innerHTML = lines.join("");
+}
+
+// requirement text straight from the spec, so the screen and the sheet agree
+(function(){
+  SPEC.deliverables.forEach(function(d){
+    var node = $("req" + d.key.charAt(0).toUpperCase() + d.key.slice(1));
+    if (node) { node.textContent = d.requirement; }
+  });
+  $("limitNote").textContent = SPEC.limits_source + "  Guidance: headline " +
+    SPEC.limits.headline + ", body " + SPEC.limits.body + ", CTA " +
+    SPEC.limits.cta + " characters.";
+})();
+
+// ---------------------------------------------------------------- copy
+var COPY_KINDS = [
+  {key:"headlines", label:"Headlines", limit:"headline"},
+  {key:"bodies", label:"Body copy", limit:"body"},
+  {key:"ctas", label:"Calls to action", limit:"cta"}
+];
+
+function renderCopy(){
+  var p = state.pack;
+  if (!p) return;
+  var html = COPY_KINDS.map(function(k){
+    var rows = (p.copy || {})[k.key] || [];
+    var need = SPEC.min_options[k.key];
+    var body = rows.map(function(row, i){
+      var text = row.text || "";
+      var over = text.length > SPEC.limits[k.limit];
+      return '<div class="opt-row">' +
+        '<input type="text" data-kind="' + k.key + '" data-i="' + i + '" value="' + esc(text) + '">' +
+        '<span class="chars' + (over ? " over" : "") + '">' + text.length + "/" +
+        SPEC.limits[k.limit] + "</span>" +
+        '<button class="btn sec sm" data-drop="' + k.key + '" data-i="' + i + '">Remove</button>' +
+        "</div>" +
+        ((row.flags && row.flags.length) ? "<ul class='flags'>" + row.flags.map(function(f){
+          return "<li class='" + esc(f.level) + "'>" + esc(f.message) + "</li>";
+        }).join("") + "</ul>" : "");
+    }).join("");
+    return '<div style="margin-bottom:16px"><label class="f">' + esc(k.label) +
+      " <span class='opt'>&mdash; " + rows.length + " of at least " + need + "</span></label>" +
+      (body || "<div class='empty'>None yet.</div>") +
+      '<button class="btn sec sm" data-add="' + k.key + '" style="margin-top:6px">Add one</button></div>';
+  }).join("");
+  $("copyBlocks").innerHTML = html;
+}
+
+function collectCopy(){
+  var out = {headlines:[], bodies:[], ctas:[]};
+  var inputs = $("copyBlocks").querySelectorAll("input[data-kind]");
+  Array.prototype.forEach.call(inputs, function(el){
+    var text = el.value.trim();
+    if (text) { out[el.getAttribute("data-kind")].push({text:text}); }
+  });
+  return out;
+}
+
+$("copyBlocks").addEventListener("click", function(ev){
+  var add = ev.target.getAttribute("data-add");
+  var drop = ev.target.getAttribute("data-drop");
+  if (add) {
+    state.pack.copy[add] = collectCopy()[add];
+    state.pack.copy[add].push({text:"", flags:[]});
+    renderCopy();
+  } else if (drop) {
+    var i = parseInt(ev.target.getAttribute("data-i"), 10);
+    var rows = collectCopy()[drop];
+    rows.splice(i, 1);
+    state.pack.copy[drop] = rows;
+    renderCopy();
+    save(null);
+  }
+});
+$("copyBlocks").addEventListener("input", function(ev){
+  if (!ev.target.getAttribute("data-kind")) return;
+  var row = ev.target.parentNode.querySelector(".chars");
+  var kind = ev.target.getAttribute("data-kind");
+  var limitKey = kind === "headlines" ? "headline" : (kind === "bodies" ? "body" : "cta");
+  if (row) {
+    row.textContent = ev.target.value.length + "/" + SPEC.limits[limitKey];
+    row.className = "chars" + (ev.target.value.length > SPEC.limits[limitKey] ? " over" : "");
+  }
+});
+
+function writeCopy(kind, label){
+  if (!state.pack) return;
+  say("copymsg", "Writing " + label + "…");
+  // Saved first: the model is given the offer and brand fields as typed, and
+  // an unsaved box is a fact it never sees.
+  post("/tools/gpt-ads/api/ads/save", formPayload()).then(function(saved){
+    if (!saved.ok) { say("copymsg", saved.error, "err"); return; }
+    state.pack = saved.ad;
+    post("/tools/gpt-ads/api/ads/copy", withId({kind:kind})).then(function(d){
+      if (!d.ok) { say("copymsg", d.error, "err"); return; }
+      state.pack = d.ad;
+      say("copymsg", d.added + " option(s) added.", "ok");
+      renderCopy();
+      renderReadiness(d.readiness);
+      loadSaved();
+    });
+  });
+}
+$("genHeadlines").addEventListener("click", function(){ writeCopy("headlines", "headlines"); });
+$("genBodies").addEventListener("click", function(){ writeCopy("bodies", "body copy"); });
+$("genCtas").addEventListener("click", function(){ writeCopy("ctas", "calls to action"); });
+
+// ---------------------------------------------------------------- image
+function renderImage(){
+  var img = (state.pack || {}).image || {};
+  if (!img.url) {
+    $("thumb").hidden = true;
+    $("imgmeta").innerHTML = "<span class='absent'>No image attached yet.</span>";
+    return;
+  }
+  $("thumb").hidden = false;
+  $("thumb").src = img.url;
+  $("thumb").alt = img.alt || "attached square image";
+  var lines = [
+    "<b>" + img.width + " &times; " + img.height + "</b> &middot; " +
+      esc(String(img.format || "")).toUpperCase() + " &middot; " +
+      Math.round((img.bytes || 0) / 1024) + " KB",
+    "Source: " + esc(img.source || "unknown"),
+    '<a href="' + esc(img.url) + '" target="_blank" rel="noopener">Open the file</a>'
+  ];
+  if (img.mirror_failed) {
+    lines.push("<span class='absent'>Stored on this server's disk rather than Cloudinary &mdash; " +
+               "that link is not one ad ops can open. Re-save once Cloudinary is configured.</span>");
+  }
+  $("imgmeta").innerHTML = lines.map(function(l){ return "<div>" + l + "</div>"; }).join("");
+}
+
+$("genImage").addEventListener("click", function(){
+  if (!state.pack) return;
+  say("imgmsg", "Generating — this takes a few seconds…");
+  post("/tools/gpt-ads/api/ads/image/generate",
+       withId({image_brief: $("imageBrief").value})).then(function(d){
+    if (!d.ok) { say("imgmsg", d.error, "err"); return; }
+    state.pack = d.ad;
+    say("imgmsg", "Attached, and filed in the client gallery.", "ok");
+    renderImage();
+    renderReadiness(d.readiness);
+  });
+});
+
+$("clearImage").addEventListener("click", function(){
+  if (!state.pack) return;
+  post("/tools/gpt-ads/api/ads/image/clear", withId({})).then(function(d){
+    if (!d.ok) { say("imgmsg", d.error, "err"); return; }
+    state.pack = d.ad;
+    renderImage();
+    renderReadiness(d.readiness);
+  });
+});
+
+$("file").addEventListener("change", function(){
+  if (!state.pack || !this.files || !this.files[0]) return;
+  var form = new FormData();
+  form.append("id", state.pack.id);
+  form.append("file", this.files[0]);
+  form.append("alt", $("imageAlt").value);
+  say("imgmsg", "Uploading…");
+  fetch("/tools/gpt-ads/api/ads/image/upload", {method:"POST", body:form})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.ok) { say("imgmsg", d.error, "err"); return; }
+      state.pack = d.ad;
+      say("imgmsg", "Attached.", "ok");
+      renderImage();
+      renderReadiness(d.readiness);
+    })
+    .catch(function(){ say("imgmsg", "That upload failed.", "err"); });
+});
+
+function renderGallery(){
+  var c = state.context || {};
+  if (!c.gallery || !c.gallery.length) { $("galleryWrap").innerHTML = ""; return; }
+  $("galleryWrap").innerHTML = "<label class='f' style='margin-top:14px'>Or pick from " +
+    esc(state.client) + "'s gallery <span class='opt'>&mdash; squares first; every pick is " +
+    "measured before it is attached</span></label><div class='gal' id='gal'>" +
+    c.gallery.map(function(g){
+      return '<img src="' + esc(g.url) + '" alt="' + esc(g.alt || g.label) + '" title="' +
+        esc(g.label || "") + (g.width ? " (" + g.width + "x" + g.height + ")" : "") + '"' +
+        (g.square ? ' class="sq"' : "") + ' data-url="' + esc(g.url) + '" data-pid="' +
+        esc(g.public_id) + '" data-alt="' + esc(g.alt || "") + '">';
+    }).join("") + "</div>";
+}
+$("galleryWrap").addEventListener("click", function(ev){
+  var url = ev.target.getAttribute("data-url");
+  if (!url || !state.pack) return;
+  say("imgmsg", "Measuring that image…");
+  post("/tools/gpt-ads/api/ads/image/gallery",
+       withId({url:url, public_id:ev.target.getAttribute("data-pid"),
+               alt:ev.target.getAttribute("data-alt")})).then(function(d){
+    if (!d.ok) { say("imgmsg", d.error, "err"); return; }
+    state.pack = d.ad;
+    say("imgmsg", "Attached.", "ok");
+    renderImage();
+    renderReadiness(d.readiness);
+  });
+});
+
+// ---------------------------------------------------------------- landing
+$("checkLanding").addEventListener("click", function(){
+  if (!state.pack) return;
+  say("landmsg", "Requesting the page…");
+  post("/tools/gpt-ads/api/ads/landing/check",
+       withId({url: $("landingUrl").value.trim(),
+               tracking: $("tracking").value.trim()})).then(function(d){
+    if (!d.ok) { say("landmsg", d.error, "err"); return; }
+    state.pack = d.ad;
+    say("landmsg", "");
+    renderLanding();
+    renderReadiness(d.readiness);
+  });
+});
+
+function renderLanding(){
+  var l = (state.pack || {}).landing || {};
+  var c = l.check || {};
+  if (l.url && $("landingUrl").value.trim() === "") { $("landingUrl").value = l.url; }
+  if (!c.checked) {
+    $("landingResult").hidden = false;
+    $("landingResult").innerHTML = "<h4>Live and mobile-friendly</h4>" +
+      "<p class='absent'>Not measured. The requirement sheet asks for confirmation, " +
+      "so this stays blank until the page is actually requested.</p>";
+    return;
+  }
+  var mobile = c.mobile === true ? "declares a viewport &mdash; worth a glance on a phone before launch"
+    : (c.mobile === false ? "no viewport declared, so it is probably not mobile-friendly"
+       : "not measured &mdash; the page's markup could not be read");
+  $("landingResult").hidden = false;
+  $("landingResult").innerHTML = "<h4>Live and mobile-friendly</h4>" +
+    "<p>" + (c.ok ? "&#10003; Reachable" : "&#10007; Not reachable") +
+    (c.status ? " &mdash; HTTP " + c.status : "") + ", checked " + esc(c.at || "") + "</p>" +
+    "<p>Mobile: " + mobile + "</p>" +
+    (c.note ? "<p class='absent'>" + esc(c.note) + "</p>" : "");
+}
+
+// ---------------------------------------------------------------- saved
+function loadSaved(){
+  get("/tools/gpt-ads/api/ads").then(function(d){
+    if (!d.ok || !d.ads || !d.ads.length) {
+      $("saved").innerHTML = "<div class='empty'>Nothing saved yet.</div>";
+      return;
+    }
+    $("saved").innerHTML = d.ads.map(function(a){
+      return '<div class="saved"><span class="who">' + esc(a.client) + "</span>" +
+        '<span class="d">' + esc(a.campaign || "no campaign name") + "</span>" +
+        '<span class="pill">' + (a.ready ? "ready" : a.block + " outstanding") + "</span>" +
+        '<span class="d">' + esc(a.updated_at || a.created_at || "") + "</span>" +
+        '<span style="flex:1"></span>' +
+        '<button class="btn sec sm" data-open="' + esc(a.id) + '">Open</button></div>';
+    }).join("");
+  });
+}
+$("saved").addEventListener("click", function(ev){
+  var id = ev.target.getAttribute("data-open");
+  if (!id) return;
+  post("/tools/gpt-ads/api/ads/load", {id:id}).then(function(d){
+    if (!d.ok) { return; }
+    state.client = d.ad.client;
+    state.url = d.ad.url || "";
+    $("clientq").value = state.client;
+    adopt(d);
+    window.scrollTo(0, 0);
+  });
+});
+
+// ---------------------------------------------------------------- boot
+if (BOOT.client) { pickClient(BOOT.client, BOOT.url || ""); }
+if (BOOT.open) {
+  post("/tools/gpt-ads/api/ads/load", {id: BOOT.open}).then(function(d){
+    if (d.ok) {
+      state.client = d.ad.client;
+      state.url = d.ad.url || "";
+      $("clientq").value = state.client;
+      adopt(d);
+    }
+  });
+}
+loadSaved();
+})();
+</script>
+</body>
+</html>

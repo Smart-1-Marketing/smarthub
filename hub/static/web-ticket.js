@@ -1,12 +1,11 @@
 /* New Web Ticket / Manage Ticket — the object_107 form.
  *
  * The four-box modal this replaces sent a title, a website, a description and
- * a name. Everything else object_107 carries — the type of ticket, whether
- * the revision is billable, the media partner and their contact, the web
- * services asked for, the six service checkboxes, the new website URL — was
- * left blank on every ticket Client 360 raised, and the web team filled it in
- * by hand or guessed. The ids for those fields were pinned in
- * hub/knack_api.py; nothing ever asked for their values.
+ * a name. The type of ticket, whether the revision is billable, the media
+ * partner and their contact, and the ready-to-submit answer Knack's workflow
+ * reads were left blank on every ticket Client 360 raised, and the web team
+ * filled them in by hand or guessed. The ids were pinned in hub/knack_api.py;
+ * nothing ever asked for their values.
  *
  * Two things this form does NOT do, both deliberate:
  *
@@ -202,6 +201,17 @@ window.WebTicket = (function () {
           // Exactly one match or none — a near match is not a match. An
           // unmatched client is left for the rep to pick rather than guessed.
           prefill.client = hit.length === 1 ? hit[0].id : '';
+        }
+        if (f.key === 'ready_to_submit') {
+          // Sending the form IS submitting, so this opens on yes — but it is
+          // still a control, because a rep filing something to finish later
+          // must be able to say no. Knack's workflow reads this field, and a
+          // ticket that arrives with it blank sits in nobody's queue.
+          if (f.control === 'boolean') prefill.ready_to_submit = 'yes';
+          else {
+            var yes = (f.choices || []).filter(function (c) { return /^y/i.test(String(c)); });
+            if (yes.length) prefill.ready_to_submit = yes[0];
+          }
         }
       });
 
