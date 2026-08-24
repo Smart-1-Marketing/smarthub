@@ -88,6 +88,13 @@ def upload_pdf(record_id, version, pdf_bytes):
     res = cloudinary.uploader.upload(
         data_uri, resource_type="raw",
         public_id=f"{FOLDER}/pdf/{record_id}-v{version}.pdf", overwrite=True)
+    # One Cloudinary operation, for the credit estimate on /diagnostics.
+    try:
+        from hub import quotas as _q
+        _q.record_asset(module="proposal_builder", nbytes=len(pdf_bytes),
+                        detail=res.get("public_id", ""))
+    except Exception:                         # noqa: BLE001
+        pass
     return res.get("secure_url")
 
 

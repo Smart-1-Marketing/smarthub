@@ -143,6 +143,16 @@ jobs:
             echo "test_target_areas.py not on this branch — nothing to run."
           fi
 
+      - name: API usage estimate tests
+        # Guarded like the steps around it so this workflow stays mergeable on
+        # a branch that predates the file.
+        run: |
+          if [ -f test_api_usage.py ]; then
+            python test_api_usage.py
+          else
+            echo "test_api_usage.py not on this branch — nothing to run."
+          fi
+
       - name: Proposal specification and creative gate tests
         run: |
           if [ -f test_proposal_spec.py ]; then

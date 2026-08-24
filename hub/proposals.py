@@ -305,6 +305,13 @@ def add_proposal(client: str, filename: str, data: bytes, date_sent: str = "",
             context={"client": client, "filename": filename},
         )
         url, storage = res.get("secure_url", ""), "cloudinary"
+        # One Cloudinary operation, for the credit estimate on /diagnostics.
+        try:
+            from hub import quotas as _q
+            _q.record_asset(module="proposals", nbytes=len(data),
+                            detail=public_id)
+        except Exception:                     # noqa: BLE001
+            pass
 
     if not url:                                  # no Cloudinary — keep it on disk
         disk_name = f"{seo.slugify(client)}-{rec_id}{ext}"

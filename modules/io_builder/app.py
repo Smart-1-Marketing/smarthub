@@ -843,6 +843,13 @@ def _store_requirements_pdf(data, doc_type):
         unique_filename=False,
         tags=[client, start, 'smart1_requirements_pdf', doc_type],
     )
+    # One Cloudinary operation, for the credit estimate on /diagnostics.
+    try:
+        from hub import quotas as _q
+        _q.record_asset(module="io_builder", nbytes=len(pdf_bytes),
+                        detail=result.get("public_id", ""))
+    except Exception:                         # noqa: BLE001
+        pass
     if delivery_type == 'authenticated':
         # Return a signed delivery URL so authorized systems (e.g. the GHL workflow) can still fetch it.
         try:

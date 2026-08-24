@@ -246,6 +246,13 @@ def _stage(client: str, post: dict, data: bytes, pending: bool = False) -> dict:
             context={"client": client, "kind": "blog-featured",
                      "post": str(post.get("id")),
                      "status": "pending" if pending else "approved"})
+        # One Cloudinary operation, for the credit estimate on /diagnostics.
+        try:
+            from hub import quotas as _q
+            _q.record_asset(module="blog_images", nbytes=len(data),
+                            detail=res.get("public_id", ""))
+        except Exception:                     # noqa: BLE001
+            pass
         return {"url": res.get("secure_url"), "public_id": res.get("public_id"),
                 "folder": folder}
     except Exception as exc:                            # noqa: BLE001
@@ -326,6 +333,13 @@ def _optimise_and_store(client: str, post: dict, img: dict) -> dict:
             overwrite=False, unique_filename=True,
             context={"client": client, "kind": "blog-featured",
                      "post": str(post.get("id"))})
+        # One Cloudinary operation, for the credit estimate on /diagnostics.
+        try:
+            from hub import quotas as _q
+            _q.record_asset(module="blog_images", nbytes=len(data),
+                            detail=res.get("public_id", ""))
+        except Exception:                     # noqa: BLE001
+            pass
         return {"url": res.get("secure_url"), "bytes": len(data),
                 "folder": folder,
                 "note": f"Optimised to {len(data)//1024} KB and filed under "

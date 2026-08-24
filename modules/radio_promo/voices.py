@@ -205,6 +205,19 @@ def mp3_seconds(data: bytes) -> float | None:
         return None
 
 
+def _note_characters(script: str, voice_id: str) -> None:
+    """Count this read against the monthly ElevenLabs allowance.
+
+    ElevenLabs bills per character of the text sent, so the unit is the length
+    of `script`, not one render — a 60-second read costs five times a tag.
+    """
+    try:
+        from hub import quotas as _q
+        _q.record_tts(script, module="radio_promo", model=MODEL, voice=voice_id)
+    except Exception:                                            # noqa: BLE001
+        pass
+
+
 def render_audio(voice_id: str, script: str, energy: str = "conversational") -> dict:
     """Render to MP3. Returns ``{"audio": bytes, "seconds": float|None,
     "measured": bool}``."""
@@ -221,6 +234,11 @@ def render_audio(voice_id: str, script: str, energy: str = "conversational") -> 
                             headers=_headers({"Content-Type": "application/json"}),
                             json=payload, timeout=180)
         if res.status_code < 400:
+            # Characters are spent the moment ElevenLabs accepts the request,
+            # whether or not the alignment we wanted came back with it. Record
+            # here rather than at the return, or the fall-through below is a
+            # render nobody counted and a second one billed on top of it.
+            _note_characters(script, voice_id)
             body = res.json()
             audio = base64.b64decode(body.get("audio_base64") or "")
             align = body.get("normalized_alignment") or body.get("alignment") or {}
@@ -242,6 +260,7 @@ def render_audio(voice_id: str, script: str, energy: str = "conversational") -> 
         raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).") from exc
     if res.status_code >= 400:
         raise VoiceError(f"ElevenLabs render failed (HTTP {res.status_code}).")
+    _note_characters(script, voice_id)
     return {"audio": res.content, "seconds": mp3_seconds(res.content), "measured": False}
 
 
