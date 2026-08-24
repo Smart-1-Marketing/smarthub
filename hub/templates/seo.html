@@ -33,6 +33,14 @@ table.seo-t tr:hover td{background:#f4f6fa}
 .seo-pill.warn{background:#fef9c3;color:#854d0e}
 .seo-pill.bad{background:#fee2e2;color:#b91c1c}
 .seo-billing{font-weight:700;white-space:nowrap}
+/* The four status pills, stacked 2x2 so the column stays narrow. Each pill
+   fills its half, so the four read as one block rather than a ragged line. */
+.seo-statuscell{width:1%}
+.seo-status{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;min-width:132px}
+.seo-status .seo-pill{margin:0;text-align:center;padding:2px 6px;white-space:nowrap}
+@media(max-width:640px){
+  .seo-status{grid-template-columns:1fr;min-width:0}
+}
 .seo-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
 .seo-sum-tile{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 18px}
 .seo-sum-tile .v{font-size:24px;font-weight:800;color:#1a2e58}
@@ -45,11 +53,16 @@ table.seo-t tr:hover td{background:#f4f6fa}
   var wrap=document.getElementById('seoWrap');
   function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
   function statusDots(st){
+    /* Two by two rather than one nowrap row. Four pills on one line held the
+       Status column at 288px — wider than the client name beside it — and the
+       space came out of every other column: "Riverside HVAC & Air Conditioning
+       LLC" wrapped over four lines and "Website SEO - Premium" broke in two.
+       Stacked, the column is 160px and the rows are a third shorter. */
     var items=[['setup','Setup'],['schema','Schema'],['listings','Listings'],['blogs','Blogs']];
-    return items.map(function(it){
+    return '<div class="seo-status">'+items.map(function(it){
       var on=!!st[it[0]];
-      return '<span class="seo-pill '+(on?'ok':'bad')+'" title="'+it[1]+': '+(on?'yes':'no')+'">'+it[1]+'</span>';
-    }).join('');
+      return '<span class="seo-pill '+(on?'ok':'bad')+'" title="'+it[1]+': '+(on?'done':'not yet')+'">'+it[1]+'</span>';
+    }).join('')+'</div>';
   }
   fetch('/api/seo/clients').then(function(r){return r.json();}).then(function(d){
     if(d.error){wrap.innerHTML='<div class="seo-loading">'+esc(d.error)+'</div>';return;}
@@ -69,7 +82,7 @@ table.seo-t tr:hover td{background:#f4f6fa}
         +'<td>'+esc(c.platform||'—')+'</td>'
         +'<td>'+(c.products||[]).map(function(p){return '<span class="seo-pill">'+esc(p)+'</span>';}).join('')+'</td>'
         +'<td class="seo-billing">$'+Number(c.billing||0).toLocaleString()+'</td>'
-        +'<td style="white-space:nowrap">'+statusDots(c.status||{})+'</td>'
+        +'<td class="seo-statuscell">'+statusDots(c.status||{})+'</td>'
         +'</tr>';
     });
     h+='</tbody></table>';

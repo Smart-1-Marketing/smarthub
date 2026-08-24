@@ -285,7 +285,18 @@ def api_fieldmap():
                 "fieldmap": demo_fieldmap(),
                 "client_fieldmap": demo_client_fieldmap(),
             })
+        # What the module is actually using. With nothing saved that is the
+        # auto map — the pinned ids plus a label match for the rest — so the
+        # page shows the mapping in force rather than empty dropdowns beside a
+        # report that is already working.
+        auto = {}
+        if not eff["fieldmap"] and not knack_client.demo_mode():
+            auto = service.auto_fieldmap(eff["tickets_object"])
+            if auto:
+                eff["fieldmap"] = auto
         eff["ok"] = True
+        eff["auto"] = bool(auto)
+        eff["confirmed"] = sorted(config.CONFIRMED_FIELDS)
         eff["required"] = config.REQUIRED_FIELDS
         eff["demo"] = knack_client.demo_mode()
         return jsonify(eff)

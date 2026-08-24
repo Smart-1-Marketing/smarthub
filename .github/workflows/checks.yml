@@ -296,6 +296,18 @@ jobs:
             echo "test_web_tickets.py not on this branch — nothing to run."
           fi
 
+      - name: Dashboard trend tests
+        # The month-over-month comparisons: keyed on the calendar, resolving
+        # next month, naming the month each is against. Guarded like the steps
+        # above so this workflow stays mergeable on a branch that predates the
+        # file. Sets its own HUB_DATA_DIR, so it is safe beside the others.
+        run: |
+          if [ -f test_dashboard_trends.py ]; then
+            python test_dashboard_trends.py
+          else
+            echo "test_dashboard_trends.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a

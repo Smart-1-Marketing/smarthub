@@ -83,6 +83,36 @@ def load_clients(force=False):
 # --------------------------------------------------------------------------
 # Tickets
 # --------------------------------------------------------------------------
+_auto: dict = {}
+
+
+def auto_fieldmap(object_key: str) -> dict:
+    """The map this module can build without anyone opening the setup page.
+
+    The ids we hold are pinned (config.CONFIRMED_FIELDS, read from
+    hub.knack_api), and the handful nobody has pinned — the dates above all —
+    are matched against the live object's labels, exactly as the setup page
+    does when a person clicks Auto-detect. Doing it here means the report
+    works on a fresh deployment instead of greeting the first visitor with
+    "map the ticket object and its required fields".
+
+    A saved map still wins: someone who has corrected a guess must not have it
+    re-guessed under them. Never raises — if the schema cannot be read the
+    caller falls back to NotConfigured, which says what to do.
+    """
+    if not object_key:
+        return {}
+    if object_key in _auto:
+        return _auto[object_key]
+    try:
+        fields = knack_client.list_fields(object_key)
+    except Exception:                    # noqa: BLE001 — see the docstring
+        return {}
+    guessed = normalize.guess_fieldmap(fields, config.FIELDS)
+    _auto[object_key] = guessed
+    return guessed
+
+
 def load_tickets(force=False):
     """(tickets, fetched_at). Raises NotConfigured when the map is incomplete."""
     eff = config.effective()
@@ -93,6 +123,8 @@ def load_tickets(force=False):
         from .demo import demo_fieldmap
         object_key = object_key or "object_demo_tickets"
         fmap = fmap or demo_fieldmap()
+    elif not fmap:
+        fmap = auto_fieldmap(object_key)
 
     missing = [k for k in config.REQUIRED_FIELDS if not fmap.get(k)]
     if not object_key or missing:
