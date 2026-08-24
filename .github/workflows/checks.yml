@@ -143,9 +143,18 @@ jobs:
             echo "test_target_areas.py not on this branch — nothing to run."
           fi
 
-      - name: Google account index tests
+      - name: API usage estimate tests
         # Guarded like the steps around it so this workflow stays mergeable on
         # a branch that predates the file.
+        run: |
+          if [ -f test_api_usage.py ]; then
+            python test_api_usage.py
+          else
+            echo "test_api_usage.py not on this branch — nothing to run."
+          fi
+
+      - name: Google account index tests
+        # Guarded like the step above, for the same reason.
         run: |
           if [ -f test_google_index.py ]; then
             python test_google_index.py

@@ -230,6 +230,10 @@ def refresh_access_token(email, refresh_token):
             },
             timeout=10,
         )
+        # Counted too. Refreshes cost nothing, but the count is the only
+        # signal that something is refreshing far more often than tokens
+        # expire — /diagnostics alone refreshes up to eight per page load.
+        _note_google("https://oauth2.googleapis.com/token", ok=r.ok)
         r.raise_for_status()
         return r.json()["access_token"]
     except requests.exceptions.HTTPError as exc:
@@ -249,6 +253,24 @@ def sanitize_regex(pattern):
         return re.escape(pattern)
 
 
+def _note_google(url, ok=True):
+    """Count one Google API call against the daily quota shown on /diagnostics.
+
+    Filed by URL, not by caller: this one helper is used against GA4, Tag
+    Manager, Search Console and Business Profile, and a per-module count could
+    never say which of those is close to its ceiling.
+
+    Called whatever the response was. A 429 or a 403 still consumed a request
+    against the quota — those are in fact the calls most worth counting, since
+    they are what a spent quota looks like.
+    """
+    try:
+        from hub import quotas as _q
+        _q.record_google(url, module="google_finder", ok=ok)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
 def google_get(access_token, url, params=None):
     r = requests.get(
         url,
@@ -256,6 +278,7 @@ def google_get(access_token, url, params=None):
         params=params or {},
         timeout=12,
     )
+    _note_google(url, ok=r.ok)
     r.raise_for_status()
     return r.json()
 
@@ -270,6 +293,7 @@ def google_post(access_token, url, json_body=None):
         json=json_body or {},
         timeout=15,
     )
+    _note_google(url, ok=r.ok)
     r.raise_for_status()
     return r.json()
 
@@ -284,6 +308,7 @@ def google_put(access_token, url, json_body=None):
         json=json_body or {},
         timeout=15,
     )
+    _note_google(url, ok=r.ok)
     r.raise_for_status()
     return r.text
 

@@ -165,6 +165,19 @@ def _mp3_seconds(data: bytes) -> float:
     return round(frames * 1152 / 44100.0, 2)
 
 
+def _note_characters(script: str, voice_id: str) -> None:
+    """Count this read against the monthly ElevenLabs allowance.
+
+    The unit is characters of the script sent, not renders — ElevenLabs bills
+    per character, so a 60-second read costs five times a tag.
+    """
+    try:
+        from hub import quotas as _q
+        _q.record_tts(script, module="fan_radio", model=MODEL, voice=voice_id)
+    except Exception:                                    # noqa: BLE001
+        pass
+
+
 def render_audio(voice_id: str, script: str,
                  energy: str = "energetic") -> dict:
     """Return {'audio': bytes, 'seconds': float, 'measured': bool}."""
@@ -186,6 +199,9 @@ def render_audio(voice_id: str, script: str,
         raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).")
 
     if res.status_code == 200:
+        # Recorded on acceptance, not on a successful parse: the fall-through
+        # below re-renders, and both requests spend characters.
+        _note_characters(script, voice_id)
         try:
             payload = res.json()
             audio = base64.b64decode(payload["audio_base64"])
@@ -209,6 +225,7 @@ def render_audio(voice_id: str, script: str,
         raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).")
     if res.status_code != 200:
         raise VoiceError(f"ElevenLabs returned {res.status_code} rendering audio.")
+    _note_characters(script, voice_id)
     audio = res.content
     return {"audio": audio, "seconds": _mp3_seconds(audio), "measured": False}
 
