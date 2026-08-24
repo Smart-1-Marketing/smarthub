@@ -100,18 +100,20 @@ TICKET_FIELDS = {
     "developer":        "field_1729",   # Developer
 }
 
-# The nine fields a web ticket is made of. The web team named these — the
-# wider set this module can read (web services, the six service checkboxes,
-# the new website URL, the pause and cancellation fields) stays pinned in
-# TICKET_FIELDS above and is still *read*, but the Hub does not write it: a
-# form asking for a field nobody fills is how twenty questions turned into
-# four filled-in answers and sixteen blanks.
+# The eight fields a web ticket is made of. The web team named nine and then
+# took Partner Contact back off the form — its id stays pinned above and is
+# still read, like the rest of the object.
+#
+# The wider set this module can read (partner contact, web services, the six
+# service checkboxes, the new website URL, the pause and cancellation fields)
+# is deliberately not written: a form asking for a field nobody fills is how
+# twenty questions turned into four filled-in answers and sixteen blanks.
 #
 # Status, Developer and the lifecycle fields are not here either, and that is
 # unchanged: Knack's own workflow opens a ticket, and assigning a developer is
 # the web team's decision, not the raiser's.
 TICKET_CREATE_FIELDS = (
-    "title", "client", "media_partner", "partner_contact", "website",
+    "title", "client", "media_partner", "website",
     "type", "billable", "description",
     # Last, because it is the act of submitting rather than a detail of the
     # ticket: Knack's own workflow reads it.
@@ -164,7 +166,7 @@ TICKET_LABELS = {
 TICKET_GROUPS = (
     ("The ticket",    ("title", "client", "website", "type", "billable",
                        "description")),
-    ("Media partner", ("media_partner", "partner_contact")),
+    ("Media partner", ("media_partner",)),
     ("Submit",        ("ready_to_submit",)),
 )
 
@@ -173,6 +175,19 @@ TICKET_GROUPS = (
 CONNECTION_LIMIT = int(os.environ.get("KNACK_CONNECTION_LIMIT", "500"))
 
 _RECORD_ID = re.compile(r"^[0-9a-f]{24}$", re.I)
+
+
+def field_ids() -> dict:
+    """The pinned ids with their environment overrides applied.
+
+    `field_map()` is this plus the two fields still discovered by label, which
+    costs a schema read. This one touches nothing, so a caller that only wants
+    the ids — the audit module at /tools/tickets builds its field map from
+    them — does not have to reach Knack, or be import-order sensitive, to get
+    what this file already knows.
+    """
+    return {key: (os.environ.get(f"KNACK_TICKET_{key.upper()}") or fid).strip()
+            for key, fid in TICKET_FIELDS.items()}
 
 
 def field_map() -> dict:
@@ -184,9 +199,7 @@ def field_map() -> dict:
     """
     if "map" in _schema_cache:
         return _schema_cache["map"]
-    m = {}
-    for key, fid in TICKET_FIELDS.items():
-        m[key] = (os.environ.get(f"KNACK_TICKET_{key.upper()}") or fid).strip()
+    m = field_ids()
     # Date isn't in the confirmed set — still discovered.
     m["date"] = _find_field("date created", "created", "date")
     m["requested_by"] = _find_field("requested by", "submitted by", "created by")

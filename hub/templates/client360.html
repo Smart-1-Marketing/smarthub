@@ -1067,7 +1067,9 @@ function render(g,q){
         document.querySelectorAll('.tick-edit').forEach(el=>{
           el.onclick=()=>{
             if(!window.WebTicket){alert('The ticket form failed to load. Reload the page and try again.');return}
-            window.WebTicket.manage({ticket:shown[Number(el.dataset.i)],client:name,user:user_name,onsaved:loadTickets});
+            window.WebTicket.manage({ticket:shown[Number(el.dataset.i)],client:name,
+              sites:(g.websites||[]).map(w=>w.domain||w.url||'').filter(Boolean),
+              user:user_name,onsaved:loadTickets});
           };
         });
       }).catch(()=>{$('c-tickets').innerHTML='<div class="empty">Web tickets unavailable.</div>'});
@@ -1078,7 +1080,9 @@ function render(g,q){
       alert('The ticket form failed to load. Reload the page and try again.');
       return;
     }
-    window.WebTicket.open({client:name,site:site,domain:domain,user:user_name,onsaved:loadTickets});
+    window.WebTicket.open({client:name,site:site,domain:domain,
+      sites:(g.websites||[]).map(w=>w.domain||w.url||'').filter(Boolean),
+      user:user_name,onsaved:loadTickets});
   }
   document.querySelectorAll('.web-ticket').forEach(btn=>{
     btn.onclick=()=>openTicketModal(btn.dataset.site,btn.dataset.domain);
