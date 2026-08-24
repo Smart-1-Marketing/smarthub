@@ -126,6 +126,16 @@ jobs:
             echo "test_site_blocks.py not on this branch — nothing to run."
           fi
 
+      - name: MSA signing page and embed tests
+        # Skipped rather than failed on a branch that predates the file, so
+        # this workflow can merge before the branch that adds it.
+        run: |
+          if [ -f test_msa_embed.py ]; then
+            python test_msa_embed.py
+          else
+            echo "test_msa_embed.py not on this branch — nothing to run."
+          fi
+
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.

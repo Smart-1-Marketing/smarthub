@@ -536,6 +536,7 @@ python3 test_landing_maker.py      # built pages stay public and chrome-free
 python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
+python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 ```
 

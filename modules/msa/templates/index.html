@@ -52,9 +52,18 @@
   .done-box{background:#e7f6ef;border:1px solid #86efac;border-radius:11px;
             padding:22px;text-align:center}
   footer{color:var(--muted);font-size:12.5px;padding:26px 0 40px}
+  /* Embedded on smart1marketing.com. The host page supplies the header, the
+     footer and the page background; repeating ours halfway down someone
+     else's page reads as a broken paste rather than an embed. The wrapper
+     also gives up its own max-width, because the host's column is already
+     the measure the designer chose. */
+  body.embedded{background:transparent}
+  body.embedded .top,body.embedded footer{display:none}
+  body.embedded .wrap{max-width:none;padding:0}
+  body.embedded h1{margin-top:0}
 </style>
 </head>
-<body>
+<body class="{{ 'embedded' if embedded else '' }}">
 
 <div class="top"><div class="wrap"><b><span class="mark"></span>SMART 1 MARKETING</b></div></div>
 
@@ -157,7 +166,10 @@
     <div class="done-box">
       <h2 style="margin:0 0 6px;color:#11633f;font-size:20px">Signed</h2>
       <p style="margin:0 0 18px" id="doneNote"></p>
-      <a class="btn alt" id="dl" href="#">Download your PDF</a>
+      <!-- _blank so the PDF doesn't replace the confirmation inside the
+           iframe: a client who downloads and then wants to re-read what
+           they signed would otherwise be looking at a dead frame. -->
+      <a class="btn alt" id="dl" href="#" target="_blank" rel="noopener">Download your PDF</a>
       <p class="hint" style="margin-top:14px">A copy is saved against your
          record, so we can send it again any time.</p>
     </div>
@@ -244,6 +256,9 @@ $('submit').onclick = function(){
     $('form').hidden = true;
     $('done').hidden = false;
     window.scrollTo({top: 0, behavior: 'smooth'});
+    /* Inside a frame, scrolling ourselves to the top moves nothing the
+       client can see -- it is the host page that has to move. */
+    tellHost('s1msa:signed');
   })
   .catch(function(){
     $('msg').className = 'msg err';
@@ -251,6 +266,44 @@ $('submit').onclick = function(){
     btn.disabled = false;
   });
 };
+
+/* ---------------------------------------------------------------------
+   Embedded on smart1marketing.com.
+
+   Read off the body class rather than a Jinja flag, so this block stays
+   plain JavaScript and tools/jscheck.py can hand it to node --check
+   instead of skipping it.
+
+   The message target is '*': the frame cannot know which of our hosts it
+   was pasted onto. Nothing sensitive travels this way -- a pixel height
+   and the word "signed" -- and the loader on the host checks the origin
+   and the source window before acting on either.
+   --------------------------------------------------------------------- */
+function embedded(){
+  return document.body.classList.contains('embedded') && window.parent !== window;
+}
+function tellHost(type, extra){
+  if(!embedded()) return;
+  var msg = {type: type};
+  if(extra){ for(var k in extra){ msg[k] = extra[k]; } }
+  try{ parent.postMessage(msg, '*'); }catch(e){}
+}
+(function(){
+  if(!embedded()) return;
+  function postHeight(){
+    tellHost('s1msa:height', {height: document.body.scrollHeight + 12});
+  }
+  if(window.ResizeObserver){
+    new ResizeObserver(postHeight).observe(document.body);
+  }
+  window.addEventListener('load', postHeight);
+  /* The agreement reflows as they type their company name into it, and a
+     reflow that leaves the body box the same size never reaches
+     ResizeObserver. A slow poll costs nothing and is what the scans widget
+     already does for the same reason. */
+  setInterval(postHeight, 1000);
+  postHeight();
+})();
 </script>
 </body>
 </html>
