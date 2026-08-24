@@ -506,6 +506,49 @@ surviving verbatim, the never-mention check firing on the copy and *not* on a
 class name, the flag reaching the document and the panel, and no admin URL
 being invented.
 
+## Getting a file back out is storage's job, not each module's
+
+`hub/storage.attachment_url()` and `hub/storage.bundle_zip()`. Three modules
+were solving this separately and a fourth was about to.
+
+**A cross-origin `download` attribute does nothing.** Browsers ignore it, so an
+`<a download href="https://res.cloudinary.com/…">` opens the image in a tab and
+the button reads as broken. `fl_attachment` is what actually works — Cloudinary
+sends `Content-Disposition` — and the name after the colon is what the file is
+called on the way down. In the SEO Image Pipeline that is the whole point of
+the tool: a file that lands in Downloads as `v1699_xk3.webp` has lost the work.
+`attachment_url()` rewrites a Cloudinary delivery URL and returns anything else
+unchanged rather than into something that 404s.
+
+**More than one file is a zip, not a loop.** A browser blocks every download
+after the first when they are triggered in sequence, so the person gets one
+file, no error, and no reason to think anything went wrong. `bundle_zip()`
+fetches each stored file, de-duplicates names (two images can genuinely share
+one, and a zip silently keeps only the last), skips what it cannot fetch into a
+`MISSING.txt` *and* returns that list so the page can say so too, and caps both
+file count and total bytes — this streams through the Hub, and an unbounded
+"select all" on a thousand-row archive is the one request that takes two
+gunicorn workers down.
+
+**A zip is delivery, and delivery is what Cloudinary bills.** A credit is a
+gigabyte delivered, so `bundle_zip()` records the bytes it pulled rather than
+the number of files — counting files would make a 40 KB thumbnail and a 4 MB
+hero cost the same on the usage page. Single downloads redirect to the CDN
+instead, so they cost the Hub nothing and are not counted here.
+
+The SEO Image Pipeline's saved step and its project archive both offer download
+of one or several, and the archive's row actions are icons — download, copy
+URL, edit alt, delete — each carrying a rollover that says what it does and, for
+delete, that it cannot be undone. An icon with no label is a guess.
+
+**Every archive row needs an id.** The row's buttons all address it by one, and
+the Image Optimizer's save path wrote rows without it: those images appeared in
+the archive and then ignored every button on their row. `load_archive()`
+backfills once on the first read that finds one missing.
+
+`test_image_download.py` asserts all of it, including that the image picker
+still returns a zip now that it runs on the shared builder.
+
 ## A web ticket carries twenty fields, and the form asks for all of them
 
 `hub/knack_api.py` pins object_107's field ids in `TICKET_FIELDS` — they were
@@ -617,6 +660,7 @@ python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
+python3 test_image_download.py     # image downloads, the shared zip builder
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 ```

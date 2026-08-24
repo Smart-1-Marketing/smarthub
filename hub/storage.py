@@ -284,6 +284,103 @@ def thumb_url(public_id: str, edge: int = 400) -> str:
     return url
 
 
+# --------------------------------------------------------------- downloads
+# Getting a stored file back out is a storage concern, and it was being solved
+# per module: the image picker had its own zip builder, blog images built an
+# fl_attachment URL inline, and the SEO pipeline had neither. One copy here,
+# so the next module that needs it does not write a fourth.
+def attachment_url(url: str, filename: str = "") -> str:
+    """A URL that downloads instead of displaying.
+
+    The `download` attribute on an <a> is IGNORED cross-origin, so linking a
+    Cloudinary URL with `download` opens the image in a tab and the button
+    looks broken. `fl_attachment` makes Cloudinary send Content-Disposition,
+    which is the only thing that actually works — and the name after the colon
+    is what the file is called on the way down. That matters here more than
+    most places: the SEO filename *is* the deliverable.
+
+    Anything that is not a Cloudinary delivery URL is returned unchanged
+    rather than rewritten into something that 404s.
+    """
+    u = str(url or "")
+    if "/upload/" not in u or "res.cloudinary.com" not in u:
+        return u
+    name = slug(os.path.splitext(str(filename or ""))[0], "")
+    flag = f"fl_attachment:{name}" if name else "fl_attachment"
+    return u.replace("/upload/", f"/upload/{flag}/", 1)
+
+
+# A ceiling, because this streams through the Hub rather than from the CDN.
+# Two gunicorn workers and a 512 MB dyno: an unbounded "select all" on a
+# thousand-row archive is the one request that takes the whole service down.
+ZIP_MAX_FILES = 200
+ZIP_MAX_BYTES = 300 * 1024 * 1024
+
+
+def bundle_zip(items, *, bucket: str = "", timeout: int = 25) -> tuple[bytes, list[str]]:
+    """Several stored files as one zip: (zip_bytes, missing_names).
+
+    `items` is an iterable of {"url", "filename"}. The alternative — opening
+    each file in its own tab — is blocked by every popup blocker once there is
+    more than one, so the browser silently delivers the first and nothing
+    else.
+
+    A file that cannot be fetched is skipped and named in a MISSING.txt inside
+    the archive rather than failing the whole download: a partial set with an
+    explanation beats an error page, and the caller still gets the list back
+    so it can say so on screen too.
+    """
+    import io as _io
+    import zipfile
+
+    import requests as _rq
+
+    buf = _io.BytesIO()
+    missing: list[str] = []
+    used: set[str] = set()
+    delivered = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in list(items)[:ZIP_MAX_FILES]:
+            url = str((item or {}).get("url") or "")
+            name = str((item or {}).get("filename") or "").strip() or "file"
+            name = name.replace("/", "-").replace("\\", "-")
+            # Two files can genuinely share a name; without this the zip keeps
+            # only the last one and the count silently drops.
+            base, dot, ext = name.rpartition(".")
+            candidate, n = name, 2
+            while candidate.lower() in used:
+                candidate = f"{base}-{n}.{ext}" if dot else f"{name}-{n}"
+                n += 1
+            used.add(candidate.lower())
+            if not url:
+                missing.append(candidate)
+                continue
+            if delivered >= ZIP_MAX_BYTES:
+                missing.append(candidate + "  (the zip hit its size limit)")
+                continue
+            try:
+                resp = _rq.get(url, timeout=timeout)
+                resp.raise_for_status()
+            except Exception:                           # noqa: BLE001
+                missing.append(candidate)
+                continue
+            delivered += len(resp.content)
+            zf.writestr(candidate, resp.content)
+        if missing:
+            zf.writestr("MISSING.txt",
+                        "These files could not be fetched and are not in this "
+                        "zip:\n\n" + "\n".join(missing) + "\n")
+
+    # Cloudinary bills a credit per GB DELIVERED, not per call, and a zip pulls
+    # every byte through here. Counting the files would make a 40 KB thumbnail
+    # and a 4 MB hero cost the same on the usage page; the bytes are what the
+    # bill is made of.
+    if delivered and bucket:
+        _note_asset(bucket, "download", delivered, f"zip x{len(used) - len(missing)}")
+    buf.seek(0)
+    return buf.getvalue(), missing
+
+
 def manifest(kind: str, max_results: int = 500) -> list[dict]:
     """Inventory of what is actually stored — feeds the orphaned-asset audit."""
     if not ready():

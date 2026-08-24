@@ -219,6 +219,19 @@ jobs:
             echo "test_blog_publish.py not on this branch — nothing to run."
           fi
 
+      - name: Image download and shared zip builder tests
+        # The SEO pipeline's downloads, hub/storage.bundle_zip, and the image
+        # picker's gallery download now that it runs on the shared builder.
+        # Guarded like the steps above so this workflow stays mergeable on a
+        # branch that predates the file. Sets DATABASE_URL and HUB_DATA_DIR
+        # rather than setdefault-ing them, so it is safe to re-run.
+        run: |
+          if [ -f test_image_download.py ]; then
+            python test_image_download.py
+          else
+            echo "test_image_download.py not on this branch — nothing to run."
+          fi
+
       - name: Video library tests
         # Safe to re-run, unlike the target-areas step above: this file *sets*
         # DATABASE_URL and HUB_DATA_DIR rather than setdefault-ing them, so it
