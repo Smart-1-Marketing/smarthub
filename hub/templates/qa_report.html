@@ -52,6 +52,15 @@ tr.qa-row-yellow td{background:#fefce8 !important;border-left:3px solid #eab308}
 tr.qa-row-yellow td:not(:first-child){border-left:none}
 tr.qa-row-red td{background:#fef2f2 !important;border-left:3px solid #ef4444}
 tr.qa-row-red td:not(:first-child){border-left:none}
+.qa-unavailable{display:flex;flex-direction:column;align-items:flex-start;gap:8px;
+  padding:16px 18px;border:1px solid #fde68a;background:#fffbeb;border-radius:10px;
+  color:#78350f;line-height:1.55;font-size:13.5px}
+.qa-unavailable b{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:#92400e}
+button.qa-act,a.qa-act{display:inline-block;margin-top:2px;background:#92400e;color:#fff;
+  border:0;border-radius:8px;padding:8px 14px;font:600 12.5px system-ui;cursor:pointer;
+  text-decoration:none}
+button.qa-act[disabled]{opacity:.6;cursor:default}
+.qa-empty-note{margin-top:10px;font-size:12.5px;color:#94a3b8;line-height:1.55}
 tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;border-top:2px solid #cbd5e1}
 .qa-assign-btn{border:1px solid #e2e8f0;background:#fff;color:#1e293b;border-radius:8px;
   padding:4px 10px;font:600 12px 'Segoe UI',system-ui,sans-serif;cursor:pointer;white-space:nowrap}
@@ -194,8 +203,54 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
       wrap.innerHTML = '<div class="qa-qbcta">'+esc(d.note)+'<br><a href="/status">Open System Status</a></div>';
       return;
     }
+    // "We looked and it is fine" and "we could not look" are different
+    // answers, and rendering both as a green tick is how a page ends up
+    // confidently telling you the opposite of the truth. A report that sets
+    // `unavailable` is saying it could not look.
+    if(d.unavailable){
+      var u = d.unavailable;
+      wrap.innerHTML = '<div class="qa-unavailable">'+
+        '<b>Not measured</b><span>'+esc(u.message||'')+'</span>'+
+        (u.action_post ? '<button class="qa-act" data-post="'+esc(u.action_post)+'">'+
+          esc(u.action_label||'Run it now')+'</button>' : '')+
+        (u.action_href ? '<a class="qa-act" href="'+esc(u.action_href)+'">'+
+          esc(u.action_label||'Open')+'</a>' : '')+
+      '</div>';
+      var act = wrap.querySelector('button.qa-act');
+      if(act){
+        act.addEventListener('click', function(){
+          act.disabled = true;
+          var was = act.textContent;
+          act.textContent = 'Working… this can take a minute';
+          fetch(act.getAttribute('data-post'), {method:'POST', credentials:'same-origin'})
+            .then(function(r){ return r.json(); })
+            .then(function(res){
+              if(res && res.ok){
+                act.textContent = 'Done — reloading';
+                window.location.reload();
+              } else {
+                // Say what came back rather than silently re-enabling.
+                act.disabled = false;
+                act.textContent = was;
+                wrap.insertAdjacentHTML('beforeend',
+                  '<div class="qa-err">'+esc((res && res.error) ||
+                  'That did not succeed, and nothing said why.')+'</div>');
+              }
+            })
+            .catch(function(e){
+              act.disabled = false; act.textContent = was;
+              wrap.insertAdjacentHTML('beforeend',
+                '<div class="qa-err">'+esc(String(e))+'</div>');
+            });
+        });
+      }
+      return;
+    }
     if(!d.rows || !d.rows.length){
-      wrap.innerHTML = '<div class="qa-empty">Nothing to report — all clear. &#10003;</div>';
+      wrap.innerHTML = '<div class="qa-empty">Nothing to report — all clear. &#10003;</div>'+
+        // The note is the report explaining what it checked. Dropping it on
+        // the empty path threw away the only context an all-clear has.
+        (d.note ? '<div class="qa-empty-note">'+esc(d.note)+'</div>' : '');
       return;
     }
     var styles = d.row_styles || [];

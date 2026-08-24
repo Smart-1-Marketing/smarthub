@@ -94,10 +94,12 @@ def load() -> dict:
     data = jsonstore.read_json(_path(), default=None)
     if not isinstance(data, dict):
         return {"built_at": "", "items": [], "accounts": [], "errors": [],
-                "never_built": True}
+                "last_attempt": "", "last_error": "", "never_built": True}
     data.setdefault("items", [])
     data.setdefault("accounts", [])
     data.setdefault("errors", [])
+    data.setdefault("last_attempt", "")
+    data.setdefault("last_error", "")
     data["never_built"] = not data.get("built_at")
     return data
 
@@ -130,6 +132,8 @@ def status() -> dict:
     return {
         "built_at": data.get("built_at") or None,
         "never_built": bool(data.get("never_built")),
+        "last_attempt": data.get("last_attempt") or None,
+        "last_error": data.get("last_error") or "",
         "age_seconds": age,
         "age_hours": round(age / 3600, 1) if age is not None else None,
         "stale": is_stale(),
@@ -319,20 +323,57 @@ def build(force: bool = True) -> dict:
     """
     started = time.time()
     items, errors, accounts = [], [], []
+
+    def failed(reason: str) -> dict:
+        """Record a failed attempt where a reader can see it.
+
+        A build that fails silently leaves the index reading "never built"
+        for ever with nothing saying why — which is the same confident blank
+        this module exists to stop. The failure is written next to the index
+        so status() can report it, and it deliberately does NOT overwrite a
+        good index with an empty one: yesterday's accounts, clearly labelled
+        stale, beat no accounts at all.
+        """
+        try:
+            prev = load()
+            prev.pop("never_built", None)
+            prev["last_error"] = reason
+            prev["last_attempt"] = _now()
+            jsonstore.write_json(_path(), prev)
+        except Exception:                               # noqa: BLE001
+            pass
+        try:
+            from hub import audit
+            audit.log("google_index", "build_failed", detail=reason[:120])
+        except Exception:                               # noqa: BLE001
+            pass
+        return {"ok": False, "error": reason}
+
     try:
         import sys
         gf = sys.modules.get("gf_app")
         if gf is None:
             from modules.google_finder import app as gf
     except Exception as exc:                            # noqa: BLE001
-        return {"ok": False,
-                "error": f"Google Finder unavailable ({type(exc).__name__})."}
+        return failed(f"Google Finder is not loaded ({type(exc).__name__}), "
+                      f"so there is nothing to sweep.")
 
     try:
         raw, errors = gf.get_index(force=force)
         accounts = sorted({str(i.get("google_login") or "") for i in raw} - {""})
     except Exception as exc:                            # noqa: BLE001
-        return {"ok": False, "error": f"{type(exc).__name__} sweeping Google."}
+        return failed(f"{type(exc).__name__} while sweeping Google: {exc}"[:300])
+
+    # A sweep that reached Google and came back with nothing is worth saying
+    # out loud rather than storing as an empty success.
+    if not raw and not errors:
+        try:
+            connected = len(gf.connected_accounts() or [])
+        except Exception:                               # noqa: BLE001
+            connected = 0
+        if not connected:
+            return failed("No Google accounts are connected, so there is "
+                          "nothing to index. Connect one at /google/login.")
 
     attachments = _attachment_map()
     by_domain = _client_by_domain()
@@ -347,6 +388,8 @@ def build(force: bool = True) -> dict:
 
     payload = {
         "built_at": _now(),
+        "last_attempt": _now(),
+        "last_error": "",                # a good build clears the last failure
         "took_seconds": round(time.time() - started, 1),
         "items": items,
         "accounts": accounts,
