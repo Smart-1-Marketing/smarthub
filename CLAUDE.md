@@ -67,6 +67,28 @@ added before that observer existed did not.
 **`audit.log()`'s first positional is `module`.** Passing `module=` in the
 extras raises `TypeError` and silently zeroes cost tracking. Use `tool=`.
 
+**A provider is not metered in calls just because you counted calls.**
+`hub/quotas.py` estimates six providers now, and only three of them bill per
+call. ElevenLabs bills the **character** of script, so counting renders makes
+a five-second tag and a sixty-second read cost the same — and the long ones
+are what spend the plan. Cloudinary bills in **credits**, one of which is a
+thousand transformations *or* a gigabyte stored *or* a gigabyte delivered, so
+what the Hub uploads is a fraction of the bill and Cloudinary's own
+`/usage` meter is read as the authority beside it. Google bills **nothing**
+and limits **requests per day**, so a monthly total would never show the
+4pm cliff that actually stops a campaign deploy — `google_estimate()` compares
+per API and per day, and files each call by URL because one helper in Google
+Finder is used against four different APIs. Where a provider publishes no
+ceiling worth citing, none is invented: the row says *not measured* and names
+the environment variable that would set one.
+
+`quotas.record_tts()`, `record_asset()` and `record_google()` are the call-site
+helpers; each is one line and none can raise. An uninstrumented call site is
+worse than a missing feature here, because the page keeps reporting a
+confident, low number — so `/api/integrity` has a check that names any file
+calling one of the three without recording it, and `test_api_usage.py` fails
+on the same list.
+
 **Env var names drifted.** This deployment sets `PEXELS_API` and
 `PIXABAY_API`; much of the code was written against `..._API_KEY`. Config
 accepts both. If a provider reports "no API key set" while the key is clearly
@@ -438,6 +460,7 @@ python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math
 python3 test_landing_maker.py      # built pages stay public and chrome-free
+python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 ```

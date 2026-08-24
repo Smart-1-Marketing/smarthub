@@ -129,6 +129,25 @@ class Settings:
         return self.cloudinary_url.startswith("cloudinary://")
 
     @property
+    def cloudinary_cloud_name(self) -> str:
+        """Cloud name alone, for building a delivery URL by hand.
+
+        Every *upload* path goes through hub.storage and never needs this. A
+        delivery URL is the exception: hub.video_library builds one per result
+        for a gallery, and routing that through the SDK would mean configuring
+        and importing Cloudinary to assemble a string that is public, cacheable
+        and unsigned anyway. Parsed rather than read from a second variable,
+        because CLOUDINARY_CLOUD_NAME is not set on this deployment and a
+        module that expected it would report the library as unconfigured while
+        CLOUDINARY_URL sat right there.
+        """
+        if not self.cloudinary_ready:
+            return ""
+        # cloudinary://<key>:<secret>@<cloud-name>[/...]
+        tail = self.cloudinary_url.split("@", 1)[-1]
+        return tail.split("/", 1)[0].strip()
+
+    @property
     def openai_ready(self) -> bool:
         return bool(self.openai_key)
 
