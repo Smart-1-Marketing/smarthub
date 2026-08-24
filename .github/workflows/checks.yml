@@ -206,6 +206,20 @@ jobs:
             echo "test_social_plan.py not on this branch — nothing to run."
           fi
 
+      - name: GPT ad pack tests
+        # The 1:1 image gate, the copy checks, the landing-page verdicts and
+        # what the ad-ops ZIP actually contains. Guarded like the steps around
+        # it so this workflow stays mergeable on a branch that predates the
+        # file. Safe to re-run: it *sets* DATABASE_URL and HUB_DATA_DIR rather
+        # than setdefault-ing them, and the requests and OpenAI seams are both
+        # stubbed, so it needs no credentials and reaches no third party.
+        run: |
+          if [ -f test_gpt_ads.py ]; then
+            python test_gpt_ads.py
+          else
+            echo "test_gpt_ads.py not on this branch — nothing to run."
+          fi
+
       - name: Blog taxonomy, guardrail and CMS publish tests
         # The blog section's approved-topic list, the never-mention check and
         # what the two CMS panels are handed. Guarded like the steps above so
@@ -278,7 +292,11 @@ jobs:
                    # The social planner, and the page that links to it. Its
                    # index renders the whole post-type spec into the page, so a
                    # bad entry in hub/social_plan.py shows up here as a 500.
-                   "/tools/social/", "/creative"]
+                   "/tools/social/",
+                   # The GPT ads builder, and the list endpoint its page opens
+                   # with -- a page that boots but whose index 500s is a blank
+                   # tool, so both are requested.
+                   "/tools/gpt-ads/", "/tools/gpt-ads/api/ads", "/creative"]
           bad = []
           for url in pages:
               try:
