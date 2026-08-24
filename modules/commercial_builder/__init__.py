@@ -20,6 +20,23 @@ from flask import Blueprint
 from .db import db, STANDALONE
 from .routes import clients, projects, scripts, stock, voices, heygen, render, assets, pages
 
+# Login. This module is blueprint-registered on the hub app, NOT dispatcher-
+# mounted, so wsgi.py's AuthGuard never sees it — that wrapper only covers
+# modules mounted under a URL prefix. Nothing else was guarding it either, so
+# every page and every API route here answered 200 to anyone with the URL,
+# serving client names, briefs and projects without a login. hub/auth.py names
+# this exact failure ("modules ... fall back to a no-op when it's missing —
+# which silently serves an admin page to anyone").
+#
+# The guard goes on the blueprint rather than on each view: there are ~40
+# routes across nine route modules and the next one added must not have to
+# remember. Standalone (outside the Hub) there is no Hub cookie to check, and
+# the module is then only reachable on a developer's own machine.
+try:
+    from hub import auth as _hub_auth
+except ImportError:  # noqa: BLE001 — standalone development, no Hub to log into
+    _hub_auth = None
+
 # Activity logging — so this tool's output appears on the client's
 # 360 record. This module produces client commercials, and work that isn't logged is work
 # nobody can point to later.
@@ -32,6 +49,26 @@ except Exception:  # noqa: BLE001
 
 
 
+def _install_login_guard(bp):
+    """One check in front of every route on this blueprint."""
+    if _hub_auth is None:
+        return
+
+    @bp.before_request
+    def _require_hub_login():                      # noqa: ANN202
+        from flask import jsonify, redirect, request
+
+        if _hub_auth.user_from_environ(request.environ):
+            return None
+        # A fetch() that follows a redirect to the login page parses the HTML
+        # as JSON and reports "Bad response from server", which says nothing
+        # about the real problem. JSON callers get a 401 they can read.
+        if "/api/" in request.path or request.method not in ("GET", "HEAD"):
+            return jsonify({"ok": False, "error": "Not authenticated. "
+                                                  "Please log in to the Hub."}), 401
+        return redirect("/login?next=" + request.path)
+
+
 def create_blueprint():
     bp = Blueprint(
         "commercial_builder", __name__,
@@ -40,6 +77,7 @@ def create_blueprint():
         static_folder="static",
         static_url_path="/static",
     )
+    _install_login_guard(bp)
     bp.register_blueprint(pages.bp)
     bp.register_blueprint(clients.bp)
     bp.register_blueprint(projects.bp)

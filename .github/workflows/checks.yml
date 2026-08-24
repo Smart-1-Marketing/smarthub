@@ -113,6 +113,9 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Commercial Builder HeyGen tests
+        run: python test_commercial_heygen.py
+
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.

@@ -106,6 +106,34 @@ which silently breaks callback matching.
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
+**A blueprint-registered module is not behind AuthGuard.** `wsgi.py` wraps
+each *dispatcher-mounted* app in `AuthGuard`; a module registered as a
+blueprint on the hub app never passes through it, and the hub app has no
+blanket gate of its own — its own pages are guarded view by view. Commercial
+Builder had neither, so every page and API route in it answered 200 to anyone
+with the URL, client names and briefs included, while the tile next to it
+redirected to `/login`. The guard now sits on the blueprint
+(`modules/commercial_builder/__init__.py`) rather than on 40 views, because
+the next route added must not have to remember. `hub/auth.py` names this
+failure in its own docstring; `test_commercial_heygen.py` asserts it.
+
+**A provider job is not done when the call that started it returns.** HeyGen
+renders a spokesperson clip in minutes, so `POST .../spokesperson` hands back
+a job id and nothing else. Nothing polled it, so the scene kept
+`asset_type="spokesperson"` and an empty `asset_url` forever — and because no
+QC check asked whether a scene owned an asset at all, `creatomate_service`
+built an element with no `source` and the finished commercial carried a blank
+segment with nothing reading as an error. Attaching the clip is the *status
+route's* job, not the browser's: any request for it writes the finished URL
+onto the row, so closing the tab no longer loses the clip. The same shape
+applies to any provider added later.
+
+**A provider's asset URL is signed and expires.** A HeyGen clip linked
+directly plays today and 404s next week. Finished clips are mirrored into
+Cloudinary through `cloudinary_service.upload_asset`, the way rendered
+commercials already were, and the storyboard says out loud when a mirror
+failed and it is showing you a link that will die.
+
 **The Render disk is not backed up. The database is.** Render backs up managed
 Postgres; the 5 GB disk at `/var/data` is outside that, and a plan change,
 region move or resize hands back an empty one. Anything whose only copy was a
@@ -399,6 +427,7 @@ python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math
 python3 test_landing_maker.py      # built pages stay public and chrome-free
+python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 ```
 
 The test files need no pytest and no new dependencies; each runs against a
