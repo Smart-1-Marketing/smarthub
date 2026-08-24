@@ -426,6 +426,86 @@ blob rather than interpolating Jinja into a real script block, which is why
 and failed the page for a syntax error in something that was never code; it now
 shares jscheck's `NON_JS_TYPES` list.
 
+## A blog post carries more than a title, and none of it was being asked for
+
+The SEO section planned topics and wrote copy from the client's own website and
+nothing else. Four things the account manager knew never reached the writer, and
+`hub/blog_spec.py` is where they now live — the taxonomy rules, the approved
+topic list, the default author and the client's guardrails, read by the planner,
+the writer, the client document and the CMS panel alike, the same way
+`hub/proposal_spec.py` is read by four things at once.
+
+**Categories are structure; tags are detail.** A model asked for "categories
+and tags" invents a fresh category almost every time, and twelve posts arrive
+under twelve categories — a sidebar of one-post categories that helps nobody.
+So the model is told the categories this client already uses and whatever it
+returns goes through `clamp_taxonomy()`, which keeps the known ones, allows at
+most **one** new category per post, dedupes case-insensitively and caps the
+counts. The client's set grows deliberately and slowly. Same clamp on the edit
+route, or the rule holds only until someone types into the box.
+
+**An approved topic is reproduced, not paraphrased.** A topic list a client
+signed off in advance is a commitment. `parse_approved_topics()` reads the
+document we emailed them — PDF, Word or pasted text, through the same
+`_read_document()` the IO Builder uses — and the approved titles are written
+into the plan **in code**, after the model has answered, because "use these
+titles as written" is a request and a paraphrased title is a topic the client
+did not approve. Each post records whether it came off that list. With
+`approved_only` the schedule stops when the list runs out instead of topping
+itself up with invented topics.
+
+The parse is two-pass: a document that numbers or bullets its topics has told
+us which lines are topics, so every other line is notes on the one above.
+Guessing by line length read a 118-character sentence of notes as a topic of
+its own.
+
+**"Never mention" is a check, not a sentence in the prompt.** This is the Smart
+1 Labs rule again — a prompt is a request, and "the model was told not to" is
+not evidence that it did not — and here it is usually a legal instruction. The
+list goes to the model *and* `scan_forbidden()` reads the finished copy and the
+meta description, flags every hit with the sentence around it, and the flag
+follows the post into the table, the client document and the publish panel until
+someone rewrites it. It strips the HTML first: scanning raw markup matched
+`class="guarantee-band"` and flagged a post whose copy never said it. The free
+guidance box still goes to the model unchecked, because most of it is context —
+how they operate, what they are licensed for, how the warranty works.
+
+## Publishing is a panel, not a button
+
+Every blog post and every JSON-LD block we produce has to be typed into a CMS by
+a person. Smart 1 Sites (the Simvoly whitelabel) exposes projects, plans and
+websites through its API — not blog content — and a client's WordPress is
+someone else's server with someone else's plugins on it. So `hub/cms_publish.py`
+does not pretend to publish. **Browse Smart 1 Sites** and **Browse WordPress**
+sit on both the blog table and the schema table: tick what you are publishing,
+the CMS opens in a new window, and the panel beside it holds that CMS's steps in
+order with every field copy-ready — title, slug, meta description, categories,
+tags, author, featured image, body HTML, or the script block for a schema page.
+
+Three things that follow:
+
+- **Nothing is invented.** With no site URL on the client there is no WordPress
+  admin to open, and the panel says which setting is missing. A guessed
+  `https://<clientname>.com/wp-admin` opens a stranger's login page.
+- **Smart 1 Sites opens through the Hub.** Sites Admin already holds every
+  Simvoly project and already has the builder SSO, so the project page is the
+  address that gets a rep into the right builder without a second password. The
+  match is by **domain**, never by name, for the reason `hub/sites_match.py`
+  gives at length — and two projects on one domain returns the search rather
+  than picking one, because the wrong pick edits another client's website.
+- **A field with no home says so.** Simvoly's blog has categories and no tag
+  field; the tags still travel, labelled as having nowhere to go, rather than
+  disappearing because there was no box.
+
+The window is opened in the click handler, before the fetch — a `window.open()`
+inside a promise callback is a popup the browser blocks, and a blocked popup
+looks exactly like a button that does nothing.
+
+`test_blog_publish.py` asserts all of it: the clamp, the approved titles
+surviving verbatim, the never-mention check firing on the copy and *not* on a
+class name, the flag reaching the document and the panel, and no admin URL
+being invented.
+
 ## A web ticket carries twenty fields, and the form asks for all of them
 
 `hub/knack_api.py` pins object_107's field ids in `TICKET_FIELDS` — they were
@@ -536,6 +616,7 @@ python3 test_landing_maker.py      # built pages stay public and chrome-free
 python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
+python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 ```

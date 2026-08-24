@@ -166,6 +166,8 @@
       <div class="seoc-tableacts">
         <button class="seoc-btn seoc-sec seoc-small" id="btnSchemaDlSel">&#8681; Download selected</button>
         <button class="seoc-btn seoc-sec seoc-small" id="btnSchemaDlAll">&#8681; Download all</button>
+        <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="schema">&#127760; Browse Smart 1 Sites</button>
+        <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="schema">&#127760; Browse WordPress</button>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -290,6 +292,71 @@
 <div class="card seoc-card" id="cardBlogs" style="display:none">
   <div class="seoc-cardhead"><h3>Blogs</h3><div id="blogFreq" class="seoc-muted"></div></div>
 
+  <!-- What the account manager knows and the writer never saw: who signs the
+       posts, how this company actually operates, what it may not say, and the
+       topics the client has already approved. All four reach both the planner
+       and the writer. -->
+  <div class="seoc-bset">
+    <button class="seoc-bset-toggle" id="btnBlogSet" type="button">
+      <span>&#9881; Blog settings</span>
+      <span class="seoc-muted" id="blogSetSummary">author, guidance, approved topics</span>
+    </button>
+    <div id="blogSetBody" style="display:none">
+      <div class="seoc-2col" style="margin-bottom:10px">
+        <div>
+          <div class="seoc-biz-head">Default author</div>
+          <input id="ba_name" placeholder="Name shown on every post">
+          <input id="ba_title" placeholder="Title (optional — e.g. Owner, Service Manager)"
+                 style="margin-top:6px">
+          <input id="ba_url" placeholder="Author page / profile URL (optional)" style="margin-top:6px">
+        </div>
+        <div>
+          <div class="seoc-biz-head">Blog categories in use</div>
+          <input id="ba_cats" placeholder="Heating, Cooling, Maintenance">
+          <p class="seoc-muted" style="font-size:11.5px;margin:5px 0 0">
+            Comma separated. The writer reuses these and adds at most one new
+            category per post, so the blog does not end up with twelve
+            categories of one post each.</p>
+        </div>
+      </div>
+      <div class="seoc-biz-head">What should the engine know about this company?</div>
+      <textarea id="ba_guidance" rows="4"
+        placeholder="How they operate, who they serve, licences and certifications they really hold, warranty and financing terms, legal or compliance wording their industry requires, anything they have asked us to say a particular way."></textarea>
+      <p class="seoc-muted" style="font-size:11.5px;margin:5px 0 12px">
+        Goes to the topic planner and the writer with every post.</p>
+      <div class="seoc-biz-head">Never mention <span class="seoc-muted" style="font-weight:400">(one per line)</span></div>
+      <textarea id="ba_avoid" rows="3"
+        placeholder="Competitor names, a discontinued service, “guaranteed”, a claim their licence does not cover…"></textarea>
+      <p class="seoc-muted" style="font-size:11.5px;margin:5px 0 12px">
+        These are <b>checked in the finished copy</b>, not just asked of the AI.
+        A post whose text contains one is flagged in the table and in the client
+        document until it is rewritten.</p>
+
+      <div class="seoc-biz-head">Approved blogs / approved topics</div>
+      <p class="seoc-muted" style="font-size:12px;margin:0 0 8px">
+        The list a client signed off in advance. Upload the document you sent
+        them (PDF, Word or text) and the planner uses those titles first, in
+        order, exactly as written.</p>
+      <div class="seoc-topicbar">
+        <input type="file" id="ba_topicfile" accept=".pdf,.docx,.doc,.txt,.md,.csv">
+        <button class="seoc-btn seoc-small" id="btnTopicUp" type="button">Load topics</button>
+        <label class="seoc-skip" style="font-size:12.5px">
+          <input type="checkbox" id="ba_topicappend"> Add to the list already loaded</label>
+        <span id="topicMsg" class="seoc-muted"></span>
+      </div>
+      <textarea id="ba_topicpaste" rows="3" style="margin-top:8px"
+        placeholder="…or paste the topics here, one per line, and click Load topics."></textarea>
+      <div id="topicList" class="seoc-topiclist" style="display:none"></div>
+      <label class="seoc-skip" style="font-size:12.5px;margin-top:8px;display:block">
+        <input type="checkbox" id="ba_approvedonly"> Plan <b>only</b> the approved
+        topics &mdash; stop when the list runs out rather than inventing more</label>
+      <div style="margin-top:12px">
+        <button class="seoc-btn seoc-small" id="btnBlogSetSave" type="button">Save blog settings</button>
+        <span id="blogSetMsg" class="seoc-muted" style="margin-left:8px"></span>
+      </div>
+    </div>
+  </div>
+
   <div id="blogAsk">
     <p style="margin:4px 0 10px;font-size:13.5px">Would you like to create the <b>next three months of blogs</b> for this client?</p>
     <div class="seoc-biz" style="margin-bottom:10px">
@@ -321,9 +388,19 @@
       <button class="seoc-btn seoc-sec seoc-small" id="btnBlogReplan">Re-plan topics</button>
       <span id="blogWriteMsg" class="seoc-muted"></span>
     </div>
+    <!-- Publishing. Neither CMS has a write API we can use, so the honest
+         tool is: open the right admin screen and put the exact fields on the
+         screen beside it. See hub/cms_publish.py. -->
+    <div class="seoc-blogbar seoc-pubbar">
+      <b style="font-size:12.5px">Publish selected:</b>
+      <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="blogs">&#127760; Browse Smart 1 Sites</button>
+      <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="blogs">&#127760; Browse WordPress</button>
+      <span class="seoc-muted">Opens the site&rsquo;s CMS in a new window and shows what to paste where.</span>
+    </div>
     <div style="overflow-x:auto">
       <table class="seoc-blogt"><thead><tr>
-        <th></th><th>Week</th><th>Blog name</th><th>Status</th><th>Posted on site</th><th style="text-align:right">Actions</th>
+        <th></th><th>Week</th><th></th><th>Blog name</th><th>Category &amp; tags</th>
+        <th>Status</th><th>Posted on site</th><th style="text-align:right">Actions</th>
       </tr></thead><tbody id="blogRows"></tbody></table>
     </div>
   </div>
@@ -334,14 +411,34 @@
   <div class="seoc-modal-box" style="width:820px">
     <div class="seoc-modal-head"><b id="blogModalTitle">Blog post</b><button class="seoc-x" id="blogModalClose">&times;</button></div>
     <div class="seoc-modal-body">
+      <div id="blogFlags" class="seoc-flag" style="display:none"></div>
+      <div class="seoc-2col" style="margin-bottom:12px">
+        <div><div class="seoc-biz-head">Categories</div>
+          <input id="blogCats" placeholder="Heating, Maintenance"></div>
+        <div><div class="seoc-biz-head">Tags</div>
+          <input id="blogTags" placeholder="furnace tune-up, winter, columbus"></div>
+      </div>
       <div id="blogPreview" class="seoc-blogprev"></div>
       <textarea id="blogEdit" rows="14" style="display:none;font:12px ui-monospace,Consolas,monospace"></textarea>
     </div>
     <div class="seoc-modal-foot">
       <span id="blogModalMsg" class="seoc-muted"></span>
       <button class="seoc-btn seoc-sec seoc-small" id="blogEditToggle">Edit HTML</button>
-      <button class="seoc-btn seoc-small" id="blogModalSave" style="display:none">Save changes</button>
+      <button class="seoc-btn seoc-small" id="blogModalSave">Save changes</button>
       <a class="seoc-btn seoc-small" id="blogModalDl">&#8681; Download</a>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- Publish helper modal (blogs and schema share it) ---------- -->
+<div class="seoc-modal" id="pubModal">
+  <div class="seoc-modal-box" style="width:900px">
+    <div class="seoc-modal-head"><b id="pubTitle">Publish</b><button class="seoc-x" id="pubClose">&times;</button></div>
+    <div class="seoc-modal-body" id="pubBody"></div>
+    <div class="seoc-modal-foot">
+      <span id="pubMsg" class="seoc-muted"></span>
+      <a class="seoc-btn seoc-sec seoc-small" id="pubOpen" target="_blank" rel="noopener">Open the CMS again</a>
+      <button class="seoc-btn seoc-small" id="pubDone">Close</button>
     </div>
   </div>
 </div>
@@ -483,6 +580,43 @@
 .seoc-skip input{width:auto}
 .seoc-wmhelp{font-size:12.5px;color:#475569;background:#f8fafc;border-radius:8px;padding:10px}
 .seoc-blogbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.seoc-pubbar{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px 12px}
+.seoc-bset{border:1px solid #e2e8f0;border-radius:10px;margin-bottom:14px;overflow:hidden}
+.seoc-bset-toggle{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;
+  background:#f8fafc;border:0;padding:10px 14px;cursor:pointer;font:700 13px 'Segoe UI',system-ui,sans-serif;
+  color:#1a2e58;text-align:left}
+#blogSetBody{padding:14px}
+#blogSetBody input,#blogSetBody textarea{width:100%;box-sizing:border-box;padding:8px 10px;
+  border:1px solid #e2e8f0;border-radius:8px;font:13px 'Segoe UI',system-ui,sans-serif}
+.seoc-topicbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.seoc-topicbar input[type=file]{border:0;padding:0;font-size:12.5px;width:auto}
+.seoc-topiclist{margin-top:10px;max-height:190px;overflow:auto;border:1px solid #e2e8f0;
+  border-radius:8px;background:#fff;font-size:12.5px}
+.seoc-topiclist div{padding:6px 10px;border-bottom:1px solid #f1f5f9}
+.seoc-topiclist div:last-child{border-bottom:0}
+.seoc-flag{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;
+  padding:10px 12px;font-size:12.5px;margin-bottom:12px}
+.seoc-tax{font-size:11.5px;color:#475569}
+.seoc-tax .c{display:inline-block;background:#e0e7ff;color:#3730a3;border-radius:20px;
+  padding:1px 8px;margin:1px 3px 1px 0;font-weight:700}
+.seoc-tax .t{display:inline-block;background:#f1f5f9;color:#475569;border-radius:20px;
+  padding:1px 8px;margin:1px 3px 1px 0}
+.seoc-pubstep{border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.seoc-pubstep b{color:#1a2e58;font-size:13.5px}
+.seoc-pubstep p{margin:4px 0 0;font-size:13px;color:#475569;line-height:1.5}
+.seoc-pubitem{border:1px solid #e2e8f0;border-radius:10px;margin-bottom:12px;overflow:hidden}
+.seoc-pubitem-head{background:#f8fafc;padding:9px 14px;font-weight:700;font-size:13.5px;color:#1a2e58;
+  display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.seoc-pubfield{display:grid;grid-template-columns:170px 1fr auto;gap:10px;align-items:start;
+  padding:8px 14px;border-top:1px solid #f1f5f9;font-size:12.5px}
+.seoc-pubfield b{color:#475569}
+.seoc-pubfield .val{background:#f8fafc;border:1px solid #eef2f7;border-radius:6px;padding:6px 8px;
+  overflow:auto;max-height:170px;white-space:pre-wrap;word-break:break-word;
+  font:12px ui-monospace,Consolas,monospace}
+.seoc-pubfield .note{grid-column:2/4;color:#b45309;font-size:11.5px}
+@media(max-width:760px){.seoc-pubfield{grid-template-columns:1fr}}
+.seoc-pubwarn{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;
+  padding:10px 12px;font-size:12.5px;margin-bottom:10px}
 table.seoc-blogt{width:100%;border-collapse:collapse;font-size:13.5px}
 table.seoc-blogt th{background:#f8fafc;text-align:left;padding:9px 12px;font-size:11.5px;text-transform:uppercase;
   letter-spacing:.6px;color:#64748b;border-bottom:1px solid #e2e8f0;white-space:nowrap}
@@ -1591,6 +1725,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     if(su.blogs_per_month) f.push(su.blogs_per_month+' / month');
     if(su.blogs_frequency) f.push(su.blogs_frequency);
     $('blogFreq').textContent=f.join(' · ');
+    if(d&&d.blog_settings) renderBlogSettings(d.blog_settings);
     if(d&&d.blog_posts!==undefined){
       renderBlogQs(d.blog_questions||[]);
       if(blogPosts.length)renderBlogTable(); else $('blogStartWrap').style.display='none';
@@ -1599,6 +1734,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   function loadBlogs(){
     fetch('/api/seo/blogs?name='+encodeURIComponent(CLIENT)).then(function(r){return r.json();}).then(function(d){
       blogPosts=d.posts||[];
+      if(d.settings) renderBlogSettings(d.settings);
       renderBlogQs(d.questions||[]);
       if(blogPosts.length){renderBlogTable();}
       else{$('blogStartWrap').style.display='none';}
@@ -1628,7 +1764,14 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         +'<td><input type="checkbox" class="blogSel" data-id="'+p.id+'"></td>'
         +'<td style="white-space:nowrap">'+esc(p.week)+'<div class="seoc-muted" style="font-size:11px">'+esc(p.date)+'</div></td>'
         +'<td>'+blogThumb(p)+'</td>'
-        +'<td><b>'+esc(p.title)+'</b>'+(p.summary?'<div class="seoc-muted" style="font-size:11.5px">'+esc(p.summary)+'</div>':'')+'</td>'
+        +'<td><b>'+esc(p.title)+'</b>'
+        +(p.source==='approved'?' <span class="seoc-appr" title="From the approved topic list">approved</span>':'')
+        +(p.summary?'<div class="seoc-muted" style="font-size:11.5px">'+esc(p.summary)+'</div>':'')
+        +((p.flags&&p.flags.length)
+          ? '<div class="seoc-bad" style="font-size:11.5px">&#9888; says &ldquo;'
+            +esc(p.flags.map(function(f){return f.term;}).join('”, “'))+'&rdquo; &mdash; on the never-mention list</div>'
+          : '')+'</td>'
+        +'<td class="seoc-tax">'+taxCell(p)+'</td>'
         +'<td><span class="seoc-bstat '+(p.status==='written'?'written':'planned')+'">'+(p.status==='written'?'Written':'Planned')+'</span></td>'
         +'<td><input type="checkbox" class="bPosted" data-id="'+p.id+'"'+(p.posted?' checked':'')+' title="Posted on the client\'s site"></td>'
         +'<td style="text-align:right;white-space:nowrap">'
@@ -1715,7 +1858,12 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       $('btnBlogPlan').disabled=false;
       if(d.error){$('blogPlanMsg').textContent=d.error;return;}
       blogPosts=d.posts||[];
-      $('blogPlanMsg').textContent=(d.ai?'Topics planned with AI.':'Topics planned (template mode'+(d.ai_error?' — AI error: '+d.ai_error:'')+').');
+      var msg=(d.ai?'Topics planned with AI.':'Topics planned (template mode'+(d.ai_error?' — AI error: '+d.ai_error:'')+').');
+      if(d.approved_available){
+        msg+=' '+d.approved_used+' of '+d.approved_available+' approved topic(s) used'
+          +(d.approved_used<d.approved_available?' — the rest need more dates in the schedule.':'.');
+      }
+      $('blogPlanMsg').textContent=msg;
       appendTask('blogPlanMsg', d.tasks);
       renderBlogQs(d.questions||[]);
       renderBlogTable();
@@ -1749,7 +1897,11 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       renderBlogTable();
       renderBlogQs(d.questions||[]);
       var wrote=(d.written||[]).length;
-      if(!wrote){ $('blogWriteMsg').textContent='Done.'; return; }
+      if(d.flagged){
+        $('blogWriteMsg').textContent=d.flagged+' post(s) mention something on the '
+          +'never-mention list — open them and rewrite before publishing.';
+      }
+      if(!wrote){ if(!d.flagged) $('blogWriteMsg').textContent='Done.'; return; }
       writeNext(d.remaining||[],doneSoFar+wrote,total);
     });
   }
@@ -1759,6 +1911,174 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     location.href='/seo/blogs/'+slug+'.doc?ids='+ids.join(',');
   };
 
+  function taxCell(p){
+    var cats=(p.categories||[]).map(function(c){return '<span class="c">'+esc(c)+'</span>';}).join('');
+    var tags=(p.tags||[]).map(function(t){return '<span class="t">'+esc(t)+'</span>';}).join('');
+    if(!cats&&!tags) return '<span class="seoc-muted">not set</span>';
+    return cats+(tags?'<div>'+tags+'</div>':'');
+  }
+
+  // ---------------- blog settings (author, guidance, approved topics) ----
+  var blogSettings={author:{},guidance:'',avoid:[],categories:[],approved_topics:[],
+                    approved_only:false,topics_source:{}};
+  $('btnBlogSet').onclick=function(){
+    var b=$('blogSetBody');
+    b.style.display=(b.style.display==='none')?'block':'none';
+  };
+  function renderBlogSettings(s){
+    blogSettings=s||blogSettings;
+    var a=blogSettings.author||{};
+    $('ba_name').value=a.name||''; $('ba_title').value=a.title||''; $('ba_url').value=a.url||'';
+    $('ba_cats').value=(blogSettings.categories||[]).join(', ');
+    $('ba_guidance').value=blogSettings.guidance||'';
+    $('ba_avoid').value=(blogSettings.avoid||[]).join('\n');
+    $('ba_approvedonly').checked=!!blogSettings.approved_only;
+    renderTopics();
+    var bits=[];
+    bits.push(a.name?('author '+a.name):'no default author');
+    bits.push((blogSettings.approved_topics||[]).length+' approved topic(s)');
+    if((blogSettings.avoid||[]).length) bits.push((blogSettings.avoid||[]).length+' never-mention term(s)');
+    $('blogSetSummary').textContent=bits.join(' · ');
+  }
+  function renderTopics(){
+    var t=blogSettings.approved_topics||[];
+    var box=$('topicList');
+    if(!t.length){ box.style.display='none'; box.innerHTML=''; return; }
+    box.style.display='block';
+    box.innerHTML=t.map(function(x,i){
+      return '<div><b>'+(i+1)+'.</b> '+esc(x.title)
+        +(x.notes?'<div class="seoc-muted" style="font-size:11.5px">'+esc(x.notes)+'</div>':'')+'</div>';
+    }).join('')
+      +'<div style="text-align:right"><button class="seoc-blink" id="btnTopicClear">Clear the list</button></div>';
+    $('btnTopicClear').onclick=function(){
+      if(!confirm('Clear the approved topic list for this client?')) return;
+      post('/api/seo/blogs/topics',{client:CLIENT,action:'clear'}).then(function(d){
+        blogSettings.approved_topics=d.topics||[]; blogSettings.topics_source=d.source||{};
+        renderBlogSettings(blogSettings);
+        $('topicMsg').textContent='Cleared.';
+      });
+    };
+  }
+  $('btnTopicUp').onclick=function(){
+    var f=$('ba_topicfile').files[0], pasted=$('ba_topicpaste').value.trim();
+    if(!f&&!pasted){ $('topicMsg').textContent='Choose a document or paste the topics first.'; return; }
+    $('topicMsg').textContent='Reading…';
+    var done=function(d){
+      if(d.error){ $('topicMsg').textContent=d.error; return; }
+      blogSettings.approved_topics=d.topics||[]; blogSettings.topics_source=d.source||{};
+      $('ba_topicpaste').value=''; $('ba_topicfile').value='';
+      renderBlogSettings(blogSettings);
+      $('topicMsg').textContent='Found '+d.found+' topic(s) — '+(d.topics||[]).length+' on the list now.';
+    };
+    if(f){
+      /* Multipart, so the same PDF/Word document that was emailed to the
+         client can be dropped straight in. */
+      var fd=new FormData();
+      fd.append('client',CLIENT); fd.append('file',f);
+      fd.append('append',$('ba_topicappend').checked?'1':'0');
+      fetch('/api/seo/blogs/topics',{method:'POST',body:fd})
+        .then(function(r){return r.json();}).then(done);
+    } else {
+      post('/api/seo/blogs/topics',{client:CLIENT,text:pasted,filename:'pasted list',
+                                    append:$('ba_topicappend').checked}).then(done);
+    }
+  };
+  $('btnBlogSetSave').onclick=function(){
+    $('blogSetMsg').textContent='Saving…';
+    post('/api/seo/blogs/settings',{client:CLIENT,
+      author:{name:$('ba_name').value.trim(),title:$('ba_title').value.trim(),
+              url:$('ba_url').value.trim()},
+      guidance:$('ba_guidance').value,
+      avoid:$('ba_avoid').value,
+      categories:$('ba_cats').value.split(','),
+      approved_only:$('ba_approvedonly').checked}).then(function(d){
+      if(d.error){ $('blogSetMsg').textContent=d.error; return; }
+      renderBlogSettings(d.settings);
+      $('blogSetMsg').textContent='Saved — used on the next plan and the next write.';
+    });
+  };
+
+  // ---------------- publish helper (blogs and schema) --------------------
+  // The window is opened in the click handler, before the fetch, because a
+  // window.open() that happens in a promise callback is a popup the browser
+  // blocks — and a blocked popup looks exactly like a button that does
+  // nothing.
+  function openPublish(cms,kind){
+    var body={client:CLIENT,cms:cms,kind:kind};
+    if(kind==='schema'){
+      var urls=selectedUrls('schemaRows');
+      if(!urls.length){ alert('Tick the pages you want to publish first.'); return; }
+      body.urls=urls;
+    } else {
+      var ids=selectedBlogIds();
+      if(!ids.length){ $('blogWriteMsg').textContent='Tick the posts you want to publish first.'; return; }
+      body.ids=ids;
+    }
+    var win=window.open('','_blank');
+    post('/api/seo/publish/instructions',body).then(function(d){
+      if(d.error){ if(win)win.close(); alert(d.error); return; }
+      if(d.admin_url && win){ win.location.href=d.admin_url; }
+      else if(win){ win.close(); }
+      renderPublish(d);
+    },function(){ if(win)win.close(); });
+  }
+  function renderPublish(d){
+    $('pubTitle').textContent=(d.kind==='schema'?'Add schema in ':'Publish blogs in ')+d.label;
+    var o=$('pubOpen');
+    if(d.admin_url){ o.href=d.admin_url; o.style.display='inline-block'; o.textContent='Open '+d.label+' again'; }
+    else { o.style.display='none'; }
+    var h='';
+    (d.warnings||[]).forEach(function(w){ h+='<div class="seoc-pubwarn">'+esc(w)+'</div>'; });
+    if(d.admin_url){
+      h+='<p class="seoc-muted" style="margin:0 0 12px">Opened in a new window: <b>'
+        +esc(d.admin_label)+'</b>. Log in there, then work down this list.</p>';
+    }
+    (d.steps||[]).forEach(function(s,i){
+      h+='<div class="seoc-pubstep"><b>'+(i+1)+'. '+esc(s.title)+'</b><p>'+esc(s.detail)+'</p></div>';
+    });
+    (d.items||[]).forEach(function(it,idx){
+      h+='<div class="seoc-pubitem"><div class="seoc-pubitem-head"><span>'+esc(it.title)+'</span>'
+        +'<span class="seoc-muted">'+esc(it.subtitle||'')+'</span></div>';
+      (it.notes||[]).forEach(function(n){
+        h+='<div class="seoc-pubfield"><b>&#9888;</b><div class="note" style="grid-column:2/4">'+esc(n)+'</div></div>';
+      });
+      (it.fields||[]).forEach(function(f,fi){
+        h+='<div class="seoc-pubfield"><b>'+esc(f.label)+'</b>'
+          +'<div class="val" id="pubv_'+idx+'_'+fi+'">'+esc(f.value)+'</div>'
+          +'<button class="seoc-btn seoc-sec seoc-small pubcopy" data-t="pubv_'+idx+'_'+fi+'">Copy</button>'
+          +(f.note?'<div class="note">'+esc(f.note)+'</div>':'')
+          +'</div>';
+      });
+      h+='</div>';
+    });
+    $('pubBody').innerHTML=h;
+    $('pubBody').querySelectorAll('.pubcopy').forEach(function(b){
+      b.onclick=function(){ copyText($(b.dataset.t).textContent, b); };
+    });
+    $('pubMsg').textContent='';
+    $('pubModal').classList.add('open');
+  }
+  function copyText(text,btn){
+    var done=function(){ var t=btn.textContent; btn.textContent='Copied';
+      setTimeout(function(){btn.textContent=t;},1200); };
+    /* Same fallback as the image link button: navigator.clipboard needs a
+       secure context and is absent in a few setups. */
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done,function(){});
+    } else {
+      var ta=document.createElement('textarea'); ta.value=text;
+      document.body.appendChild(ta); ta.select();
+      try{document.execCommand('copy');done();}catch(e){}
+      document.body.removeChild(ta);
+    }
+  }
+  document.querySelectorAll('[data-pub]').forEach(function(b){
+    b.onclick=function(){ openPublish(b.dataset.pub,b.dataset.kind); };
+  });
+  $('pubClose').onclick=function(){$('pubModal').classList.remove('open');};
+  $('pubDone').onclick=function(){$('pubModal').classList.remove('open');};
+  $('pubModal').onclick=function(e){if(e.target===this)this.classList.remove('open');};
+
   // blog modal
   var blogModalId=null;
   function openBlogModal(id){
@@ -1766,10 +2086,17 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     if(!p)return;
     blogModalId=id;
     $('blogModalTitle').textContent=p.title;
+    $('blogCats').value=(p.categories||[]).join(', ');
+    $('blogTags').value=(p.tags||[]).join(', ');
+    if(p.flags&&p.flags.length){
+      $('blogFlags').style.display='block';
+      $('blogFlags').innerHTML='<b>Never-mention check failed.</b> This copy contains: '
+        +p.flags.map(function(f){return '<b>'+esc(f.term)+'</b> — “'+esc(f.context)+'”';}).join('<br>')
+        +'<br>Rewrite it before this post is published. Saving the post re-runs the check.';
+    } else { $('blogFlags').style.display='none'; $('blogFlags').innerHTML=''; }
     $('blogPreview').innerHTML=p.content||'<p class="seoc-muted">Not written yet — select it in the table and click "Write selected with AI".</p>';
     $('blogPreview').style.display='block';
     $('blogEdit').style.display='none';
-    $('blogModalSave').style.display='none';
     $('blogEditToggle').textContent='Edit HTML';
     $('blogModalDl').href='/seo/blogs/'+slug+'.doc?ids='+id;
     $('blogModal').classList.add('open');
@@ -1787,7 +2114,6 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     } else {
       $('blogEdit').value=p.content||'';
       $('blogEdit').style.display='block';$('blogPreview').style.display='none';
-      $('blogModalSave').style.display='inline-block';
       this.textContent='Preview';
     }
   };
@@ -1795,9 +2121,13 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     var p=blogPosts.find(function(x){return x.id===blogModalId;});
     if(!p)return;
     var content=$('blogEdit').style.display!=='none'?$('blogEdit').value:$('blogPreview').innerHTML;
-    post('/api/seo/blogs/update',{client:CLIENT,id:blogModalId,content:content}).then(function(d){
+    post('/api/seo/blogs/update',{client:CLIENT,id:blogModalId,content:content,
+      categories:$('blogCats').value.split(','),tags:$('blogTags').value.split(',')}).then(function(d){
       $('blogModalMsg').textContent=d.error||'Saved.';
-      if(!d.error){p.content=content;p.status='written';renderBlogTable();}
+      /* Reload rather than patching the row in place: the server re-runs the
+         never-mention check and clamps the taxonomy on save, so what is on
+         screen after an edit has to be what was stored, not what was typed. */
+      if(!d.error){p.content=content;p.status='written';loadBlogs();}
     });
   };
 

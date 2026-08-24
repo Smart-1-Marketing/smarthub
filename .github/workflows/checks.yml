@@ -206,6 +206,19 @@ jobs:
             echo "test_social_plan.py not on this branch — nothing to run."
           fi
 
+      - name: Blog taxonomy, guardrail and CMS publish tests
+        # The blog section's approved-topic list, the never-mention check and
+        # what the two CMS panels are handed. Guarded like the steps above so
+        # this workflow stays mergeable on a branch that predates the file. It
+        # *sets* DATABASE_URL and HUB_DATA_DIR rather than setdefault-ing them,
+        # so it always gets its own throwaway mirror and is safe to re-run.
+        run: |
+          if [ -f test_blog_publish.py ]; then
+            python test_blog_publish.py
+          else
+            echo "test_blog_publish.py not on this branch — nothing to run."
+          fi
+
       - name: Video library tests
         # Safe to re-run, unlike the target-areas step above: this file *sets*
         # DATABASE_URL and HUB_DATA_DIR rather than setdefault-ing them, so it
