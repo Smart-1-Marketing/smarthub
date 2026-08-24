@@ -59,6 +59,14 @@ def websites() -> list[dict]:
 
 
 def data_age_hours() -> float | None:
+    """How long ago products.json was written to disk.
+
+    That is the *file's* age, and in a Docker deploy every file is written at
+    image build time — so this measures the last deploy, not the last data
+    refresh, and reads "fresh" for an export generated months earlier. The
+    honest staleness signal is the export's own `thisMonth` against the
+    calendar; see `export_stale` in summary().
+    """
     import time
     try:
         mtime = os.path.getmtime(os.path.join(BASE, "products.json"))
@@ -154,6 +162,23 @@ TRENDED = ("clients_live", "live_products", "live_budget_monthly",
            "websites_active", "hm_monthly", "estimated_total_monthly")
 
 
+def _current_period() -> str:
+    """The month the Hub is in, read from the clock.
+
+    This used to be products.json's `thisMonth`, and that is a committed
+    export refreshed by hand — it has carried one value since the day it was
+    generated. Keying the history on it meant every dashboard load wrote
+    today's numbers into that same bucket, a second bucket could never appear,
+    and so every trend rendered "– vs last mo – vs last yr" for ever: a
+    comparison that looks like history and can never resolve into any.
+
+    The export's own month still labels the export-derived counts below. It is
+    a fact about the export, not about today, and the two are only the same
+    month by coincidence.
+    """
+    return _dt.date.today().strftime("%Y%m")
+
+
 def _period_minus(period: str, months: int) -> str:
     """The YYYYMM that many months before `period`."""
     try:
@@ -186,37 +211,50 @@ def _snapshot(period: str, values: dict) -> dict:
     return hist
 
 
-def _delta(now, before):
+def _delta(now, before, period: str = ""):
     """A movement, or an explicit "we don't have that yet".
 
     `available: False` is the point of this shape. A month we have no snapshot
     for is not a month where nothing changed, and rendering it as 0 would state
     something we do not know — the same mistake as showing an empty rate card
     as "no products".
+
+    `period` is the month `before` was taken in, carried through so the card
+    can name it. A comparison that will not say what it compared against is
+    one nobody can check.
     """
+    label = _period_label(period)
     if not isinstance(before, (int, float)) or not isinstance(now, (int, float)):
-        return {"available": False}
+        return {"available": False, "period": label}
     diff = now - before
     pct = round(diff / before * 100, 1) if before else None
     return {"available": True, "from": before, "diff": diff, "pct": pct,
+            "period": label,
             "dir": "up" if diff > 0 else "down" if diff < 0 else "flat"}
 
 
 def _trends(period: str, current: dict) -> dict:
     """Each trended metric against last month and the same month last year."""
     hist = _snapshot(period, {k: current.get(k) for k in TRENDED})
-    prev_m = hist.get(_period_minus(period, 1)) or {}
-    prev_y = hist.get(_period_minus(period, 12)) or {}
+    m_key, y_key = _period_minus(period, 1), _period_minus(period, 12)
+    prev_m = hist.get(m_key) or {}
+    prev_y = hist.get(y_key) or {}
     out = {}
     for k in TRENDED:
-        out[k] = {"last_month": _delta(current.get(k), prev_m.get(k)),
-                  "last_year": _delta(current.get(k), prev_y.get(k))}
+        out[k] = {"last_month": _delta(current.get(k), prev_m.get(k), m_key),
+                  "last_year": _delta(current.get(k), prev_y.get(k), y_key)}
     return out
 
 
-def _website_movement(period, websites_active) -> int | None:
-    """Websites carry no month-over-month fields, so the Hub snapshots the
-    active count per Knack period and compares to the previous period."""
+def _website_movement(period, websites_active) -> tuple:
+    """(movement, the month it is measured from).
+
+    Websites carry no month-over-month fields, so the Hub snapshots the active
+    count each month and compares. It compares against the most recent earlier
+    month it holds, which is not always last month — so it returns which one,
+    and the card names it. Saying "vs last month" over a gap of four is how a
+    number nobody can reproduce ends up on a dashboard.
+    """
     path = _history_path()
     from . import jsonstore
     hist = jsonstore.read_json(path, default={})
@@ -233,9 +271,12 @@ def _website_movement(period, websites_active) -> int | None:
             pass
     prev_keys = sorted(k for k in hist if k.isdigit() and k < key)
     if not prev_keys:
-        return None
-    prev = hist[prev_keys[-1]].get("websites_active")
-    return websites_active - prev if isinstance(prev, (int, float)) else None
+        return None, ""
+    prev_key = prev_keys[-1]
+    prev = hist[prev_key].get("websites_active")
+    if not isinstance(prev, (int, float)):
+        return None, ""
+    return websites_active - prev, _period_label(prev_key)
 
 
 def month_over_month(prods: list[dict]) -> dict:
@@ -277,13 +318,18 @@ def summary() -> dict:
     active_sites = [w for w in webs if _active(w)]
     hm_monthly = sum(_num(w.get("hmMonthly")) for w in active_sites)
 
-    this_period = raw.get("thisMonth") if isinstance(raw, dict) else None
-    last_period = raw.get("lastMonth") if isinstance(raw, dict) else None
+    # Two different months, and conflating them is what broke the trends.
+    # `period` is now — what the snapshot history is keyed on. `export_period`
+    # is the month products.json was generated for, which is what its lastM /
+    # thisM flags describe and all the new/lost/up/down counts are measured in.
+    period = _current_period()
+    export_period = str(raw.get("thisMonth") or "") if isinstance(raw, dict) else ""
+    export_prev = str(raw.get("lastMonth") or "") if isinstance(raw, dict) else ""
     mom = month_over_month(prods)
     try:
-        movement = _website_movement(this_period, len(active_sites))
+        movement, movement_from = _website_movement(period, len(active_sites))
     except Exception:  # noqa: BLE001 — never break the dashboard on history I/O
-        movement = None
+        movement, movement_from = None, ""
 
     return {
         "clients_total": len(all_clients),
@@ -299,10 +345,11 @@ def summary() -> dict:
         "increased_customers": mom["increased"],
         "decreased_customers": mom["decreased"],
         "website_movement": movement,
+        "website_movement_from": movement_from,
         # Which way each headline number moved, against last month and against
         # the same month a year ago. Absent history is reported as absent
         # rather than as no change.
-        "trends": _trends(str(this_period or ""), {
+        "trends": _trends(period, {
             "clients_live": len(live_clients),
             "live_products": len(live),
             "live_budget_monthly": round(live_budget),
@@ -310,8 +357,14 @@ def summary() -> dict:
             "hm_monthly": round(hm_monthly),
             "estimated_total_monthly": round(live_budget + hm_monthly),
         }),
-        "this_period": _period_label(this_period),
-        "last_period": _period_label(last_period),
+        "this_period": _period_label(export_period),
+        "last_period": _period_label(export_prev),
+        # The month-over-month counts above come from the export's own flags,
+        # so they describe the export's month — not necessarily this one. When
+        # the export is behind the calendar they are history, and the card has
+        # to say so rather than presenting last quarter's movement as today's.
+        "export_stale": bool(export_period and export_period != period),
+        "period": _period_label(period),
         "data_age_hours": data_age_hours(),
     }
 
