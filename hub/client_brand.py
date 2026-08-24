@@ -42,6 +42,7 @@ WORK_KINDS = {
     "fan_radio":            ("Radio spot", "Fan Radio"),
     "commercial_builder":   ("Commercial", "Commercial Builder"),
     "utm_builder":          ("Tracked links", "UTM Builder"),
+    "social_planner":       ("Social calendar", "Social Content Planner"),
     "calculators":          ("Calculator published", "Calculators"),
     "google_access":        ("Google access", "Google Access"),
     "suite_panel":          ("Suite account", "Suite Panel"),
