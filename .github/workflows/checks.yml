@@ -113,6 +113,16 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Website block tests
+        # Same skip-rather-than-fail shape as the tests below: a branch cut
+        # before this file exists should not fail on its absence.
+        run: |
+          if [ -f test_site_blocks.py ]; then
+            python test_site_blocks.py
+          else
+            echo "test_site_blocks.py not on this branch — nothing to run."
+          fi
+
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.
@@ -223,6 +233,10 @@ jobs:
                    "/client360", "/tools",
                    # The landing maker, and the API its page calls.
                    "/sales/landing", "/api/landing",
+                   # The website block builder. Its page draws itself entirely
+                   # from api/catalogue, so a page that boots but whose
+                   # catalogue 500s is a blank tool -- both are requested.
+                   "/tools/site-blocks/", "/tools/site-blocks/api/catalogue",
                    # The social planner, and the page that links to it. Its
                    # index renders the whole post-type spec into the page, so a
                    # bad entry in hub/social_plan.py shows up here as a 500.
