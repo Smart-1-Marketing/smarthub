@@ -202,6 +202,44 @@ def create_hub_app() -> Flask:
         from . import quotas
         return jsonify(quotas.summary(request.args.get("month")))
 
+    # ---------------- Google account index ----------------
+    # Deliberately hub routes, not routes under /google: DispatcherMiddleware
+    # routes purely by prefix, so anything under /google belongs to Google
+    # Finder and a hub route there would never be reached. That trap has bitten
+    # three times and /api/integrity has a high-severity check for it.
+    @app.route("/api/google/index")
+    def api_google_index():
+        """What the stored Google index holds, and how old it is."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import google_index
+        return jsonify(google_index.status())
+
+    @app.route("/api/google/for-client")
+    def api_google_for_client():
+        """Every Google resource joined to one client.
+
+        This is what Client 360 and the tool auto-fill read. It is a scan of a
+        stored dictionary — no Google call — which is the entire reason the
+        360 page stopped waiting on a four-API sweep.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import google_index
+        return jsonify(google_index.for_client(
+            request.args.get("name", ""), request.args.get("url", "")))
+
+    @app.route("/api/google/rebuild", methods=["POST"])
+    def api_google_rebuild():
+        """Force a re-sweep now, rather than waiting for the three-hour job."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import google_index
+        return jsonify(google_index.build(force=True))
+
     @app.route("/api/backup")
     def api_backup():
         """What of the JSON on the disk is mirrored into the database.
