@@ -359,12 +359,69 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/sites-match")
     def api_sites_match():
-        """Propose a client for every unlinked Simvoly project. Read-only."""
+        """Propose a client for every unlinked *live* Simvoly project.
+
+        Read-only. Live only by default: an expired or cancelled project is not
+        a website anybody can visit, and its domain has often been repointed,
+        so linking a client to one attributes them a site that may now belong
+        to somebody else. `?include_inactive=1` shows the rest; the count of
+        what is being left out is in the response either way.
+        """
         gate = _require_api()
         if gate:
             return gate
         from .sites_match import suggest
-        return jsonify(suggest())
+        include = str(request.args.get("include_inactive", "")).lower() in (
+            "1", "true", "yes")
+        return jsonify(suggest(active_only=not include))
+
+    @app.route("/api/client-urls")
+    def api_client_urls():
+        """Clients with no website, and what the rest of the Hub knows.
+
+        The companion to /api/db/urls, which can say who is missing a URL but
+        not do anything about it. This one reads the click-thrus on their live
+        products, the Knack website registry, our Simvoly projects, their site
+        scans and their Google access requests, and proposes the domain those
+        agree on. It writes nothing.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_urls import missing
+        return jsonify(missing(
+            include_found=str(request.args.get("include_found", "")).lower()
+            in ("1", "true", "yes")))
+
+    @app.route("/api/client-urls/accept", methods=["POST"])
+    def api_client_urls_accept():
+        """Record one URL a human recognised. One at a time, on purpose."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_urls import accept
+        body = request.get_json(silent=True) or {}
+        out = accept(body.get("client", ""), body.get("url", ""),
+                     source=body.get("source", ""), actor=current_user() or "")
+        if out.get("ok"):
+            audit.log("hub", "client_url_accepted", actor=current_user(),
+                      client=body.get("client", ""),
+                      detail=out["row"]["domain"])
+        return jsonify(out)
+
+    @app.route("/api/client-urls/clear", methods=["POST"])
+    def api_client_urls_clear():
+        """Undo one. A wrong URL has to be removable without a deploy."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .client_urls import clear
+        body = request.get_json(silent=True) or {}
+        out = clear(body.get("client", ""))
+        if out.get("ok"):
+            audit.log("hub", "client_url_cleared", actor=current_user(),
+                      client=body.get("client", ""))
+        return jsonify(out)
 
     @app.route("/api/sites-match/apply", methods=["POST"])
     def api_sites_match_apply():
@@ -3747,6 +3804,44 @@ def create_hub_app() -> Flask:
         except Exception as _ab_exc:  # noqa: BLE001
             add("Display Ad Builder", "warn",
                 f"Could not be checked: {_ab_exc}")
+
+        # --- Video background library ---
+        # Asked of the library itself rather than inferred from the two keys it
+        # needs, for the reason the tool's own status card exists: an empty
+        # search has three different causes -- Cloudinary unset, indexing never
+        # started, or genuinely no match -- and a page that shows them alike
+        # sends someone looking for a bug in the search.
+        try:
+            from hub import video_library as _vl
+            vs = _vl.status()
+            if not vs.get("cloudinary"):
+                add("Video background library", "error",
+                    "CLOUDINARY_URL is not set — the footage library cannot be "
+                    "read at all.")
+            elif not vs.get("indexing_started"):
+                add("Video background library", "warn",
+                    "Indexing has never run, so nothing is searchable yet. "
+                    "Indexing is forward-only: start it at "
+                    "/tools/video-backgrounds/.")
+            else:
+                # None means "could not be counted", which is not zero and must
+                # not print as one.
+                indexed = vs.get("indexed_count")
+                total = vs.get("library_count")
+                counts = (f"{indexed} of {total} clips indexed"
+                          if indexed is not None and total is not None
+                          else "counts unavailable from Cloudinary right now")
+                add("Video background library",
+                    "warn" if not vs.get("openai") else "ok",
+                    f"Indexing started {vs['cutoff']} · {counts}."
+                    + (" OPENAI_API_KEY is not set, so new clips cannot be "
+                       "described — what is already indexed stays searchable."
+                       if not vs.get("openai") else
+                       " Only our own Cloudinary footage is indexed; free "
+                       "stock is searched live in Commercial Builder."))
+        except Exception as _vl_exc:  # noqa: BLE001
+            add("Video background library", "warn",
+                f"Could not be checked: {_vl_exc}")
 
         # --- binaries for the PDF optimizer ---
         gs, qpdf = shutil.which("gs"), shutil.which("qpdf")

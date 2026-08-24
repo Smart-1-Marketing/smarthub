@@ -232,6 +232,19 @@ jobs:
             echo "test_gpt_ads.py not on this branch — nothing to run."
           fi
 
+      - name: Sites match and client URL discovery tests
+        # Live-only matching, the file-host gate, and the overlay that fills a
+        # client's missing website without relabelling them. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file. Every external reader is stubbed, so it needs no
+        # Knack, Simvoly or Cloudinary credentials.
+        run: |
+          if [ -f test_sites_match.py ]; then
+            python test_sites_match.py
+          else
+            echo "test_sites_match.py not on this branch — nothing to run."
+          fi
+
       - name: Blog taxonomy, guardrail and CMS publish tests
         # The blog section's approved-topic list, the never-mention check and
         # what the two CMS panels are handed. Guarded like the steps above so
@@ -346,7 +359,13 @@ jobs:
                    # The GPT ads builder, and the list endpoint its page opens
                    # with -- a page that boots but whose index 500s is a blank
                    # tool, so both are requested.
-                   "/tools/gpt-ads/", "/tools/gpt-ads/api/ads", "/creative"]
+                   "/tools/gpt-ads/", "/tools/gpt-ads/api/ads",
+                   # Sites match is a HUB route under /tools -- the trap
+                   # CLAUDE.md names first -- and both of its panels are one
+                   # API call each, so a page that boots with a 500 behind it
+                   # is a blank tool.
+                   "/tools/sites-match", "/api/sites-match", "/api/client-urls",
+                   "/creative"]
           bad = []
           for url in pages:
               try:

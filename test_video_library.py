@@ -305,6 +305,61 @@ check("...and passes a 20s cap", vl._matches(shaped, "", 20), True)
 
 
 # ---------------------------------------------------------------------------
+print("\nThe library reports itself on System Status")
+# ---------------------------------------------------------------------------
+# The tool's own status card is only seen by someone already on the tool. The
+# question "is the video library working?" gets asked on /status like every
+# other key and connection, so the check has to exist there -- and it has to
+# distinguish the three states the card distinguishes, because "no results"
+# means something different in each.
+import re as _re                                                # noqa: E402
+
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _read(*parts):
+    with open(os.path.join(_ROOT, *parts), encoding="utf-8", errors="ignore") as fh:
+        return fh.read()
+
+
+_hub_src = _read("hub", "__init__.py")
+check_in("/api/status carries a video library check",
+         'add("Video background library"', _hub_src)
+_block = _hub_src.split('# --- Video background library ---', 1)[-1].split(
+    '# --- binaries for the PDF optimizer ---', 1)[0]
+check_true("it asks the library rather than reading the two env vars itself",
+           "video_library" in _block and "os.environ" not in _block)
+check("it separates unset Cloudinary, never-indexed and working",
+      len(_re.findall(r'add\("Video background library"', _block)), 4)
+check_in("never-indexed says so rather than reading as an empty library",
+         "Indexing has never run", _block)
+check_in("a count that could not be taken is not printed as a number",
+         "counts unavailable", _block)
+
+
+# ---------------------------------------------------------------------------
+print("\nThe page is legible on the Hub's own light theme")
+# ---------------------------------------------------------------------------
+# Every control on this page was originally a near-black plate carrying grey
+# text, which on hub.css's white .card reads as a disabled button. The failure
+# is invisible to every other check in the repo -- the template is valid, the
+# links resolve, the page renders -- so it is asserted here.
+_page = _read("modules", "video_backgrounds", "templates",
+              "video_backgrounds.html")
+_css = _page.split("<style>", 1)[-1].split("</style>", 1)[0]
+for _sel in (".vb-chip{", ".vb-input{", ".vb-acts button{"):
+    _rule = _css.split(_sel, 1)[-1].split("}", 1)[0]
+    check_true(_sel[:-1] + " is not a dark plate",
+               "#0f172a" not in _rule and "#0b1220" not in _rule)
+check_true("the video plate stays dark on purpose — footage is previewed on it",
+           "#0f172a" in _css.split(".vb-card video", 1)[-1].split("}", 1)[0])
+check_not_in("no button carries the class hub.css never defines",
+             'class="btn"', _page)
+check_in("the page says the free stock libraries are not indexed here",
+         "our own Cloudinary footage only", _page)
+
+
+# ---------------------------------------------------------------------------
 print("\nLimits are clamped")
 # ---------------------------------------------------------------------------
 check_true("MAX_RESULTS is bounded", 0 < vl.MAX_RESULTS <= 500)

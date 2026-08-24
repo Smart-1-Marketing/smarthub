@@ -32,6 +32,47 @@ def _is_platform(domain: str) -> bool:
     return any(d == p or d.endswith("." + p) for p in PLATFORM_DOMAINS)
 
 
+# ---------------------------------------------------------------------------
+# Which sites count
+# ---------------------------------------------------------------------------
+# Simvoly gives a project one of three statuses, and Sites Admin keeps its own
+# lifecycle beside it for the two things Simvoly cannot express — a site we
+# suspended and one the client cancelled, both of which are EXPIRED upstream.
+#
+# Only ACTIVE is a live website. An EXPIRED project's domain has usually been
+# repointed, parked or picked up by somebody else, so matching a client to it
+# attributes revenue to a site that is not serving anything — and a TRIAL is a
+# site that may never launch. Both used to be matched exactly like a live one,
+# which is how a cancelled client's domain could end up linked to whoever owns
+# that domain now.
+#
+# The skipped ones are counted and reported rather than dropped: "we checked
+# 1,200 projects" and "we checked the 380 that are live" are different claims
+# and the page has to be able to say which one it is making.
+LIVE_STATUSES = {"ACTIVE"}
+DEAD_LIFECYCLES = {"CANCELLED", "SUSPENDED"}
+
+
+def is_active(row: dict) -> bool:
+    """Is this project a live website right now?"""
+    status = str((row or {}).get("status") or "").strip().upper()
+    lifecycle = str((row or {}).get("lifecycle_state") or "").strip().upper()
+    if lifecycle in DEAD_LIFECYCLES:
+        return False
+    return status in LIVE_STATUSES
+
+
+def inactive_reason(row: dict) -> str:
+    """Why a project was skipped, in words. Never "unknown" without saying so."""
+    status = str((row or {}).get("status") or "").strip().upper()
+    lifecycle = str((row or {}).get("lifecycle_state") or "").strip().upper()
+    if lifecycle in DEAD_LIFECYCLES:
+        return lifecycle.title()
+    if not status:
+        return "No status recorded"
+    return status.title()
+
+
 def _norm_name(name: str) -> str:
     """Normalise a business name for a fallback comparison.
 
@@ -73,8 +114,15 @@ def _site_rows() -> list[dict]:
     return out
 
 
-def suggest(limit: int = 2000) -> dict:
-    """Propose a client for every unmatched site. Changes nothing."""
+def suggest(limit: int = 2000, active_only: bool = True) -> dict:
+    """Propose a client for every unmatched *live* site. Changes nothing.
+
+    `active_only` defaults to True: an expired or cancelled project is not a
+    website anybody can visit, and linking a client to one puts their name on a
+    domain that may now belong to someone else. Pass False to see everything —
+    the count of what that adds is in `skipped_inactive` either way, so the
+    page can offer it rather than hiding it.
+    """
     clients = _hub_clients()
     by_domain, by_name = {}, {}
     for c in clients:
@@ -86,7 +134,17 @@ def suggest(limit: int = 2000) -> dict:
             by_domain.setdefault(d, name)
         by_name.setdefault(_norm_name(name), name)
 
-    rows = _site_rows()[:limit]
+    all_rows = _site_rows()[:limit]
+    if active_only:
+        rows = [r for r in all_rows if is_active(r)]
+    else:
+        rows = all_rows
+    skipped = [r for r in all_rows if r not in rows] if active_only else []
+    skipped_by_reason: dict[str, int] = {}
+    for r in skipped:
+        reason = inactive_reason(r)
+        skipped_by_reason[reason] = skipped_by_reason.get(reason, 0) + 1
+
     matched, already, no_domain, unmatched = [], [], [], []
 
     for r in rows:
@@ -152,6 +210,9 @@ def suggest(limit: int = 2000) -> dict:
 
     return {
         "checked": len(rows),
+        "active_only": active_only,
+        "skipped_inactive": len(skipped),
+        "skipped_by_reason": skipped_by_reason,
         "already_linked": len(already),
         "suggested": matched,
         "suggested_count": len(matched),
@@ -165,7 +226,13 @@ def suggest(limit: int = 2000) -> dict:
         "note": "Nothing has been changed. A wrong internal_client_name is "
                 "worse than a blank one — it attributes revenue to the wrong "
                 "client and makes the billing audits disagree. Review these, "
-                "then apply the ones you accept.",
+                "then apply the ones you accept."
+                + (f" Only live sites were checked; {len(skipped)} expired, "
+                   f"trial, cancelled or suspended project(s) were left out."
+                   if active_only and skipped else
+                   " Every project was checked, including expired, trial and "
+                   "cancelled ones — those domains may no longer be the "
+                   "client's." if not active_only else ""),
     }
 
 

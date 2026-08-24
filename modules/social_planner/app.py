@@ -326,6 +326,31 @@ def api_clients():
     return jsonify({"ok": True, "clients": out})
 
 
+@app.route("/api/holidays")
+def api_holidays():
+    """The dated hooks available in a month, filtered to the client's trade.
+
+    Offered rather than applied: a plan is built with the ones the strategist
+    ticked, and the list says out loud that it is ours rather than an authority
+    — there is no authority publishing national days.
+    """
+    month = _str(request.args.get("month", ""), 10).strip()
+    if not month:
+        return _fail("Pick a month first.")
+    industries = [i for i in (request.args.get("industries") or "").split(",") if i.strip()]
+    if not industries:
+        client = _str(request.args.get("client", ""), 200).strip()
+        if client:
+            ctx = _client_context(client)
+            industries = [ctx.get("industry", "")] if ctx.get("industry") else []
+    try:
+        days = social_plan.holidays_for(month, industries)
+    except ValueError as exc:
+        return _fail(str(exc))
+    return jsonify({"ok": True, "holidays": days,
+                    "source": social_plan.HOLIDAY_SOURCE})
+
+
 @app.route("/api/context")
 def api_context():
     client = _str(request.args.get("client", ""), 200).strip()
@@ -362,10 +387,12 @@ def api_create_batch():
     mix = data.get("mix") if isinstance(data.get("mix"), dict) else None
     blackout = [_str(d, 10) for d in (data.get("blackout") or [])][:31]
 
+    holidays = [h for h in (data.get("holidays") or [])
+                if isinstance(h, dict) and h.get("date") and h.get("name")][:40]
     try:
         slots = social_plan.build_grid(month, channels=channels,
                                        per_week=per_week, mix=mix,
-                                       blackout=blackout)
+                                       blackout=blackout, holidays=holidays)
     except ValueError as exc:
         return _fail(str(exc))
     if not slots:
@@ -386,7 +413,15 @@ def api_create_batch():
         "blackout": blackout,
         "status": "draft",
         "brief": {
+            # Picked tones and the free-text box both survive: the options
+            # carry the guidance the model needs, and the box is for the
+            # client whose voice is genuinely their own.
+            "tones": [t for t in (brief.get("tones") or [])
+                      if t in social_plan.TONES][:4],
             "tone": _str(brief.get("tone"), 200),
+            "promote": [_str(x, 200) for x in (brief.get("promote") or [])
+                        if str(x).strip()][:12],
+            "use_holidays": bool(data.get("use_holidays")),
             "offers": _str(brief.get("offers"), 2000),
             "notes": _str(brief.get("notes"), 4000),
             "phone": _str(brief.get("phone"), 40),
@@ -429,6 +464,13 @@ def api_save_batch(batch_id: str):
         for key in ("tone", "offers", "notes", "phone", "avoid"):
             if key in data["brief"]:
                 batch["brief"][key] = _str(data["brief"][key], 4000)
+        if "tones" in data["brief"]:
+            batch["brief"]["tones"] = [t for t in (data["brief"]["tones"] or [])
+                                       if t in social_plan.TONES][:4]
+        if "promote" in data["brief"]:
+            batch["brief"]["promote"] = [_str(x, 200) for x in
+                                         (data["brief"]["promote"] or [])
+                                         if str(x).strip()][:12]
 
     incoming = {s.get("id"): s for s in (data.get("slots") or [])
                 if isinstance(s, dict) and s.get("id")}

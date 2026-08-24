@@ -232,6 +232,37 @@ def all_clients(refresh: bool = False) -> list[dict]:
         entry["domain"] = h.get("domain") or entry["domain"]
         entry["notes"] = h.get("notes", "")
 
+    # 5. URLs discovered in another data set and accepted by a human.
+    #
+    # An overlay, not an edit: Knack owns the client record and this Hub does
+    # not write to it, so the day the real record gains a URL that one wins and
+    # this is simply not consulted. It also never changes `source` or
+    # `is_house` -- filling in a missing website does not make a Knack client
+    # one of ours, and an earlier version of this that reused house_clients()
+    # for the same job did exactly that.
+    try:
+        from hub.client_key import normalise_name as _norm
+        from hub.client_urls import overlay as _discovered
+        found = _discovered()
+        if found:
+            for entry in by_key.values():
+                if entry.get("url") or entry.get("domain"):
+                    continue
+                hit = found.get(_norm(entry.get("name", "")))
+                if not hit:
+                    continue
+                entry["url"] = hit.get("url", "")
+                entry["domain"] = hit.get("domain", "")
+                # Labelled, because a URL nobody can trace is how a guess
+                # becomes a fact. Client 360 and the audits can say where it
+                # came from rather than presenting it as filed data.
+                entry["url_source"] = "discovered"
+                entry["url_from"] = hit.get("source", "")
+                entry["url_accepted_by"] = hit.get("accepted_by", "")
+    except Exception:                                 # noqa: BLE001
+        pass                                          # a client with no URL is
+                                                      # the state we started in
+
     rows = []
     for entry in by_key.values():
         products = sorted(entry.pop("products", set()))
