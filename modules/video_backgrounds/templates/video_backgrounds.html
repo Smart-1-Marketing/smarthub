@@ -41,17 +41,29 @@
         indexing starts get described and tagged. Nothing here modifies an
         original — the URLs below are Cloudinary transformations of it.
       </p>
+      {# Asked out loud because the page cannot otherwise answer it: a search
+         that returns three clips looks the same whether the library is small
+         or whether half the internet's free stock is missing from it. #}
+      <p class="vb-note">
+        This searches <strong>our own Cloudinary footage only</strong>. Free
+        stock libraries are not indexed here — Pexels and Pixabay are searched
+        live in the <a href="/tools/commercial-builder/">Commercial Builder</a>,
+        and a clip from there only appears in this library if someone uploads
+        it to Cloudinary after the cutoff above.
+        Library health is also on <a href="/status">System Status</a>.
+      </p>
       {% if not status.openai %}
         <p class="vb-bad"><strong>OPENAI_API_KEY is not set.</strong> Anything
            already indexed stays searchable, but new clips cannot be described.</p>
       {% elif status.note %}
         <p class="vb-note">{{ status.note }}</p>
       {% endif %}
-      <p style="margin-top:12px">
-        <button type="button" class="btn" id="vb-pending">See what is waiting</button>
-        <button type="button" class="btn btn-primary" id="vb-index">Index new clips</button>
-        <span id="vb-index-out" class="vb-note"></span>
-      </p>
+      <div class="vb-actions">
+        <button type="button" class="btn-ghost" id="vb-pending">See what is waiting</button>
+        <button type="button" class="btn-primary" id="vb-index"
+                style="padding:8px 16px;font-size:13px">Index new clips</button>
+        <span id="vb-index-out" class="vb-note" style="margin:0"></span>
+      </div>
     {% endif %}
   </div>
 </div>
@@ -79,7 +91,8 @@
         <input type="checkbox" id="vb-bgready" checked>
         Background-ready only
       </label>
-      <button type="button" class="btn btn-primary" id="vb-go">Search</button>
+      <button type="button" class="btn-primary" id="vb-go"
+              style="padding:8px 18px;font-size:13px">Search</button>
     </div>
 
     <div class="vb-chips" id="vb-chips">
@@ -99,39 +112,60 @@
 <div id="vb-results" class="vb-grid"></div>
 
 <style>
+/* The Hub is a light theme -- hub.css sets --bg #f4f6fa, --panel #fff and ink
+   #1e293b, and .card is white. This page was first written against a dark
+   surface, so every control here was a near-black chip carrying grey text: on
+   a white card those buttons read as disabled, and the chip vocabulary was
+   the worst of them because there are sixty of them.
+
+   So the colours come from hub.css's own variables rather than a second
+   palette local to this page. Where a control already exists in the shell --
+   the two status buttons -- the shell's class is used instead of restyling
+   one here, which is the same rule as using hub.storage rather than a local
+   uploader: the next change to the button lands once. Only the video card
+   keeps a dark plate, because footage is previewed against it. */
 .vb-kv{border-collapse:collapse;font-size:13px}
-.vb-kv th{text-align:left;padding:3px 18px 3px 0;color:#94a3b8;font-weight:600}
-.vb-kv td{padding:3px 0}
-.vb-unknown{color:#f59e0b}
-.vb-bad{color:#f87171;font-size:13px;margin:0 0 8px}
-.vb-note{font-size:12.5px;color:#94a3b8;margin:8px 0 0}
+.vb-kv th{text-align:left;padding:3px 18px 3px 0;color:var(--muted,#64748b);font-weight:600}
+.vb-kv td{padding:3px 0;color:var(--ink,#1e293b)}
+.vb-unknown{color:var(--warn,#b45309)}
+.vb-bad{color:var(--danger,#dc2626);font-size:13px;margin:0 0 8px}
+.vb-note{font-size:12.5px;color:var(--muted,#64748b);margin:8px 0 0}
+.vb-actions{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .vb-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.vb-input{background:#0f172a;border:1px solid #1e293b;border-radius:8px;
-  color:#e2e8f0;padding:8px 10px;font-size:13px;min-width:260px;flex:1}
+.vb-input{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:8px;
+  color:var(--ink,#1e293b);padding:8px 10px;font-size:13px;min-width:260px;flex:1}
 .vb-input-sm{min-width:auto;flex:0 0 auto}
-.vb-check{font-size:12.5px;color:#94a3b8;display:flex;align-items:center;gap:5px}
+.vb-check{font-size:12.5px;color:var(--ink,#1e293b);display:flex;align-items:center;gap:5px}
 .vb-chips{margin-top:12px;display:flex;flex-direction:column;gap:6px}
 .vb-chip-row{display:flex;flex-wrap:wrap;gap:4px;align-items:baseline}
 .vb-chip-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
-  color:#64748b;width:62px;flex:0 0 62px}
-.vb-chip{background:#0f172a;border:1px solid #1e293b;border-radius:999px;
-  color:#94a3b8;font-size:11.5px;padding:3px 9px;cursor:pointer}
-.vb-chip[aria-pressed="true"]{background:#1d4ed8;border-color:#1d4ed8;color:#fff}
+  color:var(--muted,#64748b);width:62px;flex:0 0 62px}
+.vb-chip{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:999px;
+  color:var(--ink,#1e293b);font-size:11.5px;padding:3px 9px;cursor:pointer}
+.vb-chip:hover{border-color:var(--brand,#2563eb);color:var(--brand,#2563eb)}
+.vb-chip[aria-pressed="true"]{background:var(--brand,#2563eb);
+  border-color:var(--brand,#2563eb);color:#fff}
 .vb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
-.vb-card{background:#0b1220;border:1px solid #1e293b;border-radius:10px;overflow:hidden}
+.vb-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:10px;
+  overflow:hidden}
+/* Deliberately dark: a clip with light edges needs a plate behind it, and this
+   is the one place on the page where the surface is not what you read text on. */
 .vb-card video,.vb-card img{width:100%;display:block;aspect-ratio:16/9;
-  object-fit:cover;background:#020617}
+  object-fit:cover;background:#0f172a}
 .vb-card-b{padding:10px 12px}
-.vb-card-b h4{margin:0 0 4px;font-size:13px;font-weight:600;color:#e2e8f0}
-.vb-desc{font-size:12px;color:#94a3b8;margin:0 0 8px}
-.vb-meta{font-size:11px;color:#64748b;margin:0 0 8px}
+.vb-card-b h4{margin:0 0 4px;font-size:13px;font-weight:600;color:var(--navy,#1a2e58);
+  word-break:break-all}
+.vb-desc{font-size:12px;color:var(--ink,#1e293b);margin:0 0 8px}
+.vb-meta{font-size:11px;color:var(--muted,#64748b);margin:0 0 8px}
 .vb-tags{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:8px}
-.vb-tag{font-size:10.5px;background:#111c33;border:1px solid #1e293b;
-  border-radius:999px;padding:2px 7px;color:#94a3b8}
+.vb-tag{font-size:10.5px;background:var(--bg,#f4f6fa);border:1px solid var(--line,#e2e8f0);
+  border-radius:999px;padding:2px 7px;color:var(--muted,#64748b)}
 .vb-acts{display:flex;gap:6px;flex-wrap:wrap}
-.vb-acts button{font-size:11.5px;padding:4px 9px;border-radius:6px;
-  border:1px solid #1e293b;background:#0f172a;color:#cbd5e1;cursor:pointer}
-.vb-acts button:hover{border-color:#1d4ed8;color:#fff}
+.vb-acts button{font-size:11.5px;padding:5px 10px;border-radius:6px;
+  border:1px solid var(--line,#e2e8f0);background:#fff;color:var(--ink,#1e293b);
+  cursor:pointer}
+.vb-acts button:hover{border-color:var(--brand,#2563eb);color:var(--brand,#2563eb);
+  background:var(--bg,#f4f6fa)}
 </style>
 {% endblock %}
 

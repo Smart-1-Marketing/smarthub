@@ -3748,6 +3748,44 @@ def create_hub_app() -> Flask:
             add("Display Ad Builder", "warn",
                 f"Could not be checked: {_ab_exc}")
 
+        # --- Video background library ---
+        # Asked of the library itself rather than inferred from the two keys it
+        # needs, for the reason the tool's own status card exists: an empty
+        # search has three different causes -- Cloudinary unset, indexing never
+        # started, or genuinely no match -- and a page that shows them alike
+        # sends someone looking for a bug in the search.
+        try:
+            from hub import video_library as _vl
+            vs = _vl.status()
+            if not vs.get("cloudinary"):
+                add("Video background library", "error",
+                    "CLOUDINARY_URL is not set — the footage library cannot be "
+                    "read at all.")
+            elif not vs.get("indexing_started"):
+                add("Video background library", "warn",
+                    "Indexing has never run, so nothing is searchable yet. "
+                    "Indexing is forward-only: start it at "
+                    "/tools/video-backgrounds/.")
+            else:
+                # None means "could not be counted", which is not zero and must
+                # not print as one.
+                indexed = vs.get("indexed_count")
+                total = vs.get("library_count")
+                counts = (f"{indexed} of {total} clips indexed"
+                          if indexed is not None and total is not None
+                          else "counts unavailable from Cloudinary right now")
+                add("Video background library",
+                    "warn" if not vs.get("openai") else "ok",
+                    f"Indexing started {vs['cutoff']} · {counts}."
+                    + (" OPENAI_API_KEY is not set, so new clips cannot be "
+                       "described — what is already indexed stays searchable."
+                       if not vs.get("openai") else
+                       " Only our own Cloudinary footage is indexed; free "
+                       "stock is searched live in Commercial Builder."))
+        except Exception as _vl_exc:  # noqa: BLE001
+            add("Video background library", "warn",
+                f"Could not be checked: {_vl_exc}")
+
         # --- binaries for the PDF optimizer ---
         gs, qpdf = shutil.which("gs"), shutil.which("qpdf")
         if gs and qpdf:
