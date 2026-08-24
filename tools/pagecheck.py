@@ -84,6 +84,13 @@ NO_CHROME_PREFIXES = ("/land/", "/msa")
 # Mount roots that redirect or need an argument rather than serving a page.
 SKIP_MOUNTS = ()
 
+# A <script> with one of these types holds data or a client-side template,
+# not JavaScript. Same list as tools/jscheck.py, kept as a literal rather
+# than imported so either checker still runs on its own.
+NON_JS_TYPES = {"text/template", "text/x-template", "text/html",
+                "application/json", "application/ld+json", "text/plain",
+                "text/x-handlebars-template"}
+
 CHROME_MARKERS = ("s1hub-sb", "sidebar")
 
 
@@ -97,15 +104,27 @@ class PageParser(HTMLParser):
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.scripts = []          # inline script bodies, browser-delimited
+        self.scripts = []          # inline JavaScript bodies, browser-delimited
         self.chrome_elements = 0   # sidebar seen as an ELEMENT, not as text
         self._in_script = False
+        self._collect = False
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         if tag == "script" and not a.get("src"):
             self._in_script = True
-            self.scripts.append("")
+            # A <script type="application/json"> holds data, not JavaScript --
+            # the browser never parses it as code and neither should node. The
+            # block still has to put the parser into raw-text mode, though, or
+            # chrome injected inside it would be missed; that is HTMLParser's
+            # own behaviour and is unaffected by whether we collect the body.
+            # tools/jscheck.py has always known this; this one did not, so a
+            # page handing its config to the browser as a JSON blob -- which is
+            # the way to keep Jinja out of a real script block -- failed here
+            # with a syntax error in something that was never code.
+            self._collect = (a.get("type") or "").strip().lower() not in NON_JS_TYPES
+            if self._collect:
+                self.scripts.append("")
         cls = a.get("class") or ""
         if tag in ("nav", "div") and any(m in cls for m in CHROME_MARKERS):
             self.chrome_elements += 1
@@ -113,9 +132,10 @@ class PageParser(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "script":
             self._in_script = False
+            self._collect = False
 
     def handle_data(self, data):
-        if self._in_script and self.scripts:
+        if self._in_script and self._collect and self.scripts:
             self.scripts[-1] += data
 
 

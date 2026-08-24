@@ -51,6 +51,10 @@ _MOUNT_ACTIVE = {
     "/tools/image-creator": "tools", "/tools/bg-remover": "tools",
     "/tools/utm": "tools",
     "/tools/site-blocks": "tools",
+    # Creative, not Tools: it produces client-facing copy and pulls from the
+    # image gallery, so it sits with Image Creator rather than with the
+    # housekeeping utilities.
+    "/tools/social": "creative",
     "/tools/io": "io_builder",
     "/tools/radio-promo": "radio_promo",
     "/tools/landing-ads": "landing_ads",
@@ -342,6 +346,15 @@ except Exception as _siteblk_exc:  # noqa: BLE001
     traceback.print_exc()
     siteblk, siteblk_fb = None, _fallback_app("Website Blocks", str(_siteblk_exc))
 
+try:
+    import importlib as _il_social
+    social = _il_social.import_module("modules.social_planner.app")
+    social_fb = None
+except Exception as _social_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    social, social_fb = None, _fallback_app("Social Content Planner", str(_social_exc))
+
 
 def _install_error_reporter(flask_app, label):
     """Make every module's 500 name its own cause.
@@ -522,6 +535,7 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/utm": _mount(utm.app, "/tools/utm") if utm else utm_fb,
     "/tools/site-blocks": _mount(siteblk.app, "/tools/site-blocks")
                           if siteblk else siteblk_fb,
+    "/tools/social": _mount(social.app, "/tools/social") if social else social_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
     "/tools/io": _mount(iob.app, "/tools/io") if iob else iob_fb,

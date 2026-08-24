@@ -161,6 +161,19 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: Social content planner tests
+        # Guarded like the steps above so this workflow stays mergeable on a
+        # branch that predates the file. Safe to run after the others despite
+        # sharing the job's Postgres: every plan id is minted per run, so the
+        # rows jsonstore restores from an earlier run's mirror cannot collide
+        # with this one's.
+        run: |
+          if [ -f test_social_plan.py ]; then
+            python test_social_plan.py
+          else
+            echo "test_social_plan.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a
@@ -192,7 +205,11 @@ jobs:
                    # The website block builder. Its page draws itself entirely
                    # from api/catalogue, so a page that boots but whose
                    # catalogue 500s is a blank tool -- both are requested.
-                   "/tools/site-blocks/", "/tools/site-blocks/api/catalogue"]
+                   "/tools/site-blocks/", "/tools/site-blocks/api/catalogue",
+                   # The social planner, and the page that links to it. Its
+                   # index renders the whole post-type spec into the page, so a
+                   # bad entry in hub/social_plan.py shows up here as a 500.
+                   "/tools/social/", "/creative"]
           bad = []
           for url in pages:
               try:
