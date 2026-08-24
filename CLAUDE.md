@@ -861,6 +861,7 @@ python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math
 python3 test_landing_maker.py      # built pages stay public and chrome-free
+python3 test_quote_numbers.py      # uploaded quotes are numbered, drafts delete
 python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries

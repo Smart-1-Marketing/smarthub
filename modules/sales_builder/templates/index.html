@@ -434,7 +434,8 @@ function asUploadedRow(p){
           title:p.title||p.filename||"Proposal", url:p.url||"",
           kind:p.kind||"", note:p.note||"", uploaded_by:p.uploaded_by||"",
           date_sent:p.date_sent||"", created_at:p.uploaded_at||p.date_sent||"",
-          value:p.value||0, status:"Uploaded"};
+          value:p.value||0, status:"Uploaded",
+          quote_number:p.quote_number||""};
 }
 
 /* mm-dd-yy, the Hub's format everywhere. */
@@ -543,11 +544,30 @@ function rowHtml(x){
    <button class="ic" title="Word copy" onclick="location.href='/sales/builder/api/quotes/${x.id}/docx'">📝</button>
    <button class="ic" title="Duplicate as new quote" onclick="dupQuote(${x.id})">📋</button>
    ${x.status!=='Converted'?`<button class="ic gold" title="${x.status==='Approved'?'Convert to IO':'Convert to IO — this quote is '+x.status.toLowerCase()+', so check it is agreed first'}" onclick="openConvert(${x.id})">🔁</button>`:""}
+   ${x.status==='Draft'?`<button class="ic" title="Delete this draft" onclick="deleteQuote(${x.id})">🗑️</button>`:""}
   </div></td></tr>`;
+}
+
+/* Drafts only, matching the server. Every other status is a document that
+   left the building, and there is no undo — so the button is not shown at
+   all rather than shown and refused. */
+async function deleteQuote(id){
+ const x=LIST.find(r=>!r.uploaded&&Number(r.id)===Number(id));
+ if(!x)return;
+ if(!confirm(`Delete draft ${x.quote_number}${x.client?" for "+x.client:""}?
+
+This cannot be undone. Only the draft goes — anything already filed on the client's record stays.`))return;
+ try{
+  const d=await api('/sales/builder/api/quotes/'+id,{method:'DELETE'});
+  LIST=LIST.filter(r=>r.uploaded||Number(r.id)!==Number(id));
+  toast(d.filed_copy_kept?`${x.quote_number} deleted — the copy filed on the client record was kept.`
+                         :`${x.quote_number} deleted.`);
+  drawRows();
+ }catch(e){toast(e.message);}
 }
 function uploadedRowHtml(x){
  return `<tr data-upid="${esc(x.id)}">
-  <td><span class="qnum">Uploaded<small>${esc(mdy(x.date_sent||x.created_at))}</small></span></td>
+  <td><span class="qnum">${x.quote_number?esc(x.quote_number):"Uploaded"}<small>Uploaded · ${esc(mdy(x.date_sent||x.created_at))}</small></span></td>
   <td><b style="color:var(--navy)">${esc(x.client||"—")}</b>
    <small style="display:block;color:var(--muted)">${esc(x.filename)}</small></td>
   <td style="font-size:12.5px;color:#33415C">${esc(x.title)}${x.note?` · ${esc(x.note)}`:""}

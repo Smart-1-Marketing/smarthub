@@ -113,6 +113,9 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Quote numbering and draft deletion tests
+        run: python test_quote_numbers.py
+
       - name: Commercial Builder HeyGen tests
         run: python test_commercial_heygen.py
 
