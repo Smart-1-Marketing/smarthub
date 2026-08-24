@@ -1377,7 +1377,38 @@ def create_hub_app() -> Flask:
             website=str(body.get("website") or ""),
             direction=str(body.get("direction") or "trust"),
             goal=str(body.get("goal") or ""), offer=str(body.get("offer") or ""),
+            promoting=str(body.get("promoting") or ""),
             actor=current_user() or ""))
+
+    @app.route("/api/landing/goals")
+    def api_landing_goals():
+        """The page goals the maker offers, from the one list that defines them.
+
+        Served rather than written into the template, so the choices, the
+        copy prompt and the rendered form cannot disagree about what a goal
+        is -- the drift that a second hand-kept copy of a list guarantees.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_spec
+        return jsonify({"goals": landing_spec.goal_choices(),
+                        "default": landing_spec.DEFAULT_GOAL})
+
+    @app.route("/api/landing/offer-check")
+    def api_landing_offer_check():
+        """Whether an offer is usable as written, before the page is built.
+
+        Said while the rep is still typing rather than after a page has been
+        generated around a promise it cannot keep.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_spec
+        state, reason = landing_spec.offer_state(request.args.get("offer", ""))
+        return jsonify({"state": state, "reason": reason,
+                        "usable": state == landing_spec.READ})
 
     @app.route("/api/landing/<page_id>/revise", methods=["POST"])
     def api_landing_revise(page_id):

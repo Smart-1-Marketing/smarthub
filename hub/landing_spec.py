@@ -230,14 +230,16 @@ def offer_state(offer: str) -> tuple[str, str]:
     if not text:
         return NONE, ("No offer given. The page will run without an offer "
                       "band rather than inventing one.")
+    # The number check comes first. "20% off" is seven characters, so a
+    # length test would catch it and hand back the generic message when the
+    # specific one -- off WHAT -- is the useful thing to say.
+    if re.match(r"^\W*(\d+%|\$\d[\d,]*)\s*(off|discount)?\W*$", text, re.I):
+        return UNCLEAR, ("“" + text + "” is a number with nothing attached. "
+                         "Say what it applies to and any condition on it.")
     if len(text) < 8 or _VAGUE.match(text):
         return UNCLEAR, ("“" + text + "” says an offer exists without saying "
                          "what it is. Write what the client actually gives — "
                          "or leave it empty and the page will do without.")
-    # A bare number with no subject: "20% off" what?
-    if re.match(r"^\W*(\d+%|\$\d[\d,]*)\s*(off|discount)?\W*$", text, re.I):
-        return UNCLEAR, ("“" + text + "” is a number with nothing attached. "
-                         "Say what it applies to and any condition on it.")
     return READ, "Offer will be used as written."
 
 
