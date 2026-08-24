@@ -2268,6 +2268,8 @@ def create_hub_app() -> Flask:
                                         if p.get("archived")),
                         "focus": blogs.get("focus", ""),
                         "questions": blogs.get("questions", []),
+                        "settings": seo.blog_settings(name, store),
+                        "site_url": seo.client_site_url(name, store),
                         "frequency": store.get("setup", {}).get("blogs_frequency", ""),
                         "per_month": store.get("setup", {}).get("blogs_per_month", "")})
 
@@ -2340,6 +2342,24 @@ def create_hub_app() -> Flask:
             # A deleted post takes its written content and its image with it,
             # which is rarely what "I'm done with this" means.
             post["archived"] = bool(body["archived"])
+        from . import blog_spec
+        if "categories" in body or "tags" in body:
+            known = seo.blog_settings(client, store)["categories"]
+            tax = blog_spec.clamp_taxonomy(
+                body.get("categories", post.get("categories")),
+                body.get("tags", post.get("tags")), known)
+            post["categories"], post["tags"] = tax["categories"], tax["tags"]
+            blogs = store.setdefault("blogs", {})
+            blogs["categories"] = blog_spec.merge_categories(known, tax["categories"])
+        if isinstance(body.get("slug"), str) and body["slug"].strip():
+            post["slug"] = blog_spec.slugify_title(body["slug"])
+        # Editing the copy re-runs the never-mention check rather than leaving
+        # the flag from the version that has just been replaced — stale either
+        # way is wrong, and a cleared flag on copy that still says it is worse.
+        if isinstance(body.get("content"), str):
+            post["flags"] = blog_spec.scan_forbidden(
+                post.get("content", "") + " " + str(post.get("meta_description") or ""),
+                seo.blog_settings(client, store)["avoid"])
         if isinstance(body.get("answers"), dict):
             blogs = store.setdefault("blogs", {})
             blogs.setdefault("answers", {}).update(
@@ -2368,6 +2388,105 @@ def create_hub_app() -> Flask:
                                   if q not in blogs["answers"]]
         seo.save_store(client, store)
         return jsonify({"ok": True, "questions": blogs.get("questions", [])})
+
+    @app.route("/api/seo/blogs/settings", methods=["POST"])
+    def api_seo_blogs_settings():
+        """The default author, the guardrail text and the never-mention list."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        updates = {k: body[k] for k in
+                   ("author", "guidance", "avoid", "categories", "approved_only")
+                   if k in body}
+        settings = seo.save_blog_settings(client, updates)
+        audit.log("hub", "seo_blog_settings", actor=current_user(),
+                  client=client, detail=", ".join(sorted(updates)) or "no change")
+        return jsonify({"ok": True, "settings": settings})
+
+    @app.route("/api/seo/blogs/topics", methods=["POST"])
+    def api_seo_blogs_topics():
+        """Load the topic list the client already approved.
+
+        Takes an uploaded PDF/DOCX/text file, or pasted text. The parsed list
+        is returned in full rather than as a count: a thirty-topic document
+        that parsed into three needs to be seen to be caught.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = ((request.form.get("client") if request.form else "")
+                  or body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        action = ((request.form.get("action") if request.form else "")
+                  or body.get("action") or "load").strip()
+        if action == "clear":
+            return jsonify(seo.clear_approved_topics(client))
+        append = str((request.form.get("append") if request.form else "")
+                     or body.get("append") or "").lower() in ("1", "true", "yes")
+        up = request.files.get("file") if request.files else None
+        text, filename = "", ""
+        if up and up.filename:
+            filename = up.filename
+            text = _read_document(up.read(8 * 1024 * 1024), filename)
+            if not text.strip():
+                return jsonify({"error": "Couldn't read any text from that "
+                                         "file. A scanned PDF has no text "
+                                         "layer to read."}), 400
+        else:
+            text = str(body.get("text") or (request.form.get("text") if request.form else "") or "")
+            filename = str(body.get("filename") or "pasted list")
+        if not text.strip():
+            return jsonify({"error": "Upload a document or paste the topics."}), 400
+        out = seo.set_approved_topics(client, text, filename, append=append)
+        audit.log("hub", "seo_blog_topics", actor=current_user(), client=client,
+                  detail=f"{out['found']} topics from {filename}")
+        return jsonify(out)
+
+    @app.route("/api/seo/publish/instructions", methods=["POST"])
+    def api_seo_publish_instructions():
+        """What to paste where, for the CMS the rep just opened.
+
+        Neither CMS has a write API we can use — see hub/cms_publish.py — so
+        this is the deliverable, not a fallback for one.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import cms_publish, seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        cms = (body.get("cms") or "").strip()
+        kind = (body.get("kind") or "blogs").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        if cms not in cms_publish.CMS_KEYS:
+            return jsonify({"error": f"Unknown CMS '{cms}'."}), 400
+        store = seo.load_store(client)
+        site = seo.client_site_url(client, store)
+        if kind == "schema":
+            wanted = [str(u) for u in (body.get("urls") or [])]
+            pages = store.get("pages", {})
+            types = {r["url"]: r["types"] for r in seo.schema_pages_table(client)}
+            chosen = [dict(pages[u], url=u, types=types.get(u, []))
+                      for u in wanted if u in pages]
+            out = cms_publish.schema_instructions(cms, chosen, site)
+        else:
+            ids = [int(i) for i in (body.get("ids") or []) if str(i).isdigit()]
+            posts = {p["id"]: p for p in store.get("blogs", {}).get("posts", [])}
+            chosen = [posts[i] for i in ids if i in posts]
+            out = cms_publish.blog_instructions(
+                cms, chosen, seo.blog_settings(client, store), site)
+        audit.log("hub", "seo_publish_instructions", actor=current_user(),
+                  client=client, detail=f"{kind} → {cms}: {len(out.get('items', []))}")
+        return jsonify(out)
 
     @app.route("/seo/blogs/<slug>.doc")
     def seo_blogs_doc(slug):

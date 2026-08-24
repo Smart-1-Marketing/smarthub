@@ -815,6 +815,7 @@ def client_detail(client: str, full: bool = False) -> dict:
         blogs = store.get("blogs", {})
         base["blog_posts"] = blogs.get("posts", [])
         base["blog_questions"] = blogs.get("questions", [])
+        base["blog_settings"] = blog_settings(client, store)
     return base
 
 
@@ -1263,6 +1264,86 @@ white-space:pre-wrap;word-break:break-word}
 
 
 # ------------------------------------------------------------------ blogs
+# ---- blog settings: the author, the guardrails and the approved topics ----
+# All four of these were things the account manager knew and the writer never
+# saw. `hub/blog_spec.py` owns the rules; this is where they are stored,
+# beside the posts they govern, in the same durable per-client file.
+def blog_settings(client: str, store: dict | None = None) -> dict:
+    store = store if store is not None else load_store(client)
+    blogs = store.get("blogs", {})
+    from . import blog_spec
+    return {
+        "author": blog_spec.normalise_author(blogs.get("author")),
+        "guidance": str(blogs.get("guidance") or ""),
+        "avoid": blog_spec.normalise_avoid(blogs.get("avoid")),
+        "categories": [blog_spec.normalise_category(c)
+                       for c in (blogs.get("categories") or []) if str(c).strip()],
+        "approved_topics": list(blogs.get("approved_topics") or []),
+        "approved_only": bool(blogs.get("approved_only")),
+        "topics_source": dict(blogs.get("topics_source") or {}),
+    }
+
+
+def save_blog_settings(client: str, updates: dict) -> dict:
+    """Partial update — only the keys present are touched.
+
+    A blank guidance box is a real answer ("nothing special about this
+    client"), so an empty string is saved rather than skipped; a key that was
+    not sent at all is what leaves the stored value alone.
+    """
+    from . import blog_spec
+    store = load_store(client)
+    blogs = store.setdefault("blogs", {})
+    if "author" in updates:
+        blogs["author"] = blog_spec.normalise_author(updates["author"])
+    if "guidance" in updates:
+        blogs["guidance"] = str(updates["guidance"] or "")[:8000]
+    if "avoid" in updates:
+        blogs["avoid"] = blog_spec.normalise_avoid(updates["avoid"])
+    if "categories" in updates:
+        blogs["categories"] = blog_spec.merge_categories([], updates["categories"])
+    if "approved_only" in updates:
+        blogs["approved_only"] = bool(updates["approved_only"])
+    save_store(client, store)
+    return blog_settings(client)
+
+
+def set_approved_topics(client: str, text: str, filename: str = "",
+                        append: bool = False) -> dict:
+    """Store the topic list out of a document the client already approved.
+
+    Returns the parsed list rather than a count, because a document that
+    parsed into three topics when it holds thirty needs to be *seen* to be
+    caught — a number on its own reads as success.
+    """
+    from . import blog_spec
+    parsed = blog_spec.parse_approved_topics(text)
+    store = load_store(client)
+    blogs = store.setdefault("blogs", {})
+    existing = list(blogs.get("approved_topics") or []) if append else []
+    seen = {t["title"].lower() for t in existing if isinstance(t, dict)}
+    for t in parsed:
+        if t["title"].lower() not in seen:
+            existing.append(t)
+            seen.add(t["title"].lower())
+    blogs["approved_topics"] = existing[:blog_spec.MAX_APPROVED_TOPICS]
+    blogs["topics_source"] = {"filename": str(filename or "")[:160],
+                              "uploaded": _dt_date_today_iso(),
+                              "found": len(parsed)}
+    save_store(client, store)
+    return {"topics": blogs["approved_topics"], "found": len(parsed),
+            "source": blogs["topics_source"]}
+
+
+def clear_approved_topics(client: str) -> dict:
+    store = load_store(client)
+    blogs = store.setdefault("blogs", {})
+    blogs["approved_topics"] = []
+    blogs["topics_source"] = {}
+    save_store(client, store)
+    return {"topics": [], "found": 0, "source": {}}
+
+
 def _freq_interval_days(setup: dict) -> float:
     """Days between posts, from the setup answers."""
     freq = str(setup.get("blogs_frequency") or "").strip().lower()
@@ -1309,25 +1390,38 @@ _BLOG_PLAN_PROMPT = """You are an SEO content strategist for a local-business ma
 Given information about a client (their website facts, business info, and any focus areas the account
 manager provided), produce blog post topics for their upcoming schedule.
 Rules:
-- Output JSON only: {"posts": [{"title": str, "summary": str}], "questions": [str]}.
+- Output JSON only:
+  {"posts": [{"title": str, "summary": str, "categories": [str], "tags": [str]}], "questions": [str]}.
 - Produce EXACTLY the number of posts requested, in publish order.
 - Titles must be specific, locally relevant, search-intent driven (how-to, cost guides, seasonal,
   comparisons, FAQs) — never generic filler like "Welcome to our blog".
 - Respect the requested focus areas first; spread remaining posts across the client's services.
 - Match topics to the season of the given publish dates when relevant.
+- Any titles under "approved_topics" were signed off by the client IN ADVANCE. Use them, in the
+  order given, before inventing anything, and reproduce each title as written.
+- Categories are the site's structure, so reuse "existing_categories" wherever one fits and only
+  invent a category when none of them does. Tags are per-post detail. Follow "taxonomy_rules".
+- "company_guidance" is what the client has told us about themselves — treat it as fact and let it
+  shape the topics. Never propose a topic that would require mentioning anything in "never_mention".
 - If information that would make the topics stronger is missing (services offered, service area,
   specials, target customers), add up to 4 short questions in "questions". Do not block on them."""
 
 _BLOG_WRITE_PROMPT = """You are an SEO content writer for a local-business marketing agency.
 Write ONE complete blog post for the client's website.
 Rules:
-- Output JSON only: {"html": str, "meta_description": str}.
+- Output JSON only: {"html": str, "meta_description": str, "categories": [str], "tags": [str]}.
 - "html" is the post BODY only (no <html>/<head>): an <h1> title, short intro, <h2> sections,
   <ul> lists where useful, and a closing call-to-action paragraph mentioning the business name
   and phone/city when known. 600-900 words.
 - Write naturally for humans first; work the topic's obvious search phrases into headings.
 - NEVER invent facts, prices, certifications, awards or service claims not present in the
-  provided information. Keep claims general when specifics are unknown."""
+  provided information. Keep claims general when specifics are unknown.
+- "company_guidance" describes how this company actually operates, and its legal and compliance
+  position. Follow it exactly — it outranks anything you would otherwise assume about the trade.
+- Do not mention, imply or work around anything listed in "never_mention", in the body, the
+  headings or the meta description.
+- Keep the categories and tags supplied with the post unless the finished copy makes one plainly
+  wrong; follow "taxonomy_rules" if you change them."""
 
 
 def _openai_json(system: str, user_payload: dict, timeout: int = 120):
@@ -1352,12 +1446,27 @@ def _openai_json(system: str, user_payload: dict, timeout: int = 120):
     return json.loads(r.json()["choices"][0]["message"]["content"])
 
 
+def client_site_url(client: str, store: dict | None = None) -> str:
+    """The client's website, from the store override or the client roster.
+
+    One place, because the publish buttons, the AI context and the CMS admin
+    URL must agree on which site this is — a rep sent to a different site than
+    the one the copy was written for is the failure that matters here.
+    """
+    store = store if store is not None else load_store(client)
+    site = str(store.get("site_url") or "")
+    if site:
+        return site
+    try:
+        rows = [c for c in seo_clients() if c["client"].lower() == client.lower()]
+    except Exception:                                   # noqa: BLE001
+        rows = []
+    return rows[0]["url"] if rows else ""
+
+
 def _client_context(client: str, store: dict) -> dict:
     """Everything the AI should know about the client."""
-    site = store.get("site_url") or ""
-    if not site:
-        rows = [c for c in seo_clients() if c["client"].lower() == client.lower()]
-        site = rows[0]["url"] if rows else ""
+    site = client_site_url(client, store)
     facts = {}
     if site:
         try:
@@ -1365,22 +1474,41 @@ def _client_context(client: str, store: dict) -> dict:
             facts["text"] = str(facts.get("text", ""))[:2500]
         except Exception:  # noqa: BLE001
             facts = {}
-    return {"client_name": client, "website": site,
-            "homepage_facts": {k: v for k, v in facts.items() if k != "error"},
-            "business_info": master_business_info(client, store),
-            "answered_questions": store.get("answers", {}),
-            "blog_answers": store.get("blogs", {}).get("answers", {})}
+    ctx = {"client_name": client, "website": site,
+           "homepage_facts": {k: v for k, v in facts.items() if k != "error"},
+           "business_info": master_business_info(client, store),
+           "answered_questions": store.get("answers", {}),
+           "blog_answers": store.get("blogs", {}).get("answers", {})}
+    # What the account manager knows about the client that the site does not
+    # say: how they operate, what they may not claim, who signs the posts.
+    from . import blog_spec
+    ctx.update(blog_spec.guidance_payload(blog_settings(client, store)))
+    return ctx
 
 
 def blog_plan(client: str, focus: str, months: int = 3, start_date: str = "") -> dict:
-    """Create (or replace) the next-N-months blog schedule with AI titles."""
+    """Create (or replace) the next-N-months blog schedule with AI titles.
+
+    Approved topics come first and are reproduced verbatim. A client who was
+    sent a topic list in advance and signed it off must not open the blog and
+    find twelve topics nobody showed them — so an approved title is used as
+    written, and `source` on the post records which list it came from. With
+    `approved_only` set, the schedule stops when the approved list runs out
+    rather than topping itself up with invented topics.
+    """
+    from . import blog_spec
     store = load_store(client)
     setup = store.get("setup", {})
+    settings = blog_settings(client, store)
+    approved = [t for t in settings["approved_topics"] if str(t.get("title") or "").strip()]
     slots = _blog_schedule(setup, months, start_date)
+    if settings["approved_only"] and approved:
+        slots = slots[:len(approved)]
     ctx = _client_context(client, store)
     ctx["focus_areas"] = focus
     ctx["post_count"] = len(slots)
     ctx["publish_dates"] = [s["date"] for s in slots]
+    ctx["approved_topics"] = approved[:len(slots)]
 
     posts_meta, questions, ai_error = [], [], ""
     try:
@@ -1389,6 +1517,20 @@ def blog_plan(client: str, focus: str, months: int = 3, start_date: str = "") ->
         questions = [q for q in (out.get("questions") or []) if isinstance(q, str)][:6]
     except Exception as exc:  # noqa: BLE001
         ai_error = str(exc)
+
+    # The approved titles are placed here, in code, rather than trusted to the
+    # model: "use these titles as written" is a request, and a paraphrased
+    # title is a topic the client did not approve.
+    for i, topic in enumerate(approved[:len(slots)]):
+        entry = dict(posts_meta[i]) if i < len(posts_meta) else {}
+        entry["title"] = topic["title"]
+        if topic.get("notes") and not entry.get("summary"):
+            entry["summary"] = topic["notes"][:400]
+        entry["source"] = "approved"
+        if i < len(posts_meta):
+            posts_meta[i] = entry
+        else:
+            posts_meta.append(entry)
 
     if len(posts_meta) < len(slots):        # fallback / top-up titles
         base = ctx.get("business_info", {}).get("category") or "your services"
@@ -1405,38 +1547,59 @@ def blog_plan(client: str, focus: str, months: int = 3, start_date: str = "") ->
             posts_meta.append({"title": fillers[i % len(fillers)], "summary": ""})
             i += 1
 
-    posts = []
+    posts, known = [], list(settings["categories"])
     for i, slot in enumerate(slots):
+        meta = posts_meta[i]
+        title = str(meta.get("title") or f"Blog post {i+1}")
+        tax = blog_spec.clamp_taxonomy(meta.get("categories"), meta.get("tags"), known)
+        known = blog_spec.merge_categories(known, tax["categories"])
         posts.append({"id": i + 1, "date": slot["date"], "week": slot["week"],
-                      "title": str(posts_meta[i].get("title") or f"Blog post {i+1}"),
-                      "summary": str(posts_meta[i].get("summary") or ""),
+                      "title": title,
+                      "summary": str(meta.get("summary") or ""),
+                      "slug": blog_spec.slugify_title(title),
+                      "categories": tax["categories"], "tags": tax["tags"],
+                      "source": meta.get("source") or "ai",
                       "content": "", "status": "planned"})
     blogs = store.setdefault("blogs", {})
     blogs.update({"focus": focus, "months": months, "posts": posts,
-                  "questions": questions,
+                  "questions": questions, "categories": known,
                   "answers": blogs.get("answers", {})})
     save_store(client, store)
-    return {"posts": posts, "questions": questions,
+    return {"posts": posts, "questions": questions, "categories": known,
+            "approved_used": sum(1 for p in posts if p["source"] == "approved"),
+            "approved_available": len(approved),
             "ai": bool(os.environ.get("OPENAI_API_KEY")) and not ai_error,
             "ai_error": ai_error}
 
 
 def blog_write(client: str, ids: list[int], limit: int = 3) -> dict:
-    """Write full content for up to `limit` posts; call repeatedly for more."""
+    """Write full content for up to `limit` posts; call repeatedly for more.
+
+    Every finished post is scanned against the client's never-mention list
+    before it is saved. The prompt carries the list too, but a prompt is a
+    request — the flags on the post are the evidence, and a flagged post
+    reads as not ready to publish everywhere it appears.
+    """
+    from . import blog_spec
     store = load_store(client)
     blogs = store.get("blogs", {})
+    settings = blog_settings(client, store)
     posts = blogs.get("posts", [])
     by_id = {p["id"]: p for p in posts}
     todo = [i for i in ids if i in by_id and by_id[i].get("status") != "written"][:limit]
     ctx = _client_context(client, store)
     ctx["focus_areas"] = blogs.get("focus", "")
     written, questions, ai_error = [], list(blogs.get("questions", [])), ""
+    known = list(settings["categories"])
+    flagged = 0
     for pid in todo:
         p = by_id[pid]
         payload = dict(ctx)
         payload["post_title"] = p["title"]
         payload["post_summary"] = p.get("summary", "")
         payload["publish_date"] = p["date"]
+        payload["post_categories"] = p.get("categories") or []
+        payload["post_tags"] = p.get("tags") or []
         out = None
         try:
             out = _openai_json(_BLOG_WRITE_PROMPT, payload)
@@ -1455,18 +1618,41 @@ def blog_write(client: str, ids: list[int], limit: int = 3) -> dict:
                 f"<p>Contact {_html.escape(bi.get('name') or client)}"
                 + (f" at {_html.escape(bi['phone'])}" if bi.get("phone") else "")
                 + " to learn more.</p>")
+        tax = blog_spec.clamp_taxonomy(
+            (out or {}).get("categories") or p.get("categories"),
+            (out or {}).get("tags") or p.get("tags"), known)
+        known = blog_spec.merge_categories(known, tax["categories"])
+        p["categories"], p["tags"] = tax["categories"], tax["tags"]
+        p.setdefault("slug", blog_spec.slugify_title(p["title"]))
+        # The check, not the request. Scanned over the meta description as
+        # well: a forbidden claim in the search snippet is the one a customer
+        # reads before they ever open the page.
+        p["flags"] = blog_spec.scan_forbidden(
+            (p["content"] or "") + " " + str(p.get("meta_description") or ""),
+            settings["avoid"])
+        flagged += 1 if p["flags"] else 0
         p["status"] = "written"
         written.append(p)
+    blogs = store.setdefault("blogs", {})
+    blogs["categories"] = known
     save_store(client, store)
     remaining = [i for i in ids if i in by_id and by_id[i].get("status") != "written"]
     return {"written": written, "remaining": remaining, "questions": questions,
+            "categories": known, "flagged": flagged,
             "ai": bool(os.environ.get("OPENAI_API_KEY")) and not ai_error,
             "ai_error": ai_error}
 
 
 def blogs_doc(client: str, ids=None) -> str:
-    """Single Word-openable HTML document with the selected blog posts."""
+    """Single Word-openable HTML document with the selected blog posts.
+
+    Carries the author, the categories and the tags: this document is what a
+    client approves and what a webmaster publishes from, and a post arriving
+    at the CMS without them is filed as Uncategorised by whoever is quickest.
+    """
     store = load_store(client)
+    settings = blog_settings(client, store)
+    author = settings["author"].get("name") or ""
     posts = store.get("blogs", {}).get("posts", [])
     if ids:
         posts = [p for p in posts if p["id"] in ids]
@@ -1477,11 +1663,27 @@ h1{color:#1a2e58;font-size:22pt} h2{color:#1a2e58;font-size:14pt}
 .blogmeta{color:#64748b;font-size:10pt;margin-bottom:14px}
 .postbreak{page-break-before:always;border-top:2px solid #e2e8f0;margin-top:30px;padding-top:20px}</style></head><body>"""]
     parts.append(f"<p class='blogmeta'>Blog posts for <b>{_html.escape(client)}</b> — "
-                 f"prepared by Smart 1 Marketing</p>")
+                 f"prepared by Smart 1 Marketing"
+                 + (f" · author {_html.escape(author)}" if author else "") + "</p>")
     for i, p in enumerate(posts):
         wrap = "<div class='postbreak'>" if i else "<div>"
         body = p.get("content") or f"<h1>{_html.escape(p['title'])}</h1><p><i>Not written yet.</i></p>"
-        parts.append(f"{wrap}<p class='blogmeta'>{_html.escape(p['week'])} · scheduled {_html.escape(p['date'])}</p>{body}</div>")
+        meta = [_html.escape(p["week"]), "scheduled " + _html.escape(p["date"])]
+        if p.get("categories"):
+            meta.append("category: " + _html.escape(", ".join(p["categories"])))
+        if p.get("tags"):
+            meta.append("tags: " + _html.escape(", ".join(p["tags"])))
+        if p.get("source") == "approved":
+            meta.append("from the approved topic list")
+        parts.append(f"{wrap}<p class='blogmeta'>{' · '.join(meta)}</p>")
+        if p.get("flags"):
+            # Never silently. This document is read by people who will publish
+            # what is in front of them.
+            terms = ", ".join(_html.escape(str(f.get("term"))) for f in p["flags"])
+            parts.append("<p class='blogmeta' style='color:#b91c1c'><b>Check before "
+                         f"publishing:</b> this copy mentions {terms}, which this "
+                         "client asked us not to say.</p>")
+        parts.append(f"{body}</div>")
     parts.append("</body></html>")
     return "\n".join(parts)
 
