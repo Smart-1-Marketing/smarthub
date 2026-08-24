@@ -93,6 +93,11 @@ class Settings:
     brandfetch_key: str = field(default_factory=lambda: _first("BRANDFETCH_API", "BRANDFETCH_API_KEY"))
     google_fonts_key: str = field(default_factory=lambda: _first("GOOGLE_FONTS_API", "GOOGLE_FONTS_API_KEY"))
     insites_key: str = field(default_factory=lambda: _first("INSITES_API", "INSITES_API_KEY"))
+    # Commercial Builder's spokesperson scenes. The module read HEYGEN_API_KEY
+    # directly at import, which froze the value at boot and missed the other
+    # two spellings — the same drift that made Pexels report "no key set" with
+    # the key plainly present.
+    heygen_key: str = field(default_factory=lambda: _first("HEYGEN_API", "HEYGEN_API_KEY", "HEYGEN_KEY"))
     knack_app_id: str = field(default_factory=lambda: _s("KNACK_APP_ID"))
     knack_api_key: str = field(default_factory=lambda: _s("KNACK_API_KEY"))
     ghl_token: str = field(default_factory=lambda: _first("GHL_PRIVATE_TOKEN", "SMART1SUITE_PRIVATE_TOKEN"))
@@ -229,6 +234,8 @@ class Settings:
             row("Brandfetch", bool(self.brandfetch_key), False, "BRANDFETCH_API_KEY — logo and brand-colour lookup."),
             row("Google Fonts", bool(self.google_fonts_key), False, "GOOGLE_FONTS_API_KEY — optional; curated list used without it."),
             row("Insites", bool(self.insites_key), False, "INSITES_API_KEY — Site Scans disabled without it."),
+            row("HeyGen", bool(self.heygen_key), False,
+                "HEYGEN_API / HEYGEN_API_KEY — spokesperson scenes run in mock mode without it."),
             row("Knack", bool(self.knack_app_id and self.knack_api_key), False, "KNACK_APP_ID / KNACK_API_KEY — client registry."),
             row("GoHighLevel", bool(self.ghl_token and self.ghl_company_id), False, "GHL_PRIVATE_TOKEN (or SMART1SUITE_PRIVATE_TOKEN) + GHL_COMPANY_ID (or SUITE_COMPANY_ID)."),
             row("Lead delivery to Suite",

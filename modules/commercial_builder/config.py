@@ -184,10 +184,30 @@ CTA_STYLES = [
 # automatically for every scene" from the spec.
 ASSET_SOURCE_PRIORITY = ["client_asset", "free_stock", "premium_stock", "ai_generated"]
 
-# Starter Smart 1 talent roster for spokesperson scenes (section 8 of the
-# spec). This is a placeholder roster — swap in real HeyGen avatar IDs once
-# they're created in the HeyGen console, or let a client supply their own
-# avatar ("Client Avatar").
+# ---------------------------------------------------------------------------
+# Spokesperson scenes (section 8).
+#
+# A presenter that has to sit over stock footage is generated against a chroma
+# matte and keyed out at composition time, so the same colour has to be known
+# to the service that asks HeyGen for it AND to the service that keys it. One
+# constant, read by both — heygen_service and creatomate_service.
+#
+# #00B140 is the broadcast chroma green, not pure #00FF00: it sits further
+# from skin tones and from the greens that turn up in real footage, so a
+# presenter's edges survive the key.
+# ---------------------------------------------------------------------------
+CHROMA_KEY_COLOR = "#00B140"
+
+# A presenter that fills the frame has nothing behind it to reveal, so it gets
+# a solid backdrop instead of a matte nobody will key.
+SOLID_BACKDROP_COLOR = "#1B2A3A"
+
+# Starter Smart 1 talent roster for spokesperson scenes. This is a placeholder
+# roster — real HeyGen avatar IDs go in the SMART1_TALENT_AVATARS env var
+# (see talent_avatar_overrides) once they are created in the HeyGen console,
+# or a client supplies their own avatar ("Client Avatar"). Until one is set,
+# the picker shows that person as not yet available rather than offering a
+# tile that fails on click.
 SMART1_TALENT_ROSTER = [
     {"id": "sarah", "name": "Sarah", "specialty": "Professional / friendly", "heygen_avatar_id": None},
     {"id": "mike", "name": "Mike", "specialty": "Automotive / contractor", "heygen_avatar_id": None},
@@ -195,6 +215,29 @@ SMART1_TALENT_ROSTER = [
     {"id": "david", "name": "David", "specialty": "Financial / legal", "heygen_avatar_id": None},
     {"id": "maria", "name": "Maria", "specialty": "Healthcare / lifestyle", "heygen_avatar_id": None},
 ]
+
+def talent_avatar_overrides():
+    """Real HeyGen avatar ids for the talent roster, as a JSON object mapping
+    roster id -> avatar id, e.g. {"sarah": "abc123"}.
+
+    Read at call time rather than import, so linking a new avatar takes an env
+    change and a restart rather than a deploy. A malformed value is ignored
+    rather than raised: a bad env var must not take the whole picker down.
+    """
+    import json
+    import os
+
+    raw = (os.environ.get("SMART1_TALENT_AVATARS") or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(k): str(v) for k, v in parsed.items() if v}
+
 
 # V1 API roster (section "V1 API stack"). Used to render the integration
 # status panel on the dashboard so it's obvious at a glance which providers

@@ -70,9 +70,16 @@ NODE = subprocess.run(["node", "--version"],
                       capture_output=True).returncode == 0
 
 # Staff pages served by the hub app itself.
+#
+# Blueprint-registered modules belong here too. mount_pages() below picks up
+# every DISPATCHER mount automatically, but a module registered as a blueprint
+# on the hub app has no mount to enumerate, so it is invisible to this check
+# unless it is named — which is why Commercial Builder, a ~4,000-line tool
+# whose storyboard builds scene cards from a <template>, went unchecked.
 HUB_PAGES = [
     "/", "/client360", "/tools", "/creative", "/qa", "/seo", "/activity",
     "/diagnostics", "/clients", "/status", "/sales/leads",
+    "/tools/commercial-builder/",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:
