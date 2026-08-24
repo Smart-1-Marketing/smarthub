@@ -572,20 +572,33 @@ classifier each carry one and each needs a test proving the halves still agree;
 that cost is paid twice already. Every save returns the server's own readiness
 and the page renders what comes back. `test_gpt_ads.py` asserts all of it.
 
-## A web ticket carries twenty fields, and the form asks for all of them
+## A web ticket is nine fields, and the form asks for all nine
 
 `hub/knack_api.py` pins object_107's field ids in `TICKET_FIELDS` — they were
 pinned because label matching broke silently when a label was renamed, which
 is how the Issue column on the Accounting report came to be empty. But pinning
 an id is not the same as asking for its value: Client 360's ticket modal sent
-a title, a website, a description and a name, and every other field on the
-record — the type of ticket, whether the revision is billable, the media
-partner and their contact, the web services asked for, the six service
-checkboxes, the new website URL — was left blank on every ticket the Hub
-raised. `TICKET_CREATE_FIELDS`, `TICKET_MANAGE_FIELDS` and `update_ticket()`
-existed with no caller at all.
+a title, a website, a description and a name, and everything else on the
+record was left blank on every ticket the Hub raised. `TICKET_CREATE_FIELDS`,
+`TICKET_MANAGE_FIELDS` and `update_ticket()` existed with no caller at all.
 
-The form now draws from the live object. It has to: the ids are ours, but a
+The nine the web team asked for are the write set — title, client
+organization, media partner, partner contact, client website URL, type of
+ticket, revision requires billing, describe the changes, and **are you ready
+to submit** (`field_1696`), which Knack's own workflow reads and which a
+ticket arriving blank leaves sitting in nobody's queue. The form opens that
+one on *yes*, because sending the form is the act of submitting, and still
+lets a rep say no.
+
+The wider set this object carries — web services, the six service checkboxes,
+the new website URL, the pause and cancellation fields, status, developer —
+stays pinned and is still **read** for the ticket list. It is deliberately not
+written: a form asking for a field nobody fills is how twenty questions became
+nine answers and eleven blanks. `test_web_tickets.py` asserts that in both
+directions — every one of the nine is written and drawn, and none of the
+others is in either write set.
+
+The form draws from the live object. It has to: the ids are ours, but a
 dropdown's **choices** are Knack's, and Knack refuses the whole record over one
 bad choice — so a value it would refuse is refused here, by name, and the
 ticket is still created. `/api/client/tickets/fields` returns the control each
@@ -607,10 +620,9 @@ Three rules in that path, each of which is a way to lose data quietly:
 - **Title is not editable after creation.** Renaming a ticket breaks the thread
   for whoever raised it, so it is in the create set and not the manage set.
 
-`test_web_tickets.py` holds the twenty ids against the list the web team gave
-us, asserts every one of them is both writable and drawn — pinned but never
-asked for is the exact failure above — and stubs the requests seam so it needs
-no Knack credentials.
+Assigner and the discovered Requested By are written but never asked for —
+nobody types them, and a ticket the web team cannot put a name to is one they
+have to come asking about.
 
 The audit module at `/tools/tickets` keeps its own map of the same object
 (`CONFIRMED_FIELDS`, nine ids, plus label guessing behind its setup page). Two
