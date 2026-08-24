@@ -16,8 +16,19 @@ KNACK_APP_ID = os.environ.get("KNACK_APP_ID", "")
 KNACK_API_KEY = os.environ.get("KNACK_API_KEY", "")
 KNACK_BASE = os.environ.get("KNACK_BASE", "https://api.knack.com/v1")
 
-# Object containing web tickets, e.g. "object_14". Set in env or on the setup page.
-TICKETS_OBJECT = os.environ.get("KNACK_TICKETS_OBJECT", "")
+# Object containing web tickets. Defaults to the same object the rest of the
+# Hub writes tickets to — this module used to default to "" and then tell you
+# to go and map it, on a deployment where hub/knack_api.py had the answer
+# pinned all along.
+def _hub_tickets_object() -> str:
+    try:
+        from hub import knack_api
+        return knack_api.TICKETS_OBJECT
+    except Exception:                    # noqa: BLE001 — standalone use
+        return "object_107"
+
+
+TICKETS_OBJECT = os.environ.get("KNACK_TICKETS_OBJECT", "") or _hub_tickets_object()
 # Object containing clients. Left blank when the Hub's own client registry is used.
 CLIENTS_OBJECT = os.environ.get("KNACK_CLIENTS_OBJECT", "")
 
@@ -36,21 +47,35 @@ CACHE_TTL = int(os.environ.get("TICKETS_CACHE_TTL", "900"))
 # `required` fields are the ones the audit genuinely cannot run without.
 # `guesses` drive the auto-detect on the setup page.
 # --------------------------------------------------------------------------
-# Confirmed ids for object_107, so the setup page opens pre-mapped instead of
-# asking someone to match twelve fields by eye. Label guessing stays as the
-# fallback for anything not listed here — and guessing is exactly what left
-# the Issue column empty on the Accounting report when a label was renamed.
-CONFIRMED_FIELDS = {
-    "summary":   "field_1895",   # Ticket title
-    "client":    "field_1784",   # Client organization
-    "website":   "field_2965",   # Client website URL
-    "type":      "field_2973",   # Type of ticket
-    "billable":  "field_3160",   # Revision requires billing
-    "details":   "field_1923",   # Describe the changes
-    "assignee":  "field_1653",   # Assigner
-    "status":    "field_1657",   # Status
-    "developer": "field_1729",   # Developer
+# The ids, read from the one place that holds them. This module and
+# hub/knack_api.py describe the same Knack object, and for a while they each
+# kept their own copy of its ids — two maps of one object, agreeing only for
+# as long as somebody kept them in step. The audit's own names for the fields
+# stay (its reports are written against `summary`, `details`, `assignee`), but
+# the ids come from hub.knack_api.TICKET_FIELDS, and the environment overrides
+# that module already honours therefore work here too.
+#
+# Label guessing stays as the fallback for the fields nobody has pinned —
+# ticket_number, the dates, priority, time spent — and guessing is exactly
+# what left the Issue column empty on the Accounting report when a label was
+# renamed, which is why anything pinned wins outright.
+_SHARED = {
+    "summary": "title", "client": "client", "website": "website",
+    "type": "type", "billable": "billable", "details": "description",
+    "assignee": "assigner", "status": "status", "developer": "developer",
 }
+
+
+def _confirmed_fields() -> dict:
+    try:
+        from hub import knack_api
+        ids = knack_api.field_ids()
+    except Exception:                    # noqa: BLE001 — standalone use
+        return {}
+    return {mine: ids[theirs] for mine, theirs in _SHARED.items() if ids.get(theirs)}
+
+
+CONFIRMED_FIELDS = _confirmed_fields()
 
 FIELDS = [
     dict(key="ticket_number", label="Ticket number", required=False,

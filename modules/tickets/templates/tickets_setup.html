@@ -29,9 +29,13 @@
   <div class="tkt-card">
     <header>
       <h2>Objects</h2>
-      <p>Pick the object that holds web tickets. The client object is only needed
-         when the Hub's own client registry isn't available — leave it blank and
-         the registry is used instead.</p>
+      <p>Already mapped: the ticket object and its ids come from the Hub's own
+         pinned set, and the fields nobody has pinned are matched against the
+         live object's labels. The report runs without anything being saved
+         here. Save only to correct something — a saved map wins, and is not
+         re-guessed under you.</p>
+      <p>The client object is only needed when the Hub's own client registry
+         isn't available — leave it blank and the registry is used instead.</p>
     </header>
     <div class="tkt-map">
       <label for="tkt-obj">Ticket object <span class="req">*</span></label>
