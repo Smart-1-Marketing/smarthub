@@ -5,8 +5,8 @@ Replaces the Smart1 Solutions page. What it does:
   1. Client fills in company name and address.
   2. Those values drop into the agreement text live, so they're reading the
      document as it will be signed rather than a template with blanks.
-  3. Two checkboxes — the Agreement including the Wholesale Rate Card
-     terms, and the office closures.
+  3. Two checkboxes — the Agreement including the Wholesale Rate Card,
+     and the campaign launch times the rate card publishes.
   4. They type their name as a signature.
   5. A PDF is generated, stored, and the link is attached to the lead.
   6. They download it.
@@ -18,11 +18,12 @@ the days support is unavailable. Agreeing to something that lives behind a
 link you may not have opened is a weak agreement, so the table is on this
 page, above the checkbox that refers to it.
 
-**The rate card is not.** Section 6.1.a says rates change, on notice, at most
-once a year — so a copy pasted into this file would be the version current
-when the file was last edited, presented to a client as though it were
-today's. The clause is quoted; the card itself stays the separate document
-the clause says it is.
+**The rate card is not, and neither are the launch times it publishes.**
+Section 6.1.a says rates change, on notice, at most once a year — so a copy
+pasted into this file would be the version current when the file was last
+edited, presented to a client as though it were today's. The clause is
+quoted, both checkboxes link to the live card, and the signed PDF records
+its address so the document names what was agreed to.
 
 **No email.** The PDF link is saved on the lead instead. Nobody has to trust
 that a message arrived, and the copy is findable months later against the
@@ -415,6 +416,13 @@ OFFICE_CLOSURES: list[tuple[str, str]] = [
 # a separate document by design: it changes, on the notice terms the clause
 # sets out, and a copy pasted in here would be the version that was current
 # when this file was last edited.
+# Where the rate card actually lives. Named here rather than typed into the
+# template, because it goes in three places -- both checkboxes and the signed
+# PDF -- and a signed agreement that refers to "the rate card" without saying
+# which document that is agrees to nothing in particular.
+RATE_CARD_URL = os.environ.get(
+    "MSA_RATE_CARD_URL", "https://smart1.solutions/rate-card-universal").strip()
+
 RATE_CARD_NOTE = (
     "Partner is provided with a Wholesale Rate Card and is invoiced on the "
     "wholesale pricing shown. Items requiring a Custom Quote are returned as "
@@ -422,7 +430,9 @@ RATE_CARD_NOTE = (
     "minutes. Rates are determined by industry demand and are subject to "
     "change on 30 days\u2019 notice, with no more than one rate change per year; "
     "a rate increase does not take effect on an existing contract for ninety "
-    "(90) days after implementation. See section 6 above for the full terms.")
+    "(90) days after implementation. See section 6 above for the full terms. "
+    "The current Wholesale Rate Card, including published campaign launch "
+    "times, is at " + RATE_CARD_URL + ".")
 
 
 def _sub(text: str, ctx: dict) -> str:
@@ -449,6 +459,7 @@ def _page(embedded: bool = False) -> str:
                                                    "date": "{date}"}),
                            office_closures=OFFICE_CLOSURES,
                            rate_card_note=RATE_CARD_NOTE,
+                           rate_card_url=RATE_CARD_URL,
                            not_ready=bool(_placeholder_count()),
                            embedded=embedded)
 
@@ -612,7 +623,7 @@ def sign():
                 ("your name", signer), ("email", email)) if not val]
     if missing:
         return jsonify({"error": "Still needed: " + ", ".join(missing)}), 400
-    if not (body.get("agree_terms") and body.get("agree_closures")):
+    if not (body.get("agree_terms") and body.get("agree_launch_times")):
         # Both boxes, server-side. A checkbox enforced only in the browser is
         # not evidence that anyone agreed to anything.
         return jsonify({"error": "Both agreements must be accepted."}), 400
@@ -625,7 +636,7 @@ def sign():
     from .pdf import build_msa_pdf
     pdf_bytes = build_msa_pdf(
         sections=rendered_body(ctx), office_closures=OFFICE_CLOSURES,
-        rate_card_note=RATE_CARD_NOTE,
+        rate_card_note=RATE_CARD_NOTE, rate_card_url=RATE_CARD_URL,
         company=company, address=address, signer=signer,
         signed_at=signed_at, ip=_client_ip())
 
@@ -648,7 +659,8 @@ def sign():
                     "phone": str(body.get("phone") or ""),
                     "company": company, "address": address,
                     "signed_at": signed_at.isoformat(timespec="seconds"),
-                    "agreed_agreement": "yes", "agreed_office_closures": "yes",
+                    "agreed_agreement": "yes", "agreed_launch_times": "yes",
+                    "rate_card": RATE_CARD_URL,
                     "signed_ip": _client_ip()},
             pdf_url=pdf_url, client=company,
             meta={"agreement": "MSA", "token": token})

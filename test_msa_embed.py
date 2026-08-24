@@ -152,7 +152,7 @@ import modules.msa.app as msa                                 # noqa: E402
 
 signable = dict(company="Acme Marine, LLC", address="120 Harbor Road, Columbus, OH",
                 signer="Dana Reed", email="dana@acmemarine.com",
-                agree_terms=True, agree_closures=True)
+                agree_terms=True, agree_launch_times=True)
 
 _real_body = msa.MSA_BODY
 msa.MSA_BODY = [("2. Services", ["PLACEHOLDER — paste the Services section."])]  # noqa: E501
@@ -254,15 +254,33 @@ check("the office closures are set out, not linked",
 check("Christmas Eve shows the half day",
       "8:30 a.m. \u2013 12:00 p.m." in body_now, True)
 check("the rate card clause is quoted", "Wholesale Rate Card" in body_now, True)
-# The checkbox must describe something that is actually above it. It used to
-# say "campaign launch times set out above" when nothing was.
-check("no checkbox refers to launch times any more",
-      "launch times" in body_now.lower(), False)
+
+
+section("The rate card is linked, not just named")
+
+# The checkbox used to say "campaign launch times set out above" while
+# nothing was set out above. They are published in the rate card, so the
+# checkbox now says so and both boxes link to it -- a client cannot agree to
+# a document they were given no way to open.
+check("the rate card URL is on the page", msa.RATE_CARD_URL in body_now, True)
+check("both acknowledgements link to it",
+      body_now.count('class="cardlink"'), 2)
+check("the links open outside the frame, not inside it",
+      body_now.count('target="_blank"') >= 2, True)
+check("and carry rel=noopener", body_now.count('rel="noopener"') >= 2, True)
+check("the launch-times acknowledgement names the rate card",
+      "campaign launch times" in body_now and "published" in body_now, True)
+# Opening the card must not tick the box that says you have read it.
+check("a link click is stopped before it reaches the label",
+      "stopPropagation" in body_now, True)
+# The signed PDF has to name WHICH rate card, because the card is a live page.
+check("the rate card address is in the agreement text",
+      msa.RATE_CARD_URL in msa.RATE_CARD_NOTE, True)
 
 
 section("Both boxes are checked on the server")
 
-for missing in ("agree_terms", "agree_closures"):
+for missing in ("agree_terms", "agree_launch_times"):
     payload = dict(signable)
     payload[missing] = False
     check(f"{missing} unchecked is refused",
