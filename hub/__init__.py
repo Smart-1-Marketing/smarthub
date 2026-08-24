@@ -3557,6 +3557,18 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Video Backgrounds ----------------
+    # Also a blueprint, and for the same reason: /tools/video-backgrounds is
+    # not one of the prefixes wsgi.py mounts, so it belongs to the hub app.
+    try:
+        from modules.video_backgrounds import register_video_backgrounds
+        register_video_backgrounds(app)
+    except Exception as _vb_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _vb_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- User accounts ----------------
     # Registered after init_db (models bind to the shared instance) and before
     # the help layer, so /diagnostics/users exists by the time the sidebar

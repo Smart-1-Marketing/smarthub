@@ -1,16 +1,30 @@
 """Pexels Video service — free stock footage, normalized to the Commercial
 Builder's universal asset shape (see routes/stock.py)."""
 
-import os
-
 import requests
 
-API_KEY = os.environ.get("PEXELS_API_KEY")
+from hub.config import settings
+
 BASE_URL = "https://api.pexels.com/videos/search"
 
 
+def _key():
+    """The Pexels key, under whichever name it is actually set.
+
+    This module read os.environ["PEXELS_API_KEY"] at import time. Render sets
+    it as PEXELS_API, so the read returned None, is_live() returned False, and
+    every search fell through to _mock_results() — placehold.co images labelled
+    like real footage. Nothing errored and nothing said "no key"; the tool just
+    quietly stopped returning real video. hub.config accepts every spelling in
+    use, which is the whole reason it exists, and reading it per call rather
+    than at import also means a key added in the Render dashboard takes effect
+    on restart instead of needing the module reloaded.
+    """
+    return settings.pexels_key
+
+
 def is_live():
-    return bool(API_KEY)
+    return bool(_key())
 
 
 def search(query, per_page=8, orientation=None):
@@ -22,7 +36,7 @@ def search(query, per_page=8, orientation=None):
         # Pexels expects landscape|portrait|square
         params["orientation"] = orientation
     try:
-        r = requests.get(BASE_URL, headers={"Authorization": API_KEY}, params=params, timeout=8)
+        r = requests.get(BASE_URL, headers={"Authorization": _key()}, params=params, timeout=8)
         r.raise_for_status()
         data = r.json()
     except Exception:
