@@ -70,6 +70,28 @@
   td .fn{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;overflow-wrap:anywhere}
   .lnk{color:var(--blue);text-decoration:none;cursor:pointer}
   .lnk:hover{text-decoration:underline}
+  /* Row actions are icons now — four text links per row made the actions
+     column wider than the alt text it sits beside. An icon with no label is
+     a guess unless it says what it does, so every one carries a tooltip:
+     `title` for the browser's own, and the styled bubble below for a hint
+     that appears without the half-second wait. */
+  .acts{display:flex;gap:4px;white-space:nowrap}
+  .icon{position:relative;display:inline-flex;align-items:center;justify-content:center;
+    width:28px;height:28px;border:1px solid var(--line);background:#fff;border-radius:7px;
+    cursor:pointer;font-size:14px;line-height:1;text-decoration:none;color:var(--navy);padding:0}
+  .icon:hover{background:var(--soft);border-color:#cbd5e1}
+  .icon.danger{color:var(--bad)}
+  .icon.danger:hover{background:#fef2f2;border-color:#fecaca}
+  .icon .tip{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+    background:#0f172a;color:#fff;border-radius:6px;padding:5px 8px;font:400 11.5px/1.35 inherit;
+    white-space:normal;width:190px;text-align:center;opacity:0;visibility:hidden;
+    transition:opacity .12s;z-index:60;pointer-events:none}
+  .icon .tip b{display:block;font-weight:700;margin-bottom:1px}
+  .icon:hover .tip,.icon:focus-visible .tip{opacity:1;visibility:visible}
+  /* Rows near the top would clip a tooltip drawn upwards. */
+  tbody tr:first-child .icon .tip{bottom:auto;top:calc(100% + 6px)}
+  td.selcell{width:26px}
+  td.selcell input,th.selcell input{width:auto;margin:0}
   .empty{text-align:center;color:var(--muted);padding:26px}
   .saved{display:flex;gap:12px;align-items:center;border:1px solid #bbf7d0;background:#f0fdf4;
     border-radius:10px;padding:11px 13px;margin-bottom:9px}
@@ -183,6 +205,8 @@
       <button class="btn sec" id="btnMore">Add more to this project</button>
       <button class="btn sec" id="btnNew">Start a new project</button>
       <button class="btn sec" id="btnCopyAll">Copy all &lt;img&gt; tags</button>
+      <button class="btn sec" id="btnDlSel">&#8681; Download selected</button>
+      <button class="btn sec" id="btnDlAll">&#8681; Download all (zip)</button>
       <span class="msg" id="msg3"></span>
     </div>
   </div>
@@ -193,8 +217,10 @@
     <div class="bar">
       <input type="search" id="search" placeholder="Search company, project, page, filename or alt text…">
       <button class="btn sec small" id="btnRefresh">Refresh</button>
+      <button class="btn sec small" id="btnArchDl">&#8681; Download selected</button>
       <a class="btn sec small" id="btnCsv" href="api/gallery/export">&#8681; CSV</a>
       <span class="count" id="archCount"></span>
+      <span class="msg" id="archMsg"></span>
     </div>
     <div style="overflow-x:auto" id="archWrap"><div class="empty">Loading archive…</div></div>
   </div>
@@ -533,6 +559,8 @@ function renderSaved(saved, errors){
     (errors.length ? '<div class="warn">'+errors.map(esc).join('<br>')+'</div>' : '') +
     saved.map(s => `
       <div class="saved">
+        <input type="checkbox" class="savedSel" data-id="${esc(s.id)}" checked
+               title="Include this image in a download">
         <img src="${esc(s.url)}" alt="">
         <div style="flex:1;min-width:0">
           <b class="fn">${esc(s.filename)}</b>
@@ -541,6 +569,8 @@ function renderSaved(saved, errors){
           <div class="count">${kb(s.original_bytes)} → ${kb(s.bytes)}${s.width?' · '+s.width+'×'+s.height:''}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:5px">
+          <a class="btn sec small" href="api/gallery/download?id=${encodeURIComponent(s.id)}"
+             title="Download this WebP file, named ${esc(s.filename)}">&#8681; Download</a>
           <button class="btn sec small" onclick="copyText('${esc(s.url)}',this)">Copy URL</button>
           <button class="btn sec small" data-tag="${esc(s.id)}">Copy &lt;img&gt;</button>
         </div>
@@ -553,13 +583,59 @@ function renderSaved(saved, errors){
   });
 }
 function copyText(text, btn){
-  navigator.clipboard.writeText(text).then(() => {
+  const flash = () => {
     if(!btn) return;
-    const old = btn.textContent; btn.textContent = 'Copied ✓';
-    setTimeout(() => btn.textContent = old, 1400);
-  });
+    /* An icon button carries its tooltip as a child element, so setting
+       textContent would delete the tooltip and leave a button that has lost
+       both its icon and its explanation. Only the label text node moves. */
+    const node = (btn.firstChild && btn.firstChild.nodeType === 3) ? btn.firstChild : null;
+    if(node){
+      const was = node.nodeValue;
+      node.nodeValue = ' \u2713 ';
+      setTimeout(() => { node.nodeValue = was; }, 1400);
+    } else {
+      const was = btn.textContent; btn.textContent = 'Copied \u2713';
+      setTimeout(() => { btn.textContent = was; }, 1400);
+    }
+  };
+  /* navigator.clipboard needs a secure context and is absent in a few setups;
+     without the fallback the button silently does nothing there. */
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(flash, () => {});
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text; document.body.appendChild(ta); ta.select();
+  try{ document.execCommand('copy'); flash(); }catch(e){}
+  document.body.removeChild(ta);
 }
 $('btnCopyAll').onclick = () => copyText(lastSaved.map(imgTag).join('\n'), $('btnCopyAll'));
+
+/* Downloading. A zip rather than one download per file: a browser blocks
+   every download after the first when they are triggered in a loop, so the
+   person gets one file and no error. */
+function downloadZip(ids, msgId){
+  const box = $(msgId);
+  if(!ids.length){
+    box.className = 'msg err';
+    box.textContent = 'Tick the images you want first.';
+    return;
+  }
+  box.className = 'msg';
+  box.textContent = 'Building the zip…';
+  /* Same-origin, so the download attribute is honoured and the page stays
+     put. A location change would lose the step-3 list on the way back. */
+  const a = document.createElement('a');
+  a.href = 'api/gallery/download.zip?ids=' + encodeURIComponent(ids.join(','));
+  a.download = '';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => { box.textContent = ids.length + ' image(s) downloading.'; }, 600);
+}
+function savedSelection(){
+  return Array.from(document.querySelectorAll('.savedSel:checked')).map(c => c.dataset.id);
+}
+$('btnDlSel').onclick = () => downloadZip(savedSelection(), 'msg3');
+$('btnDlAll').onclick = () => downloadZip(lastSaved.map(s => s.id), 'msg3');
 $('btnMore').onclick = () => {                    // keep the project details
   picked = []; batch = null; items = [];
   $('picked').innerHTML = 'JPG · PNG · WebP · GIF · AVIF';
@@ -603,21 +679,38 @@ function renderArchive(rows){
     return;
   }
   $('archWrap').innerHTML = '<table><thead><tr>'
+    + '<th class="selcell"><input type="checkbox" id="archSelAll" title="Select every image in this list"></th>'
     + '<th></th><th>Company</th><th>Project / page</th><th>SEO filename</th>'
-    + '<th>Alt text</th><th>Saved</th><th></th></tr></thead><tbody>'
+    + '<th>Alt text</th><th>Saved</th><th>Actions</th></tr></thead><tbody>'
     + rows.map(r => `<tr data-id="${esc(r.id)}">
+        <td class="selcell"><input type="checkbox" class="archSel" data-id="${esc(r.id)}"></td>
         <td><a href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.url)}" alt=""></a></td>
         <td><b>${esc(r.company)}</b>${r.web_url?'<div><a class="lnk" href="'+esc(r.web_url)+'" target="_blank" rel="noopener">'+esc(r.web_url.replace(/^https?:\/\//,''))+'</a></div>':''}</td>
         <td>${esc(r.project)}${r.page?'<div class="count">'+esc(r.page)+'</div>':''}</td>
         <td class="fn">${esc(r.filename)}<div class="count">${r.width?r.width+'×'+r.height+' · ':''}${kb(r.bytes)}</div></td>
         <td><span class="altv">${esc(r.alt_text)}</span></td>
         <td class="count">${esc(r.saved_at||'')}<div>${esc(r.saved_by||'')}</div></td>
-        <td style="white-space:nowrap">
-          <a class="lnk" data-copy="${esc(r.id)}">Copy URL</a><br>
-          <a class="lnk" data-edit="${esc(r.id)}">Edit alt</a><br>
-          <a class="lnk" style="color:#b91c1c" data-del="${esc(r.id)}">Delete</a>
+        <td>
+          <div class="acts">
+            <a class="icon" href="api/gallery/download?id=${encodeURIComponent(r.id)}"
+               aria-label="Download this file" title="Download the file">&#8681;
+              <span class="tip"><b>Download</b>Saves the optimised WebP with its SEO filename.</span></a>
+            <button class="icon" data-copy="${esc(r.id)}" aria-label="Copy the image address"
+               title="Copy the image address">&#128279;
+              <span class="tip"><b>Copy URL</b>The live address to paste into the page or the CMS.</span></button>
+            <button class="icon" data-edit="${esc(r.id)}" aria-label="Edit the alt text"
+               title="Edit the alt text">&#9998;
+              <span class="tip"><b>Edit alt</b>Rewrite the alt text — the change is pushed to the stored copy too.</span></button>
+            <button class="icon danger" data-del="${esc(r.id)}" aria-label="Delete this image"
+               title="Delete this image">&#128465;
+              <span class="tip"><b>Delete</b>Removes the file from the client gallery and this archive. It cannot be undone.</span></button>
+          </div>
         </td></tr>`).join('')
     + '</tbody></table>';
+
+  $('archSelAll').onchange = function(){
+    $('archWrap').querySelectorAll('.archSel').forEach(c => { c.checked = this.checked; });
+  };
 
   $('archWrap').querySelectorAll('[data-copy]').forEach(a => {
     a.onclick = () => { const r = rows.find(x => x.id===a.dataset.copy); if(r) copyText(r.url, a); };
@@ -649,6 +742,11 @@ function renderArchive(rows){
     };
   });
 }
+
+function archSelection(){
+  return Array.from(document.querySelectorAll('.archSel:checked')).map(c => c.dataset.id);
+}
+$('btnArchDl').onclick = () => downloadZip(archSelection(), 'archMsg');
 
 let searchTimer;
 $('search').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadArchive, 250); };
