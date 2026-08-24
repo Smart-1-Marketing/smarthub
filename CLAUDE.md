@@ -435,6 +435,19 @@ topic list, the default author and the client's guardrails, read by the planner,
 the writer, the client document and the CMS panel alike, the same way
 `hub/proposal_spec.py` is read by four things at once.
 
+**The settings are visible before there is anything to plan.** The Blogs card
+used to appear only once blogs were switched on in Client Setup, which hid the
+author, the guardrails and the approved-topic list — the things filled in
+*before* planning — until after something had been planned. The card is always
+shown now, says when blogs are off, and opens its settings panel while it is
+still empty. A collapsed panel is exactly as invisible as no panel to somebody
+who does not know it is there.
+
+**A plan made before the taxonomy existed can gain one.** Re-planning would do
+it and would also replace every title and discard written copy, so
+`blog_tag_posts()` fills in categories and tags and touches nothing else —
+otherwise those rows read "not set" forever with nothing to do about it.
+
 **Categories are structure; tags are detail.** A model asked for "categories
 and tags" invents a fresh category almost every time, and twelve posts arrive
 under twelve categories — a sidebar of one-post categories that helps nobody.
@@ -520,6 +533,13 @@ Three things that follow, unchanged from when this was a paste panel:
 - **A field with no home says so.** Simvoly's blog has categories and no tag
   field; the prompt tells the agent to say so rather than put the tags
   somewhere else.
+- **Where an FAQ block goes on the page is asked, not left to the agent.**
+  "Somewhere sensible" is how an accordion lands above the hero on one page and
+  in a sidebar on the next. The panel offers the positions (`PLACEMENTS`,
+  default: the last section before the footer) and the answer is written into
+  the prompt as an instruction. Changing it rebuilds the prompt rather than
+  patching the text — a panel showing one position while the clipboard holds
+  another is the worst version of this.
 
 The window is opened in the click handler, before the fetch — a `window.open()`
 inside a promise callback is a popup the browser blocks, and a blocked popup

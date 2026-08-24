@@ -252,9 +252,8 @@ def _cms_notes(cms: str, kind: str) -> list[str]:
                 "Add the accordion with a Custom HTML block, or through "
                 "Options -> Code editor. The block is self-contained — it "
                 "carries its own CSS and needs no plugin and no JavaScript.",
-                "Put it where the questions belong on the page, usually below "
-                "the main content and above the footer. Ask me if that is not "
-                "obvious on a given page.",
+                "Put it exactly where the placement instruction below says. "
+                "Do not choose a different position because one looks better.",
                 "The block already contains its FAQPage JSON-LD. Do not add "
                 "the schema separately as well, and tell me if an SEO plugin "
                 "on this site is already producing FAQ schema for the page.",
@@ -312,8 +311,8 @@ def _cms_notes(cms: str, kind: str) -> list[str]:
             "This is Smart 1 Sites, a Simvoly whitelabel. Open the project "
             "that just opened in our admin, then the site builder.",
             "Open the page named for each FAQ section and add an HTML or embed "
-            "element where the questions belong, usually below the main "
-            "content.",
+            "element in the position the placement instruction below gives. "
+            "Do not choose a different position because one looks better.",
             "Paste the block in as it is. It is self-contained — its own CSS, "
             "no JavaScript, no plugin — and it already carries its FAQPage "
             "JSON-LD, so do not also paste the schema separately.",
@@ -335,6 +334,46 @@ def _cms_notes(cms: str, kind: str) -> list[str]:
         ],
     }
     return base.get(kind, base["blogs"])
+
+
+# Where an FAQ accordion goes on a page is a real decision and the agent must
+# not make it: "somewhere sensible" is how a FAQ block lands above the hero on
+# one page and inside a sidebar on the next. The panel asks, this is what it
+# offers, and the answer is written into the prompt as an instruction rather
+# than left for the agent to ask about mid-run.
+PLACEMENTS = {
+    "before_footer": (
+        "As the LAST section of the page, immediately before the footer.",
+        "Last section, just before the footer"),
+    "after_content": (
+        "Immediately AFTER the page's main body content and before anything "
+        "that follows it (testimonials, calls to action, the footer).",
+        "After the main content"),
+    "after_first": (
+        "Immediately AFTER the first section under the hero/banner, so the "
+        "questions appear high on the page.",
+        "High — under the first section"),
+    "replace": (
+        "REPLACE the FAQ section already on this page. Find the existing "
+        "questions, remove that block, and put this one where it was. If you "
+        "cannot find an existing FAQ section, stop and tell me — do not add a "
+        "second one.",
+        "Replace the existing FAQ section"),
+    "ask": (
+        "Show me the page and ASK me where to put it before you add anything.",
+        "Ask me on the page"),
+}
+DEFAULT_PLACEMENT = "before_footer"
+
+
+def placement_text(key: str) -> str:
+    return PLACEMENTS.get(key or DEFAULT_PLACEMENT,
+                          PLACEMENTS[DEFAULT_PLACEMENT])[0]
+
+
+def placement_options() -> list[dict]:
+    """For the panel's dropdown — key, the short label, the full instruction."""
+    return [{"key": k, "label": v[1], "detail": v[0]} for k, v in PLACEMENTS.items()]
 
 
 def _block(title: str, value: str) -> str:
@@ -400,7 +439,8 @@ _BODY = {"blogs": _blog_body, "schema": _schema_body,
 
 
 def claude_prompt(cms: str, kind: str, items: list, *, client: str = "",
-                  domain: str = "", settings: dict | None = None) -> str:
+                  domain: str = "", settings: dict | None = None,
+                  placement: str = "") -> str:
     """The text the rep pastes into Claude in Chrome.
 
     Everything the agent needs is in here, because it cannot see this Hub:
@@ -419,6 +459,12 @@ def claude_prompt(cms: str, kind: str, items: list, *, client: str = "",
     lines += [f"- {r}" for r in _RULES]
     lines += ["", "HOW THIS CMS WORKS"]
     lines += [f"- {n}" for n in _cms_notes(cms, kind)]
+    if kind == "faqs":
+        lines += ["", "WHERE IT GOES ON THE PAGE",
+                  "- " + placement_text(placement),
+                  "- Use the same position on every page below, unless a page "
+                  "plainly has no such section — then stop and ask me about "
+                  "that page rather than choosing a different spot for it."]
     lines += ["", "=" * 60, ""]
 
     body = _BODY.get(kind, _blog_body)
@@ -516,7 +562,8 @@ def _alt_fields(page: dict) -> list[dict]:
 
 # ---------------------------------------------------------------- public
 def instructions(cms: str, kind: str, items: list, *, client: str = "",
-                 site_url: str = "", settings: dict | None = None) -> dict:
+                 site_url: str = "", settings: dict | None = None,
+                 placement: str = "") -> dict:
     """Everything the publish panel shows, for any of the four content kinds."""
     if cms not in CMS_KEYS:
         return {"error": f"Unknown CMS '{cms}'."}
@@ -567,7 +614,10 @@ def instructions(cms: str, kind: str, items: list, *, client: str = "",
         "steps": chrome_steps(cms, kind),
         "prompt": claude_prompt(cms, kind, items, client=client,
                                 domain=target.get("domain", ""),
-                                settings=settings) if items else "",
+                                settings=settings,
+                                placement=placement) if items else "",
+        "placements": placement_options() if kind == "faqs" else [],
+        "placement": (placement or DEFAULT_PLACEMENT) if kind == "faqs" else "",
         "items": rendered, "warnings": warnings,
     }
 

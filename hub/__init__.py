@@ -2389,6 +2389,26 @@ def create_hub_app() -> Flask:
         seo.save_store(client, store)
         return jsonify({"ok": True, "questions": blogs.get("questions", [])})
 
+    @app.route("/api/seo/blogs/tag", methods=["POST"])
+    def api_seo_blogs_tag():
+        """Fill in categories and tags on posts planned before they existed."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        ids = [int(i) for i in (body.get("ids") or []) if str(i).isdigit()]
+        try:
+            out = seo.blog_tag_posts(client, ids or None)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": str(exc)})
+        audit.log("hub", "seo_blog_tag", actor=current_user(), client=client,
+                  detail=f"{out['tagged']} posts")
+        return jsonify(out)
+
     @app.route("/api/seo/blogs/settings", methods=["POST"])
     def api_seo_blogs_settings():
         """The default author, the guardrail text and the never-mention list."""
@@ -2504,7 +2524,8 @@ def create_hub_app() -> Flask:
             settings = seo.blog_settings(client, store)
 
         out = cms_publish.instructions(cms, kind, chosen, client=client,
-                                       site_url=site, settings=settings)
+                                       site_url=site, settings=settings,
+                                       placement=str(body.get("placement") or ""))
         audit.log("hub", "seo_publish_instructions", actor=current_user(),
                   client=client, detail=f"{kind} → {cms}: {len(out.get('items', []))}")
         return jsonify(out)

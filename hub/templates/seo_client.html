@@ -343,6 +343,12 @@
 <div class="card seoc-card" id="cardBlogs" style="display:none">
   <div class="seoc-cardhead"><h3>Blogs</h3><div id="blogFreq" class="seoc-muted"></div></div>
 
+  <div id="blogOffNote" class="seoc-pubwarn" style="display:none">
+    Blogs are not switched on for this client in <b>Client Setup</b>, so no
+    schedule is planned. The settings below can still be filled in now — they
+    are what the planner and the writer read when blogs are turned on.
+  </div>
+
   <!-- What the account manager knows and the writer never saw: who signs the
        posts, how this company actually operates, what it may not say, and the
        topics the client has already approved. All four reach both the planner
@@ -438,6 +444,9 @@
       <button class="seoc-btn seoc-small" id="btnBlogWrite">Write selected with AI</button>
       <button class="seoc-btn seoc-sec seoc-small" id="btnBlogDlSel">&#8681; Download selected (one doc)</button>
       <a class="seoc-btn seoc-sec seoc-small" id="btnBlogDlAll">&#8681; Download all (one doc)</a>
+      <button class="seoc-btn seoc-sec seoc-small" id="btnBlogTag"
+              title="Give posts that have none a category and tags. Titles and written copy are not touched.">
+        Fill in categories &amp; tags</button>
       <button class="seoc-btn seoc-sec seoc-small" id="btnBlogReplan">Re-plan topics</button>
       <span id="blogWriteMsg" class="seoc-muted"></span>
     </div>
@@ -672,6 +681,11 @@
 @media(max-width:760px){.seoc-pubfield{grid-template-columns:1fr}}
 .seoc-pubwarn{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;
   padding:10px 12px;font-size:12.5px;margin-bottom:10px}
+.seoc-placebox{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;
+  padding:11px 13px;margin:14px 0 0;font-size:13px}
+.seoc-placebox select{margin-left:8px;padding:6px 9px;border:1px solid #e2e8f0;
+  border-radius:7px;font:13px 'Segoe UI',system-ui,sans-serif}
+.seoc-placebox .seoc-muted{margin-top:6px}
 .seoc-promptbox{border:2px solid #c7d2fe;background:#eef2ff;border-radius:10px;padding:12px 14px;margin:14px 0}
 .seoc-prompthead{display:flex;justify-content:space-between;align-items:center;gap:10px;
   flex-wrap:wrap;margin-bottom:6px}
@@ -1798,8 +1812,13 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   }
   function showBlogsCard(d){
     if(d&&d.blog_posts&&d.blog_posts.length) blogPosts=d.blog_posts;   // combined call
-    if(!blogsVisible(d)) return;
+    /* The card is always shown now. It used to appear only once blogs were
+       switched on in Client Setup, which meant the author, the guardrails and
+       the approved-topic list — the things you fill in BEFORE planning
+       anything — were invisible until after you had planned something. When
+       blogs are off it says so and offers the settings anyway. */
     $('cardBlogs').style.display='block';
+    $('blogOffNote').style.display=blogsVisible(d)?'none':'block';
     var su=(d&&d.setup)||{};
     var f=[];
     if(su.blogs_per_month) f.push(su.blogs_per_month+' / month');
@@ -1960,6 +1979,19 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('blogStartWrap').style.display='block';   // blogs exist — ask where to start
     $('blogTableWrap').style.display='none';
   };
+  $('btnBlogTag').onclick=function(){
+    var ids=selectedBlogIds();
+    $('btnBlogTag').disabled=true;
+    $('blogWriteMsg').textContent='Filing '+(ids.length?ids.length+' post(s)':'every post with none')+'…';
+    post('/api/seo/blogs/tag',{client:CLIENT,ids:ids}).then(function(d){
+      $('btnBlogTag').disabled=false;
+      if(d.error){ $('blogWriteMsg').textContent=d.error; return; }
+      $('blogWriteMsg').textContent=d.tagged
+        ? d.tagged+' post(s) filed'+(d.ai?' with AI.':' (from the titles — edit any that read oddly).')
+        : 'Every post already has a category and tags.';
+      loadBlogs();
+    });
+  };
   $('btnBlogWrite').onclick=function(){
     var ids=selectedBlogIds();
     if(!ids.length){$('blogWriteMsg').textContent='Select posts first.';return;}
@@ -2005,7 +2037,9 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   // ---------------- blog settings (author, guidance, approved topics) ----
   var blogSettings={author:{},guidance:'',avoid:[],categories:[],approved_topics:[],
                     approved_only:false,topics_source:{}};
+  var blogSetTouched=false;
   $('btnBlogSet').onclick=function(){
+    blogSetTouched=true;
     var b=$('blogSetBody');
     b.style.display=(b.style.display==='none')?'block':'none';
   };
@@ -2019,10 +2053,18 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('ba_approvedonly').checked=!!blogSettings.approved_only;
     renderTopics();
     var bits=[];
-    bits.push(a.name?('author '+a.name):'no default author');
+    bits.push(a.name?('Author: '+a.name):'No default author set');
+    bits.push((blogSettings.categories||[]).length
+      ? 'Categories: '+(blogSettings.categories||[]).join(', ')
+      : 'No categories yet');
     bits.push((blogSettings.approved_topics||[]).length+' approved topic(s)');
     if((blogSettings.avoid||[]).length) bits.push((blogSettings.avoid||[]).length+' never-mention term(s)');
-    $('blogSetSummary').textContent=bits.join(' · ');
+    $('blogSetSummary').textContent=bits.join('  ·  ');
+    /* Open on arrival while it is still empty — a collapsed panel is exactly
+       as invisible as no panel to somebody who does not know it is there. */
+    if(!blogSetTouched && !a.name && !(blogSettings.categories||[]).length){
+      $('blogSetBody').style.display='block';
+    }
   }
   function renderTopics(){
     var t=blogSettings.approved_topics||[];
@@ -2220,12 +2262,14 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   // blocks — and a blocked popup looks exactly like a button that does
   // nothing.
   var PUB_SOURCE={schema:'schemaRows', faqs:'faqRows', alt:'altRows'};
+  var lastPubUrls=[];
   function openPublish(cms,kind){
     var body={client:CLIENT,cms:cms,kind:kind};
     if(PUB_SOURCE[kind]){
       var urls=selectedUrls(PUB_SOURCE[kind]);
       if(!urls.length){ alert('Tick the pages you want to publish first.'); return; }
       body.urls=urls;
+      lastPubUrls=urls;
     } else {
       var ids=selectedBlogIds();
       if(!ids.length){ $('blogWriteMsg').textContent='Tick the posts you want to publish first.'; return; }
@@ -2256,6 +2300,19 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     /* The prompt is the deliverable, so it sits above the field-by-field list
        rather than under it. Everything the browser agent needs is in here —
        it cannot see this Hub — and it never contains a password. */
+    if((d.placements||[]).length){
+      /* Where an accordion goes on a page is a real decision, and an agent
+         left to make it puts the questions above the hero on one page and in
+         a sidebar on the next. Ask here; the answer is written into the
+         prompt as an instruction. */
+      h+='<div class="seoc-placebox"><b>Where should it go on the page?</b> '
+        +'<select id="pubPlacement">'
+        +(d.placements||[]).map(function(o){
+          return '<option value="'+esc(o.key)+'"'+(o.key===d.placement?' selected':'')
+            +'>'+esc(o.label)+'</option>';
+        }).join('')
+        +'</select><div class="seoc-muted" id="pubPlaceHelp"></div></div>';
+    }
     if(d.prompt){
       h+='<div class="seoc-promptbox">'
         +'<div class="seoc-prompthead"><b>&#10024; The prompt for Claude</b>'
@@ -2283,6 +2340,26 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       h+='</div>';
     });
     $('pubBody').innerHTML=h;
+    if($('pubPlacement')){
+      var help=function(){
+        var o=(d.placements||[]).find(function(x){return x.key===$('pubPlacement').value;});
+        $('pubPlaceHelp').textContent=o?o.detail:'';
+      };
+      help();
+      $('pubPlacement').onchange=function(){
+        help();
+        /* Rebuild rather than patch the text: the placement appears inside the
+           prompt, and a panel showing one thing while the clipboard holds
+           another is the worst version of this. */
+        $('pubMsg').textContent='Rewriting the prompt…';
+        post('/api/seo/publish/instructions',
+             {client:CLIENT,cms:d.cms,kind:d.kind,urls:lastPubUrls,
+              placement:this.value}).then(function(d2){
+          if(d2.error){ $('pubMsg').textContent=d2.error; return; }
+          renderPublish(d2);
+        });
+      };
+    }
     if($('pubCopyPrompt')){
       $('pubCopyPrompt').onclick=function(){ copyText($('pubPromptText').textContent, this); };
     }

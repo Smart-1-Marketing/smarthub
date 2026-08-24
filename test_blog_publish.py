@@ -220,6 +220,31 @@ check("editing copy back into a forbidden phrase re-flags the post",
       len(seo.load_store(CLIENT)["blogs"]["posts"][0]["flags"]) == 2,
       seo.load_store(CLIENT)["blogs"]["posts"][0]["flags"])
 
+print("\nposts planned before the taxonomy existed can still gain one")
+bare = seo.load_store(CLIENT)
+for post in bare["blogs"]["posts"][:3]:
+    post["categories"], post["tags"] = [], []      # a plan from the old shape
+seo.save_store(CLIENT, bare)
+tagged = seo.blog_tag_posts(CLIENT)
+after = seo.load_store(CLIENT)["blogs"]["posts"]
+check("every post with no taxonomy is filed",
+      tagged["tagged"] >= 3 and all(p.get("categories") for p in after[:3]),
+      tagged["tagged"])
+check("with tags drawn from the title when there is no AI key",
+      all(p.get("tags") for p in after[:3]), [p.get("tags") for p in after[:3]])
+check("the clamp still applies to a backfill",
+      all(len(p["categories"]) <= blog_spec.MAX_CATEGORIES for p in after),
+      [p["categories"] for p in after])
+check("titles and written copy are NOT touched by a backfill",
+      after[0]["title"] == bare["blogs"]["posts"][0]["title"]
+      and after[0]["content"] == bare["blogs"]["posts"][0]["content"])
+check("running it again is a no-op rather than a re-file",
+      seo.blog_tag_posts(CLIENT)["tagged"] == 0)
+check("stopwords do not become tags",
+      not any(t in ("the", "and", "for", "your")
+              for p in after for t in (p.get("tags") or [])),
+      [p.get("tags") for p in after[:3]])
+
 doc = seo.blogs_doc(CLIENT, [1])
 check("the client document names the author", "Dana Reyes" in doc)
 check("the client document shows the categories", "category:" in doc)
@@ -346,8 +371,22 @@ check("the clamp holds through the route",
       len(saved["categories"]) <= blog_spec.MAX_CATEGORIES and saved["tags"] == ["furnace", "fall"],
       saved)
 
+r = c.post("/api/seo/blogs/tag", json={"client": CLIENT})
+check("the backfill route answers", r.status_code == 200 and "tagged" in r.get_json(),
+      r.get_json())
+r = c.post("/api/seo/blogs/tag", json={})
+check("and needs a client", r.status_code == 400)
+
 r = c.get("/seo/client?name=" + CLIENT.replace(" ", "%20"))
+html = r.get_data(as_text=True)
 check("the SEO client page still renders", r.status_code == 200, r.status_code)
+# The card stays hidden in the markup so it cannot flash before the data
+# arrives; what changed is that showBlogsCard no longer refuses to reveal it.
+check("the blogs card no longer refuses to show until blogs are switched on",
+      "if(!blogsVisible(d)) return;" not in html)
+check("and says so when they are off, rather than showing nothing",
+      "blogOffNote" in html)
+check("the fill-in-taxonomy button is on the page", "btnBlogTag" in html)
 
 
 print(f"\n{PASS} passed, {FAIL} failed")

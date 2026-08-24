@@ -253,6 +253,33 @@ check("and the questions, so the reviewer can see what is going up",
 check("it tells the agent the block already carries its own schema",
       "FAQPage JSON-LD" in faq_p["prompt"])
 
+print("\nwhere the FAQ block goes is asked, not left to the agent")
+check("the panel offers placements for FAQs and only for FAQs",
+      len(faq_p["placements"]) >= 4
+      and cms_publish.instructions("wordpress", "alt", pages, client=CLIENT,
+                                   site_url=SITE)["placements"] == [],
+      len(faq_p["placements"]))
+check("the default is the last section before the footer",
+      faq_p["placement"] == "before_footer"
+      and "before the footer" in faq_p["prompt"], faq_p["placement"])
+check("the prompt states the position rather than telling Claude to ask",
+      "WHERE IT GOES ON THE PAGE" in faq_p["prompt"])
+replaced = cms_publish.instructions(
+    "wordpress", "faqs",
+    [{"url": SITE + "/ac-repair", "questions": [], "html": "<div>x</div>"}],
+    client=CLIENT, site_url=SITE, placement="replace")
+check("choosing replace says to replace, and to stop if there is none to replace",
+      "REPLACE the FAQ section" in replaced["prompt"]
+      and "do not add a second one" in replaced["prompt"])
+check("choosing 'ask me' is the one option that hands the decision back",
+      "ASK me where to put it" in cms_publish.claude_prompt(
+          "smart1", "faqs", [{"url": SITE, "questions": []}], placement="ask"))
+check("an unknown placement falls back to the default rather than an empty rule",
+      "before the footer" in cms_publish.claude_prompt(
+          "smart1", "faqs", [{"url": SITE, "questions": []}], placement="nonsense"))
+check("every page in one hand-off gets the same position",
+      "same position on every page" in faq_p["prompt"])
+
 for kind, items in (("blogs", []), ("schema", []), ("faqs", []), ("alt", [])):
     out = cms_publish.instructions("wordpress", kind, items, client=CLIENT, site_url=SITE)
     check(f"selecting nothing for {kind} is a warning, not an empty panel",
