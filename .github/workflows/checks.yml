@@ -232,6 +232,19 @@ jobs:
             echo "test_image_download.py not on this branch — nothing to run."
           fi
 
+      - name: Alt text and Claude-in-Chrome publish prompts
+        # The alt-text scan, its clamps, and the prompts handed to a browser
+        # agent -- including that no stored credential can reach one. Guarded
+        # like the steps above so this workflow stays mergeable on a branch
+        # that predates the file. Needs no network: hub/seo.py's fetch seam is
+        # stubbed, so the scan runs against fixture HTML.
+        run: |
+          if [ -f test_alt_text.py ]; then
+            python test_alt_text.py
+          else
+            echo "test_alt_text.py not on this branch — nothing to run."
+          fi
+
       - name: Video library tests
         # Safe to re-run, unlike the target-areas step above: this file *sets*
         # DATABASE_URL and HUB_DATA_DIR rather than setdefault-ing them, so it

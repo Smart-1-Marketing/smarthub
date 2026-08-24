@@ -57,8 +57,13 @@ EXTS = ("html", "py", "js", "ts", "tsx", "jsx")
 # the Hub's chrome alone. Those are the shim's INPUT, not links a page follows
 # -- and they are the ad builder's own routes, which the line above already
 # says Flask cannot judge.
+# test_alt_text.py for the same reason again: its fixture is a page from a
+# CLIENT's website, held as a string so the alt-text scanner can be tested
+# without fetching anybody's live site. Its <img src="/img/..."> paths are that
+# page's images -- they are the checker's INPUT, and they were never meant to
+# resolve against this Hub's route table.
 SKIP_PREFIXES = ("modules/ad_builder/", "tools/linkcheck.py",
-                 "test_ads_module.py")
+                 "test_ads_module.py", "test_alt_text.py")
 
 # Known-good references that are not links in the running app:
 #   install_into_hub.py  writes the mount that would then serve /tools/ads/

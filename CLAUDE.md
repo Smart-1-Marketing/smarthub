@@ -470,19 +470,43 @@ someone rewrites it. It strips the HTML first: scanning raw markup matched
 guidance box still goes to the model unchecked, because most of it is context —
 how they operate, what they are licensed for, how the warranty works.
 
-## Publishing is a panel, not a button
+## Publishing is a prompt, not a panel and not a button
 
-Every blog post and every JSON-LD block we produce has to be typed into a CMS by
-a person. Smart 1 Sites (the Simvoly whitelabel) exposes projects, plans and
-websites through its API — not blog content — and a client's WordPress is
-someone else's server with someone else's plugins on it. So `hub/cms_publish.py`
-does not pretend to publish. **Browse Smart 1 Sites** and **Browse WordPress**
-sit on both the blog table and the schema table: tick what you are publishing,
-the CMS opens in a new window, and the panel beside it holds that CMS's steps in
-order with every field copy-ready — title, slug, meta description, categories,
-tags, author, featured image, body HTML, or the script block for a schema page.
+Every blog post, JSON-LD block, FAQ accordion and alt tag we produce has to be
+typed into a CMS by somebody. Smart 1 Sites (the Simvoly whitelabel) exposes
+projects, plans and websites through its API — not page content — and a
+client's WordPress is someone else's server with someone else's plugins on it.
+So `hub/cms_publish.py` does not publish, and it no longer asks a rep to retype
+thirty fields either. **It writes a prompt for Claude in Chrome.**
 
-Three things that follow:
+**Claude → Smart 1 Sites** and **Claude → WordPress** sit on the blog table,
+the schema table, the FAQ table and the alt-text table. Tick what is going up,
+the CMS opens in a new window, and the panel hands back one block of text: the
+rules, how that CMS behaves, and the finished content. The rep signs in, pastes
+it into the Claude side panel on that tab, and approves each action.
+
+What that changes about what a good output is:
+
+- **The prompt carries the content, not a description of it.** The browser
+  agent cannot see this Hub, so "add the blog post" is useless — the whole body
+  HTML, the slug, the categories and the author have to be in the pasted text.
+- **It carries the rules that stop it improvising.** Approved copy is
+  reproduced, not paraphrased. A missing field is reported, not guessed at. A
+  category that does not exist is created with the exact name rather than filed
+  under the nearest match. Nothing is published; everything stops as a draft
+  for a human. An agent left to its own judgment on any of those produces
+  something plausible that nobody approved.
+- **It never carries a credential.** This Hub stores the site login and
+  password under Client Setup, and interpolating them into a block of text
+  destined for a chat window is the easiest possible mistake to make here. The
+  human signs in first; the prompt says so and tells the agent not to ask.
+  `test_alt_text.py` asserts no stored credential reaches any of the eight
+  CMS × kind prompts.
+- **The field-by-field list stays underneath it.** Claude in Chrome is not on
+  every machine, and a rep fixing one field should not have to dig it out of a
+  wall of prompt text.
+
+Three things that follow, unchanged from when this was a paste panel:
 
 - **Nothing is invented.** With no site URL on the client there is no WordPress
   admin to open, and the panel says which setting is missing. A guessed
@@ -494,17 +518,47 @@ Three things that follow:
   gives at length — and two projects on one domain returns the search rather
   than picking one, because the wrong pick edits another client's website.
 - **A field with no home says so.** Simvoly's blog has categories and no tag
-  field; the tags still travel, labelled as having nowhere to go, rather than
-  disappearing because there was no box.
+  field; the prompt tells the agent to say so rather than put the tags
+  somewhere else.
 
 The window is opened in the click handler, before the fetch — a `window.open()`
 inside a promise callback is a popup the browser blocks, and a blocked popup
 looks exactly like a button that does nothing.
 
-`test_blog_publish.py` asserts all of it: the clamp, the approved titles
-surviving verbatim, the never-mention check firing on the copy and *not* on a
-class name, the flag reaching the document and the panel, and no admin URL
-being invented.
+## Alt text is read from the site, not invented for it
+
+`hub/alt_text.py`. The Schema Builder and the FAQ Builder both read a client's
+own pages and hand the result to a CMS; alt text was the gap, and it is the
+finding an audit reports most often because fixing it by hand means opening
+every page and writing a sentence per image.
+
+**The first five sitemap pages, by default.** A crawl is one request per page
+against somebody else's server, and a 200-page site is 200 requests before a
+word is written. Five is the home page plus the top-level service pages on
+almost every site we build. The limit is a parameter so a second pass can go
+deeper deliberately, rather than a default that hammers a client's host.
+
+**`alt` absent and `alt=""` are different answers.** An empty alt is a decision
+— this image is decorative — and a missing one is an omission. Report both as
+`""` and every genuinely missing alt hides inside a list of images that were
+already handled correctly, which is exactly the number the audit is counting.
+
+**A decorative image keeps its empty alt.** The whole rewrite path exists to
+fill in blanks, so the one case where blank is *correct* has to survive it: a
+1px spacer described as "air conditioning repair in Dublin" is worse than the
+spacer with no alt at all. `is_decorative()` reads `role="presentation"`, the
+filename hints a builder emits, and a tiny declared size.
+
+**Three of the writing rules are enforced, not requested.** Length (both
+engines and every screen reader truncate around 125 characters), the "image
+of" preamble (a screen reader already says it is an image), and stripped
+markup. Asked politely, a model gets each of them wrong often enough to matter,
+so `_clean_alt()` runs over whatever comes back — and over anything typed by
+hand in the panel, or the rule holds only until someone edits the box.
+
+The output is the same two shapes as schema: **See the code**, which prints the
+old tag and the new one because a find-and-replace needs the string that is
+actually in the file, and the two Claude buttons above.
 
 ## Getting a file back out is storage's job, not each module's
 
@@ -661,6 +715,7 @@ python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
+python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 ```

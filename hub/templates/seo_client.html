@@ -166,8 +166,8 @@
       <div class="seoc-tableacts">
         <button class="seoc-btn seoc-sec seoc-small" id="btnSchemaDlSel">&#8681; Download selected</button>
         <button class="seoc-btn seoc-sec seoc-small" id="btnSchemaDlAll">&#8681; Download all</button>
-        <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="schema">&#127760; Browse Smart 1 Sites</button>
-        <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="schema">&#127760; Browse WordPress</button>
+        <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="schema">&#10024; Claude &rarr; Smart 1 Sites</button>
+        <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="schema">&#10024; Claude &rarr; WordPress</button>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -230,6 +230,8 @@
         <button class="seoc-btn seoc-sec seoc-small" id="btnFaqDlSelHtml">&#8681; Selected &mdash; site code</button>
         <button class="seoc-btn seoc-sec seoc-small" id="btnFaqDlSelDoc">&#8681; Selected &mdash; review doc</button>
         <button class="seoc-btn seoc-sec seoc-small" id="btnFaqDlAllDoc">&#8681; All &mdash; review doc</button>
+        <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="faqs">&#10024; Claude &rarr; Smart 1 Sites</button>
+        <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="faqs">&#10024; Claude &rarr; WordPress</button>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -243,6 +245,55 @@
       &#128065; view &amp; edit the questions &middot; &#60;/&#62; download the accordion code block for the site
       &middot; &#8681; customer review document &middot; &#128465; delete
     </div>
+  </div>
+</div>
+
+<!-- ---------------------------- Alt Text ---------------------------- -->
+<div class="card seoc-card" id="cardAlt">
+  <div class="seoc-cardhead"><h3>Alt Text</h3>
+    <div class="seoc-muted" id="altMeta"></div></div>
+
+  <div id="altStart">
+    <p style="margin:2px 0 10px;font-size:13.5px">Reads the first pages in the client&rsquo;s sitemap,
+      lists every image and the alt text it has today, then rewrites each one for search and for AI
+      answer engines. A decorative image is given an <b>empty</b> alt &mdash; that is the correct
+      answer for a spacer, not a description of it.</p>
+    <div class="seoc-faqbar">
+      <label class="seoc-muted">Pages to read
+        <select id="altPages">
+          <option value="5" selected>First 5 pages</option>
+          <option value="10">First 10 pages</option>
+          <option value="15">First 15</option>
+          <option value="25">First 25</option>
+        </select></label>
+      <button class="seoc-btn" id="btnAltScan">Scan for images</button>
+      <span id="altMsg" class="seoc-muted"></span>
+    </div>
+  </div>
+
+  <div id="altTableWrap" style="display:none;margin-top:14px">
+    <div class="seoc-tablehead">
+      <b>Images found</b>
+      <span class="seoc-muted" id="altCount"></span>
+      <div class="seoc-tableacts">
+        <button class="seoc-btn seoc-small" id="btnAltWrite">Rewrite selected with AI</button>
+        <a class="seoc-btn seoc-sec seoc-small" id="btnAltCode">&#60;/&#62; See the code</a>
+        <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="alt">&#10024; Claude &rarr; Smart 1 Sites</button>
+        <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="alt">&#10024; Claude &rarr; WordPress</button>
+        <button class="seoc-btn seoc-sec seoc-small" id="btnAltRescan">Re-scan</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="seoc-t"><thead><tr>
+        <th style="width:28px" title="Tick a page, then rewrite or publish it">
+          <input type="checkbox" id="altSelAll" title="Select every page"></th>
+        <th>Page</th><th style="text-align:center">Images</th>
+        <th style="text-align:center">Missing alt</th><th style="text-align:right">Actions</th>
+      </tr></thead><tbody id="altRows"></tbody></table>
+    </div>
+    <div id="altDetail"></div>
+    <div class="seoc-muted" style="margin-top:6px">A page that could not be read is listed with the
+      reason rather than counted as having no images.</div>
   </div>
 </div>
 
@@ -381,7 +432,9 @@
 
   <div id="blogTableWrap" style="display:none">
     <div class="seoc-blogbar">
-      <label class="seoc-skip" style="font-size:12.5px"><input type="checkbox" id="blogSelAll"> Select all</label>
+      <label class="seoc-skip" style="font-size:12.5px"
+             title="Ticked posts are what the buttons on this row act on">
+        <input type="checkbox" id="blogSelAll"> Select all</label>
       <button class="seoc-btn seoc-small" id="btnBlogWrite">Write selected with AI</button>
       <button class="seoc-btn seoc-sec seoc-small" id="btnBlogDlSel">&#8681; Download selected (one doc)</button>
       <a class="seoc-btn seoc-sec seoc-small" id="btnBlogDlAll">&#8681; Download all (one doc)</a>
@@ -393,13 +446,15 @@
          screen beside it. See hub/cms_publish.py. -->
     <div class="seoc-blogbar seoc-pubbar">
       <b style="font-size:12.5px">Publish selected:</b>
-      <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="blogs">&#127760; Browse Smart 1 Sites</button>
-      <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="blogs">&#127760; Browse WordPress</button>
-      <span class="seoc-muted">Opens the site&rsquo;s CMS in a new window and shows what to paste where.</span>
+      <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="blogs">&#10024; Claude &rarr; Smart 1 Sites</button>
+      <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="blogs">&#10024; Claude &rarr; WordPress</button>
+      <span class="seoc-muted">Opens the CMS in a new window and writes the prompt for Claude in Chrome.</span>
     </div>
     <div style="overflow-x:auto">
       <table class="seoc-blogt"><thead><tr>
-        <th></th><th>Week</th><th></th><th>Blog name</th><th>Category &amp; tags</th>
+        <th style="width:30px" title="Tick a post to write it, download it or publish it">
+          <input type="checkbox" id="blogSelAllHead" title="Select every post below"></th>
+        <th>Week</th><th style="width:56px">Image</th><th>Blog name</th><th>Category &amp; tags</th>
         <th>Status</th><th>Posted on site</th><th style="text-align:right">Actions</th>
       </tr></thead><tbody id="blogRows"></tbody></table>
     </div>
@@ -617,6 +672,27 @@
 @media(max-width:760px){.seoc-pubfield{grid-template-columns:1fr}}
 .seoc-pubwarn{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;
   padding:10px 12px;font-size:12.5px;margin-bottom:10px}
+.seoc-promptbox{border:2px solid #c7d2fe;background:#eef2ff;border-radius:10px;padding:12px 14px;margin:14px 0}
+.seoc-prompthead{display:flex;justify-content:space-between;align-items:center;gap:10px;
+  flex-wrap:wrap;margin-bottom:6px}
+.seoc-prompthead b{color:#3730a3;font-size:13.5px}
+.seoc-promptbox pre{background:#0f172a;color:#e2e8f0;border-radius:8px;padding:12px;margin:0;
+  font:11.5px/1.5 ui-monospace,Consolas,monospace;max-height:340px;overflow:auto;
+  white-space:pre-wrap;word-break:break-word}
+.seoc-pubdetail{margin:16px 0 8px;font-size:13px;color:#1a2e58}
+.seoc-altimgs{margin:10px 0 0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden}
+.seoc-altimg{display:grid;grid-template-columns:64px 1fr;gap:12px;padding:10px 12px;
+  border-bottom:1px solid #f1f5f9;align-items:start}
+.seoc-altimg:last-child{border-bottom:0}
+.seoc-altimg img{width:64px;height:64px;object-fit:cover;border-radius:7px;background:#f1f5f9}
+.seoc-altimg .src{font:11px ui-monospace,Consolas,monospace;color:#64748b;overflow-wrap:anywhere}
+.seoc-altimg .was{font-size:12px;color:#94a3b8;margin:3px 0}
+.seoc-altimg textarea{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #e2e8f0;
+  border-radius:7px;font:12.5px 'Segoe UI',system-ui,sans-serif;resize:vertical}
+.seoc-altimg .why{font-size:11px;color:#64748b;margin-top:3px}
+.seoc-altdec{display:inline-block;background:#f1f5f9;color:#475569;border-radius:20px;
+  padding:1px 8px;font-size:10.5px;font-weight:700}
+@media(max-width:700px){.seoc-altimg{grid-template-columns:1fr}}
 table.seoc-blogt{width:100%;border-collapse:collapse;font-size:13.5px}
 table.seoc-blogt th{background:#f8fafc;text-align:left;padding:9px 12px;font-size:11.5px;text-transform:uppercase;
   letter-spacing:.6px;color:#64748b;border-bottom:1px solid #e2e8f0;white-space:nowrap}
@@ -960,6 +1036,10 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     safe('schematable', function(){ renderSchemaTable(d.schema_table||[]); });
     safe('faq', function(){ initFaq(d); });
     safe('images', function(){ initImages(d); });
+    /* Reads what the last scan found. It never scans on page load — that is
+       one HTTP request per page against the client's own server, and nobody
+       asked for it by opening this page. */
+    safe('alt', function(){ loadAlt(); });
   }).catch(function(err){
     console.error('[seo_client] detail load failed:', err);
     var msg='<span class="seoc-bad">Could not load this client — '+esc(err&&err.message||err)+'</span>';
@@ -1761,7 +1841,8 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('btnBlogDlAll').href='/seo/blogs/'+slug+'.doc?ids=all';
     $('blogRows').innerHTML=blogPosts.map(function(p){
       return '<tr>'
-        +'<td><input type="checkbox" class="blogSel" data-id="'+p.id+'"></td>'
+        +'<td><input type="checkbox" class="blogSel" data-id="'+p.id+'"'
+        +' title="Tick this post, then use Write / Download / Publish above"></td>'
         +'<td style="white-space:nowrap">'+esc(p.week)+'<div class="seoc-muted" style="font-size:11px">'+esc(p.date)+'</div></td>'
         +'<td>'+blogThumb(p)+'</td>'
         +'<td><b>'+esc(p.title)+'</b>'
@@ -1846,10 +1927,13 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     document.querySelectorAll('.blogSel:checked').forEach(function(c){ids.push(parseInt(c.dataset.id,10));});
     return ids;
   }
-  $('blogSelAll').onchange=function(){
-    var on=this.checked;
+  function blogSelectAll(on){
     document.querySelectorAll('.blogSel').forEach(function(c){c.checked=on;});
-  };
+    $('blogSelAll').checked=on;
+    if($('blogSelAllHead')) $('blogSelAllHead').checked=on;
+  }
+  $('blogSelAll').onchange=function(){ blogSelectAll(this.checked); };
+  if($('blogSelAllHead')) $('blogSelAllHead').onchange=function(){ blogSelectAll(this.checked); };
   function doPlan(){
     $('btnBlogPlan').disabled=true;
     $('blogPlanMsg').textContent='Planning topics from the client’s site…';
@@ -1998,15 +2082,148 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     });
   };
 
+  // ---------------- Alt Text ----------------
+  var altPages=[], altOpen={};
+  function loadAlt(){
+    fetch('/api/seo/alt?name='+encodeURIComponent(CLIENT)).then(function(r){return r.json();})
+      .then(function(d){ altPages=d.pages||[]; renderAlt(d); });
+  }
+  function altImgCounts(p){
+    var imgs=p.images||[];
+    var missing=imgs.filter(function(i){return !i.has_alt||!String(i.alt||'').trim();}).length;
+    var written=imgs.filter(function(i){return i.new_alt||i.decorative;}).length;
+    return {total:imgs.length, missing:missing, written:written};
+  }
+  function renderAlt(d){
+    d=d||{};
+    if(!altPages.length){
+      $('altTableWrap').style.display='none';
+      $('altMeta').textContent=d.scanned_at?('Last scan '+d.scanned_at+' — no images found.'):'';
+      return;
+    }
+    $('altStart').style.display='none';
+    $('altTableWrap').style.display='block';
+    var tot=0,miss=0,wrote=0;
+    altPages.forEach(function(p){var c=altImgCounts(p);tot+=c.total;miss+=c.missing;wrote+=c.written;});
+    $('altCount').textContent=altPages.length+' page(s) · '+tot+' image(s) · '+miss+' with no alt text'
+      +(wrote?' · '+wrote+' rewritten':'');
+    $('altMeta').textContent=(d.scanned_at?'Scanned '+d.scanned_at:'')
+      +(d.written_at?' · rewritten '+d.written_at:'');
+    $('btnAltCode').href='/seo/alt/'+slug+'/code.html';
+    $('altRows').innerHTML=altPages.map(function(p){
+      var c=altImgCounts(p);
+      return '<tr>'
+        +'<td><input type="checkbox" class="rowsel" data-url="'+esc(p.url)+'"></td>'
+        +'<td><a class="u" href="'+esc(p.url)+'" target="_blank" rel="noopener">'+esc(shortUrl(p.url))+'</a>'
+        +(p.title?'<div class="seoc-muted">'+esc(p.title)+'</div>':'')+'</td>'
+        +'<td style="text-align:center"><span class="seoc-pill">'+c.total+'</span></td>'
+        +'<td style="text-align:center">'+(c.missing?'<b class="seoc-warn">'+c.missing+'</b>':'0')+'</td>'
+        +'<td style="text-align:right;white-space:nowrap">'
+        +'<button class="seoc-icon aview" data-url="'+esc(p.url)+'" '
+        +'title="Show every image on this page and its alt text">&#128065;</button>'
+        +'</td></tr>';
+    }).join('');
+    (d.errors||[]).forEach(function(e){
+      $('altRows').insertAdjacentHTML('beforeend',
+        '<tr><td></td><td colspan="4" class="seoc-muted">'+esc(e.url)
+        +' — could not be read: '+esc(e.error)+'</td></tr>');
+    });
+    $('altRows').querySelectorAll('.aview').forEach(function(b){
+      b.onclick=function(){ altOpen[b.dataset.url]=!altOpen[b.dataset.url]; renderAltDetail(); };
+    });
+    $('altSelAll').checked=false;
+    renderAltDetail();
+  }
+  function renderAltDetail(){
+    var open=altPages.filter(function(p){return altOpen[p.url];});
+    if(!open.length){ $('altDetail').innerHTML=''; return; }
+    $('altDetail').innerHTML=open.map(function(p){
+      return '<div class="seoc-page open" style="margin-top:12px">'
+        +'<div class="seoc-page-head"><b>'+esc(shortUrl(p.url))+'</b>'
+        +'<span class="seoc-muted">'+(p.images||[]).length+' image(s)</span></div>'
+        +'<div class="seoc-page-body"><div class="seoc-altimgs">'
+        +(p.images||[]).map(function(im,i){
+          return '<div class="seoc-altimg">'
+            +'<img src="'+esc(im.src)+'" alt="" loading="lazy">'
+            +'<div><div class="src">'+esc(im.filename||im.src)+'</div>'
+            +'<div class="was">Now: '+(String(im.alt||'').trim()
+                ? esc(im.alt)
+                : (im.has_alt?'<i>empty alt</i>':'<b class="seoc-bad">no alt attribute</b>'))+'</div>'
+            +(im.decorative&&!im.new_alt
+              ? '<span class="seoc-altdec">decorative — an empty alt is correct</span>'
+              : '<textarea rows="2" class="altNew" data-url="'+esc(p.url)+'" data-src="'+esc(im.src)+'"'
+                +' placeholder="Not rewritten yet">'+esc(im.new_alt||'')+'</textarea>')
+            +(im.why?'<div class="why">'+esc(im.why)+'</div>':'')
+            +'</div></div>';
+        }).join('')
+        +'</div></div></div>';
+    }).join('');
+    $('altDetail').querySelectorAll('.altNew').forEach(function(t){
+      t.onchange=function(){
+        post('/api/seo/alt/update',{client:CLIENT,url:t.dataset.url,src:t.dataset.src,alt:t.value})
+          .then(function(d){
+            if(d.error){ alert(d.error); return; }
+            /* The server clamps length and strips "image of", so show what was
+               stored rather than what was typed. */
+            t.value=d.image.new_alt||'';
+            var p=altPages.find(function(x){return x.url===t.dataset.url;});
+            var im=p&&(p.images||[]).find(function(x){return x.src===t.dataset.src;});
+            if(im){ im.new_alt=d.image.new_alt; im.decorative=d.image.decorative; }
+          });
+      };
+    });
+  }
+  $('btnAltScan').onclick=function(){
+    $('btnAltScan').disabled=true;
+    $('altMsg').textContent='Reading the sitemap and the pages…';
+    post('/api/seo/alt/scan',{client:CLIENT,pages:parseInt($('altPages').value,10)||5})
+      .then(function(d){
+        $('btnAltScan').disabled=false;
+        if(d.error){ $('altMsg').textContent=d.error; return; }
+        altPages=d.pages||[];
+        $('altMsg').textContent=d.total_images+' image(s) found across '+altPages.length
+          +' page(s) — '+d.missing_alt+' with no alt text.';
+        renderAlt(d);
+      });
+  };
+  $('btnAltRescan').onclick=function(){
+    $('altStart').style.display='block';
+    $('altStart').scrollIntoView({behavior:'smooth',block:'nearest'});
+  };
+  $('altSelAll').onchange=function(){
+    var on=this.checked;
+    document.querySelectorAll('#altRows input.rowsel').forEach(function(c){c.checked=on;});
+  };
+  $('btnAltWrite').onclick=function(){
+    var urls=selectedUrls('altRows');
+    if(!urls.length){ alert('Tick the pages you want rewritten first.'); return; }
+    $('btnAltWrite').disabled=true;
+    $('altMsg').textContent='Writing alt text for '+urls.length+' page(s)…';
+    post('/api/seo/alt/write',{client:CLIENT,urls:urls}).then(function(d){
+      $('btnAltWrite').disabled=false;
+      if(d.error){ $('altMsg').textContent=d.error; return; }
+      $('altMsg').textContent=d.written+' image(s) rewritten'
+        +(d.ai?'.':' (template mode'+(d.ai_error?' — AI error: '+d.ai_error:'')+').');
+      urls.forEach(function(u){ altOpen[u]=true; });
+      loadAlt();
+    });
+  };
+  $('btnAltCode').onclick=function(){
+    var urls=selectedUrls('altRows');
+    this.href='/seo/alt/'+slug+'/code.html'
+      +(urls.length?'?urls='+encodeURIComponent(urls.join('\n')):'');
+  };
+
   // ---------------- publish helper (blogs and schema) --------------------
   // The window is opened in the click handler, before the fetch, because a
   // window.open() that happens in a promise callback is a popup the browser
   // blocks — and a blocked popup looks exactly like a button that does
   // nothing.
+  var PUB_SOURCE={schema:'schemaRows', faqs:'faqRows', alt:'altRows'};
   function openPublish(cms,kind){
     var body={client:CLIENT,cms:cms,kind:kind};
-    if(kind==='schema'){
-      var urls=selectedUrls('schemaRows');
+    if(PUB_SOURCE[kind]){
+      var urls=selectedUrls(PUB_SOURCE[kind]);
       if(!urls.length){ alert('Tick the pages you want to publish first.'); return; }
       body.urls=urls;
     } else {
@@ -2023,7 +2240,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     },function(){ if(win)win.close(); });
   }
   function renderPublish(d){
-    $('pubTitle').textContent=(d.kind==='schema'?'Add schema in ':'Publish blogs in ')+d.label;
+    $('pubTitle').textContent='Publish '+esc(d.kind_label||'')+' with Claude in '+d.label;
     var o=$('pubOpen');
     if(d.admin_url){ o.href=d.admin_url; o.style.display='inline-block'; o.textContent='Open '+d.label+' again'; }
     else { o.style.display='none'; }
@@ -2031,11 +2248,25 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     (d.warnings||[]).forEach(function(w){ h+='<div class="seoc-pubwarn">'+esc(w)+'</div>'; });
     if(d.admin_url){
       h+='<p class="seoc-muted" style="margin:0 0 12px">Opened in a new window: <b>'
-        +esc(d.admin_label)+'</b>. Log in there, then work down this list.</p>';
+        +esc(d.admin_label)+'</b>.</p>';
     }
     (d.steps||[]).forEach(function(s,i){
       h+='<div class="seoc-pubstep"><b>'+(i+1)+'. '+esc(s.title)+'</b><p>'+esc(s.detail)+'</p></div>';
     });
+    /* The prompt is the deliverable, so it sits above the field-by-field list
+       rather than under it. Everything the browser agent needs is in here —
+       it cannot see this Hub — and it never contains a password. */
+    if(d.prompt){
+      h+='<div class="seoc-promptbox">'
+        +'<div class="seoc-prompthead"><b>&#10024; The prompt for Claude</b>'
+        +'<button class="seoc-btn seoc-small" id="pubCopyPrompt">Copy the prompt</button></div>'
+        +'<p class="seoc-muted" style="margin:0 0 8px">Paste this whole thing into Claude in the '
+        +'CMS tab, once you are signed in. It carries the finished content, so nothing else '
+        +'needs copying across.</p>'
+        +'<pre id="pubPromptText">'+esc(d.prompt)+'</pre></div>';
+      h+='<div class="seoc-pubdetail"><b>Every field on its own</b>'
+        +'<span class="seoc-muted"> — for doing it by hand, or checking Claude\u2019s work.</span></div>';
+    }
     (d.items||[]).forEach(function(it,idx){
       h+='<div class="seoc-pubitem"><div class="seoc-pubitem-head"><span>'+esc(it.title)+'</span>'
         +'<span class="seoc-muted">'+esc(it.subtitle||'')+'</span></div>';
@@ -2052,6 +2283,9 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       h+='</div>';
     });
     $('pubBody').innerHTML=h;
+    if($('pubCopyPrompt')){
+      $('pubCopyPrompt').onclick=function(){ copyText($('pubPromptText').textContent, this); };
+    }
     $('pubBody').querySelectorAll('.pubcopy').forEach(function(b){
       b.onclick=function(){ copyText($(b.dataset.t).textContent, b); };
     });

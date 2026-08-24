@@ -249,8 +249,22 @@ check("the default author travels to the CMS panel",
 check("a flagged post is called out in the publish panel",
       any("never-mention" in n.lower() for n in wp["items"][0]["notes"]),
       wp["items"][0]["notes"])
-check("the steps say to paste HTML in the code editor, not the visual one",
-      any("Code editor" in s["detail"] for s in wp["steps"]))
+check("the CMS quirk that costs a post reaches the agent, in the prompt",
+      "Code editor" in wp["prompt"], wp["prompt"][:200])
+check("the prompt carries the finished body, not a reference to it",
+      "Fall care" in wp["prompt"] or "<h1>" in wp["prompt"], wp["prompt"][-400:])
+check("the prompt tells the agent the human is already signed in",
+      "already signed in" in wp["prompt"])
+check("and never carries a credential",
+      "password" not in wp["prompt"].lower().replace("ask me for a password", ""),
+      [ln for ln in wp["prompt"].splitlines() if "password" in ln.lower()])
+check("the prompt forbids paraphrasing approved copy",
+      "EXACTLY" in wp["prompt"] and "improve" in wp["prompt"])
+check("and forbids publishing without a human looking",
+      "Do not publish" in wp["prompt"])
+check("the steps are the Chrome recipe, not a retyping checklist",
+      any("Claude extension" in s["title"] or "Claude extension" in s["detail"]
+          for s in wp["steps"]), [s["title"] for s in wp["steps"]])
 
 nourl = cms_publish.blog_instructions("wordpress", [flagged_post], settings, "")
 check("with no site URL there is no invented WordPress admin",
@@ -283,8 +297,10 @@ check("the schema panel hands over a ready script block",
 check("an unapproved page is called out before it goes on a site",
       any("not approved" in n.lower() for n in sch["items"][0]["notes"]),
       sch["items"][0]["notes"])
-check("the schema steps warn off the theme file editor",
-      any("Theme File Editor" in s["detail"] for s in sch["steps"]))
+check("the schema prompt warns the agent off the theme file editor",
+      "Theme File Editor" in sch["prompt"])
+check("the schema prompt carries the JSON-LD itself",
+      "application/ld+json" in sch["prompt"])
 check("schema opens the dashboard, not the new-post screen",
       sch["admin_url"].endswith("/wp-admin/"), sch["admin_url"])
 
