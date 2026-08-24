@@ -286,6 +286,84 @@ def check_shadowed_routes() -> list[dict]:
     return out
 
 
+def check_template_collisions() -> list[dict]:
+    """Two blueprints offering a template of the same name.
+
+    A blueprint-registered module shares the hub app's Jinja environment, and
+    that environment resolves a bare name by searching the hub's own templates
+    first and then each blueprint's folder **in registration order**. So a
+    module asking for "index.html" does not necessarily get its own: it gets
+    whichever was registered first, and the loser renders somebody else's page
+    against its own variables. This is the blueprint twin of the mount trap in
+    check_shadowed_routes — the module is wired correctly and still shows the
+    wrong thing.
+
+    Both failure modes have now happened here at once. Calculators and Page
+    Image Optimizer each shipped a plain `index.html`; calculators registers
+    first, so /tools/page-images/ rendered the calculator index and 500'd on
+    `'delivery' is undefined` — loud, and at least findable. Calculators also
+    shipped a `leads.html`, which the hub's own `leads.html` outranks, so
+    /tools/calculators/leads answered **200** with the Hub's leads page in it.
+    Nothing errored, every template was valid and every link resolved.
+
+    The fix is a name nobody else can claim: `tickets_*`, `picker_*` and
+    `commercial_*` already do this, which is why those five modules were never
+    caught by it.
+    """
+    import re
+    roots: list[tuple[str, pathlib.Path]] = [("hub", ROOT / "hub" / "templates")]
+    for pkg in sorted((ROOT / "modules").glob("*")):
+        if not pkg.is_dir() or pkg.name in SKIP_DIRS:
+            continue
+        tpl = pkg / "templates"
+        if not tpl.is_dir():
+            continue
+        # Only a module registered onto the hub app shares its Jinja
+        # environment. A dispatcher-mounted module builds its own Flask app
+        # and its own loader, so an identical name there collides with
+        # nothing — that separation is the whole point of the mount.
+        src = "\n".join(
+            p.read_text(encoding="utf-8", errors="ignore")
+            for p in pkg.rglob("*.py")
+            if "__pycache__" not in p.parts
+        )
+        if not re.search(r"\bapp\.register_blueprint\(", src):
+            continue
+        roots.append((pkg.name, tpl))
+
+    seen: dict[str, list[str]] = {}
+    for owner, tpl in roots:
+        for f in tpl.rglob("*.html"):
+            seen.setdefault(f.relative_to(tpl).as_posix(), []).append(owner)
+
+    out = []
+    for name, owners in sorted(seen.items()):
+        if len(owners) < 2:
+            continue
+        mods = [o for o in owners if o != "hub"]
+        # The hub's own folder is searched before every blueprint, so when it
+        # holds a copy the winner is known. Between two blueprints it is
+        # registration order in wsgi.py, which this check does not read —
+        # naming a winner it cannot know is the kind of confident wrong answer
+        # the report exists to catch.
+        if "hub" in owners:
+            resolves = "the hub's own copy, so " + " and ".join(mods) + " never render theirs"
+        else:
+            resolves = ("whichever of them wsgi.py registers first, so the rest "
+                        "never render theirs")
+        out.append({
+            "file": f"modules/{mods[0]}/templates/{name}",
+            "module": mods[0],
+            "detail": f"{name} is offered by {', '.join(owners)}, which all share "
+                      f"the hub app's Jinja environment. render_template("
+                      f"\"{name}\") resolves to {resolves} — a 500 if the "
+                      f"variables differ, and the wrong page in silence if "
+                      f"they do not.",
+            "fix": f"Give each one a name of its own — {mods[0]}_{name} — the "
+                   f"way tickets_*, picker_* and commercial_* already do.",
+        })
+    return out
+
 def check_shared_services() -> list[dict]:
     """Modules still doing Cloudinary, image work or settings themselves.
 
@@ -475,6 +553,8 @@ CHECKS = [
     ("silent_modules", "Modules that never log", "medium", check_silent_modules),
     ("unclamped_limits", "Unclamped query limits", "medium", check_unclamped_limits),
     ("shadowed_routes", "Routes hidden behind a mount", "high", check_shadowed_routes),
+    ("template_collisions", "Two blueprints, one template name", "high",
+     check_template_collisions),
     ("bare_except_pass", "Silent exception handling", "low", check_bare_except_pass),
     ("shared_services", "Not yet on shared services", "low", check_shared_services),
     ("unbacked_json", "JSON on the disk with no backup", "medium", check_unbacked_json),

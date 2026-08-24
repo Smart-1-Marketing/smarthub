@@ -121,7 +121,7 @@ def _calc_or_404(slug):
 def public_page(slug):
     """Standalone hosted page — the link you can send or run an ad to."""
     calc = _calc_or_404(slug)
-    return render_template("calculator.html", calc=calc, mount=MOUNT, embedded=False,
+    return render_template("calculators_calculator.html", calc=calc, mount=MOUNT, embedded=False,
                            source=request.args.get("src", ""))
 
 
@@ -129,7 +129,7 @@ def public_page(slug):
 def embed_page(slug):
     """Chrome-free version for an iframe on smart1marketing.com or Sites."""
     calc = _calc_or_404(slug)
-    return render_template("calculator.html", calc=calc, mount=MOUNT, embedded=True,
+    return render_template("calculators_calculator.html", calc=calc, mount=MOUNT, embedded=True,
                            source=request.args.get("src", ""))
 
 
@@ -236,7 +236,7 @@ def api_unlock(slug):
 def index():
     stats = {} if store.DB_BOOT_ERROR else store.counts()
     calcs = catalog.all_calculators()
-    return render_template("index.html", calcs=calcs, mount=MOUNT,
+    return render_template("calculators_index.html", calcs=calcs, mount=MOUNT,
                            stats=stats, db_error=store.DB_BOOT_ERROR,
                            # What the code does, not what one legacy env var
                            # says. The old banner read a webhook that stopped
@@ -250,7 +250,7 @@ def index():
 def leads_page():
     slug = request.args.get("slug") or ""
     rows = [] if store.DB_BOOT_ERROR else store.leads(slug or None, clamp_int(request.args.get("limit"), 200, 1, 1000))
-    return render_template("leads.html", rows=rows, calcs=catalog.all_calculators(),
+    return render_template("calculators_leads.html", rows=rows, calcs=catalog.all_calculators(),
                            mount=MOUNT, active=slug, db_error=store.DB_BOOT_ERROR)
 
 
