@@ -41,6 +41,8 @@
   .agree{display:flex;gap:11px;align-items:flex-start;margin:0 0 14px;
          font-size:14.5px;cursor:pointer}
   .agree input{width:19px;height:19px;flex:none;margin-top:2px}
+  .agree a.cardlink{color:#0B6FA4;text-decoration:underline}
+  .agree a.cardlink:hover{color:#04293f}
   .sign{font:22px 'Segoe Script','Brush Script MT',cursive;padding:12px 14px}
   .btn{background:var(--navy);color:#fff;border:0;border-radius:9px;
        padding:13px 26px;font:600 15px inherit;cursor:pointer}
@@ -144,12 +146,14 @@
       <label class="agree">
         <input type="checkbox" id="agreeTerms">
         <span>I have read and agree to this <b>Agreement</b>, including the
-              <b>Wholesale Rate Card</b> terms in section 6.</span>
+              <a class="cardlink" href="{{ rate_card_url }}" target="_blank"
+                 rel="noopener"><b>Wholesale Rate Card</b></a>.</span>
       </label>
       <label class="agree">
-        <input type="checkbox" id="agreeClosures">
-        <span>I have read and understand the <b>office closures</b> and support
-              hours set out above.</span>
+        <input type="checkbox" id="agreeLaunch">
+        <span>I have read and agree to the <b>campaign launch times</b> published
+              in the <a class="cardlink" href="{{ rate_card_url }}"
+              target="_blank" rel="noopener">rate card</a>.</span>
       </label>
 
       <label for="sig" style="margin-top:6px">Type your full name to sign</label>
@@ -218,15 +222,25 @@ fillDoc();
 function check(){
   var ok = $('company').value.trim() && $('address').value.trim()
         && $('signer').value.trim() && $('email').value.trim()
-        && $('sig').value.trim() && $('agreeTerms').checked && $('agreeClosures').checked;
+        && $('sig').value.trim() && $('agreeTerms').checked && $('agreeLaunch').checked;
   $('submit').disabled = !ok;
 }
 ['company','address','signer','email','sig'].forEach(function(id){
   $(id).addEventListener('input', check);
 });
-['agreeTerms','agreeClosures'].forEach(function(id){
+['agreeTerms','agreeLaunch'].forEach(function(id){
   $(id).addEventListener('change', check);
 });
+
+/* The rate-card links sit INSIDE their <label>, so a click on one bubbles to
+   the label and toggles the checkbox as well as opening the card. That is the
+   wrong way round: opening a document to read it would tick the box that says
+   you have already read it, without the client ever choosing to. Stopping the
+   click at the anchor leaves the box for them to tick deliberately. */
+Array.prototype.forEach.call(
+  document.querySelectorAll('.agree a.cardlink'), function(a){
+    a.addEventListener('click', function(e){ e.stopPropagation(); });
+  });
 
 $('submit').onclick = function(){
   var btn = this;
@@ -242,7 +256,7 @@ $('submit').onclick = function(){
       email: $('email').value.trim(),
       phone: $('phone').value.trim(),
       agree_terms: $('agreeTerms').checked,
-      agree_closures: $('agreeClosures').checked
+      agree_launch_times: $('agreeLaunch').checked
     })
   })
   .then(function(r){ return r.json(); })

@@ -70,7 +70,7 @@ def _furniture(canvas, doc):
 
 def build_msa_pdf(sections, office_closures, rate_card_note, company: str,
                   address: str, signer: str, signed_at: datetime,
-                  ip: str = "") -> bytes:
+                  ip: str = "", rate_card_url: str = "") -> bytes:
     buf = BytesIO()
     w, h = letter
     doc = BaseDocTemplate(buf, pagesize=letter,
@@ -123,8 +123,15 @@ def build_msa_pdf(sections, office_closures, rate_card_note, company: str,
     flow.append(Paragraph("Accepted and agreed", st["h"]))
     flow.append(Paragraph(
         "The signer confirms they have read and agree to this Agreement, "
-        "including the Wholesale Rate Card terms and the office closures set "
-        "out above.", st["p"]))
+        "including the Wholesale Rate Card, and to the campaign launch times "
+        "published in that rate card.", st["p"]))
+    # The card is a live page that changes on the notice terms in section
+    # 6.1.a, so the signed copy records WHICH document was agreed to and when
+    # it was read. "The rate card" on its own dates badly.
+    if rate_card_url:
+        flow.append(Paragraph(
+            f"Rate card as published at {rate_card_url} on "
+            f"{signed_at.strftime('%d %B %Y')}.", st["small"]))
     flow.append(Spacer(1, 6))
     flow.append(Paragraph(signer, st["sig"]))
     flow.append(Paragraph(
