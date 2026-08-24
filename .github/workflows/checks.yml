@@ -113,6 +113,16 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Website block tests
+        # Same skip-rather-than-fail shape as the tests below: a branch cut
+        # before this file exists should not fail on its absence.
+        run: |
+          if [ -f test_site_blocks.py ]; then
+            python test_site_blocks.py
+          else
+            echo "test_site_blocks.py not on this branch — nothing to run."
+          fi
+
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.
@@ -153,6 +163,15 @@ jobs:
             echo "test_api_usage.py not on this branch — nothing to run."
           fi
 
+      - name: Google account index tests
+        # Guarded like the step above, for the same reason.
+        run: |
+          if [ -f test_google_index.py ]; then
+            python test_google_index.py
+          else
+            echo "test_google_index.py not on this branch — nothing to run."
+          fi
+
       - name: Proposal specification and creative gate tests
         run: |
           if [ -f test_proposal_spec.py ]; then
@@ -172,6 +191,18 @@ jobs:
             python test_social_plan.py
           else
             echo "test_social_plan.py not on this branch — nothing to run."
+          fi
+
+      - name: Video library tests
+        # Safe to re-run, unlike the target-areas step above: this file *sets*
+        # DATABASE_URL and HUB_DATA_DIR rather than setdefault-ing them, so it
+        # always gets its own throwaway mirror and never restores a previous
+        # run's writes into a fresh directory.
+        run: |
+          if [ -f test_video_library.py ]; then
+            python test_video_library.py
+          else
+            echo "test_video_library.py not on this branch — nothing to run."
           fi
 
       - name: Web ticket field tests
@@ -214,6 +245,10 @@ jobs:
                    "/client360", "/tools",
                    # The landing maker, and the API its page calls.
                    "/sales/landing", "/api/landing",
+                   # The website block builder. Its page draws itself entirely
+                   # from api/catalogue, so a page that boots but whose
+                   # catalogue 500s is a blank tool -- both are requested.
+                   "/tools/site-blocks/", "/tools/site-blocks/api/catalogue",
                    # The social planner, and the page that links to it. Its
                    # index renders the whole post-type spec into the page, so a
                    # bad entry in hub/social_plan.py shows up here as a 500.

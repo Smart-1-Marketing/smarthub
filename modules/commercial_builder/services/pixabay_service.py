@@ -1,23 +1,39 @@
 """Pixabay Video service — free stock footage, normalized to the Commercial
 Builder's universal asset shape (see routes/stock.py)."""
 
-import os
-
 import requests
 
-API_KEY = os.environ.get("PIXABAY_API_KEY")
+from hub.config import settings
+
 BASE_URL = "https://pixabay.com/api/videos/"
 
 
+def _key():
+    """The Pixabay key, under whichever name it is actually set.
+
+    Same defect as pexels_service: read as PIXABAY_API_KEY at import, set on
+    Render as PIXABAY_API, so every search silently returned placeholders.
+    See the note there — hub.config accepts both spellings.
+    """
+    return settings.pixabay_key
+
+
 def is_live():
-    return bool(API_KEY)
+    return bool(_key())
 
 
 def search(query, per_page=8, orientation=None):
+    """Search Pixabay video.
+
+    ``orientation`` is accepted and ignored: the Pixabay video API has no
+    orientation filter. The caller in routes/stock.py passes one because Pexels
+    honours it, and dropping the argument here would just move the mismatch to
+    the call site. Results are filtered by shape downstream, not here.
+    """
     if not is_live():
         return _mock_results(query, per_page)
 
-    params = {"key": API_KEY, "q": query, "per_page": max(per_page, 3)}
+    params = {"key": _key(), "q": query, "per_page": max(per_page, 3)}
     try:
         r = requests.get(BASE_URL, params=params, timeout=8)
         r.raise_for_status()

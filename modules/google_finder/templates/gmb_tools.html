@@ -31,6 +31,11 @@
         <a href="/google/history">📜 History & Logs</a>
       </nav>
 
+      {% set lookup_platform = 'gbp' %}
+      {% set lookup_label = 'Business Profile listing' %}
+      {% set lookup_fill = {'name': '#manual-q'} %}
+      {% include "_client_lookup.html" %}
+
       <!-- MANUAL GMB CHECKER -->
       <div id="manual-gmb" class="manual-lookup-card" style="margin-top:20px;">
         <h3>Manual GMB & Claim Checker</h3>

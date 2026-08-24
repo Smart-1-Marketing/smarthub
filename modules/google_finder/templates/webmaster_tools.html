@@ -31,6 +31,11 @@
         <a href="/google/history">📜 History & Logs</a>
       </nav>
 
+      {% set lookup_platform = 'gsc' %}
+      {% set lookup_label = 'Search Console property' %}
+      {% set lookup_fill = {'resource_id': '#gsc-lookup-q'} %}
+      {% include "_client_lookup.html" %}
+
       <!-- STANDALONE SEARCH CONSOLE ACCOUNT LOOKUP BAR -->
       <div class="manual-lookup-card" style="margin-top:20px; background:#fce8e6; border-color:#f5c2c0;">
         <h3 style="color:#c5221f;">🔍 Find Webmaster Property & Account</h3>

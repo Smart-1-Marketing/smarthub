@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% block title %}Video Backgrounds — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Video Backgrounds {{ help_dot('video_backgrounds.overview') if help_dot is defined else '' }}</h2>
+  <p>Search the footage we own by what is actually on screen, and copy a URL
+     that is already sized, muted and trimmed for use behind a headline.</p>
+</div>
+
+{# The status card is not decoration. An empty result list has three completely
+   different causes here -- Cloudinary unset, indexing not started, or genuinely
+   no match -- and they must not look alike. #}
+<div class="card" id="vb-status" style="margin-bottom:18px">
+  <div class="card-h"><h3>Library status</h3></div>
+  <div class="card-b">
+    {% if not status.cloudinary %}
+      <p class="vb-bad"><strong>Cloudinary is not configured.</strong>
+         <code>CLOUDINARY_URL</code> is unset or still a placeholder, so the
+         library cannot be read. This is not an empty library.</p>
+    {% else %}
+      <table class="vb-kv">
+        <tr>
+          <th>Clips in Cloudinary</th>
+          <td>{% if status.library_count is none %}<span class="vb-unknown">could not be counted</span>
+              {% else %}{{ status.library_count }}{% endif %}</td>
+        </tr>
+        <tr>
+          <th>Indexed and searchable</th>
+          <td>{% if status.indexed_count is none %}<span class="vb-unknown">could not be counted</span>
+              {% else %}{{ status.indexed_count }}{% endif %}</td>
+        </tr>
+        <tr>
+          <th>Indexing started</th>
+          <td>{% if status.cutoff %}{{ status.cutoff }}
+              {% else %}<span class="vb-unknown">not started</span>{% endif %}</td>
+        </tr>
+      </table>
+      <p class="vb-note">
+        Indexing is <strong>forward-only by design</strong>. Footage already in
+        the account is deliberately left alone; only clips uploaded after
+        indexing starts get described and tagged. Nothing here modifies an
+        original — the URLs below are Cloudinary transformations of it.
+      </p>
+      {% if not status.openai %}
+        <p class="vb-bad"><strong>OPENAI_API_KEY is not set.</strong> Anything
+           already indexed stays searchable, but new clips cannot be described.</p>
+      {% elif status.note %}
+        <p class="vb-note">{{ status.note }}</p>
+      {% endif %}
+      <p style="margin-top:12px">
+        <button type="button" class="btn" id="vb-pending">See what is waiting</button>
+        <button type="button" class="btn btn-primary" id="vb-index">Index new clips</button>
+        <span id="vb-index-out" class="vb-note"></span>
+      </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:18px">
+  <div class="card-h"><h3>Search</h3></div>
+  <div class="card-b">
+    <div class="vb-controls">
+      <input type="search" id="vb-q" class="vb-input"
+             placeholder="drone over a suburb, busy office, abstract texture…"
+             autocomplete="off">
+      <select id="vb-orientation" class="vb-input vb-input-sm">
+        <option value="">Any shape</option>
+        <option value="landscape">Landscape 16:9</option>
+        <option value="portrait">Portrait 9:16</option>
+        <option value="square">Square 1:1</option>
+      </select>
+      <select id="vb-duration" class="vb-input vb-input-sm">
+        <option value="">Any length</option>
+        <option value="10">Up to 10s</option>
+        <option value="20">Up to 20s</option>
+        <option value="30">Up to 30s</option>
+      </select>
+      <label class="vb-check">
+        <input type="checkbox" id="vb-bgready" checked>
+        Background-ready only
+      </label>
+      <button type="button" class="btn btn-primary" id="vb-go">Search</button>
+    </div>
+
+    <div class="vb-chips" id="vb-chips">
+      {% for group, terms in vocab.items() %}
+        <div class="vb-chip-row">
+          <span class="vb-chip-label">{{ group }}</span>
+          {% for term in terms %}
+            <button type="button" class="vb-chip" data-term="{{ term }}">{{ term }}</button>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div id="vb-msg" class="vb-note" style="margin:0 2px 12px"></div>
+<div id="vb-results" class="vb-grid"></div>
+
+<style>
+.vb-kv{border-collapse:collapse;font-size:13px}
+.vb-kv th{text-align:left;padding:3px 18px 3px 0;color:#94a3b8;font-weight:600}
+.vb-kv td{padding:3px 0}
+.vb-unknown{color:#f59e0b}
+.vb-bad{color:#f87171;font-size:13px;margin:0 0 8px}
+.vb-note{font-size:12.5px;color:#94a3b8;margin:8px 0 0}
+.vb-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.vb-input{background:#0f172a;border:1px solid #1e293b;border-radius:8px;
+  color:#e2e8f0;padding:8px 10px;font-size:13px;min-width:260px;flex:1}
+.vb-input-sm{min-width:auto;flex:0 0 auto}
+.vb-check{font-size:12.5px;color:#94a3b8;display:flex;align-items:center;gap:5px}
+.vb-chips{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.vb-chip-row{display:flex;flex-wrap:wrap;gap:4px;align-items:baseline}
+.vb-chip-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+  color:#64748b;width:62px;flex:0 0 62px}
+.vb-chip{background:#0f172a;border:1px solid #1e293b;border-radius:999px;
+  color:#94a3b8;font-size:11.5px;padding:3px 9px;cursor:pointer}
+.vb-chip[aria-pressed="true"]{background:#1d4ed8;border-color:#1d4ed8;color:#fff}
+.vb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.vb-card{background:#0b1220;border:1px solid #1e293b;border-radius:10px;overflow:hidden}
+.vb-card video,.vb-card img{width:100%;display:block;aspect-ratio:16/9;
+  object-fit:cover;background:#020617}
+.vb-card-b{padding:10px 12px}
+.vb-card-b h4{margin:0 0 4px;font-size:13px;font-weight:600;color:#e2e8f0}
+.vb-desc{font-size:12px;color:#94a3b8;margin:0 0 8px}
+.vb-meta{font-size:11px;color:#64748b;margin:0 0 8px}
+.vb-tags{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:8px}
+.vb-tag{font-size:10.5px;background:#111c33;border:1px solid #1e293b;
+  border-radius:999px;padding:2px 7px;color:#94a3b8}
+.vb-acts{display:flex;gap:6px;flex-wrap:wrap}
+.vb-acts button{font-size:11.5px;padding:4px 9px;border-radius:6px;
+  border:1px solid #1e293b;background:#0f172a;color:#cbd5e1;cursor:pointer}
+.vb-acts button:hover{border-color:#1d4ed8;color:#fff}
+</style>
+{% endblock %}
+
+{% block scripts %}
+{# Jinja stays out of the script block on purpose: tools/jscheck.py hands
+   Jinja-free blocks to node --check, the real parser, and skips any block
+   carrying {{ }} or {% %}. Config rides in on a data attribute so this block
+   gets the strict check rather than the bracket-balance fallback. #}
+<script type="application/json" id="vb-boot">{{ {"flags": flags|list}|tojson }}</script>
+<script>
+(function () {
+  var boot = {};
+  try { boot = JSON.parse(document.getElementById("vb-boot").textContent) || {}; }
+  catch (e) { boot = {}; }
+
+  var results = document.getElementById("vb-results");
+  var msg = document.getElementById("vb-msg");
+  var selected = [];
+
+  function note(text, bad) {
+    msg.textContent = text || "";
+    msg.style.color = bad ? "#f87171" : "#94a3b8";
+  }
+
+  function esc(value) {
+    var d = document.createElement("div");
+    d.textContent = value == null ? "" : String(value);
+    return d.innerHTML;
+  }
+
+  function copy(text, button) {
+    var label = button.textContent;
+    function done(ok) {
+      button.textContent = ok ? "Copied" : "Copy failed";
+      setTimeout(function () { button.textContent = label; }, 1400);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); },
+                                               function () { done(false); });
+    } else {
+      done(false);
+    }
+  }
+
+  function card(item) {
+    var el = document.createElement("div");
+    el.className = "vb-card";
+    var secs = item.duration ? (Math.round(item.duration * 10) / 10) + "s" : "length unknown";
+    var dims = (item.width && item.height) ? item.width + "×" + item.height : "size unknown";
+    var tags = (item.tags || []).map(function (t) {
+      return '<span class="vb-tag">' + esc(t) + "</span>";
+    }).join("");
+    el.innerHTML =
+      '<video muted loop playsinline preload="none" poster="' + esc(item.thumbnail) + '"' +
+      ' src="' + esc(item.preview_url) + '"></video>' +
+      '<div class="vb-card-b">' +
+        "<h4>" + esc(item.public_id) + "</h4>" +
+        '<p class="vb-desc">' + esc(item.description || "No description recorded.") + "</p>" +
+        '<p class="vb-meta">' + esc(dims) + " · " + esc(secs) +
+          (item.folder ? " · " + esc(item.folder) : "") + "</p>" +
+        '<div class="vb-tags">' + tags + "</div>" +
+        '<div class="vb-acts">' +
+          '<button type="button" data-copy="background">Copy background URL</button>' +
+          '<button type="button" data-copy="poster">Copy poster URL</button>' +
+        "</div>" +
+      "</div>";
+
+    var video = el.querySelector("video");
+    el.addEventListener("mouseenter", function () { video.play().catch(function () {}); });
+    el.addEventListener("mouseleave", function () { video.pause(); });
+    el.querySelectorAll("[data-copy]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var which = button.getAttribute("data-copy");
+        copy(which === "poster" ? item.poster_url : item.background_url, button);
+      });
+    });
+    return el;
+  }
+
+  function render(payload) {
+    results.textContent = "";
+    var items = payload.results || [];
+    if (!items.length) {
+      note(payload.note || "Nothing matched.", !payload.ok);
+      return;
+    }
+    note(items.length + " of " + payload.total + " matching clips.");
+    items.forEach(function (item) { results.appendChild(card(item)); });
+  }
+
+  function search() {
+    var params = new URLSearchParams();
+    params.set("q", document.getElementById("vb-q").value.trim());
+    params.set("orientation", document.getElementById("vb-orientation").value);
+    var duration = document.getElementById("vb-duration").value;
+    if (duration) { params.set("max_duration", duration); }
+    var tags = selected.slice();
+    if (document.getElementById("vb-bgready").checked) { tags.push("bg-ready"); }
+    if (tags.length) { params.set("tags", tags.join(",")); }
+
+    note("Searching…");
+    fetch("/tools/video-backgrounds/api/search?" + params.toString())
+      .then(function (r) { return r.json(); })
+      .then(render)
+      .catch(function (err) { note("The search request failed: " + err, true); });
+  }
+
+  document.getElementById("vb-go").addEventListener("click", search);
+  document.getElementById("vb-q").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { search(); }
+  });
+
+  document.querySelectorAll(".vb-chip").forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      var term = chip.getAttribute("data-term");
+      var at = selected.indexOf(term);
+      if (at >= 0) { selected.splice(at, 1); } else { selected.push(term); }
+      chip.setAttribute("aria-pressed", at >= 0 ? "false" : "true");
+      search();
+    });
+  });
+
+  var indexButton = document.getElementById("vb-index");
+  if (indexButton) {
+    indexButton.addEventListener("click", function () {
+      var out = document.getElementById("vb-index-out");
+      indexButton.disabled = true;
+      out.textContent = "Indexing…";
+      fetch("/tools/video-backgrounds/api/index", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({})
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          indexButton.disabled = false;
+          if (data.error) { out.textContent = data.error; return; }
+          out.textContent = data.indexed + " indexed, " + data.skipped +
+            " skipped, " + data.failed + " failed.";
+          if (data.indexed) { search(); }
+        })
+        .catch(function (err) {
+          indexButton.disabled = false;
+          out.textContent = "The index request failed: " + err;
+        });
+    });
+  }
+
+  var pendingButton = document.getElementById("vb-pending");
+  if (pendingButton) {
+    pendingButton.addEventListener("click", function () {
+      var out = document.getElementById("vb-index-out");
+      out.textContent = "Checking…";
+      fetch("/tools/video-backgrounds/api/pending")
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var waiting = (data.pending || []).length;
+          out.textContent = data.cutoff
+            ? waiting + " clip(s) uploaded since " + data.cutoff + " are waiting."
+            : "Indexing has not started. Nothing is waiting yet.";
+        })
+        .catch(function (err) { out.textContent = "That check failed: " + err; });
+    });
+  }
+
+  search();
+}());
+</script>
+{% endblock %}

@@ -210,6 +210,44 @@ def create_hub_app() -> Flask:
         live = (request.args.get("live") or "").lower() in ("1", "true", "yes", "on")
         return jsonify(quotas.summary(request.args.get("month"), live=live))
 
+    # ---------------- Google account index ----------------
+    # Deliberately hub routes, not routes under /google: DispatcherMiddleware
+    # routes purely by prefix, so anything under /google belongs to Google
+    # Finder and a hub route there would never be reached. That trap has bitten
+    # three times and /api/integrity has a high-severity check for it.
+    @app.route("/api/google/index")
+    def api_google_index():
+        """What the stored Google index holds, and how old it is."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import google_index
+        return jsonify(google_index.status())
+
+    @app.route("/api/google/for-client")
+    def api_google_for_client():
+        """Every Google resource joined to one client.
+
+        This is what Client 360 and the tool auto-fill read. It is a scan of a
+        stored dictionary — no Google call — which is the entire reason the
+        360 page stopped waiting on a four-API sweep.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import google_index
+        return jsonify(google_index.for_client(
+            request.args.get("name", ""), request.args.get("url", "")))
+
+    @app.route("/api/google/rebuild", methods=["POST"])
+    def api_google_rebuild():
+        """Force a re-sweep now, rather than waiting for the three-hour job."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import google_index
+        return jsonify(google_index.build(force=True))
+
     @app.route("/api/backup")
     def api_backup():
         """What of the JSON on the disk is mirrored into the database.
@@ -3623,6 +3661,18 @@ def create_hub_app() -> Flask:
     except Exception as _cb_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _cb_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Video Backgrounds ----------------
+    # Also a blueprint, and for the same reason: /tools/video-backgrounds is
+    # not one of the prefixes wsgi.py mounts, so it belongs to the hub app.
+    try:
+        from modules.video_backgrounds import register_video_backgrounds
+        register_video_backgrounds(app)
+    except Exception as _vb_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _vb_exc)
         except Exception:  # noqa: BLE001
             pass
 

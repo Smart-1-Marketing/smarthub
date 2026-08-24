@@ -1,0 +1,198 @@
+{#
+  Client lookup and auto-fill, shared by every Google tool page.
+
+  Each tool asked for the same thing in a different way: type a container id,
+  or a property id, or a Google login and an account number. Nobody carries
+  those around — they carry a client name. So this takes the name and fills in
+  the ids from hub/google_index.py, which already holds every reachable Google
+  resource joined to a client.
+
+  Two things make it cheap enough to sit on every page:
+
+    * It reads the STORED index, not Google. No sweep, no Tag Manager pacing,
+      no waiting. The index is rebuilt every three hours by the scheduler.
+    * Both requests go to the hub app, not to this module. That is deliberate
+      and it is the mount trap in reverse: this page is served under /google,
+      so a relative fetch would resolve inside the module and 404. The literal
+      leading-slash paths below are checked by tools/linkcheck.py against the
+      route table of whichever app owns the prefix.
+
+  Usage, from a tool page, before the include:
+
+      {% set lookup_platform = 'gtm' %}
+      {% set lookup_fill = {'resource_id': '#gtm-lookup-q'} %}
+      {% include "_client_lookup.html" %}
+
+  `lookup_fill` maps a field on the matched resource to a CSS selector on the
+  page. Anything the page does not name is simply not filled — a tool that
+  gains an input later does not silently start receiving values it cannot use.
+#}
+<div class="manual-lookup-card s1-lookup"
+     data-platform="{{ lookup_platform|default('') }}"
+     data-fill='{{ (lookup_fill|default({}))|tojson }}'
+     style="margin-bottom:18px">
+  <h3 style="margin:0 0 4px">Look up a client</h3>
+  <p class="s1-lookup-help">Type a client and this fills in the
+    {{ lookup_label|default('account') }} below. Read from the stored Google
+    index &mdash; no waiting on Google.</p>
+  <div class="manual-input-group">
+    <input class="s1-lookup-q" list="s1-lookup-list" autocomplete="off"
+           placeholder="Client name, or a domain">
+    <button type="button" class="btn s1-lookup-btn">Find</button>
+  </div>
+  <datalist id="s1-lookup-list"></datalist>
+  <div class="s1-lookup-out" style="margin-top:10px"></div>
+</div>
+
+<style>
+.s1-lookup-help{margin:0 0 10px;font-size:12.5px;color:#64748b;line-height:1.5}
+.s1-lookup-out .s1-hit{display:flex;align-items:center;gap:10px;padding:7px 9px;
+  border:1px solid #e2e8f0;border-radius:8px;margin-bottom:6px;font-size:13px;
+  background:#fff;cursor:pointer}
+.s1-lookup-out .s1-hit:hover{border-color:#24519c;background:#f8fafc}
+.s1-lookup-out .s1-hit b{font-weight:700}
+.s1-lookup-out .s1-plat{font-size:10.5px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.6px;color:#24519c;background:#eef4ff;padding:2px 7px;border-radius:999px}
+.s1-lookup-out .s1-id{margin-left:auto;font-family:ui-monospace,monospace;
+  font-size:11.5px;color:#64748b}
+.s1-lookup-note{font-size:12px;color:#94a3b8;line-height:1.5}
+.s1-lookup-note.s1-warn{color:#92400e}
+</style>
+
+<script>
+(function(){
+  var root = document.currentScript.previousElementSibling;
+  while (root && !(root.classList && root.classList.contains('s1-lookup'))) {
+    root = root.previousElementSibling;
+  }
+  if (!root) return;
+
+  var platform = root.getAttribute('data-platform') || '';
+  var fill = {};
+  try { fill = JSON.parse(root.getAttribute('data-fill') || '{}'); } catch (e) { fill = {}; }
+
+  var q    = root.querySelector('.s1-lookup-q');
+  var btn  = root.querySelector('.s1-lookup-btn');
+  var out  = root.querySelector('.s1-lookup-out');
+  var list = document.getElementById('s1-lookup-list');
+
+  function esc(s){ var d=document.createElement('div'); d.textContent=String(s==null?'':s); return d.innerHTML; }
+  function note(msg, warn){
+    out.innerHTML = '<div class="s1-lookup-note'+(warn?' s1-warn':'')+'">'+esc(msg)+'</div>';
+  }
+
+  // Name suggestions, debounced. Purely a convenience — the Find button works
+  // on whatever is typed, so a client missing from the registry is still
+  // searchable.
+  var t = null;
+  q.addEventListener('input', function(){
+    clearTimeout(t);
+    var term = q.value.trim();
+    if (term.length < 2) return;
+    t = setTimeout(function(){
+      fetch('/api/clients/search?q='+encodeURIComponent(term)+'&limit=12',
+            {credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          list.innerHTML = (d.clients||[]).map(function(c){
+            return '<option value="'+esc(c.name||'')+'"></option>';
+          }).join('');
+        })
+        .catch(function(){});
+    }, 220);
+  });
+
+  function apply(item){
+    var filled = [];
+    Object.keys(fill).forEach(function(field){
+      var el = document.querySelector(fill[field]);
+      if (!el) return;                       // page does not have that input
+      var val = item[field];
+      if (val === undefined || val === null || val === '') return;
+      el.value = val;
+      // Some pages listen for input/change rather than reading on submit.
+      el.dispatchEvent(new Event('input',  {bubbles:true}));
+      el.dispatchEvent(new Event('change', {bubbles:true}));
+      filled.push(field);
+    });
+    return filled;
+  }
+
+  function render(d){
+    var groups = ['ga4','gtm','gsc','gbp'];
+    var pick = platform && d[platform] ? [platform] : groups;
+    var hits = [];
+    pick.forEach(function(k){ (d[k]||[]).forEach(function(it){ hits.push(it); }); });
+
+    if (d.never_built){
+      note('The Google account index has not been built yet, so there is '+
+           'nothing to look up. It rebuilds every three hours, or now from '+
+           '/diagnostics.', true);
+      return;
+    }
+    if (!hits.length){
+      // "Nothing joined to this client" is not "this client has nothing" —
+      // the resource may exist and simply not be mapped yet.
+      note('Nothing in the index is mapped to that client'+
+           (platform ? ' for this tool' : '')+'. It may still exist but be '+
+           'unmapped — QA → Google Accounts & Mapping lists everything that '+
+           'could not be joined.', true);
+      return;
+    }
+
+    out.innerHTML = hits.map(function(it, i){
+      return '<div class="s1-hit" data-i="'+i+'">'+
+        '<span class="s1-plat">'+esc((it.platform||'').replace('Google ',''))+'</span>'+
+        '<b>'+esc(it.name||'')+'</b>'+
+        '<span class="s1-id">'+esc(it.resource_id||'')+'</span>'+
+      '</div>';
+    }).join('') +
+    (d.stale ? '<div class="s1-lookup-note s1-warn">The index is stale — this '+
+               'is the last successful sweep, not right now.</div>' : '');
+
+    Array.prototype.forEach.call(out.querySelectorAll('.s1-hit'), function(el){
+      el.addEventListener('click', function(){
+        var item = hits[parseInt(el.getAttribute('data-i'), 10)];
+        var filled = apply(item);
+        out.insertAdjacentHTML('beforeend',
+          '<div class="s1-lookup-note">'+
+          (filled.length ? 'Filled in: '+esc(filled.join(', '))+'.'
+                         : 'Nothing on this page matched that resource’s fields.')+
+          '</div>');
+      });
+    });
+
+    // One hit and one tool: fill it straight away rather than making somebody
+    // click the only option there is.
+    if (hits.length === 1 && platform) {
+      var filled = apply(hits[0]);
+      if (filled.length) {
+        out.insertAdjacentHTML('beforeend',
+          '<div class="s1-lookup-note">Filled in automatically: '+esc(filled.join(', '))+'.</div>');
+      }
+    }
+  }
+
+  function go(){
+    var term = q.value.trim();
+    if (!term) return;
+    note('Looking up…');
+    fetch('/api/google/for-client?name='+encodeURIComponent(term)+
+          '&url='+encodeURIComponent(term.indexOf('.') > -1 ? term : ''),
+          {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(render)
+      .catch(function(){ note('Could not read the Google index.', true); });
+  }
+
+  btn.addEventListener('click', go);
+  q.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); go(); } });
+
+  // Deep link: /google/gtm-tools?client=Acme fills on load, which is what the
+  // Client 360 buttons and the QA report link into.
+  try {
+    var pre = new URLSearchParams(window.location.search).get('client');
+    if (pre) { q.value = pre; go(); }
+  } catch (e) {}
+})();
+</script>

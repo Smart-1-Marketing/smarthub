@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Website Blocks — Smart 1 Hub</title>
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
+        --bad:#dc2626;--ok:#16a34a}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1400px;margin:0 auto;padding:26px 22px 80px}
+  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px;max-width:96ch;line-height:1.55}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+  h2{color:var(--navy);font-size:14px;margin:0 0 12px;letter-spacing:.01em}
+  h2 .c{color:var(--muted);font-weight:500;font-size:12px;margin-left:6px}
+  label.f{display:block;font-size:12px;font-weight:600;color:#475569;margin:10px 0 4px}
+  label.f:first-child{margin-top:0}
+  input[type=text],input[type=url],input[type=search],select,textarea{
+    width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;
+    font:13.5px inherit;background:#fff;color:#1e293b}
+  textarea{min-height:74px;resize:vertical;line-height:1.5}
+  input:focus,select:focus,textarea:focus{outline:2px solid #bfdbfe;outline-offset:-1px;border-color:var(--blue)}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13px inherit;padding:9px 16px;
+       border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.sm{padding:5px 11px;font-size:12px}
+  .btn.danger{background:#fff;color:var(--bad);border:1px solid #fecaca}
+  .hint{color:var(--muted);font-size:11.5px;margin-top:4px;line-height:1.5}
+  .msg{font-size:12.5px;color:var(--muted)}
+  .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+  .cols{display:grid;grid-template-columns:270px minmax(0,1fr) minmax(0,1.15fr);gap:14px;align-items:start}
+  @media(max-width:1180px){.cols{grid-template-columns:1fr}}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .spread{justify-content:space-between}
+
+  /* block list */
+  .blist{display:flex;flex-direction:column;gap:6px}
+  .bitem{border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:#fff;
+         cursor:pointer;display:flex;align-items:center;gap:8px}
+  .bitem:hover{border-color:var(--blue)}
+  .bitem.on{border-color:var(--blue);background:#eff6ff;box-shadow:inset 3px 0 0 var(--blue)}
+  .bitem .nm{flex:1;font-size:13px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bitem .sm{border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px;
+             line-height:1;padding:2px 4px;border-radius:4px}
+  .bitem .sm:hover{background:#e2e8f0;color:#1e293b}
+  .adds{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+  .add{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 11px;
+       font-size:12px;cursor:pointer}
+  .add:hover{border-color:var(--blue);color:var(--blue)}
+
+  /* themes */
+  .themes{display:flex;flex-wrap:wrap;gap:6px}
+  .th{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;
+      font-size:12px;cursor:pointer;display:flex;align-items:center;gap:7px}
+  .th.on{border-color:var(--blue);background:#eff6ff}
+  .sw{width:13px;height:13px;border-radius:4px;flex:none}
+
+  /* repeating rows */
+  .rows{display:flex;flex-direction:column;gap:8px}
+  .rw{border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:var(--soft)}
+  .rw .rhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+  .rw .rhead b{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .chk{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#475569;margin:10px 0 0}
+  .chk input{width:auto}
+
+  /* preview + code */
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 12px}
+  .tabs button{background:none;border:0;padding:8px 12px;cursor:pointer;font:600 12.5px inherit;
+               color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tabs button.on{color:var(--blue);border-bottom-color:var(--blue)}
+  #frame{width:100%;height:620px;border:1px solid var(--line);border-radius:10px;background:#fff;display:block}
+  .code{background:#0f172a;color:#e2e8f0;border-radius:9px;padding:12px 14px;
+        font:11.5px ui-monospace,Consolas,monospace;line-height:1.55;white-space:pre-wrap;
+        overflow-wrap:anywhere;max-height:560px;overflow:auto;margin:0}
+  .saved{display:flex;flex-direction:column;gap:5px;max-height:220px;overflow:auto}
+  .sv{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;
+      padding:6px 9px;font-size:12.5px}
+  .sv .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .empty{color:var(--muted);font-size:12.5px;padding:6px 2px}
+</style>
+</head>
+<body data-module="site_blocks">
+<div class="wrap">
+
+  <h1>Website Blocks {{ help_dot('site_blocks.intro') if help_dot is defined else '' }}</h1>
+  <p class="sub">Builds a landing-page section for smart1marketing.com in the same
+    visual language as the industry pages — Montserrat, navy, the accent pair, the
+    1140px column. Fill in the copy, pick a theme, and copy the HTML into a Custom
+    HTML element on the website. Every block carries its own scoped stylesheet, so
+    nothing it defines can reach the rest of the page.</p>
+
+  <div class="cols">
+
+    <!-- ---------------------------------------------------------- left -->
+    <div>
+      <div class="card">
+        <h2>Sections<span class="c" id="bcount"></span></h2>
+        <div class="blist" id="blist"></div>
+        <div class="adds" id="adds"></div>
+      </div>
+
+      <div class="card">
+        <h2>Theme</h2>
+        <div class="themes" id="themes"></div>
+        <p class="hint" id="themeNote"></p>
+      </div>
+
+      <div class="card">
+        <h2>Page</h2>
+        <label class="f">Name</label>
+        <input type="text" id="pgTitle" placeholder="HVAC Comfort &amp; Command">
+        <label class="f">Meta description <span style="font-weight:400;color:#64748b">— whole-page export only</span></label>
+        <textarea id="pgDesc" style="min-height:52px"></textarea>
+        <label class="chk"><input type="checkbox" id="pgNav"> Include the Smart 1 nav bar</label>
+        <label class="chk"><input type="checkbox" id="pgFoot"> Include the Smart 1 footer</label>
+        <div id="discWrap" style="display:none">
+          <label class="f">Footer disclaimer</label>
+          <textarea id="pgDisc" style="min-height:60px"></textarea>
+        </div>
+        <p class="hint">The nav and footer are for a page that will live on its own
+          URL. Leave them off when the block is going inside a page that already
+          has them.</p>
+        <div class="row" style="margin-top:12px">
+          <button class="btn sm" id="btnSave">Save</button>
+          <button class="btn sec sm" id="btnNew">Start over</button>
+          <span class="msg" id="saveMsg"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Saved pages</h2>
+        <div class="saved" id="saved"><p class="empty">Nothing saved yet.</p></div>
+      </div>
+    </div>
+
+    <!-- --------------------------------------------------------- middle -->
+    <div>
+      <div class="card">
+        <h2>Write the copy for me <span class="c">optional</span></h2>
+        <label class="f">What is this page for?</label>
+        <textarea id="brief" placeholder="A page for roofing contractors in Central Ohio. Storm-damage inspections, insurance claims help, financing available. We want them to book a free roof inspection."></textarea>
+        <p class="hint">Say who it is for, what they sell and what the page should
+          make happen. Any figure you want printed has to appear here — the writer
+          is instructed to leave a number blank rather than invent one.</p>
+        <div class="row" style="margin-top:10px">
+          <button class="btn sm" id="btnWriteAll">Write every section</button>
+          <button class="btn sec sm" id="btnWriteOne">Just this section</button>
+          <span class="msg" id="writeMsg"></span>
+        </div>
+      </div>
+
+      <div class="card" id="editorCard">
+        <h2 id="edTitle">Section</h2>
+        <p class="hint" id="edNote" style="margin:-6px 0 12px"></p>
+        <div id="editor"></div>
+        <label class="f">Anchor <span style="font-weight:400;color:#64748b">— optional, for in-page links</span></label>
+        <input type="text" id="edAnchor" placeholder="strategy">
+        <p class="hint">Lower-case letters, numbers and hyphens. Linking to it from
+          a button elsewhere on the page means writing <code>#strategy</code> as
+          that button's link.</p>
+      </div>
+    </div>
+
+    <!-- ---------------------------------------------------------- right -->
+    <div>
+      <div class="card">
+        <div class="tabs" id="tabs">
+          <button data-tab="preview" class="on">Preview</button>
+          <button data-tab="block">This block</button>
+          <button data-tab="all">All blocks</button>
+          <button data-tab="document">Whole page</button>
+        </div>
+        <p class="hint" id="tabNote" style="margin:-4px 0 10px"></p>
+        <div id="panePreview"><iframe id="frame" title="Preview"></iframe></div>
+        <div id="paneCode" style="display:none">
+          <div class="row spread" style="margin-bottom:9px">
+            <div class="row">
+              <button class="btn sm" id="btnCopy">Copy HTML</button>
+              <button class="btn sec sm" id="btnDownload">Download</button>
+            </div>
+            <span class="msg" id="codeMsg"></span>
+          </div>
+          <pre class="code" id="code"></pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var CAT = null, SPEC = {};
+
+  var state = {
+    title: '', description: '', disclaimer: '',
+    theme: '', with_nav: false, with_footer: false,
+    blocks: [], sel: 0, id: '', tab: 'preview'
+  };
+  var renderTimer = null, lastHtml = '';
+
+  function $(id){ return document.getElementById(id); }
+  function api(path, opts){
+    return fetch(path, Object.assign(
+      {headers: {'Content-Type': 'application/json'}}, opts || {}
+    )).then(function(r){
+      return r.json().then(function(j){
+        if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        return j;
+      });
+    });
+  }
+  function say(el, text, cls){
+    var n = $(el); n.textContent = text || '';
+    n.className = 'msg' + (cls ? ' ' + cls : '');
+  }
+
+  // ------------------------------------------------------------ left rail
+  function drawBlockList(){
+    var list = $('blist'); list.innerHTML = '';
+    $('bcount').textContent = state.blocks.length
+      ? '(' + state.blocks.length + ')' : '';
+    if(!state.blocks.length){
+      list.innerHTML = '<p class="empty">No sections yet. Add one below.</p>';
+    }
+    state.blocks.forEach(function(b, i){
+      var spec = SPEC[b.kind] || {label: b.kind};
+      var row = document.createElement('div');
+      row.className = 'bitem' + (i === state.sel ? ' on' : '');
+      var nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = spec.label;
+      row.appendChild(nm);
+      [['↑', -1], ['↓', 1]].forEach(function(pair){
+        var btn = document.createElement('button');
+        btn.className = 'sm'; btn.type = 'button';
+        btn.textContent = pair[0];
+        btn.title = pair[1] < 0 ? 'Move up' : 'Move down';
+        btn.addEventListener('click', function(ev){
+          ev.stopPropagation(); move(i, pair[1]);
+        });
+        row.appendChild(btn);
+      });
+      var del = document.createElement('button');
+      del.className = 'sm'; del.type = 'button';
+      del.textContent = '×'; del.title = 'Remove';
+      del.addEventListener('click', function(ev){ ev.stopPropagation(); remove(i); });
+      row.appendChild(del);
+      row.addEventListener('click', function(){ select(i); });
+      list.appendChild(row);
+    });
+
+    var adds = $('adds'); adds.innerHTML = '';
+    CAT.order.forEach(function(key){
+      var btn = document.createElement('button');
+      btn.className = 'add'; btn.type = 'button';
+      btn.textContent = '+ ' + SPEC[key].label;
+      btn.title = SPEC[key].note;
+      btn.addEventListener('click', function(){ addBlock(key); });
+      adds.appendChild(btn);
+    });
+  }
+
+  function drawThemes(){
+    var box = $('themes'); box.innerHTML = '';
+    CAT.themes.forEach(function(t){
+      var btn = document.createElement('button');
+      btn.className = 'th' + (t.key === state.theme ? ' on' : '');
+      btn.type = 'button';
+      var sw = document.createElement('span');
+      sw.className = 'sw'; sw.style.background = t.accent;
+      btn.appendChild(sw);
+      btn.appendChild(document.createTextNode(t.label));
+      btn.addEventListener('click', function(){
+        state.theme = t.key; drawThemes(); refresh();
+      });
+      box.appendChild(btn);
+    });
+    var cur = CAT.themes.filter(function(t){ return t.key === state.theme; })[0];
+    $('themeNote').textContent = cur ? cur.note : '';
+  }
+
+  function addBlock(kind){
+    api('api/block/' + encodeURIComponent(kind)).then(function(b){
+      state.blocks.push(b);
+      state.sel = state.blocks.length - 1;
+      drawBlockList(); drawEditor(); refresh();
+    }).catch(function(e){ say('saveMsg', e.message, 'err'); });
+  }
+  function remove(i){
+    state.blocks.splice(i, 1);
+    if(state.sel >= state.blocks.length) state.sel = Math.max(0, state.blocks.length - 1);
+    drawBlockList(); drawEditor(); refresh();
+  }
+  function move(i, d){
+    var j = i + d;
+    if(j < 0 || j >= state.blocks.length) return;
+    var tmp = state.blocks[i];
+    state.blocks[i] = state.blocks[j];
+    state.blocks[j] = tmp;
+    state.sel = j;
+    drawBlockList(); drawEditor(); refresh();
+  }
+  function select(i){ state.sel = i; drawBlockList(); drawEditor(); refresh(); }
+
+  // ------------------------------------------------------------- editor
+  // Drawn from the catalogue rather than written per block type, so a new
+  // block in blocks.py needs no change here.
+  function field(spec, value, onChange){
+    var wrap = document.createElement('div');
+    var lab = document.createElement('label');
+    lab.className = 'f'; lab.textContent = spec.label;
+    wrap.appendChild(lab);
+    var input;
+    if(spec.t === 'long'){
+      input = document.createElement('textarea');
+      input.value = value == null ? '' : value;
+    } else if(spec.t === 'bool'){
+      wrap.removeChild(lab);
+      var line = document.createElement('label');
+      line.className = 'chk';
+      input = document.createElement('input');
+      input.type = 'checkbox'; input.checked = !!value;
+      line.appendChild(input);
+      line.appendChild(document.createTextNode(spec.label));
+      wrap.appendChild(line);
+    } else {
+      input = document.createElement('input');
+      input.type = spec.t === 'url' ? 'text' : 'text';
+      input.value = value == null ? '' : value;
+    }
+    if(spec.t !== 'bool') wrap.appendChild(input);
+    input.addEventListener('input', function(){
+      onChange(spec.t === 'bool' ? input.checked : input.value);
+    });
+    if(spec.t === 'bool'){
+      input.addEventListener('change', function(){ onChange(input.checked); });
+    }
+    if(spec.help){
+      var h = document.createElement('p');
+      h.className = 'hint'; h.textContent = spec.help;
+      wrap.appendChild(h);
+    }
+    return wrap;
+  }
+
+  function listField(spec, rows, onChange){
+    var wrap = document.createElement('div');
+    var lab = document.createElement('label');
+    lab.className = 'f'; lab.textContent = spec.label;
+    wrap.appendChild(lab);
+    var box = document.createElement('div');
+    box.className = 'rows';
+    wrap.appendChild(box);
+    rows = Array.isArray(rows) ? rows : [];
+
+    rows.forEach(function(row, i){
+      var rw = document.createElement('div');
+      rw.className = 'rw';
+      var head = document.createElement('div');
+      head.className = 'rhead';
+      var b = document.createElement('b');
+      b.textContent = spec.label.replace(/s$/, '') + ' ' + (i + 1);
+      head.appendChild(b);
+      var controls = document.createElement('span');
+      [['↑', -1], ['↓', 1]].forEach(function(pair){
+        var mv = document.createElement('button');
+        mv.className = 'sm'; mv.type = 'button'; mv.textContent = pair[0];
+        mv.style.cssText = 'border:0;background:none;cursor:pointer;color:#64748b;padding:2px 4px';
+        mv.addEventListener('click', function(){
+          var j = i + pair[1];
+          if(j < 0 || j >= rows.length) return;
+          var t = rows[i]; rows[i] = rows[j]; rows[j] = t;
+          onChange(rows);
+        });
+        controls.appendChild(mv);
+      });
+      var del = document.createElement('button');
+      del.type = 'button'; del.textContent = '×';
+      del.style.cssText = 'border:0;background:none;cursor:pointer;color:#64748b;padding:2px 4px';
+      del.addEventListener('click', function(){
+        rows.splice(i, 1); onChange(rows);
+      });
+      controls.appendChild(del);
+      head.appendChild(controls);
+      rw.appendChild(head);
+
+      spec.item.forEach(function(f){
+        if(f.t === 'list'){
+          rw.appendChild(listField(f, row[f.k], function(v){
+            row[f.k] = v; onChange(rows);
+          }));
+        } else {
+          rw.appendChild(field(f, row[f.k], function(v){
+            row[f.k] = v; queueRefresh();
+          }));
+        }
+      });
+      box.appendChild(rw);
+    });
+
+    var add = document.createElement('button');
+    add.className = 'btn sec sm'; add.type = 'button';
+    add.style.marginTop = '8px';
+    add.textContent = '+ Add';
+    if(spec.max && rows.length >= spec.max){
+      add.disabled = true;
+      add.title = 'This section takes at most ' + spec.max + '.';
+    }
+    add.addEventListener('click', function(){
+      var blank = {};
+      spec.item.forEach(function(f){ blank[f.k] = f.t === 'list' ? [] : (f.t === 'bool' ? false : ''); });
+      rows.push(blank);
+      onChange(rows);
+    });
+    wrap.appendChild(add);
+    return wrap;
+  }
+
+  function drawEditor(){
+    var box = $('editor'); box.innerHTML = '';
+    var b = state.blocks[state.sel];
+    if(!b){
+      $('edTitle').textContent = 'Section';
+      $('edNote').textContent = 'Add a section on the left to start editing.';
+      $('edAnchor').value = '';
+      $('edAnchor').disabled = true;
+      return;
+    }
+    var spec = SPEC[b.kind];
+    $('edTitle').textContent = spec.label;
+    $('edNote').textContent = spec.note;
+    $('edAnchor').disabled = false;
+    $('edAnchor').value = b.anchor || '';
+    spec.fields.forEach(function(f){
+      if(f.t === 'list'){
+        box.appendChild(listField(f, b[f.k], function(v){
+          b[f.k] = v; drawEditor(); queueRefresh();
+        }));
+      } else {
+        box.appendChild(field(f, b[f.k], function(v){
+          b[f.k] = v; queueRefresh();
+        }));
+      }
+    });
+  }
+
+  // -------------------------------------------------------------- output
+  var TAB_NOTE = {
+    preview: 'What the section looks like. The frame is the width of the panel, '
+           + 'so drag the window narrower to check the mobile layout.',
+    block: 'One section, stylesheet included. Paste into a Custom HTML element. '
+         + 'Repeating the stylesheet on other blocks is harmless — it is the '
+         + 'same stylesheet every time.',
+    all: 'Every section with the stylesheet emitted once, for a page you are '
+       + 'assembling in a single editor.',
+    document: 'A complete HTML file, for a page that will live on its own URL.'
+  };
+
+  function payload(mode){
+    return {
+      mode: mode, theme: state.theme, blocks: state.blocks,
+      index: state.sel, title: state.title, description: state.description,
+      disclaimer: state.disclaimer,
+      with_nav: state.with_nav, with_footer: state.with_footer
+    };
+  }
+
+  function queueRefresh(){
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(refresh, 260);
+  }
+
+  function refresh(){
+    if(!state.blocks.length){
+      $('frame').removeAttribute('srcdoc');
+      $('code').textContent = '';
+      lastHtml = '';
+      return;
+    }
+    var mode = state.tab === 'preview' ? 'block' : state.tab;
+    if(mode === 'block' && !state.blocks[state.sel]) mode = 'all';
+    api('api/render', {method: 'POST', body: JSON.stringify(payload(mode))})
+      .then(function(d){
+        lastHtml = d.html;
+        if(state.tab === 'preview'){
+          // srcdoc, not a URL: the preview has to be the exact markup that
+          // will be pasted, with nothing added on the way through.
+          $('frame').srcdoc = d.html;
+        } else {
+          $('code').textContent = d.html;
+          say('codeMsg', Math.round(d.bytes / 102.4) / 10 + ' KB');
+        }
+      })
+      .catch(function(e){ say('codeMsg', e.message, 'err'); });
+  }
+
+  Array.prototype.forEach.call($('tabs').children, function(btn){
+    btn.addEventListener('click', function(){
+      Array.prototype.forEach.call($('tabs').children, function(b){
+        b.className = b === btn ? 'on' : '';
+      });
+      state.tab = btn.getAttribute('data-tab');
+      $('panePreview').style.display = state.tab === 'preview' ? '' : 'none';
+      $('paneCode').style.display = state.tab === 'preview' ? 'none' : '';
+      $('tabNote').textContent = TAB_NOTE[state.tab] || '';
+      refresh();
+    });
+  });
+
+  $('btnCopy').addEventListener('click', function(){
+    if(!lastHtml){ say('codeMsg', 'Nothing to copy yet.', 'err'); return; }
+    var done = function(){ say('codeMsg', 'Copied.', 'ok'); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(lastHtml).then(done, fallback);
+    } else { fallback(); }
+    function fallback(){
+      var ta = document.createElement('textarea');
+      ta.value = lastHtml;
+      ta.style.cssText = 'position:fixed;top:-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); }
+      catch(err){ say('codeMsg', 'Select the code and copy it.', 'err'); }
+      document.body.removeChild(ta);
+    }
+  });
+
+  $('btnDownload').addEventListener('click', function(){
+    var mode = state.tab === 'document' ? 'document' : 'all';
+    fetch('api/download', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(Object.assign(payload(mode), {mode: mode}))
+    }).then(function(r){ return r.blob(); }).then(function(blob){
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = (state.title || 'landing-page')
+        .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.html';
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+      say('codeMsg', 'Downloaded.', 'ok');
+    }).catch(function(e){ say('codeMsg', e.message, 'err'); });
+  });
+
+  // ----------------------------------------------------------- AI copy
+  function write(all){
+    var brief = $('brief').value.trim();
+    if(!brief){ say('writeMsg', 'Say what the page is for first.', 'err'); return; }
+    if(!state.blocks.length){ say('writeMsg', 'Add a section first.', 'err'); return; }
+    var body = {brief: brief, blocks: state.blocks};
+    if(!all) body.index = state.sel;
+    say('writeMsg', all ? 'Writing every section…' : 'Writing…');
+    $('btnWriteAll').disabled = true;
+    $('btnWriteOne').disabled = true;
+    api('api/write', {method: 'POST', body: JSON.stringify(body)})
+      .then(function(d){
+        var failed = [];
+        d.results.forEach(function(r, i){
+          var target = all ? i : state.sel;
+          if(r.ok){ state.blocks[target] = r.block; }
+          else { failed.push(SPEC[r.kind].label); }
+        });
+        drawEditor(); refresh();
+        say('writeMsg', failed.length
+          ? 'Written, except: ' + failed.join(', ') + '. Those sections are unchanged.'
+          : 'Written. Read it before you paste it.',
+          failed.length ? 'err' : 'ok');
+      })
+      .catch(function(e){ say('writeMsg', e.message, 'err'); })
+      .then(function(){
+        $('btnWriteAll').disabled = false;
+        $('btnWriteOne').disabled = false;
+      });
+  }
+  $('btnWriteAll').addEventListener('click', function(){ write(true); });
+  $('btnWriteOne').addEventListener('click', function(){ write(false); });
+
+  // ------------------------------------------------------------- saving
+  function drawSaved(){
+    api('api/pages').then(function(d){
+      var box = $('saved'); box.innerHTML = '';
+      if(!d.pages.length){
+        box.innerHTML = '<p class="empty">Nothing saved yet.</p>';
+        return;
+      }
+      d.pages.forEach(function(p){
+        var row = document.createElement('div');
+        row.className = 'sv';
+        var nm = document.createElement('span');
+        nm.className = 'nm';
+        nm.textContent = p.title + ' · ' + p.block_count + ' section'
+          + (p.block_count === 1 ? '' : 's');
+        row.appendChild(nm);
+        var open = document.createElement('button');
+        open.className = 'btn sec sm'; open.type = 'button'; open.textContent = 'Open';
+        open.addEventListener('click', function(){ load(p.id); });
+        row.appendChild(open);
+        var del = document.createElement('button');
+        del.className = 'btn danger sm'; del.type = 'button'; del.textContent = '×';
+        del.addEventListener('click', function(){
+          if(!confirm('Delete "' + p.title + '"?')) return;
+          api('api/pages/' + p.id, {method: 'DELETE'}).then(drawSaved);
+        });
+        row.appendChild(del);
+        box.appendChild(row);
+      });
+    }).catch(function(){});
+  }
+
+  function load(id){
+    api('api/pages/' + id).then(function(p){
+      state.id = p.id;
+      state.title = p.title || '';
+      state.description = p.description || '';
+      state.disclaimer = p.disclaimer || '';
+      state.theme = p.theme || CAT.default_theme;
+      state.with_nav = !!p.with_nav;
+      state.with_footer = !!p.with_footer;
+      state.blocks = p.blocks || [];
+      state.sel = 0;
+      syncPageFields();
+      drawBlockList(); drawThemes(); drawEditor(); refresh();
+      say('saveMsg', 'Opened.', 'ok');
+    }).catch(function(e){ say('saveMsg', e.message, 'err'); });
+  }
+
+  function syncPageFields(){
+    $('pgTitle').value = state.title;
+    $('pgDesc').value = state.description;
+    $('pgDisc').value = state.disclaimer;
+    $('pgNav').checked = state.with_nav;
+    $('pgFoot').checked = state.with_footer;
+    $('discWrap').style.display = state.with_footer ? '' : 'none';
+  }
+
+  $('btnSave').addEventListener('click', function(){
+    if(!state.blocks.length){ say('saveMsg', 'Nothing to save yet.', 'err'); return; }
+    api('api/pages', {method: 'POST', body: JSON.stringify(
+      Object.assign(payload('all'), {id: state.id})
+    )}).then(function(d){
+      state.id = d.id;
+      say('saveMsg', 'Saved.', 'ok');
+      drawSaved();
+    }).catch(function(e){ say('saveMsg', e.message, 'err'); });
+  });
+
+  $('btnNew').addEventListener('click', function(){
+    if(state.blocks.length && !confirm('Clear the page and start again?')) return;
+    api('api/sample?theme=' + encodeURIComponent(state.theme)).then(function(p){
+      state.id = '';
+      state.title = p.title;
+      state.description = '';
+      state.disclaimer = '';
+      state.theme = p.theme;
+      state.with_nav = false;
+      state.with_footer = false;
+      state.blocks = p.blocks;
+      state.sel = 0;
+      syncPageFields();
+      drawBlockList(); drawThemes(); drawEditor(); refresh();
+      say('saveMsg', 'Sample page loaded — edit it into yours.', 'ok');
+    });
+  });
+
+  [['pgTitle', 'title'], ['pgDesc', 'description'], ['pgDisc', 'disclaimer']]
+    .forEach(function(pair){
+      $(pair[0]).addEventListener('input', function(){
+        state[pair[1]] = this.value; queueRefresh();
+      });
+    });
+  $('pgNav').addEventListener('change', function(){
+    state.with_nav = this.checked; queueRefresh();
+  });
+  $('pgFoot').addEventListener('change', function(){
+    state.with_footer = this.checked;
+    $('discWrap').style.display = this.checked ? '' : 'none';
+    queueRefresh();
+  });
+  $('edAnchor').addEventListener('input', function(){
+    var b = state.blocks[state.sel];
+    if(!b) return;
+    b.anchor = this.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+    this.value = b.anchor;
+    queueRefresh();
+  });
+
+  // ---------------------------------------------------------------- boot
+  $('tabNote').textContent = TAB_NOTE.preview;
+  api('api/status').then(function(s){
+    if(!s.ai){
+      $('btnWriteAll').disabled = true;
+      $('btnWriteOne').disabled = true;
+      say('writeMsg', 'OpenAI is not configured on this server — write the '
+                    + 'copy by hand. Everything else works.', 'err');
+    }
+  }).catch(function(){});
+
+  // Nothing can draw before the catalogue arrives: it is where the block
+  // types, their fields and the themes come from.
+  api('api/catalogue').then(function(cat){
+    CAT = cat;
+    CAT.blocks.forEach(function(b){ SPEC[b.key] = b; });
+    state.theme = CAT.default_theme;
+    return api('api/sample');
+  }).then(function(p){
+    state.title = p.title;
+    state.theme = p.theme;
+    state.blocks = p.blocks;
+    syncPageFields();
+    drawBlockList(); drawThemes(); drawEditor(); refresh();
+    drawSaved();
+  }).catch(function(e){
+    say('saveMsg', 'The builder could not load: ' + e.message, 'err');
+  });
+})();
+</script>
+</body>
+</html>

@@ -1500,6 +1500,85 @@ def uploads_not_in_suite() -> dict:
 # its whole group, and an entry with no "group" at all falls into a default
 # bucket literally called "Reports": that is why Uploads Not In Suite used to
 # open the page alone under a heading that named nothing.
+def google_accounts() -> dict:
+    """Every Google resource we can reach, and the client it maps to.
+
+    Unmapped rows sort first, because those are the only ones anybody has to
+    act on: a GA4 property nothing is joined to is a property that will not
+    appear on a Client 360 page, will not pre-fill a tool, and will not turn
+    up when somebody asks "do we have analytics for this client?".
+
+    The rows say *how* each mapping was reached. That matters more than it
+    looks: a domain match is the client's own URL and is as certain as this
+    gets, while a name match on a GA4 property is a guess the index is willing
+    to stand behind but a human should still glance at — GA4 property
+    summaries carry no URL, so a name is genuinely all there is.
+
+    Read from hub/google_index.py rather than swept here. A QA report that
+    took a minute of Tag Manager pacing to open is a report nobody opens.
+    """
+    from . import google_index
+
+    st = google_index.status()
+    if st["never_built"]:
+        return {
+            "columns": ["Platform", "Resource", "Mapped to", "Matched on",
+                        "Google login", "Domains"],
+            "rows": [],
+            "note": ("The Google account index has never been built, so there "
+                     "is nothing to list — this is not the same as having no "
+                     "accounts. It rebuilds every three hours; you can also "
+                     "run it now from /diagnostics → Background jobs → "
+                     "google_index."),
+        }
+
+    rows, styles = [], []
+    for r in google_index.rows():
+        mapped = (_c360_link(r["client"]) if r["client"]
+                  else {"text": "— not mapped —",
+                        "title": r["match_detail"] or ""})
+        matched = r["match"] or ""
+        if not r["client"] and r["candidates"]:
+            matched = "ambiguous: " + ", ".join(r["candidates"][:3])
+        resource = ({"text": r["name"] or r["resource_id"], "href": r["open_url"]}
+                    if r["open_url"] else (r["name"] or r["resource_id"]))
+        rows.append([
+            r["platform"],
+            resource,
+            mapped,
+            matched or "—",
+            r["google_login"],
+            ", ".join(r["domains"]) or "—",
+        ])
+        # Unmapped rows are the finding, so they are the ones tinted.
+        # "yellow", not "warn": qa_report.html only styles green/yellow/red/sub,
+        # and an unknown name renders as a class with no CSS behind it — the
+        # rows would look exactly like every other row and nothing would say so.
+        styles.append("yellow" if not r["client"] else None)
+
+    age = (f"{st['age_hours']}h old" if st["age_hours"] is not None else "age unknown")
+    stale = " — STALE, the refresh job may not be running" if st["stale"] else ""
+    by_match = ", ".join(f"{k} {v}" for k, v in (st["by_match"] or {}).items())
+    errs = ""
+    if st["errors"]:
+        errs = (f" {len(st['errors'])} connected account(s) failed during the "
+                f"sweep, so their resources are missing from this list: "
+                + ", ".join(str(e.get("email") or "?") for e in st["errors"][:5]) + ".")
+    return {
+        "columns": ["Platform", "Resource", "Mapped to", "Matched on",
+                    "Google login", "Domains"],
+        "rows": rows,
+        "row_styles": styles,
+        "note": (f"{st['resources']} Google resources across "
+                 f"{len(st['accounts'])} connected login(s): {st['mapped']} "
+                 f"mapped to a client, {st['unmapped']} not. Matched on: "
+                 f"{by_match or 'nothing yet'}. Index built {st['built_at']} "
+                 f"({age}){stale}.{errs} Unmapped rows are listed first — "
+                 f"attach one to a client from that client's 360 page and it "
+                 f"joins on the next sweep."),
+    }
+
+
 REPORTS = {
     "active-clients": {
         "title": "Active Clients",
@@ -1528,6 +1607,15 @@ REPORTS = {
         "ico": "&#8595;",
         "fn": lost_by_partner,
         "group": "Clients",
+    },
+    "google-accounts": {
+        "title": "Google Accounts & Mapping",
+        "desc": "Every GA4 property, GTM container, Search Console property "
+                "and Business Profile we can reach — and which client each one "
+                "maps to, or why it maps to none.",
+        "ico": "&#128506;",
+        "fn": google_accounts,
+        "group": "Data Quality",
     },
     "no-analytics": {
         "title": "Clients Without Analytics",
