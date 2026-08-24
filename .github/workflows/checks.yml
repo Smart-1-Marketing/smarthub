@@ -174,6 +174,18 @@ jobs:
             echo "test_social_plan.py not on this branch — nothing to run."
           fi
 
+      - name: Video library tests
+        # Safe to re-run, unlike the target-areas step above: this file *sets*
+        # DATABASE_URL and HUB_DATA_DIR rather than setdefault-ing them, so it
+        # always gets its own throwaway mirror and never restores a previous
+        # run's writes into a fresh directory.
+        run: |
+          if [ -f test_video_library.py ]; then
+            python test_video_library.py
+          else
+            echo "test_video_library.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a

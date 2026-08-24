@@ -409,6 +409,63 @@ def check_creative_medium_drift() -> list[dict]:
     } for name in missing]
 
 
+def check_provider_key_drift() -> list[dict]:
+    """A module reading one spelling of a key that is set under another.
+
+    This is the defect that took the Commercial Builder's stock video search
+    off the air without anything reporting it: pexels_service.py read
+    os.environ["PEXELS_API_KEY"], Render sets PEXELS_API, so is_live() said
+    False and every search silently returned placeholder images labelled like
+    real footage. hub/config.py already accepts both spellings — the module
+    just never asked it.
+
+    The alias groups are read out of hub/config.py's own _first(...) calls
+    rather than restated here, so a provider added to config is covered by this
+    check the same day, and a check that has drifted from the settings it is
+    policing cannot happen.
+    """
+    import re as _re
+
+    try:
+        cfg = (ROOT / "hub" / "config.py").read_text(errors="ignore")
+    except Exception:                               # noqa: BLE001
+        return []
+
+    # _first("PEXELS_API", "PEXELS_API_KEY", "PEXELS_KEY") -> one alias group
+    groups = []
+    for call in _re.findall(r"_first\(([^)]*)\)", cfg):
+        names = _re.findall(r'"([A-Z0-9_]+)"', call)
+        if len(names) > 1:
+            groups.append(names)
+    if not groups:
+        return []
+    alias_of = {name: names for names in groups for name in names}
+
+    out, seen = [], set()
+    for rel, src in _sources():
+        if not rel.startswith("modules/"):
+            continue
+        if "from hub.config import" in src or "from hub import config" in src:
+            continue
+        for name in _re.findall(r'os\.environ(?:\.get)?[\(\[]\s*"([A-Z0-9_]+)"', src):
+            names = alias_of.get(name)
+            if not names or (rel, name) in seen:
+                continue
+            seen.add((rel, name))
+            others = [n for n in names if n != name]
+            out.append({
+                "file": rel, "module": _module_of(rel),
+                "detail": f"{rel} reads {name} directly. The same setting is "
+                          f"also spelled {', '.join(others)}, and hub/config.py "
+                          f"accepts all of them. If this deployment sets one of "
+                          f"the others, this module reports the key as missing "
+                          f"and degrades silently.",
+                "fix": "Read it through hub.config.settings instead of "
+                       "os.environ, so every spelling in use resolves.",
+            })
+    return out
+
+
 CHECKS = [
     ("pdf_resource_type", "PDF uploaded as an image type", "high", check_pdf_resource_type),
     ("convert_without_resize", "Converts without resizing", "high", check_convert_without_resize),
@@ -423,6 +480,16 @@ CHECKS = [
     ("unbacked_json", "JSON on the disk with no backup", "medium", check_unbacked_json),
     ("creative_medium_drift", "Creative gate lost a rate-card product", "high",
      check_creative_medium_drift),
+    # Severity is deliberately medium, not high, and the reason is the same one
+    # recorded for the two mediums above: this check went in green-adjacent,
+    # with seven pre-existing findings it did not cause. Failing the build on
+    # them would have meant either reverting the check or fixing seven
+    # unrelated modules in the same commit, and a check switched on red is a
+    # check somebody turns off. Each finding is a real silent-degradation bug
+    # and should be cleared as those modules are next touched; raise this to
+    # high once the list is empty.
+    ("provider_key_drift", "Provider key read under one spelling only", "medium",
+     check_provider_key_drift),
 ]
 
 
