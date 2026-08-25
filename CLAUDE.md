@@ -388,6 +388,47 @@ knows (`domain_age.registrar`, with the registered and expiry dates beside it).
 `registrar_for()` offers it *labelled as observed*, to be copied in by a person
 — never written back on its own.
 
+### The same join, for Google accounts
+
+`hub/google_links.py` and `/tools/google-match`. `hub/google_index.py` already
+sweeps every connected Google login across GA4, Tag Manager, Search Console and
+Business Profile and joins each resource to a client — attached, then domain,
+then an exact name. What nothing did was the half left over: the resources it
+could not join to anybody were counted on no page and actionable nowhere.
+
+The orphan list is that half, searchable, with a suggested owner per row and
+the evidence for it. The suggestions are deliberately **looser than the index's
+own matching** — a fuzzy hit written into a stored index becomes a fact nobody
+re-examines, so these are proposals a human accepts:
+
+- **recorded** — Knack's website record already carries this exact GA or GTM id
+  against a client. Not a guess at all: object_153 records what the client uses
+  whether or not anybody connected the account, which is why this finds owners
+  the index cannot. A GA4 property summary carries no URL, so for most of them
+  this is the only hard evidence there is.
+- **domain** — the resource carries a URL that is a client's domain. The index
+  only misses this when several client records share the domain, so **all of
+  them are offered** rather than one being picked — that is the guess the
+  billing audit used to make.
+- **name** / **possible** — an exact normalised name, or a near name or the same
+  registrable name on another TLD, labelled as worth an eyeball.
+
+Attaching writes three systems and reports each: the **client record**
+attachment (the index's own strongest rule, so the next sweep re-applies it),
+the **stored index row** (so the resource leaves the orphan list now rather than
+at the next sweep — a button that appears to do nothing gets clicked again), and
+the **Knack website record**, which is what `hub/analytics_ids.py` compares
+against. Search Console and Business Profile have no field on object_153 and say
+so instead of being written somewhere they do not belong.
+
+**A recorded id that disagrees is never overwritten without being asked.** That
+disagreement is `analytics_ids`' whole point — either the site is running a
+property we do not administer or the record is stale — and flattening it
+destroys the only evidence of it.
+
+Client 360's own "attach a property" button goes through the same path, so
+attaching there records in Knack and clears the orphan too.
+
 ### Domains we bought renew whether or not anyone bills them
 
 `hub/domain_purchase.py` and `/tools/domains`. The record was always in Knack
@@ -1047,6 +1088,7 @@ python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops Z
 python3 test_video_library.py      # the footage index, its status row, the page's palette
 python3 test_sites_match.py        # live-only matching, and finding a client's missing URL
 python3 test_domain_links.py       # attaching a domain everywhere, orphans, renewals
+python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file

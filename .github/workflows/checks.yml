@@ -268,6 +268,19 @@ jobs:
             echo "test_domain_links.py not on this branch — nothing to run."
           fi
 
+      - name: Orphaned Google account tests
+        # The GA4 / Tag Manager / Search Console orphan list, the suggestions
+        # it makes (a recorded id is evidence; a shared domain is not), and the
+        # three systems an attach writes. The index is written as a fixture, so
+        # this needs no connected Google account. Guarded like the steps around
+        # it so this workflow stays mergeable on a branch that predates it.
+        run: |
+          if [ -f test_google_links.py ]; then
+            python test_google_links.py
+          else
+            echo "test_google_links.py not on this branch — nothing to run."
+          fi
+
       - name: Blog taxonomy, guardrail and CMS publish tests
         # The blog section's approved-topic list, the never-mention check and
         # what the two CMS panels are handed. Guarded like the steps above so

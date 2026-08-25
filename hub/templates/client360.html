@@ -1356,12 +1356,19 @@ function showTrafficAttach(clientName){
       document.querySelectorAll('.ta-attach').forEach(btn=>{
         btn.onclick=()=>{
           const x=items[parseInt(btn.dataset.i,10)];
-          fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({client:clientName,kind:'analytics',
-              data:{name:x.name,resource_id:x.resource_id,google_login:x.google_login,account_id:x.account_id}})})
+          // Through the shared attach path, not a bare link write: attaching a
+          // property here has to reach the account index (so it stops reading
+          // as an orphan) and the Knack website record (which is what every
+          // report that never touches Google reads). Each system reports
+          // separately — "attached" and "attached in one of three places" are
+          // different outcomes.
+          fetch('/api/google/attach',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({client:clientName,resource_id:x.resource_id})})
             .then(r=>r.json()).then(res=>{
-              if(res.error){$('ta-res').innerHTML='<div class="empty">'+esc(res.error)+'</div>';return}
+              if(!res.ok){$('ta-res').innerHTML='<div class="empty">'+esc(res.error||'That did not go through.')+'</div>';return}
+              const skipped=(res.skipped||[]).map(w=>w.label+': '+w.why).join(' · ');
               $('c-traffic-meta').textContent=(x.name||x.resource_id)+' · '+x.google_login+' · attached';
+              if(skipped)$('ta-res').innerHTML='<div class="empty">'+esc(res.note||'')+'<br>'+esc(skipped)+'</div>';
               c360Traffic(x.resource_id,x.google_login);   // attach auto-runs the report
             });
         };

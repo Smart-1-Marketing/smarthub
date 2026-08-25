@@ -420,6 +420,35 @@ def attach_client(record_id: str, client: str, actor: str = "") -> dict:
     return _put(record_id, payload, rejected, actor, what=list(CLIENT_FIELDS))
 
 
+def set_analytics_ids(record_id: str, ga: str = "", gtm: str = "",
+                      actor: str = "") -> dict:
+    """Record a GA or GTM id on a website record.
+
+    Kept apart from `update_record` rather than widening EDITABLE: that set is
+    the domain-record panel's write set, and a panel's write set growing a
+    field nobody put on the panel is how a form comes to write something
+    nobody can see. Same coercion, same `rejected`, same silence-free result.
+    """
+    record_id = str(record_id or "").strip()
+    if not record_id:
+        return {"ok": False, "error": "No website record id."}
+    if not configured():
+        return {"ok": False, "error": "Knack API credentials aren't set."}
+    payload, rejected, what = {}, [], []
+    for key, value in (("ga_account", ga), ("gtm_account", gtm)):
+        if not str(value or "").strip():
+            continue
+        out, why = _coerce(key, value)
+        if why:
+            rejected.append(why)
+            continue
+        payload[FIELDS[key]] = out
+        what.append(key)
+    if not payload:
+        return {"ok": False, "error": "Nothing to update.", "rejected": rejected}
+    return _put(record_id, payload, rejected, actor, what=what)
+
+
 def _put(record_id: str, payload: dict, rejected: list, actor: str,
          what: list) -> dict:
     import requests

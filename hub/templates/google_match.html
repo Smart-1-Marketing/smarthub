@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block title %}Match Google accounts — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="gm">
+  <p class="gm-crumb"><a href="/tools">Tools</a> / Match Google accounts</p>
+  <h1>Orphaned Google accounts</h1>
+  <p class="gm-sub">
+    Every Analytics property, Tag Manager container and Search Console
+    property we can reach that <b>no client is attached to</b>. The account
+    index joins what it can &mdash; a resource a human attached, then a
+    domain, then an exact name &mdash; and these are what is left. Each row
+    carries whoever it might belong to and why: a GA or GTM id already
+    recorded on a client's Knack website record is not a guess at all, a
+    domain is close to proof, and a near name is worth an eyeball.
+    Attaching writes the client record, this index and the Knack website
+    record, each reported separately.
+  </p>
+
+  <div class="gm-metrics" id="gmMetrics"></div>
+  <div class="gm-bar">
+    <button class="gm-btn primary" onclick="load()">Load orphans</button>
+    <input id="gmQ" class="gm-search" placeholder="Search name, id, account, login, domain or suggested client"
+           oninput="render()" disabled>
+    <button class="gm-btn good" id="gmBulk" onclick="attachSelected()" disabled>Attach selected</button>
+  </div>
+  <div class="gm-bar" id="gmFilters" hidden>
+    <span class="gm-only">Show:</span>
+    <label class="gm-only"><input type="checkbox" class="gmPlat" value="ga4" checked onchange="render()"> Analytics</label>
+    <label class="gm-only"><input type="checkbox" class="gmPlat" value="gtm" checked onchange="render()"> Tag Manager</label>
+    <label class="gm-only"><input type="checkbox" class="gmPlat" value="gsc" checked onchange="render()"> Search Console</label>
+    <label class="gm-only"><input type="checkbox" id="gmOther" onchange="load()"> Include Business Profile and anything else</label>
+    <button class="gm-btn" onclick="rebuild()" id="gmRebuild">Rebuild the index</button>
+  </div>
+  <div id="gmOut"><p class="gm-muted">Nothing loaded yet.</p></div>
+</div>
+
+<style>
+.gm{max-width:1120px;margin:0 auto;font-family:system-ui,sans-serif;color:#1b2733}
+.gm-crumb{color:#94a3b8;font-size:12.5px;margin:0 0 8px}
+.gm-crumb a{color:#1769AA;text-decoration:none}
+.gm h1{margin:0 0 6px;font-size:25px;color:#0d2340}
+.gm-sub{color:#64748b;font-size:13.5px;line-height:1.6;margin:0 0 16px;max-width:74ch}
+.gm-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:11px;margin-bottom:14px}
+.gm-metric{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:13px}
+.gm-metric b{display:block;font-size:22px}
+.gm-metric span{color:#64748b;font-size:12px}
+.gm-bar{display:flex;gap:9px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.gm-btn{border:1px solid #d7dfe8;background:#fff;border-radius:8px;padding:8px 14px;
+  font:600 13px system-ui;cursor:pointer}
+.gm-btn.primary{background:#1769AA;border-color:#1769AA;color:#fff}
+.gm-btn.good{background:#147d52;border-color:#147d52;color:#fff}
+.gm-btn:disabled{opacity:.45;cursor:not-allowed}
+.gm-only{font-size:12.5px;color:#64748b;display:flex;align-items:center;gap:6px}
+.gm-search{flex:1;min-width:240px;padding:8px 11px;border:1px solid #d7dfe8;
+  border-radius:8px;font:13px system-ui}
+.gm-search:disabled{background:#f6f8fa}
+.gm-card{background:#fff;border:1px solid #e2e8f0;border-radius:11px;margin-bottom:14px;overflow:auto}
+.gm-card h3{margin:0;padding:12px 14px;border-bottom:1px solid #eef2f6;font-size:14px;color:#0d2340;background:#fbfcfe}
+table.gm-t{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
+.gm-t th{text-align:left;padding:9px 12px;border-bottom:1px solid #eef2f6;font-size:11px;
+  text-transform:uppercase;letter-spacing:.04em;color:#94a3b8}
+.gm-t td{padding:9px 12px;border-bottom:1px solid #f4f7fa;vertical-align:top}
+.gm-muted{color:#94a3b8;font-size:13px}
+.gm-sm{color:#94a3b8;font-size:11.5px;display:block;margin-top:2px}
+.gm-note{background:#eef5fb;border-left:3px solid #1769AA;border-radius:0 9px 9px 0;
+  padding:11px 14px;font-size:12.8px;line-height:1.6;color:#2b4a63;margin-bottom:14px}
+.gm-warn{background:#fff8e8;border-left-color:#a06a00;color:#6b4a00}
+.pill{display:inline-block;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700}
+.pill.recorded{background:#e7f6ef;color:#147d52}
+.pill.domain{background:#e7f6ef;color:#147d52}
+.pill.name{background:#eef5fb;color:#1769AA}
+.pill.possible{background:#fff4d7;color:#a06a00}
+.pill.plat{background:#f1f5f9;color:#475569}
+.gm-pick{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.gm-pick input{padding:6px 9px;border:1px solid #d7dfe8;border-radius:7px;font:12.5px system-ui;min-width:170px}
+.gm-hit{display:inline-block;border:1px solid #d7dfe8;background:#fff;border-radius:20px;
+  padding:3px 10px;font:600 11.5px system-ui;margin:0 5px 5px 0;cursor:pointer}
+.gm-report{background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;
+  padding:9px 11px;margin-top:7px;font-size:12px;line-height:1.55}
+.gm-wrote{color:#147d52}
+.gm-skip{color:#a06a00}
+.gm-none{color:#a06a00;font-size:12px}
+</style>
+
+<script>
+var DATA=null, REPORT={};
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+function load(){
+  document.getElementById('gmOut').innerHTML='<p class="gm-muted">Reading the account index…</p>';
+  var other=document.getElementById('gmOther')&&document.getElementById('gmOther').checked;
+  fetch('/api/google/orphans?include_other='+(other?'1':'0'),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){DATA=d;
+      document.getElementById('gmQ').disabled=false;
+      document.getElementById('gmFilters').hidden=false;
+      render();})
+    .catch(function(){document.getElementById('gmOut').innerHTML=
+      '<p class="gm-muted">Could not read the account index.</p>';});
+}
+
+function rebuild(){
+  /* The sweep is paced against Tag Manager's rate limit, so this is slow on
+     purpose and the button says so rather than looking hung. */
+  var b=document.getElementById('gmRebuild');
+  b.disabled=true; b.textContent='Sweeping Google — this takes a minute…';
+  fetch('/api/google/rebuild',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      b.disabled=false; b.textContent='Rebuild the index';
+      if(!d.ok){alert(d.error||'The sweep did not complete.');return;}
+      load();
+    }).catch(function(){b.disabled=false;b.textContent='Rebuild the index';
+      alert('The sweep did not complete.');});
+}
+
+function wanted(){
+  var on=[];
+  document.querySelectorAll('.gmPlat').forEach(function(c){if(c.checked)on.push(c.value);});
+  return on;
+}
+
+function visibleRows(){
+  if(!DATA) return [];
+  var q=(document.getElementById('gmQ').value||'').trim().toLowerCase();
+  var plats=wanted(), other=document.getElementById('gmOther').checked;
+  return (DATA.rows||[]).filter(function(r){
+    if(!other&&plats.indexOf(r.key)<0) return false;
+    if(other&&['ga4','gtm','gsc'].indexOf(r.key)>=0&&plats.indexOf(r.key)<0) return false;
+    if(!q) return true;
+    var hay=[r.name,r.resource_id,r.account_name,r.google_login,
+             (r.domains||[]).join(' '),
+             (r.suggestions||[]).map(function(s){return s.client;}).join(' ')]
+      .join(' ').toLowerCase();
+    return hay.indexOf(q)>=0;
+  });
+}
+
+function render(){
+  if(!DATA) return;
+  var d=DATA, rows=visibleRows();
+  document.getElementById('gmMetrics').innerHTML=
+    [['Google logins connected',d.accounts||0],
+     ['Resources indexed',d.resources||0],
+     ['Attached to a client',d.mapped||0],
+     ['Orphaned',d.orphans_total||0],
+     ['We can suggest an owner',d.with_suggestion||0]]
+    .map(function(x){return '<div class="gm-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
+
+  var warn=d.never_built||d.stale;
+  var html='<div class="gm-note'+(warn?' gm-warn':'')+'">'+esc(d.note)+
+    (d.built_at?'<br><b>Index built:</b> '+esc(d.built_at):'')+'</div>';
+
+  var bad=(d.sources||[]).filter(function(s){return !s.ok;});
+  if(bad.length){
+    html+='<div class="gm-card"><h3>Where the suggestions come from</h3><table class="gm-t"><tbody>'+
+      (d.sources||[]).map(function(s){
+        return '<tr><td><b>'+esc(s.label)+'</b></td><td class="gm-muted">'+
+          (s.ok?('read '+(s.rows||0)+' record(s)'):
+                '<span class="gm-none">not read: '+esc(s.error||'unavailable')+'</span>')+
+          '</td></tr>';}).join('')+'</tbody></table></div>';
+  }
+
+  html+='<div class="gm-card"><h3>Orphaned accounts ('+rows.length+
+        (rows.length!==d.count?' of '+d.count:'')+')</h3>'+
+    (rows.length?'<table class="gm-t"><thead><tr><th></th><th>Resource</th>'+
+    '<th>Where it lives</th><th>Might belong to</th><th>Attach to a client</th>'+
+    '</tr></thead><tbody>'+rows.map(function(r,i){
+      var sugg=(r.suggestions||[]).map(function(s,si){
+        return '<div style="margin-bottom:6px"><button class="gm-btn" style="padding:3px 9px;font-size:12px" '+
+          'onclick="attachOne('+i+','+si+')">'+esc(s.client)+'</button> '+
+          '<span class="pill '+esc(s.confidence)+'">'+esc(s.confidence)+'</span>'+
+          '<span class="gm-sm">'+esc(s.why)+'</span></div>';}).join('');
+      var rep=REPORT[r.resource_id]?report(REPORT[r.resource_id]):'';
+      return '<tr><td><input type="checkbox" class="gmChk" data-i="'+i+'" onchange="count()"></td>'+
+        '<td><b>'+esc(r.name||r.resource_id)+'</b>'+
+          '<span class="gm-sm">'+esc(r.resource_id)+'</span>'+
+          '<span class="pill plat">'+esc(r.platform_label||r.platform)+'</span>'+
+          (r.open_url?' <a href="'+esc(r.open_url)+'" target="_blank" rel="noopener" '+
+            'style="font-size:11px">open &rarr;</a>':'')+'</td>'+
+        '<td class="gm-muted">'+esc(r.google_login||'')+
+          (r.account_name?'<span class="gm-sm">'+esc(r.account_name)+'</span>':'')+
+          ((r.domains||[]).length?'<span class="gm-sm">'+esc((r.domains||[]).join(', '))+'</span>':
+            '<span class="gm-sm">no URL on this resource</span>')+'</td>'+
+        '<td>'+(sugg||'<span class="gm-none">Nothing in any data set names an owner.</span>')+'</td>'+
+        '<td><div class="gm-pick"><input placeholder="Search clients…" data-i="'+i+'" '+
+          'class="gmSearch" onkeydown="key(event,'+i+')"><button class="gm-btn" '+
+          'style="padding:5px 10px;font-size:12px" onclick="find('+i+')">Search</button></div>'+
+          '<div id="gmHits'+i+'"></div>'+rep+'</td></tr>';
+    }).join('')+'</tbody></table>':'<p class="gm-muted" style="padding:12px 14px">'+
+      (d.never_built?'The index has never been built — there is nothing to show yet.':
+       (d.orphans_total?'Nothing matches the current search or filters.':
+        'Every Google resource we can reach is attached to a client.'))+
+      '</p>')+'</div>';
+
+  if(d.by_platform&&Object.keys(d.by_platform).length){
+    html+='<div class="gm-card"><h3>Orphans by platform</h3><table class="gm-t"><tbody>'+
+      Object.keys(d.by_platform).map(function(k){
+        return '<tr><td><b>'+esc(k)+'</b></td><td class="gm-muted">'+d.by_platform[k]+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  }
+  document.getElementById('gmOut').innerHTML=html;
+  count();
+}
+
+function report(rep){
+  var out='<div class="gm-report"><b>'+esc(rep.client||'')+'</b> — '+esc(rep.note||rep.error||'');
+  (rep.written||[]).forEach(function(w){
+    out+='<div class="gm-wrote">✓ '+esc(w.label)+' — '+esc(w.detail)+'</div>';});
+  (rep.skipped||[]).forEach(function(w){
+    out+='<div class="gm-skip">— '+esc(w.label)+': '+esc(w.why)+'</div>';});
+  return out+'</div>';
+}
+
+function key(ev,i){ if(ev.key==='Enter'){ev.preventDefault();find(i);} }
+
+function find(i){
+  var box=document.querySelector('.gmSearch[data-i="'+i+'"]');
+  var q=(box&&box.value||'').trim(), host=document.getElementById('gmHits'+i);
+  if(!q){host.innerHTML='<span class="gm-muted" style="font-size:12px">Type a client name.</span>';return;}
+  host.innerHTML='<span class="gm-muted" style="font-size:12px">Searching…</span>';
+  fetch('/api/clients/search?q='+encodeURIComponent(q),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      var items=d.clients||[];
+      if(!items.length){host.innerHTML='<span class="gm-none">No client matches that.</span>';return;}
+      host.innerHTML=items.slice(0,6).map(function(c,ci){
+        return '<span class="gm-hit" onclick="attachTo('+i+','+ci+')">'+esc(c.name)+
+          (c.domain?' <span style="opacity:.6">'+esc(c.domain)+'</span>':'')+'</span>';
+      }).join('');
+      host.__items=items;
+    }).catch(function(){host.innerHTML='<span class="gm-none">That search failed.</span>';});
+}
+
+function attachOne(i,si){
+  var r=visibleRows()[i], s=(r.suggestions||[])[si];
+  if(r&&s) go(r,s.client);
+}
+function attachTo(i,ci){
+  var r=visibleRows()[i], host=document.getElementById('gmHits'+i);
+  var c=(host.__items||[])[ci];
+  if(r&&c) go(r,c.name);
+}
+
+function go(r,client){
+  if(!confirm('Attach "'+(r.name||r.resource_id)+'" ('+(r.platform_label||'')+
+              ') to "'+client+'"?\n\nThis writes the client record, the account '+
+              'index and the Knack website record.')) return;
+  fetch('/api/google/attach',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({resource_id:r.resource_id, client:client})})
+   .then(function(res){return res.json();}).then(function(rep){
+     REPORT[r.resource_id]=rep;
+     if(rep.ok){DATA.rows=(DATA.rows||[]).filter(function(x){
+       return x.resource_id!==r.resource_id;});
+       DATA.count=Math.max(0,(DATA.count||1)-1);
+       DATA.orphans_total=Math.max(0,(DATA.orphans_total||1)-1);
+       DATA.mapped=(DATA.mapped||0)+1;}
+     render();
+     var out=document.getElementById('gmOut');
+     if(out) out.insertAdjacentHTML('afterbegin', report(rep));
+   }).catch(function(){alert('That did not go through.');});
+}
+
+function count(){
+  var n=document.querySelectorAll('.gmChk:checked').length;
+  var b=document.getElementById('gmBulk');
+  b.disabled=!n;
+  b.textContent=n?('Attach '+n+' account'+(n===1?'':'s')+' to one client'):'Attach selected';
+}
+
+function attachSelected(){
+  /* One client usually owns three of these — their Analytics property, their
+     container and their Search Console property — so attaching them one at a
+     time is three dialogs for one decision. */
+  var rows=visibleRows(), picked=[];
+  document.querySelectorAll('.gmChk:checked').forEach(function(c){
+    var r=rows[+c.dataset.i]; if(r) picked.push(r);});
+  if(!picked.length) return;
+  var name=prompt('Attach these '+picked.length+' Google account(s) to which client?\n\n'+
+    picked.map(function(r){return (r.platform_label||'')+': '+(r.name||r.resource_id);}).join('\n')+
+    '\n\nType the client name exactly as it is filed.');
+  if(!name) return;
+  fetch('/api/google/attach',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({links:picked.map(function(r){
+      return {resource_id:r.resource_id, client:name};})})})
+   .then(function(res){return res.json();}).then(function(d){
+     (d.items||[]).concat(d.failed||[]).forEach(function(rep){
+       if(rep&&rep.resource_id) REPORT[rep.resource_id]=rep;});
+     alert(d.note||'Done.');
+     load();
+   }).catch(function(){alert('That did not go through.');});
+}
+</script>
+{% endblock %}

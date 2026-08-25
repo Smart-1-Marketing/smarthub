@@ -487,6 +487,44 @@ def rows(include_mapped: bool = True) -> list[dict]:
     return out
 
 
+def set_client(resource_id: str, client: str, detail: str = "") -> dict:
+    """Write a client onto one indexed resource, now rather than in six hours.
+
+    The index is a stored sweep rebuilt on a schedule, so a resource somebody
+    has just attached would otherwise stay in the orphan list until the next
+    build — which reads as a button that did nothing, and is exactly the
+    complaint the discovered-URL overlay had to fix. The attachment itself is
+    the durable record (`_attachment_map()` re-applies it on every build); this
+    only stops the stale copy contradicting it in the meantime.
+    """
+    rid = str(resource_id or "").strip().lower()
+    client = str(client or "").strip()
+    if not rid:
+        return {"ok": False, "error": "No resource id."}
+    data = load()
+    if data.get("never_built"):
+        return {"ok": False,
+                "error": "The Google index has never been built, so there is "
+                         "no row to update."}
+    hit = 0
+    for it in data.get("items") or []:
+        if str(it.get("resource_id") or "").strip().lower() != rid:
+            continue
+        it["client"] = client
+        it["match"] = "attached" if client else ""
+        it["match_detail"] = detail or (
+            "Attached to this client on the client record."
+            if client else "Not matched to a client.")
+        it.pop("candidates", None)
+        hit += 1
+    if not hit:
+        return {"ok": False,
+                "error": "That resource is not in the stored Google index."}
+    data.pop("never_built", None)
+    jsonstore.write_json(_path(), data)
+    return {"ok": True, "updated": hit}
+
+
 def unmapped() -> list[dict]:
     return [r for r in rows() if not r["client"]]
 

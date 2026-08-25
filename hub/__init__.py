@@ -239,6 +239,53 @@ def create_hub_app() -> Flask:
         return jsonify(google_index.for_client(
             request.args.get("name", ""), request.args.get("url", "")))
 
+    # Also a hub route, not one under /google, and under /tools rather than
+    # /tools/<something-mounted> — the same trap the note above describes.
+    @app.route("/tools/google-match")
+    def page_google_match():
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("google_match.html", user=current_user(),
+                               active="google")
+
+    @app.route("/api/google/orphans")
+    def api_google_orphans():
+        """Google resources no client is attached to, with who they might be.
+
+        The other half of the index: it can say what it joined, and this says
+        what it could not. An index that has never been built reports that,
+        never "no orphans".
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .google_links import orphans
+        return jsonify(orphans(
+            q=request.args.get("q", ""),
+            platform=request.args.get("platform", ""),
+            include_other=str(request.args.get("include_other", "")).lower()
+            in ("1", "true", "yes"),
+            limit=clamp_int(request.args.get("limit"), 400, 1, 2000)))
+
+    @app.route("/api/google/attach", methods=["POST"])
+    def api_google_attach():
+        """Attach one Google resource to a client, or several at once."""
+        gate = _require_api()
+        if gate:
+            return gate
+        body = request.get_json(silent=True) or {}
+        actor = current_user() or ""
+        links = body.get("links")
+        if links:
+            from .google_links import attach_many
+            return jsonify(attach_many(links, actor=actor,
+                                       force=bool(body.get("force"))))
+        from .google_links import attach
+        return jsonify(attach(str(body.get("resource_id") or ""),
+                              str(body.get("client") or ""), actor=actor,
+                              force=bool(body.get("force"))))
+
     @app.route("/api/google/rebuild", methods=["POST"])
     def api_google_rebuild():
         """Force a re-sweep now, rather than waiting for the three-hour job."""
@@ -4104,6 +4151,7 @@ def create_hub_app() -> Flask:
                        "image-picker": "image_picker",
                        "sites-match": "sites_admin",
                        "domains": "sites_admin",
+                       "google-match": "google_access",
                        "stale-creative": "qa", "qa": "qa"}.get(slug, "")
                 if mod:
                     body = re.sub(rb"<body\b",
