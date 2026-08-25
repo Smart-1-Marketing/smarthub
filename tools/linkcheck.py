@@ -62,8 +62,12 @@ EXTS = ("html", "py", "js", "ts", "tsx", "jsx")
 # without fetching anybody's live site. Its <img src="/img/..."> paths are that
 # page's images -- they are the checker's INPUT, and they were never meant to
 # resolve against this Hub's route table.
+# test_ads_estimate.py, a third time: it holds a client landing page as a
+# string so the conversion-point scanner can be tested without fetching
+# anybody's live site. Its <form action="/lead"> is that page's own form --
+# the thing being counted, not a link this Hub serves.
 SKIP_PREFIXES = ("modules/ad_builder/", "tools/linkcheck.py",
-                 "test_ads_module.py", "test_alt_text.py")
+                 "test_ads_module.py", "test_alt_text.py", "test_ads_estimate.py")
 
 # Known-good references that are not links in the running app. Empty today:
 # /tools/ads/ lived here while Smart 1 Ads shipped in the repo unmounted, and

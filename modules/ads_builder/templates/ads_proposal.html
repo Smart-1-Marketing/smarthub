@@ -2,6 +2,7 @@
 {% set active = 'approvals' %}
 {% set c = p.campaign %}
 {% set est = c.costEstimation or {} %}
+{% set estimate = c.estimate or {} %}
 {% block title %}{{ p.client_name }}{% endblock %}
 {% block strap %}{{ c.websiteUrl or '' }}{% endblock %}
 
@@ -22,6 +23,27 @@
   </div>
 {% endmacro %}
 
+{% block head %}
+<style>
+  /* A keyword being considered for removal. Struck through rather than hidden:
+     a rep needs to see what they are about to take out, and a list that
+     shortens as you click gives no way to change your mind. */
+  .chip.cut { opacity:.45; text-decoration:line-through }
+  .chip.pick { cursor:pointer; user-select:none }
+  .chip.pick:hover { border-color:#94a3b8 }
+  .bub { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:6px;
+         vertical-align:middle; border:1px solid rgba(15,23,42,.15) }
+  .bub-green { background:#059669 } .bub-yellow { background:#eab308 }
+  .bub-red { background:#dc2626 } .bub-grey { background:#cbd5e1 }
+  .est { color:#94a3b8; font-weight:400 }
+  .evid { font-family:ui-monospace,Consolas,Menlo,monospace; font-size:12px; color:#64748b;
+          overflow-wrap:anywhere }
+  .logobox { display:flex; gap:16px; align-items:center; flex-wrap:wrap }
+  .logobox img { max-width:180px; max-height:72px; object-fit:contain;
+                 border:1px solid var(--line); border-radius:8px; padding:6px; background:#fff }
+</style>
+{% endblock %}
+
 {% block content %}
 <div id="toast" style="display:none"></div>
 
@@ -31,16 +53,40 @@
   <a class="btn" href="{{ mount }}/approvals">← All proposals</a>
   <span class="tag {{ tone }}">{{ p.status.replace('_',' ').title() }}</span>
   <span style="color:#64748b">${{ '{:,.0f}'.format(c.monthlyBudget or 0) }}/mo · {{ c.sector or '' }}</span>
+  {% if review.sent %}
+    <span class="bub bub-{{ review.colour }}"></span>
+    <span style="color:#64748b;font-size:12.5px">
+      {% if review.outcome %}{{ spec.OUTCOME_LABELS[review.outcome] }}
+      {% else %}Sent to the client{{ ', opened' if review.opened else ', not opened yet' }}{% endif %}
+    </span>
+  {% endif %}
   <div class="spacer"></div>
-  <a class="btn" href="{{ mount }}/proposal/{{ p.id }}/client">Client proposal</a>
+  <a class="btn" href="{{ mount }}/proposal/{{ p.id }}/client">Preview the estimate</a>
 </div>
+
+{% if needs_recheck %}
+  <div class="note n-warn">
+    <b>This has been edited since it was last checked</b>
+    Approving runs it back through the AI review first — you will see what the changes did
+    before the estimate can go to a client.
+  </div>
+{% endif %}
+
+{% if estimate.superseded and not estimate.approved_at %}
+  <div class="note n-warn">
+    <b>The earlier approval no longer applies</b>
+    The estimate was edited after it was approved, so the approval was cleared. Approving is
+    a statement about a specific document, and a tick that survived an edit would refer to
+    something nobody signed off.
+  </div>
+{% endif %}
 
 <div class="grid g4" style="margin-bottom:16px">
   <div class="stat"><div class="l">Ad groups</div><div class="v">{{ p.ad_group_count }}</div></div>
   <div class="stat"><div class="l">Keywords</div><div class="v">{{ p.keyword_count }}</div>
     <div class="f">{{ p.negative_count }} negatives</div></div>
   <div class="stat"><div class="l">Est. clicks / mo</div><div class="v">{{ '{:,.0f}'.format(est.estimatedMonthlyClicks or 0) }}</div>
-    <div class="f">${{ '%.2f'|format(est.avgCPC or 0) }} avg CPC</div></div>
+    <div class="f">${{ '%.2f'|format(est.avgCPC or 0) }} avg CPC <span class="est">({{ spec.CPC_NOTE }})</span></div></div>
   <div class="stat"><div class="l">Est. CPA</div>
     <div class="v">{% if est.estimatedCPA %}${{ '%.2f'|format(est.estimatedCPA) }}{% else %}—{% endif %}</div>
     <div class="f">{{ '{:,.0f}'.format(est.estimatedConversions or 0) }} conversions/mo</div></div>
@@ -53,51 +99,192 @@
   </div>
 {% endif %}
 
-{% if c.strategySummary %}
-  <div class="card"><h3>Strategy</h3>{{ c.strategySummary }}</div>
+{% if (c.budgetSource or {}).stated is defined and not (c.budgetSource or {}).stated %}
+  <div class="note n-info"><b>No budget was given</b>{{ (c.budgetSource or {}).note }}</div>
 {% endif %}
 
-<!-- ------------------------------------------------------------ deploy -->
+{# ------------------------------------------------------------- client join #}
+{% set link = (c.clientLink or {}).get('result') %}
+{% if link %}
 <div class="card">
-  <h3>Deploy to Google Ads <span class="sub">everything is created paused</span></h3>
+  <h3>Client record <span class="sub">{{ p.client_name }}</span></h3>
+  <table>
+    <tbody>
+      <tr><td style="width:150px">Proposal</td>
+        <td><span class="tag {{ 't-good' if link.filed.ok else 't-bad' }}">{{ 'Filed' if link.filed.ok else 'Not filed' }}</span>
+          <span style="color:#64748b;margin-left:8px">{{ link.filed.note }}
+            {%- if link.filed.quote_number %} · {{ link.filed.quote_number }}{% endif %}</span></td></tr>
+      <tr><td>Work log</td>
+        <td><span class="tag {{ 't-good' if link.work.ok else 't-warn' }}">{{ 'Recorded' if link.work.ok else 'Not recorded' }}</span>
+          <span style="color:#64748b;margin-left:8px">{{ link.work.note }}</span></td></tr>
+      <tr><td>Client</td>
+        <td>{% if link.known_client.known %}
+            <span class="tag t-good">Known client</span>
+            <span style="color:#64748b;margin-left:8px">Matched on {{ link.known_client.matched_on or 'name' }}.</span>
+          {% else %}
+            <span class="tag t-info">New</span>
+            <span style="color:#64748b;margin-left:8px">Not in the client list — nothing was written to Knack.</span>
+          {% endif %}</td></tr>
+      <tr><td>Suite lead</td>
+        <td>{% if link.lead.created %}<span class="tag {{ 't-good' if link.lead.ok else 't-warn' }}">{{ 'Created' if link.lead.ok else 'Queued' }}</span>
+          {% else %}<span class="tag t-mute">None</span>{% endif %}
+          <span style="color:#64748b;margin-left:8px">{{ link.lead.note }}</span></td></tr>
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
-  {% if p.status == 'DEPLOYED' and p.deployment %}
-    <div class="note n-good">
-      <b>Deployed</b>
-      Campaign <b>{{ p.deployment.campaign_name }}</b> was created in account
-      {{ p.deployment.customer_id }} on {{ (p.deployment.deployed_at or '')[:16].replace('T',' ') }}
-      by {{ p.deployment.deployed_by }}. It is <b>paused</b> — enable it from Live campaigns, or in
-      Google Ads, when you are ready.
-      {% if p.deployment.manage_url %}
-        <div style="margin-top:6px"><a href="{{ p.deployment.manage_url }}" target="_blank" rel="noopener">Open in Google Ads →</a></div>
-      {% endif %}
-    </div>
-  {% elif not status.connected %}
-    <div class="note n-warn">Connect Google Ads in <a href="{{ mount }}/settings">Settings</a> before deploying.</div>
-  {% else %}
-    <div class="row" style="align-items:flex-end">
-      <div style="flex:1;min-width:280px">
-        <label>Destination account</label>
-        <select id="acct"><option value="">Loading accounts…</option></select>
-      </div>
-      <button id="dry" onclick="deploy(true)">Dry run</button>
-      <button class="b-primary" id="go" onclick="deploy(false)"
-              {{ 'disabled' if p.status != 'APPROVED' }}>Deploy</button>
-    </div>
-    {% if p.status != 'APPROVED' %}
-      <div class="hint">Approve the proposal below before it can be deployed. The dry run works at any status —
-        it sends the whole batch to Google's validator and writes nothing.</div>
+{# ---------------------------------------------------------------- details #}
+<div class="card">
+  <div class="row" style="margin-bottom:10px">
+    <h3 style="margin:0">Campaign details</h3>
+    <span class="sub" style="color:#64748b;font-size:12.5px">what this was built from</span>
+    <div class="spacer"></div>
+    <button class="b-sm" onclick="toggleEdit()" id="editToggle">Edit</button>
+  </div>
+
+  <div id="detailsRead">
+    {% if sections %}
+      <table>
+        <tbody>
+          {% for row in sections %}
+            <tr><td style="width:210px;color:#64748b">{{ row.label }}</td><td>{{ row.value }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div style="color:#94a3b8">Nothing beyond the basics was captured for this campaign.
+        Edit to fill it in — the AI review reads all of it.</div>
     {% endif %}
-    <div id="deployResult" style="margin-top:12px"></div>
-  {% endif %}
+    {% if areas %}
+      <label style="margin-top:14px">Target areas</label>
+      <table><tbody>
+        {% for a in areas %}
+          {% set pop = area_population(a) %}
+          <tr><td style="width:210px">{{ area_label(a) }}</td>
+            <td style="color:#64748b">{% if pop %}~{{ '{:,.0f}'.format(pop) }} people
+              {% else %}<span style="color:#94a3b8">reach not measured</span>{% endif %}</td></tr>
+        {% endfor %}
+      </tbody></table>
+    {% endif %}
+  </div>
+
+  <div id="detailsEdit" style="display:none">
+    <div class="grid g2">
+      <div class="field"><label>Client / business name</label>
+        <input id="e_businessName" value="{{ c.businessName or p.client_name }}"></div>
+      <div class="field"><label>Landing page URL</label>
+        <input id="e_websiteUrl" value="{{ c.websiteUrl or '' }}"></div>
+      <div class="field"><label>Targeting</label>
+        <select id="e_audienceType">
+          <option value="">Not sure yet</option>
+          {% for a in spec.AUDIENCE_TYPES %}
+            <option value="{{ a }}" {{ 'selected' if (c.intake or {}).audienceType == a }}>{{ a }}</option>
+          {% endfor %}
+        </select></div>
+      <div class="field"><label>Contact phone</label>
+        <input id="e_phone" value="{{ (c.intake or {}).phone or '' }}"></div>
+      <div class="field"><label>Product or service</label>
+        <textarea id="e_productOrService" style="min-height:60px">{{ (c.intake or {}).productOrService or '' }}</textarea></div>
+      <div class="field"><label>Promotion</label>
+        <textarea id="e_promotion" style="min-height:60px">{{ (c.intake or {}).promotion or '' }}</textarea></div>
+      <div class="field"><label>Competitors the client named</label>
+        <textarea id="e_competitors" style="min-height:60px">{{ (c.intake or {}).competitors or '' }}</textarea></div>
+      <div class="field"><label>Not to be targeted</label>
+        <textarea id="e_doNotTarget" style="min-height:60px">{{ (c.intake or {}).doNotTarget or '' }}</textarea></div>
+    </div>
+    <div class="field"><label>What counts as a result</label>
+      <div class="chips" id="e_conversions">
+        {% for key, label, note in spec.CONVERSION_ACTIONS %}
+          <label class="chip" title="{{ note }}" style="cursor:pointer">
+            <input type="checkbox" value="{{ key }}" style="width:auto;margin-right:5px"
+                   {{ 'checked' if key in ((c.intake or {}).conversionActions or []) }}> {{ label }}
+          </label>
+        {% endfor %}
+      </div></div>
+    <div class="field"><label>Strategy summary</label>
+      <textarea id="e_strategySummary" style="min-height:70px">{{ c.strategySummary or '' }}</textarea></div>
+    <div id="editMsg"></div>
+    <div class="row end">
+      <button onclick="toggleEdit()">Cancel</button>
+      <button class="b-primary" id="saveDetails" onclick="saveDetails()">Save changes</button>
+    </div>
+  </div>
 </div>
 
-<!-- --------------------------------------------------------- ad groups -->
+{# ------------------------------------------------------------------ budget #}
+<div class="card">
+  <div class="row" style="margin-bottom:10px">
+    <h3 style="margin:0">Budget</h3>
+    <span style="color:#64748b;font-size:12.5px">changing it re-runs the AI review</span>
+    <div class="spacer"></div>
+  </div>
+  <div class="row" style="align-items:flex-end">
+    <div style="max-width:220px">
+      <label for="e_budget">Monthly budget</label>
+      <input id="e_budget" type="number" min="100" step="50" value="{{ '%.0f'|format(c.monthlyBudget or 0) }}">
+    </div>
+    <button class="b-primary" id="saveBudget" onclick="saveBudget()">Update budget</button>
+    <div class="spacer"></div>
+    <button class="b-sm" onclick="loadTiers(true)" id="tierBtn">Re-size Good / Better / Best</button>
+  </div>
+  <div id="budgetMsg"></div>
+  <div id="tiers" style="margin-top:14px"></div>
+</div>
+
+{# -------------------------------------------------------------------- logo #}
+<div class="card">
+  <h3>Logo <span class="sub">shown on the estimate the client reads</span></h3>
+  <div class="logobox" id="logoBox"><span class="spin"></span> Looking…</div>
+</div>
+
+{# ------------------------------------------------------------ landing page #}
+<div class="card">
+  <div class="row" style="margin-bottom:10px">
+    <h3 style="margin:0">Landing page</h3>
+    <div class="spacer"></div>
+    <button class="b-sm" onclick="analysePage(true)" id="pageBtn">Re-read the page</button>
+  </div>
+  <div id="pagePanel"><span class="spin"></span> Reading the page…</div>
+</div>
+
+{# -------------------------------------------------------------- competitors #}
+<div class="card">
+  <div class="row" style="margin-bottom:10px">
+    <h3 style="margin:0">Competitors</h3>
+    <div class="spacer"></div>
+    <button class="b-sm" onclick="analyseCompetitors(true)" id="compBtn">Re-run research</button>
+  </div>
+  <div id="compPanel"><span class="spin"></span> Researching…</div>
+</div>
+
+{# ---------------------------------------------------------------- ad groups #}
+<div class="card">
+  <div class="row" style="margin-bottom:6px">
+    <h3 style="margin:0">Keywords</h3>
+    <span style="color:#64748b;font-size:12.5px">click a keyword to mark it for removal —
+      nothing is removed until you apply</span>
+    <div class="spacer"></div>
+    <button class="b-sm b-bad" id="applyCuts" onclick="applyCuts()" disabled>Remove selected</button>
+  </div>
+  <div id="cutsMsg"></div>
+</div>
+
 {% for g in c.adGroups or [] %}
 <div class="card">
-  <h3>{{ g.name }}<span class="sub">{{ g.keywords|length }} keywords · ${{ '%.2f'|format(g.avgCPC or 0) }} bid</span></h3>
+  <h3>{{ g.name }}<span class="sub">{{ g.keywords|length }} keywords · ${{ '%.2f'|format(g.avgCPC or 0) }} bid
+    <span class="est">({{ spec.CPC_NOTE }})</span></span></h3>
   {% if g.theme %}<p style="margin-top:0;color:#64748b">{{ g.theme }}</p>{% endif %}
-  {{ chips(g.keywords) }}
+  <div class="chips">
+    {% for k in g.keywords or [] %}
+      {% set t = k|string %}
+      <span class="chip pick {{ 'exact' if t.startswith('[') else 'phrase' if t.startswith('\"') else 'broad' }}"
+            data-group="{{ g.name }}" data-keyword="{{ t }}" onclick="toggleCut(this)">
+        {{ t[1:-1] if (t.startswith('[') and t.endswith(']')) or (t.startswith('"') and t.endswith('"')) else t }}
+        <span class="mt">{{ 'exact' if t.startswith('[') else 'phrase' if t.startswith('"') else 'broad' }}</span>
+      </span>
+    {% endfor %}
+  </div>
   {% if g.ads and g.ads.headlines %}
     <div class="grid g2" style="margin-top:14px">
       <div>
@@ -113,7 +300,7 @@
 </div>
 {% endfor %}
 
-<!-- ------------------------------------------------------------ assets -->
+{# ------------------------------------------------------------------ assets #}
 <div class="card">
   <h3>Ad assets</h3>
   <div class="grid g2">
@@ -123,8 +310,12 @@
         <div style="margin-bottom:9px">
           <div style="font-weight:600">{{ s.title }}</div>
           <div style="color:#64748b;font-size:12.5px">{{ s.desc1 }}{% if s.desc2 %}<br>{{ s.desc2 }}{% endif %}</div>
-          <div class="mono brk" style="color:#94a3b8">{{ s.url }}</div>
+          {# The destination, always. A sitelink title with no URL under it is a
+             promise nobody can check before it goes live. #}
+          <div class="mono brk" style="color:#94a3b8">{{ s.url or c.websiteUrl }}</div>
         </div>
+      {% else %}
+        <div style="color:#94a3b8">None on this campaign.</div>
       {% endfor %}
     </div>
     <div>
@@ -136,35 +327,54 @@
   </div>
 </div>
 
-<!-- --------------------------------------------------------- negatives -->
+{# --------------------------------------------------------------- negatives #}
 <div class="card">
-  <h3>Negative keyword vault <span class="sub">{{ p.negative_count }} terms</span></h3>
+  <h3>Negative keyword vault <span class="sub">{{ p.negative_count }} terms · click to mark for removal</span></h3>
   <div class="grid g2">
     {% for bucket, terms in (c.negativeKeywordVault or {}).items() %}
       <div>
         <label>{{ bucket|replace('freeCheap','Free / cheap')|replace('jobsCareers','Jobs / careers')
                         |replace('educational','Educational')|replace('irrelevant','Irrelevant') }}
                ({{ terms|length }})</label>
-        {{ chips(terms, 'neg') }}
+        <div class="chips">
+          {% for t in terms %}
+            <span class="chip neg pick" data-bucket="{{ bucket }}" data-term="{{ t }}"
+                  onclick="toggleCut(this)">{{ t }}</span>
+          {% endfor %}
+        </div>
       </div>
     {% endfor %}
   </div>
 </div>
 
-<!-- ----------------------------------------------------- landing page -->
-{% if c.landingPageAnalysis %}
+{# ----------------------------------------------------------- last recheck #}
+{% if c.lastRecheck %}
+{% set rv = c.lastRecheck %}
 <div class="card">
-  <h3>Landing page review</h3>
-  {% set cta = c.landingPageAnalysis.ctaReadiness %}
-  <span class="tag {{ 't-good' if cta=='High' else 't-bad' if cta=='Low' else 't-warn' }}">CTA readiness: {{ cta }}</span>
-  {% if c.landingPageAnalysis.messageMatch %}<p>{{ c.landingPageAnalysis.messageMatch }}</p>{% endif %}
-  <ul style="color:#475569;margin:6px 0 0;padding-left:18px">
-    {% for r in c.landingPageAnalysis.recommendations or [] %}<li>{{ r }}</li>{% endfor %}
-  </ul>
+  <h3>Last AI review
+    <span class="sub">{{ (rv.at or '')[:16].replace('T',' ') }} · {{ rv.by }}</span></h3>
+  {% set rt = {'ok':'good','warn':'warn','block':'bad'}.get(rv.verdict,'info') %}
+  <div class="note n-{{ rt }}" style="margin-bottom:10px">
+    <b>{{ {'ok':'No problems found','warn':'Worth a look','block':'Do not ship this as it stands'}.get(rv.verdict, rv.verdict) }}</b>
+    {{ rv.summary }}
+  </div>
+  {% if rv.changes %}
+    <label>What had changed</label>
+    <ul style="color:#475569;margin:4px 0 12px;padding-left:18px">
+      {% for ch in rv.changes %}<li>{{ ch }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+  {% for f in rv.findings %}
+    <div class="note n-{{ {'block':'bad','warn':'warn'}.get(f.severity,'info') }}">
+      <b>{{ f.where or f.severity|title }}</b>{{ f.what }}
+      {% if f.fix %}<div style="margin-top:4px"><b style="display:inline">Fix:</b> {{ f.fix }}</div>{% endif %}
+    </div>
+  {% endfor %}
+  {% if rv.budgetCheck %}<div class="hint">{{ rv.budgetCheck }}</div>{% endif %}
 </div>
 {% endif %}
 
-<!-- ---------------------------------------------------------- approval -->
+{# ---------------------------------------------------------------- approval #}
 <div class="card">
   <h3>Review and approval</h3>
   <div class="row" style="margin-bottom:14px">
@@ -190,6 +400,161 @@
   </div>
   <div class="row end"><button class="b-primary" onclick="addComment()">Post comment</button></div>
 </div>
+
+{# ---------------------------------------------------- approve and send it #}
+<div class="card">
+  <h3>Approve the estimate <span class="sub">then send it to the client</span></h3>
+
+  {% if estimate.approved_at %}
+    <div class="note n-good">
+      <b>Approved</b>
+      By {{ estimate.approved_by }} on {{ (estimate.approved_at or '')[:16].replace('T',' ') }}.
+      This is the version a client link will show.
+    </div>
+  {% else %}
+    <p style="margin-top:0;color:#64748b">
+      Read it through, make any changes above, then approve. If you have changed anything
+      material, approving sends it back through the AI review first and shows you what the
+      change did — you approve again after reading that.
+    </p>
+  {% endif %}
+
+  <div id="approveResult"></div>
+  <div class="row">
+    <button class="b-primary" id="approveBtn" onclick="approve(false)">
+      {{ 'Re-approve the estimate' if estimate.approved_at else 'Approve estimate' }}</button>
+    <div class="spacer"></div>
+    <a class="btn" href="{{ mount }}/proposal/{{ p.id }}/client">Preview / print</a>
+    <button id="shareBtn" onclick="createShare()" {{ '' if estimate.approved_at else 'disabled' }}>
+      Create a client link</button>
+  </div>
+  {% if not estimate.approved_at %}
+    <div class="hint">The client link is available once the estimate is approved — a client
+      reading a version nobody signed off is the one thing it must not do.</div>
+  {% endif %}
+
+  <div id="shares" style="margin-top:14px">
+    {% for sh in shares %}
+      <div class="comment">
+        <div class="meta">
+          <span class="bub bub-{{ sh.colour }}"></span>
+          Sent by {{ sh.created_by }} · {{ (sh.created_at or '')[:16].replace('T',' ') }}
+          {%- if sh.revoked %} · revoked{% endif %}
+          {%- if sh.opened_count %} · opened {{ sh.opened_count }}×{% else %} · not opened{% endif %}
+        </div>
+        <div class="mono brk" style="font-size:12px">{{ sh.url }}</div>
+        {% if sh.outcome %}
+          <div style="margin-top:5px"><b>{{ sh.outcome_label }}</b>
+            — {{ sh.reviewer_name }} ({{ sh.reviewer_email }})
+            {{ (sh.responded_at or '')[:16].replace('T',' ') }}</div>
+          {% if sh.reviewer_note %}<div style="color:#475569">{{ sh.reviewer_note }}</div>{% endif %}
+        {% endif %}
+        {% for ch in sh.changes %}
+          <div class="note n-warn" style="margin:8px 0 0">
+            <b>{{ ch.section or 'General' }} — {{ ch.name }} ({{ ch.email }})</b>{{ ch.text }}
+          </div>
+        {% endfor %}
+        {% if not sh.revoked %}
+          <div class="row" style="margin-top:6px">
+            <button class="b-sm" onclick="copyLink({{ sh.url|tojson }})">Copy link</button>
+            <button class="b-sm b-bad" onclick="revokeShare({{ sh.token|tojson }})">Revoke</button>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ------------------------------------------------------------- launch -->
+{# Last on the page, after review and approval, because that is the order the
+   work happens in: a campaign is read, discussed and approved before anybody
+   pushes it anywhere. It also used to be the first thing on the screen and the
+   only thing that needed a developer token, so the page opened on a warning
+   about a credential nobody had. #}
+<div class="card">
+  <h3>Launch <span class="sub">everything is created paused, whichever route you take</span></h3>
+
+  {% if p.status == 'DEPLOYED' and p.deployment %}
+    <div class="note n-good">
+      <b>Deployed through the API</b>
+      Campaign <strong>{{ p.deployment.campaign_name }}</strong> was created in account
+      {{ p.deployment.customer_id }} on {{ (p.deployment.deployed_at or '')[:16].replace('T',' ') }}
+      by {{ p.deployment.deployed_by }}. It is <strong>paused</strong> — enable it from Live campaigns, or in
+      Google Ads, when you are ready.
+      {% if p.deployment.manage_url %}
+        <div style="margin-top:6px"><a href="{{ p.deployment.manage_url }}" target="_blank" rel="noopener">Open in Google Ads →</a></div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="grid g2">
+    <div>
+      <h4 style="margin:0 0 4px;font-size:13.5px;color:var(--navy)">Google Ads Editor
+        <span class="tag t-good" style="margin-left:6px">Available now</span></h4>
+      <p style="margin:0 0 10px;color:#64748b;font-size:12.5px">
+        Two files. The CSV is the campaign, ad groups, keywords, campaign negatives and one
+        responsive search ad per group — Editor imports it under the account owner's own sign-in,
+        so this needs no developer token and no API access. The build sheet is the assets to add
+        by hand, and anything the proposal is still missing.
+      </p>
+      <div class="row">
+        <a class="btn b-primary" href="{{ mount }}/proposal/{{ p.id }}/export/campaign.csv">Ads Editor CSV</a>
+        <a class="btn" href="{{ mount }}/proposal/{{ p.id }}/export/build-sheet.txt">Build sheet</a>
+      </div>
+      <div id="exportSummary" class="hint"></div>
+    </div>
+
+    <div>
+      <h4 style="margin:0 0 4px;font-size:13.5px;color:var(--navy)">Deploy through the API
+        {% if p.status == 'DEPLOYED' %}<span class="tag t-info" style="margin-left:6px">Done</span>
+        {% elif status.deploy_ready %}<span class="tag t-good" style="margin-left:6px">Connected</span>
+        {% else %}<span class="tag t-mute" style="margin-left:6px">Not available yet</span>{% endif %}
+      </h4>
+
+      {% if p.status == 'DEPLOYED' %}
+        <p style="margin:0;color:#64748b;font-size:12.5px">Already deployed — see above.</p>
+      {% elif not status.deploy_ready %}
+        <p style="margin:0 0 8px;color:#64748b;font-size:12.5px">
+          {% if status.blocks %}
+            Waiting on:
+            <ul style="margin:6px 0 0;padding-left:18px">
+              {% for b in status.blocks %}
+                <li><span class="mono">{{ b.name }}</span> — {{ b.why }}.</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            The credentials are set but no Google account has been authorised.
+            Open <a href="{{ mount }}/settings">Settings</a> and click Connect Google Ads.
+          {% endif %}
+        </p>
+        <p style="margin:8px 0 0;color:#64748b;font-size:12.5px">
+          Nothing above this card is affected — the campaign is built, reviewable and exportable
+          without it. Use the Ads Editor route meanwhile; the same proposal deploys here unchanged
+          once this is sorted.
+        </p>
+      {% else %}
+        <p style="margin:0 0 10px;color:#64748b;font-size:12.5px">
+          One atomic mutate — if any operation fails Google rolls the whole batch back, so a
+          half-built campaign cannot happen.
+        </p>
+        <div class="field">
+          <label>Destination account</label>
+          <select id="acct"><option value="">Loading accounts…</option></select>
+        </div>
+        <div class="row">
+          <button id="dry" onclick="deploy(true)">Dry run</button>
+          <button class="b-primary" id="go" onclick="deploy(false)"
+                  {{ 'disabled' if p.status != 'APPROVED' }}>Deploy</button>
+        </div>
+        {% if p.status != 'APPROVED' %}
+          <div class="hint">Approve the proposal above before it can be deployed. The dry run works at
+            any status — it sends the whole batch to Google's validator and writes nothing.</div>
+        {% endif %}
+        <div id="deployResult" style="margin-top:12px"></div>
+      {% endif %}
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block script %}
@@ -197,8 +562,9 @@
 const MOUNT = {{ mount|tojson }};
 const PID = {{ p.id|tojson }};
 const SAVED_CID = {{ (p.google_customer_id or '')|tojson }};
+const CPC_NOTE = {{ spec.CPC_NOTE|tojson }};
 
-{% if status.connected and p.status != 'DEPLOYED' %}
+{% if status.deploy_ready and p.status != 'DEPLOYED' %}
 (async function loadAccounts() {
   try {
     const d = await api('GET', MOUNT + '/api/accounts');
@@ -252,6 +618,382 @@ async function deploy(dryRun) {
 }
 {% endif %}
 
+// --------------------------------------------------------------- editing
+function toggleEdit() {
+  const read = document.getElementById('detailsRead');
+  const edit = document.getElementById('detailsEdit');
+  const on = edit.style.display === 'none';
+  edit.style.display = on ? '' : 'none';
+  read.style.display = on ? 'none' : '';
+  document.getElementById('editToggle').textContent = on ? 'Cancel' : 'Edit';
+}
+
+async function saveDetails() {
+  const btn = document.getElementById('saveDetails');
+  btn.disabled = true;
+  try {
+    await api('POST', `${MOUNT}/api/proposals/${PID}/edit`, {
+      businessName: document.getElementById('e_businessName').value.trim(),
+      websiteUrl: document.getElementById('e_websiteUrl').value.trim(),
+      strategySummary: document.getElementById('e_strategySummary').value.trim(),
+      intake: {
+        audienceType: document.getElementById('e_audienceType').value,
+        phone: document.getElementById('e_phone').value.trim(),
+        productOrService: document.getElementById('e_productOrService').value.trim(),
+        promotion: document.getElementById('e_promotion').value.trim(),
+        competitors: document.getElementById('e_competitors').value.trim(),
+        doNotTarget: document.getElementById('e_doNotTarget').value.trim(),
+        conversionActions: Array.from(
+          document.querySelectorAll('#e_conversions input:checked')).map(el => el.value)
+      }
+    });
+    window.location.reload();
+  } catch (err) {
+    document.getElementById('editMsg').innerHTML =
+      `<div class="note n-bad">${esc(err.message)}</div>`;
+    btn.disabled = false;
+  }
+}
+
+async function saveBudget() {
+  const btn = document.getElementById('saveBudget');
+  const msg = document.getElementById('budgetMsg');
+  btn.disabled = true;
+  msg.innerHTML = '';
+  try {
+    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/edit`,
+      {monthlyBudget: Number(document.getElementById('e_budget').value)});
+    if (!d.changed.length) { msg.innerHTML = '<div class="hint">That is the budget already.</div>'; }
+    else { window.location.reload(); }
+  } catch (err) {
+    msg.innerHTML = `<div class="note n-bad">${esc(err.message)}</div>`;
+  } finally { btn.disabled = false; }
+}
+
+// ------------------------------------------------- keyword / negative cuts
+const cuts = {keywords: [], negatives: []};
+
+function toggleCut(el) {
+  el.classList.toggle('cut');
+  const on = el.classList.contains('cut');
+  if (el.dataset.keyword) {
+    const row = {group: el.dataset.group, keyword: el.dataset.keyword};
+    if (on) cuts.keywords.push(row);
+    else cuts.keywords = cuts.keywords.filter(
+      r => !(r.group === row.group && r.keyword === row.keyword));
+  } else {
+    const row = {bucket: el.dataset.bucket, term: el.dataset.term};
+    if (on) cuts.negatives.push(row);
+    else cuts.negatives = cuts.negatives.filter(
+      r => !(r.bucket === row.bucket && r.term === row.term));
+  }
+  const n = cuts.keywords.length + cuts.negatives.length;
+  const btn = document.getElementById('applyCuts');
+  btn.disabled = !n;
+  btn.textContent = n ? `Remove ${n} selected` : 'Remove selected';
+}
+
+async function applyCuts() {
+  const n = cuts.keywords.length + cuts.negatives.length;
+  if (!n) return;
+  if (!confirm(
+      `Remove ${cuts.keywords.length} keyword(s) and ${cuts.negatives.length} negative(s)?\n\n` +
+      `Removing a negative reopens spend the vault was blocking, so this goes back ` +
+      `through the AI review before the estimate can be approved.`)) return;
+  const btn = document.getElementById('applyCuts');
+  btn.disabled = true;
+  try {
+    await api('POST', `${MOUNT}/api/proposals/${PID}/edit`,
+      {removeKeywords: cuts.keywords, removeNegatives: cuts.negatives});
+    window.location.reload();
+  } catch (err) {
+    document.getElementById('cutsMsg').innerHTML =
+      `<div class="note n-bad">${esc(err.message)}</div>`;
+    btn.disabled = false;
+  }
+}
+
+// --------------------------------------------------------------- analysis
+async function analysePage(force) {
+  const box = document.getElementById('pagePanel');
+  const btn = document.getElementById('pageBtn');
+  btn.disabled = true;
+  box.innerHTML = '<span class="spin"></span> Reading the page…';
+  try {
+    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/analyse/landing-page`);
+    drawPage(d.analysis, d.observed);
+  } catch (err) {
+    box.innerHTML = `<div class="note n-bad"><b>The page could not be analysed</b>${esc(err.message)}</div>`;
+  } finally { btn.disabled = false; }
+}
+
+function drawPage(a, o) {
+  const box = document.getElementById('pagePanel');
+  let html = '';
+  if (!o.measured) {
+    html += `<div class="note n-warn"><b>The page could not be read</b>${esc(o.error || '')}
+      Nothing below is measured from it — that is not the same as the page having none.</div>`;
+  } else {
+    html += `<div class="hint" style="margin:0 0 10px">Read ${esc(o.url)} · HTTP ${o.status}` +
+      (o.redirected ? ' (redirected)' : '') +
+      ` · mobile viewport ${o.mobile_viewport ? 'declared' : 'NOT declared'}</div>`;
+    html += '<label>Conversion points found on the page</label>';
+    html += (o.conversion_points || []).length
+      ? '<table><tbody>' + o.conversion_points.map(pt =>
+          `<tr><td style="width:210px">${esc(pt.label)}</td>
+             <td class="evid">${esc(pt.evidence)}</td></tr>`).join('') + '</tbody></table>'
+      : `<div class="note n-bad" style="margin-top:6px"><b>No conversion point at all</b>
+         No form, no click-to-call, no booking tool, no chat. Paid traffic has nowhere to go.</div>`;
+  }
+  if ((a.missingForGoals || []).length) {
+    html += `<div class="note n-bad" style="margin-top:12px"><b>The page cannot do what the client asked for</b>
+      They want ${a.missingForGoals.map(m => esc(m.label)).join(', ')}, and none of that is on the page.</div>`;
+  }
+  if (a.messageMatch) html += `<p style="color:#475569">${esc(a.messageMatch)}</p>`;
+  if ((a.gaps || []).length) {
+    html += '<label style="margin-top:10px">Gaps</label><ul style="color:#475569;padding-left:18px">' +
+      a.gaps.map(g => `<li><b>${esc(g.what)}</b> — ${esc(g.impact)}</li>`).join('') + '</ul>';
+  }
+  if ((a.pageRecommendations || []).length) {
+    html += '<label style="margin-top:10px">Suggestions for the page</label>' +
+      '<ul style="color:#475569;padding-left:18px">' +
+      a.pageRecommendations.map(r => `<li>${esc(r)}</li>`).join('') + '</ul>';
+  }
+  if ((a.campaignRecommendations || []).length) {
+    html += '<label style="margin-top:10px">What the campaign should do about it</label>' +
+      '<ul style="color:#475569;padding-left:18px">' +
+      a.campaignRecommendations.map(r => `<li>${esc(r)}</li>`).join('') + '</ul>';
+  }
+  box.innerHTML = html;
+}
+
+async function analyseCompetitors(force) {
+  const box = document.getElementById('compPanel');
+  const btn = document.getElementById('compBtn');
+  btn.disabled = true;
+  box.innerHTML = '<span class="spin"></span> Researching…';
+  try {
+    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/analyse/competitors`);
+    drawCompetitors(d.research);
+  } catch (err) {
+    box.innerHTML = `<div class="note n-bad"><b>Research failed</b>${esc(err.message)}</div>`;
+  } finally { btn.disabled = false; }
+}
+
+function drawCompetitors(r) {
+  let html = '';
+  if ((r.named || []).length) {
+    html += '<label>Named by the client</label><ul style="color:#475569;padding-left:18px">' +
+      r.named.map(x => `<li><b>${esc(x.name)}</b>${x.note ? ' — ' + esc(x.note) : ''}</li>`).join('') +
+      '</ul>';
+  }
+  if ((r.researched || []).length) {
+    html += '<label style="margin-top:10px">Our research <span class="est">(unverified)</span></label>' +
+      '<ul style="color:#475569;padding-left:18px">' +
+      r.researched.map(x => `<li><b>${esc(x.name)}</b> <span class="est">${esc(x.confidence)} confidence</span>` +
+        `${x.why ? ' — ' + esc(x.why) : ''}</li>`).join('') + '</ul>';
+    html += `<div class="hint">${esc(r.note || '')}</div>`;
+  }
+  if ((r.implications || []).length) {
+    html += '<label style="margin-top:10px">What it means for the campaign</label>' +
+      '<ul style="color:#475569;padding-left:18px">' +
+      r.implications.map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
+  }
+  if (r.brandTermAdvice) html += `<div class="hint">${esc(r.brandTermAdvice)}</div>`;
+  document.getElementById('compPanel').innerHTML = html ||
+    '<div style="color:#94a3b8">No competitor research yet.</div>';
+}
+
+async function loadTiers(force) {
+  const box = document.getElementById('tiers');
+  const btn = document.getElementById('tierBtn');
+  btn.disabled = true;
+  box.innerHTML = '<span class="spin"></span> Sizing Good / Better / Best…';
+  try {
+    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/analyse/budget-tiers`);
+    drawTiers(d.tiers);
+  } catch (err) {
+    box.innerHTML = `<div class="note n-bad">${esc(err.message)}</div>`;
+  } finally { btn.disabled = false; }
+}
+
+function drawTiers(t) {
+  const rows = (t && t.tiers) || [];
+  if (!rows.length) {
+    document.getElementById('tiers').innerHTML =
+      `<div class="hint">${esc((t && t.error) || 'No tiers have been sized yet.')}</div>`;
+    return;
+  }
+  document.getElementById('tiers').innerHTML = '<div class="grid g3">' + rows.map(r =>
+    `<div class="stat" style="${r.recommended ? 'border-color:var(--navy);box-shadow:0 0 0 1px var(--navy)' : ''}">
+       <div class="l">${esc(r.label)}${r.recommended ? ' · recommended' : ''}</div>
+       <div class="v">${money(r.monthly)}</div>
+       <div class="f">~${numf(r.estimatedClicks)} clicks/mo <span class="est">(${esc(CPC_NOTE)})</span></div>
+       ${r.buys ? `<div class="f" style="margin-top:6px">${esc(r.buys)}</div>` : ''}
+       ${r.belowFloor ? '<div class="f" style="color:var(--bad)">Too thin to read results from.</div>' : ''}
+       <div style="margin-top:8px"><button class="b-sm" onclick="useTier(${r.monthly})">Use ${money(r.monthly)}</button></div>
+     </div>`).join('') + '</div>' +
+    (t.rationale ? `<div class="hint">${esc(t.rationale)}</div>` : '') +
+    (t.floorWarning ? `<div class="note n-warn" style="margin-top:8px">${esc(t.floorWarning)}</div>` : '');
+}
+
+function useTier(monthly) {
+  document.getElementById('e_budget').value = monthly;
+  saveBudget();
+}
+
+// -------------------------------------------------------------------- logo
+async function loadLogo() {
+  const box = document.getElementById('logoBox');
+  try {
+    const d = await api('GET', `${MOUNT}/api/proposals/${PID}/logo`);
+    drawLogo(d.logo);
+  } catch (err) {
+    box.innerHTML = `<div class="note n-bad">${esc(err.message)}</div>`;
+  }
+}
+
+function drawLogo(l) {
+  const box = document.getElementById('logoBox');
+  let html = '';
+  if (l && l.found) {
+    html += `<img src="${esc(l.url)}" alt="logo">
+      <div>
+        <div><b>From the ${esc(l.source)}</b></div>
+        <div class="hint" style="margin:2px 0 8px">${esc(l.note || '')}</div>
+        <div class="row">
+          <button class="b-sm" onclick="fetchLogo()">Try Brandfetch again</button>
+          <label class="btn b-sm" style="cursor:pointer">Upload a different one
+            <input type="file" accept="image/*" style="display:none" onchange="uploadLogo(this)"></label>
+          <button class="b-sm b-bad" onclick="clearLogo()">Remove</button>
+        </div>
+      </div>`;
+  } else {
+    html += `<div>
+      <div class="hint" style="margin:0 0 8px">${esc((l && l.note) || 'No logo yet.')}
+        ${l && l.next ? esc(l.next) : ''}</div>
+      <div class="row">
+        <button class="b-sm" onclick="fetchLogo()" ${l && l.can_fetch === false ? 'disabled' : ''}>
+          Look it up with Brandfetch</button>
+        <label class="btn b-sm" style="cursor:pointer">Upload a logo
+          <input type="file" accept="image/*" style="display:none" onchange="uploadLogo(this)"></label>
+      </div></div>`;
+  }
+  box.innerHTML = html;
+}
+
+async function fetchLogo() {
+  document.getElementById('logoBox').innerHTML = '<span class="spin"></span> Asking Brandfetch…';
+  try {
+    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/logo/brandfetch`);
+    drawLogo(d.logo);
+  } catch (err) { drawLogo({found: false, note: err.message}); }
+}
+
+async function uploadLogo(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  document.getElementById('logoBox').innerHTML = '<span class="spin"></span> Uploading…';
+  const form = new FormData();
+  form.append('logo', file);
+  try {
+    const res = await fetch(`${MOUNT}/api/proposals/${PID}/logo/upload`,
+      {method: 'POST', body: form, credentials: 'same-origin'});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || res.statusText);
+    drawLogo(d.logo);
+  } catch (err) { drawLogo({found: false, note: err.message}); }
+}
+
+async function clearLogo() {
+  await api('DELETE', `${MOUNT}/api/proposals/${PID}/logo`);
+  loadLogo();
+}
+
+// ------------------------------------------------------ approve and share
+async function approve(acknowledged) {
+  const btn = document.getElementById('approveBtn');
+  const box = document.getElementById('approveResult');
+  btn.disabled = true;
+  box.innerHTML = '<span class="spin"></span> Checking…';
+  try {
+    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/estimate/approve`,
+      {acknowledged: !!acknowledged});
+    if (d.needs_review) {
+      const rv = d.review;
+      const tone = rv.verdict === 'block' ? 'bad' : rv.verdict === 'warn' ? 'warn' : 'good';
+      box.innerHTML =
+        `<div class="note n-${tone}"><b>The AI reviewed your changes</b>${esc(rv.summary || '')}</div>` +
+        (rv.findings || []).map(f =>
+          `<div class="note n-${f.severity === 'block' ? 'bad' : f.severity === 'warn' ? 'warn' : 'info'}">
+             <b>${esc(f.where || f.severity)}</b>${esc(f.what)}
+             ${f.fix ? `<div style="margin-top:4px">Fix: ${esc(f.fix)}</div>` : ''}</div>`).join('') +
+        `<div class="hint">${esc(d.note)}</div>`;
+      btn.textContent = 'Approve anyway';
+      btn.onclick = () => approve(true);
+      btn.disabled = false;
+      return;
+    }
+    window.location.reload();
+  } catch (err) {
+    box.innerHTML = `<div class="note n-bad">${esc(err.message)}</div>`;
+    btn.disabled = false;
+  }
+}
+
+async function createShare() {
+  const btn = document.getElementById('shareBtn');
+  btn.disabled = true;
+  try {
+    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/share`);
+    window.location.reload();
+  } catch (err) {
+    toast('bad', err.message);
+    btn.disabled = false;
+  }
+}
+
+async function revokeShare(token) {
+  if (!confirm('Revoke this link?\n\nAnyone holding it will see "no longer available".')) return;
+  try {
+    await api('POST', `${MOUNT}/api/proposals/${PID}/shares/${token}/revoke`);
+    window.location.reload();
+  } catch (err) { toast('bad', err.message); }
+}
+
+function copyLink(url) {
+  navigator.clipboard.writeText(url).then(
+    () => toast('good', 'Link copied.'),
+    () => toast('warn', 'Could not copy — select the link and copy it by hand.'));
+}
+
+// What the handoff carries and what it cannot, said before anyone downloads
+// it — three files where there should be four reads as the rep's own mistake.
+(async function exportSummary() {
+  const box = document.getElementById('exportSummary');
+  if (!box) return;
+  try {
+    const d = await api('GET', `${MOUNT}/api/proposals/${PID}/export`);
+    const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+    const hand = [];
+    if (d.by_hand.sitelinks) hand.push(plural(d.by_hand.sitelinks, 'sitelink', 'sitelinks'));
+    if (d.by_hand.callouts) hand.push(plural(d.by_hand.callouts, 'callout', 'callouts'));
+    if (d.by_hand.structured_snippets)
+      hand.push(plural(d.by_hand.structured_snippets, 'snippet value', 'snippet values'));
+    let html = `Imports as <b>${esc(d.campaign_name)}</b>, paused` +
+      (d.daily_budget ? `, ${money2(d.daily_budget)}/day` : '') +
+      `, ${plural(d.negatives, 'campaign negative', 'campaign negatives')}.`;
+    html += hand.length
+      ? ` By hand afterwards: ${esc(hand.join(', '))} — on the build sheet.`
+      : ' No assets to add by hand.';
+    if (d.problems && d.problems.length) {
+      html += '<div class="note n-warn" style="margin-top:8px"><b>Fix before importing</b>' +
+        d.problems.map(x => esc(x)).join('<br>') + '</div>';
+    }
+    box.innerHTML = html;
+  } catch (e) { /* the download links work regardless */ }
+})();
+
 async function setStatus(status) {
   try {
     await api('POST', `${MOUNT}/api/proposals/${PID}/status`, {status});
@@ -267,5 +1009,22 @@ async function addComment() {
     window.location.reload();
   } catch (err) { toast('bad', err.message); }
 }
+
+// The three panels that cost a model call render from whatever is already
+// stored and only go out to OpenAI when there is nothing there. A page that
+// spent four calls on every refresh would be slow and expensive for nothing.
+const STORED_PAGE = {{ (c.landingPageAnalysis or {})|tojson }};
+const STORED_OBSERVED = {{ (c.landingPageObserved or {})|tojson }};
+const STORED_COMP = {{ (c.competitorResearch or {})|tojson }};
+const STORED_TIERS = {{ (c.budgetTiers or {})|tojson }};
+
+if (STORED_PAGE && STORED_PAGE.ctaReadiness) drawPage(STORED_PAGE, STORED_OBSERVED || {});
+else analysePage();
+
+if (STORED_COMP && (STORED_COMP.named || STORED_COMP.researched)) drawCompetitors(STORED_COMP);
+else analyseCompetitors();
+
+drawTiers(STORED_TIERS);
+loadLogo();
 </script>
 {% endblock %}

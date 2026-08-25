@@ -3,20 +3,94 @@
 {% block title %}Campaign generator{% endblock %}
 {% block strap %}Build a full Google Ads search campaign from a landing page and a budget{% endblock %}
 
+{% block head %}
+<style>
+  .pick { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line);
+          border-radius:8px; padding:6px 11px; font-size:13px; font-weight:500; color:var(--ink);
+          cursor:pointer; margin:0; background:#fff }
+  .pick:hover { border-color:#cbd5e1; background:#f8fafc }
+  .pick input { width:auto; margin:0 }
+  .pick:has(input:checked) { border-color:var(--blue); background:var(--blue-soft); color:var(--blue) }
+  .picks { display:flex; flex-wrap:wrap; gap:7px }
+  .est { color:#94a3b8; font-weight:400; text-transform:none; letter-spacing:0 }
+  .arearow { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px;
+             background:#fbfcfe }
+  .arearow .top { display:flex; gap:10px; align-items:center; margin-bottom:9px }
+  .arearow .top strong { color:var(--navy); font-size:13.5px }
+  .arearow .fields { display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)) }
+  .arearow .fields .field { margin:0 }
+</style>
+{% endblock %}
+
 {% block content %}
 <div id="toast" style="display:none"></div>
 
 {% if not openai_configured %}
   <div class="note n-warn">
-    <b>No server-side OpenAI key</b>
-    <span class="mono">OPENAI_API_KEY</span> is not set in the Hub environment. You can still generate by
-    pasting a key below, but it will not be remembered.
+    <b>The generator has no OpenAI key to use</b>
+    <span class="mono">OPENAI_API_KEY</span> is not set on this Hub service, and this page does not
+    accept a key from the browser. Set it on the service and redeploy — it is the same key the SEO,
+    FAQ Builder and proposal tools already use.
   </div>
 {% endif %}
 
 <form id="gen" onsubmit="return false">
+  {# The client comes first and is looked up, not typed. A campaign filed under
+     a name nobody recognises does not reach the client's record, and a name
+     typed slightly differently ("Riverside HVAC" vs "Riverside HVAC LLC")
+     reaches the wrong one — which is worse. #}
   <div class="card">
-    <h3>Client and objective</h3>
+    <h3>Client <span class="sub">look one up, or start a new one</span></h3>
+
+    <div id="clientSearch">
+      <div class="field">
+        <label for="clientQuery">Search existing clients</label>
+        <input id="clientQuery" placeholder="Start typing a client name or domain…"
+               autocomplete="off" oninput="searchClientsSoon()">
+        <div class="hint" id="clientHint">Matched on domain first, then an exact name.</div>
+      </div>
+      <div id="clientHits"></div>
+      <div class="row">
+        <div class="spacer"></div>
+        <button type="button" class="b-sm" onclick="newClient()">This is a new client →</button>
+      </div>
+    </div>
+
+    <div id="clientPicked" style="display:none">
+      <div class="note n-good" style="margin-bottom:0">
+        <b id="pickedName"></b>
+        <span id="pickedMeta"></span>
+        <div style="margin-top:8px"><button type="button" class="b-sm" onclick="clearClient()">Change client</button></div>
+      </div>
+    </div>
+
+    <div id="clientNew" style="display:none">
+      <div class="note n-info">
+        <b>New client</b>
+        They are not in the client list, so they go into Smart 1 Suite as a <strong>lead</strong> — not into
+        the Knack client record, which this Hub does not write to. The campaign and its proposal are
+        filed under this name and website, so they join the client record the day it exists.
+      </div>
+      <div class="grid g2">
+        <div class="field"><label>Contact name</label>
+          <input id="contactName" placeholder="Dana Whitfield"></div>
+        <div class="field"><label>Contact email</label>
+          <input id="contactEmail" type="email" placeholder="dana@northsideroofing.com"></div>
+        <div class="field"><label>Contact phone</label>
+          <input id="contactPhone" placeholder="(317) 555-0142"></div>
+      </div>
+      <div class="hint">An email <i>or</i> a phone number is needed to create the lead. Without
+        either, the campaign is still built and filed — there is just nobody to call, so no lead
+        is created rather than a contactless one.</div>
+      <div class="row" style="margin-top:10px">
+        <div class="spacer"></div>
+        <button type="button" class="b-sm" onclick="clearClient()">← Search existing clients instead</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Campaign and objective</h3>
     <div class="grid g2">
       <div class="field"><label>Client / business name</label>
         <input id="businessName" placeholder="Northside Roofing Co" required></div>
@@ -32,38 +106,137 @@
         </select></div>
       <div class="field"><label>Target audience</label>
         <input id="targetAudience" placeholder="Homeowners 35–65, storm damage"></div>
-      <div class="field"><label>Geography</label>
-        <input id="geography" placeholder="Indianapolis metro, 25 mile radius"></div>
+      <div class="field"><label>Contact phone <span style="font-weight:400">(optional)</span></label>
+        <input id="phone" placeholder="(317) 555-0142">
+        <div class="hint">Used for call extensions and call-only ads. Leave blank if the
+          client does not want calls.</div></div>
     </div>
+  </div>
+
+  {# Target areas, not one geography box. A dealer group with four rooftops is
+     one campaign in four places, and typing them into a single field makes the
+     reach estimate size them as one — hub/target_areas.py exists for exactly
+     this, and this is the same list the Proposal Builder captures. #}
+  <div class="card">
+    <h3>Where the ads run <span class="sub">one campaign can target several areas</span></h3>
+    <div id="areaRows"></div>
+    <div class="row" style="margin-top:10px">
+      <button type="button" class="b-sm" onclick="addArea()">+ Add another area</button>
+      <div class="spacer"></div>
+      <div id="areaReach" class="hint" style="margin:0"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>About the business <span class="sub">this is what the AI plans the campaign from</span></h3>
+    <div class="grid g2">
+      <div class="field"><label>Are they targeting…</label>
+        <select id="audienceType">
+          <option value="">Not sure yet</option>
+          {% for a in audience_types %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
+        </select>
+        <div class="hint">B2B and B2C search differently. “Both” builds them as separate
+          ad groups rather than one blended set.</div></div>
+      <div class="field"><label>What is the service or product?</label>
+        <textarea id="productOrService" style="min-height:64px"
+                  placeholder="Residential roof repair and full replacement. Storm/insurance work."></textarea></div>
+      <div class="field"><label>Whom have they defined as competitors?</label>
+        <textarea id="competitors" style="min-height:64px"
+                  placeholder="Names the client gave you, however rough…"></textarea>
+        <div class="hint">The AI researches others in this sector and area as well, and
+          labels those as its own research rather than the client's.</div></div>
+      <div class="field"><label>Is there a promotion for this campaign?</label>
+        <textarea id="promotion" style="min-height:64px"
+                  placeholder="$89 spring tune-up, free inspection, 0% for 12 months…"></textarea></div>
+    </div>
+
+    <div class="grid g2">
+      <div class="field">
+        <label>Is the business or campaign seasonal?</label>
+        <div class="row">
+          <label class="pick"><input type="radio" name="seasonal" value="" checked> Not asked</label>
+          <label class="pick"><input type="radio" name="seasonal" value="yes"> Yes</label>
+          <label class="pick"><input type="radio" name="seasonal" value="no"> No</label>
+        </div>
+        <input id="seasonalNotes" style="margin-top:8px"
+               placeholder="When? e.g. March–June, and again after the first freeze">
+      </div>
+      <div class="field">
+        <label>Are they a locally owned business?</label>
+        <div class="row">
+          <label class="pick"><input type="radio" name="local" value="" checked> Not asked</label>
+          <label class="pick"><input type="radio" name="local" value="yes"> Yes</label>
+          <label class="pick"><input type="radio" name="local" value="no"> No</label>
+        </div>
+        <div class="hint">If yes, it goes in the ad copy — it is a real differentiator
+          against national competitors bidding the same terms.</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>What do they want from the campaign? <span style="font-weight:400">(choose as many as apply)</span></label>
+      <div class="picks" id="conversionActions">
+        {% for key, label, note in conversion_actions %}
+          <label class="pick" title="{{ note }}">
+            <input type="checkbox" value="{{ key }}"> {{ label }}
+          </label>
+        {% endfor %}
+      </div>
+      <div class="hint">Each one changes the campaign — call-only ads and hours for calls,
+        a booking tool for appointments. We also check the landing page can actually do them.</div>
+    </div>
+
+    <div class="field">
+      <label>Is there anything we should <em>not</em> be targeting?</label>
+      <textarea id="doNotTarget" style="min-height:64px"
+                placeholder="Anything the client ruled out — commercial work, a service they're dropping, a town they don't cover…"></textarea>
+      <div class="hint">Written into the negative keywords <em>and</em> kept out of the
+        positive ones. This is treated as a client instruction, not a preference.</div>
+    </div>
+
     <div class="field"><label>Anything else the strategist should know</label>
       <textarea id="notes" placeholder="Competitors, seasonality, services to exclude…"></textarea></div>
   </div>
 
   <div class="card">
     <h3>Budget <span class="sub">drag to see what the money actually buys</span></h3>
-    <div class="row" style="justify-content:space-between">
-      <label style="margin:0">Monthly budget</label>
-      <strong style="font-size:20px;color:var(--navy)" id="budgetLabel">$3,000</strong>
+    <label class="pick" style="margin-bottom:12px">
+      <input type="checkbox" id="noBudget" onchange="toggleBudget()">
+      They don't know a budget yet
+    </label>
+
+    <div id="budgetBox">
+      <div class="row" style="justify-content:space-between">
+        <label style="margin:0">Monthly budget</label>
+        <strong style="font-size:20px;color:var(--navy)" id="budgetLabel">$3,000</strong>
+      </div>
+      <input type="range" id="budget" min="300" max="30000" step="100" value="3000" oninput="checkBudget()">
+      <div class="row" style="justify-content:space-between;color:#94a3b8;font-size:11.5px">
+        <span>$300</span><span>$30,000+</span>
+      </div>
+      <div id="viability" style="margin-top:12px"></div>
     </div>
-    <input type="range" id="budget" min="300" max="30000" step="100" value="3000" oninput="checkBudget()">
-    <div class="row" style="justify-content:space-between;color:#94a3b8;font-size:11.5px">
-      <span>$300</span><span>$30,000+</span>
+
+    <div id="noBudgetNote" style="display:none">
+      <div class="note n-info" style="margin:0">
+        <b>The AI will size Good / Better / Best</b>
+        The campaign is built at the tier it recommends, and the estimate says in as many
+        words that the client did not name a budget. You get all three tiers on the estimate
+        either way — they are also sized when a budget <em>is</em> given, so a rep can show
+        what the next step up buys.
+      </div>
     </div>
-    <div id="viability" style="margin-top:12px"></div>
   </div>
 
   <div class="card">
     <h3>Generate</h3>
-    <div class="field">
-      <label>OpenAI key override (optional)</label>
-      <input type="password" id="customApiKey" placeholder="Leave blank to use the Hub's OPENAI_API_KEY">
-    </div>
     <div id="genError"></div>
     <div class="row end">
       <button class="b-primary" id="go" onclick="generate()">Generate campaign</button>
     </div>
     <div class="hint" id="genHint" style="display:none">
-      Building 2–3 ad groups with 20–50 keywords each. This usually takes 20–45 seconds.
+      Reading the landing page, then building 2–3 ad groups with 20–50 keywords each and
+      sizing the budget tiers. This usually takes 30–60 seconds.
     </div>
   </div>
 </form>
@@ -73,6 +246,76 @@
 <script>
 const MOUNT = {{ mount|tojson }};
 let debounce;
+let clientDebounce;
+let clientMode = '';          // '' | 'picked' | 'new'
+
+// ---------------------------------------------------------------- client
+function searchClientsSoon() {
+  clearTimeout(clientDebounce);
+  clientDebounce = setTimeout(searchClients, 260);
+}
+
+async function searchClients() {
+  const q = document.getElementById('clientQuery').value.trim();
+  const hits = document.getElementById('clientHits');
+  if (q.length < 2) { hits.innerHTML = ''; return; }
+  try {
+    const d = await api('GET', `${MOUNT}/api/clients?q=${encodeURIComponent(q)}`);
+    // "no such client" and "the list could not be read" send a rep to two
+    // different places, so they are never rendered the same way.
+    if (!d.available) {
+      hits.innerHTML = `<div class="note n-warn"><b>The client list could not be read</b>${esc(d.note)}
+        You can still enter this as a new client.</div>`;
+      return;
+    }
+    if (!d.clients.length) {
+      hits.innerHTML = `<div class="hint">No client matches “${esc(q)}”. If they are not a client
+        yet, start them as a new one.</div>`;
+      return;
+    }
+    hits.innerHTML = '<div class="chips" style="margin-bottom:10px">' + d.clients.map((c, i) =>
+      `<button type="button" class="b-sm" data-i="${i}" style="text-align:left">
+         <span><b>${esc(c.name)}</b>${c.domain ? ' <span style="color:#94a3b8">' + esc(c.domain) + '</span>' : ''}
+         ${c.running ? '<span class="tag t-good" style="margin-left:5px">' + c.running + ' running</span>' : ''}</span>
+       </button>`).join('') + '</div>';
+    hits.querySelectorAll('button[data-i]').forEach(btn => {
+      btn.onclick = () => pickClient(d.clients[Number(btn.dataset.i)]);
+    });
+  } catch (err) {
+    hits.innerHTML = `<div class="note n-warn"><b>The client list could not be read</b>${esc(err.message)}</div>`;
+  }
+}
+
+function pickClient(c) {
+  clientMode = 'picked';
+  document.getElementById('businessName').value = c.name || '';
+  if (c.url && !document.getElementById('websiteUrl').value.trim()) {
+    document.getElementById('websiteUrl').value = c.url;
+  }
+  document.getElementById('pickedName').textContent = c.name || '';
+  document.getElementById('pickedMeta').textContent =
+    [c.domain || 'no website on record',
+     c.running ? c.running + ' running products' : 'no running products',
+     c.is_seo ? 'SEO client' : ''].filter(Boolean).join(' · ');
+  document.getElementById('clientSearch').style.display = 'none';
+  document.getElementById('clientNew').style.display = 'none';
+  document.getElementById('clientPicked').style.display = '';
+}
+
+function newClient() {
+  clientMode = 'new';
+  document.getElementById('clientSearch').style.display = 'none';
+  document.getElementById('clientPicked').style.display = 'none';
+  document.getElementById('clientNew').style.display = '';
+  document.getElementById('businessName').focus();
+}
+
+function clearClient() {
+  clientMode = '';
+  document.getElementById('clientSearch').style.display = '';
+  document.getElementById('clientPicked').style.display = 'none';
+  document.getElementById('clientNew').style.display = 'none';
+}
 
 function checkBudget() {
   const budget = document.getElementById('budget').value;
@@ -83,11 +326,13 @@ function checkBudget() {
       const a = await api('GET', `${MOUNT}/api/budget-check?budget=${budget}&sector=${document.getElementById('sector').value}`);
       const tone = a.status === 'HEALTHY' ? 'good' : a.status === 'WARN' ? 'warn' : 'bad';
       document.getElementById('viability').innerHTML = `
-        <div class="note n-${tone}"><b>${esc(titleise(a.status))} · ${esc(a.sector)}</b>${esc(a.advice)}</div>
+        <div class="note n-${tone}"><b>${esc(titleise(a.status))} · ${esc(a.sector)}</b>${esc(a.advice)}
+          <div style="margin-top:5px;font-size:12px;opacity:.85">${esc(a.cpc_note_long || '')}</div></div>
         <div class="grid g3">
           <div class="stat"><div class="l">Est. clicks / month</div><div class="v">${numf(a.estimated_clicks)}</div>
             <div class="f">${numf(a.worst_case_clicks)} at the high end of CPC</div></div>
-          <div class="stat"><div class="l">Sector CPC range</div><div class="v">$${a.cpc_low}–$${a.cpc_high}</div>
+          <div class="stat"><div class="l">Sector CPC range <span class="est">(${esc(a.cpc_note || '')})</span></div>
+            <div class="v">$${a.cpc_low}–$${a.cpc_high}</div>
             <div class="f">${esc(a.sector)}</div></div>
           <div class="stat"><div class="l">Suggested floor</div><div class="v">${money(a.recommended_minimum)}</div>
             <div class="f">~100 clicks/mo to learn from</div></div>
@@ -96,21 +341,155 @@ function checkBudget() {
   }, 200);
 }
 
+// --------------------------------------------------------------- areas
+// The rows live here; every label, reach figure and completeness check comes
+// back from the server. Target areas already carry one JavaScript mirror in the
+// Proposal Builder with a test asserting the two halves agree — a second mirror
+// would need a second such test, and would drift the day either was edited.
+let areas = [];
+let areaDebounce;
+
+function blankArea() {
+  return {name: '', type: 'City/ZIP + Radius', origin: '', radius: 10,
+          dma: '', state: '', other: '', zips: '', notes: ''};
+}
+
+function addArea() { areas.push(blankArea()); drawAreas(); refreshAreas(); }
+function removeArea(i) { areas.splice(i, 1); if (!areas.length) areas.push(blankArea());
+                         drawAreas(); refreshAreas(); }
+function setArea(i, field, value) {
+  areas[i][field] = value;
+  clearTimeout(areaDebounce);
+  areaDebounce = setTimeout(refreshAreas, 350);
+}
+
+const AREA_TYPES = {{ area_types|tojson }};
+
+function drawAreas(meta) {
+  meta = meta || [];
+  document.getElementById('areaRows').innerHTML = areas.map((a, i) => {
+    const m = meta[i] || {};
+    const t = a.type;
+    const f = [];
+    if (t === 'City/ZIP + Radius') {
+      f.push(`<div class="field"><label>City or ZIP</label>
+        <input value="${esc(a.origin)}" placeholder="Carmel, IN"
+               oninput="setArea(${i},'origin',this.value)"></div>`);
+      f.push(`<div class="field"><label>Radius (miles)</label>
+        <input type="number" min="1" max="500" value="${esc(a.radius)}"
+               oninput="setArea(${i},'radius',this.value)"></div>`);
+      f.push(`<div class="field"><label>ZIP codes (optional)</label>
+        <input value="${esc(a.zips)}" placeholder="46032, 46033"
+               oninput="setArea(${i},'zips',this.value)"></div>`);
+    } else if (t === 'DMA') {
+      f.push(`<div class="field"><label>DMA</label>
+        <input value="${esc(a.dma)}" placeholder="Indianapolis"
+               oninput="setArea(${i},'dma',this.value)"></div>`);
+    } else if (t === 'Statewide') {
+      f.push(`<div class="field"><label>State</label>
+        <input value="${esc(a.state)}" placeholder="Indiana"
+               oninput="setArea(${i},'state',this.value)"></div>`);
+    } else if (t === 'Other') {
+      f.push(`<div class="field"><label>Describe it</label>
+        <input value="${esc(a.other)}" placeholder="Our five delivery routes"
+               oninput="setArea(${i},'other',this.value)"></div>`);
+      f.push(`<div class="field"><label>ZIP codes</label>
+        <input value="${esc(a.zips)}" placeholder="46032, 46033"
+               oninput="setArea(${i},'zips',this.value)"></div>`);
+    }
+    const reach = m.population
+      ? `~${numf(m.population)} people`
+      : (m.complete ? '<span style="color:#94a3b8">reach not measured</span>' : '');
+    return `<div class="arearow">
+      <div class="top">
+        <strong>${esc(m.label || ('Area ' + (i + 1)))}</strong>
+        <span style="font-size:12px;color:#64748b">${reach}</span>
+        <div class="spacer"></div>
+        ${areas.length > 1 ? `<button type="button" class="b-sm b-bad"
+            onclick="removeArea(${i})">Remove</button>` : ''}
+      </div>
+      <div class="fields">
+        <div class="field"><label>Name this area (optional)</label>
+          <input value="${esc(a.name)}" placeholder="Carmel showroom"
+                 oninput="setArea(${i},'name',this.value)"></div>
+        <div class="field"><label>Type</label>
+          <select onchange="setArea(${i},'type',this.value);drawAreas();refreshAreas()">
+            ${AREA_TYPES.map(x => `<option value="${esc(x)}" ${x === t ? 'selected' : ''}>${esc(x)}</option>`).join('')}
+          </select></div>
+        ${f.join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function refreshAreas() {
+  try {
+    const d = await api('POST', MOUNT + '/api/areas/preview', {areas: areas});
+    drawAreas(d.areas);
+    const box = document.getElementById('areaReach');
+    box.innerHTML = d.total_population
+      ? `Estimated reach across ${d.areas.filter(a => a.complete).length} area(s): ` +
+        `<b>${numf(d.total_population)}</b> people. ${esc(d.note)}` +
+        (d.unsized.length ? ` Not measured: ${esc(d.unsized.join(', '))}.` : '')
+      : esc(d.note);
+  } catch (e) { /* the rows still render from what is typed */ }
+}
+
+function radioValue(name) {
+  const el = document.querySelector(`input[name=${name}]:checked`);
+  return el ? el.value : '';
+}
+
+function tri(name) {
+  const v = radioValue(name);
+  return v === 'yes' ? true : v === 'no' ? false : '';
+}
+
+function toggleBudget() {
+  const off = document.getElementById('noBudget').checked;
+  document.getElementById('budgetBox').style.display = off ? 'none' : '';
+  document.getElementById('noBudgetNote').style.display = off ? '' : 'none';
+}
+
 async function generate() {
+  const noBudget = document.getElementById('noBudget').checked;
   const body = {
     businessName: document.getElementById('businessName').value.trim(),
     websiteUrl: document.getElementById('websiteUrl').value.trim(),
     objective: document.getElementById('objective').value,
     sector: document.getElementById('sector').value,
-    budget: Number(document.getElementById('budget').value),
+    budget: noBudget ? 0 : Number(document.getElementById('budget').value),
     targetAudience: document.getElementById('targetAudience').value.trim(),
-    geography: document.getElementById('geography').value.trim(),
+    targetAreas: areas,
     notes: document.getElementById('notes').value.trim(),
-    customApiKey: document.getElementById('customApiKey').value.trim()
+    audienceType: document.getElementById('audienceType').value,
+    productOrService: document.getElementById('productOrService').value.trim(),
+    competitors: document.getElementById('competitors').value.trim(),
+    promotion: document.getElementById('promotion').value.trim(),
+    seasonal: tri('seasonal'),
+    seasonalNotes: document.getElementById('seasonalNotes').value.trim(),
+    locallyOwned: tri('local'),
+    phone: document.getElementById('phone').value.trim(),
+    doNotTarget: document.getElementById('doNotTarget').value.trim(),
+    conversionActions: Array.from(
+      document.querySelectorAll('#conversionActions input:checked')).map(el => el.value),
+    isNewClient: clientMode === 'new',
+    clientPicked: clientMode === 'picked',
+    contact: clientMode === 'new' ? {
+      name: document.getElementById('contactName').value.trim(),
+      email: document.getElementById('contactEmail').value.trim(),
+      phone: document.getElementById('contactPhone').value.trim()
+    } : {}
   };
   if (!body.businessName || !body.websiteUrl) {
     document.getElementById('genError').innerHTML =
       '<div class="note n-bad">A client name and landing page URL are both required.</div>';
+    return;
+  }
+  if (!clientMode) {
+    document.getElementById('genError').innerHTML =
+      '<div class="note n-bad">Pick the client from the list, or say this is a new one — the campaign ' +
+      'is filed on their record either way, and an unattached one reaches nobody.</div>';
     return;
   }
 
@@ -133,5 +512,7 @@ async function generate() {
 }
 
 checkBudget();
+areas.push(blankArea());
+drawAreas();
 </script>
 {% endblock %}

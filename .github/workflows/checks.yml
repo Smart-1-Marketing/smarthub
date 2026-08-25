@@ -123,6 +123,19 @@ jobs:
             echo "test_display_ads.py not on this branch — nothing to run."
           fi
 
+      - name: Ads estimate and client review tests
+        # The campaign estimate a CLIENT reads: reachable without a Hub login,
+        # carrying no staff chrome, one document shared with the internal
+        # preview, every avg CPC labelled an industry estimate, and an edit
+        # invalidating the approval it was made against. Guarded like the steps
+        # below so this workflow stays mergeable on a branch that predates it.
+        run: |
+          if [ -f test_ads_estimate.py ]; then
+            python test_ads_estimate.py
+          else
+            echo "test_ads_estimate.py not on this branch — nothing to run."
+          fi
+
       - name: JSON store tests
         run: python test_jsonstore.py
 

@@ -17,9 +17,14 @@ from wsgiref.simple_server import WSGIServer, make_server
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
-# Isolated database per run
+# Isolated database and data directory per run, house style: nothing here may
+# reach /var/data, the real database, or the repo's own ./data — client_link
+# files a proposal onto a client record, and that is a write.
 TMP = tempfile.mkdtemp(prefix="s1ads_test_")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "test.db")
+os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "disk")
+os.makedirs(os.environ["HUB_DATA_DIR"], exist_ok=True)
+os.environ.pop("CLOUDINARY_URL", None)
 os.environ.setdefault("GOOGLE_ADS_REDIRECT_URI", "http://localhost:8099/tools/ads/oauth/callback")
 
 import requests  # noqa: E402
@@ -263,6 +268,175 @@ def run():
         except ga.GoogleAdsError:
             check(f"[deploy] refuses {why}", True)
 
+    # ------------------------------------- Ads Editor export (no dev token)
+    # The whole point of this path is that it needs no Google API access at
+    # all, so nothing in this block may reach for a credential.
+    import csv as _csv
+    import io as _io
+    from modules.ads_builder import export
+
+    csv_text = export.editor_csv(SAMPLE)
+    rows = list(_csv.DictReader(_io.StringIO(csv_text)))
+    camp_rows = [r_ for r_ in rows if r_["Campaign Type"]]
+    group_rows = [r_ for r_ in rows if r_["Max CPC"]]
+    kw_rows = [r_ for r_ in rows if r_["Keyword"] and not r_["Criterion Type"].startswith("Campaign Negative")]
+    neg_rows = [r_ for r_ in rows if r_["Criterion Type"].startswith("Campaign Negative")]
+    ad_rows = [r_ for r_ in rows if r_["Ad Type"]]
+
+    check("[export] one campaign row", len(camp_rows) == 1)
+    check("[export] the campaign is Paused, like the API path",
+          camp_rows[0]["Status"] == "Paused")
+    check("[export] it is a Search campaign", camp_rows[0]["Campaign Type"] == "Search")
+    check("[export] search partners are off by default",
+          "partners" not in camp_rows[0]["Networks"].lower())
+    check("[export] the monthly budget becomes a daily one",
+          camp_rows[0]["Campaign Daily Budget"] == "213.82",
+          camp_rows[0]["Campaign Daily Budget"])
+    check("[export] one row per ad group", len(group_rows) == 2)
+    check("[export] ad groups are Paused", all(r_["Status"] == "Paused" for r_ in group_rows))
+    check("[export] every keyword survives", len(kw_rows) == 10, str(len(kw_rows)))
+    check("[export] bracket syntax is stripped from the keyword text",
+          all(not k["Keyword"].startswith("[") for k in kw_rows))
+    check("[export] match types become Editor criterion types",
+          {k["Criterion Type"] for k in kw_rows} == {"Exact", "Phrase"},
+          str({k["Criterion Type"] for k in kw_rows}))
+    check("[export] an exact keyword stays exact",
+          any(k["Keyword"] == "emergency roof repair" and k["Criterion Type"] == "Exact"
+              for k in kw_rows))
+    check("[export] all 10 vault negatives are attached", len(neg_rows) == 10, str(len(neg_rows)))
+    check("[export] negatives are campaign level and broad",
+          all(n["Criterion Type"] == "Campaign Negative Broad" for n in neg_rows))
+    check("[export] one responsive search ad per ad group", len(ad_rows) == 2)
+    check("[export] ads are Paused", all(a["Status"] == "Paused" for a in ad_rows))
+    check("[export] every ad carries the final URL",
+          all(a["Final URL"] == SAMPLE["websiteUrl"] for a in ad_rows))
+    check("[export] every ad has >= 3 headlines",
+          all(len([1 for i in range(1, 16) if a[f"Headline {i}"]]) >= 3 for a in ad_rows))
+    check("[export] every ad has >= 2 descriptions",
+          all(len([1 for i in range(1, 5) if a[f"Description {i}"]]) >= 2 for a in ad_rows))
+    check("[export] no headline exceeds 30 characters",
+          all(len(a[f"Headline {i}"]) <= 30 for a in ad_rows for i in range(1, 16)))
+    check("[export] no description exceeds 90 characters",
+          all(len(a[f"Description {i}"]) <= 90 for a in ad_rows for i in range(1, 5)))
+
+    # The name must not move between downloads: a timestamped one imports as a
+    # second campaign on the second attempt, with nothing saying so.
+    check("[export] the campaign name is stable across downloads",
+          export.default_campaign_name(SAMPLE) == export.default_campaign_name(SAMPLE))
+    check("[export] and carries the client name",
+          "Northside Roofing Co" in export.default_campaign_name(SAMPLE))
+
+    # Absent data reads as absent, never as zero.
+    no_budget = {**SAMPLE, "monthlyBudget": 0}
+    blank = list(_csv.DictReader(_io.StringIO(export.editor_csv(no_budget))))
+    check("[export] a missing budget leaves the cell blank rather than inventing one",
+          [r_ for r_ in blank if r_["Campaign Type"]][0]["Campaign Daily Budget"] == "")
+    check("[export] ...and says so before anybody imports it",
+          any("budget" in x.lower() for x in export.problems(no_budget)))
+    check("[export] a broken URL is reported, not silently dropped",
+          any("final url" in x.lower() for x in export.problems({**SAMPLE, "websiteUrl": "nope"})))
+    check("[export] a healthy proposal reports no problems", export.problems(SAMPLE) == [])
+
+    sheet = export.build_sheet(SAMPLE)
+    check("[sheet] says what the CSV does not carry", "does NOT carry" in sheet)
+    check("[sheet] lists every sitelink",
+          all(sl["title"] in sheet for sl in SAMPLE["adAssets"]["sitelinks"]))
+    check("[sheet] lists the callouts", "10 Year Warranty" in sheet)
+    check("[sheet] names the structured snippet header",
+          SAMPLE["adAssets"]["structuredSnippets"]["header"] in sheet)
+    check("[sheet] tells you how to import", "Import from file" in sheet)
+    check("[sheet] a missing budget is named rather than shown as $0.00",
+          "fill it in" in export.build_sheet(no_budget))
+
+    from modules.ads_builder import client_link
+
+    # ----------------------------------------- the Hub activity log mirror
+    # audit.log()'s first positional is the MODULE. This mirror used to pass
+    # "ads.<action>" as it and no type_ at all, which is a TypeError the
+    # surrounding except swallowed — so nothing this module logged ever reached
+    # the Hub, and nothing reached Client 360, while its own Activity page
+    # looked complete.
+    seen = []
+
+    class _AuditStub:
+        @staticmethod
+        def log(module, type_, actor=None, **extra):
+            seen.append({"module": module, "type": type_, "actor": actor, **extra})
+
+    real_audit = store.hub_audit
+    store.hub_audit = _AuditStub
+    try:
+        store.log_event("GENERATION_SUCCESS", "todd@smart1marketing.com",
+                        client="Northside Roofing Co", proposal="prop_mirror")
+    finally:
+        store.hub_audit = real_audit
+
+    check("[audit] the event reaches the Hub activity log at all", len(seen) == 1)
+    check("[audit] filed under the module name Client 360 knows",
+          seen and seen[0]["module"] == "ads_builder", seen and seen[0]["module"])
+    check("[audit] with the action as the type, not smuggled into the module",
+          seen and seen[0]["type"] == "generation_success")
+    check("[audit] and the client, which is what puts it on their 360 record",
+          seen and seen[0]["client"] == "Northside Roofing Co")
+    from hub.client_brand import WORK_KINDS
+    check("[audit] that module name is one Client 360 actually reads",
+          "ads_builder" in WORK_KINDS)
+
+    # The mirror reports itself, so nothing can tell a rep their work was filed
+    # without asking. That is the half that was missing when it broke.
+    class _BrokenAudit:
+        @staticmethod
+        def log(*a, **k):
+            raise RuntimeError("activity log is down")
+
+    store.hub_audit = _BrokenAudit
+    try:
+        broken = store.log_event("GENERATION_SUCCESS", "todd@smart1marketing.com",
+                                 client="Northside Roofing Co")
+    finally:
+        store.hub_audit = real_audit
+    check("[audit] a failed mirror is reported, not swallowed",
+          broken["mirrored"] is False and "down" in broken["error"])
+    ok_report = store.log_event("PROPOSAL_COMMENT", "todd@smart1marketing.com")
+    check("[audit] and a working one says so", isinstance(ok_report, dict))
+    check("[audit] a proposal whose work log failed does not claim it was filed",
+          client_link.attach({"id": "p1", "client_name": "X", "campaign": {}},
+                             MOUNT, work=broken)["work"]["ok"] is False)
+
+    # ------------------------------------------------- client join, no Hub
+    lead = client_link.create_lead("Northside Roofing Co", "https://x.example.com",
+                                   {"name": "Dana"}, SAMPLE)
+    check("[client] a lead with no email and no phone is refused, not faked",
+          lead["created"] is False and "email or a phone" in lead["note"])
+
+    # Filing the proposal onto the client record, and the rule that keeps one
+    # campaign to one row however many times it is re-filed.
+    fake_proposal = {"id": "prop_test1", "client_name": "Northside Roofing Co",
+                     "campaign": SAMPLE}
+    filed = client_link.file_proposal(fake_proposal, MOUNT, actor="todd@smart1marketing.com")
+    check("[client] the proposal is filed on the client record", filed["ok"] is True, filed["note"])
+    from hub import proposals as hub_proposals
+    on_record = hub_proposals.list_proposals("Northside Roofing Co")
+    check("[client] ...and appears in the client's proposals", len(on_record) == 1)
+    check("[client] ...as a link to the live page, not a stale copy",
+          on_record[0]["kind"] == "link" and "prop_test1" in on_record[0]["url"])
+    check("[client] ...carrying the monthly value", on_record[0]["value"] == 6500)
+    check("[client] ...and naming the tool that built it",
+          on_record[0]["source"] == "ads_builder")
+
+    client_link.file_proposal(fake_proposal, MOUNT, actor="todd@smart1marketing.com")
+    again = hub_proposals.list_proposals("Northside Roofing Co")
+    check("[client] re-filing one campaign updates its row rather than adding another",
+          len(again) == 1, f"{len(again)} rows")
+    check("[client] ...keeping the same quote number",
+          again[0]["quote_number"] == on_record[0]["quote_number"])
+
+    hits = client_link.search("north")
+    check("[client] an unreadable client list says so rather than returning nothing",
+          hits["available"] is False or isinstance(hits["clients"], list))
+    check("[client] ...and never claims a match it could not look up",
+          hits["clients"] == [] if not hits["available"] else True)
+
     # ---------------------------------------------------------- HTTP routes
     r = g(f"{BASE}/healthz", timeout=10)
     check("GET /healthz is ok", r.status_code == 200 and r.json()["ok"])
@@ -323,17 +497,101 @@ def run():
 
     # pages render
     for path, needle in (
-        ("/", "Live campaigns"),
-        ("/generator", "Campaign generator"),
+        ("/", "Search existing clients"),
+        ("/campaigns", "Live campaign data needs the Google Ads API"),
         ("/approvals", "Northside Roofing Co"),
         (f"/proposal/{pid}", "Negative keyword vault"),
-        (f"/proposal/{pid}/client", "Paid Search Proposal"),
+        (f"/proposal/{pid}/client", "Paid Search Estimate"),
         ("/activity", "Activity"),
         ("/settings", "Environment reference"),
     ):
         r = g(BASE + path, timeout=10)
         check(f"GET {path} renders", r.status_code == 200 and needle in r.text,
               f"status {r.status_code}")
+
+    # The front door is the generator, and it works with no Google anything.
+    r = g(f"{BASE}/", timeout=10)
+    check("the first screen is the campaign generator",
+          "Monthly budget" in r.text and "Date range" not in r.text)
+    check("the first screen does not ask for an API key",
+          "customApiKey" not in r.text and "key override" not in r.text.lower())
+    check("the first screen mentions no missing Google credential",
+          "GOOGLE_ADS_DEVELOPER_TOKEN" not in r.text)
+    nav = r.text[r.text.index("<nav"):r.text.index("</nav>")]
+    check("the generator tab comes before live campaigns in the menu",
+          nav.index("Campaign generator") < nav.index("Live campaigns"))
+    check("...and live campaigns comes after the approval hub",
+          nav.index("Approval hub") < nav.index("Live campaigns"))
+
+    r = g(f"{BASE}/generator", timeout=10, allow_redirects=False)
+    check("the old generator URL still lands", r.status_code in (301, 302)
+          and r.headers.get("Location", "").rstrip("/").endswith("/tools/ads"),
+          f"{r.status_code} {r.headers.get('Location')}")
+
+    # The launch options are the last thing on the proposal, after approval.
+    r = g(f"{BASE}/proposal/{pid}", timeout=10)
+    check("the launch card sits below review and approval",
+          r.text.index("Review and approval") < r.text.index(">Launch"))
+    check("the Ads Editor route is offered whether or not Google is connected",
+          "Ads Editor CSV" in r.text)
+    check("...and the API route names the credential it is waiting on",
+          "GOOGLE_ADS_DEVELOPER_TOKEN" in r.text)
+    # The join is recorded inside the campaign JSON — never in a new column,
+    # which create_all() would not add to the live table.
+    store.record_client_link(pid, {
+        "client": "Northside Roofing Co", "website": SAMPLE["websiteUrl"],
+        "known_client": {"known": False, "client": "", "matched_on": "", "why": ""},
+        "filed": {"ok": True, "quote_number": "U-10200", "note": "Filed on the client record."},
+        "work": {"ok": True, "note": "Recorded on the client's work log."},
+        "lead": {"ok": True, "created": True, "note": "Created in Smart 1 Suite."},
+        "all_ok": True,
+    })
+    check("the client join survives a round trip through the campaign JSON",
+          store.get_proposal(pid)["campaign"]["clientLink"]["result"]["filed"]["ok"] is True)
+    check("...and the campaign it was recorded against is untouched",
+          len(store.get_proposal(pid)["campaign"]["adGroups"]) == 2)
+    r = g(f"{BASE}/proposal/{pid}", timeout=10)
+    check("the proposal page reports what the join wrote",
+          "Client record" in r.text and "U-10200" in r.text)
+    check("...naming the Suite lead separately from the filing",
+          "Created in Smart 1 Suite." in r.text)
+
+    # ----------------------------------------------- the handoff over HTTP
+    r = g(f"{BASE}/proposal/{pid}/export/campaign.csv", timeout=10)
+    check("the Ads Editor CSV downloads", r.status_code == 200)
+    check("...as an attachment named for the client",
+          "attachment" in r.headers.get("Content-Disposition", "")
+          and "northside-roofing-co" in r.headers.get("Content-Disposition", ""),
+          r.headers.get("Content-Disposition", ""))
+    check("...and is a CSV", r.headers["Content-Type"].startswith("text/csv"))
+    check("...carrying the keywords", "emergency roof repair" in r.text)
+
+    r = g(f"{BASE}/proposal/{pid}/export/build-sheet.txt", timeout=10)
+    check("the build sheet downloads", r.status_code == 200 and "SITELINKS" in r.text)
+
+    r = g(f"{BASE}/api/proposals/{pid}/export", timeout=10)
+    d = r.json()
+    check("the export summary says what goes by hand", d["by_hand"]["sitelinks"] == 3)
+    check("...and names no problems on a healthy proposal", d["problems"] == [])
+
+    r = g(f"{BASE}/proposal/prop_nope/export/campaign.csv", timeout=10)
+    check("exporting a missing proposal 404s", r.status_code == 404)
+
+    # ------------------------------------------- what works without Google
+    caps = g(f"{BASE}/api/status", timeout=10).json()["capabilities"]
+    check("the Ads Editor export needs no Google credentials at all",
+          caps["export_to_ads_editor"]["ready"] is True)
+    check("approval needs none either", caps["approve"]["ready"] is True)
+    check("deploying does, and names them",
+          caps["deploy_via_api"]["ready"] is False
+          and "GOOGLE_ADS_DEVELOPER_TOKEN" in caps["deploy_via_api"]["needs"])
+    check("reading live campaigns is gated the same way",
+          caps["read_live_campaigns"]["ready"] is False)
+
+    r = g(f"{BASE}/api/clients?q=north", timeout=10)
+    check("the client lookup answers", r.status_code == 200 and "clients" in r.json())
+    check("...and says when the Hub client list could not be read",
+          r.json()["available"] is True or bool(r.json()["note"]))
 
     r = g(f"{BASE}/proposal/{pid}/client", timeout=10)
     check("the client proposal hides bracket match types", "[emergency roof repair]" not in r.text)

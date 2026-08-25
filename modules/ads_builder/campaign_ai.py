@@ -3,6 +3,16 @@
 Calls OpenAI over plain ``requests`` so the module adds no new dependency to
 the Hub — it reuses OPENAI_API_KEY / OPENAI_MODEL exactly like the SEO, FAQ
 and proposal tools do.
+
+**The key is the Hub's and is never asked for.** The generator used to carry an
+"OpenAI key override" box, which is the wrong question in two directions: it
+invites a key from outside the deployment into a form post, and its presence
+reads as "this page needs a key from me" on a Hub that has had one set all
+along. The key is read through ``hub.config`` at call time — never off
+``os.environ`` at import — so a spelling the deployment actually uses is picked
+up wherever it is fixed, once. See the provider-key trap in CLAUDE.md: a module
+reading one spelling directly is how a key that is set is still not a key that
+is read.
 """
 from __future__ import annotations
 
@@ -10,6 +20,10 @@ import json
 import os
 
 import requests
+
+from hub import target_areas
+
+from . import spec
 
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 TIMEOUT = 180
@@ -81,6 +95,11 @@ def analyse_budget(monthly_budget, sector_key="general") -> dict:
         "estimated_clicks": round(clicks),
         "worst_case_clicks": round(worst_case),
         "recommended_minimum": round(mid_cpc * 100),
+        # Travels with the numbers rather than being added by each screen: the
+        # CPCs above are sector benchmarks, and every place that prints one has
+        # to say so. test_ads_estimate.py asserts the templates carry it.
+        "cpc_note": spec.CPC_NOTE,
+        "cpc_note_long": spec.CPC_NOTE_LONG,
     }
 
 
@@ -134,45 +153,52 @@ Respond with pure JSON only, matching this structure exactly:
 }"""
 
 
-def generate_campaign(payload: dict, api_key: str = None, model: str = None) -> dict:
-    key = (api_key or os.environ.get("OPENAI_API_KEY", "")).strip()
+def openai_key() -> str:
+    """The Hub's key, read at call time through the shared settings."""
+    try:
+        from hub.config import settings
+        key = (settings.openai_key or "").strip()
+        if key:
+            return key
+    except Exception:  # noqa: BLE001 — the module stays runnable outside the Hub
+        pass
+    return os.environ.get("OPENAI_API_KEY", "").strip()
+
+
+def openai_model() -> str:
+    try:
+        from hub.config import settings
+        return settings.openai_model or "gpt-4o-mini"
+    except Exception:  # noqa: BLE001
+        return os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+
+def _chat(system: str, user: str, *, purpose: str, model: str = None,
+          max_tokens: int = 8000, temperature: float = 0.7) -> dict:
+    """One JSON call to OpenAI, with the failure modes named.
+
+    Every AI feature in this module goes through here — generation, the landing
+    page read, competitor research, the budget tiers and the re-check after an
+    edit — so retry, cost recording and "the model returned prose" are handled
+    once rather than five times differently.
+    """
+    key = openai_key()
     if not key:
         raise GenerationError(
-            "No OpenAI API key. Set OPENAI_API_KEY in the Hub environment, or paste a key "
-            "in the generator."
+            "No OpenAI API key on this deployment. Set OPENAI_API_KEY on the Hub service — "
+            "the generator uses the Hub's key and does not accept one from the browser."
         )
-
-    viability = analyse_budget(payload.get("budget"), payload.get("sector") or "general")
-
-    user_prompt = f"""Build a Google Ads search campaign for:
-
-Business name: {payload.get('businessName', '')}
-Website / landing page: {payload.get('websiteUrl', '')}
-Sector: {viability['sector']}
-Primary objective: {payload.get('objective', '')}
-Monthly budget: ${payload.get('budget', 0)}
-Target audience: {payload.get('targetAudience') or 'not specified'}
-Geography: {payload.get('geography') or 'not specified'}
-{('Additional context: ' + payload['notes']) if payload.get('notes') else ''}
-
-Independent budget check already run (use it, do not contradict it):
-{viability['status']} — {viability['advice']}
-Typical CPC range for this sector: ${viability['cpc_low']} to ${viability['cpc_high']}.
-
-Remember: 20 to 50 keywords in EVERY ad group, with match types tagged."""
 
     resp = requests.post(
         OPENAI_URL,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         json={
-            "model": model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
+            "model": model or openai_model(),
+            "messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": user}],
             "response_format": {"type": "json_object"},
-            "temperature": 0.7,
-            "max_tokens": 8000,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
         },
         timeout=TIMEOUT,
     )
@@ -186,7 +212,7 @@ Remember: 20 to 50 keywords in EVERY ad group, with match types tagged."""
 
     try:  # record spend so /diagnostics doesn't under-report
         from hub import ai as _hub_ai
-        _hub_ai.note_usage("ads_builder", resp.json(), purpose="campaign")
+        _hub_ai.note_usage("ads_builder", resp.json(), purpose=purpose)
     except Exception:  # noqa: BLE001
         pass
 
@@ -196,11 +222,384 @@ Remember: 20 to 50 keywords in EVERY ad group, with match types tagged."""
         raise GenerationError("OpenAI returned an unexpected response shape.")
 
     try:
-        data = json.loads(content)
+        return json.loads(content)
     except json.JSONDecodeError:
         raise GenerationError("The model returned malformed JSON. Try again.")
 
-    return normalise(data, payload, viability)
+
+def generate_campaign(payload: dict, model: str = None, *,
+                      observed_page: dict = None) -> dict:
+
+    viability = analyse_budget(payload.get("budget"), payload.get("sector") or "general")
+    intake = spec.normalise_intake(payload)
+    areas = target_areas.normalize(payload.get("targetAreas") or [])
+
+    budget = _num(payload.get("budget"))
+    budget_line = (f"Monthly budget: ${budget:,.0f}" if budget > 0 else
+                   "Monthly budget: NOT SET — the client has not named one. Build the "
+                   "campaign at the 'better' tier you recommend below, and say in the "
+                   "strategy what it assumes.")
+
+    geography = target_areas.for_prompt(areas) or payload.get("geography") or "not specified"
+    area_rule = ("\n\nThis campaign runs in SEVERAL named target areas. Treat them as "
+                 "separate places, not one region: local intent language differs per area, "
+                 "and a keyword set written for a merged region matches none of them well."
+                 if len(areas) > 1 else "")
+
+    page_block = _page_block(observed_page)
+    intake_block = spec.for_prompt({"intake": intake})
+
+    user_prompt = f"""Build a Google Ads search campaign for:
+
+Business name: {payload.get('businessName', '')}
+Website / landing page: {payload.get('websiteUrl', '')}
+Sector: {viability['sector']}
+Primary objective: {payload.get('objective', '')}
+{budget_line}
+Target audience: {payload.get('targetAudience') or 'not specified'}
+Target areas: {geography}{area_rule}
+{('Additional context: ' + payload['notes']) if payload.get('notes') else ''}
+
+WHAT THE REP ASKED THE CLIENT — build around these, do not restate them back:
+{intake_block or '- Nothing further was captured.'}
+{page_block}
+Independent budget check already run (use it, do not contradict it):
+{viability['status']} — {viability['advice']}
+Typical CPC range for this sector: ${viability['cpc_low']} to ${viability['cpc_high']}.
+These CPCs are industry estimates for the sector, not measured costs for this
+account — never present them as this client's actual cost per click.
+
+Remember: 20 to 50 keywords in EVERY ad group, with match types tagged."""
+
+    data = _chat(SYSTEM_PROMPT, user_prompt, purpose="campaign", model=model)
+    campaign = normalise(data, payload, viability)
+    campaign["intake"] = intake
+    campaign["targetAreas"] = areas
+    return campaign
+
+
+def _page_block(observed: dict) -> str:
+    """The landing page as FACTS, not as a URL for the model to imagine.
+
+    A model handed only a URL writes confident recommendations about a hero it
+    has never seen, and the rep repeats them to the client. What goes in here
+    is what was actually read off the markup; where nothing was read, it says
+    so, and the model is told not to describe the page at all.
+    """
+    if not observed:
+        return ""
+    if not observed.get("measured"):
+        return (f"\nLANDING PAGE: could not be read ({observed.get('error') or 'no reason given'}). "
+                f"Say so. Do NOT describe the page, its layout or its copy — you have "
+                f"not seen it. Set landingPageAnalysis.ctaReadiness to \"Unknown\".\n")
+
+    points = observed.get("conversion_points") or []
+    lines = [f"  - {p['label']}: {p['evidence']}" for p in points[:25]] or \
+            ["  - NONE FOUND. There is no form, no click-to-call, no booking tool and "
+             "no chat widget on this page."]
+    return (
+        "\nLANDING PAGE — read from the page itself, these are facts:\n"
+        f"  URL: {observed.get('url')}\n"
+        f"  Title: {observed.get('title') or '(none)'}\n"
+        f"  Meta description: {observed.get('meta_description') or '(none)'}\n"
+        f"  Mobile viewport declared: {'yes' if observed.get('mobile_viewport') else 'no'}\n"
+        "  Conversion points found:\n" + "\n".join(lines) + "\n"
+        f"  Headings: {'; '.join(h['text'] for h in (observed.get('headings') or [])[:12]) or '(none)'}\n"
+        f"  Page text (truncated): {(observed.get('text') or '')[:2500]}\n"
+        "Base every landing-page statement on the above. If something is not in it, "
+        "you did not observe it — say what you would need to check rather than "
+        "asserting it.\n"
+    )
+
+
+PAGE_SYSTEM = """You are a paid search strategist reviewing a landing page that has already
+been fetched and parsed for you. You are given the facts read off the page. Judge them.
+
+RULES
+1. Never assert anything about the page that is not in the facts given. If you need
+   something you were not given, name it as "worth checking" rather than stating it.
+2. Separate what the page must fix from what the CAMPAIGN must do about the page as it
+   is today. The second is the useful half: a campaign has to run against the page that
+   exists, not the one somebody might build.
+3. A conversion action the client wants that the page cannot support is the most
+   important finding there is. Say it first and say it plainly.
+4. Be specific and short. "Add a click-to-call button above the fold on mobile" beats
+   "improve the mobile experience".
+
+Respond with pure JSON only:
+{
+  "ctaReadiness": "High | Medium | Low | Unknown",
+  "messageMatch": "one or two sentences on whether the page matches the search intent",
+  "conversionPoints": [{"what": "string", "where": "string", "strength": "Strong | Weak"}],
+  "gaps": [{"what": "string", "impact": "what it costs the campaign"}],
+  "pageRecommendations": ["string"],
+  "campaignRecommendations": ["string"]
+}"""
+
+
+def analyse_landing_page(campaign: dict, observed: dict, model: str = None) -> dict:
+    """The model's judgment on a page somebody actually fetched.
+
+    The observed half is returned alongside it, unchanged, so the screen can
+    keep "we found this on the page" apart from "a model thinks this" — they
+    are different kinds of claim and a client asks which is which.
+    """
+    intake = (campaign or {}).get("intake") or {}
+    wanted = spec.conversion_labels(intake.get("conversionActions"))
+
+    user = f"""Business: {campaign.get('businessName', '')}
+Sector: {campaign.get('sector', '')}
+What they sell: {intake.get('productOrService') or 'not specified'}
+Audience: {intake.get('audienceType') or 'not specified'}
+The client counts these as a result: {', '.join(wanted) or 'not specified'}
+Promotion running: {intake.get('promotion') or 'none'}
+{_page_block(observed)}"""
+
+    data = _chat(PAGE_SYSTEM, user, purpose="landing_page", model=model,
+                 max_tokens=2500, temperature=0.4)
+
+    return {
+        "ctaReadiness": _trunc(data.get("ctaReadiness"), 20) or "Unknown",
+        "messageMatch": _trunc(data.get("messageMatch"), 600),
+        "conversionPoints": [
+            {"what": _trunc(x.get("what"), 160), "where": _trunc(x.get("where"), 160),
+             "strength": _trunc(x.get("strength"), 10) or "Weak"}
+            for x in (data.get("conversionPoints") or [])[:15] if isinstance(x, dict)
+        ],
+        "gaps": [
+            {"what": _trunc(x.get("what"), 200), "impact": _trunc(x.get("impact"), 300)}
+            for x in (data.get("gaps") or [])[:12] if isinstance(x, dict)
+        ],
+        "pageRecommendations": _dedupe(data.get("pageRecommendations"), 300)[:12],
+        "campaignRecommendations": _dedupe(data.get("campaignRecommendations"), 300)[:12],
+        "observed": observed,
+    }
+
+
+COMPETITOR_SYSTEM = """You research the competitive set for a paid search campaign.
+
+RULES
+1. The client named some competitors. Repeat those back under "named", exactly as given.
+2. Add others you have reason to believe compete for the same searches in this sector and
+   geography, under "researched". These are YOUR suggestion and will be shown to a person
+   as unverified — so include why you think each one competes.
+3. Never invent a specific business you are not reasonably confident exists. A national
+   chain or a category ("the two national franchises that advertise on TV") is a safer
+   and more useful answer than a plausible-sounding local name you made up.
+4. Say what the competitive set means for the campaign: where bidding will be expensive,
+   what positioning is available, which comparison terms are worth owning.
+
+Respond with pure JSON only:
+{
+  "named": [{"name": "string", "note": "what the client said or implied"}],
+  "researched": [{"name": "string", "why": "why they compete for these searches",
+                  "confidence": "High | Medium | Low"}],
+  "implications": ["string"],
+  "brandTermAdvice": "one or two sentences on bidding competitor brand terms here"
+}"""
+
+
+def research_competitors(campaign: dict, model: str = None) -> dict:
+    intake = (campaign or {}).get("intake") or {}
+    areas = target_areas.for_prompt(campaign.get("targetAreas") or [])
+    user = f"""Business: {campaign.get('businessName', '')}
+Website: {campaign.get('websiteUrl', '')}
+Sector: {campaign.get('sector', '')}
+What they sell: {intake.get('productOrService') or 'not specified'}
+Audience: {intake.get('audienceType') or 'not specified'}
+Target areas: {areas or campaign.get('geography') or 'not specified'}
+Locally owned: {'yes' if intake.get('locallyOwned') else 'not stated'}
+Competitors the CLIENT named: {intake.get('competitors') or 'none given'}"""
+
+    data = _chat(COMPETITOR_SYSTEM, user, purpose="competitors", model=model,
+                 max_tokens=2000, temperature=0.5)
+    return {
+        "named": [{"name": _trunc(x.get("name"), 120), "note": _trunc(x.get("note"), 300)}
+                  for x in (data.get("named") or [])[:20] if isinstance(x, dict) and x.get("name")],
+        "researched": [{"name": _trunc(x.get("name"), 120), "why": _trunc(x.get("why"), 300),
+                        "confidence": _trunc(x.get("confidence"), 10) or "Low"}
+                       for x in (data.get("researched") or [])[:20]
+                       if isinstance(x, dict) and x.get("name")],
+        "implications": _dedupe(data.get("implications"), 300)[:10],
+        "brandTermAdvice": _trunc(data.get("brandTermAdvice"), 500),
+        # Said on every screen that shows this: the researched half is the
+        # model's, not the client's, and nobody has checked it.
+        "note": "Names under “our research” are the model's suggestion and have not been "
+                "verified. Check them before repeating them to the client.",
+    }
+
+
+TIER_SYSTEM = """You size Google Ads search budgets into three tiers a client can choose between.
+
+RULES
+1. Ground every tier in the sector CPC range you are given. A tier that cannot buy enough
+   clicks to be optimised is not a tier — say so rather than offering it.
+2. Below roughly 30 clicks a month a campaign cannot be read at all. Never present a
+   budget under that threshold as workable.
+3. Say what each tier BUYS and what it gives up, in concrete terms: how many ad groups,
+   which match types, how much of the keyword set, whether there is room to test.
+4. Recommend exactly one tier and say why that one.
+
+Respond with pure JSON only:
+{
+  "tiers": [
+    {"key": "good | better | best", "monthly": 0, "estimatedClicks": 0,
+     "buys": "what this budget covers", "givesUp": "what it does not cover",
+     "adGroups": 0, "recommended": true}
+  ],
+  "rationale": "two or three sentences on how these were sized",
+  "floorWarning": "empty string, or a warning if even the smallest tier is too thin"
+}"""
+
+
+def budget_tiers(campaign: dict, sector_key: str = "general", model: str = None) -> dict:
+    """Good / better / best, offered whether or not the client named a budget.
+
+    Asked for both cases on purpose: with no budget it is the only way to open
+    the conversation, and with one it is how a rep shows what the next step up
+    would buy. The known budget is passed in so the tiers are anchored to it
+    rather than to a number nobody discussed.
+    """
+    stated = _num((campaign or {}).get("monthlyBudget"))
+    viability = analyse_budget(stated, sector_key)
+    intake = (campaign or {}).get("intake") or {}
+
+    user = f"""Business: {campaign.get('businessName', '')}
+Sector: {viability['sector']}
+Typical CPC range for the sector: ${viability['cpc_low']} to ${viability['cpc_high']} (industry estimate)
+Target areas: {target_areas.for_prompt(campaign.get('targetAreas') or []) or 'not specified'}
+What they sell: {intake.get('productOrService') or 'not specified'}
+They count these as a result: {', '.join(spec.conversion_labels(intake.get('conversionActions'))) or 'not specified'}
+Budget the client has named: {('$%s/month' % format(stated, ',.0f')) if stated > 0 else 'NONE — they do not know yet'}
+Independent budget check on the stated budget: {viability['status']} — {viability['advice']}
+A campaign needs roughly {spec.MIN_READABLE_CLICKS} clicks a month before its data means anything."""
+
+    data = _chat(TIER_SYSTEM, user, purpose="budget_tiers", model=model,
+                 max_tokens=1800, temperature=0.4)
+
+    tiers, seen = [], set()
+    for row in (data.get("tiers") or []):
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("key", "")).strip().lower()
+        if key not in spec.TIERS or key in seen:
+            continue
+        seen.add(key)
+        monthly = _num(row.get("monthly"))
+        # The click estimate is recomputed here rather than trusted: it is the
+        # number a client checks the tier against, and a model that rounds it
+        # generously makes the cheapest tier look workable when it is not.
+        check = analyse_budget(monthly, sector_key)
+        tiers.append({
+            "key": key,
+            "label": spec.TIER_LABELS[key],
+            "monthly": round(monthly),
+            "estimatedClicks": check["estimated_clicks"],
+            "status": check["status"],
+            "buys": _trunc(row.get("buys"), 400),
+            "givesUp": _trunc(row.get("givesUp"), 400),
+            "adGroups": int(_num(row.get("adGroups"))) or 0,
+            "recommended": bool(row.get("recommended")),
+            "blurb": spec.TIER_BLURB[key],
+            "belowFloor": check["estimated_clicks"] < spec.MIN_READABLE_CLICKS,
+        })
+    tiers.sort(key=lambda t: spec.TIERS.index(t["key"]))
+
+    if tiers and not any(t["recommended"] for t in tiers):
+        # Never leave a three-way choice with nothing recommended: the middle
+        # tier is the one the wording is built around.
+        (next((t for t in tiers if t["key"] == "better"), tiers[0]))["recommended"] = True
+
+    return {
+        "tiers": tiers,
+        "rationale": _trunc(data.get("rationale"), 800),
+        "floorWarning": _trunc(data.get("floorWarning"), 500),
+        "statedBudget": round(stated),
+        "sector": viability["sector"],
+        "cpcNote": spec.CPC_NOTE_LONG,
+    }
+
+
+RECHECK_SYSTEM = """You re-check a Google Ads search campaign after a human edited it.
+
+You are given the campaign as it now stands and a list of what changed. The campaign was
+coherent before the edit. Your job is to find where it is no longer coherent, and nothing
+else — do not rewrite it, do not restate what is fine.
+
+RULES
+1. A budget change is the one that breaks the most: click volume, the number of ad groups
+   the budget can support, and whether the plan is still readable at all.
+2. Removed keywords can strand an ad group (too few terms to serve) or remove the intent
+   an ad group's copy is written for. Removed negatives can reopen waste the vault existed
+   to stop — say which.
+3. Report severity honestly. "block" means shipping this is wrong. "warn" means a person
+   should look. Do not inflate; a wall of warnings gets ignored.
+4. If nothing is wrong, return an empty findings list and say so. That is a real answer.
+
+Respond with pure JSON only:
+{
+  "verdict": "ok | warn | block",
+  "summary": "one or two sentences",
+  "findings": [{"severity": "block | warn | note", "what": "string", "fix": "string",
+                "where": "which part of the campaign"}],
+  "budgetCheck": "what the current budget actually supports, or empty string"
+}"""
+
+
+def recheck_campaign(campaign: dict, changes: list, model: str = None) -> dict:
+    """Run an edited campaign back past the model before anybody approves it."""
+    groups = campaign.get("adGroups") or []
+    vault = campaign.get("negativeKeywordVault") or {}
+    sector_key = campaign.get("sectorKey") or "general"
+    viability = analyse_budget(campaign.get("monthlyBudget"), sector_key)
+
+    structure = "\n".join(
+        f"  - {g.get('name')}: {len(g.get('keywords') or [])} keywords, "
+        f"{len((g.get('ads') or {}).get('headlines') or [])} headlines, "
+        f"{len((g.get('ads') or {}).get('descriptions') or [])} descriptions"
+        for g in groups) or "  (no ad groups)"
+
+    user = f"""Business: {campaign.get('businessName', '')}
+Sector: {campaign.get('sector', '')}
+Monthly budget now: ${_num(campaign.get('monthlyBudget')):,.0f}
+Budget check at that level: {viability['status']} — {viability['advice']}
+Target areas: {target_areas.for_prompt(campaign.get('targetAreas') or []) or 'not specified'}
+
+Ad groups as they now stand:
+{structure}
+Negative keywords remaining: {sum(len(v or []) for v in vault.values())}
+
+WHAT A PERSON CHANGED:
+{chr(10).join('  - ' + str(c) for c in (changes or [])) or '  (nothing recorded)'}"""
+
+    data = _chat(RECHECK_SYSTEM, user, purpose="recheck", model=model,
+                 max_tokens=2000, temperature=0.3)
+
+    verdict = str(data.get("verdict", "")).strip().lower()
+    findings = [
+        {"severity": (str(f.get("severity", "note")).lower()
+                      if str(f.get("severity", "")).lower() in ("block", "warn", "note") else "note"),
+         "what": _trunc(f.get("what"), 300), "fix": _trunc(f.get("fix"), 300),
+         "where": _trunc(f.get("where"), 120)}
+        for f in (data.get("findings") or [])[:20] if isinstance(f, dict) and f.get("what")
+    ]
+    # The verdict is derived from the findings rather than taken on trust: a
+    # model that lists a blocking finding and then says "ok" is the one case
+    # where believing it ships the broken campaign.
+    if any(f["severity"] == "block" for f in findings):
+        verdict = "block"
+    elif any(f["severity"] == "warn" for f in findings):
+        verdict = verdict if verdict == "block" else "warn"
+    elif verdict not in ("ok", "warn", "block"):
+        verdict = "ok"
+
+    return {
+        "verdict": verdict,
+        "summary": _trunc(data.get("summary"), 600),
+        "findings": findings,
+        "budgetCheck": _trunc(data.get("budgetCheck"), 500),
+        "budgetViability": {"status": viability["status"], "advice": viability["advice"]},
+    }
 
 
 def _trunc(value, length):

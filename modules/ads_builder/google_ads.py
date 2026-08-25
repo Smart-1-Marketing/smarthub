@@ -722,13 +722,40 @@ def deploy_proposal(customer_id, proposal: dict, *, store=None, campaign_name=No
     }
 
 
+# What each missing variable actually costs, so a page can say it rather than
+# printing a list of names. The developer token is the one with lead time on
+# it -- Google approves it separately, and it can be pending for days -- so the
+# module has to keep working without it: everything except reading and writing
+# the Google Ads API does, and modules/ads_builder/export.py is the way an
+# approved campaign still reaches the account meanwhile.
+BLOCKS = {
+    "GOOGLE_ADS_CLIENT_ID": "the Google sign-in cannot start",
+    "GOOGLE_ADS_CLIENT_SECRET": "the Google sign-in cannot start",
+    "GOOGLE_ADS_DEVELOPER_TOKEN": "Google approves this separately, in the manager "
+                                  "account under Tools → API Center. Until it "
+                                  "arrives the API cannot be called at all",
+    "GOOGLE_ADS_REDIRECT_URI": "Google has nowhere to send you back to",
+}
+
+
 def connection_status(store=None) -> dict:
+    """What the Google Ads API can do right now, and what it cannot.
+
+    ``missing`` and ``connected`` describe the API half only. Nothing else in
+    this module reads them: the campaign generator is OpenAI, review and
+    approval are the Hub's own, and the Ads Editor export is a file. A page
+    that greys itself out because this says "not connected" is describing the
+    wrong thing -- ask ``deploy_ready``.
+    """
     c = cfg()
     from_env = bool(os.environ.get("GOOGLE_ADS_REFRESH_TOKEN", "").strip())
     from_db = bool(store and (store.get_setting("google_refresh_token") or "").strip())
+    configured = bool(c["client_id"] and c["client_secret"] and c["developer_token"])
     return {
-        "configured": bool(c["client_id"] and c["client_secret"] and c["developer_token"]),
+        "configured": configured,
         "connected": from_env or from_db,
+        "deploy_ready": configured and (from_env or from_db),
+        "developer_token": bool(c["developer_token"]),
         "refresh_token_source": (
             "environment" if from_env
             else "hub database (set GOOGLE_ADS_REFRESH_TOKEN to pin it)" if from_db
@@ -743,4 +770,13 @@ def connection_status(store=None) -> dict:
             ("GOOGLE_ADS_DEVELOPER_TOKEN", c["developer_token"]),
             ("GOOGLE_ADS_REDIRECT_URI", c["redirect_uri"]),
         ) if not value],
+        "blocks": [
+            {"name": name, "why": BLOCKS[name]}
+            for name, value in (
+                ("GOOGLE_ADS_CLIENT_ID", c["client_id"]),
+                ("GOOGLE_ADS_CLIENT_SECRET", c["client_secret"]),
+                ("GOOGLE_ADS_DEVELOPER_TOKEN", c["developer_token"]),
+                ("GOOGLE_ADS_REDIRECT_URI", c["redirect_uri"]),
+            ) if not value
+        ],
     }

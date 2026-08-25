@@ -3,25 +3,35 @@
 {% block title %}Approval hub{% endblock %}
 {% block strap %}Review, discuss, approve — then deploy to Google Ads{% endblock %}
 
+{% block head %}
+<style>
+  .bub { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:6px;
+         vertical-align:middle; border:1px solid rgba(15,23,42,.15) }
+  .bub-green { background:#059669 } .bub-yellow { background:#eab308 }
+  .bub-red { background:#dc2626 } .bub-grey { background:#cbd5e1 }
+</style>
+{% endblock %}
+
 {% block content %}
 <div id="toast" style="display:none"></div>
 
 <div class="row" style="margin-bottom:14px">
   <div class="spacer"></div>
-  <a class="btn b-primary" href="{{ mount }}/generator">New campaign</a>
+  <a class="btn b-primary" href="{{ mount }}/">New campaign</a>
 </div>
 
 <div class="card">
   {% if not proposals %}
     <div class="empty">
       <h4>No proposals yet</h4>
-      Build one in the <a href="{{ mount }}/generator">campaign generator</a>.
+      Build one in the <a href="{{ mount }}/">campaign generator</a>.
     </div>
   {% else %}
   <table>
     <thead><tr>
-      <th>Client</th><th>Status</th><th class="num">Budget</th><th class="num">Ad groups</th>
-      <th class="num">Keywords</th><th class="num">Comments</th><th>Updated</th><th></th>
+      <th>Client</th><th>Status</th><th>Client review</th><th class="num">Budget</th>
+      <th class="num">Ad groups</th><th class="num">Keywords</th><th class="num">Comments</th>
+      <th>Updated</th><th></th>
     </tr></thead>
     <tbody>
       {% for p in proposals %}
@@ -33,6 +43,20 @@
           <div style="color:#94a3b8;font-size:11.5px">{{ p.campaign.websiteUrl or '' }}</div>
         </td>
         <td><span class="tag {{ tone }}">{{ p.status.replace('_',' ').title() }}</span></td>
+        {# Green approved, yellow approved-with-changes, red wants a conversation.
+           Grey is its own answer and not a fourth colour of bad: "not sent to the
+           client yet" is a different situation from "the client has not replied",
+           and both are different from "they said no". #}
+        <td>
+          {% set r = p.review %}
+          <span class="bub bub-{{ r.colour }}" title="{{ spec.OUTCOME_NOTES.get(r.outcome, 'No answer from the client yet.') }}"></span>
+          <span style="font-size:12.5px;color:#64748b">
+            {%- if r.outcome %}{{ spec.OUTCOME_LABELS[r.outcome].replace('I approve the campaign outline','Approved').replace(' with my changes attached',' + changes').replace('I need to schedule a time to discuss this outline','Wants to discuss') }}
+            {%- elif r.sent %}Sent{{ ', opened' if r.opened else ', not opened' }}
+            {%- else %}Not sent{% endif -%}
+          </span>
+          {% if r.changes %}<span class="tag t-warn" style="margin-left:4px">{{ r.changes }} change{{ '' if r.changes == 1 else 's' }}</span>{% endif %}
+        </td>
         <td class="num">${{ '{:,.0f}'.format(p.campaign.monthlyBudget or 0) }}</td>
         <td class="num">{{ p.ad_group_count }}</td>
         <td class="num">{{ p.keyword_count }}</td>

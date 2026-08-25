@@ -442,6 +442,78 @@ def add_proposal(client: str, filename: str, data: bytes, date_sent: str = "",
     return record
 
 
+def add_link_proposal(client: str, url: str, title: str, *, ref: str = "",
+                      module: str = "", note: str = "", actor: str = "",
+                      value: str = "", term: str = "monthly",
+                      status: str = "sent", date_sent: str = "") -> dict:
+    """File a proposal that lives on a Hub page rather than in a file.
+
+    ``add_proposal`` takes bytes because the archive was built for PDFs a rep
+    emailed. Smart 1 Ads produces a proposal that *is* a page — versioned,
+    commentable and re-read as it changes — so uploading a snapshot of it would
+    put a stale copy on the client record beside the live one, and the client
+    record is where people go to find out what was actually quoted.
+
+    ``ref`` is the producing module's own id for the proposal, and this
+    **updates the row carrying it** rather than appending. Every re-file of one
+    campaign is the same row: without that, approving a proposal, commenting on
+    it and deploying it would leave three identical entries on Client 360 and
+    no way to tell which one is current. It is the same lesson
+    ``upsert_from_ghl`` learned from GoHighLevel firing on every stage change.
+    """
+    client = str(client or "").strip()
+    if not client:
+        raise ValueError("A client is required.")
+    url = str(url or "").strip()
+    if not url:
+        raise ValueError("A link is required.")
+
+    now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    items = list_proposals(client)
+
+    if ref:
+        for it in items:
+            if it.get("ref") == ref and it.get("kind") == "link":
+                it.update({
+                    "title": str(title or "").strip() or it.get("title"),
+                    "url": url,
+                    "note": str(note or "").strip()[:500] or it.get("note", ""),
+                    "value": _money(value) or it.get("value", 0),
+                    "status": (status if status in PROPOSAL_STATUSES else it.get("status", "sent")),
+                    "status_changed_at": now,
+                    "updated_at": now,
+                })
+                _write(client, items)
+                return it
+
+    record = {
+        "id": uuid.uuid4().hex[:16],
+        "ref": str(ref or ""),
+        "filename": "",
+        "title": str(title or "").strip() or "Proposal",
+        "date_sent": _iso_date(date_sent, _today()),
+        "uploaded_at": now,
+        "uploaded_by": str(actor or "").strip(),
+        "note": str(note or "").strip()[:500],
+        "url": url,
+        # "hub" rather than "cloudinary"/"local": nothing was stored, and a
+        # reader that assumes a file behind the URL has to be able to tell.
+        "storage": "hub",
+        "public_id": "",
+        "kind": "link",
+        "size": 0,
+        "value": _money(value),
+        "term": (term if term in ("monthly", "one_time", "annual") else "monthly"),
+        "status": (status if status in PROPOSAL_STATUSES else "sent"),
+        "status_changed_at": now,
+        "source": str(module or "hub"),
+        "quote_number": next_quote_number(),
+    }
+    items.insert(0, record)
+    _write(client, items)
+    return record
+
+
 def update_proposal(client: str, pid: str, updates: dict) -> dict | None:
     """Edit the date sent, title, note or Suite opportunity id of a proposal.
 

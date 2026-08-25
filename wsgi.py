@@ -543,6 +543,14 @@ except Exception as _exc_std:  # noqa: BLE001
 _SCANS_PUBLIC = tuple(getattr(scans, "PUBLIC_PREFIXES", ("/api/callback",))) \
     if scans else ("/api/callback",)
 
+# Same arrangement for Smart 1 Ads: /tools/ads/estimate/<token> is the campaign
+# estimate a CLIENT opens, and a client has no Hub login. Read from the module
+# so the two halves cannot drift, and passed to _mount, which hands it to both
+# AuthGuard (reachable) and HubBar (no sidebar, help layer or feedback tab in a
+# document a prospect reads).
+_ADS_PUBLIC = tuple(getattr(adsb, "PUBLIC_PREFIXES", ("/estimate/",))) \
+    if adsb else ("/estimate/",)
+
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
@@ -566,7 +574,8 @@ application = DispatcherMiddleware(hub_app, {
     # still serves its own settings page naming each variable it is
     # missing, so an unconnected account reads as "not connected"
     # rather than as a broken tool.
-    "/tools/ads": _mount(adsb.app, "/tools/ads") if adsb else adsb_fb,
+    "/tools/ads": _mount(adsb.app, "/tools/ads",
+                         public_prefixes=_ADS_PUBLIC) if adsb else adsb_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
     "/tools/io": _mount(iob.app, "/tools/io") if iob else iob_fb,
