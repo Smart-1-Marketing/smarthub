@@ -1495,6 +1495,10 @@ def uploads_not_in_suite() -> dict:
     }
 
 
+GOOGLE_COLUMNS = ["Platform", "Resource", "Mapped to", "Matched on",
+                  "Google login", "Domains", "Map to client"]
+
+
 # Group order on /qa is this dict's insertion order -- qa_home() walks REPORTS
 # and appends each group the first time it sees one. So moving an entry moves
 # its whole group, and an entry with no "group" at all falls into a default
@@ -1516,9 +1520,30 @@ def google_accounts() -> dict:
 
     Read from hub/google_index.py rather than swept here. A QA report that
     took a minute of Tag Manager pacing to open is a report nobody opens.
+
+    Two things this report does rather than describes:
+
+    **The domain rule is re-applied on every load.** The index only ever ran
+    it against the client list as it stood at sweep time, so a client that
+    gained a URL an hour ago still had their GTM container listed here as
+    belonging to nobody. `apply_domain_matches()` re-joins those now, writes
+    nothing when nothing changed, and never touches a resource that already
+    has a client. What it joined is counted in the note — a row that changed
+    itself between two loads has to say so.
+
+    **Every row carries a client picker.** The report is where somebody
+    notices that a property maps to nobody, so it is where they should be able
+    to say whose it is, rather than being sent to another screen to find the
+    row again. It posts to the same `/api/google/attach` the orphan list uses,
+    so attaching writes the client record, the index and the Knack website
+    record and reports each — one button that means one thing everywhere.
+    Suggestions come from `hub/google_links.suggest_for()` and are proposals,
+    never applied: the picker opens on them and a person still chooses.
     """
     from . import google_index
+    from . import google_links
 
+    rejoined = google_index.apply_domain_matches()
     st = google_index.status()
     if st["never_built"]:
         # NOT an empty `rows` list with a note. qa_report.html renders any
@@ -1535,8 +1560,7 @@ def google_accounts() -> dict:
         elif st["last_attempt"]:
             detail = f" Last attempted at {st['last_attempt']}."
         return {
-            "columns": ["Platform", "Resource", "Mapped to", "Matched on",
-                        "Google login", "Domains"],
+            "columns": GOOGLE_COLUMNS,
             "rows": [],
             "unavailable": {
                 "message": ("The Google account index has not been built yet, "
@@ -1549,7 +1573,13 @@ def google_accounts() -> dict:
         }
 
     rows, styles = [], []
-    for r in google_index.rows():
+    index_rows = google_index.rows()
+    # Built once for the whole list, not once per row: it reads the Knack
+    # website registry and the client alias index, and both are a page-load's
+    # worth of work each if asked for again on every unmapped property.
+    ctx = google_links._context() if any(                        # noqa: SLF001
+        not r["client"] for r in index_rows) else None
+    for r in index_rows:
         mapped = (_c360_link(r["client"]) if r["client"]
                   else {"text": "— not mapped —",
                         "title": r["match_detail"] or ""})
@@ -1558,6 +1588,19 @@ def google_accounts() -> dict:
             matched = "ambiguous: " + ", ".join(r["candidates"][:3])
         resource = ({"text": r["name"] or r["resource_id"], "href": r["open_url"]}
                     if r["open_url"] else (r["name"] or r["resource_id"]))
+        # Suggestions are worked out for the rows that need them and nothing
+        # else. A mapped row's picker opens empty — proposing an owner for a
+        # resource that already has one is how somebody re-assigns it by
+        # accident.
+        suggestions = []
+        if not r["client"] and ctx is not None:
+            try:
+                suggestions = [
+                    {"client": sg["client"], "confidence": sg["confidence"],
+                     "why": sg["why"]}
+                    for sg in google_links.suggest_for(r, ctx)[:4]]
+            except Exception:                                    # noqa: BLE001
+                suggestions = []
         rows.append([
             r["platform"],
             resource,
@@ -1565,6 +1608,15 @@ def google_accounts() -> dict:
             matched or "—",
             r["google_login"],
             ", ".join(r["domains"]) or "—",
+            {"map_client": r["resource_id"],
+             "current": r["client"],
+             "suggestions": suggestions,
+             # The CSV reads this. A cell with no text exports as a blank
+             # column headed "Map to client", which says nothing about
+             # whether the row was mapped.
+             "text": (f"mapped to {r['client']}" if r["client"]
+                      else ("suggested: " + suggestions[0]["client"]
+                            if suggestions else "not mapped, no suggestion"))},
         ])
         # Unmapped rows are the finding, so they are the ones tinted.
         # "yellow", not "warn": qa_report.html only styles green/yellow/red/sub,
@@ -1582,8 +1634,7 @@ def google_accounts() -> dict:
                 + ", ".join(str(e.get("email") or "?") for e in st["errors"][:5]) + ".")
     if not rows:
         return {
-            "columns": ["Platform", "Resource", "Mapped to", "Matched on",
-                        "Google login", "Domains"],
+            "columns": GOOGLE_COLUMNS,
             "rows": [],
             "unavailable": {
                 "message": (f"The index was built {st['built_at']} but found "
@@ -1598,18 +1649,29 @@ def google_accounts() -> dict:
             },
         }
 
+    auto = ""
+    if rejoined.get("mapped"):
+        n = rejoined["mapped"]
+        auto = (f" {n} of them {'was' if n == 1 else 'were'} joined to a "
+                f"client by domain on this load rather than by the sweep: "
+                f"the client had gained that domain since. ")
+    elif rejoined.get("error"):
+        auto = f" Domain re-matching did not run: {rejoined['error']} "
+
     return {
-        "columns": ["Platform", "Resource", "Mapped to", "Matched on",
-                    "Google login", "Domains"],
+        "columns": GOOGLE_COLUMNS,
         "rows": rows,
         "row_styles": styles,
         "note": (f"{st['resources']} Google resources across "
                  f"{len(st['accounts'])} connected login(s): {st['mapped']} "
                  f"mapped to a client, {st['unmapped']} not. Matched on: "
                  f"{by_match or 'nothing yet'}. Index built {st['built_at']} "
-                 f"({age}){stale}.{errs} Unmapped rows are listed first — "
-                 f"attach one to a client from that client's 360 page and it "
-                 f"joins on the next sweep."),
+                 f"({age}){stale}.{errs}{auto} Unmapped rows are listed first. "
+                 f"Anything carrying a client's domain is mapped for you; for "
+                 f"the rest — a GA4 property carries no URL, so most of them — "
+                 f"pick the customer in the last column and it is attached to "
+                 f"the client record, this index and the Knack website record "
+                 f"at once."),
     }
 
 

@@ -53,6 +53,32 @@ services:
         sync: false
       - key: FLASK_SECRET_KEY
         generateValue: true
+      # ---- Google Access (/tools/google-access) ----
+      # The client-facing consent flow. GOOGLE_ACCESS_AGENCY_EMAIL is the
+      # agency Google account that gets added to each client property, and
+      # there is no sensible default for it -- unset, every client link serves
+      # "not switched on yet" rather than adding the wrong account.
+      - key: GOOGLE_ACCESS_AGENCY_EMAIL
+        sync: false
+      # Optional. Unset, the module uses the shared GOOGLE_CLIENT_ID /
+      # GOOGLE_CLIENT_SECRET above -- the same OAuth client as Google Finder
+      # and Hub sign-in -- and says so on its own page, because whichever
+      # client is in use is the one whose Authorised redirect URIs must carry
+      # <PUBLIC_BASE_URL>/connect/callback.
+      - key: GOOGLE_ACCESS_CLIENT_ID
+        sync: false
+      - key: GOOGLE_ACCESS_CLIENT_SECRET
+        sync: false
+      # Shown to the client on the consent and receipt pages.
+      - key: GOOGLE_ACCESS_SUPPORT_EMAIL
+        sync: false
+      - key: GOOGLE_ACCESS_SUPPORT_PHONE
+        sync: false
+      # Business Profile needs a Google allowlist application. Leave off until
+      # it is approved: on, every call 403s and the client reads it as their
+      # fault; off, they get written instructions instead.
+      - key: GOOGLE_ACCESS_GBP_ENABLED
+        value: "false"
       # ---- Smart 1 Ads (/tools/ads) ----
       # Unset, the module serves its own settings page naming what is missing.
       - key: GOOGLE_ADS_CLIENT_ID

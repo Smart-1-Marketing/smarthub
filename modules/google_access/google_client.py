@@ -6,12 +6,13 @@ Everything Google exposes here is REST, so this module deliberately uses
 `requirements.txt` unchanged, which is the pattern the rest of the Hub
 follows.
 
-Two credential paths, and they are not the same thing:
+One credential path, which is the point of the module: CLIENT tokens --
+short-lived, obtained during consent, used to add our agency email to their
+property, then revoked. Never written to disk.
 
-  * CLIENT tokens  -- short-lived, obtained during consent, used to add our
-    agency email to their property, then revoked. Never written to disk.
-  * AGENCY tokens  -- our own Google Ads manager credentials, held in env,
-    used to send account-link invitations. Nothing to do with the client.
+There used to be a second, for the parked Google Ads flow: our own manager
+credentials held in env. It is gone with the rest of Ads; see the PARKED note
+at the top of `config.py` before adding one back.
 """
 
 import logging
@@ -283,137 +284,6 @@ def gbp_add_admin(token, account_resource, email, role="MANAGER"):
         if "already" in str(exc.detail).lower():
             return {"already": True}
         raise
-
-
-# --------------------------------------------------------------------------
-# Google Ads
-# --------------------------------------------------------------------------
-# Ads does not work like the others. There is no "add this email" call. We
-# send a link invitation from our manager account and the client accepts it
-# inside their own Ads UI. So the client's OAuth is used only to READ which
-# customer IDs they own -- saving them from hunting for a ten digit number.
-
-def ads_list_accessible_customers(token):
-    if not config.ADS_DEVELOPER_TOKEN:
-        raise GoogleError(
-            "GOOGLE_ADS_DEVELOPER_TOKEN is not set",
-            "Google Ads is not switched on yet at our end.",
-        )
-    url = (
-        f"https://googleads.googleapis.com/{config.ADS_API_VERSION}"
-        "/customers:listAccessibleCustomers"
-    )
-    resp = requests.get(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "developer-token": config.ADS_DEVELOPER_TOKEN,
-        },
-        timeout=TIMEOUT,
-    )
-    if not resp.ok:
-        _raise_for(resp, "listAccessibleCustomers")
-    names = resp.json().get("resourceNames", [])
-    return [n.split("/")[-1] for n in names]
-
-
-def _ads_agency_token():
-    """Exchange our stored refresh token for a short-lived access token."""
-    missing = config.ads_configured()
-    if missing:
-        raise GoogleError(
-            "missing Ads config: " + ", ".join(missing),
-            "Google Ads is not switched on yet at our end.",
-        )
-    resp = requests.post(
-        TOKEN_ENDPOINT,
-        data={
-            "client_id": config.ADS_CLIENT_ID,
-            "client_secret": config.ADS_CLIENT_SECRET,
-            "refresh_token": config.ADS_REFRESH_TOKEN,
-            "grant_type": "refresh_token",
-        },
-        timeout=TIMEOUT,
-    )
-    if not resp.ok:
-        _raise_for(resp, "agency token refresh")
-    return resp.json().get("access_token")
-
-
-def ads_send_link_invitation(customer_id):
-    """
-    Invite `customer_id` to link to our manager account.
-
-    Returns the resource name of the pending link. The client still has to
-    accept it in their own Google Ads account -- there is no way around that,
-    and the client-facing copy says so.
-    """
-    customer_id = str(customer_id).replace("-", "").strip()
-    token = _ads_agency_token()
-    url = (
-        f"https://googleads.googleapis.com/{config.ADS_API_VERSION}"
-        f"/customers/{config.ADS_MANAGER_ID}/customerClientLinks:mutate"
-    )
-    body = {
-        "operation": {
-            "create": {
-                "clientCustomer": f"customers/{customer_id}",
-                "status": "PENDING",
-            }
-        }
-    }
-    resp = requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "developer-token": config.ADS_DEVELOPER_TOKEN,
-            "login-customer-id": config.ADS_MANAGER_ID,
-            "Content-Type": "application/json",
-        },
-        json=body,
-        timeout=TIMEOUT,
-    )
-    if not resp.ok:
-        _raise_for(resp, "customerClientLinks:mutate")
-    result = resp.json().get("result", {})
-    return result.get("resourceName")
-
-
-def ads_link_status(customer_id):
-    """
-    Has the client accepted our invitation yet?
-
-    Queried from our manager account, so this works without the client being
-    involved -- which is what lets the Hub show live status days later.
-    """
-    customer_id = str(customer_id).replace("-", "").strip()
-    token = _ads_agency_token()
-    url = (
-        f"https://googleads.googleapis.com/{config.ADS_API_VERSION}"
-        f"/customers/{config.ADS_MANAGER_ID}/googleAds:search"
-    )
-    query = (
-        "SELECT customer_client_link.status, customer_client_link.client_customer "
-        "FROM customer_client_link "
-        f"WHERE customer_client_link.client_customer = 'customers/{customer_id}'"
-    )
-    resp = requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "developer-token": config.ADS_DEVELOPER_TOKEN,
-            "login-customer-id": config.ADS_MANAGER_ID,
-            "Content-Type": "application/json",
-        },
-        json={"query": query},
-        timeout=TIMEOUT,
-    )
-    if not resp.ok:
-        _raise_for(resp, "customer_client_link search")
-    rows = resp.json().get("results", [])
-    if not rows:
-        return None
-    return (rows[0].get("customerClientLink") or {}).get("status")
 
 
 # --------------------------------------------------------------------------

@@ -10,11 +10,14 @@
     Client links will not work yet. Set on Render:
     <span class="mono">{{ missing|join(', ') }}</span>
   </div>
-{% endif %}
-{% if ads_missing %}
+{% elif oauth_source == 'GOOGLE_CLIENT_ID' %}
   <div class="banner warn">
-    Google Ads invitations are off. Missing: <span class="mono">{{ ads_missing|join(', ') }}</span>.
-    Everything else still works &mdash; leave Ads unticked until this is set.
+    Using the Hub's shared Google OAuth client (<span class="mono">GOOGLE_CLIENT_ID</span>) &mdash;
+    the same one Google Finder and Hub sign-in use. That client's Authorised redirect URIs must
+    include <span class="mono">{{ cfg.redirect_uri() }}</span>, or the client lands on
+    <span class="mono">redirect_uri_mismatch</span> instead of a consent screen.
+    Set <span class="mono">GOOGLE_ACCESS_CLIENT_ID</span> / <span class="mono">GOOGLE_ACCESS_CLIENT_SECRET</span>
+    to give this tool its own app.
   </div>
 {% endif %}
 {% if not cfg.GBP_ENABLED %}
@@ -23,19 +26,48 @@
     it can be automated; until then the client gets written instructions instead.
   </div>
 {% endif %}
+<div class="banner warn">
+  Google Ads is paused. It needs an approved Google Ads developer token and our own
+  manager-account refresh token, neither of which is set, so asking for it would have
+  failed at our end after the client had already consented. Everything else is unaffected.
+</div>
 
 <div class="card">
   <h2>New access request</h2>
   <form id="newForm">
+    <p class="muted" style="margin:0 0 8px">Who is this for?</p>
+    <div class="seg">
+      <label><input type="radio" name="client_type" value="existing" checked> Existing client</label>
+      <label><input type="radio" name="client_type" value="new"> New &mdash; not a client yet</label>
+    </div>
+
+    <div id="paneExisting">
+      <label class="field"><span>Find the client</span>
+        <input type="text" id="clientQ" autocomplete="off" placeholder="Start typing a name or domain"></label>
+      <div class="lookup-list" id="clientResults" style="display:none"></div>
+      <div class="picked" id="clientPicked" style="display:none">
+        <span id="pickedName"></span>
+        <button type="button" class="quiet" id="clearPick">Change</button>
+      </div>
+      <p class="muted" style="margin:-6px 0 14px">
+        Picked from the Hub client list, so the request lands on their Client 360 record.
+      </p>
+    </div>
+
+    <div id="paneNew" style="display:none">
+      <label class="field"><span>Business name</span>
+        <input type="text" id="newName" autocomplete="off" placeholder="Riverside HVAC"></label>
+      <p class="muted" style="margin:-6px 0 14px">
+        Saved to Leads as well as here, so a prospect we asked for Google access is not
+        invisible everywhere else.
+      </p>
+    </div>
+
     <div class="grid2">
-      <label class="field"><span>Client name</span>
-        <input type="text" name="client_name" required placeholder="Riverside HVAC"></label>
       <label class="field"><span>Their email (optional)</span>
         <input type="email" name="client_email" placeholder="owner@riversidehvac.com"></label>
       <label class="field"><span>Website (optional)</span>
         <input type="url" name="website" placeholder="https://riversidehvac.com"></label>
-      <label class="field"><span>Hub client ID (optional)</span>
-        <input type="text" name="hub_client_id" placeholder="Links this to Client 360"></label>
     </div>
 
     <p class="muted" style="margin:4px 0 10px">Accounts to ask for</p>
@@ -55,6 +87,7 @@
       <p class="muted" style="margin:8px 0 0">
         Live for {{ cfg.INVITE_TTL_DAYS }} days. Send it however you normally reach them.
       </p>
+      <p class="muted" id="leadNote" style="margin:6px 0 0"></p>
     </div>
     <p id="err" class="muted" style="color:#A33327;display:none"></p>
   </form>
@@ -75,7 +108,7 @@
         <td><strong>{{ r.client_name }}</strong>
           {% if r.website %}<div class="mono">{{ r.website }}</div>{% endif %}</td>
         <td class="muted">
-          {%- for k in r.services -%}{{ SERVICES[k].label if k in SERVICES else k }}{{ ", " if not loop.last }}{%- endfor -%}
+          {%- for k in r.services -%}{{ cfg.label_for(k) }}{{ ", " if not loop.last }}{%- endfor -%}
         </td>
         <td><span class="chip {{ r.status }}">{{ r.status }}</span></td>
         <td class="mono">{{ r.consent_email or '—' }}</td>
@@ -89,31 +122,140 @@
 </div>
 
 <script>
-document.getElementById('newForm').addEventListener('submit', async function(e){
-  e.preventDefault();
-  var form = e.target, err = document.getElementById('err');
-  err.style.display = 'none';
-  var body = new URLSearchParams();
-  ['client_name','client_email','website','hub_client_id'].forEach(function(n){
-    if (form[n].value) body.append(n, form[n].value);
-  });
-  form.querySelectorAll('input[name=service]:checked').forEach(function(b){
-    body.append('service', b.value);
-  });
-  var res = await fetch('{{ url_for("google_access.create_request") }}',
-    {method:'POST', body:body, headers:{'Content-Type':'application/x-www-form-urlencoded'}});
-  var data = await res.json();
-  if (!data.ok) { err.textContent = data.error || 'Could not create that link.';
-                  err.style.display = 'block'; return; }
-  document.getElementById('linkOut').value = data.link;
-  document.getElementById('result').style.display = 'block';
-});
+(function(){
+  var form     = document.getElementById('newForm');
+  var err      = document.getElementById('err');
+  var paneEx   = document.getElementById('paneExisting');
+  var paneNew  = document.getElementById('paneNew');
+  var q        = document.getElementById('clientQ');
+  var results  = document.getElementById('clientResults');
+  var picked   = document.getElementById('clientPicked');
+  var pickedNm = document.getElementById('pickedName');
 
-document.getElementById('copyBtn').addEventListener('click', function(){
-  var f = document.getElementById('linkOut');
-  f.select(); document.execCommand('copy');
-  this.textContent = 'Copied';
-  setTimeout(function(){ document.getElementById('copyBtn').textContent = 'Copy'; }, 1600);
-});
+  // The chosen registry row, not whatever is in the box. An existing client
+  // is matched exactly or not at all -- typing "Riverside HVAC" must never
+  // file the request against "Riverside HVAC Supply".
+  var chosen = null;
+
+  function kind(){
+    var hit = form.querySelector('input[name=client_type]:checked');
+    return hit ? hit.value : '';
+  }
+
+  function syncPanes(){
+    var isNew = kind() === 'new';
+    paneNew.style.display  = isNew ? 'block' : 'none';
+    paneEx.style.display   = isNew ? 'none'  : 'block';
+    err.style.display = 'none';
+  }
+
+  Array.prototype.forEach.call(
+    form.querySelectorAll('input[name=client_type]'),
+    function(r){ r.addEventListener('change', syncPanes); });
+  syncPanes();
+
+  function showPicked(row){
+    chosen = row;
+    pickedNm.textContent = row.name + (row.domain ? '  ·  ' + row.domain : '');
+    picked.style.display = 'flex';
+    results.style.display = 'none';
+    q.style.display = 'none';
+    if (row.url && !form.website.value) form.website.value = row.url;
+  }
+
+  document.getElementById('clearPick').addEventListener('click', function(){
+    chosen = null;
+    picked.style.display = 'none';
+    q.style.display = '';
+    q.value = '';
+    q.focus();
+  });
+
+  var timer = null;
+  q.addEventListener('input', function(){
+    chosen = null;
+    var term = q.value.trim();
+    clearTimeout(timer);
+    if (term.length < 2) { results.style.display = 'none'; return; }
+    timer = setTimeout(function(){
+      fetch('/api/clients/search?q=' + encodeURIComponent(term) + '&limit=10',
+            {credentials:'same-origin'})
+        .then(function(r){ return r.ok ? r.json() : {clients:[]}; })
+        .then(function(d){
+          var rows = d.clients || [];
+          results.innerHTML = '';
+          if (!rows.length) {
+            var none = document.createElement('div');
+            none.className = 'muted';
+            none.style.padding = '10px 12px';
+            none.textContent = 'No client by that name. Choose New if this is a prospect.';
+            results.appendChild(none);
+          }
+          rows.forEach(function(row){
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = row.name + (row.domain ? '  ·  ' + row.domain : '');
+            b.addEventListener('click', function(){ showPicked(row); });
+            results.appendChild(b);
+          });
+          results.style.display = 'block';
+        })
+        .catch(function(){ results.style.display = 'none'; });
+    }, 180);
+  });
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    err.style.display = 'none';
+    var isNew = kind() === 'new';
+    var name = isNew ? document.getElementById('newName').value.trim()
+                     : (chosen ? chosen.name : '');
+
+    if (!name) {
+      err.textContent = isNew
+        ? 'Type the business name.'
+        : 'Pick a client from the list, or switch to New.';
+      err.style.display = 'block';
+      return;
+    }
+
+    var body = new URLSearchParams();
+    body.append('client_type', isNew ? 'new' : 'existing');
+    body.append('client_name', name);
+    if (form.client_email.value) body.append('client_email', form.client_email.value);
+    if (form.website.value) body.append('website', form.website.value);
+    form.querySelectorAll('input[name=service]:checked').forEach(function(b){
+      body.append('service', b.value);
+    });
+
+    fetch('{{ url_for("google_access.create_request") }}',
+      {method:'POST', body:body,
+       headers:{'Content-Type':'application/x-www-form-urlencoded'}})
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if (!data.ok) {
+          err.textContent = data.error || 'Could not create that link.';
+          err.style.display = 'block';
+          return;
+        }
+        document.getElementById('linkOut').value = data.link;
+        document.getElementById('leadNote').textContent =
+          (data.lead && data.lead.note) ? data.lead.note : '';
+        document.getElementById('result').style.display = 'block';
+      })
+      .catch(function(){
+        err.textContent = 'Could not create that link.';
+        err.style.display = 'block';
+      });
+  });
+
+  document.getElementById('copyBtn').addEventListener('click', function(){
+    var f = document.getElementById('linkOut');
+    f.select(); document.execCommand('copy');
+    var self = this;
+    self.textContent = 'Copied';
+    setTimeout(function(){ self.textContent = 'Copy'; }, 1600);
+  });
+})();
 </script>
 {% endblock %}

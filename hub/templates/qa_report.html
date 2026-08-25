@@ -78,6 +78,23 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
 .qa-cmp{border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:10px}
 .qa-cmp b{color:#1a2e58}
 .qa-x{border:0;background:none;font-size:22px;cursor:pointer;color:#64748b}
+.qa-map-box{min-width:250px}
+.qa-map-q{width:100%;padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;
+  font:12.5px 'Segoe UI',system-ui,sans-serif}
+.qa-map-list{max-height:230px;overflow-y:auto;margin-top:5px}
+.qa-map-head{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;
+  color:#64748b;padding:3px 0 4px}
+.qa-map-none{font-size:11.5px;color:#94a3b8;line-height:1.5;padding:3px 0}
+button.qa-map-opt{display:block;width:100%;text-align:left;background:#fff;
+  border:1px solid #e2e8f0;border-radius:8px;padding:5px 9px;margin-top:4px;
+  cursor:pointer;font:12px 'Segoe UI',system-ui,sans-serif;color:#1e293b}
+button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
+.qa-map-dom{display:block;color:#64748b;font-size:10.5px}
+.qa-map-why{display:block;color:#64748b;font-size:10.5px;line-height:1.45;margin-top:2px}
+.qa-map-msg{font-size:11.5px;color:#64748b;margin-top:5px}
+.qa-map-done{font-size:12px;color:#1e293b;line-height:1.5}
+.qa-map-wrote{color:#147d52;font-size:11px;margin-top:2px}
+.qa-map-skip{color:#b42318;font-size:11px;margin-top:2px}
 </style>
 <div class="qa-modal" id="qaSumModal">
   <div class="qa-modal-box">
@@ -104,6 +121,15 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
   var data = null;
 
   function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+  /* esc() goes through textContent, which does not escape either kind of
+     quote — fine inside an element, wrong inside an attribute. A customer
+     called Bob's Heating ends the attribute early and the row stops working,
+     which is the sort of thing nobody tests for because most client names
+     have no apostrophe in them. */
+  function attrEsc(s){
+    return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
 
   function cellHtml(c){
     /* A coloured status bubble, e.g. "GTM Found". */
@@ -162,6 +188,20 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
       }).join('');
       return '<select class="qa-stage" data-opp="'+esc(c.stage_select)+'" style="padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;font:12.5px \'Segoe UI\',system-ui,sans-serif">'+opts+'</select> <span class="qa-stage-msg" style="font-size:11px;color:#64748b"></span>';
     }
+    /* Map a Google resource to a customer, from the row that reports it.
+       The whole cell is data attributes and a button: the searchable list is
+       only built when somebody opens one, because a report can carry two
+       thousand rows and two thousand type-ahead widgets is a page that never
+       finishes rendering. */
+    if(c && typeof c==='object' && c.map_client!==undefined){
+      var cur = c.current || '';
+      return '<div class="qa-map-host" data-rid="'+attrEsc(c.map_client)+'" '+
+        'data-current="'+attrEsc(cur)+'" '+
+        'data-suggest="'+attrEsc(JSON.stringify(c.suggestions||[]))+'">'+
+        '<button class="qa-assign-btn qa-map-open">'+
+        (cur ? '&#9998; Change customer' : '&#128100; Map to customer')+
+        '</button></div>';
+    }
     if(c && typeof c==='object' && c.search_attach!==undefined)
       return '<div class="qa-sa-host" data-client="'+esc(c.search_attach)+'" data-kind="'+esc(c.kind)+'" data-q="'+esc(c.q||'')+'">'
         +'<button class="qa-assign-btn">&#128269; Search &amp; attach</button></div>';
@@ -172,10 +212,155 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
        and a reader scanning the column needs to be able to tell. */
     if(c && typeof c==='object' && c.muted)
       return '<span style="color:#94a3b8;font-style:italic">'+esc(c.text||'')+'</span>';
+    /* Text with a tooltip behind it and nothing else. This branch was
+       missing, so any such cell fell through to String(c) and rendered the
+       literal words "[object Object]" — including "— not mapped —" on the
+       Google report, which is the cell that names the entire finding. The
+       tooltip carried the reason and nobody ever saw either. */
+    if(c && typeof c==='object' && c.text!==undefined)
+      return '<span'+(c.title?' title="'+attrEsc(c.title)+'"':'')+'>'+esc(c.text)+'</span>';
     var s = String(c==null?'':c);
     if(s.indexOf('▼')===0) return '<span class="qa-neg">'+esc(s)+'</span>';
     if(s.indexOf('▲')===0) return '<span class="qa-pos">'+esc(s)+'</span>';
     return esc(s);
+  }
+
+  /* ------------------------------------------------------------------
+     Mapping one Google resource to a customer.
+
+     A searchable list of customers, not a free-text box: a typo'd name files
+     the attachment under a client nothing joins to, and it reads as success.
+     So the only way to submit is to click a customer that came back from
+     /api/clients/search, and the suggestions the report worked out are shown
+     first with the evidence for each — they are proposals, and clicking one
+     is still a person choosing it.
+
+     Attaching posts to /api/google/attach, which writes the client record,
+     the stored index and the Knack website record and reports each. That
+     report is rendered rather than collapsed into a tick: "attached" and
+     "attached in two of three places" are different outcomes, and one tick
+     for both is how somebody learns not to trust the tick.
+  ------------------------------------------------------------------- */
+  function wireMapHost(host, columns){
+    var open = host.querySelector('.qa-map-open');
+    if(!open) return;
+    open.onclick = function(){
+      var suggest = [];
+      try { suggest = JSON.parse(host.dataset.suggest || '[]'); } catch(e){ suggest = []; }
+      host.innerHTML =
+        '<div class="qa-map-box">'+
+          '<input class="qa-map-q" type="text" autocomplete="off" '+
+            'placeholder="Search customers by name or domain\u2026">'+
+          '<div class="qa-map-list"></div>'+
+          '<div class="qa-map-msg"></div>'+
+        '</div>';
+      var inp  = host.querySelector('.qa-map-q');
+      var list = host.querySelector('.qa-map-list');
+      var msg  = host.querySelector('.qa-map-msg');
+
+      function paint(items, why){
+        if(why) list.innerHTML = '<div class="qa-map-head">'+esc(why)+'</div>';
+        else list.innerHTML = '';
+        if(!items.length){
+          list.innerHTML += '<div class="qa-map-none">No customer matched. '+
+            'Nothing is guessed from a partial name \u2014 type more of it, '+
+            'or try the domain.</div>';
+          return;
+        }
+        items.forEach(function(it){
+          var row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'qa-map-opt';
+          row.innerHTML = '<b>'+esc(it.client)+'</b>'+
+            (it.domain ? '<span class="qa-map-dom">'+esc(it.domain)+'</span>' : '')+
+            (it.why ? '<span class="qa-map-why">'+esc(it.why)+'</span>' : '');
+          row.onclick = function(){ attachTo(it.client); };
+          list.appendChild(row);
+        });
+      }
+
+      /* Suggestions first. An empty search box returning house clients (which
+         is what /api/clients/search does with no query) would look like an
+         answer to a question nobody asked. */
+      if(suggest.length){
+        paint(suggest.map(function(sg){
+          return {client: sg.client,
+                  why: (sg.confidence==='recorded' ? 'Recorded in Knack \u2014 '
+                        : sg.confidence==='domain' ? 'Domain match \u2014 '
+                        : sg.confidence==='name' ? 'Exact name \u2014 '
+                        : 'Possible \u2014 ') + (sg.why||'')};
+        }), 'Suggested \u2014 nothing has been applied');
+      } else {
+        list.innerHTML = '<div class="qa-map-none">No suggestion for this '+
+          'resource. Search for the customer it belongs to.</div>';
+      }
+
+      var timer = null, seq = 0;
+      inp.addEventListener('input', function(){
+        var q = inp.value.trim();
+        clearTimeout(timer);
+        if(q.length < 2){
+          if(!q && suggest.length) open.click();     /* back to suggestions */
+          return;
+        }
+        timer = setTimeout(function(){
+          var mine = ++seq;
+          fetch('/api/clients/search?limit=10&q='+encodeURIComponent(q),
+                {credentials:'same-origin'})
+            .then(function(r){ return r.json(); })
+            .then(function(res){
+              if(mine !== seq) return;               /* a later keystroke won */
+              paint((res.clients||[]).map(function(c){
+                return {client: c.name, domain: c.domain || ''};
+              }), '');
+            })
+            .catch(function(e){ msg.innerHTML = '<span class="qa-neg">'+esc(String(e))+'</span>'; });
+        }, 200);
+      });
+      inp.focus();
+
+      function attachTo(client){
+        list.innerHTML = '';
+        msg.textContent = 'Attaching to ' + client + '\u2026';
+        fetch('/api/google/attach', {method:'POST', credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({resource_id: host.dataset.rid, client: client})})
+          .then(function(r){ return r.json(); })
+          .then(function(res){
+            if(res.error || !res.ok){
+              msg.innerHTML = '<span class="qa-neg">'+
+                esc(res.error || res.note || 'Nothing was written.')+'</span>';
+              return;
+            }
+            host.dataset.current = client;
+            var wrote = (res.written||[]).map(function(w){
+              return '<div class="qa-map-wrote">\u2713 '+esc(w.label)+' \u2014 '+esc(w.detail)+'</div>'; }).join('');
+            var skip = (res.skipped||[]).map(function(w){
+              return '<div class="qa-map-skip">\u2717 '+esc(w.label)+' \u2014 '+esc(w.why)+'</div>'; }).join('');
+            host.innerHTML = '<div class="qa-map-done"><b>Mapped to '+esc(client)+'</b>'+
+              wrote + skip +
+              '<button class="qa-assign-btn qa-map-open" style="margin-top:6px">'+
+              '&#9998; Change customer</button></div>';
+            wireMapHost(host, columns);
+            /* The row's own "Mapped to" and "Matched on" cells were reporting
+               the opposite a second ago. Leaving them stale is how somebody
+               reloads to check whether the click did anything. */
+            var tr = host.closest('tr');
+            if(tr){
+              var mi = columns.indexOf('Mapped to');
+              if(mi >= 0 && tr.cells[mi])
+                tr.cells[mi].innerHTML = '<a href="/client360?q='+
+                  encodeURIComponent(client)+'">'+esc(client)+'</a>';
+              var oi = columns.indexOf('Matched on');
+              if(oi >= 0 && tr.cells[oi]) tr.cells[oi].textContent = 'attached';
+              tr.className = 'qa-row-green';
+            }
+          })
+          .catch(function(e){
+            msg.innerHTML = '<span class="qa-neg">'+esc(String(e))+'</span>';
+          });
+      }
+    };
   }
 
   function render(d){
@@ -293,6 +478,9 @@ tr.qa-row-sub td{background:#f1f5f9 !important;font-weight:800;color:#1a2e58;bor
           .then(function(res){ if(msg) msg.textContent = res.error ? res.error : 'Saved ✓'; })
           .catch(function(e){ if(msg) msg.textContent = String(e); });
       };
+    });
+    wrap.querySelectorAll('.qa-map-host').forEach(function(host){
+      wireMapHost(host, d.columns || []);
     });
     wrap.querySelectorAll('.qa-sa-host').forEach(function(host){
       host.querySelector('.qa-assign-btn').onclick = function(){

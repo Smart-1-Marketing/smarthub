@@ -307,6 +307,128 @@ knack_websites.rows = lambda limit=2000, refresh=False: list(WEB_ROWS)
 
 
 # ---------------------------------------------------------------------------
+section("A domain match is applied now, not at the next sweep")
+# ---------------------------------------------------------------------------
+# The join is the index's own rule 2. What is being asserted is *when* it
+# runs: the stored index only ever saw the client list as it stood at sweep
+# time, so a client that gained a URL an hour ago left their container sitting
+# on the report as belonging to nobody, next to the client whose domain it
+# plainly carries.
+LATE_ITEMS = [
+    # Carries a client's domain and was swept before that client had a URL.
+    {"platform": "Google Tag Manager", "type": "container",
+     "name": "Marina container", "resource_id": "GTM-LATE1",
+     "google_login": "ops@smart1.example", "domains": ["buckeyelakemarina.example"],
+     "client": "", "match": "", "match_detail": ""},
+    # Two client records share this domain, so it cannot say which.
+    {"platform": "Search Console", "type": "site", "name": "shared.example",
+     "resource_id": "sc-domain:shared.example", "google_login": "ops@smart1.example",
+     "domains": ["shared.example"], "client": "", "match": ""},
+    # No URL at all — a GA4 property summary never carries one.
+    {"platform": "Google Analytics", "type": "property", "name": "Nameless GA4",
+     "resource_id": "G-NOURL1", "google_login": "ops@smart1.example",
+     "domains": [], "client": "", "match": ""},
+    # Already attached to somebody, and its domain says otherwise. That
+    # disagreement is a finding; re-deciding it on a page load is the worst
+    # possible place to resolve one.
+    {"platform": "Google Analytics", "type": "property", "name": "Disputed",
+     "resource_id": "G-DISPUTED", "google_login": "ops@smart1.example",
+     "domains": ["buckeyelakemarina.example"], "client": "Riverstone Heating LLC",
+     "match": "attached"},
+]
+
+
+def _write_index(items):
+    jsonstore.write_json(
+        google_index._path(),                                   # noqa: SLF001
+        {"built_at": "2026-08-25T09:00:00+00:00", "last_attempt": "",
+         "last_error": "", "items": [dict(i) for i in items],
+         "accounts": ["ops@smart1.example"], "errors": []})
+
+
+_write_index(LATE_ITEMS)
+out = google_index.apply_domain_matches()
+check("the resource carrying a client's domain is joined",
+      out["mapped"] == 1 and out["items"][0]["client"] == "Buckeye Lake Marina",
+      out)
+check("...and what it joined is named, not just counted",
+      out["items"][0]["domain"] == "buckeyelakemarina.example", out)
+
+after = {r["resource_id"]: r for r in google_index.rows()}
+check("the stored row now names the client",
+      after["GTM-LATE1"]["client"] == "Buckeye Lake Marina", after["GTM-LATE1"])
+check("...on the domain rule, and the row says so",
+      after["GTM-LATE1"]["match"] == "domain", after["GTM-LATE1"])
+check("...and says it happened after the sweep rather than in it",
+      "after the sweep" in after["GTM-LATE1"]["match_detail"],
+      after["GTM-LATE1"]["match_detail"])
+check("a domain two clients share is awarded to neither",
+      after["sc-domain:shared.example"]["client"] == "",
+      after["sc-domain:shared.example"])
+check("a resource with no URL is left for a human",
+      after["G-NOURL1"]["client"] == "", after["G-NOURL1"])
+check("a resource that already has a client is never re-decided",
+      after["G-DISPUTED"]["client"] == "Riverstone Heating LLC",
+      after["G-DISPUTED"])
+
+again = google_index.apply_domain_matches()
+check("running it again joins nothing and writes nothing",
+      again["mapped"] == 0 and not again["items"], again)
+
+# The whole point is that these stop being orphans without anybody clicking.
+orph = google_links.orphans()
+check("the joined resource has left the orphan list",
+      "GTM-LATE1" not in {r["resource_id"] for r in orph["rows"]},
+      [r["resource_id"] for r in orph["rows"]])
+check("...and the ones that genuinely cannot be joined have not",
+      {"sc-domain:shared.example", "G-NOURL1"}
+      <= {r["resource_id"] for r in orph["rows"]},
+      [r["resource_id"] for r in orph["rows"]])
+
+
+# ---------------------------------------------------------------------------
+section("The QA report can map a resource to a customer from the row")
+# ---------------------------------------------------------------------------
+# The report is where somebody notices that a property maps to nobody, so it
+# has to be where they can say whose it is. Sending them to another screen to
+# find the same row again is how a list stays unactioned.
+_write_index(LATE_ITEMS)                     # unmapped again, as swept
+from hub import qa                                                  # noqa: E402
+
+rep = qa.google_accounts()
+check("the report carries a customer picker column",
+      rep["columns"][-1] == "Map to client", rep["columns"])
+check("every row has one cell per column",
+      all(len(r) == len(rep["columns"]) for r in rep["rows"]),
+      [len(r) for r in rep["rows"]])
+
+cells = {r[-1]["map_client"]: r[-1] for r in rep["rows"]}
+check("the picker addresses the resource by its own id",
+      set(cells) == {i["resource_id"] for i in LATE_ITEMS}, list(cells))
+check("the domain match was applied on the load, not left for the sweep",
+      cells["GTM-LATE1"]["current"] == "Buckeye Lake Marina",
+      cells["GTM-LATE1"])
+check("...and the note says how many changed under the reader",
+      "joined to a client by domain on this load" in rep["note"], rep["note"])
+
+check("an unmapped resource's picker opens on the suggestions",
+      {s["client"] for s in cells["sc-domain:shared.example"]["suggestions"]}
+      >= {"Shared One", "Shared Two"},
+      cells["sc-domain:shared.example"]["suggestions"])
+check("...with the evidence for each, so nothing is a bare name",
+      all(s["why"] and s["confidence"]
+          for s in cells["sc-domain:shared.example"]["suggestions"]),
+      cells["sc-domain:shared.example"]["suggestions"])
+check("a resource that already has a client is proposed nobody",
+      cells["G-DISPUTED"]["suggestions"] == [], cells["G-DISPUTED"])
+check("every picker cell exports as text rather than a blank CSV column",
+      all(c["text"] for c in cells.values()),
+      {k: v["text"] for k, v in cells.items()})
+check("a resource nothing can be proposed for says so rather than showing one",
+      "no suggestion" in cells["G-NOURL1"]["text"], cells["G-NOURL1"])
+
+
+# ---------------------------------------------------------------------------
 section("The routes exist under the hub app, not a mount")
 # ---------------------------------------------------------------------------
 # /google belongs to Google Finder, so these have to be hub routes elsewhere —
