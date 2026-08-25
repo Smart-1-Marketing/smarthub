@@ -251,6 +251,12 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
     """Every Google resource the index could not join to a client."""
     from hub import google_index
 
+    # A client that gained a URL since the last sweep makes its resources
+    # joinable now; leaving them here until the next sweep lists them as
+    # orphans nobody can explain beside the client whose domain they carry.
+    # Idempotent and writes nothing when nothing changed.
+    rejoined = google_index.apply_domain_matches()
+
     data = google_index.load()
     status = google_index.status()
     rows_all = google_index.rows()
@@ -301,6 +307,11 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
     elif status.get("stale"):
         note += (" The index is stale, so this reflects the last successful "
                  "sweep rather than right now.")
+    if rejoined.get("mapped"):
+        note += (f" {rejoined['mapped']} resource(s) were joined to a client "
+                 "by domain just now — their client had gained that domain "
+                 "since the last sweep — so they have left this list without "
+                 "anybody clicking anything.")
     if status.get("last_error"):
         note += f" The last sweep reported: {status['last_error']}"
     if skipped_other:
