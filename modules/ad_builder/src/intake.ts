@@ -161,7 +161,7 @@ function finalizeColors(
   const c: Brand['colors'] = { ...DEFAULTS, ...(found ?? {}), ...(overrides ?? {}) };
 
   if (contrastRatio(hexLuminance(c.light), hexLuminance(c.dark)) < 7) {
-    notes.push('Light and dark brand colours did not contrast; substituted white and near-black.');
+    notes.push('Light and dark brand colors did not contrast; substituted white and near-black.');
     c.light = '#FFFFFF';
     c.dark = '#111111';
   }
@@ -171,8 +171,8 @@ function finalizeColors(
     const onLight = contrastRatio(hexLuminance(c.accent), hexLuminance(c.light));
     notes.push(
       onLight >= 4.5
-        ? 'Accent colour is dark; CTA text will be light rather than dark.'
-        : 'Accent colour has poor contrast with both light and dark text — review the CTA before sending the proof.',
+        ? 'Accent color is dark; CTA text will be light rather than dark.'
+        : 'Accent color has poor contrast with both light and dark text — review the CTA before sending the proof.',
     );
   }
 
@@ -182,7 +182,7 @@ function finalizeColors(
   const onPrimary = ensureContrast(c.accent, c.primary, 4.5);
   if (onPrimary.adjusted) {
     notes.push(
-      `Accent ${c.accent} was unreadable on the primary colour (${contrastRatio(hexLuminance(c.accent), hexLuminance(c.primary)).toFixed(1)}:1); ` +
+      `Accent ${c.accent} was unreadable on the primary color (${contrastRatio(hexLuminance(c.accent), hexLuminance(c.primary)).toFixed(1)}:1); ` +
         `adjusted to ${onPrimary.hex} for offer-led layouts.`,
     );
     c.accent = onPrimary.hex;
@@ -637,7 +637,7 @@ export async function buildCampaign(
           } catch { /* best-effort */ }
         }
       } catch (e: any) {
-        notes.push(`Chosen background could not be applied (${e?.message ?? e}); using a solid colour.`);
+        notes.push(`Chosen background could not be applied (${e?.message ?? e}); using a solid color.`);
       }
     }
 

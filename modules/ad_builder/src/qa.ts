@@ -16,7 +16,7 @@ import type {
   SizeLayout,
 } from './types';
 import type { ComposeOutput } from './svg';
-import { resolveColor } from './svg';
+import { inkOverBackground, resolveColor } from './svg';
 import sharp from 'sharp';
 import { contrastRatio, hexLuminance, regionLuminance, type RasterResult } from './raster';
 
@@ -31,8 +31,13 @@ export interface QaInput {
   backgroundPng: Buffer;
   scale: number;
   /** Present when the concept uses a full-bleed background image, so contrast
-   *  is measured against the light text the composer actually used. */
+   *  is measured against the text colour the composer actually used. */
   backgroundImage?: string;
+  /** The overlay the composer painted over that image. Both are needed here:
+   *  the ink over a photo depends on them, and measuring the wrong ink reports
+   *  a contrast result the render does not have. */
+  backgroundOverlay?: number;
+  backgroundOverlayColor?: string;
 }
 
 const TEXT_ROLES = ['headline', 'support', 'offer', 'trust'] as const;
@@ -127,7 +132,7 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
       if (ratio < 1.7) {
         // Suggest the opposite of what's there: a light logo needs the
         // darker/full-colour version and vice versa.
-        const suggestion = ink > 0.5 ? 'full-colour (darker)' : 'white';
+        const suggestion = ink > 0.5 ? 'full-color (darker)' : 'white';
         warn('logo-contrast', `the logo is nearly invisible against its background (${ratio.toFixed(1)}:1). Try the ${suggestion} logo on this size.`);
       } else {
         pass('logo-contrast', `logo reads clearly against its background (${ratio.toFixed(1)}:1)`);
@@ -153,7 +158,7 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
   } else {
     fail(
       'file-weight',
-      `${kb(raster.bytes)} exceeds the ${kb(rule.maxFileBytes)} limit after ${raster.attempts} compression attempts — simplify the hero image or switch to a flat-colour treatment`,
+      `${kb(raster.bytes)} exceeds the ${kb(rule.maxFileBytes)} limit after ${raster.attempts} compression attempts — simplify the hero image or switch to a flat-color treatment`,
     );
   }
 
@@ -229,19 +234,16 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     warn('cta', 'no CTA in the creative');
   }
 
-  /* ----------------------------------------------------------- word count */
-  const [minW, maxW] = rule.words;
-  if (composed.wordCount > maxW) {
-    warn(
-      'word-count',
-      `${composed.wordCount} words, guidance for this size is ${minW}-${maxW}`,
-      { action: 'shorten', role: 'support', maxWords: maxW },
-    );
-  } else if (composed.wordCount < minW) {
-    warn('word-count', `${composed.wordCount} words, below the ${minW}-${maxW} guidance`);
-  } else {
-    pass('word-count', `${composed.wordCount} words (guidance ${minW}-${maxW})`);
-  }
+  /* ----------------------------------------------------------- word count
+     There is deliberately no word-count check.
+
+     It counted words against a per-size guidance band and warned either side
+     of it, which made a perfectly legible ad amber for being four words short
+     and taught people that amber means nothing. The question it was standing
+     in for -- does the copy fit -- is answered properly and per block by the
+     overflow check above, from real glyph measurements rather than a word
+     tally. `composed.wordCount` is still reported on the proof and in the
+     manifest, where it is information rather than a verdict. */
 
   /* ------------------------------------------------------- min font size */
   const deliveredMin = composed.minFontSize * scale;
@@ -311,8 +313,8 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     // background image the composer forces light text, so measuring the
     // template's dark ink here would report a false low-contrast failure.
     let textColor = resolveColor(spec.color, brand, '#111111');
-    if ((input as any).backgroundImage && role !== 'offer') {
-      textColor = resolveColor('light', brand, '#ffffff');
+    if ((input as any).backgroundImage && role !== 'offer' && !(spec as any).keepColorOnBg) {
+      textColor = resolveColor(inkOverBackground(input, brand), brand, '#ffffff');
     } else if (role === 'headline' && (brand.colors as any).headlineInk) {
       textColor = resolveColor('headlineInk', brand);
     }

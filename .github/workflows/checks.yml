@@ -107,6 +107,22 @@ jobs:
       - name: Ad builder module tests
         run: python test_ads_module.py
 
+      - name: Display ad layout and build screen tests
+        # The Node ad builder's own tests need an npm install this workflow
+        # deliberately does not do, so this asserts what lives in the files:
+        # that the Proof point field has a box to draw into on every layout
+        # with room for one, that those boxes are inside the safe area and
+        # clear of everything else, and that the build screen and the render
+        # server still agree about the shapes they exchange. Guarded like the
+        # steps below so this workflow stays mergeable on a branch that
+        # predates the file. Reads files only — no database, no network.
+        run: |
+          if [ -f test_display_ads.py ]; then
+            python test_display_ads.py
+          else
+            echo "test_display_ads.py not on this branch — nothing to run."
+          fi
+
       - name: Ads estimate and client review tests
         # The campaign estimate a CLIENT reads: reachable without a Hub login,
         # carrying no staff chrome, one document shared with the internal
@@ -343,6 +359,22 @@ jobs:
             python test_google_links.py
           else
             echo "test_google_links.py not on this branch — nothing to run."
+          fi
+
+      - name: Google Access tests
+        # Google Ads is paused: the assertion is that no client-facing page
+        # still offers or explains it, and that a request created before the
+        # pause still renders and can still be closed off. Plus the
+        # existing-or-new gate on the invite form -- an existing client is
+        # matched against the registry exactly or not at all, a new business
+        # is written through hub/leads.py, and neither is guessed. Offline;
+        # nothing reaches Google. Guarded like the steps around it so this
+        # workflow stays mergeable on a branch that predates it.
+        run: |
+          if [ -f test_google_access.py ]; then
+            python test_google_access.py
+          else
+            echo "test_google_access.py not on this branch — nothing to run."
           fi
 
       - name: Blog taxonomy, guardrail and CMS publish tests

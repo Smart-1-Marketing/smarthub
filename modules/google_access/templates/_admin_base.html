@@ -62,6 +62,19 @@
     border-radius:8px;margin:12px 0 0}
   .linkbox input{flex:1;border:0;background:transparent;font-family:"IBM Plex Mono",monospace;
     font-size:12.5px;color:var(--ink)}
+  .seg{display:flex;gap:8px;margin:0 0 16px;flex-wrap:wrap}
+  .seg label{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;
+    border:1px solid var(--line-strong);border-radius:8px;font-size:14px;cursor:pointer;background:#fff}
+  .seg label:has(input:checked){border-color:var(--cyan);background:#EAF3F6;color:var(--cyan)}
+  .lookup-list{border:1px solid var(--line-strong);border-radius:8px;margin:6px 0 14px;
+    max-height:230px;overflow:auto;background:#fff}
+  .lookup-list button{display:block;width:100%;text-align:left;background:#fff;color:var(--ink);
+    border:0;border-bottom:1px solid var(--line);border-radius:0;font-family:inherit;
+    font-weight:400;font-size:14px;padding:9px 12px;cursor:pointer}
+  .lookup-list button:hover{background:#EAF3F6}
+  .picked{display:flex;gap:10px;align-items:center;justify-content:space-between;
+    background:#EAF3F6;border:1px solid var(--cyan);border-radius:8px;padding:10px 13px;
+    margin:0 0 14px;font-size:14px}
   .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0 20px}
   .muted{color:var(--ink-faint);font-size:13.5px}
   @media(max-width:640px){th:nth-child(n+4),td:nth-child(n+4){display:none}}

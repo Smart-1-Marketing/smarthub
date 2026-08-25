@@ -174,49 +174,6 @@ def run_grants(request, token, selected_services):
             _fail(row, exc.detail)
             results.append({"service": "gbp", "status": FAILED, "public": exc.public})
 
-    # --- Google Ads ----------------------------------------------------
-    # Read their customer IDs with the client token, then invite from our
-    # manager account. The client still accepts inside Google Ads.
-    if "ads" in selected_services:
-        row = _grant(request, "ads")
-        try:
-            customers = gc.retry(lambda: gc.ads_list_accessible_customers(token))
-            if not customers:
-                raise gc.GoogleError(
-                    "no accessible Ads customers",
-                    "That Google account cannot see any Google Ads accounts.",
-                )
-            invited, failed = [], []
-            for cid in customers:
-                try:
-                    gc.ads_send_link_invitation(cid)
-                    invited.append(cid)
-                except gc.GoogleError as exc:
-                    if "already" in str(exc.detail).lower():
-                        invited.append(cid)
-                    else:
-                        failed.append(f"{cid}: {exc.detail}")
-            if not invited:
-                raise gc.GoogleError("; ".join(failed) or "no invitations sent",
-                                     "We could not send the Google Ads invitation.")
-            row.status = WAITING
-            row.resource_id = ",".join(invited)
-            row.resource_name = ", ".join(_pretty_cid(c) for c in invited)
-            row.role_granted = "Manager account link (pending)"
-            row.error_detail = "; ".join(failed) if failed else None
-            row.checked_at = utcnow()
-            results.append({
-                "service": "ads", "status": WAITING,
-                "public": (
-                    "Invitation sent. Open Google Ads and accept it under "
-                    "Admin \u2192 Access and security \u2192 Managers."
-                ),
-                "names": [_pretty_cid(c) for c in invited],
-            })
-        except gc.GoogleError as exc:
-            _fail(row, exc.detail)
-            results.append({"service": "ads", "status": FAILED, "public": exc.public})
-
     # --- Manual services -------------------------------------------------
     # Search Console has no user-management API at all. Business Profile has
     # one, but only after Google approves the allowlist -- until then it is
@@ -261,45 +218,6 @@ def run_grants(request, token, selected_services):
         failed=[r["service"] for r in results if r["status"] == FAILED],
     )
     return results
-
-
-def _pretty_cid(cid):
-    cid = str(cid)
-    if len(cid) == 10:
-        return f"{cid[0:3]}-{cid[3:6]}-{cid[6:]}"
-    return cid
-
-
-def refresh_ads_status(request):
-    """Poll our manager account to see if pending Ads links were accepted."""
-    row = request.grant_for("ads")
-    if not row or row.status != WAITING or not row.resource_id:
-        return row
-    accepted, still_pending = [], []
-    for cid in row.resource_id.split(","):
-        cid = cid.strip()
-        if not cid:
-            continue
-        try:
-            status = gc.ads_link_status(cid)
-        except gc.GoogleError as exc:
-            row.error_detail = str(exc.detail)[:2000]
-            continue
-        if status == "ACTIVE":
-            accepted.append(cid)
-        else:
-            still_pending.append(cid)
-    row.checked_at = utcnow()
-    if accepted and not still_pending:
-        row.status = GRANTED
-        row.granted_at = utcnow()
-        row.role_granted = "Manager account link"
-        row.error_detail = None
-    request.status = request.rollup()
-    db.session.commit()
-    audit("ads_status_refresh", request_id=request.id,
-          accepted=len(accepted), pending=len(still_pending))
-    return row
 
 
 def expiry_from_now(days=None):

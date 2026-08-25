@@ -170,3 +170,40 @@ test('a logo override on a layout with no logo is skipped', () => {
   const out = applyBlockStyles(layout(), { logo: { x: 10 } }) as any;
   assert.equal(out.logo, undefined);
 });
+
+/* -------------------------------------------------------------- text ink
+   There was no colour control for a text block at all: the layout's ink was
+   the only ink, so a client whose brand is a dark green on cream got
+   near-black. The rule that matters is the same one the font check follows --
+   resolveColor falls back for anything it does not recognise, so an
+   unvalidated value renders as near-black while the panel still shows the
+   colour that was asked for. */
+
+test('a text block takes a hex ink', () => {
+  const out = applyBlockStyles(layout(), { headline: { color: '#1F3A5F' } });
+  assert.equal((out as any).headline.color, '#1F3A5F');
+});
+
+test('a text block takes a brand colour by name', () => {
+  // The better answer where it fits: a name follows the palette when somebody
+  // corrects a swatch upstream, where a hex is a snapshot that goes stale.
+  const out = applyBlockStyles(layout(), { headline: { color: 'accent' } });
+  assert.equal((out as any).headline.color, 'accent');
+});
+
+test('an ink the renderer cannot resolve is dropped, not passed on', () => {
+  for (const bad of ['rebeccapurple', 'rgb(1,2,3)', '#12345', 'accentt', '']) {
+    const out = applyBlockStyles(layout(), { headline: { color: bad } });
+    assert.equal(
+      (out as any).headline.color, undefined,
+      `${JSON.stringify(bad)} should have been dropped`,
+    );
+  }
+});
+
+test('an unresolvable button fill is dropped too', () => {
+  // Same reasoning: an unrecognised fill resolves to the #ffc400 default, so
+  // accepting one paints a button a colour nobody chose.
+  const out = applyBlockStyles(layout(), { cta: { bg: 'not-a-colour' } });
+  assert.equal((out as any).cta.bg, 'accent');       // the template's own
+});

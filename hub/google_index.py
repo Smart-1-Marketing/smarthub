@@ -525,6 +525,94 @@ def set_client(resource_id: str, client: str, detail: str = "") -> dict:
     return {"ok": True, "updated": hit}
 
 
+def apply_domain_matches() -> dict:
+    """Re-apply the domain rule to unmapped resources now, not in six hours.
+
+    The join itself is not new — `match_item()` rule 2 has always mapped a
+    resource whose domain is a client's. What is new is *when* it runs. The
+    index is a stored sweep rebuilt on a schedule, so the rule only ever sees
+    the client list as it stood at sweep time, and the client list moves
+    underneath it constantly: a URL discovered through `hub/client_urls.py`, a
+    site matched in Sites Admin, a Knack record that finally gained a website.
+    Every one of those makes a resource joinable that the last sweep left
+    orphaned, and until now the answer was to wait — which reads on the page as
+    a resource nobody can explain, sitting next to the client whose domain it
+    plainly carries.
+
+    Three rules, and each is a way this would otherwise go quietly wrong:
+
+    * **A resource that already has a client is never touched.** Not to
+      "correct" it, not even when a domain disagrees. A disagreement is a
+      finding; flattening it destroys the only evidence of it, and re-deciding
+      a human's attachment on a page load is the worst version of that.
+    * **A domain two clients share maps to neither.** `_client_by_domain()`
+      drops conflicts for exactly this reason — awarding one is the guess the
+      billing audit used to make. Those stay orphaned and stay actionable.
+    * **Nothing is written unless something changed.** This runs on a report
+      load in two gunicorn workers; an unconditional write would mirror the
+      whole index into the database every time somebody opened the page.
+
+    Only the index is written. The client record is not: this is a derivation,
+    re-made from scratch on every build, and writing it onto the client would
+    turn it into a stored fact that outlives the domain it was derived from.
+    Attaching by hand is what writes the client record, and it still means
+    something different from this.
+    """
+    data = load()
+    if data.get("never_built"):
+        return {"ok": False, "mapped": 0, "items": [],
+                "error": "The Google index has never been built, so there is "
+                         "nothing to re-join."}
+    items = data.get("items") or []
+    pending = [it for it in items if not str(it.get("client") or "").strip()]
+    if not pending:
+        return {"ok": True, "mapped": 0, "items": []}
+
+    by_domain = _client_by_domain()
+    if not by_domain:
+        # "No client carries a domain" and "no resource matched one" are
+        # different answers and only one of them means the registry is fine.
+        return {"ok": True, "mapped": 0, "items": [],
+                "error": "No client in the registry carries a domain, so "
+                         "nothing could be joined by one."}
+
+    done = []
+    for it in pending:
+        domains = it.get("domains") or _domains_of(it)
+        if not domains:
+            continue
+        it["domains"] = domains
+        for dom in domains:
+            client = by_domain.get(dom)
+            if not client:
+                continue
+            it["client"] = client
+            it["match"] = "domain"
+            it["match_detail"] = (
+                f"Domain {dom} is on {client}'s record. Joined after the "
+                f"sweep, against the client list as it stands now.")
+            it.pop("candidates", None)
+            done.append({"resource_id": it.get("resource_id") or "",
+                         "name": it.get("name") or "",
+                         "platform": it.get("platform") or "",
+                         "client": client, "domain": dom})
+            break
+
+    if not done:
+        return {"ok": True, "mapped": 0, "items": []}
+
+    data.pop("never_built", None)
+    jsonstore.write_json(_path(), data)
+    try:
+        from hub import audit
+        audit.log("google_index", "domain_auto_map", mapped=len(done),
+                  detail="; ".join(f"{d['resource_id']}->{d['client']}"
+                                   for d in done[:10])[:300])
+    except Exception:                                   # noqa: BLE001
+        pass
+    return {"ok": True, "mapped": len(done), "items": done}
+
+
 def unmapped() -> list[dict]:
     return [r for r in rows() if not r["client"]]
 

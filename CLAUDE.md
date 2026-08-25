@@ -728,7 +728,82 @@ property we do not administer or the record is stale — and flattening it
 destroys the only evidence of it.
 
 Client 360's own "attach a property" button goes through the same path, so
-attaching there records in Knack and clears the orphan too.
+attaching there records in Knack and clears the orphan too. So does the
+customer picker on the **Google Accounts & Mapping** QA report — the report is
+where somebody notices that a property maps to nobody, so it is where they can
+say whose it is, rather than being sent to another screen to find the row
+again. It is a searchable list of real customers and never a text box: a
+typo'd name files the attachment under a client nothing joins to and reads as
+success. The suggestions open it and a person still chooses.
+
+**The domain rule runs on every load of that report, not only at the sweep.**
+`google_index.apply_domain_matches()`. The join itself is the index's own rule
+2 — what changed is when it runs. The stored index only ever saw the client
+list as it stood at sweep time, and that list moves constantly: a URL
+discovered by `hub/client_urls.py`, a site matched in Sites Admin, a Knack
+record that finally gained a website. Every one of those makes a resource
+joinable that the last sweep left orphaned, and waiting six hours for it reads
+on the page as a property nobody can explain sitting next to the client whose
+domain it plainly carries. It never touches a resource that already has a
+client — a domain that disagrees with an attachment is a finding, and a page
+load is the worst possible place to resolve one — it leaves a domain two
+clients share to a human, and it writes nothing when nothing changed, because
+this runs in two gunicorn workers on every open of the page. Only the index is
+written: this is a derivation re-made on every build, and writing it onto the
+client record would turn it into a stored fact that outlives the domain it
+came from.
+
+### A service that cannot be granted must not be offered
+
+Google Access asked a client for five things and could deliver four. Google Ads
+is the odd one: there is no "add this email" call, so we send a manager-account
+link invitation *from* our own MCC and the client accepts it in their own Ads
+UI. That needs an approved `GOOGLE_ADS_DEVELOPER_TOKEN`, `GOOGLE_ADS_MANAGER_ID`
+and a long-lived `GOOGLE_ADS_REFRESH_TOKEN` that is **ours** — the only stored
+credential a module built around never holding one ever had. None of the three
+is set on this deployment.
+
+Left on the list it failed in the worst place available to it: the client ticked
+Google Ads on a page that promised it, signed in with Google, and the grant
+failed at our end for a reason that was nothing to do with them. A tickbox that
+consents and then fails is worse than an absent feature, so Ads is **out** —
+service, scope, grant branch, API helpers, status route and every line of
+client-facing copy — with the PARKED note at the top of
+`modules/google_access/config.py` saying what would bring it back.
+
+**A parked service is not a deleted one.** Requests created before the pause
+still carry `"ads"` in their stored service list, and those rows must survive
+every page they appear on: `config.label_for()` names the key *Google Ads
+(paused)* rather than printing a raw string or dropping the row, the detail
+table walks the request's own list rather than only `SERVICE_ORDER`, `mark`
+accepts a retired key so a human can still close it, and `start()` reads the
+registry with `.get`. A row nobody can mark reads "waiting" for ever.
+
+**Which OAuth client is in use is not the same question as whether one is set.**
+`GOOGLE_ACCESS_CLIENT_ID` falls back to the Hub's shared `GOOGLE_CLIENT_ID` —
+the client Google Finder and Hub sign-in already share, and the only one
+actually set here — and the admin page **names which**, because that decides
+whose Authorised redirect URIs need `<PUBLIC_BASE_URL>/connect/callback` on
+them. A green "configured" over the wrong client is a `redirect_uri_mismatch`
+in front of a paying customer.
+
+**Existing client and new business are different questions, and the form asks.**
+Existing is matched against `clients_registry.find_client` exactly — no
+substring, for the reason `hub/client_key.py` gives at length — and a name
+matching nothing is refused with New named as the way out, rather than filed
+against a client nobody can find. New has no record to join to, so the business
+is written through `hub/leads.py` on the way past; without that the only trace
+of a prospect we just asked for Google access is a row in one module. Filing a
+business as New when the registry already knows the name is refused, not
+deduplicated: a duplicate contact in the Suite is the one thing the Leads panel
+cannot undo. Delivery to the Suite runs only when an email was given — a
+contact nobody can call lands there looking handled.
+
+The Hub client ID field is gone with it. It was optional, typed by hand and
+blank on nearly every row, which is exactly why the Client 360 access card
+answered "no access on file" for clients whose Analytics we had been granted
+months earlier. `AccessRequest.client_key()` derives the join instead.
+`test_google_access.py` asserts all of it.
 
 ### Domains we bought renew whether or not anyone bills them
 
@@ -1399,6 +1474,34 @@ Things that follow from that, each of which has a comment where it lives:
   The renderer never learns who our clients are; finished ads are filed into
   the client gallery through `modules/image_picker/filing.file_asset`, which
   records the public_id Cloudinary already has rather than re-uploading.
+- **Its own tests need an `npm install` CI does not do**, so the gate is
+  `test_display_ads.py` — pure Python over the files. That is a weak substitute
+  for most of a renderer and exactly the right test for two things. The layouts
+  are hand-authored coordinates, so whether a box exists, sits inside the safe
+  area and clears every other block is a fact about the JSON. And the build
+  screen talks to the render server across a wire nothing typechecks: the
+  generate route answered `{ candidate }`, the screen read `{ candidates }`,
+  and a generation that had just succeeded reported "image generation is not
+  configured" — no runtime in between, so both halves are asserted together.
+
+**A field the build screen offers is not a field any layout draws.** Every size
+gets Headline, Supporting line, Offer, Proof point and Call to action. Not one
+template carried a `trust` box, so the proof point was typed in, saved,
+word-counted and rendered nowhere on every ad this tool has ever produced. The
+box exists now wherever there is room — beside the button on the rectangles,
+above it on the skyscrapers — and the two canvases with genuinely no room
+(728x90, 320x50) say so beside the field rather than accepting copy they will
+throw away. `/api/build/options` reports which blocks each size draws, so a
+family added later cannot reintroduce the silence.
+
+**A copy edit is per size; a text-box style is per concept.** The panel headed
+"Text boxes for 300x250" was applying to all eight, so a type size set to suit
+the leaderboard shrank the skyscraper with it while the heading insisted
+otherwise. Copy genuinely is per size, and now asks which it means the first
+time each field is edited — the answer stays on screen as a toggle rather than
+being a dialog nobody can revisit. "Every size" writes the default **and**
+clears that field's per-size overrides, or the override keeps winning and the
+edit reads as having failed.
 
 ## Conventions
 
@@ -1446,6 +1549,7 @@ python3 test_video_library.py      # the footage index, its status row, the page
 python3 test_sites_match.py        # live-only matching, and finding a client's missing URL
 python3 test_domain_links.py       # attaching a domain everywhere, orphans, renewals
 python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
+python3 test_google_access.py      # the paused Ads flow, and who an invite is for
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
@@ -1455,6 +1559,7 @@ python3 test_landing_spec.py       # what a landing page is for, and what it sel
 python3 test_client_groups.py      # grouped clients: what merges, what must not double
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
 python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the chrome, who may frame
+python3 test_display_ads.py        # the display layouts, and the build screen's contracts
 ```
 
 The test files need no pytest and no new dependencies; each runs against a
