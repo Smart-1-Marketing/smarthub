@@ -1090,8 +1090,8 @@ SCENARIOS: list[Scenario] = [
         key="google_access.request", module="google_access",
         title="Get access to a client's Google properties with one link",
         goal="One link sent to the client that puts Smart 1 on their Analytics, "
-             "Tag Manager, Ads and Business Profile — without ever handling "
-             "their password.",
+             "Tag Manager, Business Profile and Search Console — without ever "
+             "handling their password.",
         minutes=5, path="/tools/google-access/",
         steps=[
             Step("Understand what this replaces",
@@ -1100,15 +1100,26 @@ SCENARIOS: list[Scenario] = [
                  "themselves. We never see or store a credential — which is "
                  "both safer and much easier to explain to a nervous client.",
                  action="look"),
-            Step("Create the request",
-                 "Client name and the email that owns their Google properties.",
+            Step("Say whether they are a client yet",
+                 "Existing client, or a new business.",
+                 "It decides two different things. Existing looks them up in "
+                 "the Hub client list, so the request lands on their Client "
+                 "360 record — pick from the list rather than typing, because "
+                 "a name matched loosely is a request filed against the wrong "
+                 "company. New has no record to join to, so the business is "
+                 "saved to Leads on the way past instead of existing only "
+                 "here.",
+                 action="look", selector="[name='client_type']"),
+            Step("Find the client",
+                 "Start typing and pick them from the list.",
+                 "The website comes across with them, which is what the rest "
+                 "of the Hub joins on.",
+                 action="fill", selector="#clientQ", value="Riverside HVAC"),
+            Step("Their Google account email",
+                 "The one with admin on Analytics and Tag Manager.",
                  "It must be the address that actually owns the accounts. The "
                  "office manager's login usually isn't it, and the link will "
                  "fail confusingly if you guess.",
-                 action="fill", selector="[name='client_name']", value="Riverside HVAC"),
-            Step("Their Google account email",
-                 "The one with admin on Analytics and Ads.",
-                 "",
                  action="fill", selector="[name='client_email']",
                  value="dana@riverside-hvac.example"),
             Step("Choose which services to request",
@@ -1127,9 +1138,12 @@ SCENARIOS: list[Scenario] = [
             Step("Watch the status",
                  "Pending until they complete it, then granted per service.",
                  "If one service fails and the others succeed, that's usually "
-                 "the client not being an admin on that one property. Check "
-                 "the per-service detail before re-sending.",
-                 action="click", selector="#refreshBtn"),
+                 "the client not being an admin on that one property. Open "
+                 "the request and read the per-service detail before "
+                 "re-sending. Google Ads is not on the list at all right now "
+                 "— it needs a developer token we do not have, so it is "
+                 "paused rather than offered and failed.",
+                 action="look"),
         ]),
 
     # ------------------------------------------------------------------

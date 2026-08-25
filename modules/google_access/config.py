@@ -6,6 +6,32 @@ credentials. The client's OAuth token exists only inside a single request,
 is used to add our agency email to their property, and is then revoked.
 `access_type=online` is deliberate -- it means Google never issues us a
 refresh token in the first place.
+
+PARKED: Google Ads
+------------------
+Ads used to be the third service in the registry below. It is out for now, on
+purpose, and this is the note to read before putting it back.
+
+Ads never worked like the others. There is no "add this email" call: we send a
+manager-account link invitation FROM our own MCC and the client accepts it in
+their own Ads UI. That needs three things this deployment does not have --
+`GOOGLE_ADS_DEVELOPER_TOKEN` (a separate Google application against a manager
+account), `GOOGLE_ADS_MANAGER_ID`, and a long-lived `GOOGLE_ADS_REFRESH_TOKEN`
+that is *ours*, not the client's, and so is the one credential in this module
+that has to be stored.
+
+Without a valid token the flow degraded in the worst available way: the client
+ticked Google Ads on a page that said we would ask for it, consented, and the
+grant failed at our end for a reason that was nothing to do with them. So the
+service is removed rather than left ticked-and-failing, and the admin page no
+longer carries a banner about a feature nobody can switch on.
+
+To bring it back: get the developer token approved, set the three variables
+above, restore the `ads` entry in SERVICES (mode `assisted`, scope
+`https://www.googleapis.com/auth/adwords`, role text "Manager account link"),
+its branch in `grants.run_grants`, `grants.refresh_ads_status`, the
+`ads_*` helpers in `google_client.py` and the `/api/requests/<id>/refresh`
+route. Git history at the commit that added this note has all of it.
 """
 
 import os
@@ -23,8 +49,23 @@ def _bool(name, default=False):
 
 
 # --- OAuth client (the "Smart 1 Access" app clients consent to) ------------
-GOOGLE_CLIENT_ID = _env("GOOGLE_ACCESS_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = _env("GOOGLE_ACCESS_CLIENT_SECRET")
+#
+# `GOOGLE_ACCESS_CLIENT_ID` is the dedicated spelling. Where it is unset we
+# fall back to `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` -- the OAuth client
+# Google Finder and the Hub's own Google sign-in already share, and which is
+# already set on this service.
+#
+# The fallback is *named* on the admin page rather than applied silently,
+# because which client is in use decides two things a green tick would hide:
+# whose consent screen a paying client lands on, and which client's Authorised
+# redirect URIs have to carry `<PUBLIC_BASE_URL>/connect/callback`. A missing
+# redirect URI is a `redirect_uri_mismatch` in front of the customer, not a
+# log line.
+HUB_CLIENT_ID = _env("GOOGLE_CLIENT_ID")
+HUB_CLIENT_SECRET = _env("GOOGLE_CLIENT_SECRET")
+
+GOOGLE_CLIENT_ID = _env("GOOGLE_ACCESS_CLIENT_ID") or HUB_CLIENT_ID
+GOOGLE_CLIENT_SECRET = _env("GOOGLE_ACCESS_CLIENT_SECRET") or HUB_CLIENT_SECRET
 
 # Public base URL of the Hub, used to build the OAuth redirect URI.
 # Must exactly match an Authorized redirect URI in the Google Cloud console.
@@ -36,17 +77,6 @@ AGENCY_EMAIL = _env("GOOGLE_ACCESS_AGENCY_EMAIL")
 AGENCY_NAME = _env("GOOGLE_ACCESS_AGENCY_NAME", "Smart 1 Marketing")
 AGENCY_SUPPORT_EMAIL = _env("GOOGLE_ACCESS_SUPPORT_EMAIL")
 AGENCY_SUPPORT_PHONE = _env("GOOGLE_ACCESS_SUPPORT_PHONE")
-
-# --- Google Ads (agency-side credentials, not the client's) ---------------
-# Ads works the other way round: we send an invitation FROM our manager
-# account, the client accepts it in their own Ads UI. That needs our own
-# long-lived credentials plus an approved developer token.
-ADS_DEVELOPER_TOKEN = _env("GOOGLE_ADS_DEVELOPER_TOKEN")
-ADS_MANAGER_ID = _env("GOOGLE_ADS_MANAGER_ID").replace("-", "")
-ADS_REFRESH_TOKEN = _env("GOOGLE_ADS_REFRESH_TOKEN")
-ADS_CLIENT_ID = _env("GOOGLE_ADS_CLIENT_ID") or GOOGLE_CLIENT_ID
-ADS_CLIENT_SECRET = _env("GOOGLE_ADS_CLIENT_SECRET") or GOOGLE_CLIENT_SECRET
-ADS_API_VERSION = _env("GOOGLE_ADS_API_VERSION", "v21")
 
 # --- Business Profile ------------------------------------------------------
 # The Business Profile APIs require a separate allowlist application with
@@ -64,9 +94,11 @@ PUBLIC_RATE_LIMIT = int(_env("GOOGLE_ACCESS_RATE_LIMIT", "60") or 60)
 
 # --- Service registry ------------------------------------------------------
 # `automated` services are granted by us on the client's behalf during the
-# OAuth callback. `assisted` services need a human step somewhere -- we start
+# OAuth callback. `manual` services need a human step somewhere -- we start
 # them and track them, but cannot finish them alone. Being honest about which
 # is which on the client-facing page is the whole trust proposition.
+#
+# Google Ads is deliberately absent. See PARKED at the top of this file.
 
 SERVICES = {
     "ga4": {
@@ -91,17 +123,6 @@ SERVICES = {
         "scopes": [
             "https://www.googleapis.com/auth/tagmanager.manage.users",
             "https://www.googleapis.com/auth/tagmanager.readonly",
-        ],
-    },
-    "ads": {
-        "label": "Google Ads",
-        "detail": "Manage campaigns and budgets, and report on what each lead cost.",
-        "note": "One extra step: you accept our invitation inside Google Ads afterwards.",
-        "role_text": "Manager account link",
-        "role_code": "manager_link",
-        "mode": "assisted",
-        "scopes": [
-            "https://www.googleapis.com/auth/adwords",
         ],
     },
     "gbp": {
@@ -134,9 +155,21 @@ SERVICES = {
     },
 }
 
-SERVICE_ORDER = ["ga4", "gtm", "ads", "gbp", "search_console"]
+SERVICE_ORDER = ["ga4", "gtm", "gbp", "search_console"]
 
 AUTOMATED_SERVICES = [k for k in SERVICE_ORDER if SERVICES[k]["mode"] == "automated"]
+
+# Requests created before Ads was parked still carry it in their stored
+# service list. Reading one must not KeyError, and the row must not silently
+# vanish either -- `label_for` names it as retired instead.
+RETIRED_SERVICES = {"ads": "Google Ads (paused)"}
+
+
+def label_for(key):
+    """Display name for a service key, including ones no longer offered."""
+    if key in SERVICES:
+        return SERVICES[key]["label"]
+    return RETIRED_SERVICES.get(key, key)
 
 
 def scopes_for(service_keys):
@@ -158,6 +191,20 @@ def redirect_uri():
     return f"{PUBLIC_BASE_URL}/connect/callback"
 
 
+def oauth_client_source():
+    """Which environment variable the OAuth client actually came from.
+
+    Rendered on the admin page. "Configured" and "configured with the client
+    you think it is" are different answers, and only one of them tells you
+    where to add the redirect URI.
+    """
+    if _env("GOOGLE_ACCESS_CLIENT_ID"):
+        return "GOOGLE_ACCESS_CLIENT_ID"
+    if HUB_CLIENT_ID:
+        return "GOOGLE_CLIENT_ID"
+    return ""
+
+
 def configured():
     """Hard requirements for the client-facing flow to work at all."""
     missing = []
@@ -169,15 +216,4 @@ def configured():
         missing.append("PUBLIC_BASE_URL")
     if not AGENCY_EMAIL:
         missing.append("GOOGLE_ACCESS_AGENCY_EMAIL")
-    return missing
-
-
-def ads_configured():
-    missing = []
-    if not ADS_DEVELOPER_TOKEN:
-        missing.append("GOOGLE_ADS_DEVELOPER_TOKEN")
-    if not ADS_MANAGER_ID:
-        missing.append("GOOGLE_ADS_MANAGER_ID")
-    if not ADS_REFRESH_TOKEN:
-        missing.append("GOOGLE_ADS_REFRESH_TOKEN")
     return missing

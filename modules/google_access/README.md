@@ -1,8 +1,10 @@
 # Google Access — Smart 1 Hub module
 
-Send a client one link. They sign in with Google once, and `access@smart1marketing.com`
-ends up on their Analytics, Tag Manager, Ads, Business Profile and Search Console —
-the same result as adding us by hand, without the three-week email thread.
+Send a client one link. They sign in with Google once, and our agency account ends up
+on their Analytics, Tag Manager, Business Profile and Search Console — the same result
+as adding us by hand, without the three-week email thread.
+
+**Google Ads is paused.** See *Google Ads, and why it is out* below.
 
 ## The design decision that matters
 
@@ -12,8 +14,8 @@ before the response is sent. `access_type=online` means Google never issues a re
 token in the first place, so there is nothing to leak, nothing to rotate, and nothing
 that breaks when the client changes their password.
 
-The one exception is our *own* Google Ads manager credentials (`GOOGLE_ADS_REFRESH_TOKEN`),
-which are ours, not a client's, and are used to send account-link invitations.
+There used to be one exception — our *own* Google Ads manager credentials — and it went
+with Ads.
 
 ## What is actually automatic
 
@@ -21,12 +23,36 @@ which are ours, not a client's, and are used to send account-link invitations.
 |---|---|---|
 | Google Analytics | Yes | We're added as Administrator on every GA4 property the signer can see |
 | Google Tag Manager | Yes | We're added as Administrator on every GTM account the signer can see |
-| Google Ads | Half | We send a manager-link invitation; the client accepts it in their own Ads UI |
 | Business Profile | Once allowlisted | API exists but needs Google's approval; manual instructions until then |
 | Search Console | No | Google publishes no user-management API. Manual step, tracked in the Hub |
 
 The client-facing page says all of this in plain English rather than implying five
 green checks are coming.
+
+## Google Ads, and why it is out
+
+Ads never worked like the others. There is no "add this email" call: we send a
+manager-account link invitation *from* our own MCC and the client accepts it inside
+their own Ads UI. That needs three things this deployment does not have — an approved
+`GOOGLE_ADS_DEVELOPER_TOKEN` (a separate Google application, against a manager account),
+`GOOGLE_ADS_MANAGER_ID`, and a long-lived `GOOGLE_ADS_REFRESH_TOKEN` that is *ours*.
+That last one is the only stored credential the module ever had.
+
+Left in the list it failed in the worst available place: the client ticked Google Ads on
+a page that promised it, signed in, and the grant failed at our end for a reason that was
+nothing to do with them. So it is removed rather than offered-and-broken, and the admin
+page says it is paused instead of carrying a banner about a feature nobody can switch on.
+
+Bringing it back is a project, not a flag: get the developer token approved, set the
+three variables, then restore the `ads` entry in `SERVICES`, its branch in
+`grants.run_grants`, `grants.refresh_ads_status`, the `ads_*` helpers in
+`google_client.py` and the `/api/requests/<id>/refresh` route. The PARKED note at the
+top of `config.py` says the same thing, and git history at that commit has the code.
+
+A request created before the pause still carries `"ads"` in its stored service list.
+Those rows are not deleted: `config.label_for()` names the key *Google Ads (paused)*, the
+record still shows it, and a human can still mark it off. What has gone is any client
+ever being offered it again.
 
 ## Setup — start the Google side first, it is the long pole
 
@@ -34,8 +60,8 @@ green checks are coming.
 
 In the Google Cloud console, on the project that will own this:
 
-1. Enable **Google Analytics Admin API**, **Tag Manager API**, **Google Ads API**, and
-   (if allowlisted) **My Business Account Management API**.
+1. Enable **Google Analytics Admin API**, **Tag Manager API**, and (if allowlisted)
+   **My Business Account Management API**.
 2. OAuth consent screen → **External**, publish it, add the privacy policy and terms URLs.
 3. Credentials → **OAuth client ID** → Web application. Add the authorized redirect URI:
 
@@ -49,7 +75,6 @@ Every scope this module uses is **sensitive tier**:
 
     analytics.manage.users
     tagmanager.manage.users
-    adwords
     business.manage
 
 That means Google review: verified domain ownership, a published privacy policy, and a
@@ -57,12 +82,7 @@ screen recording of the consent flow. Historically this has run to weeks. Until 
 passes, the app works only for accounts added as test users on the consent screen —
 which is fine for internal testing but not for clients.
 
-### 3. Google Ads developer token
-
-Separate application, tied to a manager (MCC) account. Basic access is enough. Without
-it, leave Ads unticked when creating links; everything else works.
-
-### 4. Business Profile allowlist
+### 3. Business Profile allowlist
 
 Separate application again. Leave `GOOGLE_ACCESS_GBP_ENABLED` off until approved — with
 it off the client gets clear manual instructions instead of a 403 that looks like their
@@ -74,22 +94,20 @@ has changed before.
 ```
 # Required
 PUBLIC_BASE_URL=https://hub.smart1marketing.com
+GOOGLE_ACCESS_AGENCY_EMAIL=access@smart1marketing.com
+
+# The OAuth client clients consent to. Optional in the sense that the Hub's
+# shared GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (Google Finder, Hub sign-in)
+# are used when these are unset -- and the admin page NAMES which one is in
+# use, because that decides whose Authorised redirect URIs need
+# <PUBLIC_BASE_URL>/connect/callback on them.
 GOOGLE_ACCESS_CLIENT_ID=...apps.googleusercontent.com
 GOOGLE_ACCESS_CLIENT_SECRET=...
-GOOGLE_ACCESS_AGENCY_EMAIL=access@smart1marketing.com
 
 # Shown to clients
 GOOGLE_ACCESS_AGENCY_NAME=Smart 1 Marketing
 GOOGLE_ACCESS_SUPPORT_EMAIL=hello@smart1marketing.com
 GOOGLE_ACCESS_SUPPORT_PHONE=(555) 010-0100
-
-# Google Ads (optional — Ads invitations are skipped without these)
-GOOGLE_ADS_DEVELOPER_TOKEN=...
-GOOGLE_ADS_MANAGER_ID=1234567890
-GOOGLE_ADS_REFRESH_TOKEN=...
-GOOGLE_ADS_CLIENT_ID=          # defaults to GOOGLE_ACCESS_CLIENT_ID
-GOOGLE_ADS_CLIENT_SECRET=      # defaults to GOOGLE_ACCESS_CLIENT_SECRET
-GOOGLE_ADS_API_VERSION=v21
 
 # Optional
 GOOGLE_ACCESS_GBP_ENABLED=false
@@ -137,12 +155,36 @@ Images card:
                       "resource": "Riverside HVAC - Web", "granted_at": "..."}}}
 ```
 
+## Who an invite is for
+
+The form asks whether this is an **existing client** or a **new business**, and the
+answer is required rather than defaulted, because it decides two different things.
+
+*Existing* is looked up against the Hub's client registry and matched **exactly** —
+`clients_registry.find_client`, no substring and no fuzzy pass, for the reason
+`hub/client_key.py` gives at length. A name that matches nothing is refused with New
+named as the way out, rather than accepted into a request nobody can join to a client.
+
+*New* has no client record to join to, so the business is written through `hub/leads.py`
+on the way past. Otherwise the only trace of a prospect we have just asked for Google
+access is a row in this module that nothing else reads. Delivery to Smart 1 Suite only
+runs when an email was given: a contact nobody can call lands in the Suite, looks
+handled, and is worse than no contact. Filing a business as New when the registry
+already knows the name is **refused**, not deduplicated — a duplicate contact in the
+Suite is the one thing the Leads panel cannot undo.
+
+There is no Hub client ID field. It was optional, typed by hand, and blank on nearly
+every row, which is why the Client 360 access card answered "no access on file" for
+clients whose Analytics we had been granted months earlier. `AccessRequest.client_key()`
+derives the join from the website and the name instead, so nothing has to be filled in
+for it to work. The column stays for the legacy rows that carry a value.
+
 ## Tests
 
-`python3 test_google_access.py` — 62 checks, offline, Google mocked at the HTTP
-boundary so call construction, error handling and token revocation are all exercised.
-Covers the happy path, partial failure, declined consent, expiry, replayed OAuth state,
-rate limiting, and that raw Google errors reach the database but never the client.
+`python3 test_google_access.py` — offline, no pytest, a throwaway SQLite database and a
+temporary data directory. Covers the paused Ads flow (including that a request created
+before the pause still renders and can still be closed), the existing/new gate, the
+exact-match rule, the lead write, and that no Hub client ID is stored.
 
 ## Known gaps
 
@@ -152,7 +194,6 @@ rate limiting, and that raw Google errors reach the database but never the clien
   the start of it.
 - **No reminder emails.** Requests that sit in `waiting` are visible in the Hub but
   nobody is nudged. Hook to the Hub's existing mail path.
-- **Ads status is polled on demand**, not on a schedule.
 - **GA4 and GTM grant everything the signer can see.** If a client's Google account also
   holds unrelated properties, we get added to those too. If that becomes a problem, add
   a property picker between consent and grant.

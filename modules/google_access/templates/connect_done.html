@@ -2,8 +2,11 @@
 {% block title %}Access confirmed{% endblock %}
 
 {% set all_done = req.status == 'granted' %}
-{% set needs_ads = grants.get('ads') and grants['ads'].status == 'waiting' %}
+{% set needs_gbp = grants.get('gbp') and grants['gbp'].status == 'waiting' %}
 {% set needs_sc = grants.get('search_console') and grants['search_console'].status == 'waiting' %}
+{# Count the outstanding manual steps rather than naming them: "one thing" over
+   two lists is the sentence a client reads before deciding they are finished. #}
+{% set outstanding = [needs_gbp, needs_sc]|select|list|length %}
 
 {% block body %}
 {% if all_done %}
@@ -15,8 +18,8 @@
 {% else %}
   <h1>Almost there</h1>
   <p class="lede">
-    Most of it went through. There {{ 'is one thing' if (needs_ads and not needs_sc) or (needs_sc and not needs_ads) else 'are a couple of things' }}
-    only you can do, and both take about a minute.
+    Most of it went through. There {{ 'is one thing' if outstanding == 1 else 'are a couple of things' }}
+    only you can do, and {{ 'it takes' if outstanding == 1 else 'both take' }} about a minute.
   </p>
 {% endif %}
 
@@ -47,9 +50,6 @@
         {% if st == 'granted' %}
           <p class="row-detail">Added as {{ g.role_granted or svc.role_text }}.</p>
           {% if g.resource_name %}<p class="row-assets">{{ g.resource_name }}</p>{% endif %}
-        {% elif st == 'waiting' and key == 'ads' %}
-          <p class="row-detail">Invitation sent. Accept it in Google Ads to finish.</p>
-          {% if g.resource_name %}<p class="row-assets">{{ g.resource_name }}</p>{% endif %}
         {% elif st == 'waiting' and key == 'search_console' %}
           <p class="row-detail">Needs one manual step. Instructions below.</p>
         {% elif st == 'waiting' %}
@@ -70,19 +70,7 @@
   {% endfor %}
 </div>
 
-{% if needs_ads %}
-<div class="steps">
-  <h2>Finish Google Ads</h2>
-  <p>Google requires you to accept a manager link from inside your own account.</p>
-  <ol>
-    <li>Open <a href="https://ads.google.com" target="_blank" rel="noopener">ads.google.com</a> and sign in.</li>
-    <li>Go to <strong>Admin</strong>, then <strong>Access and security</strong>, then the <strong>Managers</strong> tab.</li>
-    <li>Find the pending request from {{ cfg.AGENCY_NAME }} and choose <strong>Accept</strong>.</li>
-  </ol>
-</div>
-{% endif %}
-
-{% if grants.get('gbp') and grants['gbp'].status == 'waiting' %}
+{% if needs_gbp %}
 <div class="steps">
   <h2>Finish Business Profile</h2>
   <p>A short manual invite while we wait on Google to approve automated access.</p>
@@ -103,12 +91,6 @@
     <li>Go to <strong>Settings</strong>, then <strong>Users and permissions</strong>.</li>
     <li>Choose <strong>Add user</strong>, enter <code>{{ cfg.AGENCY_EMAIL }}</code>, set permission to <strong>Full</strong>, and save.</li>
   </ol>
-</div>
-{% endif %}
-
-{% if needs_ads %}
-<div class="action" style="text-align:center">
-  <a class="btn-quiet" href="{{ url_for('google_access_public.done', token=req.token) }}">I've accepted it &mdash; recheck</a>
 </div>
 {% endif %}
 
