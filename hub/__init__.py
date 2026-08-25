@@ -301,8 +301,13 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .client_brand import work_log
+        from . import client_groups
         limit = clamp_int(request.args.get("limit"), 50, 1, 200)
-        return jsonify(work_log(request.args.get("name", ""), limit))
+        name = request.args.get("name", "")
+        # A grouped client reads across the whole group. Every merged row
+        # carries the member it belongs to — see hub/client_groups.py.
+        also = client_groups.member_names(name, request.args.get("url", ""))
+        return jsonify(work_log(name, limit, also=also))
 
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
     def api_brand_push():
@@ -2062,9 +2067,28 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        from . import seo
+        from . import seo, client_groups
         name = (request.args.get("name") or "").strip()
-        return jsonify({"profile": seo.get_profile(name) if name else {}})
+        if not name:
+            return jsonify({"profile": {}})
+        prof = seo.get_profile(name)
+        # Notes are shared across a group; contacts, address and category are
+        # not. Two brands of one parent company have their own front desk, and
+        # showing one company's phone number under the other's name is a
+        # confidently wrong answer of the kind grouping exists to avoid.
+        others = [n for n in client_groups.member_names(name)
+                  if n and n.strip().lower() != name.lower()]
+        if others:
+            notes = [dict(n) for n in (prof.get("notes") or [])]
+            for other in others:
+                for n in (seo.get_profile(other).get("notes") or []):
+                    row = dict(n)
+                    row["member"] = other
+                    notes.append(row)
+            notes.sort(key=lambda n: str(n.get("time") or ""), reverse=True)
+            prof["notes"] = notes[:200]
+            prof["group"] = others
+        return jsonify({"profile": prof})
 
     @app.route("/api/client/profile", methods=["POST"])
     def api_client_profile_set():
@@ -2079,6 +2103,54 @@ def create_hub_app() -> Flask:
         prof = seo.set_profile(client, body)
         audit.log("hub", "client_profile_saved", actor=current_user(), detail=client)
         return jsonify({"ok": True, "profile": prof})
+
+    # ------------- client groups: one company, several client records
+    # Why this exists, and every rule it enforces: hub/client_groups.py.
+    @app.route("/api/client/group")
+    def api_client_group():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups
+        name = (request.args.get("name") or "").strip()
+        url = (request.args.get("url") or "").strip()
+        return jsonify({"roster": client_groups.roster(name, url) if name else {},
+                        "groups": client_groups.groups()})
+
+    @app.route("/api/client/group/add", methods=["POST"])
+    def api_client_group_add():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups
+        body = request.get_json(silent=True) or {}
+        res = client_groups.add_member(
+            str(body.get("parent") or ""), str(body.get("member") or ""),
+            parent_url=str(body.get("parent_url") or ""),
+            member_url=str(body.get("member_url") or ""),
+            actor=current_user() or "")
+        if res.get("error"):
+            return jsonify(res), 400
+        audit.log("hub", "client_grouped", actor=current_user(),
+                  client=str(body.get("parent") or ""),
+                  detail=f"{body.get('member')} grouped under {body.get('parent')}")
+        return jsonify(res)
+
+    @app.route("/api/client/group/remove", methods=["POST"])
+    def api_client_group_remove():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("client") or "")
+        res = client_groups.remove_member(name, str(body.get("url") or ""),
+                                          actor=current_user() or "")
+        if res.get("error"):
+            return jsonify(res), 400
+        audit.log("hub", "client_ungrouped", actor=current_user(),
+                  client=name, detail=f"{name} removed from its group")
+        return jsonify(res)
 
     @app.route("/api/client/notes", methods=["POST"])
     def api_client_notes():
@@ -3124,11 +3196,22 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        from . import proposals
+        from . import proposals, client_groups
         name = (request.args.get("client") or "").strip()
         if not name:
             return jsonify({"proposals": []})
-        return jsonify({"proposals": proposals.list_proposals(name),
+        items = proposals.list_proposals(name)
+        others = [n for n in client_groups.member_names(name)
+                  if n and n.strip().lower() != name.lower()]
+        for other in others:
+            for row in proposals.list_proposals(other):
+                row = dict(row)
+                row["member"] = other
+                items.append(row)
+        if others:
+            items.sort(key=lambda i: (str(i.get("date_sent") or ""),
+                                      str(i.get("uploaded_at") or "")), reverse=True)
+        return jsonify({"proposals": items, "group": others,
                         "cloudinary": proposals.cloudinary_ready()})
 
     @app.route("/api/client/proposals/upload", methods=["POST"])
@@ -3496,6 +3579,26 @@ def create_hub_app() -> Flask:
         from . import quickbooks as qb
         q = (request.args.get("q") or "").strip()
         cid = (request.args.get("customer_id") or "").strip()
+        client = (request.args.get("client") or "").strip()
+        if client:
+            # Grouped clients bill as one company, so the card reads every
+            # member: each one's attached customers where it has them, a name
+            # search where it does not, deduplicated by customer id.
+            from . import seo, client_groups
+            entries = []
+            for member in client_groups.member_names(client) or [client]:
+                att = seo.get_links(member).get("qb") or []
+                if not isinstance(att, list):
+                    att = [att]
+                entries.append({"client": member,
+                                "ids": [str(a.get("id")) for a in att
+                                        if isinstance(a, dict) and a.get("id")]})
+            try:
+                return jsonify(qb.lookup_for_clients(entries))
+            except Exception as exc:  # noqa: BLE001 — Client 360 must degrade
+                return jsonify({"configured": qb.configured(),
+                                "connected": qb.connected(),
+                                "customers": [], "error": str(exc)})
         if not q and not cid:
             return jsonify({"configured": qb.configured(), "connected": qb.connected(), "customers": []})
         try:
