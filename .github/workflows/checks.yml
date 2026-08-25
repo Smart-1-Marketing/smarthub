@@ -119,6 +119,14 @@ jobs:
       - name: Commercial Builder HeyGen tests
         run: python test_commercial_heygen.py
 
+      - name: Commercial Builder provider key tests
+        run: |
+          if [ -f test_commercial_providers.py ]; then
+            python test_commercial_providers.py
+          else
+            echo "test_commercial_providers.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -137,6 +145,20 @@ jobs:
             python test_msa_embed.py
           else
             echo "test_msa_embed.py not on this branch — nothing to run."
+          fi
+
+      - name: Landing-page embeds for smart1marketing.com
+        # The one check that would have caught the marketing site's forms and
+        # the Hub's forms being two different things. It also holds the line on
+        # sendBeacon('/api/partial-lead'), which tools/linkcheck.py cannot see:
+        # under a /land/... mount that leaves the module, 404s on the hub app,
+        # and reports nothing, because a beacon fires on pagehide and its
+        # return value is read by nobody. Six modules had it.
+        run: |
+          if [ -f test_landing_embeds.py ]; then
+            python test_landing_embeds.py
+          else
+            echo "test_landing_embeds.py not on this branch — nothing to run."
           fi
 
       - name: IO Builder start-screen tests

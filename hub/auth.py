@@ -76,7 +76,7 @@ def user_from_environ(environ: dict) -> str | None:
             if user:
                 return user
     try:
-        from . import embed
+        from . import suite_embed as embed
         return embed.user_from_environ(environ)
     except Exception:  # noqa: BLE001 — never let the embed path break login
         return None

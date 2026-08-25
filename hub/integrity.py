@@ -427,7 +427,7 @@ def check_unbacked_json() -> list[dict]:
     # repo fixtures, build scripts and one-off tools, none of which hold state.
     exempt_files = {"hub/jsonstore.py", "hub/errors.py", "hub/audit.py",
                     "modules/ad_builder/scripts/fix_safezones.py",
-                    "install_into_hub.py", "ui_check.py"}
+                    "ui_check.py"}
     out = []
     for rel, src in _sources():
         if rel in exempt_files or "/scripts/" in rel or rel.startswith("tools/"):

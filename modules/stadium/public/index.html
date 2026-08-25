@@ -1058,13 +1058,30 @@
    to DMA_HOUSEHOLDS / STATES / multipliers / computeMetrics must be made in
    BOTH places or the widget and the server/PDF will disagree.
 ============================================================================ */
-/* FIXED: this was "" — and because the widget is embedded on smart1marketing.com,
-   every call resolved to https://smart1marketing.com/api/... and 404'd. That is why
-   the PDF never downloaded and why the podcast lists were always the generic
-   national fallback: the AI endpoint was never actually reached.
-   Verified live: https://blueprint-2.onrender.com/api/health -> {ok:true, ai:true}. */
-let BACKEND_URL = "https://blueprint-2.onrender.com";
-const BACKEND_CANDIDATES = [BACKEND_URL, ""];   // first one that answers /api/health wins
+/* Where this page's API lives, in preference order.
+
+   History, because it explains the second candidate. This file was pasted onto
+   smart1marketing.com as a standalone widget with BACKEND_URL = "", so every
+   call resolved to https://smart1marketing.com/api/... and 404'd — no PDF, and
+   the podcast lists silently fell back to the generic national set. The fix at
+   the time was to point it at a separate Render service, which is where those
+   leads have been going ever since: not into this Hub, and so not into the
+   Leads panel, hub/leads.py or Smart 1 Suite.
+
+   This app is now mounted in the Hub at /land/stadium and its Flask side writes
+   every lead through hub/leads.py, so the Hub's own mount is tried FIRST. It is
+   same-origin (no CORS), it is correct from every URL this page is served at —
+   /land/stadium/, /land/stadium/embed and /land/stadium/index.html all give
+   /land/stadium, and standalone at / it gives "" — and it is the only candidate
+   whose leads reach the Leads panel.
+
+   The legacy service stays as a fallback rather than being deleted: an older
+   paste of this file may still be live on a page nobody has updated, and a
+   widget that answers from the wrong place beats one that answers from none.
+   Delete it once every page in docs/smart1marketing-embeds.md is on the embed. */
+const MOUNT_BASE = location.pathname.replace(/\/[^\/]*$/, "");
+let BACKEND_URL = MOUNT_BASE;
+const BACKEND_CANDIDATES = [MOUNT_BASE, "https://blueprint-2.onrender.com"];   // first one that answers /api/health wins
 let API_FLAGS = {};                              // ai / cloudinary / ghl / email / calendar
 let API_OK = null;
 const apiUrl = p => (BACKEND_URL||"").replace(/\/$/,"") + p;

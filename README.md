@@ -287,7 +287,7 @@ Integration Token exactly as before.
 ## Hub pages inside Smart 1 Suite
 
 A HighLevel custom menu link is an iframe pointing at a URL. Point it at a Hub
-page on the allowlist in [`hub/embed.py`](hub/embed.py) (`EMBEDDABLE` — today
+page on the allowlist in [`hub/suite_embed.py`](hub/suite_embed.py) (`EMBEDDABLE` — today
 Client 360 and the GET APIs it renders from) and the rep gets it inside Suite
 without a second login.
 

@@ -1,4 +1,4 @@
-"""hub/embed.py — Hub pages rendered inside Smart 1 Suite's own UI.
+"""hub/suite_embed.py — Hub pages rendered inside Smart 1 Suite's own UI.
 
     python3 test_suite_embed.py
 
@@ -47,7 +47,7 @@ os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(TMP, "db.sqlite3"))
 os.environ.setdefault("SECRET_KEY", "embed-test-secret")
 
-from hub import auth, embed  # noqa: E402
+from hub import auth, suite_embed as embed  # noqa: E402
 
 _passed = _failed = 0
 

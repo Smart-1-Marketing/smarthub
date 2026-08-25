@@ -145,7 +145,7 @@ signed in, the browser declines to say so, `AuthGuard` redirects, and a login
 form appears inside Suite for an account they already hold. Nothing errors.
 Relaxing `s1hub_auth` to `SameSite=None` would fix it and would also attach
 that cookie to every cross-site request, including a POST from a page an
-attacker controls — and this Hub has delete buttons behind it. So `hub/embed.py`
+attacker controls — and this Hub has delete buttons behind it. So `hub/suite_embed.py`
 adds a **companion** cookie carrying the same signed value, accepted only for
 **GET/HEAD** and only on an explicit path **allowlist**, which makes it useless
 for that attack and makes an embedded page **read-only**. That last part is a
@@ -164,9 +164,45 @@ a body that already has one, agreed there was nothing to do. And no
 `X-Frame-Options` or CSP was set on hub pages at all, so adding an embed path
 without `framable()` would have widened a clickjacking oversight into a feature.
 Flask runs `after_request` handlers in **reverse** registration order, so the
-chrome check asks `embed.is_embedded()` itself rather than reading a flag the
+chrome check asks `suite_embed.is_embedded()` itself rather than reading a flag the
 policy handler sets — which would still be unset. `test_suite_embed.py` asserts
 all of it.
+
+**`linkcheck` sees `fetch("…")` and nothing else, and `sendBeacon` is where
+the leads were.** The trap above is about the URL it cannot verify; this is
+about the call it cannot see at all. Six landing modules posted their
+abandoned-form partial lead with
+`navigator.sendBeacon('/api/partial-lead', …)` — root-absolute, so under
+`/land/<x>` it leaves the module entirely and 404s on the hub app. It is
+invisible three times over: the `fetch()` written beside it as the fallback
+carried the mount and worked, `sendBeacon` returns a boolean nobody reads, and
+it fires on `pagehide`, so no console is open when it fails. Stadium was worse
+— its browser code named a *different Render service* as its API base, so its
+leads were reaching neither this Hub nor nothing, which is harder to notice
+than either. Use `{{ request.script_root }}` in a template; in a plain asset
+with no Jinja, either a relative path (`'api/partial-lead'`, which resolves
+against the document's directory) or a base derived from `location.pathname`.
+`test_landing_embeds.py` fails on a root-absolute path passed *directly* to
+`fetch` or `sendBeacon` — not on one appearing anywhere in the file, because
+`apiUrl("/api/health")` is correct and a check that flags it teaches people to
+ignore the check.
+
+**The marketing site's form and the Hub's form were two different forms.**
+Nine industry tools live here (`/land/boat`, `/land/ski`, `/land/stadium`, …),
+each of which writes every lead through `hub/leads.py` into Smart 1 Suite.
+smart1marketing.com carried its own form on each of those pages, connected to
+none of it — and `/api/leads/capture` sends no CORS headers, so a browser on
+that domain could not have reached the Hub even if it tried. Nothing errored on
+either side; the Leads panel simply reported a fraction of the prospects as if
+it were all of them. `hub/embed.py` frames the real tool rather than shipping a
+copy of the form, which is the part that matters: a pasted copy needs a host
+spelled correctly (`smart1-multipart-embed.html` shipped
+`https://YOUR-RENDER-APP.onrender.com`), needs its mount prefix concatenated
+correctly, and goes stale the day a field is added here. A frame needs none of
+those. `docs/smart1marketing-embeds.md` is the line to paste, per page.
+`/embed` deliberately has no trailing slash — tourism's relative API path
+resolves against the *directory* of the current URL, so `/embed/` is a 404 the
+prospect does not meet until they press submit.
 
 **Placeholder values are worse than blanks.** `CLOUDINARY_URL` sat at
 `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` and every "is it configured?"
@@ -238,11 +274,52 @@ clip that stops early. That is also why "Generate AI" (OpenAI stills) and
 QC fails a scene whose clip is shorter than the scene, because the element
 simply runs out and the segment goes black with nothing reading as an error.
 
+**A key that is set is not a key that is read, and neither is a key that
+works.** Every provider in the Commercial Builder degrades to mock data rather
+than erroring, which is right — and is also what makes a misnamed key
+invisible: concepts come back from a template, stock search returns
+placehold.co images labelled like footage, the voice track is silent, and the
+render is a job id with no file behind it. ElevenLabs and Creatomate read
+`os.environ` at *import* under one spelling each, on a deployment that sets
+`PEXELS_API`, `PIXABAY_API`, `HEYGEN_API` — so adding `ELEVENLABS_API` and
+`CREATOMATE_API` would have changed nothing at all, with every screen healthy.
+Every key in the module now reads through `hub/config.py` at call time, and
+`/api/integrity` has a check that names any module still reading one spelling
+directly. Runway was quieter still: it had a working service and a real key
+check, and the dashboard drew it from a separate "V1.5" list as a hard-coded
+grey chip, so connecting Runway could not change what the page said about it.
+
+`bool(key)` is also the weak question. A truncated paste, a revoked key, an
+account out of credit and a key from the wrong workspace all look identical to
+it, and all fail at the moment somebody is waiting on a render.
+`services/provider_check.py` asks each provider — one cheap authenticated
+call, nothing generated, nothing billed — behind a **Check keys** button
+rather than on page load, because eight outbound calls per visit is a slow
+dashboard. Its four rules are the ways that answer goes confidently wrong: no
+key is *not measured* and never a cross; refused (401) and unreachable
+(timeout) are different answers, and calling the second one "bad key" sends
+somebody to rotate a key that was fine; a 404 means this file is out of date,
+not that the key is bad; and a result never carries the key value, because it
+is rendered into a page and pasted into chats.
+
 **A provider's asset URL is signed and expires.** A HeyGen clip linked
 directly plays today and 404s next week. Finished clips are mirrored into
 Cloudinary through `cloudinary_service.upload_asset`, the way rendered
 commercials already were, and the storyboard says out loud when a mirror
 failed and it is showing you a link that will die.
+
+**A module in the repo is not a module in the app.** `modules/ads_builder`
+--- Smart 1 Ads, 1,745 lines of Google Ads campaign operations --- sat in this
+repo unreachable for months. Nothing was broken: `hub/extensions.py` provisioned
+its database, `hub/client_key.py` read its proposals table, `test_ads_module.py`
+passed in CI on every pull request, and `hub/demos.py` walked staff to
+`/tools/ads`, which 404'd. It shipped with an installer that made the four edits
+registering it --- the `wsgi.py` mount, the sidebar entry, the tile and the env
+block --- against "a Hub checkout", and nobody ever ran it against this one.
+A module is mounted in `wsgi.py` or registered in `hub/__init__.py`; anything
+else is a directory. The tile rule below is the same failure one step later, and
+`tools/linkcheck.py` will tell you a path does not resolve --- it had
+`/tools/ads/` on an allowlist saying so, with the installer named as the excuse.
 
 **The Render disk is not backed up. The database is.** Render backs up managed
 Postgres; the 5 GB disk at `/var/data` is outside that, and a plan change,
@@ -1175,7 +1252,7 @@ python tools/linkcheck.py          # every internal URL resolves
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python3 test_jsonstore.py          # the database mirror really restores
-python3 test_ads_module.py         # the Node ad builder behind its proxy
+python3 test_ads_module.py         # Smart 1 Ads, and the Node ad builder's links
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math
@@ -1194,7 +1271,9 @@ python3 test_sites_match.py        # live-only matching, and finding a client's 
 python3 test_domain_links.py       # attaching a domain everywhere, orphans, renewals
 python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
+python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
+python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 python3 test_landing_spec.py       # what a landing page is for, and what it sells
 python3 test_client_groups.py      # grouped clients: what merges, what must not double
@@ -1253,9 +1332,11 @@ left. Neither is redundant — jscheck is stricter on what it can read, and
 checktemplates is the only thing that reads the rest.
 
 `tools/integritycheck.py` runs `/api/integrity` from the command line and
-fails on `high` findings. Two `medium` ones stand today (`ad_builder` and
-`msa` never write to the activity log); it prints them every run rather than
-failing on them, so switching it on did not start life red.
+fails on `high` findings. Six `medium`/`low` ones stand today — `ad_builder`
+never writes to the activity log (`msa` since does), one unclamped `?limit=`,
+and four modules reading a provider key under one spelling only; it prints them
+every run rather than failing on them, so switching it on did not start life
+red.
 
 Then boot through `wsgi.application` (not just the hub app — that's how mount
 shadowing hides) and request the pages you touched. `/api/integrity` reports

@@ -74,7 +74,7 @@ def _login_response(user: User, nxt: str = "/"):
         resp.set_cookie(auth.COOKIE_NAME, auth.issue_cookie_value(user.name or user.email),
                         max_age=SESSION_DAYS * 86400, httponly=True,
                         samesite="Lax", secure=secure)
-        from hub import embed
+        from hub import suite_embed as embed
         embed.issue_cookie(resp, user.name or user.email, secure)
     except Exception:                                   # noqa: BLE001
         pass

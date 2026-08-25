@@ -26,13 +26,30 @@ _MODEL = os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o-mini")
 _IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
 
 
+def _key():
+    """The OpenAI key, through the Hub's settings.
+
+    The last direct os.environ key read in this module's services. It is the
+    one provider whose name never drifted, but reading it here rather than in
+    two places means the next spelling added to hub.config reaches this module
+    without a second fix — which is exactly what Pexels needed twice.
+    """
+    try:
+        from hub.config import settings
+        if settings.openai_key:
+            return settings.openai_key
+    except Exception:  # noqa: BLE001 — standalone, or settings failed to build
+        pass
+    return (os.environ.get("OPENAI_API_KEY") or "").strip()
+
+
 def is_live():
-    return bool(os.environ.get("OPENAI_API_KEY"))
+    return bool(_key())
 
 
 def _client():
     from openai import OpenAI
-    return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    return OpenAI(api_key=_key())
 
 
 def _chat_json(system, user, max_tokens=1500):

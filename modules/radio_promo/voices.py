@@ -52,7 +52,24 @@ class VoiceError(RuntimeError):
 
 
 def api_key() -> str:
-    return (os.environ.get("ELEVENLABS_API_KEY") or "").strip()
+    """The ElevenLabs key, under whichever name it is actually set.
+
+    Through hub.config, which accepts ELEVENLABS_API too — the short spelling
+    every other provider on this deployment uses. Read here at call time
+    rather than at import so a key added in the Render dashboard takes effect
+    on restart rather than needing the module reloaded.
+    """
+    try:
+        from hub.config import settings
+        if settings.elevenlabs_key:
+            return settings.elevenlabs_key
+    except Exception:  # noqa: BLE001 — standalone, or settings failed to build
+        pass
+    for name in ("ELEVENLABS_API", "ELEVENLABS_API_KEY", "ELEVENLABS_KEY"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def ready() -> bool:
@@ -61,7 +78,8 @@ def ready() -> bool:
 
 def _headers(extra: dict | None = None) -> dict:
     if not ready():
-        raise VoiceError("ElevenLabs key is not set. Add ELEVENLABS_API_KEY.")
+        raise VoiceError("ElevenLabs key is not set. Add ELEVENLABS_API "
+                         "(or ELEVENLABS_API_KEY).")
     head = {"xi-api-key": api_key()}
     head.update(extra or {})
     return head

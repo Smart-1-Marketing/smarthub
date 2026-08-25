@@ -1,161 +1,109 @@
-"""Hub pages rendered inside Smart 1 Suite's own UI.
+"""One way to put a Hub landing tool on smart1marketing.com.
 
-A HighLevel custom menu link is an iframe pointing at a URL you give it. So
-"an app inside Suite" is, mechanically, a Hub page that survives being framed
-by somebody else's site. Three things in this Hub stop that happening, and each
-one fails in a way that looks like something else.
+## Why this exists
 
-## 1. The login cookie is not sent inside the frame
+Nine industry landing tools live in this Hub -- `/land/boat`, `/land/ski`,
+`/land/stadium` and the rest. Each one asks a prospect a handful of questions,
+builds a plan, and writes the answer into `hub/leads.py`, which creates the
+contact in Smart 1 Suite over the Contacts API. That path works and is tested.
 
-`s1hub_auth` is `SameSite=Lax`, so a browser will not attach it to a request
-made from a page on gohighlevel.com. The Hub then sees an anonymous request,
-`AuthGuard` redirects to `/login`, and the rep watches a login form appear
-inside Suite for an account they are already signed in to. Nothing errors.
+The marketing site has its own page per industry
+(`smart1marketing.com/boat-dealer-marketing-gameplan`, ...). Those pages carry
+whatever form the site builder wired up, which is not this one -- so a prospect
+who fills the form on the marketing site does not appear in the Leads panel,
+does not get a plan, and does not become a Suite contact. Nothing errors. That
+is the whole failure: two forms for one campaign, and only one of them is
+connected.
 
-The fix is a companion cookie, not a change to the existing one. Relaxing
-`s1hub_auth` to `SameSite=None` would attach it to *every* cross-site request
-to the Hub — including a form POST from a page an attacker controls — and this
-Hub has destructive buttons behind that cookie (delete a sub-account, delete an
-image, dissolve a client group). So `s1hub_embed` carries the same signed value
-and is accepted under two conditions that together make it useless for that
-attack:
+## The shape that was tried before, and why it is not this one
 
-  * **safe methods only** — GET and HEAD. A cross-site POST carrying it
-    authenticates as nobody, exactly as it does today.
-  * **allowlisted paths only** — see `EMBEDDABLE`. Not every Hub page is
-    reachable this way just because one is.
+`modules/rv/public/smart1-multipart-embed.html` was a second copy of the RV
+form, meant to be pasted into the Suite page and to POST back here. It carried
+both of the traps this codebase keeps re-learning:
 
-The consequence has to be said out loud rather than discovered: **an embedded
-page is read-only.** Buttons that write still need the Lax cookie, which the
-frame does not have. That is the honest first increment, and it is why the
-client-facing version needs HighLevel's SSO handshake rather than more cookie
-work — see `SSO_NOT_BUILT` at the bottom of this file.
+  * `const API_BASE = 'https://YOUR-RENDER-APP.onrender.com'` -- a placeholder
+    that every "is it configured?" glance reads as a real setting.
+  * Its request path was built by concatenating that base onto the endpoint,
+    which is the one shape `tools/linkcheck.py` cannot see -- and the endpoint
+    it concatenated omits the `/land/rv` mount the app actually answers on. So
+    even with the host filled in correctly it was a 404.
 
-## 2. The chrome is injected into anything that looks like a page
+And a copied form is a form that drifts: the day a field is added here, the
+pasted one keeps collecting the old set and nothing says so.
 
-`HubBar` already skips the sidebar when `Sec-Fetch-Dest` says `iframe`, which
-covers every dispatcher-mounted module. The hub app's own `after_request` does
-not, and Client 360 is a hub route — so the one page most worth putting inside
-Suite is the one that would arrive with a full second navigation column inside
-a frame that already has one. `is_embedded()` is the shared test so both halves
-answer the same way.
+So this module does not copy the form. It frames the real one. The mount
+prefix is decided by the server, the fields are whatever the tool asks for
+today, and the lead travels the same path a lead from `/land/rv` travels --
+because it *is* a lead from `/land/rv`.
 
-## 3. Nothing pins who may frame us
+## What `install()` adds to a module
 
-No `X-Frame-Options` and no CSP is set on hub pages today, so the Hub can be
-framed by anyone — a clickjacking surface on a staff tool. Adding the embed
-path without also adding the allowlist would widen that from an oversight into
-a feature. `framable()` is the same shape `modules/msa/app.py` already uses for
-the signing page, for the same reason stated there: one rule in charge of the
-answer rather than two that can disagree.
+    /embed      the tool's own page, framable from the marketing site only
+    /embed.js   a one-line loader that writes the iframe and keeps it sized
+
+Two rules carried over from `modules/msa`, which established this pattern:
+
+**The allowlist is an allowlist.** `frame-ancestors *` is right for the scans
+widget, which is pasted onto clients' domains and cannot know them in advance.
+These are framed only on ours. `X-Frame-Options` is dropped rather than set,
+because it has no allowlist form and some browsers let it override CSP -- two
+rules that can disagree is worse than one that decides.
+
+**`/embed` has no trailing slash.** `modules/tourism` calls its API as
+`fetch('api/partial-lead')`, a relative path that resolves against the
+*directory* of the current URL. From `/land/tourism/embed` that is
+`/land/tourism/api/partial-lead`, which is right; from `/land/tourism/embed/`
+it is `/land/tourism/embed/api/partial-lead`, a 404 the prospect does not meet
+until they have filled in the whole wizard and pressed submit. `/embed/`
+redirects rather than serving.
+
+## Two things the loader does that a bare iframe cannot
+
+**Height.** These wizards start as a short form and end as a multi-page plan.
+In a fixed-height frame that is a scrollbar inside a scrollbar, and on a phone
+it is unusable. The framed page reports its own height on every change and the
+loader grows the frame, so the host page scrolls once.
+
+**Scroll.** Every one of these tools calls `window.scrollTo(0, 0)` or
+`scrollIntoView()` when it moves between steps -- correct standalone, and a
+silent no-op inside a frame tall enough to have no scrollbar of its own. The
+prospect presses Continue at the bottom of a long frame and the next step
+renders far above their viewport, so the page looks like it did nothing. The
+reporter forwards those calls to the host, which scrolls to the same place on
+the outer page. This is a translation of a scroll the tool already asked for,
+not a guess about when to scroll.
 """
 from __future__ import annotations
 
 import os
 
-from . import auth
+from flask import Response, make_response, redirect, url_for
 
-COOKIE_NAME = "s1hub_embed"
-
-# Who may frame a Hub page. CSP syntax, space-separated. HighLevel serves the
-# agency UI from app.gohighlevel.com and whitelabel domains from elsewhere, so
-# this is overridable — but it is an allowlist and never a wildcard. The scan
-# widget at modules/scans is the deliberate exception in this codebase (it is
-# pasted onto clients' own domains and has to accept any of them); a staff tool
-# is framed on exactly one site and should say so.
-FRAME_ANCESTORS = os.environ.get(
-    "HUB_EMBED_FRAME_ANCESTORS",
-    "'self' https://app.gohighlevel.com https://*.gohighlevel.com "
-    "https://*.leadconnectorhq.com https://*.smart1marketing.com"
-).strip()
-
-# Paths that may be served inside the frame. Prefixes, matched against the
-# composed app's path.
+# Who may put a Hub landing tool in an iframe. Space-separated, CSP syntax.
 #
-# Deliberately short. Every entry is a read surface a rep actually wants while
-# looking at a client in Suite, plus the assets and GET APIs those pages need
-# to render. A write-heavy tool is *not* listed: with the embed cookie limited
-# to safe methods it would load, look complete, and fail on save — which is a
-# worse offer than not being there. Widen this when the SSO path lands and
-# writes work, not before.
-EMBEDDABLE: tuple[str, ...] = (
-    "/client360",          # who is this client — the reason to do this at all
-    "/api/c360",           # and the fetches it renders from
-    "/api/client/",
-    "/api/clients/",
-    "/assets/",            # theme.css
-    "/hub-",               # hub-help.js and friends
-    "/static/",
-)
-
-SAFE_METHODS = ("GET", "HEAD")
+# An ALLOWLIST, deliberately -- see the module docstring. Render stores quotes
+# literally (SCANS_CALLBACK_TOKEN="abc" arrives including the quotes), so a
+# value pasted with them still works here rather than producing a CSP nobody
+# can read and an embed nobody can explain.
+DEFAULT_FRAME_ANCESTORS = ("'self' https://smart1marketing.com "
+                           "https://*.smart1marketing.com")
 
 
-def embeddable(path: str) -> bool:
-    """Is this path allowed to render inside somebody else's page?"""
-    return (path or "/").startswith(EMBEDDABLE)
+def frame_ancestors() -> str:
+    """The CSP source list, read fresh so a test can set the environment.
 
-
-def is_embedded(environ: dict) -> bool:
-    """Is this request being made for a frame?
-
-    Same test `HubBar` applies, kept here so the hub app and the module wrapper
-    cannot drift into disagreeing about what "embedded" means. `?embed=1` is
-    the explicit opt-out for callers that want it; `Sec-Fetch-Dest` is what
-    browsers send without anyone having to remember.
+    Only the double quotes Render adds are stripped. A CSP source list carries
+    single quotes as syntax -- ``'self'`` means nothing without them -- so
+    stripping those would turn a correct setting into one that allows no
+    framer at all, and the embed would go blank with the variable looking set.
     """
-    if "embed=1" in (environ.get("QUERY_STRING") or ""):
-        return True
-    return environ.get("HTTP_SEC_FETCH_DEST") in ("iframe", "frame")
+    raw = (os.environ.get("HUB_FRAME_ANCESTORS") or "").strip().strip('"').strip()
+    return raw or DEFAULT_FRAME_ANCESTORS
 
 
-# ------------------------------------------------------------------- cookie
-def issue_cookie(resp, name: str, secure: bool) -> None:
-    """Set the embed companion beside the ordinary login cookies.
-
-    `secure` is passed in rather than read here so it matches whatever the
-    caller decided for the other two — three cookies disagreeing about Secure
-    on one response is a debugging session nobody needs. Note that a
-    `SameSite=None` cookie without `Secure` is rejected outright by every
-    current browser, so off a production deploy this simply does not stick;
-    that is correct, and it is why the embed is not silently available on a
-    local HTTP run.
-    """
-    resp.set_cookie(
-        COOKIE_NAME, auth.issue_cookie_value(name),
-        max_age=auth.SESSION_TTL_SECONDS, httponly=True,
-        samesite="None", secure=secure,
-    )
-
-
-def clear_cookie(resp) -> None:
-    resp.delete_cookie(COOKIE_NAME, samesite="None", secure=True)
-
-
-def user_from_environ(environ: dict) -> str | None:
-    """The signed-in name carried by the embed cookie, if it may be used here.
-
-    Returns None — not an error — when the request is anything other than a
-    safe method on an allowlisted path. A caller that gets None falls through
-    to the ordinary cookie check and then to the usual 401 or redirect, so a
-    write attempted from inside the frame is refused by the same code that
-    refuses an anonymous one.
-    """
-    if environ.get("REQUEST_METHOD") not in SAFE_METHODS:
-        return None
-    if not embeddable(environ.get("PATH_INFO") or "/"):
-        return None
-    for part in (environ.get("HTTP_COOKIE") or "").split(";"):
-        k, _, v = part.strip().partition("=")
-        if k == COOKIE_NAME:
-            return auth.verify_cookie_value(v)
-    return None
-
-
-# ------------------------------------------------------------------ response
 def framable(resp):
     """Let the allowlisted hosts frame this response, and nobody else."""
-    resp.headers["Content-Security-Policy"] = "frame-ancestors " + FRAME_ANCESTORS
+    resp.headers["Content-Security-Policy"] = "frame-ancestors " + frame_ancestors()
     # X-Frame-Options has no allowlist form: any value it could carry would
     # either forbid the embed outright or be honoured inconsistently, and some
     # browsers let it override CSP. Dropping it leaves one rule in charge.
@@ -163,42 +111,235 @@ def framable(resp):
     return resp
 
 
-def refuse(path: str) -> str:
-    """What a page that is not embeddable says when somebody frames it.
-
-    A blank frame or a redirect loop reads as a broken integration and gets
-    reported as one. Naming the path and the reason turns it into a
-    one-line fix by whoever configured the menu link.
-    """
-    return (
-        "This Hub page is not available inside Smart 1 Suite.\n\n"
-        f"Path: {path}\n\n"
-        "Only a short allowlist of read-only pages can be embedded — see "
-        "EMBEDDABLE in hub/embed.py. Open the Hub directly for anything else."
-    )
-
-
 # --------------------------------------------------------------------------
-# The half that is designed and not built
+# Injected into the framed page
 # --------------------------------------------------------------------------
-SSO_NOT_BUILT = """\
-A client-facing page inside their own sub-account cannot use any of the above.
+#
+# tools/jscheck.py reads .js files and the inline blocks in templates, so it
+# never sees this one or the loader below -- they are Python strings. Both are
+# handed to `node --check` by test_landing_embeds.py instead, because a syntax
+# error here does not raise: the script simply does not run, and every gameplan
+# frame stays at its starting height with the plan cut off.
 
-The rep case works because the rep already has a Hub session in that browser;
-a client has no Hub account at all and must never be given one. HighLevel's
-answer is an SSO handshake: the framed page posts `REQUEST_USER_DATA` to its
-parent, HighLevel replies with a payload encrypted under the app's SSO key,
-and the app decrypts it server-side to learn the HighLevel user and the
-location they are in.
+REPORTER_JS = r"""
+<script>
+/* Smart 1 embed reporter -- injected by hub/embed.py, only on /embed.
+   Reports this document's height to the host page, and forwards the scrolls
+   the tool asks for. Everything is wrapped: a page that fails to load because
+   its resize helper threw is worse than a page with a fixed height. */
+(function () {
+  if (window.top === window.self) return;   /* not framed: nothing to report */
 
-Two things about that are worth writing down before anyone starts:
+  var last = 0;
 
-  * The SSO key is a *third* credential, separate from GHL_CLIENT_ID and
-    GHL_CLIENT_SECRET, issued on the app's own settings page.
-  * The location id in that payload is the authorisation, and it is the whole
-    security model. Every read behind a client-facing page has to be filtered
-    by it — resolved to a client the way hub/client_key.py resolves one, never
-    by a name in a query string. Getting that wrong shows one client another
-    client's record, which is the worst outcome any tool in this Hub can
-    produce.
+  function send(type, data) {
+    try {
+      var msg = {type: type};
+      for (var k in data) { if (data.hasOwnProperty(k)) msg[k] = data[k]; }
+      window.parent.postMessage(msg, '*');
+    } catch (e) {}
+  }
+
+  function height() {
+    var d = document.documentElement, b = document.body;
+    if (!d || !b) return 0;
+    return Math.max(b.scrollHeight, b.offsetHeight,
+                    d.scrollHeight, d.offsetHeight) + 8;
+  }
+
+  function report() {
+    var h = height();
+    /* A one-pixel wobble on every animation frame would post hundreds of
+       messages a second and make the host page shiver. */
+    if (!h || Math.abs(h - last) < 4) return;
+    last = h;
+    send('s1embed:height', {height: h});
+  }
+
+  /* Height changes for reasons no single event covers: fonts arriving, an
+     accordion opening, a report rendering from a fetch. ResizeObserver sees
+     all of them; the interval is the floor for browsers that lack it and for
+     changes inside a subtree it is not watching. */
+  try {
+    if (window.ResizeObserver) {
+      new ResizeObserver(report).observe(document.documentElement);
+    }
+  } catch (e) {}
+  window.addEventListener('load', report);
+  window.addEventListener('resize', report);
+  document.addEventListener('DOMContentLoaded', report);
+  setInterval(report, 500);
+  report();
+
+  /* --- forwarding the tool's own scrolls -------------------------------
+     The frame is grown to fit its content, so it has no scrollbar and every
+     scroll call inside it does nothing. Each landing tool scrolls when it
+     changes step, which is exactly when the prospect needs to be moved. So
+     the call is translated into a host-page scroll to the same place rather
+     than being lost. */
+  function offsetOf(el) {
+    var y = 0;
+    try {
+      while (el && el.offsetParent) { y += el.offsetTop; el = el.offsetParent; }
+    } catch (e) {}
+    return y;
+  }
+
+  try {
+    var nativeScrollTo = window.scrollTo;
+    window.scrollTo = function () {
+      var top = 0;
+      if (arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {
+        top = arguments[0].top || 0;
+      } else if (arguments.length > 1) {
+        top = arguments[1] || 0;
+      }
+      send('s1embed:scroll', {top: top});
+      try { return nativeScrollTo.apply(window, arguments); } catch (e) {}
+    };
+  } catch (e) {}
+
+  try {
+    var nativeIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function () {
+      send('s1embed:scroll', {top: offsetOf(this)});
+      try { return nativeIntoView.apply(this, arguments); } catch (e) {}
+    };
+  } catch (e) {}
+})();
+</script>
 """
+
+
+def with_reporter(html: bytes) -> bytes:
+    """Put the reporter in, the way HubBar puts the sidebar in.
+
+    Before the LAST ``</body>``, not the first. The IO Builder's printable
+    documents are JavaScript template literals that each carry their own
+    ``</body>``, and injecting at the first one dropped the Hub sidebar inside
+    a string and rendered the whole tool blank. None of these pages does that
+    today, and none of them has to keep not doing it.
+
+    A page with no ``</body>`` is returned untouched: a fragment is not a page,
+    and appending script to one is how a partial response becomes a broken one.
+    """
+    marker = b"</body>"
+    if marker not in html:
+        return html
+    cut = html.rfind(marker)
+    return html[:cut] + REPORTER_JS.encode("utf-8") + html[cut:]
+
+
+# --------------------------------------------------------------------------
+# The loader the marketing site pastes
+# --------------------------------------------------------------------------
+
+def loader_js(title: str, default_height: int) -> str:
+    """The body of ``/embed.js``.
+
+    The Hub's URL appears exactly once on the marketing site -- in this
+    script's own ``src`` -- and the frame URL, the origin check and everything
+    else are derived from it. Moving the Hub to another host is then a
+    one-word edit per page rather than a hunt through pasted markup, which is
+    the failure ``smart1-multipart-embed.html`` shipped with.
+    """
+    safe_title = title.replace("\\", "\\\\").replace("'", "\\'")
+    # Raw string: the regexes carry \/ and \. which Python does not recognise
+    # as escapes. It warns today and errors in a future release, at which
+    # point the loader stops matching and every embed shows a frozen frame.
+    return r"""(function(){
+  var s = document.currentScript;
+  if (!s || !s.src) return;
+  var base = s.src.replace(/\/embed\.js(\?.*)?$/, '');
+  var origin = base.replace(/^(https?:\/\/[^\/]+).*$/, '$1');
+
+  var frame = document.createElement('iframe');
+  frame.src = base + '/embed';
+  frame.title = '__TITLE__';
+  frame.loading = 'lazy';
+  frame.setAttribute('scrolling', 'no');
+  frame.setAttribute('allow', 'clipboard-write');
+  frame.style.cssText = 'display:block;width:100%;border:0;' +
+                        'height:' + (s.getAttribute('data-height') || '__HEIGHT__') + 'px;';
+  s.parentNode.insertBefore(frame, s);
+
+  function frameTop() {
+    var y = 0, el = frame;
+    while (el) { y += el.offsetTop || 0; el = el.offsetParent; }
+    return y;
+  }
+
+  window.addEventListener('message', function(e){
+    /* Both checks, not either. The origin says the message came from the Hub;
+       the source says it came from THIS frame rather than another Hub embed
+       further down the same page. */
+    if (e.origin !== origin) return;
+    if (e.source !== frame.contentWindow) return;
+    var d = e.data || {};
+    if (d.type === 's1embed:height' && d.height) {
+      frame.style.height = d.height + 'px';
+    } else if (d.type === 's1embed:scroll') {
+      /* The tool asked to scroll and could not, because the frame it lives in
+         has no scrollbar of its own. Same destination, outer page. */
+      var target = frameTop() + (d.top || 0) - 20;
+      try { window.scrollTo({top: target, behavior: 'smooth'}); }
+      catch (err) { window.scrollTo(0, target); }
+    }
+  });
+})();""".replace("__TITLE__", safe_title).replace("__HEIGHT__", str(int(default_height)))
+
+
+# --------------------------------------------------------------------------
+
+def install(app, title: str, view=None, default_height: int = 1400) -> None:
+    """Give a landing module ``/embed`` and ``/embed.js``.
+
+    ``view`` is the page to frame, and defaults to whatever the module has
+    registered on ``/`` -- which is the tool itself in every landing module
+    but HVAC, where ``/`` is a brochure page and the wizard is ``/plan``.
+    Resolving it here rather than at nine call sites means a module that
+    renames its index view does not have to remember to come back.
+
+    Call this at the BOTTOM of the module, after the route it frames exists.
+    """
+    if view is None:
+        for rule in app.url_map.iter_rules():
+            if rule.rule == "/" and "GET" in (rule.methods or ()):
+                view = app.view_functions[rule.endpoint]
+                break
+    if view is None:                      # nothing to frame: add nothing
+        raise RuntimeError("hub.embed.install: no view to frame")
+
+    def _embed():
+        resp = make_response(view())
+        # send_from_directory hands back a passthrough response, and reading
+        # its body without clearing this raises rather than returning bytes.
+        resp.direct_passthrough = False
+        # set_data recomputes Content-Length; the pop is here so that a
+        # response which arrived with one set some other way cannot survive
+        # with the pre-injection length. A short Content-Length truncates the
+        # page at exactly the point the browser stops reading, which is
+        # mid-script -- so the tool half-loads rather than failing outright.
+        resp.set_data(with_reporter(resp.get_data()))
+        resp.headers.pop("Content-Length", None)
+        resp.headers["Cache-Control"] = "no-store"
+        return framable(resp)
+
+    def _embed_slash():
+        """See the module docstring: the trailing slash breaks tourism's
+        relative API path, and does it only at the moment of submission."""
+        return redirect(url_for("s1_embed"), code=301)
+
+    def _embed_js():
+        # charset stated explicitly. A classic script with no charset is
+        # decoded as the HOST page's encoding, and the frame title carries an
+        # em dash -- so on a page that is not UTF-8 the accessible name of
+        # every embed on the marketing site turns to mojibake.
+        return framable(Response(
+            loader_js(title, default_height),
+            content_type="application/javascript; charset=utf-8",
+            headers={"Cache-Control": "public, max-age=3600"}))
+
+    app.add_url_rule("/embed", "s1_embed", _embed, methods=["GET"])
+    app.add_url_rule("/embed/", "s1_embed_slash", _embed_slash, methods=["GET"])
+    app.add_url_rule("/embed.js", "s1_embed_js", _embed_js, methods=["GET"])
