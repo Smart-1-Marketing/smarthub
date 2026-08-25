@@ -66,12 +66,30 @@
       <div style="display:grid;grid-template-columns:1fr;gap:14px">
         <div>
           <label class="lp-l">What should the page get people to do?</label>
-          <input id="lpGoal" class="lp-i" placeholder="Book a viewing · Request a quote · Call today">
+          <p class="muted" style="font-size:12px;margin:0 0 8px">
+            One next step per page. This picks the button, the form, and what
+            the page has to prove before it asks &mdash; a page offering three
+            different things converts on none of them.</p>
+          <div id="lpGoals" class="lp-goals">Loading&hellip;</div>
+          <input type="hidden" id="lpGoal" value="">
         </div>
+
+        <div>
+          <label class="lp-l">What is this page promoting?</label>
+          <input id="lpPromoting" class="lp-i"
+                 placeholder="Ducted air conditioning installation &middot; Spring service plans">
+          <p class="muted" style="font-size:12px;margin:5px 0 0">
+            The <em>thing</em>, not the action &mdash; and not the industry.
+            Left blank, the products on the proposal are used. With neither,
+            the copy writes around the subject and could be about any business
+            on the street.</p>
+        </div>
+
         <div>
           <label class="lp-l">Offer or hook <span class="muted">(optional)</span></label>
-          <input id="lpOffer" class="lp-i" placeholder="Free spring service with every purchase">
-          <p class="muted" style="font-size:12px;margin:5px 0 0">
+          <input id="lpOffer" class="lp-i" oninput="lpOfferTyped()"
+                 placeholder="Free spring service with every new system">
+          <p class="muted" style="font-size:12px;margin:5px 0 0" id="lpOfferNote">
             Only put something here if it's real. The page won't invent an
             offer, a review or a guarantee that isn't in the material.</p>
         </div>
@@ -111,6 +129,16 @@
 
 <style>
 .lp-l{display:block;font-size:12.5px;font-weight:600;margin:0 0 5px}
+.lp-goals{display:grid;gap:8px;grid-template-columns:1fr}
+@media(min-width:720px){.lp-goals{grid-template-columns:1fr 1fr}}
+.lp-goal{text-align:left;border:1px solid var(--line,#d5dee9);background:#fbfcfe;
+  border-radius:8px;padding:10px 12px;cursor:pointer;font:inherit;color:inherit}
+.lp-goal:hover{border-color:#1f63ae;background:#eaf2fa}
+.lp-goal[aria-pressed="true"]{border-color:#1f63ae;background:#eaf2fa;
+  box-shadow:inset 0 0 0 1px #1f63ae}
+.lp-goal b{display:block;font-size:13px;margin-bottom:2px}
+.lp-goal span{display:block;font-size:11.5px;color:#66758a;line-height:1.35}
+.lp-offer-warn{color:#8a6100}
 .lp-i{width:100%;padding:9px 11px;border:1px solid var(--line,#cfd7df);
       border-radius:8px;font:14px inherit;background:#fff}
 .lp-dir{display:flex;gap:11px;align-items:flex-start;border:1px solid #e2e8f0;
@@ -234,6 +262,70 @@ function lpProposalChanged(){
   $('lpUploadRow').hidden = $('lpProposal').value !== 'upload';
 }
 
+/* The goal choices come from /api/landing/goals, which reads the same list
+   hub/landing_spec.py hands the copy writer and the renderer. Kept out of
+   this template on purpose: a second hand-maintained copy of the list is
+   how the button, the prompt and the form end up disagreeing about what a
+   goal is, and nothing errors when they do. */
+function lpLoadGoals(){
+  var box = $('lpGoals');
+  fetch('/api/landing/goals', {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var goals = d.goals || [];
+      if(!goals.length){ box.textContent = 'Could not load the page goals.'; return; }
+      box.innerHTML = '';
+      goals.forEach(function(g){
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'lp-goal';
+        b.setAttribute('aria-pressed', 'false');
+        b.innerHTML = '<b></b><span></span>';
+        b.querySelector('b').textContent = g.label;
+        b.querySelector('span').textContent = g.blurb;
+        b.onclick = function(){ lpPickGoal(g.id); };
+        b.setAttribute('data-goal', g.id);
+        box.appendChild(b);
+      });
+      lpPickGoal(d.default || '');
+    })
+    .catch(function(){ box.textContent = 'Could not load the page goals.'; });
+}
+
+function lpPickGoal(id){
+  $('lpGoal').value = id || '';
+  Array.prototype.forEach.call(document.querySelectorAll('.lp-goal'), function(b){
+    b.setAttribute('aria-pressed', String(b.getAttribute('data-goal') === id));
+  });
+}
+
+/* Said while the rep is still typing, not after a page has been generated
+   around a promise it cannot keep. "Special offer available" and a bare
+   "20% off" are the two that matter: both tell the visitor something exists
+   without saying what it is. */
+var lpOfferTimer = null;
+function lpOfferTyped(){
+  clearTimeout(lpOfferTimer);
+  lpOfferTimer = setTimeout(lpOfferCheck, 350);
+}
+function lpOfferCheck(){
+  var v = $('lpOffer').value.trim(), note = $('lpOfferNote');
+  if(!v){
+    note.className = 'muted';
+    note.textContent = "Only put something here if it's real. The page won't "
+      + "invent an offer, a review or a guarantee that isn't in the material.";
+    return;
+  }
+  fetch('/api/landing/offer-check?offer=' + encodeURIComponent(v),
+        {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      note.className = d.usable ? 'muted' : 'muted lp-offer-warn';
+      note.textContent = d.reason || '';
+    })
+    .catch(function(){});
+}
+
 function esc(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});
@@ -262,6 +354,7 @@ function lpCreate(){
     website: prospect ? $('lpSite').value.trim() : '',
     goal: $('lpGoal').value.trim(),
     offer: $('lpOffer').value.trim(),
+    promoting: $('lpPromoting').value.trim(),
     direction: (document.querySelector('input[name=lpDir]:checked')||{}).value || 'trust'
   };
   /* One select carries both kinds, so the prefix says which id this is. */
@@ -427,6 +520,7 @@ function lpDelete(id, name){
 
 lpKindChanged();
 lpProposalChanged();
+lpLoadGoals();
 lpLoad();
 </script>
 {% endblock %}

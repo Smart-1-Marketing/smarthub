@@ -116,9 +116,51 @@ def _img_url(img) -> str:
     return u if u.startswith("https://") else ""
 
 
+_AUTOCOMPLETE = {"name": "name", "phone": "tel", "email": "email",
+                 "postcode": "postal-code"}
+
+
+def _lead_fields(fields: list[dict]) -> str:
+    """The form inputs for this page's goal.
+
+    Falls back to name/phone/email when a goal somehow carries none, because
+    a landing page with no way to reply is worse than one asking a question
+    too many.
+    """
+    if not fields:
+        fields = [{"name": "name", "label": "Your name", "type": "text",
+                   "required": True},
+                  {"name": "phone", "label": "Phone", "type": "tel",
+                   "required": False},
+                  {"name": "email", "label": "Email", "type": "email",
+                   "required": False}]
+    out = []
+    for f in fields:
+        name, label = esc(f.get("name", "")), esc(f.get("label", ""))
+        req = " required" if f.get("required") else ""
+        if f.get("type") == "textarea":
+            # The lead panel reads "detail"; the spec calls it "details". One
+            # rename here rather than a field the panel never shows.
+            out.append(f'<textarea name="detail" rows="3" '
+                       f'placeholder="{label}"{req}></textarea>')
+            continue
+        auto = _AUTOCOMPLETE.get(f.get("name", ""), "on")
+        extra = ' inputmode="tel"' if f.get("type") == "tel" else ""
+        out.append(f'<input name="{name}" type="{esc(f.get("type","text"))}" '
+                   f'placeholder="{label}" autocomplete="{auto}"{extra}{req}>')
+    return "\n    ".join(out)
+
+
 def render_page(brief: dict, copy: dict, direction: dict,
-                images: dict | None = None) -> str:
+                images: dict | None = None, goal_id: str = "") -> str:
     images = images or {}
+    # The form is the goal. "Book an appointment" needs a preferred time and
+    # "Call now" needs almost nothing, and asking every visitor the same four
+    # questions is how a page with a clear purpose converts like a contact
+    # form. hub/landing_spec.py owns which fields belong to which goal.
+    from hub import landing_spec as _spec
+    goal_id = goal_id or copy.get("goal_id") or ""
+    fields_html = _lead_fields(_spec.form_fields(goal_id))
     p = _palette(brief)
     font = _font_stack(brief)
     client = esc(brief.get("client"))
@@ -366,10 +408,7 @@ def render_page(brief: dict, copy: dict, direction: dict,
   <!-- Posts to the Hub's lead panel: stored first, forwarded to Smart 1
        Suite second, so an outage delays a lead rather than losing it. -->
   <form onsubmit="return sendLead(event)">
-    <input name="name" placeholder="Your name" autocomplete="name" required>
-    <input name="phone" placeholder="Phone" autocomplete="tel" inputmode="tel">
-    <input name="email" type="email" placeholder="Email" autocomplete="email">
-    <textarea name="detail" rows="3" placeholder="What do you need?"></textarea>
+    {fields_html}
     <button class="btn" type="submit">{cta}</button>
     <p id="leadMsg" style="font-size:14px;margin:0"></p>
   </form>

@@ -315,14 +315,30 @@ SYSTEM = (
 )
 
 
-def write_copy(brief: dict, goal: str, offer: str) -> dict:
-    """Ask for the copy. Falls back to something usable, never to lorem."""
+def write_copy(brief: dict, goal: str, offer: str,
+               promoting: str = "") -> dict:
+    """Ask for the copy. Falls back to something usable, never to lorem.
+
+    What the writer is given comes from ``hub/landing_spec.py`` rather than
+    being assembled here, so the module, the prompt and the renderer are
+    reading one description of what this page is for.
+    """
+    from hub import landing_spec as spec
+    g = spec.goal(goal)
+    payload = spec.copy_brief(brief, goal, offer, promoting)
+    offer_used = payload["offer_state"] == spec.READ
+
     fallback = {
-        "headline": (f"{brief.get('industry') or 'Local'} service in "
-                     f"{brief.get('city') or brief.get('geo') or 'your area'}"),
-        "subhead": offer or "Tell us what you need and we'll come back to you today.",
-        "cta": goal or "Request a quote",
+        "headline": (f"{payload['promoting'] or brief.get('industry') or 'Local'}"
+                     f" in {brief.get('city') or brief.get('geo') or 'your area'}"),
+        # Only a real offer reaches the subhead. An unclear one used to land
+        # here verbatim, so a page could open with "Special offer available"
+        # and never say what it was.
+        "subhead": (offer.strip() if offer_used else
+                    "Tell us what you need and we'll come back to you today."),
+        "cta": g["cta"],
         "benefits": [], "how_it_works": [], "faqs": [], "why_us": [],
+        "goal_id": g["id"], "offer_state": payload["offer_state"],
         "source": "fallback",
     }
     try:
@@ -330,13 +346,6 @@ def write_copy(brief: dict, goal: str, offer: str) -> dict:
     except Exception:                                   # noqa: BLE001
         return fallback
 
-    payload = {
-        "business": brief.get("client"), "industry": brief.get("industry"),
-        "area": brief.get("geo") or f"{brief.get('city','')} {brief.get('state','')}".strip(),
-        "about": brief.get("description"),
-        "services_being_advertised": brief.get("products"),
-        "conversion_goal": goal, "offer": offer,
-    }
     try:
         raw = ai.chat(
             [{"role": "system", "content": SYSTEM},
@@ -345,6 +354,11 @@ def write_copy(brief: dict, goal: str, offer: str) -> dict:
               "subhead (one sentence), cta (3-4 words, specific), "
               "benefits (3-5 {title, text}), how_it_works (3 {step, text}), "
               "why_us (3-4 short strings), faqs (3-4 {q, a}).\n\n"
+              "Write for ONE next step: " + payload["conversion_goal"]
+              + ". " + payload["goal_guidance"]
+              + " Before asking, the page must establish "
+              + payload["must_establish"] + ".\n"
+              + payload["offer_guidance"] + "\n\n"
               + json.dumps(payload)}],
             module="landing_maker", purpose="page_copy",
             json_mode=True, max_tokens=1600, temperature=0.6)
@@ -352,6 +366,8 @@ def write_copy(brief: dict, goal: str, offer: str) -> dict:
         if not isinstance(data, dict):
             return fallback
         data["source"] = "ai"
+        data["goal_id"] = g["id"]
+        data["offer_state"] = payload["offer_state"]
         for key in ("headline", "subhead", "cta"):
             if not str(data.get(key) or "").strip():
                 data[key] = fallback[key]
@@ -367,13 +383,16 @@ def write_copy(brief: dict, goal: str, offer: str) -> dict:
 def create(proposal_id: str = "", client: str = "", text: str = "",
            direction: str = "trust", goal: str = "", offer: str = "",
            actor: str = "", uploaded_id: str = "", kind: str = "client",
-           website: str = "") -> dict:
+           website: str = "", promoting: str = "") -> dict:
     kind = "prospect" if kind == "prospect" else "client"
     brief = brief_from_proposal(proposal_id, client, text, uploaded_id,
                                 website, kind)
     if brief["missing"]:
         return {"error": "Still needed: " + ", ".join(brief["missing"])}
-    copy = write_copy(brief, goal, offer)
+    from hub import landing_spec as spec
+    goal_id = spec.goal(goal)["id"]
+    promoting = spec.promoting_from(brief, promoting)
+    copy = write_copy(brief, goal, offer, promoting)
     from .landing_render import render_page, with_endpoint
     from .landing_images import pick
 
@@ -381,7 +400,7 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
     pics = pick(brief, benefits=len([b for b in (copy.get("benefits") or [])
                                      if isinstance(b, dict) and b.get("title")]))
     html = render_page(brief, copy, DIRECTIONS.get(direction, DIRECTIONS["trust"]),
-                       pics)
+                       pics, goal_id=goal_id)
     # Absolute, so the form still reaches us from wherever the page is pasted.
     from hub.config import settings
     base = settings.public_base_url
@@ -401,7 +420,9 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
                           "uploaded" if uploaded_id else ""),
         "campaign": brief.get("campaign") or offer or goal,
         "direction": direction,
-        "goal": goal, "offer": offer,
+        "goal": goal_id, "goal_label": spec.goal(goal)["label"],
+        "offer": offer, "offer_state": spec.offer_state(offer)[0],
+        "promoting": promoting,
         "headline": copy.get("headline", ""),
         "copy_source": copy.get("source", ""),
         "brief": brief, "copy": copy,
@@ -436,8 +457,19 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
         # Otherwise the form posts to whatever domain the page is pasted onto.
         note += (" PUBLIC_BASE_URL isn't set, so the lead form uses a relative "
                  "URL and will only work while the page is served from the Hub.")
+    # What the page could not answer for itself. Asked rather than written
+    # around: copy that works around a gap is copy that could be about any
+    # business in the industry.
+    questions = spec.open_questions(brief, goal, offer, promoting)
+    state, offer_note = spec.offer_state(offer)
+    if state != spec.READ:
+        note += " " + offer_note
+
     return {"ok": True, "id": page_id, "slug": row["slug"],
             "kind": kind, "images": row["images"],
+            "goal": goal_id, "goal_label": spec.goal(goal)["label"],
+            "promoting": promoting, "offer_state": state,
+            "questions": questions,
             "preview": f"/sales/landing/p/{row['slug']}",
             "copy_source": copy.get("source"),
             "thin": brief.get("thin", False),

@@ -948,6 +948,7 @@ python3 test_sites_match.py        # live-only matching, and finding a client's 
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
+python3 test_landing_spec.py       # what a landing page is for, and what it sells
 ```
 
 The test files need no pytest and no new dependencies; each runs against a
