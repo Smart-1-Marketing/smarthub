@@ -589,6 +589,49 @@ def create_hub_app() -> Flask:
         return render_template("domain_purchase.html", user=current_user(),
                                active="domains")
 
+    # /tools/campaign-assets is a hub route under /tools, like /tools/domains
+    # — the mounts are all longer prefixes, so this one reaches the hub app.
+    @app.route("/tools/campaign-assets")
+    def page_campaign_assets():
+        gate = _require_page()
+        if gate:
+            return gate
+        from .knack_products import (F_ASSETS_FLAG, F_ASSETS_NEEDED,
+                                     F_CLARIFICATION)
+        return render_template(
+            "campaign_assets.html", user=current_user(),
+            active="campaign-assets",
+            # Handed to the page as data rather than written into its script,
+            # so a renumbered field is one environment variable and not an
+            # edit in two files that can disagree.
+            field_ids={"clarification": F_CLARIFICATION,
+                       "assets_flag": F_ASSETS_FLAG,
+                       "assets_needed": F_ASSETS_NEEDED})
+
+    @app.route("/api/campaign-assets")
+    def api_campaign_assets():
+        """Campaigns waiting on an asset or a clarification (object_135)."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .campaign_assets import report
+        return jsonify(report(q=request.args.get("q", ""),
+                              scope=request.args.get("scope", "open")))
+
+    @app.route("/api/campaign-assets/fields")
+    def api_campaign_assets_fields():
+        """The three pinned ids against object_135's live schema.
+
+        A renumbered field reads back empty on every record and looks exactly
+        like a client base with nothing outstanding, so what Knack calls each
+        id is answerable from the page rather than only from a diagnostic.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .campaign_assets import field_check
+        return jsonify(field_check())
+
     @app.route("/api/domains/purchased")
     def api_domains_purchased():
         """Domains Smart 1 bought for a client, by renewal billing date."""

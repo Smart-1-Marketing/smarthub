@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}Campaign Assets Needed — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="ca">
+  <p class="ca-crumb"><a href="/tools">Tools</a> / Campaign Assets Needed</p>
+  <h1>Campaign Assets Needed</h1>
+  <p class="ca-sub">
+    Every campaign on an insertion order with something still outstanding
+    &mdash; a <b>clarification</b> somebody has to go back and ask, or
+    <b>additional assets</b> we are waiting on. Grouped by media partner and
+    then by internal sales, because the chase is one conversation per partner.
+    Assets are listed only where the tickbox beside them is ticked; the tick is
+    what says an asset is needed.
+  </p>
+
+  <div class="ca-metrics" id="caMetrics"></div>
+  <div class="ca-bar">
+    <button class="ca-btn primary" onclick="load()">Load campaigns</button>
+    <label class="ca-toggle"><input type="checkbox" id="caAll" onchange="load()">
+      Include campaigns that have finished</label>
+    <button class="ca-btn" id="caRefresh" onclick="pull()" hidden>Pull from Knack now</button>
+    <input id="caQ" class="ca-search" disabled
+           placeholder="Search client, campaign, IO, partner, rep or the text of the ask"
+           oninput="renderList()">
+  </div>
+  <div id="caOut"><p class="ca-muted">Nothing loaded yet.</p></div>
+</div>
+
+<style>
+.ca{max-width:1100px;margin:0 auto;font-family:system-ui,sans-serif;color:#1b2733}
+.ca-crumb{color:#94a3b8;font-size:12.5px;margin:0 0 8px}
+.ca-crumb a{color:#1769AA;text-decoration:none}
+.ca h1{margin:0 0 6px;font-size:25px;color:#0d2340}
+.ca-sub{color:#64748b;font-size:13.5px;line-height:1.6;margin:0 0 16px;max-width:74ch}
+.ca-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:14px}
+.ca-metric{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:13px}
+.ca-metric b{display:block;font-size:22px}
+.ca-metric span{color:#64748b;font-size:12px}
+.ca-bar{display:flex;gap:9px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.ca-btn{border:1px solid #d7dfe8;background:#fff;border-radius:8px;padding:8px 14px;
+  font:600 13px system-ui;cursor:pointer}
+.ca-btn.primary{background:#1769AA;border-color:#1769AA;color:#fff}
+.ca-toggle{display:flex;gap:6px;align-items:center;font-size:12.5px;color:#64748b}
+.ca-search{flex:1;min-width:250px;padding:8px 11px;border:1px solid #d7dfe8;
+  border-radius:8px;font:13px system-ui}
+.ca-search:disabled{background:#f6f8fa}
+.ca-card{background:#fff;border:1px solid #e2e8f0;border-radius:11px;margin-bottom:14px;overflow:auto}
+.ca-card h3{margin:0;padding:12px 14px;border-bottom:1px solid #eef2f6;font-size:14px;
+  color:#0d2340;background:#fbfcfe;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.ca-card h3 span{font-weight:500;color:#64748b;font-size:12.5px}
+.ca-card.none h3{background:#fbfbfc;color:#64748b}
+table.ca-t{width:100%;border-collapse:collapse;font-size:13px;min-width:820px}
+.ca-t th{text-align:left;padding:9px 12px;border-bottom:1px solid #eef2f6;font-size:11px;
+  text-transform:uppercase;letter-spacing:.04em;color:#94a3b8}
+.ca-t td{padding:10px 12px;border-bottom:1px solid #f4f7fa;vertical-align:top}
+.ca-muted{color:#94a3b8;font-size:13px}
+.ca-note{background:#eef5fb;border-left:3px solid #1769AA;border-radius:0 9px 9px 0;
+  padding:11px 14px;font-size:12.8px;line-height:1.6;color:#2b4a63;margin-bottom:14px}
+.ca-warn{background:#fff8e8;border-left-color:#a06a00;color:#6b4a00}
+.ca-sm{color:#94a3b8;font-size:11.5px;display:block;margin-top:3px}
+.ca-ask{display:block;margin:0 0 6px;padding:7px 9px;border-radius:7px;font-size:12.5px;line-height:1.5}
+.ca-ask.clar{background:#fff8e8;color:#6b4a00}
+.ca-ask.asset{background:#eef5fb;color:#23516f}
+.ca-ask b{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;
+  opacity:.75;margin-bottom:2px}
+.pill{display:inline-block;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700}
+.pill.open{background:#e7f6ef;color:#147d52}
+.pill.done{background:#eef1f5;color:#64748b}
+</style>
+
+<script>
+var DATA=null;
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+function labelOf(id){
+  var f=(DATA&&DATA.fields)||{};
+  return (f[id]&&f[id].label)||id;
+}
+
+function load(){
+  var scope=document.getElementById('caAll').checked?'all':'open';
+  document.getElementById('caOut').innerHTML='<p class="ca-muted">Reading object_135…</p>';
+  fetch('/api/campaign-assets?scope='+scope,{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){DATA=d;document.getElementById('caQ').disabled=false;render();})
+    .catch(function(){document.getElementById('caOut').innerHTML=
+      '<p class="ca-muted">Could not read the product records.</p>';});
+}
+
+function metrics(d){
+  /* Absent data is labelled, never drawn as a zero: a clean-looking 0 here
+     reads as "every campaign is clear", which is the opposite of what an
+     unreadable pull means. */
+  if(!d.measured){
+    document.getElementById('caMetrics').innerHTML=
+      '<div class="ca-metric"><b>not measured</b><span>These product rows '+
+      'carry neither field</span></div>';
+    return;
+  }
+  document.getElementById('caMetrics').innerHTML=
+    [['Campaigns waiting',d.count],
+     ['Clarifications outstanding',d.clarifications],
+     ['Asset requests',d.asset_asks],
+     ['Media partners',d.partners],
+     ['Product lines read',d.products_read]]
+    .map(function(x){return '<div class="ca-metric"><b>'+esc(x[1])+'</b><span>'+
+      esc(x[0])+'</span></div>';}).join('');
+}
+
+function asks(p){
+  var h='';
+  if(p.clarification) h+='<div class="ca-ask clar"><b>'+esc(labelOf(FIELD_CLAR))+
+    '</b>'+esc(p.clarification)+'</div>';
+  if(p.assets) h+='<div class="ca-ask asset"><b>'+esc(labelOf(FIELD_ASSETS))+
+    '</b>'+esc(p.assets)+'</div>';
+  return h;
+}
+
+function campaignRow(c){
+  var head='<b>'+esc(c.campaign||'— no campaign name —')+'</b>'+
+    '<span class="ca-sm">'+esc(c.client||'— no client —')+
+    (c.io?' · IO '+esc(c.io):'')+'</span>'+
+    (c.start||c.end?'<span class="ca-sm">'+esc(c.start||'?')+' → '+esc(c.end||'?')+'</span>':
+      '<span class="ca-sm">no dates on these lines</span>');
+  var who='<b>'+esc(c.sales||'— not recorded —')+'</b>'+
+    (c.other_sales&&c.other_sales.length?
+      '<span class="ca-sm">also '+esc(c.other_sales.join(', '))+'</span>':'')+
+    (c.other_partners&&c.other_partners.length?
+      '<span class="ca-sm">lines also under '+esc(c.other_partners.join(', '))+'</span>':'');
+  var lines=c.products.map(function(p){
+    return '<div style="margin-bottom:9px">'+
+      '<div style="font-size:12.5px;font-weight:600">'+esc(p.product||'—')+
+      (p.status?' <span class="pill '+(c.open?'open':'done')+'">'+esc(p.status)+'</span>':'')+
+      '</div>'+asks(p)+'</div>';
+  }).join('');
+  return '<tr><td style="min-width:200px">'+head+'</td><td style="min-width:150px">'+who+
+    '</td><td>'+lines+'</td></tr>';
+}
+
+function table(rows){
+  return '<table class="ca-t"><thead><tr><th>Campaign</th><th>Internal sales</th>'+
+    '<th>What it is waiting on</th></tr></thead><tbody>'+
+    rows.map(campaignRow).join('')+'</tbody></table>';
+}
+
+function render(){
+  if(!DATA) return;
+  metrics(DATA);
+  renderList();
+}
+
+function renderList(){
+  if(!DATA) return;
+  var d=DATA;
+  var q=(document.getElementById('caQ').value||'').trim().toLowerCase();
+  /* The button that fixes the "not measured" state is offered where that
+     state is reported. Naming an API route in a sentence tells somebody what
+     is wrong and leaves them unable to do anything about it. */
+  document.getElementById('caRefresh').hidden=!!d.measured;
+  var html='<div class="ca-note'+(d.measured?'':' ca-warn')+'">'+esc(d.note)+'</div>';
+
+  (d.warnings||[]).forEach(function(w){
+    html+='<div class="ca-note ca-warn">'+esc(w)+'</div>';
+  });
+
+  var groups=d.groups||[];
+  if(q){
+    groups=groups.map(function(g){
+      return {partner:g.partner,recorded:g.recorded,
+              campaigns:g.campaigns.filter(function(c){return matches(c,q);})};
+    }).filter(function(g){return g.campaigns.length;});
+  }
+
+  if(!groups.length){
+    html+='<div class="ca-card"><h3>Nothing to show</h3><p class="ca-muted" '+
+      'style="padding:12px 14px">'+(q?'Nothing matches that search.':
+      (d.measured?'No campaign in scope is waiting on a clarification or an asset.':
+       'Nothing could be read, so nothing is listed.'))+'</p></div>';
+  }
+  groups.forEach(function(g){
+    html+='<div class="ca-card'+(g.recorded?'':' none')+'"><h3>'+esc(g.partner)+
+      '<span>'+g.campaigns.length+' campaign'+(g.campaigns.length===1?'':'s')+
+      (g.recorded?'':' · no media partner on these product lines')+'</span></h3>'+
+      table(g.campaigns)+'</div>';
+  });
+
+  if(d.unticked){
+    html+='<div class="ca-card"><h3>Text with the box unticked ('+d.unticked+')'+
+      '<span>Not listed as work — the tick is what says an asset is needed — '+
+      'but not nothing either.</span></h3><table class="ca-t"><thead><tr>'+
+      '<th>Campaign</th><th>Client</th><th>Product</th><th>Media partner</th>'+
+      '</tr></thead><tbody>'+(d.unticked_rows||[]).map(function(r){
+        return '<tr><td>'+esc(r.campaign||'—')+(r.io?' <span class="ca-sm">IO '+
+          esc(r.io)+'</span>':'')+'</td><td>'+esc(r.client||'—')+'</td><td>'+
+          esc(r.product||'—')+'</td><td>'+esc(r.partner||'— not recorded —')+
+          '</td></tr>';}).join('')+'</tbody></table>'+
+      ((d.unticked_rows||[]).length<d.unticked?
+        '<p class="ca-muted" style="padding:10px 14px">Showing '+
+        (d.unticked_rows||[]).length+' of '+d.unticked+'.</p>':'')+'</div>';
+  }
+  document.getElementById('caOut').innerHTML=html;
+}
+
+function pull(){
+  var b=document.getElementById('caRefresh');
+  b.disabled=true; b.textContent='Pulling…';
+  fetch('/api/knack/products/refresh',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      b.disabled=false; b.textContent='Pull from Knack now';
+      if(d.error||d.skipped){alert(d.error||d.skipped);return;}
+      load();
+    })
+    .catch(function(){b.disabled=false;b.textContent='Pull from Knack now';
+      alert('The pull did not run.');});
+}
+
+function matches(c,q){
+  var hay=[c.client,c.campaign,c.io,c.partner,c.sales].join(' ').toLowerCase();
+  c.products.forEach(function(p){
+    hay+=' '+(p.product||'')+' '+(p.clarification||'')+' '+(p.assets||'');
+  });
+  return hay.toLowerCase().indexOf(q)>=0;
+}
+</script>
+<script type="application/json" id="caFieldIds">{{ field_ids | tojson }}</script>
+<script>
+/* The two field ids come from the server rather than being written here, so a
+   renumbered field is one environment variable and not an edit in two files. */
+var FIELD_IDS=JSON.parse(document.getElementById('caFieldIds').textContent||'{}');
+var FIELD_CLAR=FIELD_IDS.clarification||'';
+var FIELD_ASSETS=FIELD_IDS.assets_needed||'';
+</script>
+{% endblock %}

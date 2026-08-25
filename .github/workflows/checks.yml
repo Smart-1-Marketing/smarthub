@@ -440,6 +440,20 @@ jobs:
             echo "test_web_tickets.py not on this branch — nothing to run."
           fi
 
+      - name: Campaign asset queue tests
+        # The two object_135 fields behind /tools/campaign-assets: the tickbox
+        # that gates the asset text, the partner-then-sales ordering, and that
+        # a product cache predating the fields reads as "not measured" rather
+        # than as every campaign being clear. Guarded like the steps above so
+        # this workflow stays mergeable on a branch that predates the file.
+        # Needs no Knack credentials — the reader is replaced with fixtures.
+        run: |
+          if [ -f test_campaign_assets.py ]; then
+            python test_campaign_assets.py
+          else
+            echo "test_campaign_assets.py not on this branch — nothing to run."
+          fi
+
       - name: Dashboard trend tests
         # The month-over-month comparisons: keyed on the calendar, resolving
         # next month, naming the month each is against. Guarded like the steps
