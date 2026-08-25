@@ -101,6 +101,14 @@ class Settings:
     # Commercial Builder's AI video scenes. Same three spellings for the same
     # reason as every other provider key here.
     runway_key: str = field(default_factory=lambda: _first("RUNWAY_API", "RUNWAY_API_KEY", "RUNWAY_KEY"))
+    # Commercial Builder's voiceover and its final render. These two were the
+    # last providers in that module still reading os.environ at import time,
+    # under one spelling each — so a key added as ELEVENLABS_API or
+    # CREATOMATE_API (the shape every other key on this deployment uses) left
+    # the tool in mock mode: no voice track, no finished commercial, and a
+    # dashboard chip that still said "mock mode" beside a key plainly present.
+    elevenlabs_key: str = field(default_factory=lambda: _first("ELEVENLABS_API", "ELEVENLABS_API_KEY", "ELEVENLABS_KEY"))
+    creatomate_key: str = field(default_factory=lambda: _first("CREATOMATE_API", "CREATOMATE_API_KEY", "CREATOMATE_KEY"))
     knack_app_id: str = field(default_factory=lambda: _s("KNACK_APP_ID"))
     knack_api_key: str = field(default_factory=lambda: _s("KNACK_API_KEY"))
     ghl_token: str = field(default_factory=lambda: _first("GHL_PRIVATE_TOKEN", "SMART1SUITE_PRIVATE_TOKEN"))
@@ -241,6 +249,10 @@ class Settings:
                 "HEYGEN_API / HEYGEN_API_KEY — spokesperson scenes run in mock mode without it."),
             row("Runway", bool(self.runway_key), False,
                 "RUNWAY_API / RUNWAY_API_KEY — AI video scenes run in mock mode without it."),
+            row("ElevenLabs", bool(self.elevenlabs_key), False,
+                "ELEVENLABS_API / ELEVENLABS_API_KEY — commercial voiceover runs in mock mode without it."),
+            row("Creatomate", bool(self.creatomate_key), False,
+                "CREATOMATE_API / CREATOMATE_API_KEY — commercials cannot be rendered without it."),
             row("Knack", bool(self.knack_app_id and self.knack_api_key), False, "KNACK_APP_ID / KNACK_API_KEY — client registry."),
             row("GoHighLevel", bool(self.ghl_token and self.ghl_company_id), False, "GHL_PRIVATE_TOKEN (or SMART1SUITE_PRIVATE_TOKEN) + GHL_COMPANY_ID (or SUITE_COMPANY_ID)."),
             row("Lead delivery to Suite",

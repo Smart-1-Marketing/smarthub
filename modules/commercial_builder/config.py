@@ -281,9 +281,20 @@ def runway_duration(scene_seconds):
     return None
 
 
-# V1 API roster (section "V1 API stack"). Used to render the integration
-# status panel on the dashboard so it's obvious at a glance which providers
-# are live vs. running in mock mode.
+# The API roster from the spec, by the release each provider arrived in.
+#
+# The dashboard used to read V1_PROVIDERS for its status dots and draw
+# V1_5_PROVIDERS as a hard-coded grey "V1.5" chip — so Runway, which has had a
+# working service and a real key check since AI video scenes shipped, could
+# not be reported as connected however many keys were added. Status now comes
+# from services/provider_check.py, which owns the display order and the
+# per-provider checks; these lists stay the spec's own record of what belongs
+# to which release. test_commercial_providers.py asserts the two agree, so a
+# provider added to one and forgotten in the other cannot go unreported.
+#
+# V2 is the one honest exception: nothing is implemented behind those two, so
+# they are drawn as a static "not built yet" label rather than a dot that
+# could never light.
 V1_PROVIDERS = ["openai", "pexels", "pixabay", "heygen", "elevenlabs", "creatomate", "cloudinary"]
 V1_5_PROVIDERS = ["runway"]
 V2_PROVIDERS = ["storyblocks", "shutterstock"]

@@ -6,24 +6,26 @@ Smart 1 Hub's Flask + Jinja + vanilla-JS tools (Image Creator, UTM Builder)."""
 from flask import Blueprint, redirect, render_template, url_for
 
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
-                       MUSIC_MOODS, MUSIC_LEVELS, VOICE_STYLES, CTA_STYLES, V1_PROVIDERS,
-                       V1_5_PROVIDERS, V2_PROVIDERS, PLATFORMS, QR_CODE_RULES,
+                       MUSIC_MOODS, MUSIC_LEVELS, VOICE_STYLES, CTA_STYLES,
+                       V2_PROVIDERS, PLATFORMS, QR_CODE_RULES,
                        LOGO_PERSISTENCE_RULES, get_structure, qr_eligible)
 from ..models import Client, CommercialProject
-from ..services import (openai_service, pexels_service, pixabay_service, heygen_service,
-                         elevenlabs_service, creatomate_service, cloudinary_service)
+from ..services import provider_check
 
 bp = Blueprint("cb_pages", __name__)
 
-_SERVICE_CHECK = {
-    "openai": openai_service, "pexels": pexels_service, "pixabay": pixabay_service,
-    "heygen": heygen_service, "elevenlabs": elevenlabs_service,
-    "creatomate": creatomate_service, "cloudinary": cloudinary_service,
-}
-
 
 def _provider_status():
-    return {name: _SERVICE_CHECK[name].is_live() for name in V1_PROVIDERS if name in _SERVICE_CHECK}
+    """Whether each provider has a key. Runway included.
+
+    It was not: the dashboard read only V1_PROVIDERS for status and drew
+    Runway from V1_5_PROVIDERS as a permanently grey "V1.5" chip. Runway has
+    had a working service and a real key check since AI video scenes shipped,
+    so that chip said "not connected" to somebody who had just connected it —
+    a wrong answer that looks exactly like a right one. The V2 providers below
+    genuinely have no service behind them and stay a static label.
+    """
+    return provider_check.status()
 
 
 @bp.get("/")
@@ -32,8 +34,8 @@ def dashboard():
     projects = CommercialProject.query.order_by(CommercialProject.updated_at.desc()).limit(25).all()
     return render_template(
         "commercial_dashboard.html", clients=clients, projects=projects,
-        provider_status=_provider_status(), v1_providers=V1_PROVIDERS,
-        v1_5_providers=V1_5_PROVIDERS, v2_providers=V2_PROVIDERS,
+        provider_status=_provider_status(), providers=provider_check.PROVIDERS,
+        provider_labels=provider_check.LABELS, v2_providers=V2_PROVIDERS,
     )
 
 
