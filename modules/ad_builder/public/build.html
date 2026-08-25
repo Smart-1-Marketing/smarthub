@@ -456,6 +456,8 @@
     platforms: ['google'],
     templates: [],
     fonts: [],        // families the renderer has, from /api/build/options
+    /** platform id -> the sizes it buys, from /api/build/options. */
+    platformSizes: null,
     dirty: false,
     sizeStatus: {},   // size -> { status }
     /** field -> 'size' | 'all'. Asked once per field per campaign; see
@@ -760,9 +762,33 @@
   }
 
   /* --------------------------------------------------------- approvals */
+  /* The sizes this campaign will actually build: what the layout family draws,
+     narrowed to what its platforms buy.
+     
+     A family carries thirteen canvases including the four Meta social sizes;
+     a Google display buy defines eight of them. The rail listed all thirteen,
+     so five rows were sizes whose preview 422s and which "Render all sizes"
+     never writes. That was survivable as navigation and stopped being
+     survivable the moment the rail started counting approvals -- "2 of 13
+     approved" is a wrong number, and the warning on save was naming sizes
+     that do not exist for this buy.
+     
+     The union across platforms, not the intersection: a set sold on Google and
+     Amazon genuinely delivers 336x280 for one and 414x125 for the other, and
+     each is built by the platform that has it. */
   function railSizes() {
     var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
-    return t ? t.sizes : [];
+    if (!t) return [];
+    var byPlatform = state.platformSizes;
+    // An older server sends no platform list. Showing the family's own sizes
+    // is what this always did, and is better than showing none.
+    if (!byPlatform) return t.sizes;
+    var sold = {};
+    (state.platforms || ['google']).forEach(function (p) {
+      (byPlatform[p] || []).forEach(function (sz) { sold[sz] = true; });
+    });
+    var out = t.sizes.filter(function (sz) { return sold[sz]; });
+    return out.length ? out : t.sizes;
   }
 
   function isApproved(size) {
@@ -1710,6 +1736,10 @@
     if (!id || id === concept().layoutFamily) return;
     concept().layoutFamily = id;
     state.dirty = true;
+    // Not every family draws every size. Staying on one the new family does
+    // not have leaves the preview pane showing a 422 nobody asked for.
+    var rail = railSizes();
+    if (rail.length && rail.indexOf(state.size) < 0) state.size = rail[0];
     drawControls();          // repaint so the selected card is the lit one
     drawRail();              // the family decides which sizes exist
     preview();
@@ -1920,8 +1950,11 @@
         $('conceptPick').innerHTML = doc.campaign.concepts.map(function (c) {
           return '<option value="' + esc(c.conceptId) + '">Concept ' + esc(c.conceptId) + ' — ' + esc(c.name) + '</option>';
         }).join('');
-        var t = state.templates.filter(function (x) { return x.id === doc.campaign.concepts[0].layoutFamily; })[0];
-        if (t && t.sizes.indexOf(state.size) < 0) state.size = t.sizes[0];
+        // Land on a size this campaign actually builds. Opening on one it
+        // does not is a 422 in the preview pane before anybody has touched
+        // anything.
+        var rail = railSizes();
+        if (rail.length && rail.indexOf(state.size) < 0) state.size = rail[0];
         drawControls(); drawRail(); preview();
         refreshDeliver(); refreshOverrideNote(); refreshAttachLink();
         loadApprovals();
@@ -2281,6 +2314,7 @@
     fetch('/api/campaigns').then(function (r) { return r.json(); })
   ]).then(function (out) {
     state.templates = out[0].templates || [];
+    state.platformSizes = out[0].platformSizes || null;
     // The families the renderer actually has. A select of these rather than a
     // text box, because an unknown name falls back to Montserrat predictably --
     // so a free-text control can show one family while the ad renders another.

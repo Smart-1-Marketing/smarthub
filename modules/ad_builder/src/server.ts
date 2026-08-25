@@ -21,7 +21,7 @@ import { validateCampaign } from './validate';
 import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog } from './jobs';
 import { renderPreview } from './render';
 import { buildCampaign, type Submission } from './intake';
-import { loadTemplates } from './registry';
+import { loadPlatforms, loadTemplates } from './registry';
 import { ProjectStore } from './projects';
 import { analyzeLandingPage } from './landing';
 import { landingImages } from './landing-images';
@@ -1734,11 +1734,26 @@ const server = http.createServer(async (req, res) => {
             : null,
         };
       });
+      // Which sizes each platform actually buys.
+      //
+      // A template carries every canvas it has ever been drawn for -- thirteen
+      // in each family, including the four Meta social sizes -- and a display
+      // campaign renders the eight its platform defines. The build screen was
+      // listing all thirteen, so five rows on a Google campaign were sizes
+      // that 422 on preview and are never built. That was survivable while the
+      // rail was only a navigation list; it stopped being survivable when the
+      // rail started counting approvals, because "2/13 approved" is a wrong
+      // number and the save warning was naming sizes that do not exist for
+      // this buy.
+      const platformSizes: Record<string, string[]> = {};
+      for (const [id, cfg] of loadPlatforms()) {
+        platformSizes[id] = Object.keys(cfg.sizes);
+      }
       // The families the renderer actually has. Sent so the editor can offer a
       // list rather than a text box: an unknown name falls back to Montserrat
       // predictably, which means a free-text control can show one family while
       // the ad renders another.
-      return json(res, 200, { templates, fonts: listFamilies() });
+      return json(res, 200, { templates, fonts: listFamilies(), platformSizes });
     }
 
     if (route === 'GET /api/campaigns') {

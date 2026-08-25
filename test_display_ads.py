@@ -315,6 +315,42 @@ def test_a_duplicate_is_the_next_lettered_concept():
     check("a duplicate starts with nothing approved", "delete (clone as any).approvals" in server)
 
 
+def test_the_rail_only_lists_sizes_this_campaign_builds():
+    """A family draws thirteen canvases; a Google buy defines eight.
+
+    The rail listed all thirteen, so five rows on a display campaign were
+    sizes whose preview 422s and which "Render all sizes" never writes. That
+    was survivable while the rail was only navigation, and stopped being
+    survivable when it started counting approvals — "2 of 13 approved" is a
+    wrong number, and the warning on save was naming sizes that do not exist
+    for this buy.
+    """
+    server = (MODULE / "src" / "server.ts").read_text()
+    screen = BUILD_HTML.read_text()
+    check("the options route sends each platform's size list", "platformSizes" in server)
+    check("the rail narrows the family's sizes to what the platforms buy",
+          "state.platformSizes" in screen)
+    check("switching layout family cannot strand you on a size it lacks",
+          "rail.indexOf(state.size) < 0" in screen)
+
+    # And the numbers behind it: the union across a campaign's platforms is
+    # what gets built, because each size is rendered by whichever platform
+    # defines it.
+    import json as _json
+    cfg = MODULE / "src" / "config" / "platforms"
+    google = set(_json.loads((cfg / "google.json").read_text())["sizes"])
+    amazon = set(_json.loads((cfg / "amazon.json").read_text())["sizes"])
+    meta = set(_json.loads((cfg / "meta.json").read_text())["sizes"])
+    family = set(_json.loads((TEMPLATES / "T01.json").read_text())["sizes"])
+    check("a Google campaign builds 8 of the family's 13",
+          len(family & google) == 8 and len(family) == 13,
+          f"{len(family & google)} of {len(family)}")
+    check("414x125 is Amazon's and not Google's",
+          "414x125" in amazon and "414x125" not in google)
+    check("the social sizes belong to Meta alone",
+          {"1080x1080", "1080x1920"} <= meta and not ({"1080x1080"} & google))
+
+
 def test_no_platform_picker_and_a_render_button_that_explains_itself():
     screen = BUILD_HTML.read_text()
     check("the toolbar no longer asks which platform", "platformPick" not in screen)
