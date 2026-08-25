@@ -1385,12 +1385,22 @@ on a spot are two asks to two different people.
 
 **The tickbox is the answer, and the text beside it is not.** `field_2347` is
 read only where `field_2346` is ticked. But text sitting in 2347 with the box
-unticked is not discarded in silence — those rows are counted and named under
-the table, because "nobody needs anything" and "somebody typed what they need
-and never ticked the box" are different situations and only one of them is
-finished. `asset_ask()` is the single place that gate is applied;
+unticked is not discarded in silence — those rows go in their own panel,
+**Need Clarification**, because "nobody needs anything" and "somebody typed
+what they need and never ticked the box" are different situations and only one
+of them is finished. It carries the media partner and the rep like the main
+table does: it is a chase list too, and a row with nobody's name against it is
+one nobody picks up. `asset_ask()` is the single place that gate is applied;
 `knack_products._row()` carries both fields raw, or a row with unticked text
 would be indistinguishable from a row with no text at all.
+
+**The page explains itself; the report does not narrate.** `_note()` returns
+nothing at all when the report could answer the question — the heading says
+what the list is, the toggle says what is in it and every panel carries its own
+count, so a paragraph restating all three is read once and skipped for ever.
+The one thing prose still has to carry is the case the screen cannot show:
+rows that could not be measured, where an empty table would otherwise read as
+a clear queue.
 
 **A cache written before a field existed answers "no" to it, on every row.**
 The product cache is a flattened copy of object_135, so the rows it holds have

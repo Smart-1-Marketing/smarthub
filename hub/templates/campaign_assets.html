@@ -158,7 +158,8 @@ function renderList(){
      state is reported. Naming an API route in a sentence tells somebody what
      is wrong and leaves them unable to do anything about it. */
   document.getElementById('caRefresh').hidden=!!d.measured;
-  var html='<div class="ca-note'+(d.measured?'':' ca-warn')+'">'+esc(d.note)+'</div>';
+  var html=d.note?('<div class="ca-note'+(d.measured?'':' ca-warn')+'">'+
+    esc(d.note)+'</div>'):'';
 
   (d.warnings||[]).forEach(function(w){
     html+='<div class="ca-note ca-warn">'+esc(w)+'</div>';
@@ -186,13 +187,18 @@ function renderList(){
   });
 
   if(d.unticked){
-    html+='<div class="ca-card"><h3>Text with the box unticked ('+d.unticked+')'+
-      '<span>Not listed as work — the tick is what says an asset is needed — '+
-      'but not nothing either.</span></h3><table class="ca-t"><thead><tr>'+
-      '<th>Campaign</th><th>Client</th><th>Product</th><th>Media partner</th>'+
+    /* Somebody typed what they need and left the box unticked, so nobody can
+       tell whether it is an ask. Named for what has to happen to it — and
+       carrying the rep, because it is a chase list like the one above. */
+    html+='<div class="ca-card"><h3>Need Clarification ('+d.unticked+')'+
+      '<span>Assets typed in, box not ticked — somebody has to say whether '+
+      'these are needed.</span></h3><table class="ca-t"><thead><tr>'+
+      '<th>Campaign</th><th>Client</th><th>Internal sales</th>'+
+      '<th>Product</th><th>Media partner</th>'+
       '</tr></thead><tbody>'+(d.unticked_rows||[]).map(function(r){
         return '<tr><td>'+esc(r.campaign||'—')+(r.io?' <span class="ca-sm">IO '+
           esc(r.io)+'</span>':'')+'</td><td>'+esc(r.client||'—')+'</td><td>'+
+          esc(r.sales||'— not recorded —')+'</td><td>'+
           esc(r.product||'—')+'</td><td>'+esc(r.partner||'— not recorded —')+
           '</td></tr>';}).join('')+'</tbody></table>'+
       ((d.unticked_rows||[]).length<d.unticked?
