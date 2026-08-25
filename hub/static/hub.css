@@ -41,7 +41,14 @@ a{color:var(--brand)}
 .nav-item .ico{width:18px;text-align:center;font-size:15px}
 .nav-item .tag{margin-left:auto;font-size:10px;color:#7d8db2}
 .sb-foot{margin-top:auto;padding:14px 18px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;color:#7d8db2}
-.main{margin-left:224px;flex:1;display:flex;flex-direction:column;min-height:100vh}
+/* min-width:0 is load-bearing, not tidying. .main is a flex item, and a flex
+   item's min-width defaults to `auto` — it refuses to shrink below its widest
+   child. One 7-column table inside a card therefore stretched .main to 1403px
+   on a 1280px screen, and because the topbar, breadcrumbs and every card are
+   inside it, the WHOLE PAGE scrolled sideways rather than the table alone.
+   Client 360 showed it worst (it has the most columns) but the rule is shared,
+   so SEO Clients and Leads did it too. */
+.main{margin-left:224px;flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
 .topbar{background:#fff;border-bottom:1px solid var(--line);padding:10px 26px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:10}
 .global-search{flex:1;max-width:520px;position:relative}
 .global-search input{width:100%;padding:9px 12px 9px 34px;border:1px solid var(--line);border-radius:24px;font-size:13.5px;background:var(--bg)}
@@ -63,11 +70,23 @@ a{color:var(--brand)}
 .kpi .k-value{font-size:26px;font-weight:800;color:var(--navy);margin-top:6px;font-variant-numeric:tabular-nums}
 .kpi .k-sub{font-size:12px;color:var(--muted);margin-top:3px}
 .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);margin-bottom:18px}
-.card-h{padding:14px 18px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:10px}
+/* Card headers wrap. Several carry three action links beside the title
+   (Products & IOs, Invoices, Proposals) and .open-link is white-space:nowrap,
+   so without this the header sets the card's minimum width and the card sets
+   the page's — the overflow above, arriving from a different direction. */
+.card-h{padding:14px 18px;border-bottom:1px solid var(--line-soft);display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 .card-h h3{font-size:14.5px;color:var(--navy)}
-.card-h .right{margin-left:auto;display:flex;gap:8px;align-items:center}
-.card-b{padding:16px 18px}
-.card-b.flush{padding:0}
+/* The nested action group wraps too. .card-h wrapping alone is not enough:
+   .right is its own flex row, so on a phone its last link was clipped at the
+   card edge with nothing to indicate there was more. */
+.card-h .right{margin-left:auto;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+/* A wide table scrolls inside its own card rather than taking the page with
+   it. With min-width:0 above and nothing here the table would simply be cut
+   off at the card edge with no way to reach the rest of it. Nothing in a hub
+   card body is absolutely positioned — the help popovers live in .card-h and
+   every modal is fixed and appended to <body> — so this clips nothing. */
+.card-b{padding:16px 18px;overflow-x:auto}
+.card-b.flush{padding:0;overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:9px 12px;background:var(--bg);color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--line)}
 td{padding:10px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
@@ -76,10 +95,42 @@ tr:hover td{background:#f8fafd}
 .pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.warn{background:var(--warn-bg);color:var(--warn)}
 .pill.err{background:var(--danger-bg);color:var(--danger)} .pill.info{background:#eff6ff;color:var(--brand)}
 .pill.neutral{background:var(--line-soft);color:var(--muted)}
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-@media(max-width:950px){.grid-2{grid-template-columns:1fr}.global-search{display:none}}
+/* minmax(0,1fr), not 1fr — the same trap as .main's min-width above, in its
+   grid form. A grid item's automatic minimum size is min-content, so a plain
+   `1fr` track refuses to shrink below the widest card in it and a 390px phone
+   got 523px-wide cards. minmax(0,…) lets the track shrink and the card's own
+   scroll container take over. */
+.grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+/* 1100, not 950. A media query measures the VIEWPORT and these columns live
+   inside .main, which the sidebar has already taken 224px out of — so at a
+   950px window each column was ~330px and holding a four-column table. The
+   breakpoint has to be the content box plus the sidebar, not the content box. */
+@media(max-width:1100px){.grid-2{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:950px){.global-search{display:none}}
+
+/* Below 950px hub/sidebar.py turns the sidebar into a slide-out drawer and
+   shows a burger. That half always worked; this half did not follow it — .main
+   kept its 224px offset, so on a 390px phone the content was shoved into the
+   remaining 166px and every hub page ran off the right edge. The breakpoint is
+   duplicated rather than shared because the two files are loaded separately;
+   they must be changed together. */
+@media(max-width:949.98px){
+  .main{margin-left:0}
+  .sidebar{display:none}
+  .page{padding:16px}
+  /* Both of these clear the fixed burger at top-left. Without it the burger
+     sits on top of the first breadcrumb, which reads as a rendering fault
+     rather than as a button. */
+  .topbar{padding:10px 16px 10px 64px}
+  .s1-crumbs{padding-left:64px !important}
+  .card-h .right{margin-left:0}
+}
 .muted{color:var(--muted)}
 .empty{color:var(--muted);padding:18px;text-align:center;font-size:13px}
+/* For a table that is NOT inside a .card-b — those get their scroll container
+   from the rule above. A wide table with no container does not overflow its
+   own box, it overflows the page, and the whole layout scrolls sideways. */
+.tscroll{overflow-x:auto}
 
 /* client 360 */
 .c360-search{display:flex;gap:10px;margin-bottom:20px}
