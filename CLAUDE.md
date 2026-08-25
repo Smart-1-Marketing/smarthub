@@ -119,6 +119,26 @@ sizing helpers so the reach panel updates live; `test_target_areas.py` asserts
 the two produce identical output, because when they drift the proposal
 contradicts the screen it was quoted from and nothing errors.
 
+**A granted scope list is not the scope list you asked for.** HighLevel grants
+the scopes it recognises at consent and says *nothing* about the rest — no
+error, no warning. So a Marketplace app consented with half its scopes hands
+back a perfectly healthy token, `status()` reports **Connected**, and every
+feature behind a missing scope 401s months later looking exactly like a bad
+token. The Suite panel used to print the granted list verbatim, which reads as
+confirmation and is nothing of the kind: eight scopes look identical whether you
+asked for eight or twenty. `hub/ghl_scopes.py` holds the set as data and
+`compare()` diffs granted against requested, naming the **feature** each gap
+costs rather than the string — and separating a scope we have authenticated with
+before (a permission to grant) from one we have never confirmed (probably our
+typo), because sending someone to re-consent over a misspelling wastes the one
+manual step the whole app exists to stop repeating. A scope left out on purpose
+is in `NOT_REQUESTED` with its reason, so a 401 is never ambiguous between an
+oversight and a decision. And because a location token inherits only what the
+agency token was granted, a scope missed at install is missed for every client
+until somebody re-consents — which is why the write scopes are requested now
+rather than when a feature turns out to need them. `test_ghl_scopes.py` asserts
+that every GHL write call site in the Hub has a scope declared for it.
+
 **Placeholder values are worse than blanks.** `CLOUDINARY_URL` sat at
 `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` and every "is it configured?"
 check said yes. `hub/config.py` detects the known placeholders. Render also
@@ -665,10 +685,11 @@ the module, the exporter and the AI prompt alike, the same way
 `hub/proposal_spec.py` is.
 
 **It stops at a CSV on purpose.** Social Planner's write API needs
-`social-media-posting.write`, and `DEFAULT_SCOPES` in `hub/ghl_oauth.py` does
-not request it; adding a scope requires re-consent at the agency, a one-time
-manual step. Ending at the bulk-upload CSV means the drafting pipeline earns its
-keep while that is pending, and works regardless of whether it ever lands. When
+`social-media-posting.write`. That scope is now in `hub/ghl_scopes.py` and is
+asked for at consent, but *requested is not granted* — until the agency
+re-consents and the Suite panel's scope report shows it granted, the write path
+does not exist. Ending at the bulk-upload CSV means the drafting pipeline earns
+its keep while that is pending, and works regardless of whether it ever lands. When
 it does, `PickerClient.ghl_location_id` already holds the sub-account id per
 client — that mapping does not need building. **Resolve a client to a location
 by domain, never by name**: posting to the wrong sub-account publishes one
@@ -1148,6 +1169,7 @@ python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 python3 test_landing_spec.py       # what a landing page is for, and what it sells
 python3 test_client_groups.py      # grouped clients: what merges, what must not double
+python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
 ```
 
 The test files need no pytest and no new dependencies; each runs against a

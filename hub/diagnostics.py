@@ -302,7 +302,21 @@ def check_ghl_app() -> Check:
             ghl_oauth.agency_token()
         except Exception as exc:  # noqa: BLE001
             return ("error", f"Stored authorisation is not usable: {exc}")
-        return ("ok", "Connected; sub-account tokens are minted on demand.")
+        # A healthy token that was granted half the scope set is the failure
+        # this check exists to catch: nothing is broken today, and the features
+        # behind the missing scopes 401 later looking like a bad token. Warn
+        # rather than error — what works still works — but name the features.
+        scopes = st.get("scopes") or {}
+        if scopes.get("known") and scopes.get("missing"):
+            blocked = ", ".join(scopes.get("blocked") or []) or "unnamed features"
+            return ("warn", f"Connected, but {len(scopes['missing'])} scope(s) "
+                            f"were not granted. Unavailable: {blocked}. "
+                            f"{scopes.get('detail', '')}".strip())
+        if not scopes.get("known"):
+            return ("warn", "Connected, but HighLevel reported no scope list, "
+                            "so what was granted is not measured.")
+        return ("ok", "Connected; sub-account tokens are minted on demand, "
+                      "with every requested scope granted.")
     (state, detail), ms = _timed(go)
     return Check("ghl_app", "Suite sub-account access", state, detail, ms)
 

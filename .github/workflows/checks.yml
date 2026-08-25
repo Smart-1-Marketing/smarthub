@@ -268,6 +268,21 @@ jobs:
             echo "test_domain_links.py not on this branch — nothing to run."
           fi
 
+      - name: Marketplace app scope tests
+        # The scope set the GHL Marketplace app asks for, and the diff between
+        # what was requested and what HighLevel actually granted. Adding a
+        # scope costs an agency re-consent, so a write call site with no scope
+        # declared is a feature that silently cannot move off the Private
+        # Integration Token. Guarded like the steps around it so this workflow
+        # stays mergeable on a branch that predates the file. Nothing here
+        # reaches HighLevel -- the token record is a fixture.
+        run: |
+          if [ -f test_ghl_scopes.py ]; then
+            python test_ghl_scopes.py
+          else
+            echo "test_ghl_scopes.py not on this branch — nothing to run."
+          fi
+
       - name: Orphaned Google account tests
         # The GA4 / Tag Manager / Search Console orphan list, the suggestions
         # it makes (a recorded id is evidence; a shared domain is not), and the

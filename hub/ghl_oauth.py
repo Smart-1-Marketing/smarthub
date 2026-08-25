@@ -47,15 +47,18 @@ CLIENT_SECRET = (os.environ.get("GHL_CLIENT_SECRET") or "").strip()
 APP_ID = (os.environ.get("GHL_APP_ID") or CLIENT_ID.split("-")[0]).strip()
 
 # Scopes the app requests. Location tokens inherit whatever the agency token
-# was granted, so anything missing here is missing everywhere — but adding a
-# scope later requires re-consent, so ask for the full read set up front.
-DEFAULT_SCOPES = (
-    "locations.readonly "
-    "forms.readonly forms/submissions.readonly "
-    "contacts.readonly opportunities.readonly "
-    "calendars.readonly conversations.readonly users.readonly"
-)
-SCOPES = (os.environ.get("GHL_OAUTH_SCOPES") or DEFAULT_SCOPES).strip()
+# was granted, so anything missing here is missing everywhere — and adding a
+# scope later costs an agency re-consent, so the full set is asked for up
+# front. The set itself, what each scope buys and which strings are confirmed
+# against working code live in hub/ghl_scopes.py, because four things read it:
+# this module, the Suite panel, diagnostics, and test_ghl_scopes.py.
+#
+# Resolved per call rather than at import: GHL_OAUTH_SCOPES is the one knob
+# available mid-incident, and a module-level snapshot would need a redeploy to
+# take effect — which is when nobody wants one.
+def _scopes() -> str:
+    from . import ghl_scopes
+    return ghl_scopes.scope_string()
 
 # Refresh this long before the stated expiry, so a token is never handed out
 # with seconds left on it.
@@ -174,7 +177,7 @@ def authorize_url(state: str) -> str:
         "response_type": "code",
         "redirect_uri": redirect_uri(),
         "client_id": CLIENT_ID,
-        "scope": SCOPES,
+        "scope": _scopes(),
         "state": state,
     }
     return f"{MARKETPLACE_BASE}/oauth/chooselocation?" + urlencode(params)
@@ -352,13 +355,29 @@ def status() -> dict:
     if not record:
         return {"configured": True, "connected": False,
                 "detail": "Not authorised yet — connect once as the agency owner."}
+    from . import ghl_scopes
     left = int(record.get("expires_at", 0) - time.time())
+    scopes = ghl_scopes.compare(record.get("scope", ""))
+
+    # Connected is not the same as usable. A consent that granted eight of the
+    # twenty scopes asked for returns a perfectly healthy token, and every
+    # feature behind the other twelve fails later looking like a bad token —
+    # so the headline says which it is rather than reporting the token's own
+    # opinion of itself.
+    detail = "Connected. Sub-account tokens are minted on demand."
+    if scopes["known"] and scopes["missing"]:
+        detail += " " + scopes["detail"]
+    elif not scopes["known"]:
+        detail += " " + scopes["detail"]
+
     return {
         "configured": True,
         "connected": True,
         "company_id": record.get("company_id", ""),
         "scope": record.get("scope", ""),
+        "scopes": scopes,
+        "scopes_complete": bool(scopes["known"] and not scopes["missing"]),
         "expires_in_seconds": max(0, left),
         "cached_location_tokens": len(_loc_cache),
-        "detail": "Connected. Sub-account tokens are minted on demand.",
+        "detail": detail,
     }

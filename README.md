@@ -256,9 +256,12 @@ not "make one per client". It's a Marketplace app, installed once:
 1. **Create the app** at `marketplace.gohighlevel.com` → My Apps → Create App.
    - Distribution: **Agency** (and sub-account, so it can be installed on both)
    - Redirect URL: `https://<your-hub>/suite/oauth/callback`
-   - Scopes: at least `locations.readonly`, `forms.readonly`,
-     `forms/submissions.readonly` — see `DEFAULT_SCOPES` in
-     [`hub/ghl_oauth.py`](hub/ghl_oauth.py) for the full set the Hub asks for.
+   - Scopes: tick **every** scope in [`hub/ghl_scopes.py`](hub/ghl_scopes.py)
+     (`REQUESTED`). A location token inherits only what the agency token was
+     granted, so a scope missed here is missed for every client until somebody
+     re-consents — which is why the write scopes are asked for now rather than
+     when a feature needs them. `NOT_REQUESTED` in the same file says what is
+     left out on purpose, and why.
 2. **Add the credentials** to Render: `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET`.
 3. **Install it on every sub-account.** Agency install with "install on all
    sub-accounts" also covers accounts created later.
@@ -268,6 +271,15 @@ not "make one per client". It's a Marketplace app, installed once:
 After that it is automatic. `location_token(location_id)` mints a 24-hour
 sub-account token on demand and caches it, so a new client works with no setup
 at all. `/status` shows the state under *Suite sub-account access*.
+
+**Check the scope report before calling it done.** HighLevel grants the scopes
+it recognises and says nothing about the rest, so a consent that granted half
+the list still returns a healthy token and still reads *Connected*. The Suite
+panel diffs granted against requested and names the features that are short —
+and it separates a scope we have authenticated with before (grant it on the app
+and reconnect) from one we have never confirmed (check the spelling in
+`hub/ghl_scopes.py` first, because re-consenting for a typo wastes the one
+manual step this app exists to stop repeating).
 
 Until step 4 happens nothing changes: every call falls back to the Private
 Integration Token exactly as before.
