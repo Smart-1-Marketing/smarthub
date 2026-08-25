@@ -29,17 +29,17 @@
   <table>
     <thead><tr><th>Service</th><th>Status</th><th>Role</th><th>What we're on</th><th></th></tr></thead>
     <tbody>
-    {% for key in SERVICE_ORDER %}
+    {% for key in SERVICE_ORDER + (req.services|reject('in', SERVICE_ORDER)|list) %}
       {% if key in req.services %}
         {% set g = grants.get(key) %}
         {% set st = g.status if g else 'pending' %}
         <tr>
-          <td><strong>{{ SERVICES[key].label }}</strong></td>
+          <td><strong>{{ cfg.label_for(key) }}</strong></td>
           <td><span class="chip {{ st }}">{{ st }}</span>
             {% if g and g.error_detail %}
               <div class="mono" style="color:#A33327;margin-top:6px">{{ g.error_detail }}</div>
             {% endif %}</td>
-          <td class="muted">{{ (g.role_granted if g else None) or SERVICES[key].role_text }}</td>
+          <td class="muted">{{ (g.role_granted if g else None) or (SERVICES[key].role_text if key in SERVICES else '—') }}</td>
           <td class="mono">{{ (g.resource_name if g else None) or '—' }}</td>
           <td>
             {% if st != 'granted' %}
@@ -52,13 +52,6 @@
     {% endfor %}
     </tbody>
   </table>
-
-  {% if grants.get('ads') and grants['ads'].status == 'waiting' %}
-    <p style="margin:16px 0 0">
-      <button type="button" class="quiet" id="refreshBtn">Check if Ads link was accepted</button>
-      <span class="muted" style="margin-left:8px">Queries our manager account directly.</span>
-    </p>
-  {% endif %}
 </div>
 
 <script>
@@ -74,15 +67,6 @@ document.getElementById('copyBtn').addEventListener('click', function(){
 document.getElementById('extendBtn').addEventListener('click', async function(){
   this.disabled = true;
   await fetch('/tools/google-access/api/requests/' + RID + '/extend', {method:'POST'});
-  location.reload();
-});
-
-var refreshBtn = document.getElementById('refreshBtn');
-if (refreshBtn) refreshBtn.addEventListener('click', async function(){
-  this.disabled = true; this.textContent = 'Checking\u2026';
-  var res = await fetch('/tools/google-access/api/requests/' + RID + '/refresh', {method:'POST'});
-  var data = await res.json();
-  if (!data.ok) { this.textContent = data.error || 'Check failed'; this.disabled = false; return; }
   location.reload();
 });
 

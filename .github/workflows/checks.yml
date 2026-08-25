@@ -332,6 +332,22 @@ jobs:
             echo "test_google_links.py not on this branch — nothing to run."
           fi
 
+      - name: Google Access tests
+        # Google Ads is paused: the assertion is that no client-facing page
+        # still offers or explains it, and that a request created before the
+        # pause still renders and can still be closed off. Plus the
+        # existing-or-new gate on the invite form -- an existing client is
+        # matched against the registry exactly or not at all, a new business
+        # is written through hub/leads.py, and neither is guessed. Offline;
+        # nothing reaches Google. Guarded like the steps around it so this
+        # workflow stays mergeable on a branch that predates it.
+        run: |
+          if [ -f test_google_access.py ]; then
+            python test_google_access.py
+          else
+            echo "test_google_access.py not on this branch — nothing to run."
+          fi
+
       - name: Blog taxonomy, guardrail and CMS publish tests
         # The blog section's approved-topic list, the never-mention check and
         # what the two CMS panels are handed. Guarded like the steps above so
