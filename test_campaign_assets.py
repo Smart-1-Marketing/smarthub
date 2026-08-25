@@ -134,8 +134,12 @@ def main():
     check("and does not when it is not",
           campaign_assets.asset_ask(FIXTURE[6]), "")
     check("the unticked text is counted, not dropped", r["unticked"], 1)
-    ok("and named, so it is findable",
-       any(x["client"] == "Five Star Bath" for x in r["unticked_rows"]))
+    stray = [x for x in r["unticked_rows"] if x["client"] == "Five Star Bath"]
+    ok("and named, so it is findable", bool(stray))
+    check("with the rep on it, because it is a chase list too",
+          stray[0]["sales"] if stray else None, "Dana Reeve")
+    ok("and the media partner beside them",
+       bool(stray) and stray[0]["partner"] == "STAR 99.1 FM")
     ok("but it is not listed as work",
        not any(c["client"] == "Five Star Bath" for c in r["campaigns"]),
        "an unticked note would read as an outstanding asset")
@@ -184,6 +188,10 @@ def main():
     ok("and one toggle brings it back",
        any(c["io"] == "2001"
            for c in campaign_assets.report(scope="all", today=TODAY)["campaigns"]))
+
+    print()
+    print("prose is spent only on what the screen cannot say itself")
+    check("a report that measured carries no blurb", r["note"], "")
 
     print()
     print("absent data reads as not measured, never as zero")
