@@ -1,0 +1,541 @@
+<!--
+================================================================================
+smart1marketing.com/boat-dealer-marketing-gameplan
+Paste this whole file into the page's Custom HTML / Code block, replacing what
+is there now.
+
+NO <script> IN THIS FILE. Everything here works with markup and CSS alone, so
+it is safe in a Simvoly code block. The optional enhancer that adds the
+auto-resize and the branded loader lives in a separate file --
+boat-page-header-code.html -- and goes in the page's Header Code area, where
+GTM and Albacross already sit. The page is correct without it.
+================================================================================
+
+WHAT ACTUALLY CHANGED, AND WHY IT IS ONE LINE
+
+The live page was already framing a form. It was framing the WRONG SERVICE:
+
+    https://smart1boat.onrender.com/?embed=1
+
+smart1boat.onrender.com is a separate Render deployment of this same boat tool.
+Its leads land in ITS storage, not this Hub's -- so they do not appear in the
+Leads panel at /sales/leads, they are not filed against a client's 360 record,
+and whether they reach Smart 1 Suite at all depends on that service's own
+environment variables. It is the same shape as the Stadium page, whose code
+names blueprint-2.onrender.com.
+
+The Hub runs the identical tool at /land/boat and writes every lead through
+hub/leads.py, which creates the Suite contact over the Contacts API and hands
+back an id. So the fix is the URL, and nothing else:
+
+    https://smart1-hub.onrender.com/land/boat/embed?embed=1
+
+Verified against the Hub's route table, not typed from memory: that path
+answers 200, needs no login, and hides the tool's own hero so this page does
+not show two headlines.
+
+Why both /embed and ?embed=1 when either would do: /embed is the route
+hub/embed.py serves, and it sends the frame-ancestors header that lets only
+smart1marketing.com frame the tool. ?embed=1 is the older switch that hides the
+hero. Recent Hub builds treat the /embed path as embed mode by itself; carrying
+the query as well means this page is right against whichever build is deployed
+when you paste it.
+
+--------------------------------------------------------------------------------
+WHAT ELSE IS FIXED HERE, ALL OF IT CONTENT RATHER THAN CODE
+
+1. TWO EDITOR NOTES WERE LIVE ON THE PAGE, ADDRESSED TO PROSPECTS.
+   Under the KPI band: "Placeholder metrics -- replace with your real campaign
+   results before publishing." And under the testimonials: "Replace these with
+   real dealer testimonials..." Both are gone.
+
+2. THE KPI NUMBERS WERE INVENTED. 3x engagement, 40% less wasted spend and
+   100% were not measured from anything. They are replaced with four claims
+   this page can stand behind, each already stated in your own copy: what the
+   report costs, how fast it is, what the contract is, and what the plan
+   covers. When you have real campaign results, the markup to put numbers back
+   is in a comment on that section.
+
+3. THE TESTIMONIALS WERE FABRICATED. "James, General Manager, Ohio" and
+   "Barry, Owner, Florida" are quotes attributed to named people who did not
+   say them, on a page selling a service. That section is removed rather than
+   rewritten -- an empty space is recoverable and a fake quote is not. The
+   markup is kept in a comment, ready for real quotes.
+
+4. THE NESTED DOCUMENT IS GONE. The old block opened its own <!doctype html>,
+   <html>, <head> and <body> inside the code widget, which puts a second title
+   and a second meta description inside the page body where nothing reads them.
+
+5. THE CSS NO LONGER ESCAPES THE BLOCK. The old block styled bare body, h1, h2
+   and * -- correct for a standalone document, and in a builder page it
+   restyles the site around it. Every rule here is scoped under #s1boat.
+
+--------------------------------------------------------------------------------
+WITHOUT THE OPTIONAL HEADER SCRIPT, ONE THING BEHAVES DIFFERENTLY
+
+The frame is a fixed height and scrolls inside itself. That is not a
+workaround -- it is why the tool's own "jump back to the top" works when the
+report renders, because there is a scrollbar for it to move. What you lose is
+the frame growing to fit, and the branded loader that covers the few seconds
+Render takes to wake the tool on the first visit of the day. The line of text
+above the form says so in the meantime.
+
+--------------------------------------------------------------------------------
+THREE THINGS TO FIX OUTSIDE THIS BLOCK, IN SIMVOLY'S OWN PAGE SETTINGS
+
+* The page's META DESCRIPTION is empty. The one in the old code block was
+  inside the nested <head> and search engines never saw it. Suggested text:
+  "Weather-triggered advertising for boat dealers. Get a free custom Boat
+  Demand Report for your market in about a minute -- reach, triggers,
+  channels and budget."
+
+* The OG:IMAGE is "https://content.app-sources.com/" -- a bare host with no
+  file, so every share of this page shows a broken image. Point it at the hero:
+  https://res.cloudinary.com/smart1labs/image/upload/w_1200,q_auto/v1784755089/Sell_More_Boats_When_the_Weather_Is_Right.png
+
+* There is a ~200-line SMART 1 AUDIO CALCULATOR script in the page's header
+  code. It looks for an element with id "s1-audio-calculator", which does not
+  exist on this page, so it returns immediately and does nothing. Its own
+  webhook POST is commented out, so even where the markup does exist it
+  delivers no lead anywhere. Delete it from this page.
+================================================================================
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  #s1boat{
+    --navy:#0a2240; --blue:#009ed2; --light:#f3f9fc; --border:#d7e6ef;
+    --text:#172033; --muted:#5c6b7e; --accent:#009ed2; --green:#2dbb72;
+    font-family:'Montserrat',Arial,Helvetica,sans-serif;color:var(--text);
+    background:#fff;line-height:1.55;
+  }
+  /* Everything is scoped under #s1boat. The old block styled bare body, h1,
+     h2 and * — correct for a standalone document and wrong pasted into a page
+     that has its own theme, because it restyles the whole site around it. */
+  #s1boat *{box-sizing:border-box;}
+  #s1boat h1,#s1boat h2,#s1boat h3{color:var(--navy);line-height:1.1;margin:0 0 14px;}
+  #s1boat a{color:var(--blue);text-decoration:none;}
+  #s1boat .s1-wrap{max-width:1160px;margin:0 auto;padding:0 22px;}
+  /* Full-bleed: the section bands span the viewport even though this sits in a
+     centred, narrower builder column. */
+  #s1boat .s1-header,#s1boat .s1-hero,#s1boat .s1-trust,#s1boat .s1-sec,
+  #s1boat .s1-results,#s1boat .s1-final,#s1boat .s1-footer{
+    width:100vw;max-width:100vw;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw);}
+  #s1boat .s1-eyebrow{color:var(--blue);font-weight:800;text-transform:uppercase;letter-spacing:.1em;font-size:13px;margin:0 0 12px;}
+  #s1boat .s1-btn{display:inline-block;background:var(--accent);color:#fff;font-weight:800;font-size:17px;padding:16px 28px;border-radius:12px;border:0;cursor:pointer;box-shadow:0 8px 22px rgba(0,158,210,.32);transition:transform .12s ease, box-shadow .12s ease;}
+  #s1boat .s1-btn:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(0,158,210,.42);color:#fff;}
+  #s1boat .s1-btn-ghost{display:inline-block;background:transparent;color:#fff;border:1.5px solid rgba(255,255,255,.6);font-weight:700;padding:13px 22px;border-radius:12px;}
+  #s1boat .s1-btn-ghost:hover{background:rgba(255,255,255,.1);color:#fff;}
+
+  /* Header */
+  #s1boat .s1-header{position:sticky;top:0;z-index:50;background:rgba(10,34,64,.98);backdrop-filter:saturate(1.2) blur(4px);}
+  #s1boat .s1-header .s1-wrap{display:flex;align-items:center;justify-content:space-between;height:66px;}
+  #s1boat .s1-logo img{height:30px;display:block;}
+  #s1boat .s1-nav{display:flex;align-items:center;gap:26px;}
+  #s1boat .s1-nav a{color:#dfe9f3;font-weight:600;font-size:15px;}
+  #s1boat .s1-nav a:hover{color:#fff;}
+  #s1boat .s1-header .s1-cta{background:var(--accent);color:#fff;font-weight:800;padding:10px 18px;border-radius:10px;font-size:15px;}
+  @media(max-width:860px){#s1boat .s1-nav a:not(.s1-cta){display:none;}}
+
+  /* Hero */
+  #s1boat .s1-hero{background:linear-gradient(160deg,rgba(7,26,51,.82) 0%, rgba(10,34,64,.78) 55%, rgba(18,58,99,.72) 100%),url('https://res.cloudinary.com/smart1labs/image/upload/w_1920,q_auto/v1784755089/Sell_More_Boats_When_the_Weather_Is_Right.png') center/cover no-repeat;color:#eaf2fb;position:relative;overflow:hidden;}
+  #s1boat .s1-hero::after{content:"";position:absolute;inset:0;background:radial-gradient(900px 400px at 80% -10%, rgba(0,158,210,.22), transparent 60%);pointer-events:none;}
+  #s1boat .s1-hero .s1-wrap{position:relative;display:block;max-width:900px;padding:52px 22px 60px;}
+  #s1boat .s1-copycol{text-align:center;margin-bottom:34px;}
+  #s1boat .s1-formcol{width:100%;max-width:820px;margin:0 auto;}
+  #s1boat .s1-hero h1{color:#fff;font-size:clamp(30px,4.4vw,48px);}
+  #s1boat .s1-hero h1 .u{color:var(--blue);}
+  #s1boat .s1-hero p.lead{font-size:clamp(16px,1.7vw,20px);color:#cfe0f0;max-width:620px;margin-left:auto;margin-right:auto;}
+  #s1boat .s1-hero .s1-eyebrow{color:#7fd3ef;}
+  #s1boat .s1-cta-row{display:flex;gap:14px;flex-wrap:wrap;margin:26px 0 20px;align-items:center;justify-content:center;}
+  #s1boat .s1-checks{list-style:none;padding:0;margin:18px auto 0;display:inline-grid;gap:10px;text-align:left;}
+  #s1boat .s1-checks li{display:flex;gap:10px;align-items:flex-start;color:#dbe6f5;font-weight:600;font-size:15px;}
+  #s1boat .s1-checks svg{flex:0 0 auto;margin-top:2px;}
+  #s1boat .s1-formtop{background:var(--accent);color:#fff;font-weight:800;text-align:center;padding:12px 16px;border-radius:16px 16px 0 0;font-size:15px;letter-spacing:.01em;}
+  #s1boat .s1-formframe{width:100%;border:0;display:block;background:#fff;height:1250px;}
+
+  /* The frame.
+     A fixed height, because this block carries no script to resize it. The
+     tool scrolls inside the frame, which is also what makes its own
+     "jump to the top when the report renders" work -- there is a scrollbar
+     for it to move. The optional header script replaces both behaviours with
+     a frame that grows to fit; the page is correct either way.
+     The tool renders with a transparent background in embed mode, so the
+     white card has to come from the wrapper rather than from inside. */
+  #s1boat .s1-formwrap{position:relative;background:#fff;border-radius:0 0 16px 16px;box-shadow:0 30px 60px rgba(8,16,35,.45);overflow:hidden;}
+  #s1boat .s1-formnote{color:#9fc4e2;font-size:13px;text-align:center;margin:0 0 8px;}
+  #s1boat .s1-formalt{text-align:center;margin:14px 0 0;}
+  #s1boat .s1-formalt a{color:#7fd3ef;font-size:13px;font-weight:600;}
+  #s1boat .s1-formalt a:hover{color:#fff;}
+  @media(max-width:900px){
+    #s1boat .s1-formframe{height:1500px;}
+    #s1boat .s1-hero .s1-wrap{padding:40px 22px 48px;}
+  }
+
+  /* Trust bar */
+  #s1boat .s1-trust{background:#071a33;color:#c4d6ec;}
+  #s1boat .s1-trust .s1-wrap{display:flex;flex-wrap:wrap;gap:14px 30px;align-items:center;justify-content:center;padding:16px 22px;}
+  #s1boat .s1-trust .lbl{font-weight:800;color:#7fb2e0;text-transform:uppercase;letter-spacing:.08em;font-size:12px;}
+  #s1boat .s1-trust .chip{font-weight:700;font-size:14px;color:#dbe9fa;}
+
+  /* Sections */
+  #s1boat .s1-sec{padding:64px 0;}
+  #s1boat .s1-sec.alt{background:var(--light);}
+  #s1boat .s1-sec h2{font-size:clamp(26px,3.2vw,38px);text-align:center;}
+  #s1boat .s1-sec .sub{text-align:center;color:var(--muted);max-width:680px;margin:0 auto 40px;font-size:17px;}
+  #s1boat .s1-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;}
+  #s1boat .s1-grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:22px;}
+  @media(max-width:820px){#s1boat .s1-grid3,#s1boat .s1-grid2{grid-template-columns:1fr;}}
+  #s1boat .s1-card{background:#fff;border:1px solid var(--border);border-radius:16px;padding:26px;box-shadow:0 10px 30px rgba(10,34,64,.06);}
+  #s1boat .s1-card h3{font-size:20px;}
+  #s1boat .s1-card p{color:var(--muted);margin:0;}
+  #s1boat .s1-ico{width:46px;height:46px;border-radius:12px;background:var(--light);display:flex;align-items:center;justify-content:center;margin-bottom:16px;font-size:22px;}
+  #s1boat .s1-ico.navy{background:var(--navy);}
+  #s1boat .s1-card.bg{position:relative;background-size:cover;background-position:center;color:#fff;border:0;overflow:hidden;}
+  #s1boat .s1-card.bg::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,26,51,.22),rgba(7,26,51,.58));z-index:0;}
+  #s1boat .s1-card.bg>*{position:relative;z-index:1;}
+  #s1boat .s1-card.bg h3{color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.55);}
+  #s1boat .s1-card.bg p{color:#f1f5fb;text-shadow:0 1px 6px rgba(0,0,0,.6);}
+  #s1boat .s1-card.bg .s1-ico{background:rgba(255,255,255,.16);}
+  #s1boat .s1-card.bg .num{background:rgba(255,255,255,.20);}
+  #s1boat .s1-step .num{width:38px;height:38px;border-radius:50%;background:var(--navy);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:14px;}
+
+  /* Report preview */
+  #s1boat .s1-preview{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;}
+  @media(max-width:820px){#s1boat .s1-preview{grid-template-columns:1fr;}}
+  #s1boat .s1-preview ul{list-style:none;padding:0;margin:18px 0 0;display:grid;gap:12px;}
+  #s1boat .s1-preview li{display:flex;gap:12px;align-items:flex-start;font-weight:600;}
+  #s1boat .s1-preview li svg{flex:0 0 auto;margin-top:2px;}
+  #s1boat .s1-mock{background:#fff;border:1px solid var(--border);border-radius:16px;box-shadow:0 24px 50px rgba(10,34,64,.14);overflow:hidden;}
+  #s1boat .s1-mock .bar{background:var(--navy);color:#fff;padding:16px 20px;}
+  #s1boat .s1-mock .bar b{font-size:16px;}
+  #s1boat .s1-mock .bar .s{color:#7fd3ef;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;}
+  #s1boat .s1-mock .body{padding:18px 20px;}
+  #s1boat .s1-mock .region{display:inline-block;background:var(--navy);color:#fff;font-weight:700;font-size:12px;padding:6px 12px;border-radius:999px;margin-bottom:12px;}
+  #s1boat .s1-statrow{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;}
+  #s1boat .s1-stat{border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center;}
+  #s1boat .s1-stat b{display:block;color:var(--navy);font-size:17px;}
+  #s1boat .s1-stat span{color:var(--muted);font-size:11px;}
+  #s1boat .s1-mockchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  #s1boat .s1-mockchips span{background:var(--light);border:1px solid var(--border);color:var(--blue);font-size:11px;font-weight:700;padding:5px 10px;border-radius:999px;}
+  #s1boat .s1-mocknote{color:var(--muted);font-size:12px;margin:10px 0 0;font-style:italic;}
+
+  /* Facts band */
+  #s1boat .s1-results{background:linear-gradient(rgba(7,26,51,.74),rgba(7,26,51,.82)),url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_1600,q_auto/v1784741012/Why_Weather_Triggers_work.png') center/cover no-repeat;color:#fff;}
+  #s1boat .s1-results .s1-wrap{padding:52px 22px;}
+  #s1boat .s1-results h2{color:#fff;}
+  #s1boat .s1-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:14px;}
+  @media(max-width:820px){#s1boat .s1-kpis{grid-template-columns:1fr 1fr;}}
+  #s1boat .s1-kpi{text-align:center;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:22px 12px;}
+  #s1boat .s1-kpi b{display:block;font-size:30px;color:var(--blue);line-height:1.1;}
+  #s1boat .s1-kpi span{color:#cdd9f0;font-size:14px;margin-top:8px;display:block;}
+
+  /* FAQ */
+  #s1boat .s1-faq details{background:#fff;border:1px solid var(--border);border-radius:12px;padding:0 20px;margin-bottom:12px;}
+  #s1boat .s1-faq summary{cursor:pointer;list-style:none;padding:18px 0;font-weight:800;color:var(--navy);font-size:17px;display:flex;justify-content:space-between;align-items:center;}
+  #s1boat .s1-faq summary::-webkit-details-marker{display:none;}
+  #s1boat .s1-faq summary::after{content:"+";color:var(--blue);font-size:24px;font-weight:800;}
+  #s1boat .s1-faq details[open] summary::after{content:"–";}
+  #s1boat .s1-faq p{color:var(--muted);margin:0 0 18px;}
+
+  /* Final CTA */
+  #s1boat .s1-final{background:linear-gradient(160deg,#0a2240,#123a63);color:#fff;text-align:center;}
+  #s1boat .s1-final .s1-wrap{padding:60px 22px;}
+  #s1boat .s1-final h2{color:#fff;font-size:clamp(26px,3.4vw,40px);}
+  #s1boat .s1-final p{color:#cfe0f0;max-width:620px;margin:0 auto 26px;font-size:18px;}
+
+  /* Footer */
+  #s1boat .s1-footer{background:#071a33;color:#9fb4d0;font-size:14px;}
+  #s1boat .s1-footer .s1-wrap{padding:34px 22px;display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center;}
+  #s1boat .s1-footer a{color:#c4d6ec;}
+  #s1boat .s1-footer img{height:26px;display:block;}
+  #s1boat .s1-footer .fine{color:#6f84a6;font-size:12px;max-width:640px;}
+
+  /* Mobile sticky CTA */
+  #s1boat .s1-sticky{position:fixed;left:0;right:0;bottom:0;z-index:60;background:var(--navy);padding:12px 16px;display:none;box-shadow:0 -6px 20px rgba(0,0,0,.25);}
+  #s1boat .s1-sticky a{display:block;text-align:center;background:var(--accent);color:#fff;font-weight:800;padding:14px;border-radius:12px;}
+  @media(max-width:900px){#s1boat .s1-sticky{display:block;}}
+</style>
+
+<div id="s1boat">
+
+<!-- ============ HEADER ============ -->
+<header class="s1-header">
+  <div class="s1-wrap">
+    <a class="s1-logo" href="https://smart1marketing.com"><img src="https://content.app-sources.com/s/30680510049142132/uploads/Our_Products_/logo-final-cmyk-hz1line-white-9562849.png?format=webp" alt="Smart 1 Marketing"></a>
+    <nav class="s1-nav">
+      <a href="#how">How It Works</a>
+      <a href="#included">What You Get</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://smart1marketing.com/free-consultation" target="_blank" rel="noopener">Contact Us</a>
+      <a href="#get-report" class="s1-cta">Get My Free Report</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============ HERO ============ -->
+<section class="s1-hero">
+  <div class="s1-wrap">
+    <div class="s1-copycol">
+      <p class="s1-eyebrow">For Boat Dealerships</p>
+      <h1>Sell More Boats When the <span class="u">Weather</span> Is Right.</h1>
+      <p class="lead">Smart 1's weather-triggered advertising puts your dealership in front of in-market boat buyers exactly when sunshine, warm weekends, and cold snaps drive them to buy, service, and store.</p>
+      <div class="s1-cta-row">
+        <a href="#get-report" class="s1-btn">Get My Free Boat Demand Report →</a>
+        <a href="#how" class="s1-btn-ghost">See how it works</a>
+      </div>
+      <ul class="s1-checks">
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="12" fill="#2dbb72"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg> A custom market report for your ZIP in about a minute</li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="12" fill="#2dbb72"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg> See your boat-owner reach, recommended plan &amp; budget</li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="12" fill="#2dbb72"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg> No cost, no obligation — download the proposal instantly</li>
+      </ul>
+    </div>
+
+    <div class="s1-formcol" id="get-report">
+      <div class="s1-formtop">★ Free Weather-Triggered Boat Demand Report</div>
+      <p class="s1-formnote">First visit of the day? The market engine takes a few
+        seconds to wake up.</p>
+      <div class="s1-formwrap">
+        <!--
+          THE ONE LINE THAT MATTERS. Verified against the Hub's route table:
+          200, no login, hero hidden. See the notes at the top of this file for
+          what it replaced and why.
+        -->
+        <iframe id="s1BoatForm" class="s1-formframe" title="Boat Demand Report"
+          loading="lazy"
+          src="https://smart1-hub.onrender.com/land/boat/embed?embed=1"></iframe>
+      </div>
+      <p class="s1-formalt"><a href="https://smart1-hub.onrender.com/land/boat/"
+        target="_blank" rel="noopener">Trouble loading? Open the report tool in a new tab &#8599;</a></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TRUST BAR ============ -->
+<div class="s1-trust">
+  <div class="s1-wrap">
+    <span class="lbl">Powered by</span>
+    <span class="chip">In-Market Boat Buyer Data</span>
+    <span class="chip">Connected TV</span>
+    <span class="chip">Streaming Radio &amp; Podcasts</span>
+    <span class="chip">Marina &amp; Ramp Geotargeting</span>
+    <span class="chip">Location Look-Back</span>
+    <span class="chip">Digital Out-of-Home</span>
+  </div>
+</div>
+
+<!-- ============ PROBLEM ============ -->
+<section class="s1-sec">
+  <div class="s1-wrap">
+    <p class="s1-eyebrow" style="text-align:center;">The Problem</p>
+    <h2>The weather decides who's buying. Are your ads paying attention?</h2>
+    <p class="sub">Boating demand spikes and stalls with the forecast — the first warm weekend, a holiday on the water, the first freeze. Most dealers advertise on a flat monthly schedule and miss the moments that actually move buyers.</p>
+    <div class="s1-grid3">
+      <div class="s1-card bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto,e_brightness:40,e_improve/v1784734336/ChatGPT_Image_Jul_22_2026_10_53_34_AM_3.png')">
+        <div class="s1-ico">☀️</div>
+        <h3>You spend when it's quiet</h3>
+        <p>Flat ad schedules burn budget on cold, rainy days and go dark right when boaters are ready to shop.</p>
+      </div>
+      <div class="s1-card bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto,e_brightness:40,e_improve/v1784734336/ChatGPT_Image_Jul_22_2026_10_53_34_AM_2.png')">
+        <div class="s1-ico">🌧️</div>
+        <h3>You miss service &amp; storage moments</h3>
+        <p>Warm spells, holiday weekends, and first freezes create urgent service, winterization, and storage demand — but only if you show up first.</p>
+      </div>
+      <div class="s1-card bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto,e_brightness:40,e_improve/v1784734332/ChatGPT_Image_Jul_22_2026_10_53_34_AM_1.png')">
+        <div class="s1-ico">🎯</div>
+        <h3>You're not reaching boaters</h3>
+        <p>Without marina data and in-market buyer targeting, your ads reach everyone but the people ready to buy a boat.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HOW IT WORKS ============ -->
+<section class="s1-sec alt" id="how">
+  <div class="s1-wrap">
+    <p class="s1-eyebrow" style="text-align:center;">How It Works</p>
+    <h2>Your weather-triggered demand engine in 3 steps</h2>
+    <p class="sub">No long forms, no guesswork. You'll see your market opportunity before you ever talk to us.</p>
+    <div class="s1-grid3">
+      <div class="s1-card s1-step bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto,e_brightness:40,e_improve/v1784734335/ChatGPT_Image_Jul_22_2026_11_00_04_AM_3.png')">
+        <div class="num">1</div>
+        <h3>Tell us your market</h3>
+        <p>Enter your ZIP and how far customers travel. That's it — no full address, no sales call required.</p>
+      </div>
+      <div class="s1-card s1-step bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto,e_brightness:40,e_improve/v1784734335/ChatGPT_Image_Jul_22_2026_11_00_03_AM_2.png')">
+        <div class="num">2</div>
+        <h3>Get your custom report</h3>
+        <p>Instantly see your boat-owner reach, recommended weather triggers, media channels, budget, and a month-by-month plan.</p>
+      </div>
+      <div class="s1-card s1-step bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto,e_brightness:40,e_improve/v1784734335/ChatGPT_Image_Jul_22_2026_11_00_03_AM_1.png')">
+        <div class="num">3</div>
+        <h3>Turn weather into traffic</h3>
+        <p>We launch weather-triggered ads to in-market boat buyers — so you sell and service more on the days that matter.</p>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:34px;"><a href="#get-report" class="s1-btn">Get My Free Report →</a></div>
+  </div>
+</section>
+
+<!-- ============ WHAT YOU GET ============ -->
+<section class="s1-sec" id="included">
+  <div class="s1-wrap">
+    <p class="s1-eyebrow" style="text-align:center;">What You Get</p>
+    <h2>A complete weather-triggered advertising system</h2>
+    <p class="sub">Every campaign is built on boat buyer data and activated by the weather moments that drive demand in your market.</p>
+    <div class="s1-grid3">
+      <div class="s1-card bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto/v1784734332/ChatGPT_Image_Jul_22_2026_11_12_58_AM_3.png')"><div class="s1-ico navy">🌦️</div><h3>Weather-triggered activation</h3><p>Ads turn on when your chosen conditions hit — 70°+ weekends, sunny weekends, first frost, freeze warnings — and pause when they don't.</p></div>
+      <div class="s1-card bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto/v1784734331/ChatGPT_Image_Jul_22_2026_11_12_58_AM_2.png')"><div class="s1-ico navy">🧭</div><h3>In-market boat buyer data</h3><p>Reach households actively shopping for boats, layered with marina, ramp &amp; state-park geotargeting and location look-back.</p></div>
+      <div class="s1-card bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto/v1784734332/ChatGPT_Image_Jul_22_2026_11_12_58_AM_1.png')"><div class="s1-ico navy">📺</div><h3>Premium channels</h3><p>Connected TV, streaming radio, podcasts, data-driven display, and digital out-of-home — plus streaming audio geotargeted around the water.</p></div>
+      <div class="s1-card bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto/v1784735623/ChatGPT_Image_Jul_22_2026_11_53_22_AM_1.png')"><div class="s1-ico navy">📅</div><h3>Seasonal budget that flexes</h3><p>Spend goes up in peak demand and steps down in the off-season, so you never waste budget on slow-weather days.</p></div>
+      <div class="s1-card bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto/v1784735624/ChatGPT_Image_Jul_22_2026_11_53_22_AM_2.png')"><div class="s1-ico navy">🛡️</div><h3>SmartForecast Ads</h3><p>Unused budget from slow-weather windows rolls forward as credit — your media works even when the weather doesn't.</p></div>
+      <div class="s1-card bg" style="background-image:url('https://res.cloudinary.com/smart1labs/image/upload/c_fill,g_auto,w_900,q_auto/v1784735624/ChatGPT_Image_Jul_22_2026_11_53_23_AM_3.png')"><div class="s1-ico navy">📈</div><h3>Full-funnel coverage</h3><p>New &amp; used sales, trade-ins, financing, plus service, winterization, storage, and seasonal maintenance — all in one plan.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ REPORT PREVIEW ============ -->
+<section class="s1-sec alt">
+  <div class="s1-wrap">
+    <div class="s1-preview">
+      <div>
+        <p class="s1-eyebrow">Your Free Report</p>
+        <h2 style="text-align:left;">See your opportunity before you spend a dollar</h2>
+        <p style="color:var(--muted);font-size:17px;">In about a minute, your custom Boat Demand Report shows exactly where the opportunity is in your market — and the plan to capture it.</p>
+        <ul>
+          <li><svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#0a2240"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Estimated population, households &amp; likely boat-owner households</li>
+          <li><svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#0a2240"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Your market's climate type &amp; best weather triggers</li>
+          <li><svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#0a2240"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Recommended package, media channels &amp; targeting</li>
+          <li><svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#0a2240"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Suggested budget that steps down in the off-season</li>
+          <li><svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#0a2240"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Ranked marinas, ramps &amp; geofences, plus a downloadable PDF</li>
+        </ul>
+        <div style="margin-top:26px;"><a href="#get-report" class="s1-btn">Build My Report →</a></div>
+      </div>
+      <div class="s1-mock" aria-hidden="true">
+        <div class="bar"><span class="s">Market Estimate</span><br><b>Your Smart Boat Demand Market Estimate</b></div>
+        <div class="body">
+          <span class="region">Northern / Seasonal Inland Lake Market</span>
+          <div class="s1-statrow">
+            <div class="s1-stat"><b>1.2M–1.7M</b><span>population</span></div>
+            <div class="s1-stat"><b>480k–640k</b><span>households</span></div>
+            <div class="s1-stat"><b>19k–33k</b><span>boat-owner households</span></div>
+          </div>
+          <div style="font-weight:800;color:var(--navy);">Recommended: $5,000/mo SmartForecast Ads</div>
+          <div style="color:var(--muted);font-size:13px;margin:6px 0 10px;">Peak 100% · shoulder 35% · off-season 20%</div>
+          <div class="s1-mockchips">
+            <span>In-Market Boat Buyers</span><span>Connected TV</span><span>Streaming Audio</span><span>Marina Geo</span><span>Look-Back</span>
+          </div>
+          <p class="s1-mocknote">Example layout. Your report is built from your own ZIP and travel radius.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!--
+  ============ WHY IT WORKS ============
+  This band used to hold four invented performance figures (3x engagement,
+  40% less wasted spend, ~1 min, 100%) under a line that read "Placeholder
+  metrics — replace with your real campaign results before publishing" —
+  which shipped, and which every prospect could read.
+
+  What is here now is four things this page can stand behind, each stated
+  elsewhere in your own copy: the report is free, it takes about a minute,
+  the plan is month-to-month, and the coverage is sales plus service.
+
+  WHEN YOU HAVE REAL RESULTS, a KPI reads like this — and each one needs a
+  campaign, a date range and a dealer who agreed to it being published:
+
+    <div class="s1-kpi"><b>3.1&times;</b><span>click-through on trigger days vs. non-trigger days —
+      Midwest dealer, Apr&ndash;Sep 2025</span></div>
+-->
+<section class="s1-results">
+  <div class="s1-wrap" style="text-align:center;">
+    <p class="s1-eyebrow" style="color:#7fd3ef;">Why Weather-Triggered Works</p>
+    <h2>Show up when demand is real</h2>
+    <p style="color:#cfe0f0;max-width:660px;margin:6px auto 0;">Instead of spreading a flat budget across every day of the month, your spend follows the forecast — concentrated on the days your market is actually shopping, paused on the days it isn't.</p>
+    <div class="s1-kpis">
+      <div class="s1-kpi"><b>Free</b><span>custom market report, no obligation</span></div>
+      <div class="s1-kpi"><b>~1 min</b><span>from your ZIP to a full plan</span></div>
+      <div class="s1-kpi"><b>Month<br>to month</b><span>no long contract, unused budget rolls forward</span></div>
+      <div class="s1-kpi"><b>Sales<br>+ service</b><span>one plan covers both sides of the business</span></div>
+    </div>
+  </div>
+</section>
+
+<!--
+  ============ TESTIMONIALS — REMOVED ON PURPOSE ============
+  The two quotes that were here ("James, General Manager, Ohio" and "Barry,
+  Owner, Florida") were written as placeholders and were never said by anyone.
+  They sat under a line reading "Replace these with real dealer testimonials",
+  which also shipped. Attributed quotes from named people who did not say them,
+  on a page selling a service, is the one thing on this page worth removing
+  immediately rather than rewriting — so it is gone rather than replaced with
+  better-sounding invented ones.
+
+  To put the section back with real quotes, drop this inside <div id="s1boat">
+  where it used to sit, between the band above and the FAQ. Each quote needs a
+  real name, a real dealership, and that dealer's permission to publish it.
+
+  <section class="s1-sec">
+    <div class="s1-wrap">
+      <p class="s1-eyebrow" style="text-align:center;">What Dealers Say</p>
+      <h2>Built for boat dealers</h2>
+      <div class="s1-grid2" style="margin-top:34px;">
+        <div class="s1-card s1-quote">
+          <div class="s1-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+          <p>"..."</p>
+          <div class="who">Full name</div><div class="role">Title &mdash; Dealership, State</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  and add these rules back to the <style> block above:
+
+  #s1boat .s1-quote p{font-size:17px;color:var(--text);margin:0 0 16px;}
+  #s1boat .s1-quote .who{font-weight:800;color:var(--navy);}
+  #s1boat .s1-quote .role{color:var(--muted);font-size:14px;}
+  #s1boat .s1-stars{color:var(--blue);letter-spacing:2px;margin-bottom:10px;font-size:18px;}
+-->
+
+<!-- ============ FAQ ============ -->
+<section class="s1-sec alt" id="faq">
+  <div class="s1-wrap" style="max-width:820px;">
+    <p class="s1-eyebrow" style="text-align:center;">Questions</p>
+    <h2>Frequently asked</h2>
+    <div class="s1-faq" style="margin-top:34px;">
+      <details open><summary>Is the report really free?</summary><p>Yes. Your custom Boat Demand Report is completely free with no obligation. You'll see your market estimate, recommended plan, and budget, and you can download the proposal as a PDF.</p></details>
+      <details><summary>How does weather-triggered advertising work?</summary><p>We identify the weather moments that drive boating demand in your market — warm weekends, sunny holidays, first frost, freeze warnings — and activate your ads to in-market buyers exactly when those conditions hit, pausing when they don't.</p></details>
+      <details><summary>Who will actually see my ads?</summary><p>Households in your market that are actively shopping for boats, layered with marina, ramp &amp; state-park geotargeting and location look-back (people recently seen at the water), across Connected TV, streaming radio, podcasts, display, and digital out-of-home.</p></details>
+      <details><summary>Where do the numbers in my report come from?</summary><p>Population, household, boat-owner, and location figures are planning estimates built from your geography, market density, and standard industry assumptions — not audited counts. They are there to size the opportunity and set a budget, and a Smart 1 strategist verifies the locations and figures before anything goes live.</p></details>
+      <details><summary>Do I have to sign a long contract?</summary><p>SmartForecast Ads is a month-to-month plan. Unused budget from slow-weather windows rolls forward as credit, so your media keeps working even when the weather doesn't.</p></details>
+      <details><summary>How fast can we launch?</summary><p>Most dealers can launch within days. Start with the free report, and a Smart 1 strategist can review it and build your campaign from there.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FINAL CTA ============ -->
+<section class="s1-final">
+  <div class="s1-wrap">
+    <h2>See your boat demand opportunity — free.</h2>
+    <p>Enter your ZIP and get a custom weather-triggered marketing report in about a minute. No cost, no obligation.</p>
+    <a href="#get-report" class="s1-btn">Get My Free Boat Demand Report →</a>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer class="s1-footer">
+  <div class="s1-wrap">
+    <div><img src="https://content.app-sources.com/s/30680510049142132/uploads/Our_Products_/logo-final-cmyk-hz1line-white-9562849.png?format=webp" alt="Smart 1 Marketing"> &nbsp; · &nbsp; Weather-Triggered Boat Demand</div>
+    <div><a href="#get-report">Get My Free Report</a> &nbsp;·&nbsp; <a href="https://smart1marketing.com/free-consultation" target="_blank" rel="noopener">Contact Us</a></div>
+  </div>
+  <div class="s1-wrap"><p class="fine">Population, household, boat-owner, and location figures are AI-generated planning estimates based on geography, market density, and standard assumptions — not audited counts. © Smart 1 Marketing.</p></div>
+</footer>
+
+<!-- Mobile sticky CTA -->
+<div class="s1-sticky"><a href="#get-report">Get My Free Boat Demand Report →</a></div>
+
+</div><!-- /#s1boat -->

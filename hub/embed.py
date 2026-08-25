@@ -81,6 +81,13 @@ from flask import Response, make_response, redirect, url_for
 
 # Who may put a Hub landing tool in an iframe. Space-separated, CSP syntax.
 #
+# Not to be folded into HUB_EMBED_FRAME_ANCESTORS, which hub/suite_embed.py
+# reads. That one answers "may HighLevel frame a Hub page inside Smart 1
+# Suite?" and defaults to HighLevel's own hosts; this one answers "may the
+# marketing site frame a landing tool?" and defaults to ours. Two questions
+# with different right answers, so two variables -- and this comment, because
+# the next person to notice two similar names will otherwise merge them.
+#
 # An ALLOWLIST, deliberately -- see the module docstring. Render stores quotes
 # literally (SCANS_CALLBACK_TOKEN="abc" arrives including the quotes), so a
 # value pasted with them still works here rather than producing a CSP nobody

@@ -1,0 +1,150 @@
+<!--
+================================================================================
+OPTIONAL. Boat gameplan page — Header Code
+smart1marketing.com/boat-dealer-marketing-gameplan → page settings → Header Code
+(the same place Google Tag Manager and Albacross already live).
+================================================================================
+
+The page works without this. Everything here is an upgrade to how the frame
+behaves, and every part of it checks that its target exists before touching it,
+so pasting it on the wrong page does nothing rather than breaking that page.
+
+WHAT IT ADDS
+
+  1. The frame grows to fit its content, so the report is not read through a
+     scrollbar inside a scrollbar. Without this the frame is a fixed 1250px
+     and scrolls internally, which is fine but less comfortable on a phone.
+
+  2. When the report renders, the page scrolls back to the top of the form.
+     The tool asks for this itself, and once the frame is tall enough to have
+     no scrollbar of its own that request does nothing — so this page has to
+     do the scrolling. This is why 1 and 2 belong together: turning on the
+     auto-resize without this would leave the visitor staring at the middle of
+     a report whose top they never saw.
+
+  3. A branded loader covers the few seconds Render takes to wake the tool on
+     the first visit of the day, and the frame is pre-warmed as the form
+     approaches the viewport so that wait usually finishes before anyone
+     scrolls to it.
+
+WHY THE MESSAGE NAMES LOOK ODD
+They are the boat tool's own — smart1boatHeight, smart1boat-scroll-top and
+app-ready — and the Hub serves that same tool, so none of them changed when the
+frame was repointed from smart1boat.onrender.com to the Hub. They are kept
+exactly as the working page had them for that reason.
+================================================================================
+-->
+
+<style>
+  /* The loader sits over the frame. Scoped to this page's ids so it cannot
+     affect anything else on the site. */
+  #s1BoatLoader{position:absolute;inset:0;z-index:5;background:linear-gradient(160deg,#0a2240,#123a63);border-radius:0 0 16px 16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:30px;text-align:center;transition:opacity .45s ease;font-family:'Montserrat',Arial,Helvetica,sans-serif;}
+  #s1BoatLoader.hide{opacity:0;pointer-events:none;}
+  #s1BoatLoader img{height:26px;opacity:.95;margin-bottom:2px;}
+  #s1BoatLoader .bar{width:min(260px,82%);height:6px;background:rgba(255,255,255,.15);border-radius:999px;overflow:hidden;}
+  #s1BoatLoader .bar>i{display:block;height:100%;width:34%;background:#009ed2;border-radius:999px;animation:s1boatbar 1.3s ease-in-out infinite;}
+  @keyframes s1boatbar{0%{transform:translateX(-120%)}100%{transform:translateX(380%)}}
+  #s1BoatLoader .status{color:#dbe9fa;font-weight:700;font-size:14px;min-height:1.3em;}
+  @media(prefers-reduced-motion:reduce){#s1BoatLoader .bar>i{animation:none;width:60%}}
+  /* With the resize running, the fixed height in the page block is replaced,
+     so the frame must not keep its minimum. */
+  html.s1boat-live #s1BoatForm{height:900px;}
+</style>
+
+<script>
+(function(){
+  function start(){
+    var frame = document.getElementById('s1BoatForm');
+    if(!frame) return;                       /* not this page — do nothing */
+    var wrap = frame.parentNode;
+    if(!wrap) return;
+    document.documentElement.className += ' s1boat-live';
+
+    /* --- 1 + 2: resize, and forward the tool's scroll ------------------- */
+    window.addEventListener('message', function(e){
+      if(!e || !e.data) return;
+      if(typeof e.data.smart1boatHeight === 'number'){
+        frame.setAttribute('scrolling','no');
+        frame.style.height = (e.data.smart1boatHeight + 20) + 'px';
+      }
+      if(e.data === 'smart1boat-scroll-top'){
+        var t = document.getElementById('get-report');
+        if(t){
+          var y = t.getBoundingClientRect().top + window.pageYOffset - 76;
+          window.scrollTo({ top: (y < 0 ? 0 : y), behavior: 'smooth' });
+        }
+      }
+    });
+
+    /* --- 3: pre-warm behind a branded loader ---------------------------- */
+    var src = frame.getAttribute('src');
+    if(!src) return;
+
+    /* Re-point the frame at nothing and load it on our own schedule, so the
+       Render wake-up happens behind the loader rather than in front of the
+       visitor. Done here rather than in the page block so that block stays
+       correct on its own: it ships a real src that loads immediately. */
+    frame.removeAttribute('src');
+
+    var loader = document.createElement('div');
+    loader.id = 's1BoatLoader';
+    loader.innerHTML =
+      '<img src="https://content.app-sources.com/s/30680510049142132/uploads/Our_Products_/logo-final-cmyk-hz1line-white-9562849.png?format=webp" alt="Smart 1 Marketing">' +
+      '<div class="bar"><i></i></div>' +
+      '<div class="status">Waking up the market engine&hellip;</div>';
+    wrap.appendChild(loader);
+
+    var STEPS = ['Waking up the market engine…','Charting your local waters…','Mapping marinas, ramps & lakes…','Locating in-market boat buyers…','Reading the weather signals…','Building your demand report…'];
+    var si = 0, statusEl = loader.querySelector('.status');
+    var statusTimer = setInterval(function(){ si=(si+1)%STEPS.length; statusEl.textContent = STEPS[si]; }, 2200);
+
+    var warmed=false, revealed=false, startTime=0, quietTimer=null;
+    var MIN_SHOW=1400, QUIET=4000, HARD_CAP=45000;
+
+    function warm(){
+      if(warmed) return; warmed = true;
+      startTime = Date.now();
+      frame.src = src;
+      setTimeout(reveal, HARD_CAP);          /* safety net: never trap them */
+    }
+    function reveal(){
+      if(revealed) return; revealed = true;
+      var wait = Math.max(0, MIN_SHOW - (Date.now() - startTime));
+      setTimeout(function(){
+        clearInterval(statusTimer);
+        loader.className = 'hide';
+        setTimeout(function(){ loader.style.display = 'none'; }, 500);
+      }, wait);
+    }
+
+    /* Best signal: the tool says its form is on screen. */
+    window.addEventListener('message', function(e){ if(e && e.data === 'app-ready') reveal(); });
+    /* Fallback: the frame loaded and went quiet. */
+    frame.addEventListener('load', function(){
+      if(!warmed) return;
+      clearTimeout(quietTimer);
+      quietTimer = setTimeout(reveal, QUIET);
+    });
+
+    var anchor = document.getElementById('get-report');
+    if('IntersectionObserver' in window && anchor){
+      var io = new IntersectionObserver(function(ents){
+        if(ents[0].isIntersecting){ warm(); io.disconnect(); }
+      }, {rootMargin:'700px'});
+      io.observe(anchor);
+    } else {
+      warm();
+    }
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#s1boat a[href="#get-report"]'),
+      function(a){ a.addEventListener('mouseenter', warm); });
+  }
+
+  /* Header code runs before the page block exists, so wait for it. */
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})();
+</script>
