@@ -195,6 +195,19 @@ Cloudinary through `cloudinary_service.upload_asset`, the way rendered
 commercials already were, and the storyboard says out loud when a mirror
 failed and it is showing you a link that will die.
 
+**A module in the repo is not a module in the app.** `modules/ads_builder`
+--- Smart 1 Ads, 1,745 lines of Google Ads campaign operations --- sat in this
+repo unreachable for months. Nothing was broken: `hub/extensions.py` provisioned
+its database, `hub/client_key.py` read its proposals table, `test_ads_module.py`
+passed in CI on every pull request, and `hub/demos.py` walked staff to
+`/tools/ads`, which 404'd. It shipped with an installer that made the four edits
+registering it --- the `wsgi.py` mount, the sidebar entry, the tile and the env
+block --- against "a Hub checkout", and nobody ever ran it against this one.
+A module is mounted in `wsgi.py` or registered in `hub/__init__.py`; anything
+else is a directory. The tile rule below is the same failure one step later, and
+`tools/linkcheck.py` will tell you a path does not resolve --- it had
+`/tools/ads/` on an allowlist saying so, with the installer named as the excuse.
+
 **The Render disk is not backed up. The database is.** Render backs up managed
 Postgres; the 5 GB disk at `/var/data` is outside that, and a plan change,
 region move or resize hands back an empty one. Anything whose only copy was a
@@ -995,7 +1008,7 @@ python tools/linkcheck.py          # every internal URL resolves
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python3 test_jsonstore.py          # the database mirror really restores
-python3 test_ads_module.py         # the Node ad builder behind its proxy
+python3 test_ads_module.py         # Smart 1 Ads, and the Node ad builder's links
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math
@@ -1069,9 +1082,11 @@ left. Neither is redundant — jscheck is stricter on what it can read, and
 checktemplates is the only thing that reads the rest.
 
 `tools/integritycheck.py` runs `/api/integrity` from the command line and
-fails on `high` findings. Two `medium` ones stand today (`ad_builder` and
-`msa` never write to the activity log); it prints them every run rather than
-failing on them, so switching it on did not start life red.
+fails on `high` findings. Six `medium`/`low` ones stand today — `ad_builder`
+never writes to the activity log (`msa` since does), one unclamped `?limit=`,
+and four modules reading a provider key under one spelling only; it prints them
+every run rather than failing on them, so switching it on did not start life
+red.
 
 Then boot through `wsgi.application` (not just the hub app — that's how mount
 shadowing hides) and request the pages you touched. `/api/integrity` reports

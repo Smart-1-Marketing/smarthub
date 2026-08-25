@@ -65,12 +65,12 @@ EXTS = ("html", "py", "js", "ts", "tsx", "jsx")
 SKIP_PREFIXES = ("modules/ad_builder/", "tools/linkcheck.py",
                  "test_ads_module.py", "test_alt_text.py")
 
-# Known-good references that are not links in the running app:
-#   install_into_hub.py  writes the mount that would then serve /tools/ads/
-#   ui_check.py          is a standalone harness that serves it on its own port
-ALLOW = {
-    "/tools/ads/": ("install_into_hub.py", "ui_check.py"),
-}
+# Known-good references that are not links in the running app. Empty today:
+# /tools/ads/ lived here while Smart 1 Ads shipped in the repo unmounted, and
+# came out when wsgi.py started serving it. An entry here is a promise that a
+# path is unroutable on purpose, so it has to come out the moment that stops
+# being true -- otherwise this file excuses a real break.
+ALLOW: dict[str, tuple[str, ...]] = {}
 
 PATTERNS = [
     ("attr", re.compile(

@@ -3907,6 +3907,34 @@ def create_hub_app() -> Flask:
             "Client ID + secret configured. Manage connected accounts in the Google module."
             if gid and gsec else "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set — Google module disabled.")
 
+        # --- Smart 1 Ads ---
+        # Asked of the module rather than read off the environment, for the
+        # reason the video library's check gives: "no credentials", "credentials
+        # but nobody has authorised" and "connected" are three different jobs,
+        # and only the module can tell them apart. The developer token is the
+        # one with lead time on it -- Google approves it -- so it is named.
+        try:
+            from modules.ads_builder import google_ads as _ads_ga, store as _ads_store
+            ads_st = _ads_ga.connection_status(_ads_store)
+            if ads_st["missing"]:
+                add("Smart 1 Ads", "skipped",
+                    "Not connected — " + ", ".join(ads_st["missing"]) + " not set. "
+                    "The tool is mounted at /tools/ads and its settings page lists "
+                    "these; GOOGLE_ADS_DEVELOPER_TOKEN is applied for in the Google "
+                    "Ads manager account under Tools → API Center.")
+            elif not ads_st["connected"]:
+                add("Smart 1 Ads", "warn",
+                    "Credentials set but no account authorised yet — open "
+                    "/tools/ads/settings and click Connect Google Ads.")
+            else:
+                add("Smart 1 Ads", "ok",
+                    f"Connected via {ads_st['refresh_token_source']} · API "
+                    f"{ads_st['api_version']}"
+                    + (f" · MCC {ads_st['login_customer_id']}"
+                       if ads_st["login_customer_id"] else "") + ".")
+        except Exception as _ads_exc:  # noqa: BLE001
+            add("Smart 1 Ads", "warn", f"Could not be checked: {_ads_exc}")
+
         # --- QuickBooks ---
         from . import quickbooks as qb
         if not qb.configured():

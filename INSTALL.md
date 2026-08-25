@@ -1,82 +1,26 @@
-# Smart 1 Ads — v6.1ads
+# Smart 1 Ads — connecting Google Ads
 
-Google Ads campaign operations as a Smart 1 Hub module. Mounts at `/tools/ads`,
-behind the Hub's existing login. No second password, no separate URL.
+Google Ads campaign operations, mounted at `/tools/ads` behind the Hub's
+existing login. No second password, no separate URL.
 
----
+The module is **mounted and running**; what it does not have is credentials.
+Unconnected it is not broken — `/tools/ads/settings` and the System Status page
+both name each variable that is missing — but nothing can be read from or
+written to a Google Ads account until the four below are set.
 
-## Install
+## What has to happen, in order
 
-```bash
-python3 install_into_hub.py /path/to/smarthub-main
-```
+1. **Apply for a developer token** in the Google Ads *manager* account →
+   Tools → API Center. Google approves this; it is not self-issued, and it is
+   the step with lead time on it. A token starts in Test Account access, which
+   reaches test accounts only — production access is a second approval.
+2. **Create the OAuth client** in Google Cloud Console (below).
+3. **Set the environment variables** on the Render service and redeploy.
+4. Open `/tools/ads/settings` → **Connect Google Ads**, then paste the refresh
+   token it shows once back into `GOOGLE_ADS_REFRESH_TOKEN` to pin it.
 
-That copies `modules/ads_builder/` in and makes four small edits. Every edit is
-idempotent and writes a `.bak` first, so re-running it is safe. Use `--dry-run`
-to see what it would touch.
-
-Then set the environment variables below, redeploy, and open
-`/tools/ads/settings` → **Connect Google Ads**.
-
-**No new Python dependencies.** Flask, `requests` and SQLAlchemy are already in
-the Hub's `requirements.txt`; the module uses nothing else.
-
----
-
-## What the installer changes
-
-If you would rather patch by hand, these are the four edits.
-
-### 1. `wsgi.py` — three additions
-
-In `_MOUNT_ACTIVE`, so the sidebar highlights correctly:
-
-```python
-    "/tools/image": "tools", "/tools/pdf": "tools",
-    "/tools/ads": "ads",
-```
-
-Just above `def _mount(...)`, alongside the other module loads:
-
-```python
-try:
-    import importlib as _il3
-    adsb = _il3.import_module("modules.ads_builder.app")
-    adsb_fb = None
-except Exception as _ads_exc:  # noqa: BLE001
-    import traceback
-    traceback.print_exc()
-    adsb, adsb_fb = None, _fallback_app("Smart 1 Ads", str(_ads_exc))
-```
-
-In the `DispatcherMiddleware` table:
-
-```python
-    "/tools/ads": _mount(adsb.app, "/tools/ads") if adsb else adsb_fb,
-```
-
-If the module ever fails to import, `_fallback_app` shows a plain explanation on
-that one page and the rest of the Hub keeps working — the same pattern the other
-modules use.
-
-### 2. `hub/sidebar.py` — a new section in `_ITEMS`, above Sales
-
-```python
-    ("_secads", "", "", "Ads"),
-    ("ads", "/tools/ads/", "&#9679;", "Smart 1 Ads"),
-```
-
-### 3. `hub/templates/tools.html` — one more tile
-
-```html
-  <a class="tool-tile" href="/tools/ads/">
-    <div class="t-ico">&#128200;</div>
-    <h3>Smart 1 Ads</h3>
-    <p>Google Ads campaign operations …</p>
-  </a>
-```
-
-### 4. `env.example` — the `GOOGLE_ADS_*` block
+No new Python dependencies — Flask, `requests` and SQLAlchemy are already in
+`requirements.txt`, and the mount is in `wsgi.py` alongside every other module.
 
 ---
 
@@ -88,7 +32,7 @@ modules use.
 | `GOOGLE_ADS_CLIENT_SECRET` | Same screen |
 | `GOOGLE_ADS_DEVELOPER_TOKEN` | Google Ads **manager** account → Tools → API Center |
 | `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | Your MCC id, digits only, no dashes |
-| `GOOGLE_ADS_REDIRECT_URI` | `https://YOUR-HUB-URL/tools/ads/oauth/callback` |
+| `GOOGLE_ADS_REDIRECT_URI` | `https://smart1-hub.onrender.com/tools/ads/oauth/callback` |
 | `GOOGLE_ADS_REFRESH_TOKEN` | Shown once after you connect — paste it back to pin it |
 | `GOOGLE_ADS_API_VERSION` | Optional, defaults to `v25` |
 
@@ -104,8 +48,8 @@ proposal tools — nothing new to set.
 
 1. **APIs & Services → Library** → enable **Google Ads API**.
 2. Your OAuth 2.0 Client ID (Web application):
-   - Authorised JavaScript origins: your Hub URL
-   - Authorised redirect URIs: `https://YOUR-HUB-URL/tools/ads/oauth/callback`
+   - Authorised JavaScript origins: `https://smart1-hub.onrender.com`
+   - Authorised redirect URIs: `https://smart1-hub.onrender.com/tools/ads/oauth/callback`
      — character for character, trailing slash included.
 3. **OAuth consent screen** → scope `https://www.googleapis.com/auth/adwords`.
    Add yourself under Test users while the app is in Testing.
@@ -191,7 +135,6 @@ modules/ads_builder/
 └── templates/             ads_base, campaigns, generator, approvals,
                            proposal, client_proposal, activity, settings,
                            connected, error
-install_into_hub.py        idempotent installer
 test_ads_module.py         API + deploy-payload assertions
 ui_check.py                headless browser pass, writes ./shots
 ```

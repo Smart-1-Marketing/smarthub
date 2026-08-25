@@ -53,6 +53,20 @@ services:
         sync: false
       - key: FLASK_SECRET_KEY
         generateValue: true
+      # ---- Smart 1 Ads (/tools/ads) ----
+      # Unset, the module serves its own settings page naming what is missing.
+      - key: GOOGLE_ADS_CLIENT_ID
+        sync: false
+      - key: GOOGLE_ADS_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_ADS_DEVELOPER_TOKEN
+        sync: false
+      - key: GOOGLE_ADS_LOGIN_CUSTOMER_ID
+        sync: false
+      - key: GOOGLE_ADS_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_ADS_REFRESH_TOKEN
+        sync: false
       # ---- Smart 1 Marketing sub-account (GHL) ----
       - key: SUITE_COMPANY_ID
         sync: false

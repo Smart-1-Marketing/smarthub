@@ -35,6 +35,10 @@ _ITEMS = [
     # reads as though it might be the section header repeated, and gives no
     # hint of what is behind it. The URL is unchanged.
     ("tools", "/tools", "&#128295;", "Client Tools"),
+    # Media buying sits in the nav rather than only on the Tools page:
+    # it is the one tool here that can start spend in a client's own
+    # account, and it is opened directly rather than looked up.
+    ("ads", "/tools/ads/", "&#128227;", "Smart 1 Ads"),
     ("qa", "/qa", "&#9989;", "QA Reports"),
     ("_secseo", "", "", "SEO"),
     ("seo", "/seo", "&#128269;", "SEO Clients"),
