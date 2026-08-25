@@ -181,7 +181,7 @@ def guess_fieldmap(fields, spec=None):
             continue                      # already pinned
         best, best_score = None, 0.0
         for field in fields:
-            fname = text(field.get("name")).lower().strip()
+            fname = text(field.get("name") or field.get("label")).lower().strip()
             if not fname or field.get("key") in used:
                 continue
             score = 0.0
