@@ -88,6 +88,9 @@ HUB_PAGES = [
     # table from JavaScript.
     "/tools/domains",
     "/tools/google-match",
+    # Same shape again, and it hands the browser its field ids in a JSON
+    # script block — the thing this checker learned to tell apart from code.
+    "/tools/campaign-assets",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:

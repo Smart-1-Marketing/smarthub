@@ -74,8 +74,32 @@ F_CREATIVE_URLS    = [f.strip() for f in (
 F_DISPLAY_CLICK    = "field_2414"   # Display Click Thru URL
 F_GEO              = "field_2546"   # Geographic Target
 
+# --- What the campaign is still waiting on --------------------------------
+# Two questions ad operations asks of every product before it can build the
+# campaign, both answered on the product record and neither read until now:
+# what needs clarifying, and what extra assets are outstanding. Read by
+# hub/campaign_assets.py. Overridable by environment variable like the ticket
+# ids in hub/knack_api.py, because these three were pinned from the field
+# numbers alone — if one is renumbered this is one variable rather than a
+# hunt, and campaign_assets.field_check() reports what Knack calls each of
+# them so a wrong id shows up as a wrong label rather than as an empty list.
+F_CLARIFICATION    = os.environ.get(
+    "KNACK_CLARIFICATION_FIELD", "field_2742")     # Clarification needed
+F_ASSETS_FLAG      = os.environ.get(
+    "KNACK_ASSETS_FLAG_FIELD", "field_2346")       # Additional assets needed?
+F_ASSETS_NEEDED    = os.environ.get(
+    "KNACK_ASSETS_NEEDED_FIELD", "field_2347")     # ...and what they are
+
 CACHE_NAME = "knack_products.json"
 DEFAULT_TTL_MINUTES = 180
+
+# Bumped whenever _row() starts carrying a key it did not carry before. The
+# cache holds flattened rows, so one written by an older build is missing that
+# key on *every* row — and a missing key reads on a report as "nothing
+# outstanding", which is the confidently wrong zero this codebase keeps having
+# to undo. An older cache is therefore stale by definition, however recently
+# it was written, and rows() refetches rather than serving it.
+FIELDS_VERSION = 2
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +137,25 @@ def _text(v) -> str:
         return ""
     s = re.sub(r"<[^>]+>", " ", str(v))
     return re.sub(r"\s+", " ", s).strip()
+
+
+_TRUE = {"yes", "y", "true", "1", "checked", "on"}
+
+
+def _bool(v) -> bool:
+    """A Knack tickbox, whichever way the field is published.
+
+    The same field arrives as a JSON boolean, as the string "Yes" from a
+    yes/no dropdown, or as 1 — and it can change shape when somebody edits
+    the form. `domain_purchase.is_ours()` learned this on field_2964: a True
+    read as the string "True" is as wrong as a "Yes" read as nothing, and
+    both fail by dropping a row off a list nobody then knows is short.
+    """
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(v)
+    return _text(v).strip().lower() in _TRUE
 
 
 def _money(v) -> float:
@@ -170,6 +213,14 @@ def _row(rec: dict) -> dict:
         "display_url": (_href(rec.get(F_DISPLAY_CLICK))
                         or _text(rec.get(F_DISPLAY_CLICK))),
         "geo": _text(rec.get(F_GEO)),
+        # Both are carried raw. Whether the "additional assets" text counts
+        # as an ask is gated on the tickbox, and that gate lives in one place
+        # — hub/campaign_assets.asset_ask() — rather than being applied
+        # here, where a row that carries text with the box unticked would
+        # become indistinguishable from a row that carries no text at all.
+        "clarification": _text(rec.get(F_CLARIFICATION)),
+        "assets_flag": _bool(rec.get(F_ASSETS_FLAG)),
+        "assets_needed": _text(rec.get(F_ASSETS_NEEDED)),
     }
 
 
@@ -193,7 +244,8 @@ def _read_cache() -> dict:
 
 def _write_cache(rows: list[dict]) -> None:
     from . import jsonstore
-    payload = {"fetched": time.time(), "count": len(rows), "rows": rows}
+    payload = {"fetched": time.time(), "count": len(rows), "rows": rows,
+               "fields_version": FIELDS_VERSION}
     # durable=False, and this is the file the distinction was written for.
     # It is every product on every IO — the largest thing on the disk — and
     # the scheduler re-pulls it from Knack every three hours, so backing it up
@@ -277,25 +329,38 @@ def rows(max_age_minutes: int | None = None) -> dict:
         os.environ.get("KNACK_PRODUCTS_TTL_MINUTES") or DEFAULT_TTL_MINUTES)
     cache = _read_cache()
     age = (time.time() - cache.get("fetched", 0)) / 60 if cache else 1e9
+    # A cache written before a field was added to _row() is missing that key
+    # on every row. Age cannot see that, so it is asked separately.
+    old_fields = (bool(cache)
+                  and int(cache.get("fields_version") or 1) != FIELDS_VERSION)
 
-    if cache and age <= ttl:
+    if cache and age <= ttl and not old_fields:
         return {"rows": cache.get("rows", []), "source": "knack",
-                "age_minutes": round(age), "count": cache.get("count", 0)}
+                "age_minutes": round(age), "count": cache.get("count", 0),
+                "fields_version": int(cache.get("fields_version") or 1)}
 
     if configured():
         got = fetch()
         if got:
             _write_cache(got)
             return {"rows": got, "source": "knack", "age_minutes": 0,
-                    "count": len(got)}
+                    "count": len(got), "fields_version": FIELDS_VERSION}
 
     if cache.get("rows"):
         # Stale beats empty: a blank client record reads as "no products",
         # which is a different and wrong statement.
+        note = ("Knack couldn't be reached — showing the last "
+                "successful pull.")
+        if old_fields:
+            # Said out loud, because the rows are complete for everything
+            # that was being read when they were written and empty for
+            # everything added since — and only one of those is visible.
+            note += (" It predates the current field map, so any field added "
+                     "since is absent from these rows rather than blank.")
         return {"rows": cache["rows"], "source": "knack (stale)",
                 "age_minutes": round(age), "count": cache.get("count", 0),
-                "note": "Knack couldn't be reached — showing the last "
-                        "successful pull."}
+                "fields_version": int(cache.get("fields_version") or 1),
+                "note": note}
 
     return _from_export()
 
@@ -312,12 +377,13 @@ def _from_export() -> dict:
         raw = data if isinstance(data, list) else data.get("records", [])
         return {"rows": raw, "source": "static export",
                 "age_minutes": round((time.time() - mtime) / 60),
-                "count": len(raw),
+                "count": len(raw), "fields_version": 0,
                 "note": "From the committed JSON export, which nothing "
                         "refreshes. Set KNACK_APP_ID and KNACK_API_KEY to "
                         "read live."}
     except Exception:                                   # noqa: BLE001
         return {"rows": [], "source": "none", "age_minutes": None, "count": 0,
+                "fields_version": 0,
                 "note": "No live connection and no export on disk."}
 
 
