@@ -280,7 +280,16 @@ def read_products(products: list, months: int = 1) -> list[dict]:
                  # The reader calls its figure "monthly" because that is what a
                  # proposal usually quotes -- but it read a dollar sign, not a
                  # billing cadence, so nothing here assumes one.
-                 "basis": "", "term_months": "", "description": ""}
+                 "basis": "", "term_months": "", "description": "",
+                 # What the document said about WHEN this line runs. A
+                 # proposal writes "(September - November)" beside a product
+                 # and means that product only; the campaign header above it
+                 # says something else. Carried verbatim as well as parsed,
+                 # because a month with no year is not a date and must not be
+                 # turned into one here.
+                 "start": (raw or {}).get("start", ""),
+                 "end": (raw or {}).get("end", ""),
+                 "dates_note": (raw or {}).get("dates_note", "")}
         entry["question"] = question_for(entry)
         out.append(entry)
     return out
@@ -299,3 +308,177 @@ def summary(entries: list) -> dict:
         "unresolved": [e.get("query") or e.get("product") for e in unresolved],
         "ok": not unresolved,
     }
+
+
+# ---------------------------------------------------------------------------
+# The model as a second matcher
+#
+# `classify()` above is word overlap against the rate card. It is right about
+# the products a proposal names the way the card names them, and it is exactly
+# as good as the vocabulary the two happen to share -- which on a real document
+# is not very. "Stadium to Screen", "Monthly YouTube Sales Video", "ChatGPT /
+# AI Advertising", "Website SEO & Listings": a proposal writes what was sold,
+# and the card writes a product code with its selling copy stapled to it.
+#
+# Every one of those arrives as `near` or `unknown`, and the rep then picks the
+# product out of a candidate list assembled by counting shared words. That is a
+# decision per product, ten times, on the document that bills.
+#
+# So the model gets a look at whatever the card could not settle. Four rules
+# make that safe, and each one is a way this goes quietly wrong without it:
+#
+#   1. **It never sets `product`.** The suggestion lands in `suggested`, is
+#      offered first in the question, and the rep confirms it. A model-chosen
+#      product written straight onto an insertion order is the error nobody
+#      catches until it bills -- exactly what `classify()` refuses to do with
+#      its own best candidate, for the same reason.
+#   2. **Only a name the card actually holds survives.** Anything the model
+#      returns goes back through `rc.find()`, and a product that does not
+#      resolve is dropped rather than shown. A plausible invented product name
+#      is worse than no suggestion.
+#   3. **One call for the whole list.** Ten products is ten round trips
+#      otherwise, on a screen a rep is waiting at.
+#   4. **It never raises and never blocks.** No key, no model, a timeout, bad
+#      JSON: the result is the card's own matching, exactly as today.
+# ---------------------------------------------------------------------------
+
+AI_MAX_PRODUCTS = 25
+
+
+def _catalogue_names() -> list[str]:
+    """Every product the card holds, short enough to put in a prompt."""
+    rc = _card()
+    if rc is None:
+        return []
+    names, seen = [], set()
+    for prod in rc.products():
+        name = short_name(prod.get("product", ""))
+        key = _norm(name)
+        if name and key not in seen:
+            seen.add(key)
+            names.append(name)
+    return names
+
+
+_AI_MATCH_SYSTEM = (
+    "You map advertising products a proposal named onto a fixed rate card. "
+    "You only ever answer with a product that appears on the card given to "
+    "you, copied exactly as it is written there. When nothing on the card is "
+    "the same product, you answer with an empty string rather than the "
+    "nearest-looking row -- a wrong product goes onto an insertion order and "
+    "bills. Reply with JSON only."
+)
+
+
+def ai_match(entries: list, catalogue: list | None = None) -> list:
+    """Ask the model about the lines the card could not settle.
+
+    Mutates and returns `entries`. A line the card matched outright is left
+    alone: the card is the authority on its own products, and re-asking is
+    both a wasted decision and a chance to disagree with it.
+    """
+    rows = [e for e in (entries or [])
+            if e and not e.get("product") and (e.get("query") or "")]
+    if not rows:
+        return entries
+    rows = rows[:AI_MAX_PRODUCTS]
+
+    try:
+        from . import ai
+    except Exception:                                       # noqa: BLE001
+        return entries
+    if not ai.ready():
+        return entries
+
+    names = catalogue if catalogue is not None else _catalogue_names()
+    if not names:
+        return entries
+
+    asked = [{"quoted": e.get("query", ""),
+              "note": str(e.get("note") or "")[:160],
+              "card_suggested": [c.get("product", "")
+                                 for c in (e.get("candidates") or [])[:MAX_CANDIDATES]]}
+             for e in rows]
+
+    prompt = (
+        "Here is the rate card, one product per line:\n"
+        + "\n".join(f"  - {n}" for n in names)
+        + "\n\nHere are the products a proposal named. For each one, give the "
+          "rate-card product that is the same thing.\n\n"
+        + _json_dumps(asked)
+        + "\n\nReturn:\n"
+          '{"matches": [{"quoted": "", "product": "", "confidence": "high|'
+          'medium|low", "why": ""}]}\n\n'
+          "Rules:\n"
+          "- `product` must be copied character for character from the card "
+          "above, or be an empty string.\n"
+          "- Match on what the product IS, not on shared words. A proposal's "
+          "name is written for the client; the card's is written for billing.\n"
+          "- Empty string when the card has nothing that does the same job. "
+          "Saying so is useful; guessing is not.\n"
+          "- `why` is one short clause a salesperson would recognise.\n"
+          "- Answer for every item, in the order given."
+    )
+
+    try:
+        out = ai.chat_json(
+            [{"role": "system", "content": _AI_MATCH_SYSTEM},
+             {"role": "user", "content": prompt}],
+            module="io_builder", purpose="product_match",
+            max_tokens=1200,
+            # Matching a name to a catalogue is a lookup, not a composition:
+            # the same proposal has to map the same way twice.
+            temperature=0)
+    except Exception:                                       # noqa: BLE001
+        return entries
+    if not isinstance(out, dict):
+        return entries
+
+    by_query = {}
+    for item in (out.get("matches") or [])[:AI_MAX_PRODUCTS]:
+        if not isinstance(item, dict):
+            continue
+        by_query[_norm(item.get("quoted"))] = item
+
+    rc = _card()
+    for pos, entry in enumerate(rows):
+        item = by_query.get(_norm(entry.get("query")))
+        if item is None and pos < len(out.get("matches") or []):
+            # The model answered in order but renamed the key. Positional
+            # fallback, because dropping a whole batch over a paraphrase is
+            # the wrong trade -- and every name still has to resolve below.
+            cand = (out.get("matches") or [])[pos]
+            item = cand if isinstance(cand, dict) else None
+        if not item:
+            continue
+        picked = str(item.get("product") or "").strip()
+        if not picked:
+            continue
+        hit = rc.find(picked) if rc is not None else None
+        if not hit or not hit.get("product"):
+            # Not on the card. This is the guard that matters: a model that
+            # invents "Connected TV - Local" produces a product code nothing
+            # downstream recognises, on a document nobody re-reads.
+            continue
+        entry["suggested"] = hit.get("product", "")
+        entry["suggested_category"] = hit.get("category", "")
+        entry["suggested_by"] = "ai"
+        entry["suggested_confidence"] = str(
+            item.get("confidence") or "").strip().lower()[:10]
+        entry["suggested_why"] = str(item.get("why") or "").strip()[:160]
+        # Offered first in the question. Still a candidate, still confirmed --
+        # the ordering is the only thing the model buys the rep here.
+        cands = [c for c in (entry.get("candidates") or [])
+                 if _norm(c.get("product")) != _norm(hit.get("product"))]
+        entry["candidates"] = [{"product": hit.get("product", ""),
+                                "category": hit.get("category", ""),
+                                "listed_rate": hit.get("listed_rate", "")}
+                               ] + cands
+        entry["status"] = NEAR
+        entry["question"] = question_for(entry)
+    return entries
+
+
+def _json_dumps(value) -> str:
+    import json
+    return json.dumps(value, ensure_ascii=False)

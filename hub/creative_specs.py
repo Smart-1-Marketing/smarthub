@@ -1,5 +1,14 @@
 """The 2025 Creative Spec Kit, as data.
 
+The IO Builder's upload manager now names the **2026** kit on screen, because
+that is the edition a rep is working from. Every number below is still
+transcribed from S1M CREATIVE SPEC KIT 2025 and has NOT been re-checked
+against 2026 — `catalogue()`'s `source` string says so, and it is the one
+place that makes a claim about provenance. When the 2026 kit is transcribed,
+the numbers and that string change together; until then the year on a button
+and the year a dimension came from are different facts, and only one of them
+has been verified.
+
 Every number here is transcribed from S1M CREATIVE SPEC KIT 2025. When the kit
 is revised, this file is what changes — not a regex inside a template.
 

@@ -242,7 +242,9 @@ _AI_SCHEMA = """Return this shape, omitting anything the document does not state
   "term_months": 0,
   "start_date": "YYYY-MM-DD",
   "end_date": "YYYY-MM-DD",
-  "products": [{"name": "", "monthly": 0, "note": ""}],
+  "products": [{"name": "", "monthly": 0, "note": "",
+                "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD",
+                "dates_note": ""}],
   "ambiguities": ["a short question about anything vague, optional or ranged"]
 }
 
@@ -250,6 +252,13 @@ Rules:
 - Amounts are plain numbers: 4500, not "$4,500/mo".
 - monthly_budget is the recurring monthly spend. campaign_total is the whole
   term. Do not compute one from the other; only report what is stated.
+- A product often carries its own flight — "(September - November)",
+  "(Beginning November)", "months 1-3". Put whatever the document wrote in
+  that product's `dates_note`, word for word.
+- Only fill a product's start_date/end_date when the document gives a day,
+  a month AND a year for it. A month with no year is not a date: leave both
+  fields out and let dates_note carry it. Never copy the campaign's dates
+  onto a product that did not state its own.
 - For each product use the closest name from this list where one clearly
   fits, otherwise the document's own wording:
 """
@@ -405,7 +414,11 @@ def _ai_read(client: str, text: str, filename: str = "") -> dict | None:
             continue
         products.append({"name": nm,
                          "monthly": _num(item.get("monthly")),
-                         "note": str(item.get("note") or "").strip()[:200]})
+                         "note": str(item.get("note") or "").strip()[:200],
+                         "start": _iso(item.get("start_date")),
+                         "end": _iso(item.get("end_date")),
+                         "dates_note": str(item.get("dates_note")
+                                           or "").strip()[:120]})
 
     def txt(key, limit=200):
         return str(out.get(key) or "").strip()[:limit]
@@ -598,16 +611,23 @@ def from_proposal(client: str, text: str, filename: str = "") -> dict:
                    "contact and website?")
 
     read_by = "patterns"
+    # Two figures for the same thing, an option the document left open: these
+    # used to join `ask` and be printed as bullets under the summary, which is
+    # where the whole decision went to die. A conflict is a QUESTION -- it has
+    # a shape, it has answers, and the interview asks it before it asks
+    # anything else. `ask` keeps only what is genuinely a note.
+    conflicts: list[dict] = []
     ai = _ai_read(client, text, filename)
     if ai:
         read_by = "ai"
-        _merge_ai(ai, fields, sources, found, ask, client)
+        _merge_ai(ai, fields, sources, found, ask, client, conflicts)
 
     return {
         "mode": "proposal", "client": client or "", "filename": filename,
         "fields": fields, "sources": sources,
         "found": found,
         "ask": ask,
+        "conflicts": conflicts,
         "read_by": read_by,
         "note": ("Read from the proposal and NOT confirmed. A proposal carries "
                  "options and ranges, not committed numbers — check every "
@@ -619,7 +639,7 @@ def from_proposal(client: str, text: str, filename: str = "") -> dict:
 
 
 def _merge_ai(ai: dict, fields: dict, sources: dict, found: list,
-              ask: list, client: str) -> None:
+              ask: list, client: str, conflicts: list | None = None) -> None:
     """Fold the model's reading into what the patterns already found.
 
     Mutates in place, because the caller owns the payload and this is the only
@@ -630,6 +650,9 @@ def _merge_ai(ai: dict, fields: dict, sources: dict, found: list,
     than a decision, since the whole failure this feature exists to prevent is
     an IO carrying a figure nobody agreed to.
     """
+    if conflicts is None:
+        conflicts = []
+
     def put(key, value, *, note=""):
         """Set a field the patterns did not fill. Always needs_review."""
         if value in (None, "", 0, 0.0):
@@ -667,15 +690,24 @@ def _merge_ai(ai: dict, fields: dict, sources: dict, found: list,
         if any(_close(pat_monthly, m) for m in line_items):
             fields["monthly_budget"] = f"{ai_monthly:,.2f}"
             sources["monthly_budget"] = "needs_review"
-            ask.insert(0, f"The proposal totals ${ai_monthly:,.2f}/month across "
-                          f"its channels, one of which is ${pat_monthly:,.2f} — "
-                          f"is the total the agreed budget?")
+            conflicts.append({
+                "field": "monthly_budget", "kind": "total_vs_line",
+                "question": (f"The proposal totals ${ai_monthly:,.2f}/month "
+                             f"across its channels, one of which is "
+                             f"${pat_monthly:,.2f}. Which figure is the agreed "
+                             f"monthly budget?"),
+                "options": [f"{ai_monthly:,.2f}", f"{pat_monthly:,.2f}"],
+                "suggested": f"{ai_monthly:,.2f}"})
         else:
             # Genuinely two different figures. Neither is chosen here: that is
             # the difference between a quote and a bill.
-            ask.insert(0, f"The proposal reads as ${pat_monthly:,.2f}/month in "
-                          f"one place and ${ai_monthly:,.2f}/month in another "
-                          f"— which is the agreed figure?")
+            conflicts.append({
+                "field": "monthly_budget", "kind": "two_figures",
+                "question": (f"The proposal reads as ${pat_monthly:,.2f}/month "
+                             f"in one place and ${ai_monthly:,.2f}/month in "
+                             f"another. Which is the agreed monthly budget?"),
+                "options": [f"{pat_monthly:,.2f}", f"{ai_monthly:,.2f}"],
+                "suggested": ""})
     elif ai_monthly:
         put("monthly_budget", f"{ai_monthly:,.2f}",
             note=f"monthly budget ${ai_monthly:,.2f}")
@@ -714,7 +746,10 @@ def _merge_ai(ai: dict, fields: dict, sources: dict, found: list,
             continue
         names.append(name)
         detail.append({"product": name, "monthly": item.get("monthly") or 0.0,
-                       "note": item.get("note", "")})
+                       "note": item.get("note", ""),
+                       "start": item.get("start", ""),
+                       "end": item.get("end", ""),
+                       "dates_note": item.get("dates_note", "")})
 
     if detail:
         fields["products_detail"] = detail
@@ -738,3 +773,127 @@ def _merge_ai(ai: dict, fields: dict, sources: dict, found: list,
     for q in ai.get("ambiguities") or []:
         if q not in ask:
             ask.append(q)
+
+
+# ---------------------------------------------------------------------------
+# Flights the document disagrees with itself about
+#
+# A proposal quotes a campaign and then qualifies half its lines: "Enhanced SEO
+# + AI Optimization — $1,400/mo (September - October 2026)", "Meta In-Market
+# Home Buyers — $750/mo (September - November)", "ChatGPT / AI Advertising —
+# $400/mo (Beginning November)". The header above them says the campaign runs
+# September through December.
+#
+# Read as one flight, every one of those products bills for the wrong number of
+# months, and the IO looks right while it does it. Read as nothing, they are
+# dropped and the rep retypes them from the PDF.
+#
+# So the disagreements are collected and *asked*, one per product, with the
+# document's own wording quoted back. Two of them are genuinely different
+# questions and the distinction is the point:
+#
+#   stated    the document gave a real date pair for this product and it is
+#             not the campaign's. Confirm it -- that is usually deliberate.
+#   unresolved  the document gave a window with no year, or an open end
+#             ("Beginning November"). There is nothing here to confirm; the
+#             rep supplies the dates. A month name turned into a date by this
+#             module is a launch date nobody agreed.
+# ---------------------------------------------------------------------------
+
+def flight_questions(fields: dict) -> list[dict]:
+    """Per-product flights that do not match the campaign, as questions."""
+    fields = fields or {}
+    detail = fields.get("products_detail") or []
+    c_start = str(fields.get("start_date") or "")
+    c_end = str(fields.get("end_date") or "")
+    out = []
+    for row in detail:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("product") or "").strip()
+        if not name:
+            continue
+        start, end = str(row.get("start") or ""), str(row.get("end") or "")
+        note = str(row.get("dates_note") or "").strip()
+        if start and end:
+            if start == c_start and end == c_end:
+                continue                    # the campaign's own flight
+            out.append({
+                "product": name, "kind": "stated",
+                "start": start, "end": end, "note": note,
+                "question": (f'The proposal runs {name} from {start} to {end}'
+                             + (f' ("{note}")' if note else "")
+                             + (f", not the campaign's {c_start} to {c_end}."
+                                if c_start and c_end else ".")
+                             + " Are those the dates for this product?"),
+            })
+        elif note:
+            out.append({
+                "product": name, "kind": "unresolved",
+                "start": start, "end": end, "note": note,
+                "question": (f'The proposal says "{note}" against {name}, '
+                             f"which isn't a date I can put on an IO. What "
+                             f"start and end dates should this product run?"),
+            })
+    return out
+
+
+# ---------------------------------------------------------------------------
+# What a new IO might be replacing
+#
+# A rep starting a "New IO" for an existing client is, most of the time,
+# replacing one that is already running -- a mid-term change of products or
+# budget. Nothing asked, so both orders stayed open: the old one kept billing
+# its old line-up and the new one billed beside it. That reads as a client
+# spending twice what they agreed, and it is discovered in accounting rather
+# than here.
+#
+# Two facts are needed and only one of them is on file: WHICH order this
+# replaces, and WHEN that order should stop. The second is never assumed --
+# "the day before the new one starts" is the common answer and is wrong every
+# time a campaign overlaps deliberately.
+# ---------------------------------------------------------------------------
+
+def open_ios(client: str) -> dict:
+    """The client's insertion orders, newest first, for the replace question."""
+    if not str(client or "").strip():
+        return {"client": "", "ios": [], "note": "No client named."}
+    try:
+        from hub.knack_products import for_client
+    except Exception as exc:                            # noqa: BLE001
+        return {"client": client, "ios": [],
+                "error": f"Product data unavailable ({type(exc).__name__})."}
+    try:
+        data = for_client(client) or {}
+    except Exception as exc:                            # noqa: BLE001
+        # "We could not read Knack" and "this client has no orders" are
+        # different answers and only one of them means stop asking.
+        return {"client": client, "ios": [], "error": str(exc)[:200]}
+
+    by_io: dict[str, list] = {}
+    for p in data.get("products") or []:
+        key = str(p.get("io") or "").strip()
+        if key:
+            by_io.setdefault(key, []).append(p)
+
+    ios = []
+    for number, lines in by_io.items():
+        starts = [str(x.get("start") or "") for x in lines if x.get("start")]
+        ends = [str(x.get("end") or "") for x in lines if x.get("end")]
+        ios.append({
+            "io": number,
+            "start": min(starts) if starts else "",
+            "end": max(ends) if ends else "",
+            "products": len(lines),
+            "monthly": round(sum(float(x.get("monthly") or 0)
+                                 for x in lines), 2),
+            "label": (f"IO {number} — {len(lines)} product"
+                      f"{'' if len(lines) == 1 else 's'}"
+                      + (f", {min(starts)} to {max(ends)}"
+                         if starts and ends else "")),
+        })
+    ios.sort(key=lambda r: (r["start"], r["io"]), reverse=True)
+    return {"client": client, "ios": ios, "count": len(ios),
+            "note": ("Orders already on file for this client. Replacing one "
+                     "needs the date it should stop — nothing here assumes "
+                     "it.")}
