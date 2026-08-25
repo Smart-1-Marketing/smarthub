@@ -57,15 +57,32 @@ export interface ImageQuery {
 }
 
 /**
+ * Grammar AND marketing verbs.
+ *
+ * A headline routinely reads "Save on Custom Built Homes", and searching
+ * "save" returns piggy banks — which is most of the "these look nothing like
+ * the client" complaint. Anything that describes the *offer* rather than the
+ * *subject* belongs here.
+ */
+const STOP = /\b(the|and|for|with|your|our|you|are|an|to|of|in|on|at|is|it|we|us|from|that|this|more|get|best|now|today|free|new|save|call|book|shop|buy|offer|offers|deal|deals|sale|only|just|off|discount|limited|time|click|learn|about|serving|since|quality|service|services|solutions|company|inc|llc|ltd)\b/gi;
+
+/**
  * Turn a campaign into a short, concrete image search phrase. Landing-page
  * nouns beat form fields — "artisan pizza wood oven" finds better stock than
  * "Italian restaurant lead generation".
+ *
+ * Terms are ordered most-specific first, because Pixabay ANDs them and
+ * `searchPixabay` drops them from the RIGHT when a phrase finds nothing. So
+ * the word most likely to survive a narrowing search is the one that says
+ * what the picture is of.
  */
 export function imageKeywords(q: ImageQuery): string {
   if (q.keywords?.length) return q.keywords.join(' ');
-  const stop = /\b(the|and|for|with|your|our|a|an|to|of|in|on|get|best|now|today|free|new)\b/gi;
-  const fromLanding = (q.landing?.summary ?? '').replace(stop, ' ');
-  const source = `${q.promoting} ${fromLanding}`.replace(stop, ' ');
+  const strip = (s: string | undefined) => String(s ?? '').replace(STOP, ' ');
+  // Order matters: the headline says what is being sold, the benefit and offer
+  // qualify it, and the landing page's own nouns fill in behind them.
+  const source = [strip(q.promoting), strip(q.benefit), strip(q.offer), strip(q.landing?.summary)]
+    .join(' ');
   const words = source.toLowerCase().match(/[a-z]{4,}/g) ?? [];
   const seen = new Set<string>();
   const picked: string[] = [];
@@ -75,44 +92,81 @@ export function imageKeywords(q: ImageQuery): string {
     picked.push(w);
     if (picked.length >= 4) break;
   }
-  if (!picked.length) picked.push(...q.business.toLowerCase().match(/[a-z]{4,}/g) ?? ['business']);
-  return picked.join(' ');
+  // Nothing usable in the copy: the business name is the last resort, and it
+  // is a last resort because a proper noun ("Riverside") finds a river.
+  if (!picked.length) {
+    picked.push(...(strip(q.business).toLowerCase().match(/[a-z]{4,}/g) ?? ['business']));
+  }
+  return picked.slice(0, 4).join(' ');
 }
 
 interface PixabayHit { largeImageURL: string; webformatURL: string; pageURL: string; imageWidth: number; imageHeight: number; }
 
+export interface PixabayResult {
+  candidates: ImageCandidate[];
+  /** The phrase that produced these. Shown on screen, because a person who
+   *  can see what was searched can correct it in one go. */
+  query: string;
+  /** True when the full phrase found nothing and terms had to be dropped. */
+  narrowed: boolean;
+}
+
 /**
- * Search Pixabay for landscape photos matching the campaign. Returns up to
- * `count` candidates, each downloaded and squeezed under 150 KB.
+ * Search Pixabay for landscape photos matching the campaign.
+ *
+ * Two things here are the difference between "these look nothing like the
+ * client" and a usable shortlist:
+ *
+ * **Pixabay ANDs the terms.** A four-word phrase built from a headline
+ * regularly matches nothing, and an empty result reads as "there are no
+ * photos of this" when it means "no photo carries all four words". So the
+ * phrase is narrowed a word at a time, from the right, until something comes
+ * back — and the phrase that worked is returned so the screen can say which
+ * search these came from.
+ *
+ * **Two pictures is not a choice.** The default was two, which is the number
+ * you show when you are confident, and nothing here is confident. The caller
+ * asks for as many as it wants to lay out.
  */
 export async function searchPixabay(
   q: ImageQuery,
   opts: { cacheDir: string; count?: number; apiKey?: string; fetchImpl?: typeof fetch; timeoutMs?: number },
-): Promise<ImageCandidate[]> {
+): Promise<PixabayResult> {
   const apiKey = opts.apiKey ?? process.env.PIXABAY_API;
   if (!apiKey) throw new Error('PIXABAY_API is not set.');
   const doFetch = opts.fetchImpl ?? fetch;
-  const query = imageKeywords(q);
-  const url = `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(query)}` +
-    `&image_type=photo&orientation=horizontal&safesearch=true&per_page=${Math.max(3, (opts.count ?? 2) * 3)}`;
+  const want = Math.max(1, Math.min(30, opts.count ?? 12));
+  const full = imageKeywords(q);
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 12_000);
+  const terms = full.split(/\s+/).filter(Boolean);
+  const attempts: string[] = [];
+  for (let n = terms.length; n >= 1; n--) attempts.push(terms.slice(0, n).join(' '));
+  if (!attempts.length) attempts.push('business');
+
   let hits: PixabayHit[] = [];
-  try {
-    const res = await doFetch(url, { signal: ctrl.signal });
-    if (!res.ok) throw new Error(`Pixabay returned ${res.status}`);
-    const data: any = await res.json();
-    hits = (data.hits ?? []) as PixabayHit[];
-  } finally {
-    clearTimeout(timer);
+  let query = attempts[0];
+  for (const attempt of attempts) {
+    const url = `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(attempt)}` +
+      `&image_type=photo&orientation=horizontal&safesearch=true&per_page=${Math.max(3, want * 2)}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 12_000);
+    try {
+      const res = await doFetch(url, { signal: ctrl.signal });
+      if (!res.ok) throw new Error(`Pixabay returned ${res.status}`);
+      const data: any = await res.json();
+      hits = (data.hits ?? []) as PixabayHit[];
+    } finally {
+      clearTimeout(timer);
+    }
+    query = attempt;
+    if (hits.length) break;
   }
-  if (!hits.length) return [];
+  if (!hits.length) return { candidates: [], query, narrowed: query !== full };
 
   fs.mkdirSync(opts.cacheDir, { recursive: true });
   const out: ImageCandidate[] = [];
-  for (const hit of hits.slice(0, (opts.count ?? 2) * 2)) {
-    if (out.length >= (opts.count ?? 2)) break;
+  for (const hit of hits) {
+    if (out.length >= want) break;
     try {
       const imgRes = await doFetch(hit.largeImageURL ?? hit.webformatURL);
       if (!imgRes.ok) continue;
@@ -127,7 +181,7 @@ export async function searchPixabay(
       /* skip a bad hit */
     }
   }
-  return out;
+  return { candidates: out, query, narrowed: query !== full };
 }
 
 /**
@@ -164,8 +218,8 @@ export function buildHeroPrompt(q: ImageQuery): { prompt: string; negative: stri
 
   // 4. Style & lighting, tinted toward the brand palette when known.
   const paletteHint = q.palette?.primary
-    ? `Colour palette in harmony with ${q.palette.primary}${q.palette.accent ? ` and ${q.palette.accent}` : ''}.`
-    : 'Colour palette suited to a professional brand.';
+    ? `Color palette in harmony with ${q.palette.primary}${q.palette.accent ? ` and ${q.palette.accent}` : ''}.`
+    : 'Color palette suited to a professional brand.';
   const style =
     `Realistic commercial advertising photography, soft natural lighting, ` +
     `crisp focus, high resolution. ${paletteHint}`;
@@ -195,7 +249,7 @@ export function buildHeroPrompt(q: ImageQuery): { prompt: string; negative: stri
     'writing, handwriting, fonts, signage, street signs, banners with text, ' +
     'embedded logos, brand marks, watermarks, ' +
     'cluttered background, busy patterns behind text, distorted or extra limbs, ' +
-    'oversaturated colours, harsh high-contrast shadows in the copy area, ' +
+    'oversaturated colors, harsh high-contrast shadows in the copy area, ' +
     'collage, borders, low resolution, noise artifacts';
 
   return { prompt, negative };
@@ -228,7 +282,7 @@ export async function generateHero(
       form.set('model', process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-1');
       form.set('prompt',
         `${fullPrompt} Use the supplied image(s) as reference for the real subject, ` +
-        `style and colours, but recompose with clean negative space for text.`);
+        `style and colors, but recompose with clean negative space for text.`);
       form.set('size', opts.size ?? '1536x1024');
       for (const r of refs) {
         const buf = fs.readFileSync(r);
