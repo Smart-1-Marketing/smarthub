@@ -397,12 +397,19 @@ from hub import qa                                                  # noqa: E402
 
 rep = qa.google_accounts()
 check("the report carries a customer picker column",
-      rep["columns"][-1] == "Map to client", rep["columns"])
+      "Map to client" in rep["columns"], rep["columns"])
+# Not at the end: on the end it was the seventh column of a table wider than
+# its own scroll box, so the control sat past the right edge with the header
+# reading "MAP TO CLIE". It belongs beside the cell it changes.
+check("...immediately after the cell it changes, so it is on screen",
+      rep["columns"].index("Map to client")
+      == rep["columns"].index("Mapped to") + 1, rep["columns"])
 check("every row has one cell per column",
       all(len(r) == len(rep["columns"]) for r in rep["rows"]),
       [len(r) for r in rep["rows"]])
 
-cells = {r[-1]["map_client"]: r[-1] for r in rep["rows"]}
+mi = rep["columns"].index("Map to client")
+cells = {r[mi]["map_client"]: r[mi] for r in rep["rows"]}
 check("the picker addresses the resource by its own id",
       set(cells) == {i["resource_id"] for i in LATE_ITEMS}, list(cells))
 check("the domain match was applied on the load, not left for the sweep",

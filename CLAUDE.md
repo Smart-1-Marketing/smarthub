@@ -649,6 +649,34 @@ A project already carrying a *different* client's name is never relinked
 without `force`: a wrong `internal_client_name` attributes revenue to the wrong
 client, and quietly overwriting one is worse than refusing to.
 
+### A row with no client needs a customer picker, not a signpost
+
+The domain cell on the Sites Admin table is a pair of halves and only one was
+built. A project that already had a client could search orphan domains; a
+project with **no** client — the far more common row, and the one somebody
+opens the page to fix — got "there is no client to attach a domain to yet …
+use Match clients in the Hub" and stopped. A row that reports a problem beside
+a control that refuses to fix it is not a control, and sending somebody to
+another screen to find the same row again is how a list stays unactioned.
+
+Both halves are offered now, from the same cell, through the one
+`/api/domain/attach` that writes all four systems and reports each. The
+customer half is a searchable list of real clients and never a text box, for
+the reason `client_key` gives at length: a typo'd name files the site under a
+client nothing joins to and still reads as success.
+
+Two things kept this invisible. `/sites/projects/<id>` **500'd on every
+visit** — `project_detail.html` posts its "Check plan limits" form to
+`url_for('website_check_limits')` and no route of that name existed, and Flask
+raises `BuildError` while *rendering*, so it was never a broken button, it was
+the whole page. `simvoly_client.check_limits()` had been written and had no
+caller at all, which is `TICKET_CREATE_FIELDS` again. And a `url_for` to a
+missing endpoint was invisible to every check we had: `tools/linkcheck.py`
+reads URL literals and an endpoint name is not one. It checks them now —
+against the route table of whichever app renders that template — and a
+template nothing renders is *named* rather than failed on, because a check
+that starts life red is a check somebody switches off.
+
 ### Orphan URLs — the other direction
 
 `domain_links.orphans()` answers "whose site is this?", which is asked more
@@ -732,7 +760,11 @@ attaching there records in Knack and clears the orphan too. So does the
 customer picker on the **Google Accounts & Mapping** QA report — the report is
 where somebody notices that a property maps to nobody, so it is where they can
 say whose it is, rather than being sent to another screen to find the row
-again. It is a searchable list of real customers and never a text box: a
+again. It sits immediately after the *Mapped to* cell it changes, and not at
+the end of the row: on the end it was the seventh column of a table wider than
+its own scroll box, so on an ordinary laptop the header read "MAP TO CLIE" and
+the button read "Map to c", past the right edge with no scrollbar showing
+until you tried. A control you cannot see is a control that does not exist. It is a searchable list of real customers and never a text box: a
 typo'd name files the attachment under a client nothing joins to and reads as
 success. The suggestions open it and a person still chooses.
 
@@ -1584,7 +1616,7 @@ python3 -c "import ast,pathlib; [ast.parse(p.read_text(errors='ignore')) \
   for p in pathlib.Path('.').rglob('*.py') if '_attic' not in p.parts]"
 python tools/jscheck.py            # every .js file and inline block, via node
 python tools/checktemplates.py     # the Jinja-carrying blocks jscheck skips
-python tools/linkcheck.py          # every internal URL resolves
+python tools/linkcheck.py          # every internal URL resolves, every url_for has a route
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python3 test_jsonstore.py          # the database mirror really restores
@@ -1642,7 +1674,8 @@ to start without one and serves the 503 fallback instead: on SQLite a whole
 module drops out of every check that boots the app, and nothing says so.
 
 `tools/linkcheck.py` boots the composed app and checks every internal URL
-literal against the route table of whichever app owns that path, so it catches
+literal against the route table of whichever app owns that path — and every
+`url_for('name')` against the endpoints of whichever app renders that template, so it catches
 the mount trap above — a module page written as `fetch("/api/lead")` works
 standalone and 404s under a mount. It exits non-zero, so it can gate a
 release. **Run it after touching any module template**: that one bug was live

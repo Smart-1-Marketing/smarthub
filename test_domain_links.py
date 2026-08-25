@@ -526,6 +526,56 @@ except Exception as exc:                                        # noqa: BLE001
 
 
 # ---------------------------------------------------------------------------
+section("Sites Admin can name the customer, not only find the orphan domain")
+# ---------------------------------------------------------------------------
+# The domain cell on the Sites Admin table is a pair of halves, and only one
+# of them was built. A project WITH a client could search orphan domains; a
+# project WITHOUT one — which is the far more common row, and the one somebody
+# opens the page to fix — got "there is no client to attach a domain to yet …
+# use Match clients in the Hub" and stopped. A row that reports a problem
+# beside a control that refuses to fix it is not a control.
+DASH = os.path.join(ROOT, "modules", "sites_admin", "templates",
+                    "dashboard.html")
+dash = open(DASH, encoding="utf-8").read()
+
+check("a project with no client is offered a customer search, not a dead end",
+      "customerBox(" in dash and "use Match clients in the Hub" not in dash,
+      "the dead-end message is still there" if "use Match clients in the Hub"
+      in dash else "customerBox is missing")
+check("...against the real customer list, never a free-text box",
+      "/api/clients/search" in dash, dash.count("/api/clients/search"))
+check("the row says which half it is offering",
+      "match to a customer" in dash and "search orphan domains" in dash)
+check("the project's own domain travels with the row",
+      'data-domain="{{r.domain' in dash)
+check("a project with neither a client nor a domain says so",
+      "This project has no client and no " in dash)
+check("both halves attach through the one path that writes four systems",
+      dash.count("fetch('/api/domain/attach'") == 1
+      and "function attachDomain(" in dash,
+      dash.count("fetch('/api/domain/attach'"))
+check("...and both report every system rather than one tick",
+      "rep.written" in dash and "rep.skipped" in dash)
+
+# The 500 that made all of this invisible: a form in project_detail.html
+# posting to an endpoint that did not exist. Flask raises BuildError while
+# rendering, so it was not a broken button — it was the whole page, on every
+# project, every time.
+APPPY = open(os.path.join(ROOT, "modules", "sites_admin", "app.py"),
+             encoding="utf-8").read()
+check("the Check plan limits form has a route behind it",
+      "def website_check_limits(" in APPPY)
+check("...and it calls the client method that had no caller at all",
+      "client.check_limits(" in APPPY)
+check("an answer that is neither pass nor fail is not shown as a pass",
+      "not in a shape this page can read" in APPPY)
+CSS = open(os.path.join(ROOT, "modules", "sites_admin", "static", "styles.css"),
+           encoding="utf-8").read()
+check("...and that flash category has a colour of its own, not red by default",
+      ".flash.warning{" in CSS)
+
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 60)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)
