@@ -72,6 +72,10 @@ services:
       # Optional — overrides the default read-only scope set if you need more.
       - key: GHL_OAUTH_SCOPES
         sync: false
+      # Hosts allowed to frame a Hub page (CSP frame-ancestors). Optional;
+      # defaults to HighLevel's own hosts. Set it for a whitelabel domain.
+      - key: HUB_EMBED_FRAME_ANCESTORS
+        sync: false
       # ---- Scans (Insites Audit API) ----
       - key: INSITES_API_KEY
         sync: false

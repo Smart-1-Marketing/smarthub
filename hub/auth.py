@@ -58,13 +58,28 @@ def verify_cookie_value(value: str | None) -> str | None:
 
 
 def user_from_environ(environ: dict) -> str | None:
-    """Read + verify the hub cookie straight from a WSGI environ."""
+    """Read + verify the hub cookie straight from a WSGI environ.
+
+    Falls back to the embed companion cookie, which is the same signed value
+    under `SameSite=None` so it survives being sent from a page framed inside
+    Smart 1 Suite. That fallback is deliberately narrow — safe methods, on an
+    allowlisted path — and `hub.embed` owns the rule rather than restating it
+    here, so the WSGI guard, `login_required` and `api_login_required` all get
+    the same answer. It is checked *second*: an ordinary session is the normal
+    case, and this stays a fallback rather than a second front door.
+    """
     cookie_header = environ.get("HTTP_COOKIE", "")
     for part in cookie_header.split(";"):
         k, _, v = part.strip().partition("=")
         if k == COOKIE_NAME:
-            return verify_cookie_value(v)
-    return None
+            user = verify_cookie_value(v)
+            if user:
+                return user
+    try:
+        from . import embed
+        return embed.user_from_environ(environ)
+    except Exception:  # noqa: BLE001 — never let the embed path break login
+        return None
 
 
 # ---------------- Login throttling (per IP, in memory) ----------------

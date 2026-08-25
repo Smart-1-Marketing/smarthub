@@ -268,6 +268,20 @@ jobs:
             echo "test_domain_links.py not on this branch — nothing to run."
           fi
 
+      - name: Suite embed tests
+        # Hub pages framed inside Smart 1 Suite: the SameSite=None companion
+        # cookie that reaches a cross-site frame, the safe-method + allowlist
+        # limits that stop it being a second front door, the frame-ancestors
+        # allowlist, and the sidebar not arriving inside somebody else's
+        # navigation. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_suite_embed.py ]; then
+            python test_suite_embed.py
+          else
+            echo "test_suite_embed.py not on this branch — nothing to run."
+          fi
+
       - name: Marketplace app scope tests
         # The scope set the GHL Marketplace app asks for, and the diff between
         # what was requested and what HighLevel actually granted. Adding a

@@ -33,7 +33,22 @@ MODULES = [
 
 
 def current_user():
-    return auth.verify_cookie_value(request.cookies.get(auth.COOKIE_NAME))
+    """The signed-in name, for hub views.
+
+    Mirrors auth.user_from_environ: the ordinary cookie first, then the embed
+    companion for a page being framed inside Smart 1 Suite. Both readers have
+    to agree, or a page would render for a guard that a fetch on the same page
+    then 401s — which reads as data that will not load rather than as a login
+    problem.
+    """
+    user = auth.verify_cookie_value(request.cookies.get(auth.COOKIE_NAME))
+    if user:
+        return user
+    try:
+        from . import embed
+        return embed.user_from_environ(request.environ)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 _MOUNT_ACTIVE_HUB = {
@@ -153,6 +168,18 @@ def create_hub_app() -> Flask:
         from .sidebar import render_sidebar
 
         def hub_sidebar(active=""):
+            try:
+                # A page inside a frame sits in somebody else's navigation
+                # already. Suppressing the injector in after_request is not
+                # enough: base.html calls this global directly, so Client 360
+                # framed in Suite would still render its own full sidebar and
+                # the injector -- which skips a body that already has one --
+                # would see nothing to do and agree that all was well.
+                from . import embed
+                if embed.is_embedded(request.environ):
+                    return ""
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 return render_sidebar(active or "").decode()
             except Exception:  # noqa: BLE001 — nav must never break a page
@@ -1715,6 +1742,11 @@ def create_hub_app() -> Flask:
         resp.set_cookie(auth.COOKIE_NAME, auth.issue_cookie_value(user.name),
                         max_age=auth.SESSION_TTL_SECONDS, httponly=True,
                         samesite="Lax", secure=secure)
+        # And the SameSite=None companion, so a page framed inside Smart 1
+        # Suite is not anonymous. It grants strictly less than the two above:
+        # see hub/embed.py.
+        from . import embed as _embed
+        _embed.issue_cookie(resp, user.name, secure)
         return resp
 
     @app.route("/auth/google")
@@ -1849,11 +1881,14 @@ def create_hub_app() -> Flask:
             actor = email or "Shared login"
             audit.log("hub", "login_shared_password", actor=actor, ip=ip)
             resp = make_response(redirect(nxt))
+            _secure = (os.environ.get("NODE_ENV") == "production"
+                       or os.environ.get("FLASK_ENV") == "production")
             resp.set_cookie(
                 auth.COOKIE_NAME, auth.issue_cookie_value(actor),
                 max_age=auth.SESSION_TTL_SECONDS, httponly=True, samesite="Lax",
-                secure=os.environ.get("NODE_ENV") == "production"
-                or os.environ.get("FLASK_ENV") == "production")
+                secure=_secure)
+            from . import embed as _embed
+            _embed.issue_cookie(resp, actor, _secure)
             return resp
 
         # ---- 3. no account, and not the shared password ----
@@ -1869,6 +1904,11 @@ def create_hub_app() -> Flask:
     def logout():
         resp = make_response(redirect("/login"))
         resp.delete_cookie(auth.COOKIE_NAME)
+        # The embed companion authenticates on its own, so leaving it behind
+        # would keep a framed page signed in after a logout that looked like
+        # it worked.
+        from . import embed as _embed
+        _embed.clear_cookie(resp)
         return resp
 
     def _require_page():
@@ -4217,6 +4257,35 @@ def create_hub_app() -> Flask:
                   "/sales/landing/p/")
 
     @app.after_request
+    def _embed_policy(resp):
+        """Who may frame a hub page, and what they get when they do.
+
+        Runs on every hub response, not only HTML: a stylesheet or a JSON fetch
+        made by the framed page has to carry the same allowlist, or the page
+        renders and its data does not.
+
+        Two things happen here and nowhere else, because `bare_prefixes` in
+        wsgi.py only covers dispatcher-mounted modules and Client 360 is a hub
+        route -- the exact gap that makes this the page most worth embedding
+        and the one nothing was protecting.
+        """
+        try:
+            from . import embed
+            if not embed.is_embedded(request.environ):
+                return resp
+            path = request.path or "/"
+            if not embed.embeddable(path):
+                # Refuse in words. A blank frame gets reported as a broken
+                # integration; a named path gets fixed by whoever configured
+                # the menu link.
+                out = make_response(embed.refuse(path), 403)
+                out.mimetype = "text/plain"
+                return embed.framable(out)
+            return embed.framable(resp)
+        except Exception:  # noqa: BLE001 — never 500 a page over its chrome
+            return resp
+
+    @app.after_request
     def _inject_sidebar_response(resp):
         try:
             if resp.status_code != 200:
@@ -4226,6 +4295,18 @@ def create_hub_app() -> Flask:
             path = request.path or "/"
             # Sign-in and the client-facing pages are deliberately chrome-free.
             if any(path.startswith(p) for p in CHROMELESS):
+                return resp
+            # A page inside a frame already sits in somebody else's navigation.
+            # HubBar applies this test to every mounted module; the hub app's
+            # own pages had no equivalent, so Client 360 inside Suite would
+            # have arrived with a second full sidebar in it.
+            #
+            # Asked directly rather than read off a flag the other handler
+            # sets: Flask runs after_request handlers in reverse registration
+            # order, so this one runs FIRST and any flag would still be unset.
+            # Both call hub.embed so they cannot drift apart.
+            from . import embed as _embed
+            if _embed.is_embedded(request.environ):
                 return resp
             if resp.direct_passthrough:
                 return resp

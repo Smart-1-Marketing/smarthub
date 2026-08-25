@@ -284,6 +284,31 @@ manual step this app exists to stop repeating).
 Until step 4 happens nothing changes: every call falls back to the Private
 Integration Token exactly as before.
 
+## Hub pages inside Smart 1 Suite
+
+A HighLevel custom menu link is an iframe pointing at a URL. Point it at a Hub
+page on the allowlist in [`hub/embed.py`](hub/embed.py) (`EMBEDDABLE` — today
+Client 360 and the GET APIs it renders from) and the rep gets it inside Suite
+without a second login.
+
+Two limits, both deliberate:
+
+* **It is read-only.** The login cookie is `SameSite=Lax` and browsers do not
+  send it into a cross-site frame, so a companion cookie carries the session
+  instead — accepted for GET and HEAD only, on allowlisted paths only. A write
+  from inside the frame is refused exactly as an anonymous one is. Do not add a
+  write-heavy tool to `EMBEDDABLE`: it would load, look complete, and fail on
+  save.
+* **Only allowlisted hosts may frame it.** `HUB_EMBED_FRAME_ANCESTORS`
+  overrides the default (HighLevel's own hosts plus smart1marketing.com). Set
+  it if the agency runs on a whitelabel domain. It is an allowlist and never a
+  wildcard.
+
+A client-facing page inside a client's own sub-account uses none of this — a
+client has no Hub session — and needs HighLevel's SSO handshake. `SSO_NOT_BUILT`
+in the same file says what that needs and why the location id it returns is the
+whole security model.
+
 ## Env var compatibility notes
 
 - `SECRET_KEY` signs the Hub login cookie **and** the Sites session. Set it

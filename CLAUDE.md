@@ -139,6 +139,35 @@ until somebody re-consents — which is why the write scopes are requested now
 rather than when a feature turns out to need them. `test_ghl_scopes.py` asserts
 that every GHL write call site in the Hub has a scope declared for it.
 
+**A `SameSite=Lax` cookie is not sent into somebody else's iframe.** Which is
+the whole difficulty of putting a Hub page inside Smart 1 Suite: the rep is
+signed in, the browser declines to say so, `AuthGuard` redirects, and a login
+form appears inside Suite for an account they already hold. Nothing errors.
+Relaxing `s1hub_auth` to `SameSite=None` would fix it and would also attach
+that cookie to every cross-site request, including a POST from a page an
+attacker controls — and this Hub has delete buttons behind it. So `hub/embed.py`
+adds a **companion** cookie carrying the same signed value, accepted only for
+**GET/HEAD** and only on an explicit path **allowlist**, which makes it useless
+for that attack and makes an embedded page **read-only**. That last part is a
+consequence to state, not to discover: a write-heavy tool added to `EMBEDDABLE`
+would load, look complete and fail on save. The client-facing version cannot use
+any of this — a client has no Hub session at all — and needs HighLevel's SSO
+handshake instead; `SSO_NOT_BUILT` says what that involves and why the location
+id in it is the entire security model.
+
+Three things had to move for it, each its own quiet failure. `HubBar` already
+skips the sidebar for an iframe, but the **hub app's own `after_request` did
+not** — and Client 360, the page most worth embedding, is a hub route. Nor was
+suppressing the injector enough: `base.html` calls the `hub_sidebar` global
+**directly**, so the page rendered its own sidebar and the injector, which skips
+a body that already has one, agreed there was nothing to do. And no
+`X-Frame-Options` or CSP was set on hub pages at all, so adding an embed path
+without `framable()` would have widened a clickjacking oversight into a feature.
+Flask runs `after_request` handlers in **reverse** registration order, so the
+chrome check asks `embed.is_embedded()` itself rather than reading a flag the
+policy handler sets — which would still be unset. `test_suite_embed.py` asserts
+all of it.
+
 **Placeholder values are worse than blanks.** `CLOUDINARY_URL` sat at
 `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` and every "is it configured?"
 check said yes. `hub/config.py` detects the known placeholders. Render also
@@ -1170,6 +1199,7 @@ python3 test_io_start.py           # starting an IO from a proposal, a client or
 python3 test_landing_spec.py       # what a landing page is for, and what it sells
 python3 test_client_groups.py      # grouped clients: what merges, what must not double
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
+python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the chrome, who may frame
 ```
 
 The test files need no pytest and no new dependencies; each runs against a
