@@ -573,6 +573,39 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
                     "domainPurchased": w.get("domainPurchased"),
                     "attached": True,
                 })
+            # An attachment that matches nothing in the websites export is
+            # still a real website: it is how a domain discovered somewhere
+            # else in the Hub reaches the client record at all, and the export
+            # is stale by definition. Dropping it meant a rep could attach a
+            # domain on Match Clients and find Client 360 still saying "No
+            # website record matched" — the join made and then not shown.
+            # Enriched from the live Knack registry where that has the domain.
+            for a in att:
+                d = str(a.get("domain") or "").strip().lower()
+                if not d or d in have:
+                    continue
+                have.add(d)
+                extra = {}
+                try:
+                    from . import knack_websites as _kw
+                    extra = _kw.record_for_domain(d) or {}
+                except Exception:  # noqa: BLE001
+                    extra = {}
+                g["websites"].append({
+                    "name": extra.get("client") or a.get("name") or d,
+                    "domain": d,
+                    "liveUrl": extra.get("production_url")
+                               or a.get("liveUrl") or ("https://" + d),
+                    "platform": extra.get("platform", ""),
+                    "status": extra.get("client_status", ""),
+                    "hmMonthly": extra.get("hm_fee", 0),
+                    "partner": extra.get("media_partner", ""), "manager": "",
+                    "ga": extra.get("ga_account", ""),
+                    "gtm": extra.get("gtm_account", ""),
+                    "registrar": extra.get("registrar", ""),
+                    "domainPurchased": extra.get("domain_bought", ""),
+                    "attached": True,
+                })
     except Exception:  # noqa: BLE001 — attachments must never break search
         pass
 

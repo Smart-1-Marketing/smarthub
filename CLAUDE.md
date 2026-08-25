@@ -316,6 +316,95 @@ clients that still have none, marks the row `url_source: "discovered"`, and
 `house_clients()` for the same job and quietly relabelled real Knack clients as
 ours.
 
+**The overlay holds a list, because a client has more than one website.** The
+shop, the campaign landing pages, the microsite for one location. `accept()` is
+additive and mirrors the primary onto the row's `url`/`domain` so the
+one-URL-per-client readers are unchanged; `sites_of()` reads a row written
+before the list existed as a one-item list rather than migrating it.
+
+**And accepting one has to stick.** It did not: accepting a domain was followed
+by the same client being proposed the same domain again on the next scan, as if
+the click had done nothing. `clients_registry` caches for two minutes *per
+process* and there are two gunicorn workers, so the scan after an accept
+usually runs in the worker that never saw it. `missing()` reads the overlay
+directly and treats an accepted client as answered — the file is the durable
+record, and it decides rather than whichever cache answered.
+
+### A match is not one write
+
+`hub/domain_links.py`. Matching a site used to write `internal_client_name` on
+the Simvoly project and stop, so a rep who matched a site opened Client 360 and
+found the client still had no website: the join was real and invisible, which is
+the same as not having made it. `attach(domain, client)` writes all four —
+the Hub's client overlay, the client's 360 record (`seo.set_link`), every live
+Simvoly project on that domain, and the client onto the Knack website record —
+and **reports each one separately**. "Attached" and "attached in two of four
+places" are different outcomes, and one tick for both is how a rep learns not to
+trust the tick. `sites_match.apply()`, the Match Clients page, the orphan list
+and the Sites Admin table all go through it, so there is one description of what
+attaching means.
+
+A project already carrying a *different* client's name is never relinked
+without `force`: a wrong `internal_client_name` attributes revenue to the wrong
+client, and quietly overwriting one is worse than refusing to.
+
+### Orphan URLs — the other direction
+
+`domain_links.orphans()` answers "whose site is this?", which is asked more
+often than "which project is this client's". Same four systems, read rather
+than written: a website record with no organisation, a live Simvoly project with
+no internal client name, a site scan and a Google access request nobody filed
+against a client. One row per canonical domain however many systems saw it, a
+source that could not be read named rather than counted as zero, and a file host
+rejected *and counted* — which is why `_orphans_knack` iterates `rows()` rather
+than `knack_websites.orphan_rows()`: everything a source offers goes through
+`add()` so the rejects can be named. It is on Match Clients, with a search box
+and a client search per row, and in the **domain column of the Sites Admin
+table**, where the person looking at an account can close the pair without
+leaving the page.
+
+### object_153 is written now, not only read
+
+`hub/knack_websites.py` pins the website registry's field ids and writes them
+through `knack_api.coerce_field()` against the *live* schema rather than a
+second copy of those rules: a connection is resolved to the one record it can
+only mean, a value Knack does not publish is **refused by name**, and every
+write returns `rejected` — Knack refuses the whole record over one bad value, so
+a value it would refuse is refused here and the rest of the record still goes.
+Reads are cached for a minute, because `suggest_for()` is called once per
+unmatched project and uncached that was a full paged pull of the object each
+time.
+
+The **domain record** on Client 360 — website live date (`field_3048`), client
+status (`field_3193`), did we buy the domain (`field_2964`, asked in those words
+rather than in Knack's "S1M Purchase Domain for Client?"), purchase date
+(`field_3063`), renewal date (`field_3101`) and registrar (`field_2926`) — is
+drawn from that schema, so a dropdown's choices are Knack's own. A domain with
+no object_153 record says so rather than drawing empty boxes that cannot save.
+
+**A registrar we recorded and a registrar WHOIS observed are different claims.**
+Where `field_2926` is empty, the latest Insites scan of the same domain usually
+knows (`domain_age.registrar`, with the registered and expiry dates beside it).
+`registrar_for()` offers it *labelled as observed*, to be copied in by a person
+— never written back on its own.
+
+### Domains we bought renew whether or not anyone bills them
+
+`hub/domain_purchase.py` and `/tools/domains`. The record was always in Knack
+and nothing read it, so the only way to know what renews next month was to open
+object_153 and sort it by eye. Only records where `field_2964` says yes appear —
+`is_ours()` reads a Knack boolean *and* a yes/no dropdown, because the field can
+be published either way. `field_3298` sorts it, the current month and the next
+three are laid out from the clock (a hard-coded window is right the month it is
+written), and a row with no renewal billing date goes in its own group saying so
+rather than sorting to the top as if it were overdue.
+
+There is no billed field in Knack, so the tick is the Hub's — and it is kept
+**against the renewal billing date it was ticked for**, not against the record.
+A domain renews every year; a tick that stayed green when next year's date
+arrived would be a confident wrong answer of exactly the kind this codebase
+keeps having to undo.
+
 ---
 
 ## Opportunistic migration — read this before editing any module
@@ -957,6 +1046,7 @@ python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude p
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
 python3 test_video_library.py      # the footage index, its status row, the page's palette
 python3 test_sites_match.py        # live-only matching, and finding a client's missing URL
+python3 test_domain_links.py       # attaching a domain everywhere, orphans, renewals
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file

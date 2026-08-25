@@ -236,16 +236,21 @@ def ticket_value(rec: dict, key: str):
     return _re.sub(r"<[^>]+>", " ", str(rec.get(fid) or "")).strip()
 
 
+def object_meta(obj: str) -> dict:
+    """Live metadata for any object, keyed by field id."""
+    return {f.get("key"): f for f in object_fields(obj)}
+
+
 def _meta() -> dict:
     """Live metadata for the tickets object, keyed by field id."""
-    return {f.get("key"): f for f in _fields()}
+    return object_meta(TICKETS_OBJECT)
 
 
 def _norm(value) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
 
 
-def connection_choices(field_id: str) -> list[dict]:
+def connection_choices(field_id: str, obj: str = TICKETS_OBJECT) -> list[dict]:
     """The records a connection field may point at, as {id, label}.
 
     A connection needs a Knack record id; writing the display name creates
@@ -256,16 +261,19 @@ def connection_choices(field_id: str) -> list[dict]:
     Never raises: a picker that cannot be built becomes a text box asking for
     an id, not a dead form.
     """
-    key = "conn:" + str(field_id)
+    key = f"conn:{obj}:{field_id}"
     if key in _schema_cache:
         return _schema_cache[key]
     out: list[dict] = []
     try:
-        f = _meta().get(field_id) or {}
-        obj = (f.get("relationship") or {}).get("object") or ""
-        ident = _object_identifier(obj) if obj else None
-        if obj and ident:
-            r = requests.get(f"{BASE}/objects/{obj}/records", headers=_headers(),
+        f = object_meta(obj).get(field_id) or {}
+        # The object this connection POINTS AT, which is not the object the
+        # field lives on — named apart from `obj` so the two cannot be
+        # confused now that the owning object is a parameter.
+        target = (f.get("relationship") or {}).get("object") or ""
+        ident = _object_identifier(target) if target else None
+        if target and ident:
+            r = requests.get(f"{BASE}/objects/{target}/records", headers=_headers(),
                              params={"rows_per_page": CONNECTION_LIMIT,
                                      "sort_field": ident, "sort_order": "asc"},
                              timeout=20)
@@ -280,12 +288,12 @@ def connection_choices(field_id: str) -> list[dict]:
     return out
 
 
-def _control_for(f: dict) -> tuple[str, list]:
+def _control_for(f: dict, obj: str = TICKETS_OBJECT) -> tuple[str, list]:
     """Which control a field needs, and what it may be set to."""
     t = f.get("type")
     fmt = f.get("format") or {}
     if t == "connection":
-        return "connection", connection_choices(f.get("key"))
+        return "connection", connection_choices(f.get("key"), obj)
     if t == "multiple_choice":
         opts = [str(o) for o in (fmt.get("options") or []) if str(o).strip()]
         multi = str(fmt.get("type") or "").lower() in ("multi", "checkboxes")
@@ -336,22 +344,23 @@ def ticket_form_fields(scope: str = "create") -> list[dict]:
     return out
 
 
-def coerce_value(key: str, value, meta: dict | None = None) -> tuple:
+def coerce_field(field_id: str, value, *, obj: str = TICKETS_OBJECT,
+                 label: str = "", meta: dict | None = None) -> tuple:
     """(what to write, why it cannot be written) — exactly one is set.
 
     A value Knack would refuse is refused here, with a reason. Knack rejects
     the whole record rather than the offending field, so a mistyped dropdown
-    choice would cost the ticket; caught here it costs the choice and the
-    caller is told which one.
+    choice would cost the record, not the field; caught here it costs the
+    choice and the caller is told which one.
+
+    Object-agnostic on purpose: object_153's website records are written the
+    same way object_107's tickets are, and a second copy of these rules is a
+    second set of rules to keep in step.
     """
-    fid = field_map().get(key)
-    label = TICKET_LABELS.get(key, key)
-    if not fid:
-        return None, f"{label}: no field id is mapped"
-    meta = _meta() if meta is None else meta
-    f = meta.get(fid) or {}
-    label = f.get("label") or label
-    control, choices = _control_for(f) if f else ("text", [])
+    meta = object_meta(obj) if meta is None else meta
+    f = meta.get(field_id) or {}
+    label = f.get("label") or label or field_id
+    control, choices = _control_for(f, obj) if f else ("text", [])
     if value in (None, "", [], {}):
         return None, ""
     if control == "connection":
@@ -391,6 +400,16 @@ def coerce_value(key: str, value, meta: dict | None = None) -> tuple:
             picked.append(hit[0])
         return (picked if control == "multi" else picked[0]), ""
     return str(value), ""
+
+
+def coerce_value(key: str, value, meta: dict | None = None) -> tuple:
+    """The ticket-object wrapper: a logical ticket key, coerced for writing."""
+    fid = field_map().get(key)
+    label = TICKET_LABELS.get(key, key)
+    if not fid:
+        return None, f"{label}: no field id is mapped"
+    return coerce_field(fid, value, obj=TICKETS_OBJECT, label=label,
+                        meta=_meta() if meta is None else meta)
 
 
 def _build_payload(allowed, values: dict, meta: dict | None = None) -> tuple:

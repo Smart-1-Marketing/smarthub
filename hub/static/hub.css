@@ -90,6 +90,15 @@ tr:hover td{background:#f8fafd}
 .src-ghl{background:#e0f2fe;color:#0369a1}
 .kv{display:grid;grid-template-columns:130px 1fr;row-gap:7px;font-size:13px}
 .kv dt{color:var(--muted)} .kv dd{font-weight:600}
+/* The Knack domain record on Client 360 is an editable kv list: the
+   controls have to sit on the same 130px grid as every other row, or
+   the panel reads as a form bolted onto a record rather than the
+   record itself. */
+.wk-kv{align-items:center;row-gap:8px}
+.wk-kv dd{font-weight:500}
+.wk-kv input,.wk-kv select{width:100%;max-width:260px;padding:5px 8px;
+  border:1px solid var(--line);border-radius:7px;font:12.5px inherit;background:#fff}
+.wk-kv input:disabled,.wk-kv select:disabled{background:#f6f8fa;color:var(--muted)}
 .open-link{margin-left:auto;font-size:12.5px;color:var(--brand);font-weight:600;text-decoration:none;white-space:nowrap}
 .open-link:hover{text-decoration:underline}
 .gbtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}

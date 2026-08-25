@@ -46,6 +46,16 @@ rather than an edit: Knack is the source of truth for a client record and this
 Hub does not write to it, so the day the real record gains a URL, that one wins
 and the overlay stops being consulted. The row carries who accepted it and
 when, because a URL nobody can trace is how the guesses get in.
+
+The row holds a **list** of sites, not one: a client has the shop, the campaign
+landing pages and the microsite for one location, and an overlay that keeps one
+of them makes the rest invisible to everything keyed on domain — which is the
+problem this file exists to fix. The primary is mirrored onto the row's `url`
+and `domain` so the readers that want one URL per client are unchanged.
+
+`accept()` is the store. Attaching a domain to a client across the *other*
+systems — the client's 360 record, the Simvoly project and the Knack website
+record — is `hub/domain_links.attach()`, which calls this as its first step.
 """
 from __future__ import annotations
 
@@ -166,35 +176,135 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def accept(name: str, url: str, *, source: str = "", actor: str = "") -> dict:
-    """Record a URL for a client who had none. Returns the stored row."""
+def sites_of(row: dict) -> list[dict]:
+    """Every site on one overlay row, oldest rows included.
+
+    A client has more than one website more often than not — the shop, the
+    campaign landing pages, the microsite for one location — so the row holds
+    a list. Rows written before it did hold a single `url`/`domain` pair, and
+    they are read as a one-item list rather than migrated: a row nobody has
+    re-opened is not worth a migration, and a missing site reads as "we never
+    found one", which is the wrong answer.
+    """
+    if not isinstance(row, dict):
+        return []
+    sites = row.get("sites")
+    if isinstance(sites, list) and sites:
+        return [s for s in sites if isinstance(s, dict) and s.get("domain")]
+    if row.get("domain"):
+        return [{"url": row.get("url", ""), "domain": row["domain"],
+                 "source": row.get("source", ""),
+                 "accepted_by": row.get("accepted_by", ""),
+                 "accepted_at": row.get("accepted_at", ""),
+                 "primary": True}]
+    return []
+
+
+def sites_for(name: str) -> list[dict]:
+    """Every URL a human has attached to this client."""
+    return sites_of(overlay().get(normalise_name(name)) or {})
+
+
+def accept(name: str, url: str, *, source: str = "", actor: str = "",
+           primary: bool | None = None) -> dict:
+    """Record a URL for a client. Returns the stored row.
+
+    Additive: accepting a second URL does not replace the first. A client with
+    a site and four campaign landing pages has five real URLs, and an overlay
+    that keeps one of them makes the other four invisible to everything keyed
+    on domain — which is the whole problem this file exists to fix.
+    """
     key = normalise_name(name)
     if not key:
         return {"ok": False, "error": "That client name is empty."}
     domain = canonical_domain(url)
     if not domain:
         return {"ok": False, "error": f"“{url}” is not a URL we can read."}
-    row = {
-        "client": str(name).strip()[:200],
+
+    rows = overlay()
+    row = rows.get(key) if isinstance(rows.get(key), dict) else {}
+    sites = sites_of(row)
+    site = {
         "url": url if str(url).startswith("http") else "https://" + domain,
         "domain": domain,
         "source": str(source or "")[:40],
         "accepted_by": str(actor or "")[:120],
         "accepted_at": _now(),
     }
-    rows = overlay()
+    already = next((s for s in sites if s.get("domain") == domain), None)
+    if already:
+        already.update({k: v for k, v in site.items() if v})
+        site = already
+    else:
+        sites.append(site)
+    if primary or len(sites) == 1:
+        for s in sites:
+            s["primary"] = s is site
+    elif not any(s.get("primary") for s in sites):
+        sites[0]["primary"] = True
+
+    head = next((s for s in sites if s.get("primary")), sites[0])
+    row = {
+        "client": str(name).strip()[:200],
+        # The primary is mirrored onto the row because the client registry and
+        # every report that reads one URL per client read these two keys.
+        "url": head["url"], "domain": head["domain"],
+        "source": head.get("source", ""),
+        "accepted_by": head.get("accepted_by", ""),
+        "accepted_at": head.get("accepted_at", ""),
+        "sites": sites,
+    }
     rows[key] = row
     jsonstore.write_json(_store_path(), rows, indent=1)
     _forget_registry_cache()
-    return {"ok": True, "row": row}
+    return {"ok": True, "row": row, "site": site, "sites": sites}
 
 
-def clear(name: str) -> dict:
+def accept_many(pairs, *, actor: str = "") -> dict:
+    """Accept a list of (client, url) at once, and say what each one did.
+
+    The page offers this because reviewing thirty proposals and clicking
+    thirty confirm dialogs is how a reviewer stops reading them. Each result
+    carries its own outcome — a bulk action that reports one number hides the
+    two that failed.
+    """
+    done, failed = [], []
+    for item in pairs or []:
+        name = str((item or {}).get("client") or "").strip()
+        url = str((item or {}).get("url") or (item or {}).get("domain") or "").strip()
+        out = accept(name, url, source=str((item or {}).get("source") or ""),
+                     actor=actor)
+        if out.get("ok"):
+            done.append({"client": name, "domain": out["site"]["domain"]})
+        else:
+            failed.append({"client": name, "url": url,
+                           "error": out.get("error", "could not be recorded")})
+    return {"ok": bool(done), "saved": len(done), "items": done,
+            "failed": failed}
+
+
+def clear(name: str, domain: str = "") -> dict:
+    """Undo one site, or every site for a client when no domain is given."""
     key = normalise_name(name)
     rows = overlay()
     if key not in rows:
         return {"ok": False, "error": "Nothing was recorded for that client."}
-    rows.pop(key, None)
+    want = canonical_domain(domain) if domain else ""
+    if want:
+        sites = [s for s in sites_of(rows[key]) if s.get("domain") != want]
+        if len(sites) == len(sites_of(rows[key])):
+            return {"ok": False,
+                    "error": f"“{want}” was not recorded for that client."}
+        if sites:
+            if not any(s.get("primary") for s in sites):
+                sites[0]["primary"] = True
+            head = next(s for s in sites if s.get("primary"))
+            rows[key] = {**rows[key], "sites": sites, "url": head["url"],
+                         "domain": head["domain"]}
+        else:
+            rows.pop(key, None)
+    else:
+        rows.pop(key, None)
     jsonstore.write_json(_store_path(), rows, indent=1)
     _forget_registry_cache()
     return {"ok": True}
@@ -383,6 +493,17 @@ def missing(limit: int = 2000, include_found: bool = False) -> dict:
             continue
         key = normalise_name(name)
         has_url = bool(canonical_domain(c.get("url") or c.get("domain") or ""))
+        accepted_sites = sites_of(accepted.get(key) or {})
+        if accepted_sites and not has_url:
+            # A URL somebody already accepted is answered, whatever the client
+            # registry says this second. The registry caches for two minutes
+            # per process and there are two gunicorn workers, so the scan that
+            # follows an accept often runs in the worker that has not seen it
+            # — which is why accepting a domain used to be followed by the
+            # same client being proposed the same domain again, as if the
+            # click had done nothing. The overlay is the durable record; it
+            # decides.
+            has_url = True
         if has_url:
             with_url += 1
             if not include_found:
@@ -412,6 +533,9 @@ def missing(limit: int = 2000, include_found: bool = False) -> dict:
             "has_url": has_url,
             "url": c.get("url", ""),
             "accepted": accepted.get(key) or None,
+            # Every URL accepted for this client, not just the first: a client
+            # has landing pages as well as a website.
+            "accepted_sites": accepted_sites,
             "candidates": candidates,
         })
 

@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Domain Purchase — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="dp">
+  <p class="dp-crumb"><a href="/tools">Tools</a> / Domain Purchase</p>
+  <h1>Domain Purchase</h1>
+  <p class="dp-sub">
+    Every domain Smart 1 bought on a client's behalf, by the month its renewal
+    is billed. Only records where <b>S1M Purchase Domain for Client?</b> is yes
+    are listed &mdash; everything else in the website registry is somebody
+    else's domain. This month and the next three are laid out below because
+    that is what the question usually is; anything further out is a search.
+  </p>
+
+  <div class="dp-metrics" id="dpMetrics"></div>
+  <div class="dp-bar">
+    <button class="dp-btn primary" onclick="load()">Load renewals</button>
+    <input id="dpQ" class="dp-search" placeholder="Search every purchased domain — domain, client or registrar"
+           oninput="renderSearch()" disabled>
+  </div>
+  <div id="dpOut"><p class="dp-muted">Nothing loaded yet.</p></div>
+</div>
+
+<style>
+.dp{max-width:1100px;margin:0 auto;font-family:system-ui,sans-serif;color:#1b2733}
+.dp-crumb{color:#94a3b8;font-size:12.5px;margin:0 0 8px}
+.dp-crumb a{color:#1769AA;text-decoration:none}
+.dp h1{margin:0 0 6px;font-size:25px;color:#0d2340}
+.dp-sub{color:#64748b;font-size:13.5px;line-height:1.6;margin:0 0 16px;max-width:72ch}
+.dp-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:11px;margin-bottom:14px}
+.dp-metric{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:13px}
+.dp-metric b{display:block;font-size:22px}
+.dp-metric span{color:#64748b;font-size:12px}
+.dp-bar{display:flex;gap:9px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.dp-btn{border:1px solid #d7dfe8;background:#fff;border-radius:8px;padding:8px 14px;
+  font:600 13px system-ui;cursor:pointer}
+.dp-btn.primary{background:#1769AA;border-color:#1769AA;color:#fff}
+.dp-search{flex:1;min-width:240px;padding:8px 11px;border:1px solid #d7dfe8;
+  border-radius:8px;font:13px system-ui}
+.dp-search:disabled{background:#f6f8fa}
+.dp-card{background:#fff;border:1px solid #e2e8f0;border-radius:11px;margin-bottom:14px;overflow:auto}
+.dp-card h3{margin:0;padding:12px 14px;border-bottom:1px solid #eef2f6;font-size:14px;
+  color:#0d2340;background:#fbfcfe;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.dp-card h3 span{font-weight:500;color:#64748b;font-size:12.5px}
+.dp-card.now h3{background:#eef5fb}
+table.dp-t{width:100%;border-collapse:collapse;font-size:13px;min-width:760px}
+.dp-t th{text-align:left;padding:9px 12px;border-bottom:1px solid #eef2f6;font-size:11px;
+  text-transform:uppercase;letter-spacing:.04em;color:#94a3b8}
+.dp-t td{padding:9px 12px;border-bottom:1px solid #f4f7fa;vertical-align:top}
+.dp-muted{color:#94a3b8;font-size:13px}
+.dp-note{background:#eef5fb;border-left:3px solid #1769AA;border-radius:0 9px 9px 0;
+  padding:11px 14px;font-size:12.8px;line-height:1.6;color:#2b4a63;margin-bottom:14px}
+.dp-warn{background:#fff8e8;border-left-color:#a06a00;color:#6b4a00}
+.pill{display:inline-block;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700}
+.pill.ok{background:#e7f6ef;color:#147d52}
+.pill.due{background:#fff4d7;color:#a06a00}
+.dp-tick{display:flex;gap:6px;align-items:center;font-size:12px;color:#64748b}
+.dp-none{color:#a06a00;font-size:12px}
+.dp-sm{color:#94a3b8;font-size:11.5px;display:block;margin-top:2px}
+</style>
+
+<script>
+var DATA=null;
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function money(n){
+  if(n===null||n===undefined||n==='') return '<span class="dp-muted">not recorded</span>';
+  var v=Number(n); if(!isFinite(v)||v===0) return '<span class="dp-muted">not recorded</span>';
+  return '$'+v.toFixed(2);
+}
+
+function load(){
+  document.getElementById('dpOut').innerHTML='<p class="dp-muted">Reading the website registry…</p>';
+  fetch('/api/domains/purchased',{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){DATA=d;document.getElementById('dpQ').disabled=false;render();})
+    .catch(function(){document.getElementById('dpOut').innerHTML=
+      '<p class="dp-muted">Could not read the registry.</p>';});
+}
+
+function row(r){
+  /* The billed tick is the Hub's, not Knack's, and it is kept against the
+     renewal billing date it was ticked for — so when the date rolls the row
+     reads as unbilled again rather than staying green for a charge nobody
+     has raised. */
+  return '<tr><td><b>'+esc(r.domain||'—')+'</b>'+
+    (r.client?'<span class="dp-sm">'+esc(r.client)+'</span>':
+      '<span class="dp-sm dp-none">no client on the record</span>')+'</td>'+
+    '<td>'+(r.registrar?esc(r.registrar):'<span class="dp-muted">not recorded</span>')+'</td>'+
+    '<td>'+(r.client_status?esc(r.client_status):'<span class="dp-muted">not recorded</span>')+'</td>'+
+    '<td>'+money(r.fee)+'</td>'+
+    '<td>'+(r.renewal_billing_date?esc(r.renewal_billing_date):
+            '<span class="dp-none">not recorded</span>')+
+      (r.renews&&r.renews!==r.renewal_billing_date?
+        '<span class="dp-sm">domain renews '+esc(r.renews)+'</span>':'')+'</td>'+
+    '<td><label class="dp-tick"><input type="checkbox" '+(r.billed?'checked':'')+
+      ' onchange="setBilled(this,\''+esc(r.record_id)+'\',\''+
+      esc(r.renewal_billing_date||'')+'\')"> '+
+      (r.billed?'<span class="pill ok">billed</span>':'<span class="pill due">not billed</span>')+
+      '</label>'+(r.note?'<span class="dp-sm">'+esc(r.note)+'</span>':'')+'</td></tr>';
+}
+
+function table(rows){
+  return '<table class="dp-t"><thead><tr><th>URL domain</th><th>Registrar</th>'+
+    '<th>Client status</th><th>Domain fee</th><th>Renewal billing date</th>'+
+    '<th>Billed?</th></tr></thead><tbody>'+rows.map(row).join('')+'</tbody></table>';
+}
+
+function render(){
+  if(!DATA) return;
+  var d=DATA;
+  document.getElementById('dpMetrics').innerHTML=
+    [['Domains we bought',d.total],
+     ['Billed',d.billed_count],
+     ['Due in the next 4 months',(d.groups||[]).reduce(function(a,g){return a+g.count;},0)],
+     ['Still to bill',(d.groups||[]).reduce(function(a,g){return a+g.unbilled;},0)],
+     ['Fees on file','$'+Number(d.fee_total||0).toFixed(2)]]
+    .map(function(x){return '<div class="dp-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
+
+  var html='<div class="dp-note'+(d.read_error?' dp-warn':'')+'">'+esc(d.note)+'</div>';
+  (d.groups||[]).forEach(function(g){
+    html+='<div class="dp-card'+(g.current?' now':'')+'"><h3>'+esc(g.label)+
+      (g.current?' — this month':'')+
+      '<span>'+g.count+' domain'+(g.count===1?'':'s')+' · $'+
+      Number(g.fee_total||0).toFixed(2)+' · '+g.unbilled+' still to bill</span></h3>'+
+      (g.count?table(g.rows):'<p class="dp-muted" style="padding:12px 14px">'+
+        'Nothing renews in '+esc(g.label)+'.</p>')+'</div>';
+  });
+
+  if(d.undated_count){
+    html+='<div class="dp-card"><h3>No renewal billing date ('+d.undated_count+')'+
+      '<span>These cannot be placed in a month — they are not overdue, they are unrecorded.</span></h3>'+
+      table(d.undated)+'</div>';
+  }
+  html+='<div class="dp-card"><h3>Later than that ('+d.later_count+')'+
+    '<span>Use the search above rather than scrolling a year of renewals.</span></h3>'+
+    (d.later_count?table(d.later.slice(0,40))+
+      (d.later_count>40?'<p class="dp-muted" style="padding:10px 14px">Showing 40 of '+
+        d.later_count+'. Search for the rest.</p>':'')
+     :'<p class="dp-muted" style="padding:12px 14px">Nothing further out.</p>')+'</div>';
+  document.getElementById('dpOut').innerHTML=html;
+}
+
+function renderSearch(){
+  if(!DATA) return;
+  var q=(document.getElementById('dpQ').value||'').trim().toLowerCase();
+  if(!q){render();return;}
+  var all=[];
+  (DATA.groups||[]).forEach(function(g){all=all.concat(g.rows);});
+  all=all.concat(DATA.later||[],DATA.undated||[]);
+  var hits=all.filter(function(r){
+    return (r.domain||'').toLowerCase().indexOf(q)>=0
+        || (r.client||'').toLowerCase().indexOf(q)>=0
+        || (r.registrar||'').toLowerCase().indexOf(q)>=0;});
+  document.getElementById('dpOut').innerHTML=
+    '<div class="dp-note">Searching every purchased domain, not only the next '+
+    'four months. Clear the box to go back to the calendar.</div>'+
+    '<div class="dp-card"><h3>Matches ('+hits.length+')</h3>'+
+    (hits.length?table(hits):'<p class="dp-muted" style="padding:12px 14px">'+
+      'Nothing matches that.</p>')+'</div>';
+}
+
+function setBilled(box, id, forDate){
+  var on=box.checked;
+  box.disabled=true;
+  fetch('/api/domains/billed',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({record_id:id, billed:on, for_date:forDate})})
+   .then(function(r){return r.json();}).then(function(d){
+     box.disabled=false;
+     if(!d.ok){box.checked=!on;alert(d.error||'That did not save.');return;}
+     var pill=box.parentElement.querySelector('.pill');
+     if(pill){pill.className='pill '+(on?'ok':'due');pill.textContent=on?'billed':'not billed';}
+   }).catch(function(){box.disabled=false;box.checked=!on;alert('That did not save.');});
+}
+</script>
+{% endblock %}

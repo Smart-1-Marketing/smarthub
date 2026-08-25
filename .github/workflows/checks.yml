@@ -254,6 +254,20 @@ jobs:
             echo "test_sites_match.py not on this branch — nothing to run."
           fi
 
+      - name: Domain attach, orphan URL and domain purchase tests
+        # One domain attached to one client in four systems at once, the
+        # orphan list that finds a URL nobody owns, and the purchased-domain
+        # renewal calendar whose "billed" tick lapses when the renewal date
+        # rolls. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates the file. Every external reader
+        # is stubbed, so it needs no Knack, Simvoly or Insites credentials.
+        run: |
+          if [ -f test_domain_links.py ]; then
+            python test_domain_links.py
+          else
+            echo "test_domain_links.py not on this branch — nothing to run."
+          fi
+
       - name: Blog taxonomy, guardrail and CMS publish tests
         # The blog section's approved-topic list, the never-mention check and
         # what the two CMS panels are handed. Guarded like the steps above so

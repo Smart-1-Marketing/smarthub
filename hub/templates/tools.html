@@ -25,12 +25,20 @@
       open the opportunity in Smart 1 Suite. Converts straight to an insertion order.
       This replaces the separate builder that used to live at /sales/proposals.</p>
   </a>
+  {#
+    No link inside this tile. The tile IS an <a>, and an <a> inside an <a> is
+    not something a browser can parse: it closes the outer anchor at the inner
+    one, so the rest of the description was no longer inside the tile at all —
+    it rendered outside the box, overflowing the card next to it. The whole
+    tile already goes to the Landing Page Maker; the Leads panel has its own
+    tile and its own sidebar entry.
+  #}
   <a class="tool-tile" href="/sales/landing">
     <div class="t-ico">&#128187;</div>
     <h3>Landing Page Maker</h3>
-    <p>Build a campaign landing page from a saved proposal — client, products and brand
-      carried through. It leaves a section out rather than invent a review or an offer,
-      and leads land in the <a href="/sales/leads">Leads panel</a>.</p>
+    <p>Build a campaign landing page from a saved proposal &mdash; client, products and
+      brand carried through. It leaves a section out rather than invent a review or an
+      offer, and leads land in the Leads panel.</p>
   </a>
   <a class="tool-tile" href="/tools/io/">
     <div class="t-ico">&#128221;</div>
@@ -69,7 +77,17 @@
   <a class="tool-tile" href="/tools/sites-match">
     <div class="t-ico">&#128279;</div>
     <h3>Match Sites to Clients</h3>
-    <p>Links Simvoly projects to Hub clients by domain, so the Sites margin report has revenue to sit against cost. Proposes matches; you accept them.</p>
+    <p>Links a domain to a client &mdash; and writes it to the client registry, their
+      Client 360 record, the Simvoly project and the Knack website record at once.
+      Starts with the orphan URLs: every website we hold that nobody is attached to.
+      Proposes matches; you accept them, singly or in bulk.</p>
+  </a>
+  <a class="tool-tile" href="/tools/domains">
+    <div class="t-ico">&#128197;</div>
+    <h3>Domain Purchase</h3>
+    <p>Every domain Smart 1 bought for a client, by the month its renewal is billed &mdash;
+      this month and the next three, with the registrar, the client status and the fee.
+      Tick each one off as it is billed; the tick lapses when the renewal date rolls.</p>
   </a>
   <a class="tool-tile" href="/tools/tickets/">
     <div class="t-ico">&#127915;</div>
