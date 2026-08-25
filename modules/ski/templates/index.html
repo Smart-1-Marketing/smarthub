@@ -244,7 +244,7 @@ function sendPartial(){
   if(!p.website&&!p.resort_name)return; // need at least something identifying
   partialSent=true;
   const body=JSON.stringify({...p,...ATTR,lead_id:LEAD_ID,lead_stage:"partial"});
-  if(navigator.sendBeacon)navigator.sendBeacon("/api/partial-lead",new Blob([body],{type:"application/json"}));
+  if(navigator.sendBeacon)navigator.sendBeacon("{{ request.script_root }}/api/partial-lead",new Blob([body],{type:"application/json"}));
   else fetch("{{ request.script_root }}/api/partial-lead",{method:"POST",headers:{"Content-Type":"application/json"},body,keepalive:true});
 }
 window.addEventListener("pagehide",sendPartial);

@@ -331,7 +331,7 @@ function sendPartialLead(){
   track('s1_lead_captured',{lead_stage:stage});
   const body=JSON.stringify(data);
   try{
-    if(navigator.sendBeacon){navigator.sendBeacon('/api/lead',new Blob([body],{type:'application/json'}));}
+    if(navigator.sendBeacon){navigator.sendBeacon('{{ request.script_root }}/api/lead',new Blob([body],{type:'application/json'}));}
     else{fetch('{{ request.script_root }}/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});}
   }catch(e){
     try{fetch('{{ request.script_root }}/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});}catch(e2){}

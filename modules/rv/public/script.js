@@ -1,5 +1,15 @@
-// For local testing leave blank; for a cross-domain embed set to your Render URL.
-const API_BASE = window.SMART1RV_API_BASE || '';
+// Where this app answers. Derived from the page's own URL rather than left
+// blank, because blank means the SITE root and this app is mounted at
+// /land/rv -- so `'' + '/api/rv-demand/estimate-and-submit'` reached the hub
+// app, which has no such route. Every call here is built by concatenation,
+// which is exactly the shape tools/linkcheck.py cannot see (CLAUDE.md), so
+// nothing reported it.
+//
+// The directory of the current path is the mount from every URL this page is
+// served at: /land/rv/, /land/rv/embed and /land/rv/index.html all give
+// /land/rv, and standalone at / it gives '' -- which is then correct.
+// SMART1RV_API_BASE still wins, for a genuinely cross-origin host.
+const API_BASE = window.SMART1RV_API_BASE || location.pathname.replace(/\/[^\/]*$/, '');
 const LEAD_ID = (function(){ try { return crypto.randomUUID(); } catch(e){ return 'rv-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8); } })();
 
 // Attribution captured once at load (merged into every payload, additive).
