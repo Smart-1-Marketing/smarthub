@@ -8,15 +8,70 @@
 
 {% if not openai_configured %}
   <div class="note n-warn">
-    <b>No server-side OpenAI key</b>
-    <span class="mono">OPENAI_API_KEY</span> is not set in the Hub environment. You can still generate by
-    pasting a key below, but it will not be remembered.
+    <b>The generator has no OpenAI key to use</b>
+    <span class="mono">OPENAI_API_KEY</span> is not set on this Hub service, and this page does not
+    accept a key from the browser. Set it on the service and redeploy — it is the same key the SEO,
+    FAQ Builder and proposal tools already use.
   </div>
 {% endif %}
 
 <form id="gen" onsubmit="return false">
+  {# The client comes first and is looked up, not typed. A campaign filed under
+     a name nobody recognises does not reach the client's record, and a name
+     typed slightly differently ("Riverside HVAC" vs "Riverside HVAC LLC")
+     reaches the wrong one — which is worse. #}
   <div class="card">
-    <h3>Client and objective</h3>
+    <h3>Client <span class="sub">look one up, or start a new one</span></h3>
+
+    <div id="clientSearch">
+      <div class="field">
+        <label for="clientQuery">Search existing clients</label>
+        <input id="clientQuery" placeholder="Start typing a client name or domain…"
+               autocomplete="off" oninput="searchClientsSoon()">
+        <div class="hint" id="clientHint">Matched on domain first, then an exact name.</div>
+      </div>
+      <div id="clientHits"></div>
+      <div class="row">
+        <div class="spacer"></div>
+        <button type="button" class="b-sm" onclick="newClient()">This is a new client →</button>
+      </div>
+    </div>
+
+    <div id="clientPicked" style="display:none">
+      <div class="note n-good" style="margin-bottom:0">
+        <b id="pickedName"></b>
+        <span id="pickedMeta"></span>
+        <div style="margin-top:8px"><button type="button" class="b-sm" onclick="clearClient()">Change client</button></div>
+      </div>
+    </div>
+
+    <div id="clientNew" style="display:none">
+      <div class="note n-info">
+        <b>New client</b>
+        They are not in the client list, so they go into Smart 1 Suite as a <strong>lead</strong> — not into
+        the Knack client record, which this Hub does not write to. The campaign and its proposal are
+        filed under this name and website, so they join the client record the day it exists.
+      </div>
+      <div class="grid g2">
+        <div class="field"><label>Contact name</label>
+          <input id="contactName" placeholder="Dana Whitfield"></div>
+        <div class="field"><label>Contact email</label>
+          <input id="contactEmail" type="email" placeholder="dana@northsideroofing.com"></div>
+        <div class="field"><label>Contact phone</label>
+          <input id="contactPhone" placeholder="(317) 555-0142"></div>
+      </div>
+      <div class="hint">An email <i>or</i> a phone number is needed to create the lead. Without
+        either, the campaign is still built and filed — there is just nobody to call, so no lead
+        is created rather than a contactless one.</div>
+      <div class="row" style="margin-top:10px">
+        <div class="spacer"></div>
+        <button type="button" class="b-sm" onclick="clearClient()">← Search existing clients instead</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Campaign and objective</h3>
     <div class="grid g2">
       <div class="field"><label>Client / business name</label>
         <input id="businessName" placeholder="Northside Roofing Co" required></div>
@@ -54,10 +109,6 @@
 
   <div class="card">
     <h3>Generate</h3>
-    <div class="field">
-      <label>OpenAI key override (optional)</label>
-      <input type="password" id="customApiKey" placeholder="Leave blank to use the Hub's OPENAI_API_KEY">
-    </div>
     <div id="genError"></div>
     <div class="row end">
       <button class="b-primary" id="go" onclick="generate()">Generate campaign</button>
@@ -73,6 +124,76 @@
 <script>
 const MOUNT = {{ mount|tojson }};
 let debounce;
+let clientDebounce;
+let clientMode = '';          // '' | 'picked' | 'new'
+
+// ---------------------------------------------------------------- client
+function searchClientsSoon() {
+  clearTimeout(clientDebounce);
+  clientDebounce = setTimeout(searchClients, 260);
+}
+
+async function searchClients() {
+  const q = document.getElementById('clientQuery').value.trim();
+  const hits = document.getElementById('clientHits');
+  if (q.length < 2) { hits.innerHTML = ''; return; }
+  try {
+    const d = await api('GET', `${MOUNT}/api/clients?q=${encodeURIComponent(q)}`);
+    // "no such client" and "the list could not be read" send a rep to two
+    // different places, so they are never rendered the same way.
+    if (!d.available) {
+      hits.innerHTML = `<div class="note n-warn"><b>The client list could not be read</b>${esc(d.note)}
+        You can still enter this as a new client.</div>`;
+      return;
+    }
+    if (!d.clients.length) {
+      hits.innerHTML = `<div class="hint">No client matches “${esc(q)}”. If they are not a client
+        yet, start them as a new one.</div>`;
+      return;
+    }
+    hits.innerHTML = '<div class="chips" style="margin-bottom:10px">' + d.clients.map((c, i) =>
+      `<button type="button" class="b-sm" data-i="${i}" style="text-align:left">
+         <span><b>${esc(c.name)}</b>${c.domain ? ' <span style="color:#94a3b8">' + esc(c.domain) + '</span>' : ''}
+         ${c.running ? '<span class="tag t-good" style="margin-left:5px">' + c.running + ' running</span>' : ''}</span>
+       </button>`).join('') + '</div>';
+    hits.querySelectorAll('button[data-i]').forEach(btn => {
+      btn.onclick = () => pickClient(d.clients[Number(btn.dataset.i)]);
+    });
+  } catch (err) {
+    hits.innerHTML = `<div class="note n-warn"><b>The client list could not be read</b>${esc(err.message)}</div>`;
+  }
+}
+
+function pickClient(c) {
+  clientMode = 'picked';
+  document.getElementById('businessName').value = c.name || '';
+  if (c.url && !document.getElementById('websiteUrl').value.trim()) {
+    document.getElementById('websiteUrl').value = c.url;
+  }
+  document.getElementById('pickedName').textContent = c.name || '';
+  document.getElementById('pickedMeta').textContent =
+    [c.domain || 'no website on record',
+     c.running ? c.running + ' running products' : 'no running products',
+     c.is_seo ? 'SEO client' : ''].filter(Boolean).join(' · ');
+  document.getElementById('clientSearch').style.display = 'none';
+  document.getElementById('clientNew').style.display = 'none';
+  document.getElementById('clientPicked').style.display = '';
+}
+
+function newClient() {
+  clientMode = 'new';
+  document.getElementById('clientSearch').style.display = 'none';
+  document.getElementById('clientPicked').style.display = 'none';
+  document.getElementById('clientNew').style.display = '';
+  document.getElementById('businessName').focus();
+}
+
+function clearClient() {
+  clientMode = '';
+  document.getElementById('clientSearch').style.display = '';
+  document.getElementById('clientPicked').style.display = 'none';
+  document.getElementById('clientNew').style.display = 'none';
+}
 
 function checkBudget() {
   const budget = document.getElementById('budget').value;
@@ -106,11 +227,23 @@ async function generate() {
     targetAudience: document.getElementById('targetAudience').value.trim(),
     geography: document.getElementById('geography').value.trim(),
     notes: document.getElementById('notes').value.trim(),
-    customApiKey: document.getElementById('customApiKey').value.trim()
+    isNewClient: clientMode === 'new',
+    clientPicked: clientMode === 'picked',
+    contact: clientMode === 'new' ? {
+      name: document.getElementById('contactName').value.trim(),
+      email: document.getElementById('contactEmail').value.trim(),
+      phone: document.getElementById('contactPhone').value.trim()
+    } : {}
   };
   if (!body.businessName || !body.websiteUrl) {
     document.getElementById('genError').innerHTML =
       '<div class="note n-bad">A client name and landing page URL are both required.</div>';
+    return;
+  }
+  if (!clientMode) {
+    document.getElementById('genError').innerHTML =
+      '<div class="note n-bad">Pick the client from the list, or say this is a new one — the campaign ' +
+      'is filed on their record either way, and an unattached one reaches nobody.</div>';
     return;
   }
 

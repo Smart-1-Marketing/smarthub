@@ -20,6 +20,20 @@ Design choices that matter:
   moment you authorise it, but GOOGLE_ADS_REFRESH_TOKEN in the environment
   always wins, because that is the copy that survives a redeploy.
 
+* **The generator is the front door, and it needs no Google connection.**
+  ``/tools/ads/`` opens on it. Live campaigns sit after the approval hub,
+  because reading somebody's live spend is the one screen here that cannot work
+  until Google's API does -- opening on it made a tool whose first three steps
+  were fully working look dead. The generator is OpenAI, review and approval
+  are the Hub's own, and the Ads Editor export is a file: the only thing the
+  Google Ads API gates is reading live campaigns and writing a new one.
+
+* **No developer token is not no product.** Google issues the developer token
+  on its own timetable, so ``modules/ads_builder/export.py`` writes the same
+  campaign as a Google Ads Editor import file. An approved proposal reaches the
+  client account today, with the account owner's own sign-in, and the identical
+  proposal still deploys through the API later when the token lands.
+
 * **Bing is phase two.** Nothing here assumes Google; the proposal format is
   platform neutral, so Microsoft Advertising slots in as a sibling client
   module without touching the generator, approval hub or proposal export.
@@ -36,7 +50,7 @@ from flask import (Flask, jsonify, make_response, redirect, render_template,
                    request)
 
 from . import VERSION, VERSION_DATE
-from . import campaign_ai, google_ads, store
+from . import campaign_ai, client_link, export, google_ads, store
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
 
@@ -102,18 +116,25 @@ def _inject():
 
 # ------------------------------------------------------------------ pages
 @app.get("/")
-def page_campaigns():
-    return render_template("ads_campaigns.html", status=google_ads.connection_status(store))
-
-
-@app.get("/generator")
 def page_generator():
+    """The front door. Nothing on it touches Google."""
     return render_template(
         "ads_generator.html",
         sectors=[{"key": k, **v} for k, v in SECTOR_CPC.items()],
         objectives=OBJECTIVES,
-        openai_configured=bool(os.environ.get("OPENAI_API_KEY")),
+        openai_configured=bool(campaign_ai.openai_key()),
     )
+
+
+@app.get("/generator")
+def page_generator_alias():
+    """Where the generator used to live. One URL, so a bookmark still lands."""
+    return redirect(MOUNT + "/")
+
+
+@app.get("/campaigns")
+def page_campaigns():
+    return render_template("ads_campaigns.html", status=google_ads.connection_status(store))
 
 
 @app.get("/approvals")
@@ -146,6 +167,65 @@ def page_client_proposal(public_id):
     )
 
 
+# ------------------------------------------------- Ads Editor handoff (no API)
+def _download(body: str, filename: str, mimetype: str):
+    resp = make_response(body)
+    resp.headers["Content-Type"] = f"{mimetype}; charset=utf-8"
+    # The name is the deliverable here: a file that lands in Downloads as
+    # export.csv has lost which client it belongs to.
+    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return resp
+
+
+@app.get("/proposal/<public_id>/export/campaign.csv")
+def export_campaign_csv(public_id):
+    proposal = store.get_proposal(public_id)
+    if not proposal:
+        return render_template("ads_error.html", error="That proposal no longer exists."), 404
+    campaign = proposal["campaign"]
+    body = export.editor_csv(campaign, search_partners=False)
+    store.log_event("EXPORT_ADS_EDITOR_CSV", current_user(),
+                    proposal=public_id, client=proposal["client_name"],
+                    keywords=proposal["keyword_count"])
+    return _download(body, f"{export.slug(proposal['client_name'])}-google-ads-editor.csv",
+                     "text/csv")
+
+
+@app.get("/proposal/<public_id>/export/build-sheet.txt")
+def export_build_sheet(public_id):
+    proposal = store.get_proposal(public_id)
+    if not proposal:
+        return render_template("ads_error.html", error="That proposal no longer exists."), 404
+    body = export.build_sheet(proposal["campaign"])
+    store.log_event("EXPORT_BUILD_SHEET", current_user(),
+                    proposal=public_id, client=proposal["client_name"])
+    return _download(body, f"{export.slug(proposal['client_name'])}-build-sheet.txt",
+                     "text/plain")
+
+
+@app.get("/api/proposals/<public_id>/export")
+def api_export_summary(public_id):
+    """What the handoff will and will not carry, before anybody downloads it."""
+    proposal = store.get_proposal(public_id)
+    if not proposal:
+        return jsonify({"error": "Proposal not found."}), 404
+    campaign = proposal["campaign"]
+    assets = campaign.get("adAssets") or {}
+    return jsonify({
+        "campaign_name": export.default_campaign_name(campaign),
+        "daily_budget": export.daily_budget(campaign),
+        "negatives": len(export.negatives_of(campaign)),
+        "problems": export.problems(campaign),
+        "by_hand": {
+            "sitelinks": len(assets.get("sitelinks") or []),
+            "callouts": len(assets.get("callouts") or []),
+            "structured_snippets": len((assets.get("structuredSnippets") or {}).get("values") or []),
+        },
+        "csv_url": f"{MOUNT}/proposal/{public_id}/export/campaign.csv",
+        "build_sheet_url": f"{MOUNT}/proposal/{public_id}/export/build-sheet.txt",
+    })
+
+
 @app.get("/activity")
 def page_activity():
     return render_template("ads_activity.html", events=store.list_events(300))
@@ -156,8 +236,8 @@ def page_settings():
     return render_template(
         "ads_settings.html",
         status=google_ads.connection_status(store),
-        openai_configured=bool(os.environ.get("OPENAI_API_KEY")),
-        openai_model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        openai_configured=bool(campaign_ai.openai_key()),
+        openai_model=campaign_ai.openai_model(),
         expected_redirect=(os.environ.get("PUBLIC_BASE_URL", "").rstrip("/") + MOUNT
                            + "/oauth/callback"),
     )
@@ -233,15 +313,42 @@ def api_version():
 
 @app.get("/api/status")
 def api_status():
+    google = google_ads.connection_status(store)
+    generator_ready = bool(campaign_ai.openai_key())
     return jsonify({
         "version": VERSION,
-        "google": google_ads.connection_status(store),
+        "google": google,
         "openai": {
-            "configured": bool(os.environ.get("OPENAI_API_KEY")),
-            "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            "configured": generator_ready,
+            "model": campaign_ai.openai_model(),
+        },
+        # Said per capability rather than as one "connected" flag, because
+        # three of the four work with no Google credentials at all and a single
+        # flag reports the whole tool as down when only the last step is.
+        "capabilities": {
+            "generate": {"ready": generator_ready,
+                         "needs": [] if generator_ready else ["OPENAI_API_KEY"]},
+            "approve": {"ready": True, "needs": []},
+            "export_to_ads_editor": {"ready": True, "needs": [],
+                                     "note": "Needs no Google API access at all."},
+            "read_live_campaigns": {"ready": google["deploy_ready"], "needs": google["missing"]},
+            "deploy_via_api": {"ready": google["deploy_ready"], "needs": google["missing"]},
         },
         "bing": {"configured": False, "connected": False, "note": "Phase 2 — not wired yet"},
     })
+
+
+@app.get("/api/clients")
+def api_clients():
+    """Existing clients, for the lookup on the generator.
+
+    Served from the module rather than fetched from the Hub's own
+    /api/clients/search so the call stays inside this mount — and so the page
+    behaves the same when the module is run standalone, where it reports the
+    list as unavailable instead of 404ing into the Hub app.
+    """
+    return jsonify(client_link.search(request.args.get("q", ""),
+                                      limit=min(int(request.args.get("limit") or 12), 50)))
 
 
 @app.get("/api/budget-check")
@@ -299,7 +406,23 @@ def api_generate():
     store.log_event("GENERATION_START", current_user(),
                     client=body.get("businessName"), budget=body.get("budget"))
 
-    campaign = campaign_ai.generate_campaign(body, api_key=body.get("customApiKey"))
+    # No key from the browser: the Hub's OPENAI_API_KEY is the only one used.
+    campaign = campaign_ai.generate_campaign(body)
+
+    # Who this is for, decided by the browser (picked from the lookup, or
+    # explicitly new) and checked here against the Hub's own client list.
+    # Recorded inside the campaign JSON rather than in new columns: create_all()
+    # adds no column to an existing table, so a column added here would be
+    # silently absent on the live Postgres while every local test passed.
+    is_new = bool(body.get("isNewClient"))
+    contact = body.get("contact") or {}
+    campaign["clientLink"] = {
+        "is_new_client": is_new,
+        "picked_from_lookup": bool(body.get("clientPicked")),
+        "contact": {k: str(contact.get(k) or "").strip()
+                    for k in ("name", "email", "phone")} if is_new else {},
+    }
+
     proposal = store.create_proposal(
         client_name=body["businessName"],
         campaign=campaign,
@@ -307,10 +430,25 @@ def api_generate():
         google_customer_id=body.get("googleCustomerId", ""),
     )
 
-    store.log_event("GENERATION_SUCCESS", current_user(),
+    # client= is what puts this on the client's work log: hub/client_brand.py
+    # lists ads_builder in WORK_KINDS and matches on that field.
+    work = store.log_event(
+        "GENERATION_SUCCESS", current_user(),
+        proposal=proposal["id"], client=body["businessName"],
+        detail=f"Campaign generated — {proposal['ad_group_count']} ad groups, "
+               f"{proposal['keyword_count']} keywords",
+        ad_groups=proposal["ad_group_count"], keywords=proposal["keyword_count"])
+
+    link = client_link.attach(proposal, MOUNT, is_new_client=is_new,
+                              contact=contact, actor=current_user(), work=work)
+    proposal = store.record_client_link(proposal["id"], link) or proposal
+    store.log_event("CLIENT_LINKED", current_user(),
                     proposal=proposal["id"], client=body["businessName"],
-                    ad_groups=proposal["ad_group_count"], keywords=proposal["keyword_count"])
-    return jsonify({"proposal": proposal, "url": f"{MOUNT}/proposal/{proposal['id']}"})
+                    filed=link["filed"]["ok"], lead=link["lead"].get("created"),
+                    known_client=link["known_client"]["known"])
+
+    return jsonify({"proposal": proposal, "url": f"{MOUNT}/proposal/{proposal['id']}",
+                    "client_link": link})
 
 
 @app.get("/api/proposals")

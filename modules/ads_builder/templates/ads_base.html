@@ -126,9 +126,13 @@
   </div>
 
   <nav class="tabs noprint">
-    <a href="{{ mount }}/" class="{{ 'on' if active=='campaigns' }}">Live campaigns</a>
-    <a href="{{ mount }}/generator" class="{{ 'on' if active=='generator' }}">Campaign generator</a>
+    {# Generator first, live campaigns after the approval hub: the first three
+       steps work with no Google API access, and the fourth is the only one
+       that needs a developer token. Opening on the screen that cannot work
+       described the whole tool as broken. #}
+    <a href="{{ mount }}/" class="{{ 'on' if active=='generator' }}">Campaign generator</a>
     <a href="{{ mount }}/approvals" class="{{ 'on' if active=='approvals' }}">Approval hub{% if open_count %}<span class="pill">{{ open_count }}</span>{% endif %}</a>
+    <a href="{{ mount }}/campaigns" class="{{ 'on' if active=='campaigns' }}">Live campaigns</a>
     <a href="{{ mount }}/activity" class="{{ 'on' if active=='activity' }}">Activity</a>
     <a href="{{ mount }}/settings" class="{{ 'on' if active=='settings' }}">Settings</a>
   </nav>

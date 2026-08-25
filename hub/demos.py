@@ -493,17 +493,19 @@ SCENARIOS: list[Scenario] = [
         key="ads_builder.first_campaign", module="ads_builder",
         title="Generate a Google Ads campaign and get it approved",
         goal="An AI-drafted campaign checked against budget, sent for approval, "
-             "and deployed paused — with nothing spending until a human "
-             "un-pauses it.",
+             "then handed to the client account — through the API, or as a "
+             "Google Ads Editor import when the API is not available. Paused "
+             "either way, with nothing spending until a human un-pauses it.",
         minutes=9, path="/tools/ads",
         spends=["openai.text"],
         steps=[
-            Step("Pick the account first",
-                 "Choose the Google Ads account this campaign belongs to.",
-                 "Everything downstream is scoped to this. Getting it wrong "
-                 "means building a perfectly good campaign in someone else's "
-                 "account.",
-                 action="choose", selector="#acct", value="Riverside HVAC"),
+            Step("Find the client first",
+                 "Search the client list, or say this is a new business.",
+                 "Look them up rather than typing the name: a campaign filed "
+                 "under a name nobody recognises never reaches the client's "
+                 "record, and a name typed slightly differently reaches the "
+                 "wrong one. A new business goes into Smart 1 Suite as a lead.",
+                 action="fill", selector="#clientQuery", value="Riverside HVAC"),
             Step("Describe the business, not the campaign",
                  "Business name, sector and the geography you want to reach.",
                  "The generator writes better ad copy from what the business "
@@ -558,6 +560,14 @@ SCENARIOS: list[Scenario] = [
                  "Only proposals marked APPROVED can deploy. That's enforced in "
                  "code, not policy — you cannot skip it by clicking harder.",
                  action="click", selector="[data-demo='send-approval']"),
+            Step("Hand it over without the API",
+                 "Ads Editor CSV and build sheet, on the proposal.",
+                 "The Google Ads API needs a developer token Google approves "
+                 "on its own timetable. Ads Editor imports the CSV under the "
+                 "account owner's own sign-in, so an approved campaign reaches "
+                 "the client account today and the same proposal still deploys "
+                 "through the API later, unchanged.",
+                 action="click", selector="[data-demo='export-csv']", simulated=True),
             Step("Deploy, and note what deploy means",
                  "One atomic mutate. Every campaign is created PAUSED.",
                  "If any single operation fails, Google rolls the entire batch "

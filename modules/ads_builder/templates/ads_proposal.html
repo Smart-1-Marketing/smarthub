@@ -53,44 +53,59 @@
   </div>
 {% endif %}
 
+{# What the client join actually wrote, each part named. "Filed" and "filed in
+   one of two places" are different outcomes, and one tick for both is how a rep
+   learns not to trust the tick. #}
+{% set link = (c.clientLink or {}).get('result') %}
+{% if link %}
+<div class="card">
+  <h3>Client record <span class="sub">{{ p.client_name }}</span></h3>
+  <table>
+    <tbody>
+      <tr>
+        <td style="width:150px">Proposal</td>
+        <td>
+          <span class="tag {{ 't-good' if link.filed.ok else 't-bad' }}">{{ 'Filed' if link.filed.ok else 'Not filed' }}</span>
+          <span style="color:#64748b;margin-left:8px">{{ link.filed.note }}
+            {%- if link.filed.quote_number %} · {{ link.filed.quote_number }}{% endif %}</span>
+        </td>
+      </tr>
+      <tr>
+        <td>Work log</td>
+        <td><span class="tag t-good">Recorded</span>
+          <span style="color:#64748b;margin-left:8px">Shows on this client's 360 record.</span></td>
+      </tr>
+      <tr>
+        <td>Client</td>
+        <td>
+          {% if link.known_client.known %}
+            <span class="tag t-good">Known client</span>
+            <span style="color:#64748b;margin-left:8px">Matched on {{ link.known_client.matched_on or 'name' }}.</span>
+          {% else %}
+            <span class="tag t-info">New</span>
+            <span style="color:#64748b;margin-left:8px">Not in the client list — nothing was written to Knack.</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td>Suite lead</td>
+        <td>
+          {% if link.lead.created %}
+            <span class="tag {{ 't-good' if link.lead.ok else 't-warn' }}">{{ 'Created' if link.lead.ok else 'Queued' }}</span>
+          {% else %}
+            <span class="tag t-mute">None</span>
+          {% endif %}
+          <span style="color:#64748b;margin-left:8px">{{ link.lead.note }}</span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 {% if c.strategySummary %}
   <div class="card"><h3>Strategy</h3>{{ c.strategySummary }}</div>
 {% endif %}
-
-<!-- ------------------------------------------------------------ deploy -->
-<div class="card">
-  <h3>Deploy to Google Ads <span class="sub">everything is created paused</span></h3>
-
-  {% if p.status == 'DEPLOYED' and p.deployment %}
-    <div class="note n-good">
-      <b>Deployed</b>
-      Campaign <b>{{ p.deployment.campaign_name }}</b> was created in account
-      {{ p.deployment.customer_id }} on {{ (p.deployment.deployed_at or '')[:16].replace('T',' ') }}
-      by {{ p.deployment.deployed_by }}. It is <b>paused</b> — enable it from Live campaigns, or in
-      Google Ads, when you are ready.
-      {% if p.deployment.manage_url %}
-        <div style="margin-top:6px"><a href="{{ p.deployment.manage_url }}" target="_blank" rel="noopener">Open in Google Ads →</a></div>
-      {% endif %}
-    </div>
-  {% elif not status.connected %}
-    <div class="note n-warn">Connect Google Ads in <a href="{{ mount }}/settings">Settings</a> before deploying.</div>
-  {% else %}
-    <div class="row" style="align-items:flex-end">
-      <div style="flex:1;min-width:280px">
-        <label>Destination account</label>
-        <select id="acct"><option value="">Loading accounts…</option></select>
-      </div>
-      <button id="dry" onclick="deploy(true)">Dry run</button>
-      <button class="b-primary" id="go" onclick="deploy(false)"
-              {{ 'disabled' if p.status != 'APPROVED' }}>Deploy</button>
-    </div>
-    {% if p.status != 'APPROVED' %}
-      <div class="hint">Approve the proposal below before it can be deployed. The dry run works at any status —
-        it sends the whole batch to Google's validator and writes nothing.</div>
-    {% endif %}
-    <div id="deployResult" style="margin-top:12px"></div>
-  {% endif %}
-</div>
 
 <!-- --------------------------------------------------------- ad groups -->
 {% for g in c.adGroups or [] %}
@@ -190,6 +205,99 @@
   </div>
   <div class="row end"><button class="b-primary" onclick="addComment()">Post comment</button></div>
 </div>
+
+<!-- ------------------------------------------------------------- launch -->
+{# Last on the page, after review and approval, because that is the order the
+   work happens in: a campaign is read, discussed and approved before anybody
+   pushes it anywhere. It also used to be the first thing on the screen and the
+   only thing that needed a developer token, so the page opened on a warning
+   about a credential nobody had. #}
+<div class="card">
+  <h3>Launch <span class="sub">everything is created paused, whichever route you take</span></h3>
+
+  {% if p.status == 'DEPLOYED' and p.deployment %}
+    <div class="note n-good">
+      <b>Deployed through the API</b>
+      Campaign <strong>{{ p.deployment.campaign_name }}</strong> was created in account
+      {{ p.deployment.customer_id }} on {{ (p.deployment.deployed_at or '')[:16].replace('T',' ') }}
+      by {{ p.deployment.deployed_by }}. It is <strong>paused</strong> — enable it from Live campaigns, or in
+      Google Ads, when you are ready.
+      {% if p.deployment.manage_url %}
+        <div style="margin-top:6px"><a href="{{ p.deployment.manage_url }}" target="_blank" rel="noopener">Open in Google Ads →</a></div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="grid g2">
+    <!-- route 1: Google Ads Editor, needs no API access at all -->
+    <div>
+      <h4 style="margin:0 0 4px;font-size:13.5px;color:var(--navy)">Google Ads Editor
+        <span class="tag t-good" style="margin-left:6px">Available now</span></h4>
+      <p style="margin:0 0 10px;color:#64748b;font-size:12.5px">
+        Two files. The CSV is the campaign, ad groups, keywords, campaign negatives and one
+        responsive search ad per group — Editor imports it under the account owner's own sign-in,
+        so this needs no developer token and no API access. The build sheet is the assets to add
+        by hand, and anything the proposal is still missing.
+      </p>
+      <div class="row">
+        <a class="btn b-primary" href="{{ mount }}/proposal/{{ p.id }}/export/campaign.csv">Ads Editor CSV</a>
+        <a class="btn" href="{{ mount }}/proposal/{{ p.id }}/export/build-sheet.txt">Build sheet</a>
+      </div>
+      <div id="exportSummary" class="hint"></div>
+    </div>
+
+    <!-- route 2: the API, which is the half the developer token gates -->
+    <div>
+      <h4 style="margin:0 0 4px;font-size:13.5px;color:var(--navy)">Deploy through the API
+        {% if p.status == 'DEPLOYED' %}<span class="tag t-info" style="margin-left:6px">Done</span>
+        {% elif status.deploy_ready %}<span class="tag t-good" style="margin-left:6px">Connected</span>
+        {% else %}<span class="tag t-mute" style="margin-left:6px">Not available yet</span>{% endif %}
+      </h4>
+
+      {% if p.status == 'DEPLOYED' %}
+        <p style="margin:0;color:#64748b;font-size:12.5px">Already deployed — see above.</p>
+      {% elif not status.deploy_ready %}
+        <p style="margin:0 0 8px;color:#64748b;font-size:12.5px">
+          {% if status.blocks %}
+            Waiting on:
+            <ul style="margin:6px 0 0;padding-left:18px">
+              {% for b in status.blocks %}
+                <li><span class="mono">{{ b.name }}</span> — {{ b.why }}.</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            The credentials are set but no Google account has been authorised.
+            Open <a href="{{ mount }}/settings">Settings</a> and click Connect Google Ads.
+          {% endif %}
+        </p>
+        <p style="margin:8px 0 0;color:#64748b;font-size:12.5px">
+          Nothing above this card is affected — the campaign is built, reviewable and exportable
+          without it. Use the Ads Editor route meanwhile; the same proposal deploys here unchanged
+          once this is sorted.
+        </p>
+      {% else %}
+        <p style="margin:0 0 10px;color:#64748b;font-size:12.5px">
+          One atomic mutate — if any operation fails Google rolls the whole batch back, so a
+          half-built campaign cannot happen.
+        </p>
+        <div class="field">
+          <label>Destination account</label>
+          <select id="acct"><option value="">Loading accounts…</option></select>
+        </div>
+        <div class="row">
+          <button id="dry" onclick="deploy(true)">Dry run</button>
+          <button class="b-primary" id="go" onclick="deploy(false)"
+                  {{ 'disabled' if p.status != 'APPROVED' }}>Deploy</button>
+        </div>
+        {% if p.status != 'APPROVED' %}
+          <div class="hint">Approve the proposal above before it can be deployed. The dry run works at
+            any status — it sends the whole batch to Google's validator and writes nothing.</div>
+        {% endif %}
+        <div id="deployResult" style="margin-top:12px"></div>
+      {% endif %}
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block script %}
@@ -198,7 +306,7 @@ const MOUNT = {{ mount|tojson }};
 const PID = {{ p.id|tojson }};
 const SAVED_CID = {{ (p.google_customer_id or '')|tojson }};
 
-{% if status.connected and p.status != 'DEPLOYED' %}
+{% if status.deploy_ready and p.status != 'DEPLOYED' %}
 (async function loadAccounts() {
   try {
     const d = await api('GET', MOUNT + '/api/accounts');
@@ -251,6 +359,33 @@ async function deploy(dryRun) {
   }
 }
 {% endif %}
+
+// What the handoff carries and what it cannot, said before anyone downloads
+// it — three files where there should be four reads as the rep's own mistake.
+(async function exportSummary() {
+  const box = document.getElementById('exportSummary');
+  if (!box) return;
+  try {
+    const d = await api('GET', `${MOUNT}/api/proposals/${PID}/export`);
+    const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+    const hand = [];
+    if (d.by_hand.sitelinks) hand.push(plural(d.by_hand.sitelinks, 'sitelink', 'sitelinks'));
+    if (d.by_hand.callouts) hand.push(plural(d.by_hand.callouts, 'callout', 'callouts'));
+    if (d.by_hand.structured_snippets)
+      hand.push(plural(d.by_hand.structured_snippets, 'snippet value', 'snippet values'));
+    let html = `Imports as <b>${esc(d.campaign_name)}</b>, paused` +
+      (d.daily_budget ? `, ${money2(d.daily_budget)}/day` : '') +
+      `, ${plural(d.negatives, 'campaign negative', 'campaign negatives')}.`;
+    html += hand.length
+      ? ` By hand afterwards: ${esc(hand.join(', '))} — on the build sheet.`
+      : ' No assets to add by hand.';
+    if (d.problems && d.problems.length) {
+      html += '<div class="note n-warn" style="margin-top:8px"><b>Fix before importing</b>' +
+        d.problems.map(x => esc(x)).join('<br>') + '</div>';
+    }
+    box.innerHTML = html;
+  } catch (e) { /* the download links work regardless */ }
+})();
 
 async function setStatus(status) {
   try {

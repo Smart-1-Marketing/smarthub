@@ -236,6 +236,26 @@ def mark_deployed(public_id, deployment) -> dict | None:
         return row.as_dict()
 
 
+def record_client_link(public_id, link: dict) -> dict | None:
+    """Keep what the client join actually did, inside the campaign JSON.
+
+    Not a new column: ``create_all()`` creates missing tables and never adds a
+    column to an existing one, so a column added here would be silently absent
+    on the live Postgres while every local test passed. The campaign blob is
+    already there and already migrates itself.
+    """
+    with SessionLocal() as s:
+        row = s.scalar(select(Proposal).where(Proposal.public_id == public_id))
+        if not row:
+            return None
+        campaign = json.loads(row.campaign_json or "{}")
+        campaign["clientLink"] = {**(campaign.get("clientLink") or {}), "result": link}
+        row.campaign_json = json.dumps(campaign, default=str)
+        row.updated_at = now()
+        s.commit()
+        return row.as_dict()
+
+
 def delete_proposal(public_id) -> bool:
     with SessionLocal() as s:
         row = s.scalar(select(Proposal).where(Proposal.public_id == public_id))
@@ -253,21 +273,36 @@ except Exception:  # noqa: BLE001 — standalone / dev
     hub_audit = None
 
 
-def log_event(action, actor="System", **details):
+def log_event(action, actor="System", **details) -> dict:
+    """Record locally, then mirror into the Hub — and **report the mirror**.
+
+    Returning it rather than swallowing it is the point: this mirror was broken
+    for months and no screen could have said so, because a caller that ignores
+    the result cannot tell "written" from "raised and caught". Anything that
+    tells a person their work was filed on a client record has to be able to
+    ask.
+    """
     with SessionLocal() as s:
         s.add(Event(action=action, actor=actor or "System",
                     details_json=json.dumps(details, default=str)))
         s.commit()
 
-    if hub_audit is not None:
-        for fn_name in ("log", "record", "write"):
-            fn = getattr(hub_audit, fn_name, None)
-            if callable(fn):
-                try:
-                    fn(f"ads.{action.lower()}", actor=actor, **details)
-                except Exception:  # noqa: BLE001 — never break a request over logging
-                    pass
-                break
+    # audit.log(module, type_, actor=..., **extra) -- MODULE is the first
+    # positional, and this used to pass "ads.<action>" as it with no type_ at
+    # all. That is a TypeError, and the except below swallowed it, so every
+    # event this module has ever recorded stopped at its own table: nothing
+    # reached the Hub activity log, and nothing reached Client 360 even though
+    # hub/client_brand.py has carried an "ads_builder" entry in WORK_KINDS the
+    # whole time. It is the exact trap CLAUDE.md names, and it is silent by
+    # construction -- the module's own Activity page looked complete.
+    if hub_audit is None or not callable(getattr(hub_audit, "log", None)):
+        return {"mirrored": False, "error": "The Hub activity log is not available here."}
+    try:
+        hub_audit.log("ads_builder", action.lower(), actor=actor, **details)
+        return {"mirrored": True, "error": ""}
+    except Exception as exc:  # noqa: BLE001 — never break a request over logging
+        log.warning("ads_builder: activity log mirror failed: %s", exc)
+        return {"mirrored": False, "error": str(exc)}
 
 
 def list_events(limit=250) -> list:

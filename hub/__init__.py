@@ -4145,11 +4145,17 @@ def create_hub_app() -> Flask:
             from modules.ads_builder import google_ads as _ads_ga, store as _ads_store
             ads_st = _ads_ga.connection_status(_ads_store)
             if ads_st["missing"]:
+                # "Not connected" was the whole message and it read as "the
+                # tool is down". Only the API half is: generating a campaign,
+                # approving it and handing it over as a Google Ads Editor
+                # import all work with none of these set.
                 add("Smart 1 Ads", "skipped",
-                    "Not connected — " + ", ".join(ads_st["missing"]) + " not set. "
-                    "The tool is mounted at /tools/ads and its settings page lists "
-                    "these; GOOGLE_ADS_DEVELOPER_TOKEN is applied for in the Google "
-                    "Ads manager account under Tools → API Center.")
+                    "Google Ads API not configured — " + ", ".join(ads_st["missing"])
+                    + " not set. The generator, the approval hub and the Ads Editor "
+                    "export at /tools/ads work without them; what is unavailable is "
+                    "reading live campaigns and deploying through the API. "
+                    "GOOGLE_ADS_DEVELOPER_TOKEN is applied for in the Google Ads "
+                    "manager account under Tools → API Center.")
             elif not ads_st["connected"]:
                 add("Smart 1 Ads", "warn",
                     "Credentials set but no account authorised yet — open "

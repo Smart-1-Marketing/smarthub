@@ -442,6 +442,10 @@ function render(g,q){
 
   function propDate(p){ return String(p.date_sent || p.updated_at || p.uploaded_at || '').slice(0,10); }
 
+  /* A link proposal names the tool that built it. "Sent to client" would be a
+     confident wrong answer on a row that is a live draft. */
+  var SOURCE_LABEL = { ads_builder: 'Smart 1 Ads', hub: 'Built in the Hub' };
+
   function renderProposals(){
     var host = $('c-props'); if(!host) return;
     var rows = QUOTES.map(function(p){ return {kind:'quote', p:p, d:propDate(p)}; })
@@ -495,9 +499,10 @@ function render(g,q){
              actually went to the client, which only a person knows. */
           return '<tr data-pid="'+esc(p.id)+'" data-pclient="'+esc(p.member||name)+'">'
             + '<td><b>'+esc(p.title||p.filename)+'</b>'+memberTag(p.member)
-            + '<div class="muted" style="font-size:11.5px">'+esc(p.filename)
+            + '<div class="muted" style="font-size:11.5px">'+esc(p.filename||(p.kind==='link'?'Lives on a Hub page':''))
             + (p.note? ' · '+esc(p.note):'')+'</div></td>'
-            + '<td><span class="pill ok">Sent to client</span>'
+            + '<td><span class="pill '+(p.kind==='link'?'neutral':'ok')+'">'
+            + (p.kind==='link'? esc(SOURCE_LABEL[p.source]||'Built in the Hub') : 'Sent to client')+'</span>'
             + '<div class="muted" style="font-size:11px">'+esc(p.uploaded_by||'—')+'</div></td>'
             + '<td class="muted">—</td>'
             + '<td><input type="date" class="up-date" value="'+esc(p.date_sent||'')+'"'
@@ -505,8 +510,12 @@ function render(g,q){
             + '<td class="muted">'+esc(r.d||'')+'</td>'
             + '<td style="white-space:nowrap">'
             + '<a class="gbtn" href="'+esc(p.url)+'" target="_blank" rel="noopener">'
-            + (p.kind==='pdf'?'PDF':'DOC')+'</a> '
-            + '<a class="gbtn to-io" style="cursor:pointer" title="Read this proposal and start an insertion order from it">To IO</a> '
+            + (p.kind==='pdf'?'PDF':p.kind==='link'?'Open':'DOC')+'</a> '
+            /* "To IO" reads the proposal document. A link row has no document
+               behind it -- it points at a live Hub page -- so offering it would
+               fail on a file that was never there. */
+            + (p.kind==='link'? ''
+               : '<a class="gbtn to-io" style="cursor:pointer" title="Read this proposal and start an insertion order from it">To IO</a> ')
             + '<a class="gbtn up-del" style="cursor:pointer;color:#b91c1c" title="Remove from the client record">Delete</a>'
             + '</td></tr>';
         }).join('')

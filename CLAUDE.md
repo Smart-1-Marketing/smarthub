@@ -321,6 +321,74 @@ else is a directory. The tile rule below is the same failure one step later, and
 `tools/linkcheck.py` will tell you a path does not resolve --- it had
 `/tools/ads/` on an allowlist saying so, with the installer named as the excuse.
 
+**A credential with lead time on it must not gate the whole tool.** Smart 1
+Ads opened on Live campaigns, which is the one screen that cannot work without
+the Google Ads API — so a tool whose first three steps were fully working
+greeted everyone with a warning about `GOOGLE_ADS_DEVELOPER_TOKEN`, a token
+Google approves on its own timetable and which nobody here has yet. The
+generator is the front door now and live campaigns sit after the approval hub,
+because generating is OpenAI, review and approval are the Hub's own, and only
+the last step is Google's. What was missing was the last step's second route:
+`modules/ads_builder/export.py` writes the same campaign as a **Google Ads
+Editor** import, which posts under the account owner's own sign-in and needs no
+API access at all, so an approved proposal reaches the client account today and
+the identical proposal still deploys through the API later, unchanged. It
+imports `parse_keyword`, `_build_rsa`, `_clamp` and `normalise_url` from
+`google_ads` rather than restating them — two descriptions of one campaign is
+how the CSV and the API come to build different things depending on which
+button was pressed. What Editor's asset columns cannot be guessed for
+(sitelinks, callouts, snippets) goes on a build sheet **named as such** rather
+than dropped, and a missing budget or final URL is reported there and left
+blank, because a blank Editor refuses is better than a number nobody chose.
+`connection_status()` answers `deploy_ready` and names what each missing
+variable costs, so a page can say what is unavailable instead of describing the
+whole tool as down.
+
+**A key that a page asks for is a key the deployment already has.** The
+generator carried an "OpenAI key override" box. It invited a key from outside
+this deployment into a form post, and its presence read as *this page needs a
+key from me* on a Hub that has had `OPENAI_API_KEY` set all along. It is gone,
+and `campaign_ai` reads the key through `hub/config.py` at call time like
+everything else — the provider-key trap above, one call site further on.
+
+**`audit.log()`'s first positional is `module` — and here it cost the whole
+module.** `store.log_event` mirrored into the Hub with
+`audit.log(f"ads.{action}", actor=..., **details)`: module supplied, `type_`
+missing, `TypeError`, swallowed by the `except` beside it. So nothing Smart 1
+Ads recorded ever reached the Hub activity log or Client 360, while its own
+Activity page looked complete — and `hub/client_brand.py` had carried an
+`ads_builder` entry in `WORK_KINDS` the whole time, waiting for a call that
+could never arrive. `test_ads_module.py` now asserts the mirror with a stub,
+because the failure is invisible from either end.
+
+**A campaign generated for nobody reaches nobody.** The generator took a
+business name as free text, so the campaign and its proposal existed and the
+client's own record showed no sign that anything had been quoted. The client is
+looked up now — `modules/ads_builder/client_link.py`, over
+`clients_registry.search_clients()` — or explicitly marked new, and generating
+files the proposal onto the client record and reports each write separately,
+the way `hub/domain_links.py` does: "filed" and "filed in one of two places"
+are different outcomes. Three rules it inherits rather than reinvents. The
+lookup **matches exactly or not at all**, because attributing one company's
+campaign to another is the worst thing available here. Nothing is written to
+Knack and no registry row is invented for a prospect — a new business becomes a
+**lead** in Smart 1 Suite, which is where prospects live, and because the work
+and the proposal are filed under the name and domain they join the client
+record by themselves the day it exists. And a lead with neither an email nor a
+phone number is **refused by name** instead of created, because a contactless
+lead reads as a live prospect on every count that follows.
+
+The proposal is filed as a **link**, through `proposals.add_link_proposal()`,
+not as an uploaded snapshot: it is a live page that gains comments and changes
+status, and a PDF of it on the client record would sit there contradicting the
+thing it is a copy of. `ref` carries the module's own proposal id and the row
+is **updated** rather than appended, or approving, commenting and deploying one
+campaign would leave three identical entries on Client 360 with no way to tell
+which is current — `upsert_from_ghl` learned that from GoHighLevel first. What
+the join wrote is kept inside the campaign JSON, never in a new column:
+`create_all()` adds no column to an existing table, so one added here would be
+silently absent on the live Postgres while every local test passed.
+
 **The Render disk is not backed up. The database is.** Render backs up managed
 Postgres; the 5 GB disk at `/var/data` is outside that, and a plan change,
 region move or resize hands back an empty one. Anything whose only copy was a
@@ -1252,7 +1320,7 @@ python tools/linkcheck.py          # every internal URL resolves
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python3 test_jsonstore.py          # the database mirror really restores
-python3 test_ads_module.py         # Smart 1 Ads, and the Node ad builder's links
+python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math

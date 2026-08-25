@@ -3,6 +3,16 @@
 Calls OpenAI over plain ``requests`` so the module adds no new dependency to
 the Hub — it reuses OPENAI_API_KEY / OPENAI_MODEL exactly like the SEO, FAQ
 and proposal tools do.
+
+**The key is the Hub's and is never asked for.** The generator used to carry an
+"OpenAI key override" box, which is the wrong question in two directions: it
+invites a key from outside the deployment into a form post, and its presence
+reads as "this page needs a key from me" on a Hub that has had one set all
+along. The key is read through ``hub.config`` at call time — never off
+``os.environ`` at import — so a spelling the deployment actually uses is picked
+up wherever it is fixed, once. See the provider-key trap in CLAUDE.md: a module
+reading one spelling directly is how a key that is set is still not a key that
+is read.
 """
 from __future__ import annotations
 
@@ -134,12 +144,32 @@ Respond with pure JSON only, matching this structure exactly:
 }"""
 
 
-def generate_campaign(payload: dict, api_key: str = None, model: str = None) -> dict:
-    key = (api_key or os.environ.get("OPENAI_API_KEY", "")).strip()
+def openai_key() -> str:
+    """The Hub's key, read at call time through the shared settings."""
+    try:
+        from hub.config import settings
+        key = (settings.openai_key or "").strip()
+        if key:
+            return key
+    except Exception:  # noqa: BLE001 — the module stays runnable outside the Hub
+        pass
+    return os.environ.get("OPENAI_API_KEY", "").strip()
+
+
+def openai_model() -> str:
+    try:
+        from hub.config import settings
+        return settings.openai_model or "gpt-4o-mini"
+    except Exception:  # noqa: BLE001
+        return os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+
+def generate_campaign(payload: dict, model: str = None) -> dict:
+    key = openai_key()
     if not key:
         raise GenerationError(
-            "No OpenAI API key. Set OPENAI_API_KEY in the Hub environment, or paste a key "
-            "in the generator."
+            "No OpenAI API key on this deployment. Set OPENAI_API_KEY on the Hub service — "
+            "the generator uses the Hub's key and does not accept one from the browser."
         )
 
     viability = analyse_budget(payload.get("budget"), payload.get("sector") or "general")
@@ -165,7 +195,7 @@ Remember: 20 to 50 keywords in EVERY ad group, with match types tagged."""
         OPENAI_URL,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         json={
-            "model": model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            "model": model or openai_model(),
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},

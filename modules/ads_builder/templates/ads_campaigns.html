@@ -6,12 +6,25 @@
 {% block content %}
 <div id="toast" style="display:none"></div>
 
-{% if not status.connected %}
+{% if not status.deploy_ready %}
   <div class="note n-warn">
-    <b>Google Ads is not connected yet</b>
-    Open <a href="{{ mount }}/settings">Settings</a> and click <b>Connect Google Ads</b> to authorise the account.
-    {% if status.missing %}These environment variables are still missing:
-      <span class="mono">{{ status.missing|join(', ') }}</span>.{% endif %}
+    <b>Live campaign data needs the Google Ads API</b>
+    This screen reads spend, clicks and CPA out of the client's account, so it is the one part of
+    Smart 1 Ads that cannot work without API access.
+    {% if status.blocks %}
+      Waiting on:
+      <ul style="margin:6px 0 0;padding-left:18px">
+        {% for b in status.blocks %}<li><span class="mono">{{ b.name }}</span> — {{ b.why }}.</li>{% endfor %}
+      </ul>
+    {% else %}
+      The credentials are set — open <a href="{{ mount }}/settings">Settings</a> and click
+      <strong>Connect Google Ads</strong> to authorise the account.
+    {% endif %}
+  </div>
+  <div class="note n-info">
+    <b>The rest of the tool does not wait on this</b>
+    Build a campaign in the <a href="{{ mount }}/">campaign generator</a>, approve it, and hand it to
+    the client account as a Google Ads Editor import from the proposal — none of that touches the API.
   </div>
 {% else %}
   <div class="card">
@@ -44,7 +57,7 @@
 {% endblock %}
 
 {% block script %}
-{% if status.connected %}
+{% if status.deploy_ready %}
 <script>
 const MOUNT = {{ mount|tojson }};
 const KEY = 's1ads_cid';

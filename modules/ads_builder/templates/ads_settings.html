@@ -6,9 +6,63 @@
 {% block content %}
 <div id="toast" style="display:none"></div>
 
+{# What works right now, per step, rather than one "connected" flag. Three of
+   the four need no Google credentials at all, and a single flag reported the
+   whole tool as down when only the last step was. #}
+<div class="card">
+  <h3>What works right now</h3>
+  <table>
+    <thead><tr><th>Step</th><th>State</th><th>Needs</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Generate a campaign</td>
+        <td><span class="tag {{ 't-good' if openai_configured else 't-warn' }}">{{ 'Ready' if openai_configured else 'Needs a key' }}</span></td>
+        <td>{{ 'The Hub OPENAI_API_KEY. No Google access of any kind.' if openai_configured else 'OPENAI_API_KEY on this service.' }}</td>
+      </tr>
+      <tr>
+        <td>Review, comment, approve</td>
+        <td><span class="tag t-good">Ready</span></td>
+        <td>Nothing — it is the Hub's own store.</td>
+      </tr>
+      <tr>
+        <td>Client proposal</td>
+        <td><span class="tag t-good">Ready</span></td>
+        <td>Nothing — it is a page.</td>
+      </tr>
+      <tr>
+        <td>Build it in the client account <span class="sub">via Google Ads Editor</span></td>
+        <td><span class="tag t-good">Ready</span></td>
+        <td>No developer token, no API access. Editor posts under the account owner's own sign-in.</td>
+      </tr>
+      <tr>
+        <td>Read live campaigns · deploy through the API</td>
+        <td><span class="tag {{ 't-good' if status.deploy_ready else 't-mute' }}">{{ 'Ready' if status.deploy_ready else 'Not available yet' }}</span></td>
+        <td>
+          {% if status.blocks %}
+            {% for b in status.blocks %}<span class="mono">{{ b.name }}</span> — {{ b.why }}.<br>{% endfor %}
+          {% elif not status.connected %}
+            Credentials are set; nobody has authorised a Google account yet.
+          {% else %}
+            Connected.
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  {% if not status.developer_token %}
+    <div class="note n-info" style="margin-top:12px">
+      <b>Waiting on the developer token</b>
+      Google issues it on its own timetable — apply in the manager account under Tools → API Center.
+      Nothing else here waits on it: generate, approve and hand the campaign over as a Google Ads
+      Editor import from any approved proposal. The same proposal deploys through the API unchanged
+      once the token lands.
+    </div>
+  {% endif %}
+</div>
+
 <div class="card">
   <div class="row" style="margin-bottom:12px">
-    <h3 style="margin:0">Google Ads</h3>
+    <h3 style="margin:0">Google Ads API</h3>
     <div class="spacer"></div>
     {% if status.connected %}
       <button class="b-bad b-sm" onclick="disconnect()">Disconnect</button>
@@ -69,9 +123,11 @@
   {% else %}
     <span class="tag t-warn">Not set</span>
     <span style="color:#64748b;margin-left:8px">
-      Set <span class="mono">OPENAI_API_KEY</span>, or paste a key per generation in the wizard.</span>
+      Set <span class="mono">OPENAI_API_KEY</span> on this service. The generator does not accept a
+      key typed into the browser.</span>
   {% endif %}
-  <div class="hint">Shared with the Hub's SEO, FAQ Builder and proposal tools — no separate key needed.</div>
+  <div class="hint">Read through <span class="mono">hub/config.py</span> at call time and shared with the
+    Hub's SEO, FAQ Builder and proposal tools — no separate key, and nothing to enter per generation.</div>
 </div>
 
 <div class="card">
