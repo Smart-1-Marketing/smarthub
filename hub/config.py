@@ -190,6 +190,7 @@ class Settings:
             "image_projects": "smart1-image-projects",
             "cutouts": "smart1-cutouts",
             "commercials": "smart1-commercials",
+            "ads_logos": "smart1-ads-logos",
             "backups": "smart1-backups",
         }
         return defaults.get(kind, f"smart1-{kind}")

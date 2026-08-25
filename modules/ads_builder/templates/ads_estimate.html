@@ -1,0 +1,313 @@
+{# The estimate a CLIENT opens. Public — no Hub login — and chrome-free,
+   because /estimate/ is in PUBLIC_PREFIXES, which wsgi.py hands to both the
+   AuthGuard and HubBar. It deliberately does NOT extend ads_base.html: that
+   template draws the module's own tab bar, and a prospect has no business
+   seeing Live campaigns, the Approval hub or a version tag. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Paid Search Estimate — {{ c.businessName if c is defined else p.client_name }}</title>
+<style>
+  :root { --navy:#1a2e58; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0;
+          --good:#059669; --warn:#b45309; --bad:#dc2626 }
+  * { box-sizing:border-box }
+  body { margin:0; background:#e8ecf3; color:var(--ink);
+         font:14px/1.55 'Segoe UI', system-ui, -apple-system, sans-serif }
+  .wrap { padding:22px 18px 80px }
+  .bar { max-width:58rem; margin:0 auto 14px; display:flex; gap:10px; align-items:center;
+         flex-wrap:wrap }
+  .bar .spacer { flex:1 }
+  button, .btn { font:inherit; cursor:pointer; border:1px solid var(--line); background:#fff;
+                 color:var(--ink); border-radius:8px; padding:8px 14px; text-decoration:none;
+                 display:inline-flex; align-items:center; gap:6px }
+  button:hover:not(:disabled) { border-color:#cbd5e1; background:#f8fafc }
+  button:disabled { opacity:.5; cursor:not-allowed }
+  .b-primary { background:var(--navy); border-color:var(--navy); color:#fff; font-weight:600 }
+  .b-primary:hover:not(:disabled) { background:#24406f; color:#fff }
+  input, textarea, select { font:inherit; width:100%; padding:9px 11px; border:1px solid var(--line);
+                            border-radius:8px; background:#fff; color:var(--ink) }
+  textarea { min-height:110px; resize:vertical }
+  label { display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:4px }
+  .field { margin-bottom:13px }
+  .panel { background:#fff; max-width:58rem; margin:16px auto 0; border-radius:12px;
+           padding:22px 26px }
+  .panel h2 { font-size:17px; margin:0 0 4px; color:var(--navy) }
+  .panel .lede { color:var(--muted); margin:0 0 14px }
+  .choices { display:grid; gap:10px }
+  .choice { display:flex; gap:11px; align-items:flex-start; border:1px solid var(--line);
+            border-radius:10px; padding:13px 15px; cursor:pointer }
+  .choice:hover { border-color:#cbd5e1; background:#fafcff }
+  .choice input { width:auto; margin-top:3px }
+  .choice.on { border-color:var(--navy); box-shadow:0 0 0 1px var(--navy) }
+  .choice .dot { width:11px; height:11px; border-radius:50%; margin-top:5px; flex:none }
+  .dot-green { background:var(--good) } .dot-yellow { background:#eab308 } .dot-red { background:var(--bad) }
+  .note { border-radius:10px; padding:11px 14px; font-size:13px; margin:12px 0; border:1px solid }
+  .n-good { background:#ecfdf5; border-color:#a7f3d0; color:#065f46 }
+  .n-bad { background:#fef2f2; border-color:#fecaca; color:#991b1b }
+  .n-info { background:#eff6ff; border-color:#bfdbfe; color:#1e40af }
+  .n-warn { background:#fffbeb; border-color:#fde68a; color:#92400e }
+  .note b { display:block; margin-bottom:2px }
+  .asked { border-left:3px solid #fde68a; padding:2px 0 2px 12px; margin:10px 0 }
+  .asked .meta { font-size:11.5px; color:var(--muted) }
+  /* The change modal. A dialog rather than an inline form: it is opened from
+     eight different places and an inline form would push the document around
+     under the reader every time. */
+  .scrim { position:fixed; inset:0; background:rgba(15,23,42,.5); display:none;
+           align-items:center; justify-content:center; padding:20px; z-index:50 }
+  .scrim.on { display:flex }
+  .modal { background:#fff; border-radius:12px; padding:22px 24px; max-width:34rem; width:100%;
+           max-height:90vh; overflow:auto }
+  .modal h3 { margin:0 0 3px; font-size:16px; color:var(--navy) }
+  .modal .sub { color:var(--muted); font-size:12.5px; margin:0 0 14px }
+  .row { display:flex; gap:10px; flex-wrap:wrap }
+  .row > * { flex:1; min-width:170px }
+  @media print { .noprint { display:none !important } body { background:#fff } .wrap { padding:0 } }
+</style>
+{% include "_estimate_style.html" %}
+</head>
+<body>
+{% set c = p.campaign %}
+<div class="wrap">
+
+  <div class="bar noprint">
+    <strong style="color:var(--navy)">Smart 1 Marketing</strong>
+    <span style="color:var(--muted)">Paid Search Estimate</span>
+    <div class="spacer"></div>
+    <button onclick="window.print()">Print / download PDF</button>
+  </div>
+
+  {% if share.outcome %}
+    <div class="panel noprint">
+      <div class="note n-good" style="margin:0">
+        <b>Thank you — we have your answer</b>
+        You selected “{{ spec.OUTCOME_LABELS.get(share.outcome, share.outcome) }}” on
+        {{ (share.responded_at or '')[:16].replace('T', ' ') }}.
+        {% if share.changes %}We also have {{ share.changes|length }} change
+          request{{ '' if share.changes|length == 1 else 's' }} from you.{% endif %}
+        Your Smart 1 contact has been notified. You can still ask for further changes below.
+      </div>
+    </div>
+  {% endif %}
+
+  {% with interactive = true %}
+    {% include "_estimate_doc.html" %}
+  {% endwith %}
+
+  <!-- ------------------------------------------------ changes already asked -->
+  <div class="panel noprint" id="askedPanel" style="{{ '' if share.changes else 'display:none' }}">
+    <h2>Changes you have asked for</h2>
+    <p class="lede">These have gone straight to your Smart 1 contact and are on the record
+      for this estimate.</p>
+    <div id="askedList">
+      {% for ch in share.changes %}
+        <div class="asked">
+          <div class="meta">{{ ch.section or 'General' }} · {{ ch.name }} ·
+            {{ (ch.at or '')[:16].replace('T', ' ') }}</div>
+          <div>{{ ch.text }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- --------------------------------------------------------- the decision -->
+  <div class="panel noprint" id="decide">
+    <h2>Where would you like to go from here?</h2>
+    <p class="lede">Pick one. Nothing is booked or charged by answering — this tells us how
+      to proceed.</p>
+
+    <div class="choices" id="choices">
+      {% for key, label, colour, note in outcomes %}
+        <label class="choice" data-key="{{ key }}">
+          <input type="radio" name="outcome" value="{{ key }}"
+                 {{ 'checked' if share.outcome == key }}>
+          <span class="dot dot-{{ colour }}"></span>
+          <span>
+            <strong>{{ label }}</strong>
+            <div style="color:var(--muted);font-size:12.5px">{{ note }}</div>
+          </span>
+        </label>
+      {% endfor %}
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <div class="field"><label for="rName">Your name</label>
+        <input id="rName" value="{{ share.reviewer_name }}" placeholder="Dana Whitfield"></div>
+      <div class="field"><label for="rEmail">Your email</label>
+        <input id="rEmail" type="email" value="{{ share.reviewer_email }}"
+               placeholder="dana@example.com"></div>
+    </div>
+    <div class="field"><label for="rNote">Anything you want to add (optional)</label>
+      <textarea id="rNote" style="min-height:80px"
+                placeholder="Anything we should know before we build this out…">{{ share.reviewer_note }}</textarea></div>
+
+    <div id="respondMsg"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="b-primary" id="respondBtn" onclick="respond()" style="flex:none">
+        {{ 'Update my answer' if share.outcome else 'Send my answer' }}</button>
+    </div>
+  </div>
+</div>
+
+<!-- --------------------------------------------------------- change modal -->
+<div class="scrim noprint" id="scrim" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal">
+    <h3 id="modalTitle">Ask for a change</h3>
+    <p class="sub" id="modalSection"></p>
+    <div class="field"><label for="cText">What would you like changed?</label>
+      <textarea id="cText" placeholder="Tell us in your own words…"></textarea></div>
+    <div class="row">
+      <div class="field"><label for="cName">Your name</label>
+        <input id="cName" placeholder="Dana Whitfield"></div>
+      <div class="field"><label for="cEmail">Your email</label>
+        <input id="cEmail" type="email" placeholder="dana@example.com"></div>
+    </div>
+    <p class="sub">We ask so we know who to come back to — three people at one company often
+      want three different things.</p>
+    <div id="modalMsg"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button onclick="closeChange()" style="flex:none">Cancel</button>
+      <button class="b-primary" id="modalSend" onclick="sendChange()" style="flex:none">Send this change</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = {{ (mount ~ '/estimate/' ~ token)|tojson }};
+let section = '';
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function post(path, body) {
+  const res = await fetch(BASE + path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* non-JSON */ }
+  if (!res.ok) throw new Error((data && data.error) || (res.status + ' ' + res.statusText));
+  return data;
+}
+
+/* Remembered per browser so somebody asking for a third change does not retype
+   their name each time. localStorage only — it never leaves this device. */
+function remember() {
+  try {
+    const n = document.getElementById('cName').value || document.getElementById('rName').value;
+    const e = document.getElementById('cEmail').value || document.getElementById('rEmail').value;
+    if (n) localStorage.setItem('s1ads_est_name', n);
+    if (e) localStorage.setItem('s1ads_est_email', e);
+  } catch (err) { /* private window */ }
+}
+function recall() {
+  try {
+    const n = localStorage.getItem('s1ads_est_name') || '';
+    const e = localStorage.getItem('s1ads_est_email') || '';
+    for (const id of ['cName', 'rName']) {
+      const el = document.getElementById(id);
+      if (el && !el.value) el.value = n;
+    }
+    for (const id of ['cEmail', 'rEmail']) {
+      const el = document.getElementById(id);
+      if (el && !el.value) el.value = e;
+    }
+  } catch (err) { /* private window */ }
+}
+
+function askChange(label) {
+  section = label || 'General';
+  document.getElementById('modalSection').textContent = 'Section: ' + section;
+  document.getElementById('modalMsg').innerHTML = '';
+  document.getElementById('cText').value = '';
+  recall();
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById('cText').focus();
+}
+function closeChange() { document.getElementById('scrim').classList.remove('on'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeChange(); });
+document.getElementById('scrim').addEventListener('click', e => {
+  if (e.target.id === 'scrim') closeChange();
+});
+
+async function sendChange() {
+  const btn = document.getElementById('modalSend');
+  const msg = document.getElementById('modalMsg');
+  const body = {
+    section: section,
+    text: document.getElementById('cText').value.trim(),
+    name: document.getElementById('cName').value.trim(),
+    email: document.getElementById('cEmail').value.trim()
+  };
+  msg.innerHTML = '';
+  btn.disabled = true;
+  try {
+    const d = await post('/change', body);
+    remember();
+    redrawAsked(d.changes || []);
+    closeChange();
+  } catch (err) {
+    msg.innerHTML = '<div class="note n-bad">' + esc(err.message) + '</div>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function redrawAsked(changes) {
+  const panel = document.getElementById('askedPanel');
+  const list = document.getElementById('askedList');
+  if (!changes.length) return;
+  list.innerHTML = changes.map(ch =>
+    '<div class="asked"><div class="meta">' + esc(ch.section || 'General') + ' · ' +
+    esc(ch.name) + ' · ' + esc(String(ch.at || '').slice(0, 16).replace('T', ' ')) +
+    '</div><div>' + esc(ch.text) + '</div></div>').join('');
+  panel.style.display = '';
+  panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+document.getElementById('choices').addEventListener('change', () => {
+  document.querySelectorAll('.choice').forEach(el => {
+    el.classList.toggle('on', el.querySelector('input').checked);
+  });
+});
+
+async function respond() {
+  const picked = document.querySelector('input[name=outcome]:checked');
+  const msg = document.getElementById('respondMsg');
+  const btn = document.getElementById('respondBtn');
+  msg.innerHTML = '';
+  if (!picked) {
+    msg.innerHTML = '<div class="note n-bad">Choose one of the three options first.</div>';
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const d = await post('/respond', {
+      outcome: picked.value,
+      name: document.getElementById('rName').value.trim(),
+      email: document.getElementById('rEmail').value.trim(),
+      note: document.getElementById('rNote').value.trim()
+    });
+    remember();
+    msg.innerHTML = '<div class="note n-good"><b>Thank you — that has been sent</b>' +
+      esc(d.label) + '. Your Smart 1 contact has it now.</div>';
+    btn.textContent = 'Update my answer';
+  } catch (err) {
+    msg.innerHTML = '<div class="note n-bad">' + esc(err.message) + '</div>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+recall();
+document.querySelectorAll('.choice').forEach(el => {
+  el.classList.toggle('on', el.querySelector('input').checked);
+});
+</script>
+</body>
+</html>

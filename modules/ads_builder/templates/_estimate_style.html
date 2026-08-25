@@ -1,0 +1,62 @@
+{# One stylesheet for the estimate, included by the internal preview and the
+   public client page alike. Separate copies is how the document a client reads
+   comes to look different from the one the rep proof-read. #}
+<style>
+  .doc { background:#fff; max-width:58rem; margin:0 auto; padding:44px 50px;
+         border-radius:12px; color:#111827; font-size:14px; line-height:1.62 }
+  .doc .dochead { display:flex; gap:22px; align-items:flex-start; margin-bottom:22px }
+  .doc .dochead .logo { max-width:190px; max-height:80px; object-fit:contain }
+  .doc h1 { font-size:26px; margin:0 0 4px; color:#0f172a }
+  .doc h2 { font-size:16px; margin:30px 0 8px; color:#1a2e58;
+            border-bottom:2px solid #e0e7f3; padding-bottom:5px }
+  .doc h3 { font-size:14.5px; margin:18px 0 4px; color:#1e293b }
+  .doc .lede { color:#475569 }
+  .doc .muted { color:#64748b }
+  .doc .small { font-size:12.5px }
+  .doc .est { color:#64748b; font-weight:400; text-transform:none; letter-spacing:0 }
+  .doc .caveat { color:#64748b; font-size:12px; margin:8px 0 0 }
+  .doc .box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:15px; margin:11px 0 }
+  .doc .warnbox { background:#fffbeb; border:1px solid #fde68a; border-radius:8px;
+                  padding:13px 15px; margin:12px 0; color:#92400e }
+  .doc .warnbox p { margin:4px 0 0 }
+  .doc .warn { color:#b45309 }
+  .doc .kw { display:inline-block; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:5px;
+             padding:2px 7px; margin:2px; font-size:12.5px; color:#334155 }
+  .doc .srow { display:flex; gap:22px; flex-wrap:wrap }
+  .doc .srow > div { flex:1; min-width:130px }
+  .doc .srow .n { font-size:21px; font-weight:700; color:#0f172a }
+  .doc .srow .l { font-size:11px; color:#64748b; text-transform:uppercase; letter-spacing:.5px }
+  .doc table.details { width:100%; border-collapse:collapse; margin:8px 0 }
+  .doc table.details th { text-align:left; width:34%; vertical-align:top; font-size:12.5px;
+                          color:#475569; font-weight:600; padding:7px 10px 7px 0;
+                          border-bottom:1px solid #f1f5f9; text-transform:none; letter-spacing:0 }
+  .doc table.details td { padding:7px 0; border-bottom:1px solid #f1f5f9; vertical-align:top }
+  .doc .adprev { border:1px solid #e2e8f0; border-radius:8px; padding:11px 13px; margin:6px 0 14px;
+                 max-width:34rem }
+  .doc .adprev .adhead { color:#1a0dab; font-size:15px; line-height:1.3 }
+  .doc .adprev .adurl { color:#0f7b33; font-size:12.5px; margin:2px 0 4px; overflow-wrap:anywhere }
+  .doc .tiers { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)) }
+  .doc .tier { border:1px solid #e2e8f0; border-radius:10px; padding:14px }
+  .doc .tier.rec { border-color:#1a2e58; box-shadow:0 0 0 1px #1a2e58 }
+  .doc .tier .tname { font-weight:700; color:#1a2e58 }
+  .doc .tier .tmoney { font-size:22px; font-weight:700; color:#0f172a; margin:2px 0 }
+  .doc .tier .tmoney span { font-size:12px; font-weight:400; color:#64748b }
+  .doc .pill { background:#1a2e58; color:#fff; border-radius:20px; padding:1px 8px; font-size:10.5px;
+               font-weight:700; vertical-align:middle }
+  .doc .mono { font-family:ui-monospace,Consolas,Menlo,monospace; font-size:12.5px }
+  .doc .brk { overflow-wrap:anywhere }
+  .doc ul { margin:6px 0; padding-left:20px }
+  .doc .foot { margin-top:34px; padding-top:12px; border-top:1px solid #e2e8f0;
+               color:#94a3b8; font-size:12px }
+  /* The per-section change button. Deliberately quiet until hovered: it is on
+     every heading, and eight loud icons read as a form rather than a document. */
+  .doc .chg { border:1px solid transparent; background:none; color:#94a3b8; cursor:pointer;
+              font-size:13px; border-radius:6px; padding:1px 7px; vertical-align:middle;
+              margin-left:6px; line-height:1.6 }
+  .doc .chg:hover { border-color:#cbd5e1; background:#f8fafc; color:#1a2e58 }
+  @media print {
+    body { background:#fff }
+    .doc { border-radius:0; padding:0; max-width:none }
+    .noprint, .doc .chg { display:none !important }
+  }
+</style>

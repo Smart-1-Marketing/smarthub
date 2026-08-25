@@ -389,6 +389,113 @@ the join wrote is kept inside the campaign JSON, never in a new column:
 `create_all()` adds no column to an existing table, so one added here would be
 silently absent on the live Postgres while every local test passed.
 
+**An estimate a client reads is a different document from the one a rep
+builds — and it must not be a second copy of it.** The paid search estimate is
+now what Smart 1 Ads produces: the intake answers, the target areas, the
+landing-page findings, the competitive picture and Good/Better/Best, printed in
+the order a client reads them. `_estimate_doc.html` is included twice — by the
+internal preview and by the public client link — with one flag deciding whether
+the per-section change buttons render and *nothing else* differing, because two
+templates is how the version a client reads comes to differ from the version
+somebody approved. `test_ads_estimate.py` asserts both renderings carry the
+same sections, numbers and caveats.
+
+The client link is `/tools/ads/estimate/<token>`, and `PUBLIC_PREFIXES` in
+`modules/ads_builder/app.py` is read by `wsgi.py` for both halves of the mount:
+`AuthGuard`, so a client with no Hub login can open it, and `HubBar`, so the
+sidebar, help layer and feedback tab are not injected into a document sent to a
+prospect. Same arrangement as `modules/scans`, for the same reason — the mount
+and the module cannot disagree about what is public. It does not extend
+`ads_base.html` at all: that template draws the module's own tab bar, and a
+prospect has no business seeing Live campaigns or a version tag. **Revoked,
+deleted and never-existed all answer the same 404 page**, because a
+client-facing URL that says "this one expired" tells somebody probing which
+tokens are real.
+
+Three things a client can answer, not two. "Yes", "yes with my changes" and
+"let's talk" are the three real replies, and an approve/reject pair forces the
+middle one into whichever end is nearest — so `spec.OUTCOMES` carries all three
+with the colour each comes back as in the approval hub (green / yellow / red),
+and **no answer yet is grey rather than a fourth kind of bad**: "not sent" and
+"sent and ignored" and "they said no" are three different situations. A change
+request **requires a name and an email**, because "the client wants the budget
+lower" is not actionable and three people at one company will disagree with
+each other; each request is stamped with who asked and kept beside the others
+rather than over them.
+
+**Approving is a statement about a specific document.** So an edit clears the
+approval and says it was superseded, and a *material* edit — the budget, the
+audience, the do-not-target list, a removed keyword, a removed negative — sends
+the estimate back through the model before it can be approved again. That is
+two presses on purpose: the first returns the re-check rather than approving,
+so a rep who quartered a budget sees what it did to the plan *before* the
+document they signed off becomes the one a client reads. Removing a negative is
+always material however small it looks, because it reopens spend the vault
+existed to stop. `store.update_campaign` writes the whole blob and every change
+lands in `editLog` inside the campaign JSON — never a new column, for the
+`create_all()` reason above.
+
+**A model handed a URL writes confident recommendations about a page it has
+never seen.** `modules/ads_builder/landing_page.py` **fetches** the page and
+counts its conversion points off the markup — `tel:` links, forms and their
+field counts, booking tools and chat widgets by their own script signatures,
+map links, CTA buttons — and every one carries the **evidence**, because "this
+page has a phone number" and "this page has (317) 555-0142" are different
+claims and only the second can be checked. The model is given those facts and
+asked only for judgment, and the two are kept apart on screen. A page that
+could not be fetched is **not measured**, never zero, and the prompt then tells
+the model not to describe the page at all. Chat and booking are matched on the
+widget's own signature rather than the word "chat", because a page with a "Chat
+with us" heading and no widget converts nobody. The finding that changes a
+campaign is `missing_for()`: a conversion action the client asked for that the
+page cannot do — bidding for appointment bookings against a page with no
+booking tool spends the budget and books nobody.
+
+**The intake is the campaign.** `modules/ads_builder/spec.py` holds the
+questions, the eight conversion goals with what each one *costs the campaign*,
+the audience guidance, the tiers and the outcomes, read by the form, the AI
+prompt, the estimate and the client page alike. Two rules in it: **an answer
+that was captured must be shown** — the estimate used to open on a budget and a
+keyword list with none of what the rep had asked, so the client could not tell
+the campaign was built around their answers; and **"not asked" is not "no"**, so
+every yes/no is tri-state and an unanswered question is left off the client
+document rather than printed as a confident No. `for_prompt()` hands the model
+*what to do about* each answer rather than the answer alone — a model told
+"B2B" writes B2B-flavoured adjectives, one told to keep consumer intent out of
+the keyword set builds a different campaign.
+
+**Every average CPC is a sector benchmark, and it sits on a page somebody
+spends money from.** `spec.CPC_NOTE` is one string, `analyse_budget()` returns
+it alongside the numbers so no screen can render a CPC without having been
+handed the words for it, and `test_ads_estimate.py` asserts each template
+carries it.
+
+**A budget nobody has named is the ordinary case.** Refusing to build anything
+until a client picks a number is how the conversation stops before it starts,
+so the budget is optional and the model sizes Good/Better/Best — asked for
+either way, because with a budget it is how a rep shows what the next step up
+buys. Each tier's click estimate is **recomputed** from the sector CPC rather
+than trusted, since it is the number a client checks the tier against and a
+model that rounds generously makes the cheapest tier look workable when it is
+not. With no stated budget the campaign is costed at the recommended tier and
+`budgetSource` says so in as many words on the client document.
+
+**Target areas here are the Proposal Builder's, and there is no third
+mirror.** `hub/target_areas.py` already carries one JavaScript copy, with
+`test_target_areas.py` existing solely to prove the two halves still agree; a
+second copy would need a second such test and would drift the day either was
+edited. So `/tools/ads/api/areas/preview` normalises and sizes server-side and
+the browser renders what comes back — the choice Social Planner made about its
+calendar, for the same reason.
+
+**A logo is looked up, never guessed at.** `modules/ads_builder/logo.py` tries
+the brand data already stored against the client, then a live Brandfetch
+lookup **behind a button** because that one is billed, then upload — and each
+answer names which source it came from. No `https://<clientname>.com/logo.png`
+and no favicon scraped off the landing page: a wrong logo on a client-facing
+estimate is worse than none, because nobody proof-reads the thing they
+recognise.
+
 **The Render disk is not backed up. The database is.** Render backs up managed
 Postgres; the 5 GB disk at `/var/data` is outside that, and a plan change,
 region move or resize hands back an empty one. Anything whose only copy was a
@@ -1321,6 +1428,7 @@ python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python3 test_jsonstore.py          # the database mirror really restores
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
+python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math

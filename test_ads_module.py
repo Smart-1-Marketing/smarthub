@@ -501,7 +501,7 @@ def run():
         ("/campaigns", "Live campaign data needs the Google Ads API"),
         ("/approvals", "Northside Roofing Co"),
         (f"/proposal/{pid}", "Negative keyword vault"),
-        (f"/proposal/{pid}/client", "Paid Search Proposal"),
+        (f"/proposal/{pid}/client", "Paid Search Estimate"),
         ("/activity", "Activity"),
         ("/settings", "Environment reference"),
     ):

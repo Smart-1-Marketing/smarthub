@@ -92,6 +92,60 @@ class Proposal(Base):
             "negative_count": sum(
                 len(v or []) for v in (campaign.get("negativeKeywordVault") or {}).values()
             ),
+            "estimate_approved": bool((campaign.get("estimate") or {}).get("approved_at")),
+        }
+
+
+class Share(Base):
+    """One client-facing estimate link, and whatever the client answered.
+
+    A separate table rather than columns on ``ads_proposals``: ``create_all()``
+    creates a missing TABLE but never adds a column to an existing one, so a
+    column added here would be silently absent on the live Postgres while every
+    local test passed. It also keeps the public review — written by somebody
+    with no Hub login — in its own row rather than inside the campaign a rep is
+    editing at the same time.
+    """
+    __tablename__ = "ads_estimate_shares"
+
+    token = Column(String(64), primary_key=True)
+    public_id = Column(String(40), index=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=now)
+    created_by = Column(String(200), default="")
+    revoked = Column(Integer, default=0)
+
+    # Filled in by the client, from the public page. Empty until they answer.
+    outcome = Column(String(40), default="")
+    reviewer_name = Column(String(200), default="")
+    reviewer_email = Column(String(200), default="")
+    reviewer_note = Column(Text, default="")
+    responded_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Per-section change requests, appended as they arrive. A client can ask
+    # for three changes over ten minutes and then answer; each is kept with the
+    # name and email of whoever asked, because "the client wants X" is not
+    # actionable without knowing which person at the client said it.
+    changes_json = Column(Text, default="[]")
+    opened_count = Column(Integer, default=0)
+
+    @property
+    def changes(self) -> list:
+        return json.loads(self.changes_json or "[]")
+
+    def as_dict(self) -> dict:
+        return {
+            "token": self.token,
+            "proposal_id": self.public_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_by": self.created_by,
+            "revoked": bool(self.revoked),
+            "outcome": self.outcome or "",
+            "reviewer_name": self.reviewer_name or "",
+            "reviewer_email": self.reviewer_email or "",
+            "reviewer_note": self.reviewer_note or "",
+            "responded_at": self.responded_at.isoformat() if self.responded_at else None,
+            "changes": self.changes,
+            "opened_count": self.opened_count or 0,
         }
 
 
@@ -256,11 +310,148 @@ def record_client_link(public_id, link: dict) -> dict | None:
         return row.as_dict()
 
 
+def update_campaign(public_id, campaign: dict) -> dict | None:
+    """Replace the campaign blob after an edit.
+
+    The whole blob, because an edit reaches keywords, negatives, budget and the
+    intake at once and a field-by-field API would have to be extended for every
+    new thing a campaign carries. Callers hand back what they read.
+    """
+    with SessionLocal() as s:
+        row = s.scalar(select(Proposal).where(Proposal.public_id == public_id))
+        if not row:
+            return None
+        row.campaign_json = json.dumps(campaign, default=str)
+        row.updated_at = now()
+        s.commit()
+        return row.as_dict()
+
+
+# --------------------------------------------------- client estimate links
+def create_share(public_id, created_by="") -> dict:
+    """A fresh, unguessable link for one proposal.
+
+    New each time rather than reused: a link that has been answered is a record
+    of that answer, and handing the same URL to a second person would overwrite
+    the first one's response with no trace of it.
+    """
+    token = secrets.token_urlsafe(24)
+    with SessionLocal() as s:
+        s.add(Share(token=token, public_id=public_id, created_by=created_by or ""))
+        s.commit()
+    return get_share(token)
+
+
+def get_share(token) -> dict | None:
+    with SessionLocal() as s:
+        row = s.scalar(select(Share).where(Share.token == str(token or "")))
+        return row.as_dict() if row else None
+
+
+def shares_for(public_id) -> list:
+    with SessionLocal() as s:
+        rows = s.scalars(
+            select(Share).where(Share.public_id == public_id).order_by(Share.created_at.desc())
+        ).all()
+        return [r.as_dict() for r in rows]
+
+
+def latest_share(public_id) -> dict | None:
+    rows = [r for r in shares_for(public_id) if not r["revoked"]]
+    return rows[0] if rows else None
+
+
+def note_share_opened(token) -> None:
+    """A link that was never opened and one that was read and ignored are
+    different situations, and only one of them means chase the email."""
+    with SessionLocal() as s:
+        row = s.scalar(select(Share).where(Share.token == str(token or "")))
+        if row:
+            row.opened_count = (row.opened_count or 0) + 1
+            s.commit()
+
+
+def revoke_share(token) -> bool:
+    with SessionLocal() as s:
+        row = s.scalar(select(Share).where(Share.token == str(token or "")))
+        if not row:
+            return False
+        row.revoked = 1
+        s.commit()
+        return True
+
+
+def add_change_request(token, section, text, name, email) -> dict | None:
+    """One change a client asked for, against one section of the estimate."""
+    with SessionLocal() as s:
+        row = s.scalar(select(Share).where(Share.token == str(token or "")))
+        if not row:
+            return None
+        items = json.loads(row.changes_json or "[]")
+        items.append({
+            "id": secrets.token_hex(6),
+            "section": str(section or "")[:80],
+            "text": str(text or "").strip()[:4000],
+            "name": str(name or "").strip()[:200],
+            "email": str(email or "").strip()[:200],
+            "at": now().isoformat(),
+        })
+        row.changes_json = json.dumps(items)
+        s.commit()
+        return row.as_dict()
+
+
+def record_response(token, outcome, name, email, note="") -> dict | None:
+    with SessionLocal() as s:
+        row = s.scalar(select(Share).where(Share.token == str(token or "")))
+        if not row:
+            return None
+        row.outcome = str(outcome or "")[:40]
+        row.reviewer_name = str(name or "").strip()[:200]
+        row.reviewer_email = str(email or "").strip()[:200]
+        row.reviewer_note = str(note or "").strip()[:4000]
+        row.responded_at = now()
+        s.commit()
+        return row.as_dict()
+
+
+def review_state(public_id) -> dict:
+    """What the client has said about this proposal, for the approval hub.
+
+    Answers even when nothing has been sent, so the hub never has to branch:
+    ``outcome`` empty and ``colour`` grey is a real state — "not sent to the
+    client yet" — and is different from red.
+    """
+    from .spec import NO_RESPONSE_COLOUR, outcome_colour
+    rows = shares_for(public_id)
+    live = [r for r in rows if not r["revoked"]]
+    answered = [r for r in live if r["outcome"]]
+    latest = answered[0] if answered else (live[0] if live else None)
+    changes = sum(len(r["changes"]) for r in live)
+    if not latest:
+        return {"sent": False, "outcome": "", "colour": NO_RESPONSE_COLOUR,
+                "changes": 0, "reviewer": "", "responded_at": None, "opened": False}
+    return {
+        "sent": True,
+        "outcome": latest["outcome"],
+        "colour": outcome_colour(latest["outcome"]),
+        "changes": changes,
+        "reviewer": latest["reviewer_name"] or latest["reviewer_email"],
+        "responded_at": latest["responded_at"],
+        "opened": bool(latest["opened_count"]),
+    }
+
+
 def delete_proposal(public_id) -> bool:
     with SessionLocal() as s:
         row = s.scalar(select(Proposal).where(Proposal.public_id == public_id))
         if not row:
             return False
+        # The client links go with it. A live token pointing at a proposal that
+        # no longer exists is a URL somebody has already emailed to a client,
+        # and it would open on an error page with our name on it.
+        for share in s.scalars(select(Share).where(Share.public_id == public_id)).all():
+            s.delete(share)
         s.delete(row)
         s.commit()
         return True

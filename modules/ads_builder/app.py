@@ -50,7 +50,10 @@ from flask import (Flask, jsonify, make_response, redirect, render_template,
                    request)
 
 from . import VERSION, VERSION_DATE
-from . import campaign_ai, client_link, export, google_ads, store
+from hub import target_areas
+
+from . import (campaign_ai, client_link, export, google_ads, landing_page,
+               logo as logo_lookup, spec, store)
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
 
@@ -122,6 +125,9 @@ def page_generator():
         "ads_generator.html",
         sectors=[{"key": k, **v} for k, v in SECTOR_CPC.items()],
         objectives=OBJECTIVES,
+        audience_types=spec.AUDIENCE_TYPES,
+        conversion_actions=spec.CONVERSION_ACTIONS,
+        area_types=list(target_areas.TYPES),
         openai_configured=bool(campaign_ai.openai_key()),
     )
 
@@ -139,7 +145,10 @@ def page_campaigns():
 
 @app.get("/approvals")
 def page_approvals():
-    return render_template("ads_approvals.html", proposals=store.list_proposals())
+    rows = store.list_proposals()
+    for row in rows:
+        row["review"] = store.review_state(row["id"])
+    return render_template("ads_approvals.html", proposals=rows, spec=spec)
 
 
 @app.get("/proposal/<public_id>")
@@ -147,10 +156,23 @@ def page_proposal(public_id):
     proposal = store.get_proposal(public_id)
     if not proposal:
         return render_template("ads_error.html", error="That proposal no longer exists."), 404
+    campaign = proposal["campaign"]
     return render_template(
         "ads_proposal.html",
         p=proposal,
         status=google_ads.connection_status(store),
+        spec=spec,
+        sections=spec.sections(campaign),
+        areas=target_areas.normalize(campaign.get("targetAreas") or []),
+        area_label=target_areas.label,
+        area_population=target_areas.estimated_population,
+        shares=[{**r, "url": _share_url(r["token"]),
+                 "outcome_label": spec.OUTCOME_LABELS.get(r["outcome"], ""),
+                 "colour": spec.outcome_colour(r["outcome"])}
+                for r in store.shares_for(public_id)],
+        review=store.review_state(public_id),
+        needs_recheck=any(e.get("material") and not e.get("rechecked")
+                          for e in campaign.get("editLog") or []),
     )
 
 
@@ -160,9 +182,15 @@ def page_client_proposal(public_id):
     if not proposal:
         return render_template("ads_error.html", error="That proposal no longer exists."), 404
     today = datetime.now(timezone.utc)
+    campaign = proposal["campaign"]
     return render_template(
         "ads_client_proposal.html",
         p=proposal,
+        spec=spec,
+        sections=spec.sections(campaign),
+        areas=target_areas.normalize(campaign.get("targetAreas") or []),
+        area_label=target_areas.label,
+        area_population=target_areas.estimated_population,
         today=f"{today:%B} {today.day}, {today.year}",  # platform-safe, no %-d
     )
 
@@ -224,6 +252,115 @@ def api_export_summary(public_id):
         "csv_url": f"{MOUNT}/proposal/{public_id}/export/campaign.csv",
         "build_sheet_url": f"{MOUNT}/proposal/{public_id}/export/build-sheet.txt",
     })
+
+
+# ================================================================ PUBLIC
+# Everything under /estimate/ is served to a client who has no Hub login. It
+# is listed in PUBLIC_PREFIXES, which wsgi.py hands to BOTH the AuthGuard (so
+# it is reachable) and HubBar (so the Hub's sidebar, help layer and feedback
+# tab are not injected into a document a prospect reads). One list, so the
+# mount and the module can never disagree about what is public — the same
+# arrangement modules/scans uses.
+#
+# It is read-only except for two writes, both scoped to one token: a change
+# request and a response. Neither can reach another proposal, and neither can
+# edit the campaign — a client asks for a change, a rep makes it.
+PUBLIC_PREFIXES = ("/estimate/",)
+
+
+def _share_or_none(token):
+    share = store.get_share(token)
+    if not share or share["revoked"]:
+        return None, None
+    proposal = store.get_proposal(share["proposal_id"])
+    if not proposal:
+        return None, None
+    return share, proposal
+
+
+@app.get("/estimate/<token>")
+def page_client_estimate(token):
+    share, proposal = _share_or_none(token)
+    if not share:
+        # Deliberately the same answer for revoked, deleted and never-existed:
+        # a client-facing page must not confirm which tokens are real.
+        return render_template("ads_estimate_gone.html"), 404
+    store.note_share_opened(token)
+    today = datetime.now(timezone.utc)
+    return render_template(
+        "ads_estimate.html",
+        p=proposal,
+        share=share,
+        token=token,
+        spec=spec,
+        sections=spec.sections(proposal["campaign"]),
+        areas=target_areas.normalize(proposal["campaign"].get("targetAreas") or []),
+        area_label=target_areas.label,
+        area_population=target_areas.estimated_population,
+        mount=MOUNT,
+        outcomes=spec.OUTCOMES,
+        today=f"{today:%B} {today.day}, {today.year}",
+    )
+
+
+@app.post("/estimate/<token>/change")
+def api_client_change(token):
+    """One change request, against one section, from a named person.
+
+    The name and email are required and are not decoration: "the client wants
+    the budget lower" is not actionable, and three people at one company will
+    disagree with each other. Every request is stamped with who asked.
+    """
+    share, proposal = _share_or_none(token)
+    if not share:
+        return jsonify({"error": "This estimate is no longer available."}), 404
+
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("name") or "").strip()
+    email = str(body.get("email") or "").strip()
+    text = str(body.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Tell us what you would like changed."}), 400
+    if not name or "@" not in email:
+        return jsonify({"error": "Please give your name and email so we know who asked."}), 400
+
+    updated = store.add_change_request(token, body.get("section"), text, name, email)
+    store.log_event("ESTIMATE_CHANGE_REQUESTED", name or "Client",
+                    proposal=share["proposal_id"], client=proposal["client_name"],
+                    detail=f"{body.get('section') or 'general'}: {text[:160]}",
+                    section=str(body.get("section") or ""), email=email)
+    return jsonify({"ok": True, "changes": (updated or {}).get("changes", [])})
+
+
+@app.post("/estimate/<token>/respond")
+def api_client_respond(token):
+    share, proposal = _share_or_none(token)
+    if not share:
+        return jsonify({"error": "This estimate is no longer available."}), 404
+
+    body = request.get_json(silent=True) or {}
+    outcome = str(body.get("outcome") or "")
+    if outcome not in spec.OUTCOME_KEYS:
+        return jsonify({"error": "Choose one of the three options."}), 400
+    name = str(body.get("name") or "").strip()
+    email = str(body.get("email") or "").strip()
+    if not name or "@" not in email:
+        return jsonify({"error": "Please give your name and email."}), 400
+
+    updated = store.record_response(token, outcome, name, email, body.get("note"))
+    store.log_event("ESTIMATE_RESPONSE", name,
+                    proposal=share["proposal_id"], client=proposal["client_name"],
+                    detail=spec.OUTCOME_LABELS[outcome], outcome=outcome, email=email)
+    return jsonify({
+        "ok": True,
+        "outcome": outcome,
+        "label": spec.OUTCOME_LABELS[outcome],
+        "colour": spec.outcome_colour(outcome),
+        "changes": (updated or {}).get("changes", []),
+    })
+
+
+# ================================================================ /PUBLIC
 
 
 @app.get("/activity")
@@ -399,15 +536,60 @@ def api_campaign_status(campaign_id):
 @app.post("/api/generate")
 def api_generate():
     body = request.get_json(silent=True) or {}
-    missing = [f for f in ("businessName", "websiteUrl", "budget") if not body.get(f)]
+    # The budget is no longer required. A client who does not know what to spend
+    # is the ordinary case, and refusing to build anything until they name a
+    # number is how the conversation stops before it starts — the AI sizes
+    # good/better/best instead, and the campaign is built at the recommended one.
+    missing = [f for f in ("businessName", "websiteUrl") if not body.get(f)]
     if missing:
         return jsonify({"error": "Required: " + ", ".join(missing)}), 400
 
     store.log_event("GENERATION_START", current_user(),
                     client=body.get("businessName"), budget=body.get("budget"))
 
+    # Read the landing page BEFORE writing anything, so the model is given
+    # facts about it rather than a URL to imagine. A page that could not be
+    # fetched is passed through as "not measured" — never silently skipped,
+    # because the prompt then tells the model not to describe it at all.
+    observed = landing_page.observe(body.get("websiteUrl"))
+
     # No key from the browser: the Hub's OPENAI_API_KEY is the only one used.
-    campaign = campaign_ai.generate_campaign(body)
+    campaign = campaign_ai.generate_campaign(body, observed_page=observed)
+    campaign["landingPageObserved"] = observed
+
+    # Tiers are asked for either way: with no budget they are the only way to
+    # open the conversation, and with one they show what the next step up buys.
+    try:
+        campaign["budgetTiers"] = campaign_ai.budget_tiers(
+            campaign, campaign.get("sectorKey") or "general")
+    except GenerationError as exc:
+        campaign["budgetTiers"] = {"tiers": [], "error": str(exc)}
+
+    # With no stated budget, the campaign is costed at the recommended tier and
+    # says so in as many words — a proposal carrying a number the client never
+    # gave, unlabelled, is the confident wrong answer this codebase keeps
+    # having to undo.
+    if not campaign.get("monthlyBudget"):
+        recommended = next((t for t in (campaign["budgetTiers"].get("tiers") or [])
+                            if t.get("recommended")), None)
+        if recommended:
+            campaign["monthlyBudget"] = recommended["monthly"]
+            campaign["budgetSource"] = {
+                "stated": False, "tier": recommended["key"],
+                "note": f"The client has not named a budget. Costed at the "
+                        f"{recommended['label']} tier we recommend "
+                        f"(${recommended['monthly']:,.0f}/month).",
+            }
+        else:
+            campaign["budgetSource"] = {
+                "stated": False, "tier": "",
+                "note": "The client has not named a budget and no tier could be sized.",
+            }
+    else:
+        campaign["budgetSource"] = {"stated": True, "tier": "", "note": ""}
+
+    campaign["createdBy"] = current_user()
+    campaign["editLog"] = []
 
     # Who this is for, decided by the browser (picked from the lookup, or
     # explicitly new) and checked here against the Hub's own client list.
@@ -449,6 +631,446 @@ def api_generate():
 
     return jsonify({"proposal": proposal, "url": f"{MOUNT}/proposal/{proposal['id']}",
                     "client_link": link})
+
+
+# ------------------------------------------------------------ target areas
+@app.post("/api/areas/preview")
+def api_areas_preview():
+    """Normalise and size the areas the browser is holding.
+
+    Server-side on purpose. Target areas already carry one JavaScript mirror in
+    the Proposal Builder, and ``test_target_areas.py`` exists solely to prove
+    the two halves still agree; a second mirror here would need a second such
+    test and would drift the first time either side was edited. The browser
+    keeps the raw rows and renders whatever this returns — the same choice
+    Social Planner made about its calendar, for the same reason.
+    """
+    body = request.get_json(silent=True) or {}
+    rows = target_areas.normalize(body.get("areas") or [])
+    out = []
+    for area in rows:
+        population = target_areas.estimated_population(area)
+        out.append({
+            **area,
+            "label": target_areas.label(area),
+            "describe": target_areas.describe(area),
+            "population": population,          # None = not measured, never 0
+            "complete": not target_areas.is_empty(area),
+        })
+    total = target_areas.total_population(rows)
+    return jsonify({
+        "areas": out,
+        "summary": target_areas.summary(rows),
+        "total_population": total,
+        "unsized": target_areas.unsized(rows),
+        "types": list(target_areas.TYPES),
+        # Said in words rather than left to the reader: a total that omits
+        # three unsized areas is not the reach of the campaign.
+        "note": ("Reach is estimated and areas are added up without deducting "
+                 "overlap." if total else
+                 "No area here can be sized yet — that is not measured, not zero."),
+    })
+
+
+# ---------------------------------------------------------------- analysis
+def _campaign_or_404(public_id):
+    proposal = store.get_proposal(public_id)
+    if not proposal:
+        return None, (jsonify({"error": "Proposal not found."}), 404)
+    return proposal, None
+
+
+def _save(public_id, campaign):
+    return store.update_campaign(public_id, campaign) or store.get_proposal(public_id)
+
+
+@app.post("/api/proposals/<public_id>/analyse/landing-page")
+def api_analyse_landing_page(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    campaign = proposal["campaign"]
+    # Re-fetch rather than reuse what generation saw: the whole point of
+    # running this again is that somebody changed the page.
+    observed = landing_page.observe(campaign.get("websiteUrl"))
+    campaign["landingPageObserved"] = observed
+    analysis = campaign_ai.analyse_landing_page(campaign, observed)
+    analysis["missingForGoals"] = landing_page.missing_for(
+        observed, (campaign.get("intake") or {}).get("conversionActions"))
+    campaign["landingPageAnalysis"] = analysis
+    _save(public_id, campaign)
+    store.log_event("LANDING_PAGE_ANALYSED", current_user(),
+                    proposal=public_id, client=proposal["client_name"],
+                    measured=observed.get("measured"),
+                    conversion_points=len(observed.get("conversion_points") or []))
+    return jsonify({"analysis": analysis, "observed": observed})
+
+
+@app.post("/api/proposals/<public_id>/analyse/competitors")
+def api_analyse_competitors(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    campaign = proposal["campaign"]
+    research = campaign_ai.research_competitors(campaign)
+    campaign["competitorResearch"] = research
+    _save(public_id, campaign)
+    store.log_event("COMPETITORS_RESEARCHED", current_user(),
+                    proposal=public_id, client=proposal["client_name"],
+                    found=len(research.get("researched") or []))
+    return jsonify({"research": research})
+
+
+@app.post("/api/proposals/<public_id>/analyse/budget-tiers")
+def api_analyse_tiers(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    campaign = proposal["campaign"]
+    tiers = campaign_ai.budget_tiers(campaign, campaign.get("sectorKey") or "general")
+    campaign["budgetTiers"] = tiers
+    _save(public_id, campaign)
+    return jsonify({"tiers": tiers})
+
+
+@app.post("/api/proposals/<public_id>/recheck")
+def api_recheck(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    campaign = proposal["campaign"]
+    pending = [e["what"] for e in (campaign.get("editLog") or []) if not e.get("rechecked")]
+    review = campaign_ai.recheck_campaign(campaign, pending)
+    campaign["lastRecheck"] = {**review, "at": datetime.now(timezone.utc).isoformat(),
+                               "by": current_user(), "changes": pending}
+    for entry in campaign.get("editLog") or []:
+        entry["rechecked"] = True
+    _save(public_id, campaign)
+    store.log_event("CAMPAIGN_RECHECKED", current_user(),
+                    proposal=public_id, client=proposal["client_name"],
+                    verdict=review["verdict"], findings=len(review["findings"]))
+    return jsonify({"review": review})
+
+
+# ------------------------------------------------------------------ edits
+def _note_edit(campaign: dict, what: str, *, material: bool = True) -> None:
+    """Record what a person changed, and whether it needs a re-check.
+
+    ``material`` is the distinction that matters: a budget change or a stripped
+    ad group changes what the campaign will do, and the estimate must not be
+    approved without the model looking again. Fixing a typo in the promotion
+    text does not.
+    """
+    campaign.setdefault("editLog", []).append({
+        "what": what,
+        "at": datetime.now(timezone.utc).isoformat(),
+        "by": current_user(),
+        "material": bool(material),
+        "rechecked": not material,
+    })
+
+
+@app.post("/api/proposals/<public_id>/edit")
+def api_edit_campaign(public_id):
+    """Edit campaign details, budget, keywords and negatives, in one call.
+
+    One endpoint because one screen does all of it, and because the edit log
+    and the "this now needs re-checking" flag have to be written by whichever
+    part of the edit was material. Two endpoints meant two places that could
+    forget.
+    """
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    if proposal["status"] == "DEPLOYED":
+        return jsonify({"error": "This campaign has been deployed. Editing it here would "
+                                 "no longer describe what is live in Google Ads.",
+                        "code": "ALREADY_DEPLOYED"}), 400
+
+    body = request.get_json(silent=True) or {}
+    campaign = proposal["campaign"]
+    changed = []
+
+    if "monthlyBudget" in body:
+        try:
+            new_budget = round(float(body.get("monthlyBudget") or 0))
+        except (TypeError, ValueError):
+            return jsonify({"error": "That budget is not a number."}), 400
+        old_budget = round(float(campaign.get("monthlyBudget") or 0))
+        if new_budget != old_budget:
+            if new_budget <= 0:
+                return jsonify({"error": "A budget of zero cannot be quoted. Leave the "
+                                         "budget as it is, or pick one of the tiers."}), 400
+            campaign["monthlyBudget"] = new_budget
+            campaign["budgetSource"] = {"stated": True, "tier": body.get("tier") or "",
+                                        "note": ""}
+            # The viability line is recomputed here rather than left stale: it
+            # is printed beside the budget, and a HEALTHY badge over a budget
+            # somebody just quartered is the worst kind of wrong.
+            viability = analyse_budget(new_budget, campaign.get("sectorKey") or "general")
+            campaign.setdefault("costEstimation", {})["budgetViability"] = {
+                "status": viability["status"], "advice": viability["advice"]}
+            changed.append(f"Monthly budget ${old_budget:,.0f} → ${new_budget:,.0f}")
+            _note_edit(campaign, changed[-1])
+
+    if "intake" in body:
+        before = campaign.get("intake") or {}
+        after = spec.normalise_intake({**{k: before.get(k) for k in before},
+                                       **(body.get("intake") or {})})
+        diffs = [k for k in after if after.get(k) != before.get(k)]
+        if diffs:
+            campaign["intake"] = after
+            changed.append("Campaign details edited: " + ", ".join(diffs))
+            # Changing who we target or what must not be targeted changes the
+            # campaign; changing the phone number does not.
+            material = bool({"audienceType", "conversionActions", "doNotTarget",
+                             "productOrService", "seasonal"} & set(diffs))
+            _note_edit(campaign, changed[-1], material=material)
+
+    if "targetAreas" in body:
+        areas = target_areas.normalize(body.get("targetAreas") or [])
+        if areas != (campaign.get("targetAreas") or []):
+            campaign["targetAreas"] = areas
+            changed.append("Target areas: " + (target_areas.summary(areas) or "none"))
+            _note_edit(campaign, changed[-1])
+
+    for field in ("businessName", "websiteUrl", "objective", "strategySummary"):
+        if field in body:
+            value = str(body.get(field) or "").strip()
+            if value and value != campaign.get(field):
+                campaign[field] = value
+                changed.append(f"{field}: {value[:80]}")
+                _note_edit(campaign, changed[-1], material=(field == "websiteUrl"))
+
+    # --- keyword and negative removal -------------------------------------
+    remove_kw = body.get("removeKeywords") or []
+    if remove_kw:
+        wanted = {(str(r.get("group", "")), str(r.get("keyword", ""))) for r in remove_kw
+                  if isinstance(r, dict)}
+        removed = 0
+        for group in campaign.get("adGroups") or []:
+            keep = []
+            for kw in group.get("keywords") or []:
+                if (group.get("name", ""), str(kw)) in wanted:
+                    removed += 1
+                    continue
+                keep.append(kw)
+            group["keywords"] = keep
+        if removed:
+            changed.append(f"{removed} keyword(s) removed")
+            _note_edit(campaign, changed[-1])
+
+    remove_neg = body.get("removeNegatives") or []
+    if remove_neg:
+        wanted = {(str(r.get("bucket", "")), str(r.get("term", ""))) for r in remove_neg
+                  if isinstance(r, dict)}
+        vault = campaign.get("negativeKeywordVault") or {}
+        removed = 0
+        for bucket, terms in list(vault.items()):
+            keep = []
+            for term in terms or []:
+                if (bucket, str(term)) in wanted:
+                    removed += 1
+                    continue
+                keep.append(term)
+            vault[bucket] = keep
+        if removed:
+            campaign["negativeKeywordVault"] = vault
+            changed.append(f"{removed} negative keyword(s) removed")
+            # Removing a negative reopens spend the vault existed to stop, so
+            # this is always material however small it looks.
+            _note_edit(campaign, changed[-1])
+
+    if not changed:
+        return jsonify({"proposal": proposal, "changed": [], "needs_recheck": False,
+                        "note": "Nothing changed."})
+
+    # An edit invalidates an approval. Approving is a statement about a
+    # specific document, and letting it survive a budget change would mean the
+    # tick on screen refers to something nobody approved.
+    estimate = campaign.get("estimate") or {}
+    if estimate.get("approved_at"):
+        estimate["approved_at"] = ""
+        estimate["superseded"] = True
+        campaign["estimate"] = estimate
+
+    updated = _save(public_id, campaign)
+    store.log_event("CAMPAIGN_EDITED", current_user(),
+                    proposal=public_id, client=proposal["client_name"],
+                    detail="; ".join(changed)[:300], changes=len(changed))
+    return jsonify({
+        "proposal": updated,
+        "changed": changed,
+        "needs_recheck": any(e.get("material") and not e.get("rechecked")
+                             for e in campaign.get("editLog") or []),
+    })
+
+
+# ------------------------------------------------------------------- logo
+@app.get("/api/proposals/<public_id>/logo")
+def api_logo(public_id):
+    """What the Hub already has. Never a live lookup on a page load."""
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    campaign = proposal["campaign"]
+    if (campaign.get("logo") or {}).get("url"):
+        return jsonify({"logo": campaign["logo"]})
+    found = logo_lookup.resolve(proposal["client_name"], campaign.get("websiteUrl"))
+    if found.get("found"):
+        campaign["logo"] = found
+        _save(public_id, campaign)
+    return jsonify({"logo": found})
+
+
+@app.post("/api/proposals/<public_id>/logo/brandfetch")
+def api_logo_brandfetch(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    campaign = proposal["campaign"]
+    found = logo_lookup.from_brandfetch(campaign.get("websiteUrl"), proposal["client_name"])
+    if found.get("found"):
+        campaign["logo"] = found
+        _save(public_id, campaign)
+        store.log_event("LOGO_FETCHED", current_user(), proposal=public_id,
+                        client=proposal["client_name"], source="brandfetch")
+    return jsonify({"logo": found})
+
+
+@app.post("/api/proposals/<public_id>/logo/upload")
+def api_logo_upload(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    upload = request.files.get("logo")
+    if not upload or not upload.filename:
+        return jsonify({"error": "Choose a file to upload."}), 400
+    data = upload.read()
+    stored = logo_lookup.store_uploaded(data, upload.filename, proposal["client_name"])
+    if not stored.get("found"):
+        return jsonify({"error": stored.get("note") or "The logo could not be stored."}), 400
+    campaign = proposal["campaign"]
+    campaign["logo"] = stored
+    _save(public_id, campaign)
+    store.log_event("LOGO_UPLOADED", current_user(), proposal=public_id,
+                    client=proposal["client_name"], filename=upload.filename)
+    return jsonify({"logo": stored})
+
+
+@app.delete("/api/proposals/<public_id>/logo")
+def api_logo_clear(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    campaign = proposal["campaign"]
+    campaign.pop("logo", None)
+    _save(public_id, campaign)
+    return jsonify({"ok": True})
+
+
+# -------------------------------------------------------- estimate approval
+@app.post("/api/proposals/<public_id>/estimate/approve")
+def api_approve_estimate(public_id):
+    """Approve the estimate — through the model first if it has been edited.
+
+    Two presses, deliberately, and only when something material changed. The
+    first returns the re-check rather than approving, so a rep who quartered a
+    budget sees what that does to the plan *before* the document they approve
+    becomes the one a client reads. Pressing approve again with the re-check on
+    screen is an informed second decision, which is the point; approving
+    silently through a warning would make the first press meaningless.
+    """
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    campaign = proposal["campaign"]
+    pending = [e["what"] for e in (campaign.get("editLog") or [])
+               if e.get("material") and not e.get("rechecked")]
+
+    if pending and not body.get("acknowledged"):
+        review = campaign_ai.recheck_campaign(campaign, pending)
+        campaign["lastRecheck"] = {**review, "at": datetime.now(timezone.utc).isoformat(),
+                                   "by": current_user(), "changes": pending}
+        for entry in campaign.get("editLog") or []:
+            if entry.get("material"):
+                entry["rechecked"] = True
+        _save(public_id, campaign)
+        store.log_event("ESTIMATE_RECHECKED", current_user(),
+                        proposal=public_id, client=proposal["client_name"],
+                        verdict=review["verdict"], changes=len(pending))
+        return jsonify({
+            "approved": False,
+            "needs_review": True,
+            "review": review,
+            "changes": pending,
+            "note": "You changed the estimate, so it went back through the AI review. "
+                    "Read what it found, then approve again.",
+        })
+
+    campaign["estimate"] = {
+        **(campaign.get("estimate") or {}),
+        "approved_at": datetime.now(timezone.utc).isoformat(),
+        "approved_by": current_user(),
+        "superseded": False,
+    }
+    _save(public_id, campaign)
+    store.log_event("ESTIMATE_APPROVED", current_user(),
+                    proposal=public_id, client=proposal["client_name"])
+    return jsonify({"approved": True, "needs_review": False,
+                    "estimate": campaign["estimate"]})
+
+
+# ------------------------------------------------- the client-facing link
+@app.post("/api/proposals/<public_id>/share")
+def api_create_share(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    if not (proposal["campaign"].get("estimate") or {}).get("approved_at"):
+        return jsonify({
+            "error": "Approve the estimate before sending it. A client reading a "
+                     "version nobody signed off is the one thing this link must not do.",
+            "code": "NOT_APPROVED",
+        }), 400
+    share = store.create_share(public_id, current_user())
+    store.log_event("ESTIMATE_SHARED", current_user(),
+                    proposal=public_id, client=proposal["client_name"])
+    return jsonify({"share": share, "url": _share_url(share["token"])})
+
+
+@app.get("/api/proposals/<public_id>/shares")
+def api_list_shares(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    rows = store.shares_for(public_id)
+    return jsonify({
+        "shares": [{**r, "url": _share_url(r["token"]),
+                    "outcome_label": spec.OUTCOME_LABELS.get(r["outcome"], ""),
+                    "colour": spec.outcome_colour(r["outcome"])} for r in rows],
+        "review": store.review_state(public_id),
+    })
+
+
+@app.post("/api/proposals/<public_id>/shares/<token>/revoke")
+def api_revoke_share(public_id, token):
+    if not store.revoke_share(token):
+        return jsonify({"error": "No such link."}), 404
+    store.log_event("ESTIMATE_LINK_REVOKED", current_user(), proposal=public_id)
+    return jsonify({"ok": True})
+
+
+def _share_url(token: str) -> str:
+    """Absolute where the Hub knows its own address, root-relative otherwise.
+
+    This URL is pasted into an email to a client, so a relative path is useless
+    — but a guessed host is worse, and PUBLIC_BASE_URL unset means we do not
+    know it. The page says so rather than printing a link to nowhere.
+    """
+    base = (os.environ.get("PUBLIC_BASE_URL", "") or "").rstrip("/")
+    return f"{base}{MOUNT}/estimate/{token}" if base else f"{MOUNT}/estimate/{token}"
 
 
 @app.get("/api/proposals")

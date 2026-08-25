@@ -1,116 +1,24 @@
 {% extends "ads_base.html" %}
 {% set c = p.campaign %}
-{% set est = c.costEstimation or {} %}
-{% block title %}Proposal — {{ p.client_name }}{% endblock %}
-
-{% macro bare(term) -%}
-  {%- set t = term|string|trim -%}
-  {%- if (t.startswith('[') and t.endswith(']')) or (t.startswith('"') and t.endswith('"')) -%}
-    {{ t[1:-1] }}
-  {%- else -%}
-    {{ t }}
-  {%- endif -%}
-{%- endmacro %}
+{% block title %}Estimate — {{ p.client_name }}{% endblock %}
 
 {% block head %}
-<style>
-  body { background:#e8ecf3 }
-  .doc { background:#fff; max-width:58rem; margin:0 auto; padding:44px 50px;
-         border-radius:12px; color:#111827; font-size:14px; line-height:1.62 }
-  .doc h1 { font-size:26px; margin:0 0 4px; color:#0f172a }
-  .doc h2 { font-size:16px; margin:30px 0 8px; color:#1a2e58;
-            border-bottom:2px solid #e0e7f3; padding-bottom:5px }
-  .doc h3 { font-size:14.5px; margin:18px 0 4px; color:#1e293b }
-  .doc .lede { color:#475569 }
-  .doc .box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:15px; margin:11px 0 }
-  .doc .kw { display:inline-block; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:5px;
-             padding:2px 7px; margin:2px; font-size:12.5px; color:#334155 }
-  .doc .srow { display:flex; gap:22px; flex-wrap:wrap }
-  .doc .srow div { flex:1; min-width:120px }
-  .doc .srow .n { font-size:21px; font-weight:700; color:#0f172a }
-  .doc .srow .l { font-size:11px; color:#64748b; text-transform:uppercase; letter-spacing:.5px }
-  .doc table td { border-bottom:1px solid #f1f5f9; padding:7px 4px }
-  .doc .foot { margin-top:34px; padding-top:12px; border-top:1px solid #e2e8f0; color:#94a3b8; font-size:12px }
-  @media print { body { background:#fff } .doc { border-radius:0; padding:0; max-width:none } }
-</style>
+<style>body { background:#e8ecf3 }</style>
+{% include "_estimate_style.html" %}
 {% endblock %}
 
 {% block shell %}
 <div class="row noprint" style="margin-bottom:14px">
   <a class="btn" href="{{ mount }}/proposal/{{ p.id }}">← Back to the internal view</a>
   <div class="spacer"></div>
-  <span style="color:#64748b;font-size:12.5px">Match types are hidden in this view</span>
+  <span style="color:#64748b;font-size:12.5px">This is exactly what the client link shows,
+    without the change buttons</span>
   <button class="b-primary" onclick="window.print()">Print / Save as PDF</button>
 </div>
 {% endblock %}
 
 {% block content %}
-<div class="doc">
-  <h1>Paid Search Proposal</h1>
-  <p class="lede">Prepared for <strong>{{ c.businessName or p.client_name }}</strong> · {{ today }}</p>
-
-  <h2>Overview</h2>
-  <p>{{ c.strategySummary or 'A structured Google Search campaign built around your highest-intent customer searches.' }}</p>
-
-  <div class="box">
-    <div class="srow">
-      <div><div class="n">${{ '{:,.0f}'.format(c.monthlyBudget or 0) }}</div><div class="l">Monthly media budget</div></div>
-      <div><div class="n">{{ '{:,.0f}'.format(est.estimatedMonthlyClicks or 0) }}</div><div class="l">Estimated visits / month</div></div>
-      <div><div class="n">{{ '{:,.0f}'.format(est.estimatedConversions or 0) }}</div><div class="l">Estimated enquiries / month</div></div>
-      <div><div class="n">{% if est.estimatedCPA %}${{ '%.2f'|format(est.estimatedCPA) }}{% else %}—{% endif %}</div>
-           <div class="l">Estimated cost per enquiry</div></div>
-    </div>
-  </div>
-  <p style="font-size:12.5px;color:#64748b">
-    Estimates are modelled on {{ c.sector or 'sector' }} benchmarks and the auction as it stands today. Actual
-    results depend on competition, seasonality and how quickly enquiries are followed up.
-  </p>
-
-  <h2>Campaign structure</h2>
-  <p>Your budget is split across {{ (c.adGroups or [])|length }} tightly themed groups, so each advert matches
-     exactly what the person searched for.</p>
-  {% for g in c.adGroups or [] %}
-    <h3>{{ g.name }}</h3>
-    {% if g.theme %}<p style="color:#475569;margin-top:0">{{ g.theme }}</p>{% endif %}
-    <div>{% for k in g.keywords %}<span class="kw">{{ bare(k) }}</span>{% endfor %}</div>
-  {% endfor %}
-
-  <h2>What your adverts will say</h2>
-  {% for g in (c.adGroups or [])[:3] %}
-    {% if g.ads and g.ads.headlines %}
-      <h3>{{ g.name }}</h3>
-      <div class="box">
-        {% for h in g.ads.headlines[:6] %}<div style="font-weight:600;color:#1d4ed8">{{ h }}</div>{% endfor %}
-        {% for d in g.ads.descriptions or [] %}<div style="color:#334155;margin-top:5px">{{ d }}</div>{% endfor %}
-      </div>
-    {% endif %}
-  {% endfor %}
-
-  {% set assets = c.adAssets or {} %}
-  <h2>Extensions</h2>
-  <table><tbody>
-    {% for s in assets.sitelinks or [] %}
-      <tr><td style="font-weight:600;width:32%">{{ s.title }}</td>
-          <td>{{ [s.desc1, s.desc2]|select|join(' — ') }}</td></tr>
-    {% endfor %}
-  </tbody></table>
-  {% if assets.callouts %}<p style="margin-top:11px"><strong>Highlights:</strong> {{ assets.callouts|join(' · ') }}</p>{% endif %}
-  {% if (assets.structuredSnippets or {}).get('values') %}
-    <p><strong>{{ assets.structuredSnippets.header }}:</strong> {{ assets.structuredSnippets['values']|join(' · ') }}</p>
-  {% endif %}
-
-  <h2>Protecting your budget</h2>
-  <p>We block {{ p.negative_count }} irrelevant search terms from day one — job seekers, students, bargain
-     hunters and unrelated queries — so your money only goes to people who can actually buy.</p>
-
-  {% if (c.landingPageAnalysis or {}).get('recommendations') %}
-    <h2>Landing page recommendations</h2>
-    <ul>{% for r in c.landingPageAnalysis.recommendations %}<li>{{ r }}</li>{% endfor %}</ul>
-  {% endif %}
-
-  <div class="foot">
-    Smart 1 Marketing · Proposal reference {{ p.id }} · Prepared {{ today }}<br>
-    Figures are good-faith estimates, not guarantees of performance.
-  </div>
-</div>
+{% with interactive = false %}
+  {% include "_estimate_doc.html" %}
+{% endwith %}
 {% endblock %}

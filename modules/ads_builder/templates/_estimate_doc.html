@@ -1,0 +1,260 @@
+{# The paid search estimate, written once.
+   Included by ads_client_proposal.html (the internal preview a rep reads and
+   prints) and by ads_estimate.html (the public link a client opens). Two
+   copies of this document is how the version a client reads comes to differ
+   from the version the rep approved, so there is one.
+
+   `interactive` decides only whether the per-section change buttons render.
+   Nothing else differs — same sections, same numbers, same order. #}
+{% set c = p.campaign %}
+{% set est = c.costEstimation or {} %}
+{% set assets = c.adAssets or {} %}
+{% set lpa = c.landingPageAnalysis or {} %}
+{% set logo = c.logo or {} %}
+
+{# Defined here rather than relied on from the including template: an include
+   inherits the context, and a macro that quietly stopped being in it would
+   fail at render time on the one page a client reads. #}
+{% macro bare(term) -%}
+  {%- set t = term|string|trim -%}
+  {%- if (t.startswith('[') and t.endswith(']')) or (t.startswith('"') and t.endswith('"')) -%}
+    {{ t[1:-1] }}
+  {%- else -%}
+    {{ t }}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro editable(key, label) %}
+  {%- if interactive -%}
+    <button type="button" class="chg" data-section="{{ label }}" title="Ask for a change to “{{ label }}”"
+            onclick="askChange('{{ label|e }}')" aria-label="Ask for a change to {{ label }}">&#9998;</button>
+  {%- endif -%}
+{% endmacro %}
+
+<div class="doc" id="estimateDoc">
+
+  <header class="dochead">
+    {% if logo.url %}<img class="logo" src="{{ logo.url }}" alt="{{ c.businessName or p.client_name }}">{% endif %}
+    <div>
+      <h1>Paid Search Estimate</h1>
+      <p class="lede">Prepared for <strong>{{ c.businessName or p.client_name }}</strong> · {{ today }}</p>
+      {% if c.websiteUrl %}<p class="lede mono brk">{{ c.websiteUrl }}</p>{% endif %}
+    </div>
+  </header>
+
+  <!-- ------------------------------------------------------ headline numbers -->
+  <div class="box">
+    <div class="srow">
+      <div>
+        <div class="n">${{ '{:,.0f}'.format(c.monthlyBudget or 0) }}</div>
+        <div class="l">Monthly media budget</div>
+      </div>
+      <div>
+        <div class="n">{{ '{:,.0f}'.format(est.estimatedMonthlyClicks or 0) }}</div>
+        <div class="l">Estimated visits / month</div>
+      </div>
+      <div>
+        <div class="n">{{ '{:,.0f}'.format(est.estimatedConversions or 0) }}</div>
+        <div class="l">Estimated enquiries / month</div>
+      </div>
+      <div>
+        <div class="n">{% if est.avgCPC %}${{ '%.2f'|format(est.avgCPC) }}{% else %}&mdash;{% endif %}</div>
+        {# Never the bare number: this is a sector benchmark, not this account's
+           measured cost, and it sits on a document somebody spends money from. #}
+        <div class="l">Avg. cost per click <span class="est">({{ spec.CPC_NOTE }})</span></div>
+      </div>
+    </div>
+    {% if (c.budgetSource or {}).stated is defined and not (c.budgetSource or {}).stated %}
+      <p class="caveat">{{ (c.budgetSource or {}).note }}</p>
+    {% endif %}
+    <p class="caveat">{{ spec.CPC_NOTE_LONG }}</p>
+  </div>
+
+  <!-- --------------------------------------------------------------- overview -->
+  <h2>Overview {{ editable('overview', 'Overview') }}</h2>
+  <p>{{ c.strategySummary or 'A structured Google Search campaign built around your highest-intent customer searches.' }}</p>
+
+  <!-- ------------------------------------------------------- campaign details -->
+  {% if sections %}
+  <h2>Campaign details {{ editable('details', 'Campaign details') }}</h2>
+  <p class="lede">What we captured when we scoped this campaign. Everything below was built around it.</p>
+  <table class="details">
+    {% for row in sections %}
+      <tr>
+        <th>{{ row.label }}</th>
+        <td>{{ row.value }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  <!-- ----------------------------------------------------------- target areas -->
+  {% if areas %}
+  <h2>Where the ads run {{ editable('areas', 'Target areas') }}</h2>
+  <table class="details">
+    {% for a in areas %}
+      {% set pop = area_population(a) if area_population else none %}
+      <tr>
+        <th>{{ area_label(a) }}</th>
+        <td>
+          {% if pop %}~{{ '{:,.0f}'.format(pop) }} people{% else %}<span class="muted">Reach not measured for this area</span>{% endif %}
+          {% if a.zips %}<div class="muted small">ZIP codes: {{ a.zips }}</div>{% endif %}
+          {% if a.notes %}<div class="muted small">{{ a.notes }}</div>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+  <p class="caveat">Reach figures are estimates, and areas are added together
+    without deducting overlap between them.</p>
+  {% endif %}
+
+  <!-- --------------------------------------------------------- what we'll run -->
+  <h2>The campaign {{ editable('campaign', 'Campaign structure') }}</h2>
+  <p class="lede">{{ (c.adGroups or [])|length }} themed ad group{{ '' if (c.adGroups or [])|length == 1 else 's' }},
+    each with its own keywords and its own ad copy.</p>
+
+  {% for g in c.adGroups or [] %}
+    <h3>{{ g.name }}</h3>
+    {% if g.theme %}<p class="muted">{{ g.theme }}</p>{% endif %}
+    <div>
+      {% for k in g.keywords or [] %}<span class="kw">{{ bare(k) }}</span>{% endfor %}
+    </div>
+    {% if g.ads and g.ads.headlines %}
+      <p class="muted small" style="margin-top:8px">Example ad copy</p>
+      <div class="adprev">
+        <div class="adhead">{{ g.ads.headlines[:3]|join(' | ') }}</div>
+        <div class="adurl">{{ c.websiteUrl }}</div>
+        <div>{{ (g.ads.descriptions or [''])[0] }}</div>
+      </div>
+    {% endif %}
+  {% endfor %}
+
+  <!-- ---------------------------------------------------------------- assets -->
+  {% if assets.sitelinks or assets.callouts %}
+  <h2>Ad extensions {{ editable('assets', 'Ad extensions') }}</h2>
+  {% if assets.sitelinks %}
+    <h3>Sitelinks</h3>
+    <table class="details">
+      {% for s in assets.sitelinks %}
+        <tr>
+          <th>{{ s.title }}</th>
+          <td>
+            {% if s.desc1 %}{{ s.desc1 }}{% if s.desc2 %}<br>{{ s.desc2 }}{% endif %}{% endif %}
+            {# The destination, shown. A sitelink is a promise about where a
+               click lands, and a title with no URL beside it cannot be checked. #}
+            <div class="mono brk small muted">{{ s.url or c.websiteUrl }}</div>
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+  {% if assets.callouts %}
+    <h3>Callouts</h3>
+    <div>{% for co in assets.callouts %}<span class="kw">{{ co }}</span>{% endfor %}</div>
+  {% endif %}
+  {% if (assets.structuredSnippets or {}).values %}
+    <h3>{{ assets.structuredSnippets.header }}</h3>
+    <div>{% for v in assets.structuredSnippets['values'] %}<span class="kw">{{ v }}</span>{% endfor %}</div>
+  {% endif %}
+  {% endif %}
+
+  <!-- --------------------------------------------------------- landing page -->
+  {% if lpa %}
+  <h2>Your landing page {{ editable('landing', 'Landing page') }}</h2>
+  {% set observed = lpa.observed or c.landingPageObserved or {} %}
+  {% if observed and not observed.measured %}
+    <p class="muted">We could not read the page automatically, so nothing below is measured
+      from it. {{ observed.error or '' }}</p>
+  {% elif observed.conversion_points is defined %}
+    <h3>What we found on the page</h3>
+    {% if observed.conversion_points %}
+      <table class="details">
+        {% for pt in observed.conversion_points %}
+          <tr><th>{{ pt.label }}</th><td class="mono brk">{{ pt.evidence }}</td></tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="muted">We read the page and found no way to convert on it — no form, no
+        click-to-call, no booking tool and no chat.</p>
+    {% endif %}
+  {% endif %}
+
+  {% if lpa.missingForGoals %}
+    <div class="warnbox">
+      <strong>Worth fixing before launch</strong>
+      <p>You told us you want {{ lpa.missingForGoals|map(attribute='label')|join(', ') }},
+        and we could not find a way to do that on this page. Paid traffic will arrive with
+        that intent and have nowhere to go.</p>
+    </div>
+  {% endif %}
+
+  {% if lpa.messageMatch %}<p>{{ lpa.messageMatch }}</p>{% endif %}
+  {% if lpa.pageRecommendations %}
+    <h3>Suggestions for the page</h3>
+    <ul>{% for r in lpa.pageRecommendations %}<li>{{ r }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if lpa.campaignRecommendations %}
+    <h3>What the campaign does about it</h3>
+    <ul>{% for r in lpa.campaignRecommendations %}<li>{{ r }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% endif %}
+
+  <!-- ---------------------------------------------------------- competitors -->
+  {% set comp = c.competitorResearch or {} %}
+  {% if comp.named or comp.researched %}
+  <h2>The competitive picture {{ editable('competitors', 'Competitors') }}</h2>
+  {% if comp.named %}
+    <h3>Competitors you named</h3>
+    <ul>{% for x in comp.named %}<li><strong>{{ x.name }}</strong>{% if x.note %} — {{ x.note }}{% endif %}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if comp.researched %}
+    <h3>Others we believe compete for these searches</h3>
+    <ul>{% for x in comp.researched %}<li><strong>{{ x.name }}</strong>{% if x.why %} — {{ x.why }}{% endif %}</li>{% endfor %}</ul>
+    <p class="caveat">{{ comp.note }}</p>
+  {% endif %}
+  {% if comp.implications %}
+    <ul>{% for x in comp.implications %}<li>{{ x }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% endif %}
+
+  <!-- --------------------------------------------------------- budget tiers -->
+  {% set tiers = (c.budgetTiers or {}).tiers %}
+  {% if tiers %}
+  <h2>Budget options {{ editable('budget', 'Budget') }}</h2>
+  <div class="tiers">
+    {% for t in tiers %}
+      <div class="tier {{ 'rec' if t.recommended }}">
+        <div class="tname">{{ t.label }}{% if t.recommended %} <span class="pill">Recommended</span>{% endif %}</div>
+        <div class="tmoney">${{ '{:,.0f}'.format(t.monthly) }}<span>/mo</span></div>
+        <div class="muted small">~{{ '{:,.0f}'.format(t.estimatedClicks) }} clicks/mo
+          <span class="est">({{ spec.CPC_NOTE }})</span></div>
+        {% if t.buys %}<p class="small">{{ t.buys }}</p>{% endif %}
+        {% if t.givesUp %}<p class="small muted">Trade-off: {{ t.givesUp }}</p>{% endif %}
+        {% if t.belowFloor %}
+          <p class="small warn">Below the level at which a campaign's results can be read.</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  {% if (c.budgetTiers or {}).rationale %}<p class="muted small">{{ c.budgetTiers.rationale }}</p>{% endif %}
+  {% if (c.budgetTiers or {}).floorWarning %}
+    <div class="warnbox"><strong>Worth knowing</strong><p>{{ c.budgetTiers.floorWarning }}</p></div>
+  {% endif %}
+  {% endif %}
+
+  <!-- ----------------------------------------------------------- exclusions -->
+  {% if p.negative_count %}
+  <h2>What we will not pay for {{ editable('negatives', 'Excluded searches') }}</h2>
+  <p class="lede">{{ p.negative_count }} search terms are blocked before your budget can be
+    spent on them — job seekers, students, free-only searches and anything you told us to
+    stay away from.</p>
+  {% endif %}
+
+  <div class="foot">
+    Prepared by Smart 1 Marketing{% if c.createdBy %} · {{ c.createdBy }}{% endif %}
+    · {{ today }}{% if (c.estimate or {}).approved_by %}
+    · Approved internally by {{ c.estimate.approved_by }}{% endif %}
+    <br>All performance figures are estimates based on industry benchmarks for this sector
+    and are not a guarantee of results.
+  </div>
+</div>
