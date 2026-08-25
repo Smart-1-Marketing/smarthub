@@ -842,6 +842,52 @@ def delete_website(website_id):
     return redirect(url_for("project_detail", pid=w["project_id"]))
 
 
+@app.post("/websites/<website_id>/check-limits")
+@login_required
+def website_check_limits(website_id):
+    """Ask Simvoly whether this site fits a plan's limits.
+
+    The form for this shipped on project_detail.html and the route did not, so
+    every visit to a project page died on `url_for` before a single row was
+    drawn — a BuildError is raised at render time, so the 500 was the whole
+    page rather than the one control. `simvoly_client.check_limits()` had been
+    written and had no caller at all; this is the caller.
+
+    Read-only on purpose, and deliberately NOT behind the write-actions gate:
+    it asks Simvoly a question and changes nothing, which is what makes it
+    useful before a plan change rather than after one.
+    """
+    require_csrf()
+    w = get_website(website_id)
+    if not w:
+        abort(404)
+    plan_id = request.form.get("plan_id", "").strip()
+    if not plan_id:
+        flash("Pick a plan to check against.", "danger")
+        return redirect(url_for("project_detail", pid=w["project_id"]))
+    try:
+        out = client.check_limits(website_id, plan_id)
+        # Simvoly answers in more than one shape, and an unrecognised one must
+        # not read as a pass: an empty message with a green tick is the
+        # confident blank this codebase keeps having to undo.
+        if isinstance(out, dict):
+            passed = out.get("success", out.get("result", None))
+            msg = str(out.get("message") or out.get("error") or "").strip()
+        else:
+            passed, msg = None, str(out or "").strip()
+        if passed is True:
+            flash(msg or "This site fits the selected plan's limits.", "success")
+        elif passed is False:
+            flash(msg or "This site does NOT fit the selected plan's limits.",
+                  "danger")
+        else:
+            flash("Simvoly answered, but not in a shape this page can read as "
+                  "pass or fail: " + (msg or repr(out)[:200]), "warning")
+    except Exception as exc:
+        flash(f"Limits check failed: {exc}", "danger")
+    return redirect(url_for("project_detail", pid=w["project_id"]))
+
+
 @app.post("/projects/<pid>/sso")
 @login_required
 def project_sso(pid):

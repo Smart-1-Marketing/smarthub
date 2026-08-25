@@ -94,19 +94,24 @@
       <td><span class="pill {{status_class(r.status)}}">{{r.lifecycle_state or r.status or 'UNKNOWN'}}</span></td>
       <td>{{r.plan_name or '—'}}<small>{{money(r.monthly_price)}} catalog</small></td>
       {#
-        The domain cell doubles as the orphan-domain search. A project with no
-        domain on it is half of a pair: the other half is a URL somewhere in
-        the Hub with no client attached to it. Searching the orphan list here
-        means the person looking at the account can close that pair without
-        leaving the page, and attaching writes the client registry, Client 360,
-        this project and the Knack website record through the same path the
-        Match Clients page uses.
+        The domain cell closes the pair, in whichever direction it is open.
+        A project and a client are two halves: sometimes the project has the
+        client and the Hub holds a URL nobody owns, and sometimes — far more
+        often — the project has the URL and no client name at all.
+
+        Both are offered here. The second one used to be a dead end: the box
+        said "this project has no internal client name … use Match clients in
+        the Hub" and stopped, which is a row reporting a problem next to a
+        control that refuses to fix it. Attaching either way goes through
+        /api/domain/attach, so it writes the client registry, Client 360, this
+        project and the Knack website record and reports each.
       #}
       <td class="domcell">
         {{r.domain or '—'}}
         <a class="orphan-link" href="#" onclick="return orphanBox(this)"
            data-client="{{r.internal_client_name or ''}}"
-           data-project="{{r.project_id}}">search orphan domains</a>
+           data-domain="{{r.domain or ''}}"
+           data-project="{{r.project_id}}">{{ 'search orphan domains' if r.internal_client_name else 'match to a customer' }}</a>
         <div class="orphan-box" hidden></div>
       </td>
       <td>{{r.next_billing_date or '—'}}</td>
@@ -148,12 +153,7 @@ function orphanBox(link){
   if (!box.hidden) { box.hidden = true; return false; }
   box.hidden = false;
   var client = link.dataset.client || '';
-  if (!client) {
-    box.innerHTML = '<span class="msg">This project has no internal client '
-      + 'name, so there is no client to attach a domain to yet. Set one on the '
-      + 'project, or use Match clients in the Hub.</span>';
-    return false;
-  }
+  if (!client) { return customerBox(link, box); }
   box.innerHTML = '<input placeholder="Search orphan domains…" oninput="orphanFind(this)">'
     + '<div class="hits"></div><span class="msg">Reading the orphan list…</span>';
   var input = box.querySelector('input');
@@ -165,6 +165,65 @@ function orphanBox(link){
       box.querySelector('.msg').textContent = 'The orphan list could not be read.';
     });
   return false;
+}
+
+/* The other direction: this project has a domain and no client, so the thing
+   to search is customers, not orphan domains. A searchable list of real
+   customers and never a free-text box — a typo'd name attaches the site to a
+   client nothing joins to and still reads as success. */
+function customerBox(link, box){
+  var domain = link.dataset.domain || '';
+  if (!domain) {
+    box.innerHTML = '<span class="msg">This project has no client and no '
+      + 'domain, so there is nothing to match on. A domain has to be connected '
+      + 'in Smart 1 Sites first.</span>';
+    return false;
+  }
+  box.innerHTML = '<input placeholder="Search customers\u2026" oninput="customerFind(this)">'
+    + '<div class="hits"></div><span class="msg">Type a customer name or '
+    + 'domain. Attaching files ' + domain + ' to them in all four systems.</span>';
+  box.querySelector('input').focus();
+  return false;
+}
+
+var CUSTQ = null;
+function customerFind(input){
+  var box = input.parentElement, q = (input.value || '').trim();
+  clearTimeout(CUSTQ);
+  if (q.length < 2) { box.querySelector('.hits').innerHTML = ''; return; }
+  CUSTQ = setTimeout(function () {
+    fetch('/api/clients/search?limit=8&q=' + encodeURIComponent(q),
+          {credentials: 'same-origin'})
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var rows = d.clients || [];
+        box.querySelector('.hits').innerHTML = rows.length
+          ? rows.map(function (c) {
+              return '<button type="button" class="hit" onclick="customerAttach(this)" '
+                + 'data-c="' + String(c.name).replace(/"/g, '&quot;') + '">'
+                + c.name + (c.domain ? ' <span style="color:#94a3b8">(' + c.domain + ')</span>' : '')
+                + '</button>';
+            }).join('')
+          : '<span class="msg">No customer matched. Nothing is guessed from a '
+            + 'partial name \u2014 type more of it, or try their domain.</span>';
+      })
+      .catch(function () {
+        box.querySelector('.msg').textContent = 'The customer list could not be read.';
+      });
+  }, 200);
+}
+
+function customerAttach(btn){
+  var box = btn.closest('.orphan-box');
+  var link = box.parentElement.querySelector('.orphan-link');
+  var domain = link.dataset.domain;
+  var client = btn.dataset.c;
+  if (!confirm('Attach ' + domain + ' to "' + client + '"?')) return;
+  box.querySelector('.msg').textContent = 'Attaching\u2026';
+  attachDomain(box, domain, client, function () {
+    link.dataset.client = client;
+    link.textContent = 'search orphan domains';
+  });
 }
 
 function orphanFind(input){
@@ -190,20 +249,27 @@ function orphanAttach(btn){
   var link = box.parentElement.querySelector('.orphan-link');
   var client = link.dataset.client, domain = btn.dataset.d;
   if (!confirm('Attach ' + domain + ' to "' + client + '"?')) return;
-  box.querySelector('.msg').textContent = 'Attaching…';
+  box.querySelector('.msg').textContent = 'Attaching\u2026';
+  attachDomain(box, domain, client);
+}
+
+/* One attach path and one way of reporting it, whichever half was searched.
+   Every system, named: "attached" and "attached in two of four places" are
+   different outcomes and one tick for both is how a person learns not to
+   trust the tick. */
+function attachDomain(box, domain, client, done){
   fetch('/api/domain/attach', {
     method: 'POST', credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({domain: domain, client: client})
   }).then(function (r) { return r.json(); }).then(function (rep) {
-    /* Every system, named. "Attached" and "attached in two of four places"
-       are different outcomes and one tick for both is not worth showing. */
-    var lines = (rep.written || []).map(function (w) { return '✓ ' + w.label + ' — ' + w.detail; })
-      .concat((rep.skipped || []).map(function (w) { return '— ' + w.label + ': ' + w.why; }));
+    var lines = (rep.written || []).map(function (w) { return '\u2713 ' + w.label + ' \u2014 ' + w.detail; })
+      .concat((rep.skipped || []).map(function (w) { return '\u2014 ' + w.label + ': ' + w.why; }));
     box.querySelector('.hits').innerHTML = '';
     box.querySelector('.msg').innerHTML = (rep.note || rep.error || '')
       + '<br>' + lines.join('<br>');
     ORPHANS = (ORPHANS || []).filter(function (r) { return r.domain !== domain; });
+    if (done && rep.ok) done(rep);
   }).catch(function () {
     box.querySelector('.msg').textContent = 'That did not go through.';
   });

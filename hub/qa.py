@@ -1495,8 +1495,15 @@ def uploads_not_in_suite() -> dict:
     }
 
 
-GOOGLE_COLUMNS = ["Platform", "Resource", "Mapped to", "Matched on",
-                  "Google login", "Domains", "Map to client"]
+# The picker sits immediately after "Mapped to" — the cell it changes — and
+# not at the end. On the end it was the seventh column of a table wider than
+# its own scroll box, so on an ordinary laptop the header read "MAP TO CLIE"
+# and the button read "Map to c": the control was there, cut in half, past the
+# right edge, with no scrollbar visible until you tried. A feature you cannot
+# see is a feature that does not exist, and "Google login" and "Domains" are
+# reference columns nobody has to reach.
+GOOGLE_COLUMNS = ["Platform", "Resource", "Mapped to", "Map to client",
+                  "Matched on", "Google login", "Domains"]
 
 
 # Group order on /qa is this dict's insertion order -- qa_home() walks REPORTS
@@ -1605,9 +1612,6 @@ def google_accounts() -> dict:
             r["platform"],
             resource,
             mapped,
-            matched or "—",
-            r["google_login"],
-            ", ".join(r["domains"]) or "—",
             {"map_client": r["resource_id"],
              "current": r["client"],
              "suggestions": suggestions,
@@ -1617,6 +1621,9 @@ def google_accounts() -> dict:
              "text": (f"mapped to {r['client']}" if r["client"]
                       else ("suggested: " + suggestions[0]["client"]
                             if suggestions else "not mapped, no suggestion"))},
+            matched or "—",
+            r["google_login"],
+            ", ".join(r["domains"]) or "—",
         ])
         # Unmapped rows are the finding, so they are the ones tinted.
         # "yellow", not "warn": qa_report.html only styles green/yellow/red/sub,
@@ -1669,7 +1676,7 @@ def google_accounts() -> dict:
                  f"({age}){stale}.{errs}{auto} Unmapped rows are listed first. "
                  f"Anything carrying a client's domain is mapped for you; for "
                  f"the rest — a GA4 property carries no URL, so most of them — "
-                 f"pick the customer in the last column and it is attached to "
+                 f"pick the customer beside \u201cMapped to\u201d and it is attached to "
                  f"the client record, this index and the Knack website record "
                  f"at once."),
     }

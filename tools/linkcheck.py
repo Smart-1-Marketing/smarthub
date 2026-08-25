@@ -222,7 +222,145 @@ def scan():
         mount, _, _ = routes.owner(rule.split("<")[0])
         if mount:
             shadowed.append((rule, mount))
-    return routes, checked, prefixes, broken, shadowed, unchecked
+    missing_eps, dead_eps = endpoint_check(routes)
+    return (routes, checked, prefixes, broken, shadowed, unchecked,
+            missing_eps, dead_eps)
+
+
+# ---------------------------------------------------------------------------
+# url_for endpoints
+# ---------------------------------------------------------------------------
+# The other half of "does this URL exist", and the half nothing looked at.
+# `url_for('website_check_limits', …)` sat in a Sites Admin template with no
+# route of that name behind it, and Flask raises BuildError at *render* time —
+# so it was not a broken button, it was a 500 on the whole page, on every
+# visit to any project. Every link on the page was fine; the page never got
+# drawn. linkcheck reads URL literals and cannot see an endpoint name, which
+# is exactly why this shipped.
+#
+# Only quoted literals are checked. `url_for(name)` cannot be resolved here,
+# and a blueprint-relative `url_for('.index')` depends on the request's own
+# blueprint, so both are left alone rather than guessed at and reported wrong.
+URL_FOR = re.compile(r"""\burl_for\s*\(\s*["']([A-Za-z_][\w.]*)["']""")
+
+
+def _template_roots(app):
+    """Every directory this app resolves template names in, absolute."""
+    roots = []
+    loader = getattr(app, "jinja_loader", None)
+    roots += list(getattr(loader, "searchpath", None) or [])
+    for bp in (getattr(app, "blueprints", None) or {}).values():
+        bl = getattr(bp, "jinja_loader", None)
+        roots += list(getattr(bl, "searchpath", None) or [])
+    out = []
+    for r in roots:
+        try:
+            out.append(os.path.realpath(r))
+        except OSError:
+            continue
+    # The app's own package directory too, so a url_for in its .py is checked
+    # against its own route table rather than against the hub's.
+    root_path = getattr(app, "root_path", "")
+    if root_path:
+        out.append(os.path.realpath(root_path))
+    return out
+
+
+def _rendered_templates():
+    """Template names some view actually renders.
+
+    A url_for in a template nothing renders cannot 500 anybody today, and
+    failing the build on one would have started this check red — which is how
+    a check gets switched off. Those are reported as a note instead. It is
+    still worth naming: modules/sites_admin/templates/site_detail.html is
+    exactly the shape project_detail.html was in, a form written against
+    routes that were never added.
+    """
+    # Whole-file, not line by line. sites_admin writes
+    #     return render_template(
+    #         "project_detail.html",
+    # and a per-line scan sees neither half — which had this check filing the
+    # one template that 500s a live page under "nothing renders it".
+    rx = re.compile(r"""render_template\w*\(\s*["']([\w./-]+)["']""", re.S)
+    names = set()
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for name in filenames:
+            if not name.endswith(".py"):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, name), ROOT)
+            if rel.startswith(SKIP_PREFIXES):
+                continue
+            try:
+                text = open(os.path.join(dirpath, name), encoding="utf-8",
+                            errors="ignore").read()
+            except OSError:
+                continue
+            for hit in rx.findall(text):
+                names.add(os.path.basename(hit))
+    return names
+
+
+def endpoint_check(routes):
+    """Every url_for('name') whose app has no endpoint of that name.
+
+    Returns (live, dead): the ones on a page something renders, and the ones
+    in a template nothing does.
+    """
+    apps = [("hub app", routes.hub)]
+    apps += [(prefix, app) for prefix, app in sorted(routes.apps.items())]
+    owners = []      # (realpath root, label, endpoint names)
+    for label, app in apps:
+        if app is None:
+            continue          # module failed to import; not this check's call
+        names = set(getattr(app, "view_functions", {}) or {})
+        for root in _template_roots(app):
+            owners.append((root, label, names))
+
+    everywhere = set()
+    for _root, _label, names in owners:
+        everywhere |= names
+
+    rendered = _rendered_templates()
+    live, dead = [], []
+    for url_for_file, lineno, name in _url_for_uses():
+        path = os.path.realpath(os.path.join(ROOT, url_for_file))
+        is_template = os.sep + "templates" + os.sep in path
+        if not is_template:
+            # A shared helper registers its routes on whichever app installs
+            # it — hub/embed.py adds s1_embed to nine landing modules and to
+            # no hub app — so a .py is judged against the whole composed app.
+            # Narrower than a template check and deliberately so: a check that
+            # cries wolf is one people learn to scroll past.
+            if name not in everywhere:
+                live.append((name, url_for_file, lineno, "any app"))
+            continue
+        # Every app that could render this template. A name that exists in
+        # any of them is fine: a folder two apps both search is rendered by
+        # whichever one reached it.
+        seen, labels = False, []
+        for root, label, names in owners:
+            if path.startswith(root + os.sep):
+                labels.append(label)
+                if name in names:
+                    seen = True
+                    break
+        if not labels or seen:
+            continue
+        row = (name, url_for_file, lineno, labels[0])
+        (live if os.path.basename(path) in rendered else dead).append(row)
+    return live, dead
+
+
+def _url_for_uses():
+    for name, where in literals([("url_for", URL_FOR)]).items():
+        # A trailing dot is a name being concatenated —
+        # url_for('commercial_builder.cb_pages.' + step) — and the half in
+        # the source is not the endpoint.
+        if name.startswith(".") or name.endswith(".") or name == "static":
+            continue
+        for rel, lineno, _kind in where:
+            yield rel, lineno, name
 
 
 def self_rules(routes):
@@ -231,7 +369,8 @@ def self_rules(routes):
 
 def main(argv):
     quiet = "--quiet" in argv
-    routes, checked, prefixes, broken, shadowed, unchecked = scan()
+    (routes, checked, prefixes, broken, shadowed, unchecked,
+     missing_eps, dead_eps) = scan()
 
     if not quiet:
         print("routes: %d across hub + %d mounts" % (len(routes.all),
@@ -252,15 +391,26 @@ def main(argv):
             for f, n, kind in where:
                 print("          %s:%d (%s)" % (f, n, kind))
             print()
+        for name, rel, lineno, label in missing_eps:
+            print("NO ENDPOINT  url_for(%r) in %s:%d — %s has no route of "
+                  "that name. Flask raises BuildError while rendering, so "
+                  "this is a 500 on the whole page." % (name, rel, lineno, label))
+        if missing_eps:
+            print()
+        for name, rel, lineno, label in dead_eps:
+            print("no endpoint, but nothing renders that template: "
+                  "url_for(%r) in %s:%d [%s]" % (name, rel, lineno, label))
+        if dead_eps:
+            print()
         for rule, mount in shadowed:
             print("SHADOWED  %s is on the hub app but %s owns that prefix"
                   % (rule, mount))
         if shadowed:
             print()
 
-    bad = len(broken) + len(shadowed)
-    print("%d broken link(s), %d shadowed route(s)." % (len(broken),
-                                                        len(shadowed)))
+    bad = len(broken) + len(shadowed) + len(missing_eps)
+    print("%d broken link(s), %d shadowed route(s), %d missing endpoint(s)."
+          % (len(broken), len(shadowed), len(missing_eps)))
     return 1 if bad else 0
 
 
