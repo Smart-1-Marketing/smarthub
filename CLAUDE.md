@@ -119,6 +119,42 @@ sizing helpers so the reach panel updates live; `test_target_areas.py` asserts
 the two produce identical output, because when they drift the proposal
 contradicts the screen it was quoted from and nothing errors.
 
+**`linkcheck` sees `fetch("…")` and nothing else, and `sendBeacon` is where
+the leads were.** The trap above is about the URL it cannot verify; this is
+about the call it cannot see at all. Six landing modules posted their
+abandoned-form partial lead with
+`navigator.sendBeacon('/api/partial-lead', …)` — root-absolute, so under
+`/land/<x>` it leaves the module entirely and 404s on the hub app. It is
+invisible three times over: the `fetch()` written beside it as the fallback
+carried the mount and worked, `sendBeacon` returns a boolean nobody reads, and
+it fires on `pagehide`, so no console is open when it fails. Stadium was worse
+— its browser code named a *different Render service* as its API base, so its
+leads were reaching neither this Hub nor nothing, which is harder to notice
+than either. Use `{{ request.script_root }}` in a template; in a plain asset
+with no Jinja, either a relative path (`'api/partial-lead'`, which resolves
+against the document's directory) or a base derived from `location.pathname`.
+`test_landing_embeds.py` fails on a root-absolute path passed *directly* to
+`fetch` or `sendBeacon` — not on one appearing anywhere in the file, because
+`apiUrl("/api/health")` is correct and a check that flags it teaches people to
+ignore the check.
+
+**The marketing site's form and the Hub's form were two different forms.**
+Nine industry tools live here (`/land/boat`, `/land/ski`, `/land/stadium`, …),
+each of which writes every lead through `hub/leads.py` into Smart 1 Suite.
+smart1marketing.com carried its own form on each of those pages, connected to
+none of it — and `/api/leads/capture` sends no CORS headers, so a browser on
+that domain could not have reached the Hub even if it tried. Nothing errored on
+either side; the Leads panel simply reported a fraction of the prospects as if
+it were all of them. `hub/embed.py` frames the real tool rather than shipping a
+copy of the form, which is the part that matters: a pasted copy needs a host
+spelled correctly (`smart1-multipart-embed.html` shipped
+`https://YOUR-RENDER-APP.onrender.com`), needs its mount prefix concatenated
+correctly, and goes stale the day a field is added here. A frame needs none of
+those. `docs/smart1marketing-embeds.md` is the line to paste, per page.
+`/embed` deliberately has no trailing slash — tourism's relative API path
+resolves against the *directory* of the current URL, so `/embed/` is a 404 the
+prospect does not meet until they press submit.
+
 **Placeholder values are worse than blanks.** `CLOUDINARY_URL` sat at
 `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` and every "is it configured?"
 check said yes. `hub/config.py` detects the known placeholders. Render also
@@ -1144,6 +1180,7 @@ python3 test_sites_match.py        # live-only matching, and finding a client's 
 python3 test_domain_links.py       # attaching a domain everywhere, orphans, renewals
 python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
+python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 python3 test_landing_spec.py       # what a landing page is for, and what it sells

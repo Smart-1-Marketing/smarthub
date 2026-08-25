@@ -883,5 +883,25 @@ def analyze():
         return jsonify({"ok": False, "error": str(exc) or "Unable to generate report."}), 500
 
 
+# ---------------------------------------------------------------------------
+# Embedding on smart1marketing.com
+# ---------------------------------------------------------------------------
+#
+# /embed and /embed.js, from the one shared implementation in hub/embed.py --
+# see that module for why the marketing site frames this form rather than
+# carrying a copy of it. Registered last, because install() frames whichever
+# view answers "/" and that route has to exist first.
+#
+# Guarded: a landing page that will not import because its embed helper is
+# missing is a worse outcome than a landing page nobody can embed. Recorded,
+# because a swallowed exception is how /signup 404'd for a day with no clue.
+try:
+    from hub import embed as _s1_embed
+
+    _s1_embed.install(app, 'Smart 1 Marketing — Ski Resort Marketing Gameplan', default_height=1500)
+except Exception as _exc_embed:                         # noqa: BLE001
+    app.logger.warning("Embed routes unavailable: %s", _exc_embed)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")), debug=False)
