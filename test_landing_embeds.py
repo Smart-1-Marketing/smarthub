@@ -237,6 +237,27 @@ check("and it is kept whether or not Suite accepted it",
       "delivered" in row, True)
 
 
+section("A tool with its own embed mode uses it on /embed")
+
+# boat and restaurant hide their own hero when embedded, because the marketing
+# page they sit on already has one. The switch is client-side and reads the
+# URL, so /embed has to be one of the URLs it recognises -- otherwise the
+# documented one-line embed draws two headlines on the host page, which reads
+# as a broken paste rather than an embed.
+#
+# ?embed=1 stays recognised: it is what the hand-written iframe on
+# smart1marketing.com has always used, and a page pasted before the next deploy
+# must not stop working.
+for m in ("/land/boat", "/land/restaurant"):
+    body = client.get(m + "/embed").get_data(as_text=True)
+    check(f"{m} still honours ?embed=1", "get('embed')==='1'" in body, True)
+    check(f"{m}/embed is recognised as embedded too",
+          "/\\/embed$/.test(location.pathname)" in body, True)
+    # The rule is worth nothing without the CSS it switches on.
+    check(f"{m} has a rule that hides its hero when embedded",
+          ".embed" in body and "hero" in body, True)
+
+
 section("No landing tool posts a lead to the site root")
 
 # The bug this section exists for: sendBeacon('/api/partial-lead'). Under the

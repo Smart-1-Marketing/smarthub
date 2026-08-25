@@ -5,7 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Create an AI-powered boat dealer market, boat-owner, and geofencing opportunity report.">
   <title>Boat Dealer Market Intelligence | Smart 1 Marketing</title>
-  <script>if(new URLSearchParams(location.search).get('embed')==='1'){document.documentElement.className+=' embed';}</script>
+  <!-- Embedded mode. Two URLs mean it, and both have to: ?embed=1 is what the
+       marketing site's hand-written iframe has always used, and /embed is the route
+       hub/embed.py serves for the one-line loader. A page that answers on /embed
+       and still draws its own hero puts two headlines on the host page, which reads
+       as a broken paste rather than an embed. -->
+  <script>if(new URLSearchParams(location.search).get('embed')==='1'||/\/embed$/.test(location.pathname)){document.documentElement.className+=' embed';}</script>
   <style>html.embed body{background:transparent!important}html.embed .hero,html.embed .privacy-note{display:none!important}html.embed .shell{padding-top:0!important;padding-bottom:12px!important}</style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -345,7 +350,8 @@ showStep();
 // Embed mode: /?embed=1 hides the hero so the form sits cleanly inside the Smart 1 landing page,
 // and auto-reports its height to the parent page so the iframe resizes with no inner scrollbar.
 (function(){
-  if(new URLSearchParams(location.search).get('embed')!=='1')return;
+  // Same two URLs as the class switch in <head> — see the comment there.
+  if(!(new URLSearchParams(location.search).get('embed')==='1'||/\/embed$/.test(location.pathname)))return;
   const post=()=>{try{parent.postMessage({smart1boatHeight:document.body.scrollHeight},'*');}catch(e){}};
   try{new ResizeObserver(post).observe(document.body);}catch(e){}
   window.addEventListener('load',post);setTimeout(post,300);post();

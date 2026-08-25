@@ -96,7 +96,10 @@
     window.__HP_FIELD__ = {{ honeypot_field|tojson }};
     // When embedded on the Smart 1 landing page (?embed=1), hide the redundant hero
     // (headline + intro) so the tool goes straight to the form. Runs before paint.
-    (function(){try{if(new URLSearchParams(location.search).get('embed')==='1'){document.documentElement.classList.add('embed');}}catch(e){}})();
+    // Both URLs that mean embedded: ?embed=1 (the hand-written iframe) and /embed
+    // (the route hub/embed.py serves). Drawing our hero inside a host page that has
+    // one already is the failure this prevents.
+    (function(){try{if(new URLSearchParams(location.search).get('embed')==='1'||/\/embed$/.test(location.pathname)){document.documentElement.classList.add('embed');}}catch(e){}})();
   </script>
 </head>
 <body>

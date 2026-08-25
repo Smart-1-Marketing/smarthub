@@ -1,150 +1,165 @@
 # Connecting the smart1marketing.com gameplan pages to the Hub
 
 **Audience:** whoever edits pages on smart1marketing.com.
-**What you do:** paste one line per page. Nothing else is configured.
+**What you do:** one iframe per page. No script required.
 
 ---
 
-## 1. What was wrong
+## 1. What is actually wrong
 
-There are two forms per industry, and only one of them is connected.
+Each gameplan page frames a form. Several of them frame **the wrong service**.
 
-The Hub runs a working tool for every gameplan page — `/land/boat`,
+The Hub runs the tool behind every one of these pages — `/land/boat`,
 `/land/ski`, `/land/stadium` and six more. Each asks a prospect a few
 questions, builds the plan, renders the PDF, and writes the answer through
 `hub/leads.py`, which creates the contact in Smart 1 Suite over the Contacts
-API and returns an id. That is the path the Leads panel reports on.
+API and returns an id. That is the path the Leads panel at `/sales/leads`
+reports on, and the path that files the plan against a client's 360 record.
 
-The marketing site carries its own form on each of those pages. Whatever that
-form does, it does not do this: nothing in this repository is reachable from
-it, `/api/leads/capture` sends no CORS headers so a browser on
-smart1marketing.com cannot post to it, and no page URL on the marketing site
-appears anywhere in the code. A prospect who fills in the marketing-site form
-does not appear in the Leads panel, is not created in Suite, and gets no plan.
+The boat page's iframe pointed at `https://smart1boat.onrender.com/?embed=1`
+— a **separate Render deployment of that same tool**. Its leads land in its
+own storage, so they never reach the Leads panel, and whether they reach Suite
+at all depends on that service's environment variables. Stadium's page code
+names `blueprint-2.onrender.com` for the same reason.
 
-Nothing errors, on either side. That is what makes it expensive.
+So this is not "the marketing site has its own form". It is the right tool,
+served by the wrong copy of it. Which is why the fix is a URL.
 
-**One earlier attempt is still in the repo and is worth knowing about**, because
-it is the shape this replaces. `modules/rv/public/smart1-multipart-embed.html`
-was a second copy of the RV form meant to be pasted into the Suite page and to
-post back here. It shipped with
-`const API_BASE = 'https://YOUR-RENDER-APP.onrender.com'` — a placeholder every
-glance reads as configured — and called
-`fetch(API_BASE + '/api/rv-demand/estimate-and-submit')`, which omits the
-`/land/rv` mount the app actually answers on and so is a 404 even with the host
-filled in. It has been replaced with the snippet below.
+## 2. The URLs
 
-## 2. What replaces it
+Every one of these was checked against the Hub's route table rather than typed
+from memory: each answers **200**, needs **no login**, and is framable from
+smart1marketing.com.
 
-Not a copy of the form. The real one, in a frame.
-
-    <script src="https://smart1-hub.onrender.com/land/boat/embed.js"></script>
-
-That writes the iframe where the script tag sits and keeps it the right height.
-Because it is the real tool:
-
-- the fields are whatever the tool asks for today, so nothing drifts;
-- the mount prefix is decided by the server, so there is no URL to get wrong;
-- the lead travels the identical path a lead from `/land/boat` travels,
-  because it **is** one.
-
-## 3. The lines to paste
-
-One per page. Paste into a Custom HTML / Code block placed where the form
-should appear, and **delete the page's existing form** — two forms on one page
-means half the leads go nowhere and the split is invisible.
-
-| Page on smart1marketing.com | Paste this | Leads arrive tagged |
+| Page | Frame this URL | Leads tagged |
 |---|---|---|
-| `/football-audio-video-playbook` | `<script src="https://smart1-hub.onrender.com/land/stadium/embed.js"></script>` | `stadium` |
-| `/boat-dealer-marketing-gameplan` | `<script src="https://smart1-hub.onrender.com/land/boat/embed.js"></script>` | `boat` |
-| `/rv-dealer-marketing-gameplan` | `<script src="https://smart1-hub.onrender.com/land/rv/embed.js"></script>` | `rv` |
-| `/legal-industry-marketing-gameplan` | `<script src="https://smart1-hub.onrender.com/land/legal/embed.js"></script>` | `legal` |
-| `/restaurant-weather-marketing-gameplan` | `<script src="https://smart1-hub.onrender.com/land/restaurant/embed.js"></script>` | `restaurant` |
-| `/smart-tourism-ads` | `<script src="https://smart1-hub.onrender.com/land/tourism/embed.js"></script>` | `tourism` |
-| `/ski-resort-markeitng-gameplan` | `<script src="https://smart1-hub.onrender.com/land/ski/embed.js"></script>` | `ski` |
-| `/recruitment-digital-marketing-gameplan` | `<script src="https://smart1-hub.onrender.com/land/recruit/embed.js"></script>` | `recruit` |
-| *(no page yet)* | `<script src="https://smart1-hub.onrender.com/land/hvac/embed.js"></script>` | `hvac` |
+| `/football-audio-video-playbook` | `https://smart1-hub.onrender.com/land/stadium/embed` | `stadium` |
+| `/boat-dealer-marketing-gameplan` | `https://smart1-hub.onrender.com/land/boat/embed?embed=1` | `boat` |
+| `/rv-dealer-marketing-gameplan` | `https://smart1-hub.onrender.com/land/rv/embed` | `rv` |
+| `/legal-industry-marketing-gameplan` | `https://smart1-hub.onrender.com/land/legal/embed` | `legal` |
+| `/restaurant-weather-marketing-gameplan` | `https://smart1-hub.onrender.com/land/restaurant/embed?embed=1` | `restaurant` |
+| `/smart-tourism-ads` | `https://smart1-hub.onrender.com/land/tourism/embed` | `tourism` |
+| `/ski-resort-markeitng-gameplan` | `https://smart1-hub.onrender.com/land/ski/embed` | `ski` |
+| `/recruitment-digital-marketing-gameplan` | `https://smart1-hub.onrender.com/land/recruit/embed` | `recruit` |
+| *(no page yet)* | `https://smart1-hub.onrender.com/land/hvac/embed` | `hvac` |
+| `/ims` — **check this one**, see §5 | `https://smart1-hub.onrender.com/tools/calculators/embed/trade` | `calculators` |
 
-HVAC has a tool and no page. It is listed because leaving one out of a set of
-nine is how the ninth is still missing a year later.
+**Why boat and restaurant carry `?embed=1` and the others do not.** Those two
+tools have their own switch that hides their hero, so the host page does not
+show two headlines. The switch reads the `?embed=1` query, and newer Hub builds
+also treat the `/embed` path as embed mode on its own — carrying the query as
+well makes the URL right against whichever build is deployed when you paste it.
+The other seven have no such switch and draw their own hero inside the frame,
+so give them a page section that is otherwise bare, or link to them instead.
 
-### If the builder strips `<script>`
+## 3. What to paste
 
-Some page builders do. Use a plain iframe instead — no auto-resize, so pick a
-height that fits the finished plan and check it on a phone:
+A plain iframe. **No `<script>` — Simvoly code blocks are not a safe place for
+one**, and nothing here needs it:
 
-    <iframe src="https://smart1-hub.onrender.com/land/boat/embed"
-            title="Boat Dealer Marketing Gameplan"
-            style="display:block;width:100%;height:1500px;border:0"
+    <iframe src="https://smart1-hub.onrender.com/land/ski/embed"
+            title="Ski Resort Marketing Gameplan"
+            style="display:block;width:100%;height:1400px;border:0"
             loading="lazy"></iframe>
 
+Delete the page's existing form or old iframe when you paste. Two forms on one
+page means half the leads go nowhere and the split is invisible.
+
+**The height is fixed, and the frame scrolls inside itself.** That is not a
+compromise to apologise for: it is what makes each tool's own "jump back to the
+top when the report renders" work, because there is a scrollbar for it to move.
+Pick a height that fits the finished plan and check it on a phone.
+
 **No trailing slash on `/embed`.** The tourism wizard calls its API with a
-relative path, which resolves against the *directory* of the current URL: from
-`/embed` that is right and from `/embed/` it is a 404 the prospect does not
-meet until they have filled in the whole form and pressed submit. `/embed/`
-redirects, so a slash typed by hand still works — but do not paste one.
+relative path, which resolves against the *directory* of the current URL —
+`/embed/` would be a 404 the prospect does not meet until they have filled in
+the whole form and pressed submit. `/embed/` redirects, so a slash typed by
+hand still works, but do not paste one.
 
-### Setting the starting height
+### If you can add page-level Header Code
 
-`data-height` is only the height used before the frame reports its own, so it
-controls one thing: whether the page visibly jumps on a slow connection.
+Then the frame can grow to fit instead, with a branded loader over the Render
+wake-up. `docs/embeds/boat-page-header-code.html` is that upgrade for the boat
+page; it checks that its target exists before touching anything, so it is inert
+on any other page. The Hub also serves a generic version of the same idea at
+`…/land/<tool>/embed.js` — a one-line loader that writes the iframe itself —
+for anywhere a script tag *is* allowed.
 
-    <script src="https://smart1-hub.onrender.com/land/boat/embed.js"
-            data-height="1500"></script>
+## 4. The boat page, done
 
-## 4. What the page will look like
+`docs/embeds/boat-dealer-marketing-gameplan.html` is that page's whole code
+block, rewritten: the iframe repointed at the Hub, and the page's own
+explanation of the program kept intact — the problem section, the three steps,
+the six things the program includes, the report preview, the FAQ and the CTAs.
 
-The framed page is the Hub tool's own page, including its hero. Put the embed
-on a section that is otherwise empty, or the visitor reads two headlines.
+Four things in it were not code, and are fixed there rather than here:
 
-The Stadium page (`/land/stadium`) is a full marketing page rather than a bare
-wizard — hero, navigation and all. On a marketing-site page that already has
-its own hero, link to it instead of framing it:
+- Two **editor notes were live on the page**, addressed to prospects
+  ("Placeholder metrics — replace with your real campaign results before
+  publishing", and "Replace these with real dealer testimonials").
+- The **KPI figures were invented** — 3×, 40%, 100%. Replaced with four claims
+  the page can stand behind.
+- The **two testimonials were fabricated**, attributed to named people. Removed
+  rather than rewritten; the markup is left in a comment for real ones.
+- The block **opened its own `<!doctype html>`** and styled bare `body`, `h1`
+  and `*`, which restyles the site around it. Now scoped under `#s1boat`.
 
-    https://smart1-hub.onrender.com/land/stadium
+Its header comment also lists three fixes that belong in Simvoly's page
+settings: the empty meta description, the broken `og:image`, and a ~200-line
+audio-calculator script in the page header that does nothing on that page.
 
-## 5. Where the leads go
+## 5. `/ims` — not yet verified
 
-Straight into the Leads panel (`/sales/leads`), with the source column set to
-the tag in the table above and the plan PDF attached, and on into Smart 1 Suite
-as a contact through `hub/ghl_contacts.py`. The Hub stores the lead **before**
-it forwards, so a Suite outage delays a contact rather than destroying a lead;
-anything undelivered stays queued and visible and can be retried.
+The Hub has an **IMS Advertising Trade Calculator** (`hub` slug `trade`), live
+and public at `/tools/calculators/c/trade` and framable at
+`/tools/calculators/embed/trade`. Its leads go through `hub/leads.py` like
+every other tool here.
 
-The plan is also filed against the client's 360 record.
+Whether `smart1marketing.com/ims` is currently pointed at it has **not been
+checked** — this repository's sandbox cannot reach smart1marketing.com. Paste
+that page's code block and it can be answered properly.
 
-## 6. Two settings, and one of them you will not need
+One thing is already known, because it appears on the *boat* page: a
+**Smart 1 Digital Audio Calculator** script sits in that page's header code.
+It is not the IMS trade calculator — it estimates digital audio impressions and
+reach from a budget and a CPM — and wherever it runs it delivers no lead
+anywhere, because its own webhook POST is commented out and the only other
+thing it does with the captured contact is fire a browser event nothing
+listens for. If a copy of it is running on `/ims`, that page's leads are being
+collected and dropped.
+
+## 6. Two settings, one of which you will not need
 
 **Which domains may frame the tools.** `smart1marketing.com` and its
-subdomains, and nothing else. This is an allowlist rather than the
-`frame-ancestors *` the scans widget sends, because that one is pasted onto
-clients' own domains and cannot know them in advance while these are only ever
-on ours. To add a domain, set `HUB_FRAME_ANCESTORS` in Render — space
-separated, CSP syntax, and it replaces the default rather than adding to it:
+subdomains, and nothing else — an allowlist rather than the `frame-ancestors *`
+the scans widget sends, because that one is pasted onto clients' own domains
+and cannot know them in advance. To add a domain, set `HUB_FRAME_ANCESTORS` in
+Render (space separated, CSP syntax; it replaces the default rather than adding
+to it).
 
-    HUB_FRAME_ANCESTORS='self' https://smart1marketing.com https://*.smart1marketing.com https://newdomain.com
+Not to be confused with `HUB_EMBED_FRAME_ANCESTORS`, which is a different
+question with a different right answer: that one is about HighLevel framing Hub
+pages inside Smart 1 Suite.
 
-**Moving the Hub to another host.** The Hub's URL appears exactly once per page,
-in the script's `src`; the frame URL and the origin check are derived from it.
+**Moving the Hub to another host.** The host appears once per page, in the
+iframe's `src`.
 
 ## 7. Two things to fix on the site while you are in there
 
-Neither is code, and neither is guessed — both are visible in the list of URLs:
+Neither is a guess — both are visible in the list of URLs:
 
-- `/smart-tourism-ads` has the page title **"Accounting Partner Program"**. It is
-  the tourism gameplan page, so either the title belongs to another page or the
-  content does. Check which before embedding.
-- `/ski-resort-markeitng-gameplan` misspells *marketing* in the URL itself.
-  Renaming it breaks every existing link and ad destination, so if it is
-  renamed the old path needs a 301 — and the paste line above needs no change
-  either way.
+- `/smart-tourism-ads` has the page title **"Accounting Partner Program"**. It
+  is the tourism gameplan page, so either the title belongs to another page or
+  the content does.
+- `/ski-resort-markeitng-gameplan` misspells *marketing* in the URL. Renaming
+  it needs a 301 for every existing link and ad destination; the iframe is
+  unaffected either way.
 
-## 8. If you would rather keep the site's own forms
+## 8. If you would rather keep a native site form
 
 Then the missing piece is CORS, not an embed: `/api/leads/capture` accepts a
 public POST but sends no `Access-Control-Allow-Origin`, so a browser on
-smart1marketing.com is refused before the request is made. That is a
-deliberate default and a small change to reverse — but it buys back the
-problem this replaces, because the site's form and the Hub's form then have to
-be kept in step by hand, and the day they drift nothing says so.
+smart1marketing.com is refused before the request is made. That is a small
+change to reverse — but it buys back the problem this replaces, because the
+site's form and the Hub's form then have to be kept in step by hand, and the
+day they drift nothing says so.
