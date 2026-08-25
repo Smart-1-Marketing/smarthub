@@ -69,8 +69,10 @@ def list_fields(object_key):
     r = requests.get(url, headers=_headers(), timeout=30)
     r.raise_for_status()
     data = r.json() or {}
-    return [{"key": f.get("key"), "name": f.get("name"), "type": f.get("type")}
-            for f in data.get("fields", [])]
+    # `name` or `label`: Knack returns one, hub/knack_api.py reads the other,
+    # and a matcher reading the wrong one matches nothing at all.
+    return [{"key": f.get("key"), "name": f.get("name") or f.get("label"),
+             "type": f.get("type")} for f in data.get("fields", [])]
 
 
 # --------------------------------------------------------------------------

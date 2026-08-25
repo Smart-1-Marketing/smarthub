@@ -94,6 +94,19 @@ def _f(key, label, ftype, **extra):
     return d
 
 
+def _fn(key, name, ftype, **extra):
+    """A field as Knack's own API returns it: the display name under `name`.
+
+    The two fields this module still discovers by label are fixtured this way
+    on purpose. hub/knack_api.py read `label` and nothing else, so against a
+    real Knack payload every label match compared a keyword to None and found
+    nothing — silently, for every field, for ever.
+    """
+    d = {"key": key, "name": name, "type": ftype, "required": False}
+    d.update(extra)
+    return d
+
+
 SCHEMA = [
     _f("field_1895", "Ticket Title", "short_text", required=True),
     _f("field_1784", "Client Organization", "connection",
@@ -127,8 +140,8 @@ SCHEMA = [
     _f("field_1657", "Status", "multiple_choice",
        format={"options": ["Open", "In Progress", "Complete"], "type": "single"}),
     _f("field_1729", "Developer", "short_text"),
-    _f("field_1000", "Date Created", "date_time"),
-    _f("field_1001", "Requested By", "short_text"),
+    _fn("field_1000", "Date Created", "date_time"),
+    _fn("field_1001", "Requested By", "short_text"),
 ]
 
 
@@ -352,6 +365,16 @@ def main():
     check("and the status Knack set", rows[0]["status"], "Open")
 
     print()
+    print("a field's display name is read whichever key Knack used")
+    reset()
+    m = knack_api.field_map()
+    check("date created, returned under `name`", m.get("date"), "field_1000")
+    check("requested by, the same", m.get("requested_by"), "field_1001")
+    ok("and a pinned field still labels itself",
+       knack_api.field_label({"label": "Ticket Title"}) == "Ticket Title"
+       and knack_api.field_label({"name": "Ticket Title"}) == "Ticket Title")
+
+    print()
     print("the audit module at /tools/tickets reads the same ids")
     # Two maps of one object is the duplication CLAUDE.md flagged. There is one
     # now: the audit module's names, the shared module's ids. This asserts the
@@ -367,6 +390,48 @@ def main():
            f"{tickets_config.CONFIRMED_FIELDS.get(mine)} != {ids.get(theirs)}")
     ok("and it holds nothing the shared map does not",
        set(tickets_config.CONFIRMED_FIELDS.values()) <= set(ids.values()))
+
+    print()
+    print("/tools/tickets maps itself, and says so when it cannot")
+    from modules.tickets import service as tickets_service
+    from modules.tickets import knack_client as tickets_client
+
+    # The live object, as Knack returns it: display names under `name`.
+    LIVE = [{"key": f.get("key"),
+             "name": f.get("label") or f.get("name"),
+             "type": f.get("type")} for f in SCHEMA]
+    tickets_service._auto.clear()
+    tickets_service._auto_why.clear()
+    tickets_client.list_fields = lambda obj: LIVE
+    tickets_client.demo_mode = lambda: False
+
+    auto = tickets_service.auto_fieldmap("object_107")
+    for key in ("client", "status", "summary", "details"):
+        ok(f"{key} is mapped without anyone opening setup", bool(auto.get(key)),
+           f"got {auto.get(key)!r}")
+    ok("including the date nobody pinned, matched by label",
+       bool(auto.get("opened")), f"got {auto.get('opened')!r}")
+    ok("and it says what it did", "mapped" in tickets_service.auto_reason("object_107"),
+       tickets_service.auto_reason("object_107"))
+
+    print("...a half-saved map fills its gaps instead of blocking")
+    tickets_service._auto.clear()
+    merged = {**tickets_service.auto_fieldmap("object_107"), **{"client": "field_999"}}
+    check("the saved field wins", merged["client"], "field_999")
+    ok("the rest is still there", bool(merged.get("opened") and merged.get("status")))
+
+    print("...and a schema it cannot read is reported, not swallowed")
+    tickets_service._auto.clear()
+    tickets_service._auto_why.clear()
+
+    def _boom(obj):
+        raise RuntimeError("403 Forbidden")
+
+    tickets_client.list_fields = _boom
+    check("no map", tickets_service.auto_fieldmap("object_107"), {})
+    why = tickets_service.auto_reason("object_107")
+    ok("the reason names the object and the error",
+       "object_107" in why and "403" in why, why)
 
     print()
     if FAILURES:

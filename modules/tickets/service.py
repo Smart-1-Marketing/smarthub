@@ -84,6 +84,12 @@ def load_clients(force=False):
 # Tickets
 # --------------------------------------------------------------------------
 _auto: dict = {}
+_auto_why: dict = {}
+
+
+def auto_reason(object_key: str) -> str:
+    """Why the auto map is what it is — read the object, or could not."""
+    return _auto_why.get(object_key or "", "")
 
 
 def auto_fieldmap(object_key: str) -> dict:
@@ -101,15 +107,25 @@ def auto_fieldmap(object_key: str) -> dict:
     caller falls back to NotConfigured, which says what to do.
     """
     if not object_key:
+        _auto_why[""] = "No ticket object is set."
         return {}
     if object_key in _auto:
         return _auto[object_key]
     try:
         fields = knack_client.list_fields(object_key)
-    except Exception:                    # noqa: BLE001 — see the docstring
+    except Exception as exc:             # noqa: BLE001 — see the docstring
+        # Recorded rather than swallowed. A map that could not be built and a
+        # map that came back short need different fixes, and a caller told
+        # only "not configured" cannot tell which it has.
+        _auto_why[object_key] = (
+            f"Could not read {object_key}'s fields from Knack "
+            f"({type(exc).__name__}: {str(exc)[:120]}).")
         return {}
     guessed = normalize.guess_fieldmap(fields, config.FIELDS)
     _auto[object_key] = guessed
+    _auto_why[object_key] = (
+        f"Read {len(fields)} fields from {object_key} and mapped "
+        f"{len(guessed)} of {len(config.FIELDS)}.")
     return guessed
 
 
@@ -123,14 +139,20 @@ def load_tickets(force=False):
         from .demo import demo_fieldmap
         object_key = object_key or "object_demo_tickets"
         fmap = fmap or demo_fieldmap()
-    elif not fmap:
-        fmap = auto_fieldmap(object_key)
+    else:
+        # A saved map wins field by field, not wholesale. Half a map saved
+        # from the setup page used to disable the auto map entirely, so one
+        # unmapped field left the whole report at "not configured" with the
+        # ids sitting right there — the same failure this fix was for.
+        fmap = {**auto_fieldmap(object_key), **(fmap or {})}
 
     missing = [k for k in config.REQUIRED_FIELDS if not fmap.get(k)]
     if not object_key or missing:
+        why = auto_reason(object_key)
         raise NotConfigured(
             "Map the ticket object and its required fields on the setup page "
             f"(still needed: {', '.join(missing) or 'ticket object'})."
+            + (f" {why}" if why else "")
         )
 
     records, at = knack_client.fetch_records(object_key, force=force)

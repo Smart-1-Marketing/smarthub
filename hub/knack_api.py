@@ -49,10 +49,23 @@ def _fields() -> list[dict]:
     return object_fields(TICKETS_OBJECT)
 
 
+def field_label(f: dict) -> str:
+    """A Knack field's display name.
+
+    Knack's own /objects/<id>/fields returns it as `name`; this module has
+    always read `label`, and the audit module at /tools/tickets reads `name`.
+    One of the two was matching against None on every field — which is a
+    silent, total failure of label matching, and exactly the sort of thing
+    that made these ids get pinned in the first place. Reading both is the
+    only version that cannot be wrong.
+    """
+    return str(f.get("label") or f.get("name") or "")
+
+
 def _find_in(obj: str, *label_keywords, types=None) -> str | None:
     for kw in label_keywords:
         for f in object_fields(obj):
-            label = str(f.get("label", "")).lower()
+            label = field_label(f).lower()
             if kw in label and (not types or f.get("type") in types):
                 return f.get("key")
     return None
@@ -333,7 +346,7 @@ def ticket_form_fields(scope: str = "create") -> list[dict]:
             "key": key,
             "field": fid,
             "group": group,
-            "label": f.get("label") or TICKET_LABELS.get(key, key),
+            "label": field_label(f) or TICKET_LABELS.get(key, key),
             "control": control,
             "choices": choices,
             "required": bool(f.get("required")),
@@ -359,7 +372,7 @@ def coerce_field(field_id: str, value, *, obj: str = TICKETS_OBJECT,
     """
     meta = object_meta(obj) if meta is None else meta
     f = meta.get(field_id) or {}
-    label = f.get("label") or label or field_id
+    label = field_label(f) or label or field_id
     control, choices = _control_for(f, obj) if f else ("text", [])
     if value in (None, "", [], {}):
         return None, ""
@@ -543,7 +556,7 @@ def campaign_field_map(kind: str) -> dict:
     cache_key = f"cmap:{obj}"
     if cache_key in _schema_cache:
         return _schema_cache[cache_key]
-    labels = {f.get("key"): f.get("label") for f in object_fields(obj)}
+    labels = {f.get("key"): field_label(f) for f in object_fields(obj)}
     text_types = ("short_text", "paragraph_text", "rich_text")
     m = {
         "title": _find_in(obj, "request name", "subject", "title", "request",
@@ -567,7 +580,7 @@ def campaign_field_map(kind: str) -> dict:
     out = {"object": obj,
            "map": {k: {"field": v, "label": labels.get(v, "")} if v else None
                    for k, v in m.items()},
-           "all_fields": [{"key": f.get("key"), "label": f.get("label"),
+           "all_fields": [{"key": f.get("key"), "label": field_label(f),
                            "type": f.get("type")} for f in object_fields(obj)]}
     _schema_cache[cache_key] = out
     return out
