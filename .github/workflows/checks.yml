@@ -329,6 +329,21 @@ jobs:
             echo "test_dashboard_trends.py not on this branch — nothing to run."
           fi
 
+      - name: Client group tests
+        # The Client 360 Group button: what merges across a grouped record,
+        # what must not be counted twice, and that one client can only be in
+        # one group. Guarded like the steps above so this workflow stays
+        # mergeable on a branch that predates the file. It *sets*
+        # DATABASE_URL, HUB_DATA_DIR and AUDIT_LOG_PATH rather than
+        # setdefault-ing them, so it always gets its own throwaway mirror and
+        # never appends to the checked-in activity log.
+        run: |
+          if [ -f test_client_groups.py ]; then
+            python test_client_groups.py
+          else
+            echo "test_client_groups.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a

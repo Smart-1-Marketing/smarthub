@@ -70,6 +70,9 @@
     ".s1-acc-actions{margin-left:auto;display:flex;gap:8px}",
     ".s1-acc-actions button{border:1px solid #cfe2f2;background:#eef5fb;color:#1769AA}",
     ".s1-acc-actions button:hover{background:#e2eef8}",
+    ".s1-acc-all button.s1-acc-group{border-color:#cfe2f2;background:#eef5fb;color:#1769AA}",
+    ".s1-acc-all button.s1-acc-group:hover{background:#e2eef8}",
+    ".s1-acc-all button.s1-acc-group.on{border-color:#b7e0c2;background:#eaf7ee;color:#1c7a3e}",
     "@media(prefers-reduced-motion:reduce){.s1-acc-caret{transition:none}}"
   ].join("");
 
@@ -206,6 +209,25 @@
     bar.className = "s1-acc-all";
     bar.innerHTML = '<button type="button" data-all="open">Expand all</button>' +
                     '<button type="button" data-all="close">Collapse all</button>';
+
+    /* Group sits hard against Collapse all rather than out with the IO
+       actions on the right. It changes what every card on the page is reading
+       from — products, creative, notes, work, proposals, invoices — so it
+       belongs with the two controls that already act on the whole record.
+       Client 360 fills in the label once it knows whether this client is
+       grouped; the neutral wording is what shows if that never answers. */
+    if (location.pathname.replace(/\/+$/, "") === "/client360" && window.CURRENT_CLIENT) {
+      var grp = document.createElement("button");
+      grp.type = "button";
+      grp.className = "s1-acc-group";
+      grp.innerHTML = "&#128279; Group";
+      grp.title = "Merge another company's records into this one";
+      grp.addEventListener("click", function () {
+        if (window.openGroupModal) window.openGroupModal();
+      });
+      bar.appendChild(grp);
+      if (window.S1GroupLabel) window.S1GroupLabel(grp);
+    }
 
     /* Page actions live in the same toolbar rather than bolted into a card
        header — they act on the whole record, not on one card, and a lone

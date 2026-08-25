@@ -534,6 +534,69 @@ def monthly_totals_by_customer(months: int = 4) -> dict:
     return out
 
 
+def lookup_for_clients(entries: list[dict]) -> dict:
+    """Invoices across several client records at once — a Client 360 group.
+
+    `entries` is `[{"client": name, "ids": [attached QuickBooks customer ids]}]`,
+    in the order the page will read them. A member with attached customers uses
+    those; a member with none is searched by name, exactly as the single-client
+    card has always done.
+
+    Two things this refuses to do quietly:
+
+    * **Deduplicate by customer id.** Grouped clients routinely share one
+      QuickBooks customer — that is usually the whole reason they are grouped,
+      one company and one bill — and listing that customer twice would show
+      every invoice twice and double the balance on screen.
+    * **Drop a member it could not find.** A member with no QuickBooks match is
+      returned in `unmatched` and named on the page, because "they have no
+      invoices" and "we never found their customer record" are different
+      answers and only one of them means stop chasing.
+    """
+    if not configured():
+        return {"configured": False, "connected": False, "customers": [], "unmatched": []}
+    if not connected():
+        return {"configured": True, "connected": False, "customers": [], "unmatched": []}
+
+    customers: list[dict] = []
+    seen: set[str] = set()
+    unmatched: list[str] = []
+    errors: list[dict] = []
+
+    for entry in entries or []:
+        name = str((entry or {}).get("client") or "").strip()
+        ids = [str(i).strip() for i in ((entry or {}).get("ids") or []) if str(i).strip()]
+        try:
+            found = [c for c in (customer_by_id(i) for i in ids) if c] if ids \
+                else find_customers(name, limit=3)
+        except Exception as exc:                        # noqa: BLE001
+            errors.append({"client": name, "error": str(exc)})
+            found = []
+        hit = False
+        for c in found:
+            cid = str(c.get("id") or "")
+            if cid and cid in seen:
+                hit = True
+                continue
+            if cid:
+                seen.add(cid)
+            row = dict(c)
+            row["client"] = name
+            customers.append(row)
+            hit = True
+        if not hit:
+            unmatched.append(name)
+
+    for c in customers:
+        try:
+            c["invoices"] = invoices_for_customer(c["id"])
+        except RuntimeError as exc:
+            c["invoices"] = []
+            c["error"] = str(exc)
+    return {"configured": True, "connected": True, "customers": customers,
+            "unmatched": unmatched, "errors": errors}
+
+
 def lookup(q: str, customer_id=None) -> dict:
     """Customer match(es) for a client name — or one attached customer by id —
     each with recent invoices."""
