@@ -1,22 +1,54 @@
 {% extends "_users_base.html" %}{% block title %}Your account{% endblock %}
 {% block body %}
-<h1>Your account</h1>
-<p class="sub">{{ account.email }} · {{ account.role.replace('_',' ') }}</p>
+{# Two states, one form. `first` means the person did not come here on
+   purpose -- the gate in hub/__init__.py sent them -- so the page has to say
+   why in the words they are looking at. Redirecting somebody to a form with
+   no explanation is how a working gate reads as a locked account. #}
+{% if first or must_change %}
+  <h1>Choose your own password</h1>
+  <p class="sub">You&rsquo;re signed in with the starting password everyone was
+    set up with. Pick your own and the Hub is yours.</p>
+  <div class="err">
+    Your current password is the one you were given
+    (<code>{{ default_password }}</code> unless an admin set you a different
+    one). It works for signing in and for nothing else until you replace it.
+  </div>
+{% else %}
+  <h1>Your account</h1>
+  <p class="sub">{{ account.email }} · {{ account.role.replace('_',' ') }}</p>
+{% endif %}
+
 {% if request.args.get('changed') %}<div class="ok">Password updated. Every
   other session on your account has been signed out.</div>{% endif %}
 {% if error %}<div class="err">{{ error }}</div>{% endif %}
-{% if account.must_change_password %}
-  <div class="err">An admin has asked you to change your password.</div>
+
+{% if profile %}
+  {# The census fields, shown read-only. A person should be able to see what
+     the Hub holds about them without asking an admin to read it out. Editing
+     is on the Users panel: these came from the company census, and one
+     person correcting their own title is a different decision from HR
+     changing it. #}
+  <div class="hint" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;
+       padding:11px 13px;margin-top:16px;color:#475569">
+    <b style="color:#1b2733">{{ profile.first_name }} {{ profile.last_name }}</b><br>
+    {{ profile.title }}{% if profile.phone %} · {{ profile.phone }}{% endif %}<br>
+    {{ account.email }} · {{ 'Admin' if account.is_admin else 'General' }} access
+  </div>
 {% endif %}
+
 <form method="post">
-  <label for="current">Current password</label>
-  <input id="current" name="current" type="password" autocomplete="current-password" required>
+  <label for="current">{{ 'Starting password' if (first or must_change) else 'Current password' }}</label>
+  <input id="current" name="current" type="password" autocomplete="current-password"
+         required {% if first or must_change %}autofocus{% endif %}>
   <label for="password">New password</label>
   <input id="password" name="password" type="password"
          autocomplete="new-password" minlength="{{ min_len }}" required>
-  <div class="hint">At least {{ min_len }} characters.</div>
-  <button type="submit">Change password</button>
+  <div class="hint">At least {{ min_len }} characters. A short phrase you&rsquo;ll
+    remember beats a short jumble &mdash; and it can&rsquo;t contain
+    &ldquo;smart1&rdquo;, which rules the starting password out as a choice.</div>
+  <button type="submit">{{ 'Set my password' if (first or must_change) else 'Change password' }}</button>
 </form>
 {% endblock %}
-{% block alt %}<p class="alt"><a href="/">Back to the Hub</a> ·
+{% block alt %}<p class="alt">
+  {% if not (first or must_change) %}<a href="/">Back to the Hub</a> ·{% endif %}
   <a href="/signout">Sign out</a></p>{% endblock %}

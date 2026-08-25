@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
@@ -713,12 +714,39 @@ def api_analyse_competitors(public_id):
         return err
     campaign = proposal["campaign"]
     research = campaign_ai.research_competitors(campaign)
+    # Every researched name arrives UNACCEPTED. The client named theirs and
+    # those are fact; these are the model's suggestion, and one of them on a
+    # client document is us telling them who their competitors are on no
+    # authority at all. A person ticks the ones that are real.
+    for row in research.get("researched") or []:
+        row["accepted"] = False
     campaign["competitorResearch"] = research
     _save(public_id, campaign)
     store.log_event("COMPETITORS_RESEARCHED", current_user(),
                     proposal=public_id, client=proposal["client_name"],
                     found=len(research.get("researched") or []))
     return jsonify({"research": research})
+
+
+@app.post("/api/proposals/<public_id>/competitors/accept")
+def api_accept_competitors(public_id):
+    """Which researched competitors a person has vouched for."""
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    wanted = {str(n) for n in (body.get("accepted") or [])}
+    campaign = proposal["campaign"]
+    research = campaign.get("competitorResearch") or {}
+    for row in research.get("researched") or []:
+        row["accepted"] = row.get("name") in wanted
+    campaign["competitorResearch"] = research
+    _save(public_id, campaign)
+    accepted = [r["name"] for r in (research.get("researched") or []) if r.get("accepted")]
+    store.log_event("COMPETITORS_ACCEPTED", current_user(),
+                    proposal=public_id, client=proposal["client_name"],
+                    detail=", ".join(accepted)[:200] or "none", count=len(accepted))
+    return jsonify({"research": research, "accepted": accepted})
 
 
 @app.post("/api/proposals/<public_id>/analyse/budget-tiers")
@@ -860,6 +888,39 @@ def api_edit_campaign(public_id):
             changed.append(f"{removed} keyword(s) removed")
             _note_edit(campaign, changed[-1])
 
+    # --- adding keywords by hand ------------------------------------------
+    # A rep knows terms the model does not: the phrase the client's customers
+    # actually use, a service line that was missed. Match type is respected as
+    # typed — [exact], "phrase", bare — through the same parse_keyword the
+    # deploy and the CSV use, so a hand-typed keyword cannot mean one thing
+    # here and another in Google.
+    add_kw = body.get("addKeywords") or []
+    if add_kw:
+        added = 0
+        for row in add_kw:
+            if not isinstance(row, dict):
+                continue
+            group_name = str(row.get("group") or "")
+            terms = row.get("keywords")
+            if isinstance(terms, str):
+                terms = [t for t in re.split(r"[\n,]", terms)]
+            for raw in terms or []:
+                parsed = google_ads.parse_keyword(raw)
+                if not parsed or not parsed["text"]:
+                    continue
+                for group in campaign.get("adGroups") or []:
+                    if group.get("name") != group_name:
+                        continue
+                    existing = {str(k).strip().lower() for k in group.get("keywords") or []}
+                    text = str(raw).strip()
+                    if text.lower() in existing:
+                        continue
+                    group.setdefault("keywords", []).append(text)
+                    added += 1
+        if added:
+            changed.append(f"Added {added} keyword(s) by hand")
+            _note_edit(campaign, changed[-1])
+
     remove_neg = body.get("removeNegatives") or []
     if remove_neg:
         wanted = {(str(r.get("bucket", "")), str(r.get("term", ""))) for r in remove_neg
@@ -880,6 +941,25 @@ def api_edit_campaign(public_id):
             # Removing a negative reopens spend the vault existed to stop, so
             # this is always material however small it looks.
             _note_edit(campaign, changed[-1])
+
+    add_neg = body.get("addNegatives") or []
+    if add_neg:
+        terms = add_neg if isinstance(add_neg, list) else re.split(r"[\n,]", str(add_neg))
+        vault = campaign.get("negativeKeywordVault") or {}
+        bucket = vault.setdefault("addedByHand", [])
+        existing = {str(t).strip().lower() for v in vault.values() for t in v or []}
+        added = 0
+        for raw in terms:
+            text = str(raw).strip()
+            if not text or text.lower() in existing:
+                continue
+            bucket.append(text)
+            existing.add(text.lower())
+            added += 1
+        if added:
+            campaign["negativeKeywordVault"] = vault
+            changed.append(f"Added {added} negative keyword(s) by hand")
+            _note_edit(campaign, changed[-1], material=False)
 
     if not changed:
         return jsonify({"proposal": proposal, "changed": [], "needs_recheck": False,
@@ -923,8 +1003,8 @@ def api_logo(public_id):
     return jsonify({"logo": found})
 
 
-@app.post("/api/proposals/<public_id>/logo/brandfetch")
-def api_logo_brandfetch(public_id):
+@app.post("/api/proposals/<public_id>/logo/lookup")
+def api_logo_lookup(public_id):
     proposal, err = _campaign_or_404(public_id)
     if err:
         return err
@@ -933,8 +1013,8 @@ def api_logo_brandfetch(public_id):
     if found.get("found"):
         campaign["logo"] = found
         _save(public_id, campaign)
-        store.log_event("LOGO_FETCHED", current_user(), proposal=public_id,
-                        client=proposal["client_name"], source="brandfetch")
+        store.log_event("LOGO_LOOKED_UP", current_user(), proposal=public_id,
+                        client=proposal["client_name"])
     return jsonify({"logo": found})
 
 

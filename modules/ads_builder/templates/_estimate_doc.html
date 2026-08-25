@@ -207,10 +207,13 @@
     <h3>Competitors you named</h3>
     <ul>{% for x in comp.named %}<li><strong>{{ x.name }}</strong>{% if x.note %} — {{ x.note }}{% endif %}</li>{% endfor %}</ul>
   {% endif %}
-  {% if comp.researched %}
+  {# Only the ones a person ticked. An unreviewed name here is us telling a
+     client who their competitors are on the model's say-so, and the one thing
+     a client checks hardest in this section is whether we got that right. #}
+  {% set vouched = (comp.researched or [])|selectattr('accepted')|list %}
+  {% if vouched %}
     <h3>Others we believe compete for these searches</h3>
-    <ul>{% for x in comp.researched %}<li><strong>{{ x.name }}</strong>{% if x.why %} — {{ x.why }}{% endif %}</li>{% endfor %}</ul>
-    <p class="caveat">{{ comp.note }}</p>
+    <ul>{% for x in vouched %}<li><strong>{{ x.name }}</strong>{% if x.why %} — {{ x.why }}{% endif %}</li>{% endfor %}</ul>
   {% endif %}
   {% if comp.implications %}
     <ul>{% for x in comp.implications %}<li>{{ x }}</li>{% endfor %}</ul>

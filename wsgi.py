@@ -41,6 +41,50 @@ def _load(name: str, path: str):
 # ---------------------------------------------------------------- middleware
 from hub.sidebar import render_sidebar
 
+
+def _session(environ) -> dict:
+    """The signed account session, or {} for a shared-password session."""
+    try:
+        from hub.users_routes import session_from_environ
+        return session_from_environ(environ)
+    except Exception:                         # noqa: BLE001
+        return {}
+
+
+def _viewer_is_admin(environ) -> bool:
+    """Admin or General, from the signed account cookie alone.
+
+    Used only to decide whether the injected sidebar shows the Utilities
+    section. Three ways to answer no role at all, and each is deliberately an
+    Admin nav rather than a General one: a shared-password session (which
+    hub/access.py treats as Admin anyway), a cookie this process cannot
+    verify, and any error. A nav that hides Diagnostics from an admin whenever
+    a lookup hiccups is a bug nobody reports as one; the reverse shows a
+    General user a link they will be refused, which is visible and harmless.
+    """
+    data = _session(environ)
+    if not data:
+        return True                           # shared password, or no account
+    return data.get("r") in ("admin", "super_admin")
+
+
+def _owes_password_change(environ) -> bool:
+    """Is this session still on the password somebody else chose for it?
+
+    The hub app has its own `before_request` for this, and that covered the
+    hub's routes and nothing else — so a person who owed a password change
+    could sidestep the whole thing by opening /tools/social/ instead of the
+    dashboard. Twenty mounted modules, all of them reachable, and the Users
+    panel still showing the "must change password" pill against their name.
+
+    Read from the signed cookie rather than the database because this runs in
+    front of every module request. It cannot go stale: setting a starting
+    password and changing one both bump the session epoch, which invalidates
+    the cookie carrying the old answer.
+    """
+    return bool(_session(environ).get("c"))
+
+
 _MOUNT_ACTIVE = {
     "/google": "google", "/sites": "sites", "/suite": "suite",
     "/scans": "scans",
@@ -105,6 +149,24 @@ class AuthGuard:
                 return [body]
             target = "/login?next=" + (self.mount + path)
             start_response("302 Found", [("Location", target), ("Content-Length", "0")])
+            return [b""]
+        if _owes_password_change(environ):
+            # /account is a hub route, so this is a redirect out of the mount
+            # rather than something the module can serve. A JSON caller gets
+            # 403 with the destination named: a fetch that followed a redirect
+            # into an HTML page would report malformed data, not a gate.
+            path = environ.get("PATH_INFO", "") or "/"
+            if "/api/" in path or path.startswith("/api") or \
+                    "application/json" in environ.get("HTTP_ACCEPT", ""):
+                body = (b'{"error": "Set a new password before using the Hub.",'
+                        b' "redirect": "/account"}')
+                start_response("403 Forbidden", [
+                    ("Content-Type", "application/json"),
+                    ("Content-Length", str(len(body))),
+                ])
+                return [body]
+            start_response("302 Found", [("Location", "/account?first=1"),
+                                         ("Content-Length", "0")])
             return [b""]
         environ["s1hub.user"] = user
         return self.app(environ, start_response)
@@ -173,7 +235,15 @@ class HubBar:
             body = body.replace(b"</head>", _THEME + b"</head>", 1)
         elif b"<body" in body:
             body = _THEME + body
-        _bar = render_sidebar(self.active)
+        # The nav a module page gets is the nav for whoever is looking at it.
+        # The role is read from the signed session cookie rather than from the
+        # database, because this is middleware with no app context and no
+        # request: a DB read here would need one per module page. That is fine
+        # for *chrome* -- the cookie is signed, so the role in it cannot be
+        # edited -- and it is deliberately not the gate. The gate re-reads the
+        # row (hub/access.py, hub/__init__.py), so a role changed a minute ago
+        # takes effect on the click even if a stale nav is still on screen.
+        _bar = render_sidebar(self.active, is_admin=_viewer_is_admin(environ))
         _scripts = (b'<script defer src="/hub-help.js"></script>'
                     b'<script defer src="/hub-demo.js"></script>'
                     b'<script defer src="/hub-crumbs.js"></script>'
@@ -611,6 +681,14 @@ application = DispatcherMiddleware(hub_app, {
 })
 from hub import errors as _errors
 application = _errors.ErrorMirror(application)
+# X-Robots-Tag on every response in the composed app, mounted modules
+# included. As a Flask after_request on the hub app it would have covered the
+# hub's own pages and left twenty modules without it -- among them every
+# public landing page, which is the only part of this Hub a crawler can
+# actually reach. hub/no_crawl.py says what the header is and why robots.txt
+# alone is not enough.
+from hub.no_crawl import NoIndex as _NoIndex
+application = _NoIndex(application)
 application = ProxyFix(application, x_for=1, x_proto=1, x_host=1)
 
 

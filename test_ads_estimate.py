@@ -571,6 +571,201 @@ truthy("...and an optional phone number", 'id="phone"' in gen)
 
 
 # ===========================================================================
+section("The area editor cannot eat what is being typed")
+
+# This is a rendering rule, so it is asserted on the markup the page ships:
+# the row inputs are built by drawAreas() and the derived text is painted into
+# reserved spans by paintMeta(). The bug was that ONE function did both, so the
+# server's answer replaced the <input> mid-keystroke and a name came out as
+# "Car". The two must stay separate.
+gen_js = staff.get(f"{MOUNT}/").get_data(as_text=True)
+truthy("the row structure and the derived labels are drawn by different functions",
+       "function drawAreas()" in gen_js and "function paintMeta(" in gen_js)
+truthy("typing asks the server for labels only", "paintMeta(d.areas)" in gen_js)
+check("...and never redraws the rows from the server's answer",
+      "drawAreas(d.areas)" in gen_js, False)
+truthy("the label and reach have their own targets to paint into",
+       "data-area-label" in gen_js and "data-area-reach" in gen_js)
+truthy("changing the TYPE does rebuild, because it changes which fields exist",
+       "function setAreaType(" in gen_js and "setAreaType(${i}, this.value)" in gen_js)
+
+truthy("the new-client button sits at the left of its row",
+       gen_js.index("This is a new client") < gen_js.index('<div class="spacer"></div>\n      </div>\n\n    <div id="clientPicked"')
+       if '<div class="spacer"></div>\n      </div>\n\n    <div id="clientPicked"' in gen_js else True)
+
+
+# ===========================================================================
+section("Generating shows what it is working on")
+
+truthy("the build has a drawn progress panel", 'id="genStage"' in gen_js)
+truthy("...with a stage per thing the server actually does",
+       gen_js.count('class="gstage"') == 4)
+truthy("...that is cancelled when generation fails", "stopBuild()" in gen_js)
+truthy("...and the SVG is labelled for a screen reader", "genSvgTitle" in gen_js)
+
+
+# ===========================================================================
+section("Calls to action are found, including the ones that are links")
+
+CTA_HTML = """<html><body>
+<a class="btn btn-primary" href="/quote">Get a free quote</a>
+<a class="elementor-button" href="/book"><span>Schedule service</span></a>
+<a href="/about">About us</a>
+<a class="subtle-link" href="/story">Our story</a>
+<a class="btn" href="/empty">   </a>
+<button>Send</button>
+</body></html>"""
+cta = landing_page.observe("https://x", {"ok": True, "html": CTA_HTML,
+                                          "status": 200, "url": "https://x"})
+ctas = [p for p in cta["conversion_points"] if p["kind"] == "cta"]
+found = {p["evidence"].split("  →")[0] for p in ctas}
+check("a link styled as a button counts", "Get a free quote" in found, True)
+check("...and a page-builder button class counts", "Schedule service" in found, True)
+check("a real <button> still counts", "Send" in found, True)
+check("an ordinary navigation link does not", "About us" in found, False)
+check("nor does a link whose class merely contains 'btn' as a fragment",
+      "Our story" in found, False)
+check("nor a styled button with no words in it — it tells a reader nothing",
+      any(not p["evidence"].split("  →")[0].strip() for p in ctas), False)
+truthy("a CTA link carries where it goes", any("→" in p["evidence"] for p in ctas))
+truthy("...and is labelled a link rather than a button",
+       any(p["label"].endswith("link") for p in ctas))
+
+
+# ===========================================================================
+section("A researched competitor reaches a client only once somebody ticks it")
+
+comp_pid = store.create_proposal(
+    client_name="Northside Roofing Co",
+    campaign={**CAMPAIGN, "competitorResearch": {
+        "named": [{"name": "Apex Roofing", "note": "The client said so."}],
+        "researched": [{"name": "Erie Home", "why": "National advertiser.",
+                        "confidence": "Medium", "accepted": False},
+                       {"name": "Made Up Roofing", "why": "Guess.",
+                        "confidence": "Low", "accepted": False}],
+        "implications": [], "brandTermAdvice": "", "note": "unverified"}},
+    created_by="t")["id"]
+staff.post(f"{MOUNT}/api/proposals/{comp_pid}/estimate/approve", json={})
+comp_token = staff.post(f"{MOUNT}/api/proposals/{comp_pid}/share",
+                        json={}).get_json()["share"]["token"]
+
+doc = anon.get(f"{MOUNT}/estimate/{comp_token}").get_data(as_text=True)
+truthy("a competitor the CLIENT named is on the document", "Apex Roofing" in doc)
+check("an unticked research suggestion is not", "Erie Home" in doc, False)
+check("...nor the one nobody would want on there", "Made Up Roofing" in doc, False)
+
+staff.post(f"{MOUNT}/api/proposals/{comp_pid}/competitors/accept",
+           json={"accepted": ["Erie Home"]})
+doc = anon.get(f"{MOUNT}/estimate/{comp_token}").get_data(as_text=True)
+check("a ticked one appears", "Erie Home" in doc, True)
+check("...and the one still unticked does not", "Made Up Roofing" in doc, False)
+
+rows = store.get_proposal(comp_pid)["campaign"]["competitorResearch"]["researched"]
+check("the tick is stored against the name, not a position",
+      {r["name"]: r["accepted"] for r in rows},
+      {"Erie Home": True, "Made Up Roofing": False})
+
+staff.post(f"{MOUNT}/api/proposals/{comp_pid}/competitors/accept", json={"accepted": []})
+doc = anon.get(f"{MOUNT}/estimate/{comp_token}").get_data(as_text=True)
+check("unticking removes it again", "Erie Home" in doc, False)
+
+
+# ===========================================================================
+section("Keywords can be added by hand, not only removed")
+
+add_pid = store.create_proposal(client_name="Northside Roofing Co",
+                                campaign=json.loads(json.dumps(CAMPAIGN)),
+                                created_by="t")["id"]
+r = staff.post(f"{MOUNT}/api/proposals/{add_pid}/edit", json={
+    "addKeywords": [{"group": "Emergency Roof Repair",
+                     "keywords": '[storm damage roofer], "roof tarp service", hail damage'}]})
+check("hand-typed keywords are accepted", r.status_code, 200)
+kws = store.get_proposal(add_pid)["campaign"]["adGroups"][0]["keywords"]
+check("all three landed", len(kws), 6)
+truthy("the exact one kept its brackets", "[storm damage roofer]" in kws)
+truthy('the phrase one kept its quotes', '"roof tarp service"' in kws)
+truthy("and a bare term stayed bare", "hail damage" in kws)
+
+staff.post(f"{MOUNT}/api/proposals/{add_pid}/edit", json={
+    "addKeywords": [{"group": "Emergency Roof Repair", "keywords": "hail damage"}]})
+check("adding one that is already there does not duplicate it",
+      store.get_proposal(add_pid)["campaign"]["adGroups"][0]["keywords"].count("hail damage"), 1)
+
+r = staff.post(f"{MOUNT}/api/proposals/{add_pid}/edit", json={
+    "addKeywords": [{"group": "No Such Group", "keywords": "anything"}]})
+check("a group that does not exist adds nothing", r.get_json()["changed"], [])
+
+staff.post(f"{MOUNT}/api/proposals/{add_pid}/edit",
+           json={"addNegatives": "roofing school, roof jobs"})
+vault = store.get_proposal(add_pid)["campaign"]["negativeKeywordVault"]
+check("hand-added negatives go in their own bucket, not mixed into the AI's",
+      vault.get("addedByHand"), ["roofing school", "roof jobs"])
+staff.post(f"{MOUNT}/api/proposals/{add_pid}/edit", json={"addNegatives": "roof jobs"})
+check("...and a duplicate negative is not added twice",
+      len(store.get_proposal(add_pid)["campaign"]["negativeKeywordVault"]["addedByHand"]), 2)
+
+log = store.get_proposal(add_pid)["campaign"]["editLog"]
+check("adding a keyword is material — it changes what the campaign bids on",
+      [e for e in log if e["what"].startswith("Added") and "negative" not in e["what"]][-1]["material"],
+      True)
+check("adding a NEGATIVE is not — it only narrows what can be spent",
+      [e for e in log if "negative" in e["what"]][-1]["material"], False)
+truthy("the two read differently in the edit log, so neither is a substring of the other",
+       not any(e["what"].endswith("keyword(s) by hand") and "negative" in e["what"]
+               and e["what"].replace("negative ", "") in [x["what"] for x in log]
+               for e in log))
+
+
+# ===========================================================================
+section("The approval hub names the step that blocks everything else")
+
+hub = staff.get(f"{MOUNT}/approvals").get_data(as_text=True)
+truthy("the queue of unapproved estimates has its own section",
+       "Approve these estimates first" in hub)
+truthy("...saying what it blocks",
+       "client link cannot be created" in hub)
+truthy("...and linking straight to the approve card", "#approve" in hub)
+truthy("the proposal page has that anchor to land on",
+       'id="approve"' in staff.get(f"{MOUNT}/proposal/{add_pid}").get_data(as_text=True))
+
+# The queue must hold only what is actually blocked. Asserted by slicing the
+# section out of the page, because "the client's name appears somewhere on the
+# approvals page" is true of every row and proves nothing.
+def approval_queue():
+    page = staff.get(f"{MOUNT}/approvals").get_data(as_text=True)
+    if "Approve these estimates first" not in page:
+        return None
+    start = page.index("Approve these estimates first")
+    return page[start:page.index("</table>", start)]
+
+queue = approval_queue()
+truthy("the unapproved proposal is in the queue", queue and add_pid in queue)
+check("...and the queue links to it", f"/proposal/{add_pid}#approve" in (queue or ""), True)
+
+staff.post(f"{MOUNT}/api/proposals/{add_pid}/estimate/approve", json={"acknowledged": True})
+after = approval_queue()
+check("once approved it leaves the queue",
+      f"/proposal/{add_pid}#approve" in (after or ""), False)
+
+archived = store.create_proposal(client_name="Old Idea",
+                                 campaign={"businessName": "Old Idea", "monthlyBudget": 100},
+                                 created_by="t")["id"]
+store.set_status(archived, "ARCHIVED")
+check("an archived proposal is not nagged about — nobody is going to approve it",
+      f"/proposal/{archived}#approve" in (approval_queue() or ""), False)
+
+
+# ===========================================================================
+section("The client is told how to ask for a change")
+
+client_page = anon.get(f"{MOUNT}/estimate/{comp_token}").get_data(as_text=True)
+truthy("the pencil is explained before the document, not left to be found",
+       "Use the pencil" in client_page)
+check("...above the first section it applies to",
+       client_page.index("Use the pencil") < client_page.index("Overview"), True)
+
+
+# ===========================================================================
 section("The logo is looked up, never guessed at")
 
 from modules.ads_builder import logo as logo_lookup                # noqa: E402
@@ -581,13 +776,41 @@ check("a URL yields its bare domain",
       logo_lookup.domain_of("https://www.northsideroofing.com/roof"), "northsideroofing.com")
 
 no_domain = logo_lookup.from_brandfetch("", "Northside Roofing")
-check("Brandfetch is not called without a domain", no_domain["found"], False)
-truthy("...and says why", "no domain" in no_domain["note"].lower())
+check("the billed lookup is not called without a domain", no_domain["found"], False)
+truthy("...and says why", "nothing to look a logo up by" in no_domain["note"])
 
 resolved = logo_lookup.resolve("Nobody At All", "https://nothing.example.com")
 check("with nothing on file, resolve does not invent a URL", resolved.get("found"), False)
-check("...and does not run a billed lookup on its own", "Brandfetch" in str(resolved.get("tried", [])), False)
+check("...and does not run a billed lookup on its own",
+      "live lookup" in str(resolved.get("tried", [])), False)
 truthy("...and says what to do next", resolved.get("next"))
+
+# The provider that answers is an implementation detail. Naming it on screen
+# only invites the question of what to do when it says no, and the answer a rep
+# needs is where the logo came from, not who supplied it.
+for probe in (logo_lookup.from_brandfetch("", "X"),
+              logo_lookup.from_brandfetch("https://nothing.example.com", "X"),
+              logo_lookup.from_client_record("Nobody", "https://nothing.example.com"),
+              logo_lookup.resolve("Nobody", "https://nothing.example.com")):
+    check(f"no vendor name in what a person reads: {str(probe.get('note'))[:34]!r}",
+          "brandfetch" in str(probe.get("note", "")).lower()
+          or "brandfetch" in str(probe.get("source", "")).lower()
+          or "brandfetch" in str(probe.get("next", "")).lower(), False)
+
+# A client is filed under a name and a domain, and the campaign reliably has
+# neither — this is what made a logo that was plainly on file come back empty.
+pairs = logo_lookup._candidates("Northside Roofing Co",
+                                "https://northsideroofing.example.com/roof-repair")
+truthy("the stored-logo lookup tries the campaign's own name and domain",
+       any(x["name"] == "Northside Roofing Co"
+           and x["domain"] == "northsideroofing.example.com" for x in pairs))
+check("...and never asks for nothing at all",
+      all(x["name"] or x["domain"] for x in pairs), True)
+check("...without repeating a pair", len(pairs), len({(x["name"], x["domain"]) for x in pairs}))
+
+missed = logo_lookup.from_client_record("Nobody At All", "https://nothing.example.com")
+check("a miss is reported, not shrugged at", missed["found"], False)
+truthy("...naming what it looked under, so the miss can be diagnosed", missed.get("tried"))
 
 
 # ===========================================================================

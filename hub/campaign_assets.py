@@ -189,7 +189,11 @@ def report(q: str = "", scope: str = "open", today: _dt.date | None = None) -> d
                 "campaign": r.get("campaign") or "",
                 "io": r.get("io") or "",
                 "product": r.get("product") or "",
-                "partner": r.get("partner") or "",
+                "partner": str(r.get("partner") or "").strip(),
+                # The rep, same as on the main table: this list is a chase
+                # list too, and one with no name against a row is a row
+                # nobody picks up.
+                "sales": str(r.get("sales") or "").strip(),
             })
 
         clar, assets = clarification(r), asset_ask(r)
@@ -247,6 +251,11 @@ def report(q: str = "", scope: str = "open", today: _dt.date | None = None) -> d
         c["products"].sort(key=lambda p: (p["start"], p["product"].lower()))
         out.append(c)
 
+    unticked_rows.sort(key=lambda x: (
+        1 if not x["partner"] else 0, x["partner"].lower(),
+        1 if not x["sales"] else 0, x["sales"].lower(),
+        x["client"].lower(), x["campaign"].lower()))
+
     needle = str(q or "").strip().lower()
     if needle:
         out = [c for c in out if needle in " ".join([
@@ -288,13 +297,13 @@ def report(q: str = "", scope: str = "open", today: _dt.date | None = None) -> d
         "age_minutes": data.get("age_minutes"),
         "q": q,
         "today": today.isoformat(),
-        "note": _note(data, measured, rows, closed_skipped, unticked, scope),
+        "note": _note(data, measured, rows),
         "fields": labels(),
     }
 
 
-def _note(data: dict, measured: bool, rows: list, closed_skipped: int,
-          unticked: int, scope: str) -> str:
+def _note(data: dict, measured: bool, rows: list) -> str:
+    """The one thing prose has to carry: that nothing could be read."""
     if not measured:
         source = data.get("source") or "an unknown source"
         if not rows:
@@ -308,22 +317,13 @@ def _note(data: dict, measured: bool, rows: list, closed_skipped: int,
             source + ", which predates the two fields this report reads. It "
             "clears itself on the next live pull from Knack, and the button "
             "above does that now.")
-    bits = [
-        "Every campaign with an unanswered clarification or an outstanding "
-        "asset, by media partner then internal sales. Read live from "
-        "object_135" + (f" ({data.get('source')})" if data.get("source")
-                        and data["source"] != "knack" else "") + ".",
-    ]
-    if scope == "open":
-        bits.append("Campaigns that have finished are left out; there are "
-                    f"{closed_skipped} of those with something still on them.")
-    if unticked:
-        bits.append(
-            f"{unticked} product line(s) carry text in "
-            f"{HOUSE_LABELS[knack_products.F_ASSETS_NEEDED]} with the box "
-            "unticked. They are not listed as work — the tick is what says an "
-            "asset is needed — but they are not nothing either.")
-    return " ".join(bits)
+    # Nothing when the report can answer the question. The page's own
+    # heading already says what the list is, the scope toggle says what is in
+    # it, and each panel carries its own count — a paragraph restating all
+    # three above the table is read once and skipped for ever afterwards.
+    # What survives is the case above: a report that could not measure has to
+    # say so, because there is nothing on the screen to say it for it.
+    return ""
 
 
 # ---------------------------------------------------------------------------

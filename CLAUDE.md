@@ -488,6 +488,64 @@ edited. So `/tools/ads/api/areas/preview` normalises and sizes server-side and
 the browser renders what comes back — the choice Social Planner made about its
 calendar, for the same reason.
 
+**A field that redraws itself while you are typing in it eats what you type.**
+The target-area rows asked the server for labels on every keystroke and then
+redrew the whole list from the answer — which replaced the `<input>` mid-word,
+so "Carmel showroom" came out as "Car". The structure and the derived text are
+drawn by two different functions now: `drawAreas()` builds the inputs and runs
+only when the shape changes (add, remove, change of type), and `paintMeta()`
+writes the label and the reach into reserved spans and can never touch an
+input. Anything that re-renders a container a person is typing into has this
+bug; `test_ads_estimate.py` asserts the two halves stay apart.
+
+**The provider that answered is not what a rep needs to know.** The logo panel
+said "Brandfetch" — a name that means nothing to the person reading it and
+invites the question of what to do when it says no. What a screen shows is
+where the logo came from: the client record, a lookup, or an upload. The
+variable that switches the lookup on is named on Settings, where somebody can
+act on it, and not in front of a rep who cannot.
+
+**A client is filed under a name and a domain, and a campaign reliably has
+neither.** A logo plainly on file came back empty because brand data is stored
+two ways — under the slugified client name and in a cache keyed by domain — and
+the generator has the name a rep typed and the URL of a landing page, which is
+often a microsite rather than the client's own site. `logo._candidates()`
+resolves the client through `hub/client_key.py` first, then tries the registry's
+name and the registry's URL alongside what the campaign carries, and **names
+what it looked under** when it finds nothing: "this client has no logo" and "we
+asked under a name they are not filed as" are different answers.
+
+**Most calls to action are links, not `<button>`s.** The conversion-point scan
+counted `<button>` elements and missed every "Get a free quote" anchor on every
+page built with a page builder. A link counts when it says what a CTA says or
+carries a class a builder gives its buttons — matched on the whole class token,
+because a substring match on `btn` also matches `subtle`. A styled button with
+no words in it is skipped: it is a chevron, and it tells a reader nothing.
+
+**A name the model researched is a suggestion until a person ticks it.** The
+competitor list arrives `accepted: False` and only ticked names reach the client
+document. Printing all of them is us telling a client who their competitors are
+on the model's say-so, and that is the paragraph a client checks hardest.
+
+**`navigator.clipboard` is not available on http, and refusing is allowed.**
+The copy button reported success it never had. It tries the clipboard API, then
+`execCommand`, and only if both fail does it put the link on screen selected
+with "press Ctrl-C" — a button that lies about copying is worse than one that
+asks.
+
+**The step that blocks everything else belongs where the queue is.** An
+estimate that has not been approved cannot be sent to a client at all — the
+share route refuses it — and that was visible only inside each proposal, so the
+approval hub read as "nothing to do" while every row waited on the same press.
+"Approve these estimates first" sits at the top of the hub, links straight to
+the approve card, and leaves archived proposals out: nobody is going to approve
+those.
+
+**Quiet controls need saying out loud.** The per-section pencils on the client
+estimate are deliberately faint so eight of them do not turn a proposal into a
+form — which means nobody finds them. The page now says so above the document,
+before the first section a pencil applies to.
+
 **A logo is looked up, never guessed at.** `modules/ads_builder/logo.py` tries
 the brand data already stored against the client, then a live Brandfetch
 lookup **behind a button** because that one is billed, then upload — and each
@@ -1417,12 +1475,22 @@ on a spot are two asks to two different people.
 
 **The tickbox is the answer, and the text beside it is not.** `field_2347` is
 read only where `field_2346` is ticked. But text sitting in 2347 with the box
-unticked is not discarded in silence — those rows are counted and named under
-the table, because "nobody needs anything" and "somebody typed what they need
-and never ticked the box" are different situations and only one of them is
-finished. `asset_ask()` is the single place that gate is applied;
+unticked is not discarded in silence — those rows go in their own panel,
+**Need Clarification**, because "nobody needs anything" and "somebody typed
+what they need and never ticked the box" are different situations and only one
+of them is finished. It carries the media partner and the rep like the main
+table does: it is a chase list too, and a row with nobody's name against it is
+one nobody picks up. `asset_ask()` is the single place that gate is applied;
 `knack_products._row()` carries both fields raw, or a row with unticked text
 would be indistinguishable from a row with no text at all.
+
+**The page explains itself; the report does not narrate.** `_note()` returns
+nothing at all when the report could answer the question — the heading says
+what the list is, the toggle says what is in it and every panel carries its own
+count, so a paragraph restating all three is read once and skipped for ever.
+The one thing prose still has to carry is the case the screen cannot show:
+rows that could not be measured, where an empty table would otherwise read as
+a clear queue.
 
 **A cache written before a field existed answers "no" to it, on every row.**
 The product cache is a flattened copy of object_135, so the rows it holds have
@@ -1593,6 +1661,121 @@ being a dialog nobody can revisit. "Every size" writes the default **and**
 clears that field's per-size overrides, or the override keeps winning and the
 edit reads as having failed.
 
+## Everyone has their own login, and there are two levels of it
+
+Fourteen people, uploaded from the company census. `hub/user_directory.py`
+holds the roster as data — level, name, title, phone, birthday, date of hire,
+work email — and `sync_roster()` creates the missing accounts on boot. The
+census fields live in `hub_user_profiles`, a **table of their own**, because
+`create_all()` creates missing tables and never adds a column to an existing
+one: six columns added to `hub_users` would exist on every local SQLite run and
+be silently absent on the live Postgres, with every test green and every read
+of them `None` in production.
+
+**A re-run creates and nothing else, and each half of that is a way to be
+wrong quietly.** A password is written at creation only — a sync that
+re-applied it would hand all fourteen accounts back to a password printed in
+this repository, on every deploy, with nothing on any screen saying so. A role
+is never demoted, so a promotion made in the Users panel survives the next
+deploy. A profile field is filled in, never overwritten, because somebody who
+corrected a phone number has better information than the export does. What is
+left is the one case a re-run is for: a person added to the roster afterwards
+gets an account on the next boot.
+
+**The starting password is valid for exactly one sign-in, and that is enforced
+rather than noted.** `Smart12026!` is eleven characters and contains "smart1",
+so `users.check_password()` refuses it — correct for a password somebody
+chooses and wrong for a credential that exists to be replaced. It is written
+through `users.set_starting_password()`, which bypasses the policy **and** sets
+`must_change_password` in the same function, precisely so a starting password
+cannot be issued without the gate that retires it. `must_change_password` was
+already on the model and stopped nothing; it now blocks every page until it is
+cleared. Both halves of that: the hub app's `before_request`, and **`AuthGuard`
+in `wsgi.py`** — the hub gate covers hub routes only, so opening
+`/tools/social/` instead of the dashboard was a way past the whole thing, with
+the panel still showing the pill against their name. The flag rides in the
+signed session cookie so the middleware can answer without a database read per
+module request, and it cannot go stale: setting a starting password and
+changing one both bump the session epoch, which invalidates the cookie carrying
+the old answer.
+
+**General Access is everything except Utilities.** `hub/access.py` is one
+prefix list — `/diagnostics` (the Users panel included), `/status`,
+`/activity`, and the APIs each of those pages fetches — checked in one
+`before_request`. Not a decorator on forty views: that shape shipped once
+already, and `hub/auth.py` names the result in its own docstring. The APIs are
+in the list because gating the page while its data stays readable is a gate in
+name only. Prefixes are matched on **path segments**, so `/statuses` is not
+`/status`. `/login/health` and `/api/version` are exempt, because being locked
+out of the sign-in diagnostic is how somebody locked out reports the problem.
+
+The sidebar hides the Utilities section for a General account and that is
+**only the hiding** — a General user who types `/diagnostics` still meets the
+gate, and `test_user_accounts.py` asserts every admin-only nav entry is a path
+`access.is_utility()` actually refuses, so the two cannot drift. Inside a
+mounted module the nav reads the role from the **signed cookie** rather than
+the database, because `HubBar` runs with no app context in front of every
+module page; a stale nav is cosmetic and the gate re-reads the row.
+
+**The shared password counts as Admin, and that is a decision rather than an
+oversight.** `PANEL_PASSWORD` grants a session with no account behind it, so
+there is no role to read — and it is the emergency door, which is how somebody
+reaches Diagnostics when sign-in itself is what is broken. Every use of it on
+a Utilities path is logged as `shared_password_utility`. Clearing the variable
+on Render is what closes the door once every account exists.
+
+**Forgotten passwords name a person.** There is no mail sender here, so
+"Forgot password?" on the sign-in page opens `/forgot`, which says so and names
+John. The form it replaced collected an address and reported that an admin had
+been flagged — a queue nobody watches, presented as though something had
+happened. `/reset` still completes an admin-issued token; a GET with no token
+redirects to `/forgot`, so there is one answer rather than two pages
+disagreeing about whether the Hub can email you.
+
+The Users panel has both routes and they trade differently: the **key icon**
+sets a password directly and shows it once, for reading down a phone line; the
+**link icon** issues the one-time reset link, for when you would rather not
+know it. Both force a change at next sign-in — a password two people know is
+not a password — and neither is stored. A blank box generates one, from an
+alphabet with no `O/0` or `I/l/1` in it, because these get dictated as often as
+they get pasted and a generated password nobody can read aloud gets replaced by
+a typed one that is worse.
+
+**Nothing here is a crawler's business.** `hub/no_crawl.py`: `robots.txt`,
+`/llms.txt`, and an `X-Robots-Tag` on every response — added as WSGI middleware
+in `wsgi.py` rather than as a Flask `after_request`, or it would have covered
+the hub's own pages and left twenty mounted modules without it, including every
+public landing page, which is the only part of this Hub a crawler can actually
+reach. The header is also the only layer that reaches a proposal PDF or a CSV
+export, which a `<meta>` tag cannot. The AI crawlers are listed **by name**
+beside the wildcard because several of them read robots.txt by name only —
+`Google-Extended` and `Applebot-Extended` exist as their own tokens precisely
+so a site can refuse AI training while staying in the search index, and a
+wildcard does not always register with them. There is deliberately no
+`Sitemap:` line.
+
+**Three shapes of brute force, and the old counter caught one.** One account
+hammered from one place is what six-strikes-per-IP was for. One account
+hammered from everywhere is caught by the per-account lockout on the user row,
+which is shared across both gunicorn workers and survives a restart — the
+in-memory counter does neither. **Credential stuffing** was caught by nothing:
+one guess against each of fourteen known addresses never reaches six on any
+account, and the per-IP counter was only ever reset by a success.
+`throttle_fail()` takes the address now and locks an IP that has tried more
+than four distinct ones; the addresses are **hashed**, because that dict is
+read by a status report. Lockouts **escalate** — 15 minutes, an hour, six
+hours — since an attacker who can wait fifteen minutes has unlimited six-guess
+batches, and the ladder resets on a success so three bad mornings do not
+compound. Every credential endpoint goes through it now, `/reset` and
+`/account` included: completing a reset was the one with no throttle at all.
+`auth.client_ip()` is the single place the last-hop rule lives — it was written
+out longhand at four call sites and one of them had it backwards.
+
+Google sign-in is the intended destination and `hub/identity.py` already has
+it, behind `HUB_GOOGLE_LOGIN`; it stays off until the OAuth consent screen
+clears review. Both routes resolve to the same account row, so nothing above
+has to change when it lands.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -1651,6 +1834,7 @@ python3 test_client_groups.py      # grouped clients: what merges, what must not
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
 python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the chrome, who may frame
 python3 test_display_ads.py        # the display layouts, and the build screen's contracts
+python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle
 ```
 
 The test files need no pytest and no new dependencies; each runs against a

@@ -92,6 +92,19 @@
     </div>
   {% endif %}
 
+  {# Said before the document, not after it: the pencils are deliberately quiet
+     so eight of them do not turn a proposal into a form, and quiet means nobody
+     finds them unless they are told. #}
+  <div class="panel noprint" style="margin-top:0">
+    <div class="note n-info" style="margin:0">
+      <b>Want something changed? Use the pencil.</b>
+      Every section below has a <span style="font-size:15px">&#9998;</span> next to its
+      heading. Click it to tell us what you would like different — it goes straight to your
+      Smart 1 contact, and you can do it as many times as you like before you answer at the
+      bottom of the page.
+    </div>
+  </div>
+
   {% with interactive = true %}
     {% include "_estimate_doc.html" %}
   {% endwith %}
