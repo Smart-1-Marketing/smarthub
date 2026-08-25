@@ -24,6 +24,66 @@
     return (scene.asset_meta || {}).heygen_job || null;
   }
 
+  function runwayPending(scene) {
+    const job = (scene.asset_meta || {}).runway_job;
+    if (!job) return false;
+    if ((scene.asset_meta || {}).runway_url) return false;
+    return job.status === "processing" || job.status === "pending";
+  }
+
+  async function pollVideoStatus(sceneId) {
+    const res = await fetch(
+      `${CB.API_ROOT}/api/projects/${projectId}/scenes/${sceneId}/generate-video/status`);
+    try { return await res.json(); } catch (e) { return { status: "processing" }; }
+  }
+
+  // Same shape as watchSpokesperson: a Runway clip takes minutes, so the job
+  // has to survive a page load rather than living in this tab.
+  function watchVideo(sceneId) {
+    const key = "v" + sceneId;
+    if (polling.has(key)) return;
+    polling.add(key);
+    (async function tick() {
+      const data = await pollVideoStatus(sceneId);
+      if (data.status === "processing" || data.status === "pending") {
+        setTimeout(tick, POLL_MS);
+        return;
+      }
+      polling.delete(key);
+      if (data.status === "failed") {
+        CB.toast(data.error || "The AI video failed to generate.", true);
+      } else if (data.mock) {
+        CB.toast("Mock mode — no video was produced (no Runway key set).", true);
+      } else if (data.attached) {
+        CB.toast("AI video attached.");
+      }
+      loadScenes();
+    })();
+  }
+
+  // Runway animates a starting frame, so the scene needs an image first. The
+  // button says which step is missing rather than sending a request that the
+  // server will only refuse.
+  async function generateVideo(card, scene) {
+    if (!scene.asset_url) {
+      return CB.toast("Pick or generate a frame for this scene first — AI video animates a "
+                      + "starting image.", true);
+    }
+    const picker = card.querySelector(".asset-picker");
+    picker.innerHTML = '<div class="cb-card" style="margin-top:10px;padding:12px;">'
+      + '<span class="cb-spinner"></span> Sending this frame to Runway…</div>';
+    try {
+      await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/generate-video`,
+                   { method: "POST", body: {} });
+    } catch (e) {
+      picker.innerHTML = "";
+      return;                            // CB.api has already surfaced the reason
+    }
+    picker.innerHTML = "";
+    CB.toast("AI video generating — this takes a few minutes.");
+    await loadScenes();                  // re-render starts the poll
+  }
+
   function spokespersonPending(scene) {
     const job = heygenJob(scene);
     if (!job) return false;
@@ -135,6 +195,22 @@
     }
     if (pending) watchSpokesperson(scene.id);
 
+    const vjob = (scene.asset_meta || {}).runway_job;
+    if (runwayPending(scene)) {
+      badge.textContent = "Video generating…";
+      note.innerHTML = '<span class="cb-spinner"></span> Runway is animating this frame. '
+        + 'A few minutes — you can leave this page and come back.';
+      watchVideo(scene.id);
+    } else if (vjob && vjob.status === "failed" && !(scene.asset_meta || {}).runway_url) {
+      badge.textContent = "Video failed";
+      note.textContent = `AI video failed: ${vjob.error || "Runway reported no reason."}`;
+      note.classList.add("cb-word-count", "warn");
+    } else if ((scene.asset_meta || {}).runway_mirrored === false) {
+      note.textContent = "AI video is linked from Runway, not copied into the client "
+        + "library — it will stop working when the link expires.";
+      note.classList.add("cb-word-count", "warn");
+    }
+
     node.querySelector(".visual-input").value = scene.visual_description || "";
     node.querySelector(".narration-input").value = scene.narration || "";
     node.querySelector(".duration-input").value = (scene.end - scene.start).toFixed(1);
@@ -148,6 +224,7 @@
 
     node.querySelector(".find-stock-btn").addEventListener("click", () => openStockPicker(node, scene));
     node.querySelector(".generate-ai-btn").addEventListener("click", () => openAiPicker(node, scene));
+    node.querySelector(".generate-video-btn").addEventListener("click", () => generateVideo(node, scene));
     node.querySelector(".spokesperson-btn").addEventListener("click", () => openSpokespersonPicker(node, scene));
     node.querySelector(".upload-btn").addEventListener("click", () => openUploadPicker(node, scene));
     node.querySelector(".client-asset-btn").addEventListener("click", () => openClientAssetPicker(node, scene));
