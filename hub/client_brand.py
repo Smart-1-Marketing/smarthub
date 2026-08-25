@@ -188,15 +188,26 @@ def brand_guide_payload(client: str, domain: str = "") -> dict:
 # Work log
 # ---------------------------------------------------------------------------
 
-def work_log(client: str, limit: int = 60) -> dict:
+def work_log(client: str, limit: int = 60, also: list[str] | None = None) -> dict:
     """Everything the Hub has produced for one client, newest first.
 
     Reads the activity log rather than each tool's own store: a tool that
     logs its work appears here automatically, with no per-tool integration.
     The flip side is that a tool which doesn't log is invisible, which is
     exactly what the integrity audit's "modules that never log" check is for.
+
+    `also` is the other members of this client's group (hub/client_groups.py).
+    Their work is merged in and every merged row carries `member`, because the
+    group is a billing relationship and not a rename: work done for Fast
+    Fingerprints has to keep reading as Fast Fingerprints' work on National
+    Background Check's record.
     """
     want = _norm(client)
+    extra = {}
+    for other in (also or []):
+        n = _norm(other)
+        if n and n != want:
+            extra[n] = str(other)
     rows = []
     for e in audit.tail(limit=6000):
         mod = e.get("module") or ""
@@ -208,16 +219,22 @@ def work_log(client: str, limit: int = 60) -> dict:
             if e.get(key):
                 named = str(e[key])
                 break
-        if not named or _norm(named) != want:
+        norm_named = _norm(named) if named else ""
+        if not norm_named:
+            continue
+        if norm_named != want and norm_named not in extra:
             continue
         label, source = WORK_KINDS[mod]
-        rows.append({
+        row = {
             "when": e.get("time", ""),
             "kind": label, "source": source, "module": mod,
             "action": e.get("type", ""),
             "actor": e.get("actor") or "",
             "detail": str(e.get("detail") or e.get("title") or "")[:160],
-        })
+        }
+        if norm_named != want:
+            row["member"] = extra[norm_named]
+        rows.append(row)
         if len(rows) >= limit:
             break
 
@@ -227,6 +244,7 @@ def work_log(client: str, limit: int = 60) -> dict:
 
     return {
         "client": client, "count": len(rows), "items": rows,
+        "group": sorted(extra.values()),
         "by_source": dict(sorted(by_source.items(), key=lambda kv: -kv[1])),
         "last_activity": rows[0]["when"] if rows else None,
         "note": "Assembled from the activity log. A tool that doesn't write "

@@ -436,7 +436,7 @@ def _creative_items(prod_records: list[dict]) -> list[dict]:
         seen.add(key)
         ts = str(r.get("ts") or "")
         year = ts[:4] if len(ts) >= 4 and ts[:4].isdigit() else str(r.get("start", ""))[-4:]
-        items.append({
+        item = {
             "year": year,
             "product": r.get("product"),
             "campaign": r.get("campaign"),
@@ -444,7 +444,13 @@ def _creative_items(prod_records: list[dict]) -> list[dict]:
             "url": url,
             "kind": kind,
             "start": r.get("start"),
-        })
+        }
+        # A grouped record shows several companies' creative side by side. The
+        # group is a billing relationship, not a rename, so a file that is the
+        # other company's work has to keep saying so.
+        if r.get("_member"):
+            item["member"] = r["_member"]
+        items.append(item)
     items.sort(key=lambda i: (i["year"], str(i.get("start") or "")), reverse=True)
     return items
 
@@ -481,6 +487,184 @@ def _product_source() -> tuple[list[dict], str, int | None]:
     except Exception:                                   # noqa: BLE001
         pass
     return products(), "export", None
+
+
+def _attachment_only_websites(client: str) -> list[dict]:
+    """Websites attached to a client that the websites export knows nothing of.
+
+    `seo._client_websites()` resolves an attachment against the export and
+    drops anything it cannot find there — which is every domain discovered
+    somewhere else in the Hub and attached on Match Clients, because the export
+    is refreshed by hand and stale by definition. A rep attached a domain and
+    Client 360 went on saying "No website record matched": the join was made
+    and then not shown.
+
+    Enriched from the live Knack registry where that carries the domain, and
+    marked `attached` so it never reads as filed data.
+    """
+    try:
+        from . import seo as _s
+        att = _s.get_links(client).get("website") or []
+        if not att:
+            return []
+        have = {str(w.get("domain") or "").strip().lower()
+                for w in _s._client_websites(client)}
+    except Exception:                                   # noqa: BLE001
+        return []
+    out = []
+    for a in att:
+        d = str(a.get("domain") or "").strip().lower()
+        if not d or d in have:
+            continue
+        have.add(d)
+        try:
+            from . import knack_websites as _kw
+            extra = _kw.record_for_domain(d) or {}
+        except Exception:                               # noqa: BLE001
+            extra = {}
+        out.append({
+            "name": extra.get("client") or a.get("name") or d,
+            "domain": d,
+            "liveUrl": extra.get("production_url") or a.get("liveUrl")
+                       or ("https://" + d),
+            "platform": extra.get("platform", ""),
+            "status": extra.get("client_status", ""),
+            "hmMonthly": extra.get("hm_fee", 0),
+            "partner": extra.get("media_partner", ""), "manager": "",
+            "ga": extra.get("ga_account", ""), "gtm": extra.get("gtm_account", ""),
+            "registrar": extra.get("registrar", ""),
+            "domainPurchased": extra.get("domain_bought", ""),
+            "attached": True,
+        })
+    return out
+
+
+def _exact_client_rows(rows: list[dict], name: str) -> list[dict]:
+    """Product rows belonging to exactly this client — no substring match.
+
+    `search_client()` matches the *query* loosely on purpose: someone typing
+    "riverside" wants to be shown their options. Pulling a **group member's**
+    records in is a different act with a different cost — those rows are merged
+    into another company's record and totalled into its billing pill — so it
+    matches the way `client_key.resolve()` does: identical normalised names,
+    nothing else. "Riverside HVAC" must never collect "Riverside HVAC Supply".
+    """
+    from hub.client_key import normalise_name
+    want = normalise_name(name)
+    if not want:
+        return []
+    out = []
+    for r in rows:
+        if normalise_name(str(r.get("client") or "")) == want \
+                or normalise_name(str(r.get("organization") or "")) == want:
+            out.append(r)
+    return out
+
+
+def _exact_website_rows(name: str, url: str = "") -> list[dict]:
+    """Website records for exactly this client, by name or canonical domain."""
+    from hub.client_key import normalise_name
+    from hub.client_context import canonical_domain
+    want = normalise_name(name)
+    dom = canonical_domain(url)
+    out = []
+    for w in websites():
+        if want and normalise_name(str(w.get("name") or "")) == want:
+            out.append(w)
+        elif dom and canonical_domain(str(w.get("domain") or w.get("liveUrl") or "")) == dom:
+            out.append(w)
+    return out
+
+
+def _merge_group_members(g: dict, raw_rows: list[dict], product_rows: list[dict]) -> None:
+    """Fold every other member of this client's group into the group dict.
+
+    Nothing happens unless somebody has pressed **Group** on Client 360 — an
+    ungrouped client comes out of here byte-identical to how it went in.
+
+    Every merged row is tagged with the client record it came from, and
+    duplicates are dropped once: a product filed under the organisation name is
+    found under the parent and the member both, and merging it twice doubles
+    the "Active billing" figure in the header. A wrong total looks exactly like
+    a right one.
+    """
+    try:
+        from hub import client_groups
+    except Exception:                                   # noqa: BLE001
+        return
+    try:
+        primary_url = next((str(w.get("domain") or w.get("liveUrl") or "")
+                            for w in g["websites"] if w.get("domain") or w.get("liveUrl")), "")
+        info = client_groups.roster(str(g["client"]), primary_url)
+    except Exception as exc:                            # noqa: BLE001
+        # A group that cannot be read must not take the whole record with it.
+        g["group"] = {"grouped": False, "error": f"{type(exc).__name__}: {exc}"}
+        return
+    g["group"] = info
+    if not info.get("grouped") or not info.get("others"):
+        return
+
+    prod_key = lambda p: (str(p.get("io") or ""), str(p.get("product") or ""),
+                          str(p.get("campaign") or ""), str(p.get("start") or ""))
+    web_key = lambda w: (str(w.get("domain") or w.get("liveUrl") or "").lower()
+                         or str(w.get("name") or "").lower())
+
+    _, pseen = client_groups.merge_rows(g["products"], prod_key, into=[])
+    _, wseen = client_groups.merge_rows(g["websites"], web_key, into=[])
+    merged = {"products": 0, "websites": 0, "creative": 0, "missing": []}
+
+    for other in info["others"]:
+        oname = str(other.get("name") or "")
+        ourl = str(other.get("url") or "")
+        rows = _exact_client_rows(product_rows, oname)
+        if not rows and not _exact_website_rows(oname, ourl):
+            # Named, not dropped: "this member has no products" and "we could
+            # not find this member's records at all" are different answers.
+            merged["missing"].append(oname)
+        before = len(g["products"])
+        client_groups.merge_rows(
+            [{"product": r.get("product"), "campaign": r.get("campaign"),
+              "io": r.get("io"), "status": r.get("status"),
+              "monthly": r.get("monthly"), "sales": r.get("sales"),
+              "partner": r.get("partner"), "start": r.get("start"),
+              "end": r.get("end"), "dash": r.get("dash")} for r in rows],
+            prod_key, member=oname, into=g["products"], seen=pseen)
+        merged["products"] += len(g["products"]) - before
+
+        for r in rows:
+            tagged = dict(r)
+            tagged["_member"] = oname
+            raw_rows.append(tagged)
+
+        before = len(g["websites"])
+        client_groups.merge_rows(
+            [{"name": w.get("name"), "domain": w.get("domain"),
+              "liveUrl": w.get("liveUrl"), "platform": w.get("platform"),
+              "status": w.get("status"), "hmMonthly": w.get("hmMonthly"),
+              "partner": w.get("partner"), "manager": w.get("manager"),
+              "ga": w.get("ga"), "gtm": w.get("gtm"),
+              "registrar": w.get("registrar"),
+              "domainPurchased": w.get("domainPurchased")}
+             for w in _exact_website_rows(oname, ourl)],
+            web_key, member=oname, into=g["websites"], seen=wseen)
+        merged["websites"] += len(g["websites"]) - before
+
+        # Website records the Hub attached to the member rather than Knack —
+        # including the ones the export has never heard of, which is most of
+        # the discovered ones.
+        try:
+            from . import seo as _seog
+            if _seog.get_links(oname).get("website"):
+                before = len(g["websites"])
+                client_groups.merge_rows(
+                    [dict(w, attached=True) for w in _seog._client_websites(oname)]
+                    + _attachment_only_websites(oname),
+                    web_key, member=oname, into=g["websites"], seen=wseen)
+                merged["websites"] += len(g["websites"]) - before
+        except Exception:                               # noqa: BLE001
+            pass
+
+    g["group"]["merged"] = merged
 
 
 def search_client(q: str, limit: int = 8) -> list[dict]:
@@ -550,6 +734,15 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
             "domainPurchased": w.get("domainPurchased"),
         })
 
+    # Grouped clients: fold the other members of the group in. A no-op unless
+    # somebody has pressed Group on Client 360 for one of these clients.
+    for g in groups.values():
+        # Keyed the way _creative_items() reads it below, or the merged raw
+        # rows land in a bucket nothing looks in and the creative silently
+        # stays one company's.
+        gkey = str(g["client"]).strip().lower()
+        _merge_group_members(g, raw_by_group.setdefault(gkey, []), product_rows)
+
     # Hub-attached website records (attach-only, never written back to Knack)
     try:
         from . import seo as _seo
@@ -573,39 +766,13 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
                     "domainPurchased": w.get("domainPurchased"),
                     "attached": True,
                 })
-            # An attachment that matches nothing in the websites export is
-            # still a real website: it is how a domain discovered somewhere
-            # else in the Hub reaches the client record at all, and the export
-            # is stale by definition. Dropping it meant a rep could attach a
-            # domain on Match Clients and find Client 360 still saying "No
-            # website record matched" — the join made and then not shown.
-            # Enriched from the live Knack registry where that has the domain.
-            for a in att:
-                d = str(a.get("domain") or "").strip().lower()
-                if not d or d in have:
+            # And the attachments the export has never heard of, which is how
+            # a domain discovered elsewhere in the Hub reaches the record.
+            for w in _attachment_only_websites(str(g["client"])):
+                if w["domain"] in have:
                     continue
-                have.add(d)
-                extra = {}
-                try:
-                    from . import knack_websites as _kw
-                    extra = _kw.record_for_domain(d) or {}
-                except Exception:  # noqa: BLE001
-                    extra = {}
-                g["websites"].append({
-                    "name": extra.get("client") or a.get("name") or d,
-                    "domain": d,
-                    "liveUrl": extra.get("production_url")
-                               or a.get("liveUrl") or ("https://" + d),
-                    "platform": extra.get("platform", ""),
-                    "status": extra.get("client_status", ""),
-                    "hmMonthly": extra.get("hm_fee", 0),
-                    "partner": extra.get("media_partner", ""), "manager": "",
-                    "ga": extra.get("ga_account", ""),
-                    "gtm": extra.get("gtm_account", ""),
-                    "registrar": extra.get("registrar", ""),
-                    "domainPurchased": extra.get("domain_bought", ""),
-                    "attached": True,
-                })
+                have.add(w["domain"])
+                g["websites"].append(w)
     except Exception:  # noqa: BLE001 — attachments must never break search
         pass
 

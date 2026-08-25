@@ -37,6 +37,13 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const money=v=>{const n=Number(String(v??'').replace(/[$,]/g,''));return isFinite(n)&&n?'$'+n.toLocaleString():esc(v??'—')};
 let groups=[];
 
+/* A grouped record shows more than one company's rows side by side. The group
+   is a billing relationship, not a rename, so every row that came from another
+   member of the group says which one — silently absorbing Fast Fingerprints'
+   insertion orders into National Background Check's list is the mistake this
+   whole feature is one step away from making. */
+const memberTag=m=>m?` <span class="pill neutral" style="font-size:10.5px;padding:1px 7px;vertical-align:middle" title="Grouped client record">${esc(m)}</span>`:'';
+
 const KIND_ICON={gdrive:'&#128193; Drive',pdf:'&#128462; PDF',dropbox:'&#128230; Dropbox',image:'&#128444; Image',file:'&#128206; File'};
 
 // Google Finder functions attached to each Google result.
@@ -79,6 +86,7 @@ function render(g,q){
   const name=g.client||q;
   window.CURRENT_CLIENT = name;
   setTimeout(function(){ loadBrandAndWork(name); }, 0);
+  window.__c360group=g.group||{grouped:false};
   const liveCount=g.products.filter(p=>String(p.status||'').toLowerCase()==='live').length;
   const web0=(g.websites||[])[0]||null;
   window.__c360domain=web0&&web0.domain?String(web0.domain).replace(/^https?:\/\//,'').replace(/\/.*$/,''):'';
@@ -96,6 +104,7 @@ function render(g,q){
   if(liveCount) head+=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px">${liveCount} live product${liveCount>1?'s':''}</span>`;
   if(g.dash_url) head+=`<a class="btn-primary" style="padding:8px 16px;font-size:13px;text-decoration:none" href="${esc(g.dash_url)}" target="_blank" rel="noopener">Smart 1 Dashboard →</a>`;
   head+='</div></div>';
+  head+='<div id="c-group"></div>';
   head+='<div id="c-profile" style="margin:-6px 0 14px"></div>';
 
   let html=head+'<div class="grid-2">';
@@ -113,7 +122,7 @@ function render(g,q){
     const ioPill=p.io?(p.dash
       ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Open Smart 1 Dashboard">#${esc(p.io)}</a>`
       :` <span class="pill neutral">#${esc(p.io)}</span>`):'';
-    return `<tr><td><b>${esc(p.product||'—')}</b>${ioPill}</td>`
+    return `<tr><td><b>${esc(p.product||'—')}</b>${ioPill}${memberTag(p.member)}</td>`
       + `<td class="muted" style="font-size:12.5px">${esc(p.campaign||'—')}</td>`
       + `<td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td>`
       + `<td>${money(p.monthly)}</td></tr>`;
@@ -151,7 +160,7 @@ function render(g,q){
   if(cre.length){
     html+='<table><thead><tr><th>Product / Campaign</th><th>IO</th><th>Creative</th></tr></thead><tbody>';
     cre.slice(0,12).forEach((c,i)=>{
-      html+=`<tr><td>${esc(c.product||'—')}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} view →</a></td></tr>`;
+      html+=`<tr><td>${esc(c.product||'—')}${memberTag(c.member)}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} view →</a></td></tr>`;
     });
     html+='</tbody></table>';
     if(cre.length>12)html+=`<div class="empty">+${cre.length-12} more creative files in the Clients module</div>`;
@@ -484,8 +493,8 @@ function render(g,q){
           }
           /* Uploaded. The date is editable because it is the date the proposal
              actually went to the client, which only a person knows. */
-          return '<tr data-pid="'+esc(p.id)+'">'
-            + '<td><b>'+esc(p.title||p.filename)+'</b>'
+          return '<tr data-pid="'+esc(p.id)+'" data-pclient="'+esc(p.member||name)+'">'
+            + '<td><b>'+esc(p.title||p.filename)+'</b>'+memberTag(p.member)
             + '<div class="muted" style="font-size:11.5px">'+esc(p.filename)
             + (p.note? ' · '+esc(p.note):'')+'</div></td>'
             + '<td><span class="pill ok">Sent to client</span>'
@@ -505,17 +514,22 @@ function render(g,q){
 
     host.querySelectorAll('tr[data-pid]').forEach(function(tr){
       var pid = tr.dataset.pid;
+      /* A proposal merged in from another member of the group lives on THAT
+         client's record. Posting the edit against the client on screen would
+         write to a store the proposal is not in — it would read as saved and
+         change nothing. */
+      var pclient = tr.dataset.pclient || name;
       var rec = UPLOADED.filter(function(x){ return String(x.id) === String(pid); })[0] || {};
       tr.querySelector('.up-date').onchange = function(){
         fetch('/api/client/proposals/update',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({client:name,id:pid,date_sent:this.value})})
+          body:JSON.stringify({client:pclient,id:pid,date_sent:this.value})})
           .then(function(r){return r.json();})
           .then(function(d){ if(d.error) alert(d.error); else { UPLOADED=d.proposals||[]; renderProposals(); } });
       };
       tr.querySelector('.up-del').onclick = function(){
         if(!confirm('Remove this proposal from the client record?')) return;
         fetch('/api/client/proposals/update',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({client:name,id:pid,delete:true})})
+          body:JSON.stringify({client:pclient,id:pid,delete:true})})
           .then(function(r){return r.json();})
           .then(function(d){ UPLOADED=d.proposals||[]; renderProposals(); });
       };
@@ -533,7 +547,7 @@ function render(g,q){
        travels. The URL is not sent: handing the IO builder an arbitrary URL to
        fetch would make it an SSRF hole, and the document is already ours. */
     var q = '/tools/io/?from_proposal=' + encodeURIComponent(rec.id || rec.filename || '')
-          + '&client=' + encodeURIComponent(name);
+          + '&client=' + encodeURIComponent(rec.member || name);
     window.open(q, '_blank', 'noopener');
   }
 
@@ -803,7 +817,11 @@ function render(g,q){
     if(!d.connected){$('c-qb').innerHTML='<div class="empty">QuickBooks not connected yet. <a href="/qb/connect">Connect QuickBooks →</a></div>';return}
     if(d.error){$('c-qb').innerHTML='<div class="empty">QuickBooks error: '+esc(d.error)+'</div>';return}
     const custs=d.customers||[];
-    if(!custs.length){$('c-qb').innerHTML='<div class="empty">No QuickBooks customer matched “'+esc(term)+'” — use <b>Search &amp; attach customer</b> above to link the right one permanently.</div>';return}
+    if(!custs.length){
+      const missed=(d.unmatched||[]);
+      $('c-qb').innerHTML='<div class="empty">No QuickBooks customer matched '
+        +(missed.length?'<b>'+missed.map(esc).join(', ')+'</b>':'“'+esc(term)+'”')
+        +' — use <b>Search &amp; attach customer</b> above to link the right one permanently.</div>';return}
     // header badge: how long they've been in QuickBooks
     const first=custs[0];
     const badge=document.getElementById('qbSinceBadge');
@@ -812,7 +830,7 @@ function render(g,q){
     }
     $('c-qb').innerHTML=(attachedNote||'')+custs.map(cu=>{
       let h=`<div style="display:flex;align-items:center;gap:10px;margin:6px 0 8px;flex-wrap:wrap">
-        <b>${esc(cu.name)}</b>
+        <b>${esc(cu.name)}</b>${cu.client&&cu.client.toLowerCase()!==String(name).toLowerCase()?memberTag(cu.client):''}
         ${cu.customer_since_label?'<span class="pill neutral">since '+esc(cu.customer_since_label)+(cu.customer_years?' ('+cu.customer_years+' yrs)':'')+'</span>':''}
         ${Number(cu.balance)>0?'<span class="pill warn">Balance '+money(cu.balance)+'</span>':'<span class="pill ok">No balance</span>'}
         <a class="gbtn" href="${esc(cu.link)}" target="_blank" rel="noopener">Customer in QuickBooks →</a></div>`;
@@ -827,8 +845,27 @@ function render(g,q){
         : '<a class="gbtn" href="'+esc(i.link)+'" target="_blank" rel="noopener" '+
           'title="QuickBooks app — needs a login. No public link cached for this invoice yet.">Open in QB &#8599;</a>'}</td></tr>`).join('')+'</tbody></table>';
       return h;
-    }).join('');
+    }).join('')
+      /* "No QuickBooks customer found for this member" and "this member has no
+         invoices" are different answers, and only one of them means stop
+         chasing the bill. */
+      +((d.unmatched||[]).length?'<div class="muted" style="font-size:12px;margin-top:6px">'
+        +'No QuickBooks customer found for: <b>'+(d.unmatched||[]).map(esc).join(', ')+'</b>'
+        +' — attach one with <b>Search &amp; attach customer</b> above.</div>':'');
   }
+
+  /* Grouped clients bill as one company, so the card asks the server for the
+     whole group in one call: each member's attached customers, a name search
+     where a member has none, deduplicated by customer id. Ungrouped clients
+     take the path they always have. */
+  if((window.__c360group||{}).grouped){
+    const others=(window.__c360group.others||[]).map(m=>m.name).filter(Boolean);
+    const gnote='<div class="muted" style="font-size:12px;margin-bottom:4px">Reading invoices across the group: <b>'
+      +esc([name].concat(others).join(', '))+'</b></div>';
+    fetch('/api/qb/invoices?client='+encodeURIComponent(name))
+      .then(r=>r.json()).then(d=>renderQb(d,gnote))
+      .catch(()=>{$('c-qb').innerHTML='<div class="empty">QuickBooks lookup unavailable.</div>'});
+  } else
   fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).then(la=>{
     let qbAtt=((la||{}).attached||{}).qb||[];
     if(!Array.isArray(qbAtt)) qbAtt=[qbAtt];
@@ -1059,7 +1096,7 @@ function render(g,q){
       <input id="noteInput" placeholder="Add a note about this client…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
       <a class="gbtn" id="noteAdd" style="cursor:pointer">Add note</a></div>`
       +(notes.length?notes.slice(0,8).map(n=>`<div style="padding:8px 0;border-bottom:1px solid var(--line-soft)">
-        <span class="muted" style="font-size:11.5px">${esc(n.time)} · <b>${esc(n.author)}</b></span>
+        <span class="muted" style="font-size:11.5px">${esc(n.time)} · <b>${esc(n.author)}</b></span>${memberTag(n.member)}
         <div style="font-size:13px;margin-top:2px">${esc(n.text)}</div></div>`).join('')
         +(notes.length>8?'<div class="muted" style="font-size:12px;padding-top:6px">'+(notes.length-8)+' older note(s)</div>':'')
       :'<div class="empty">No notes yet.</div>');
@@ -1569,7 +1606,7 @@ function renderWork(d){
     d.items.map(i=>`<tr>
       <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;color:#94a3b8">
         ${esc(fmtDate(i.when))}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9"><b>${esc(i.kind)}</b></td>
+      <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9"><b>${esc(i.kind)}</b>${memberTag(i.member)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#64748b">${esc(i.source)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#64748b">${esc(i.detail||'')}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#94a3b8;white-space:nowrap">
@@ -1752,8 +1789,221 @@ function suiteMatch(name){
     });
 }
 
+/* ------------------------------------------------------------------
+   Client groups — one company, several client records.
+
+   National Background Check and Fast Fingerprints are one business: every IO
+   and every invoice sits on the parent, and opening the other record reads as
+   a client with no products and no history. Grouping them makes one record out
+   of the two.
+
+   The whole of the merge happens server-side (hub/client_groups.py) so that
+   every card reads the group without each one having to know about it. What is
+   here is the banner that says the page is showing more than one company, and
+   the modal that attaches or detaches a record.
+   ------------------------------------------------------------------ */
+function renderGroupBanner(info){
+  const el=document.getElementById('c-group'); if(!el) return;
+  info=info||{grouped:false};
+  /* /api/c360 is the only caller that knows which members it found no records
+     for — the roster route reports membership, not what merged. Carry that
+     across so a later refresh of the banner does not quietly drop the one line
+     that says a member came back empty. */
+  const prev=window.__c360group||{};
+  if(!info.merged && prev.merged) info.merged=prev.merged;
+  window.__c360group=info;
+  const btn=document.querySelector('.s1-acc-group');
+  if(btn){
+    btn.classList.toggle('on', !!(info&&info.grouped));
+    btn.innerHTML = info&&info.grouped
+      ? '&#128279; Group ('+((info.members||[]).length)+')'
+      : '&#128279; Group';
+  }
+  if(!info||!info.grouped){ el.innerHTML=''; return; }
+  const others=(info.others||[]);
+  const parent=(info.parent||{}).name||'';
+  el.innerHTML='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
+    +'background:#eaf7ee;border:1px solid #b7e0c2;border-radius:12px;padding:9px 14px;'
+    +'margin:0 0 12px;font-size:13px">'
+    +'<b style="color:#1c7a3e">&#128279; Grouped record</b>'
+    +'<span>Billing sits on <b>'+esc(parent)+'</b>'
+    +(info.is_parent?'':' — you are viewing a member of that group')+'.</span>'
+    +'<span class="muted">Also showing: '+(others.length?others.map(m=>esc(m.name)).join(', ')
+        :'nothing else yet')+'</span>'
+    +'<a class="gbtn" style="cursor:pointer;margin-left:auto" onclick="openGroupModal()">Manage group</a>'
+    /* Named, not dropped. A member with nothing on file has to be visible as
+       that, or "grouped" quietly means "grouped with a record we found no
+       products, sites or creative for" and the page looks complete. */
+    +(((info.merged||{}).missing||[]).length
+      ? '<div style="flex-basis:100%;font-size:12px;color:#7a5b00">No Smart 1 Team records found for: <b>'
+        +info.merged.missing.map(esc).join(', ')+'</b> — check the name matches the client record exactly.</div>'
+      : '')
+    +'</div>';
+}
+
+function loadGroup(name){
+  const el=document.getElementById('c-group');
+  /* /api/c360 already answered with this client's roster, so draw it now
+     rather than leaving the banner blank for a round-trip — a page that says
+     nothing about the group for half a second is a page somebody reads as
+     ungrouped. The fetch below refreshes it. */
+  if(window.__c360group) renderGroupBanner(window.__c360group);
+  fetch('/api/client/group?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>renderGroupBanner(d.roster||{grouped:false}))
+    /* A group we could not read must say so. Rendering nothing would be
+       indistinguishable from "this client is not grouped", and the page would
+       then be quietly showing one company's records under another's name with
+       no sign that anything was missing. */
+    .catch(()=>{ if(el) el.innerHTML='<div class="pill warn" style="margin:0 0 12px;display:inline-block">'
+      +'Could not read this client\'s group — any grouped records are missing from this page.</div>'; });
+}
+
+/* hub-accordion.js calls this when it builds the toolbar, which can happen
+   after the roster has already come back. */
+window.S1GroupLabel=function(btn){
+  const info=window.__c360group;
+  if(!info||!btn) return;
+  btn.classList.toggle('on', !!info.grouped);
+  if(info.grouped) btn.innerHTML='&#128279; Group ('+((info.members||[]).length)+')';
+};
+
+window.openGroupModal=function(){
+  const name=window.CURRENT_CLIENT||'';
+  if(!name){ alert('Search for a client first.'); return; }
+  let m=document.getElementById('grpModal');
+  if(m) m.remove();
+  m=document.createElement('div');
+  m.id='grpModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:100002;'
+    +'display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto';
+  m.innerHTML='<div style="background:#fff;border-radius:14px;width:660px;max-width:100%">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line)">'
+      +'<b style="color:var(--navy)">Group — '+esc(name)+'</b>'
+      +'<button id="grpClose" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>'
+    +'<div style="padding:16px 18px" id="grpBody"><div class="empty">Loading… <span class="spin"></span></div></div></div>';
+  document.body.appendChild(m);
+  m.addEventListener('click',e=>{if(e.target===m)m.remove();});
+  document.getElementById('grpClose').onclick=()=>m.remove();
+  grpLoad();
+};
+
+function grpLoad(){
+  const name=window.CURRENT_CLIENT||'';
+  const body=document.getElementById('grpBody'); if(!body) return;
+  fetch('/api/client/group?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>grpRender(d.roster||{grouped:false}))
+    .catch(()=>{body.innerHTML='<div class="empty">Could not read the group.</div>';});
+}
+
+function grpRender(info){
+  const name=window.CURRENT_CLIENT||'';
+  const body=document.getElementById('grpBody'); if(!body) return;
+  renderGroupBanner(info);
+  let h='';
+  if(info.grouped){
+    h+='<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;'
+      +'color:#64748b;margin-bottom:8px">In this group</div>';
+    h+=(info.members||[]).map(mem=>
+      '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);'
+      +'border-radius:8px;margin-bottom:6px">'
+      +'<b>'+esc(mem.name)+'</b>'
+      +(mem.role==='parent'
+        ? '<span class="pill ok" title="Every IO and invoice for the group is filed here">Parent — holds the billing</span>'
+        : '<span class="pill neutral">Member</span>')
+      +(mem.url?'<span class="muted" style="font-size:11.5px">'+esc(mem.url)+'</span>':'')
+      +'<a class="gbtn grp-del" data-n="'+esc(mem.name)+'" data-u="'+esc(mem.url||'')+'" data-role="'+esc(mem.role)+'"'
+      +' style="cursor:pointer;color:#b91c1c;margin-left:auto">Remove</a></div>').join('');
+    h+='<p class="muted" style="font-size:12px;margin:10px 0 18px">'
+      +'Products &amp; IOs, creative, notes, work, proposals and invoices are read across '
+      +'every record above, wherever you open the group from. Rows keep the name of the '
+      +'record they belong to. Nothing is written to Knack — removing a record from the '
+      +'group leaves it exactly as it is.</p>';
+  } else {
+    h+='<p class="muted" style="font-size:13px;margin:0 0 16px">'
+      +'<b>'+esc(name)+'</b> is not grouped. Attach another company below and the two '
+      +'read as one record: products &amp; IOs, creative, client notes, work, proposals '
+      +'and invoices are shown across both, from either one.</p>';
+  }
+  h+='<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;'
+    +'color:#64748b;margin-bottom:8px">Attach another company</div>'
+    +'<div style="display:flex;gap:8px"><input id="grpQ" placeholder="Company name or domain…" '
+    +'style="flex:1;padding:8px 11px;border:1px solid var(--line);border-radius:8px;font:13px inherit">'
+    +'<a class="gbtn" id="grpGo" style="cursor:pointer">Search</a></div>'
+    +'<div id="grpRes" style="margin-top:10px"></div>'
+    +'<div id="grpMsg" style="margin-top:10px"></div>';
+  body.innerHTML=h;
+
+  body.querySelectorAll('.grp-del').forEach(a=>{
+    a.onclick=()=>{
+      const isParent=a.dataset.role==='parent';
+      /* Removing the parent dissolves the group rather than promoting one of
+         the members: which sibling holds the bill is not a question this page
+         can answer, and guessing it moves every invoice on the record. */
+      if(!confirm(isParent
+        ? 'Remove the parent “'+a.dataset.n+'”? That dissolves the whole group. '
+          +'Every client record stays exactly as it is — nothing is written to Knack.'
+        : 'Remove “'+a.dataset.n+'” from this group?')) return;
+      fetch('/api/client/group/remove',{method:'POST',headers:{'Content-Type':'application/json'},
+        credentials:'same-origin',body:JSON.stringify({client:a.dataset.n,url:a.dataset.u})})
+        .then(r=>r.json()).then(d=>{
+          if(d.error){document.getElementById('grpMsg').innerHTML='<div class="pill err">'+esc(d.error)+'</div>';return}
+          location.reload();   // every card on the page is now reading a different set
+        });
+    };
+  });
+
+  const go=()=>{
+    const q=(document.getElementById('grpQ').value||'').trim();
+    if(!q) return;
+    const res=document.getElementById('grpRes');
+    res.innerHTML='<div class="empty">Searching… <span class="spin"></span></div>';
+    fetch('/api/clients/search?q='+encodeURIComponent(q)+'&limit=10',{credentials:'same-origin'})
+      .then(r=>r.json()).then(d=>{
+        const rows=(d.clients||[]).filter(c=>String(c.name||'').toLowerCase()!==String(name).toLowerCase());
+        if(!rows.length){res.innerHTML='<div class="empty">No client matched “'+esc(q)+'”.</div>';return}
+        res.innerHTML=rows.map((c,i)=>
+          '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--line);'
+          +'border-radius:8px;margin-bottom:6px;background:#fff">'
+          +'<b>'+esc(c.name)+'</b>'
+          +'<span class="muted" style="font-size:11.5px">'+esc(c.domain||c.url||'no URL on file')
+          +(c.product_count?' · '+c.product_count+' IOs':'')+'</span>'
+          +'<a class="gbtn grp-add" data-i="'+i+'" style="cursor:pointer;margin-left:auto">Attach →</a></div>').join('');
+        res.querySelectorAll('.grp-add').forEach(btn=>{
+          btn.onclick=()=>{
+            const c=rows[parseInt(btn.dataset.i,10)];
+            const info2=window.__c360group||{};
+            /* The parent is the record the billing already sits on. When this
+               client is already a member of a group, the new record joins that
+               same parent rather than starting a second group around a member —
+               two groups claiming one company is the one state the store
+               refuses, and it would be easy to create from here. */
+            const parent=(info2.grouped&&info2.parent&&info2.parent.name)?info2.parent.name:name;
+            const purl=(info2.grouped&&info2.parent&&info2.parent.url)?info2.parent.url:(window.__c360domain||'');
+            btn.textContent='Attaching…';
+            fetch('/api/client/group/add',{method:'POST',headers:{'Content-Type':'application/json'},
+              credentials:'same-origin',
+              body:JSON.stringify({parent:parent,parent_url:purl,
+                                   member:c.name,member_url:c.domain||c.url||''})})
+              .then(r=>r.json()).then(d2=>{
+                if(d2.error){
+                  btn.textContent='Attach →';
+                  document.getElementById('grpMsg').innerHTML=
+                    '<div class="pill err" style="white-space:normal;display:block;padding:8px 12px">'+esc(d2.error)+'</div>';
+                  return;
+                }
+                location.reload();   // the whole record now reads across both
+              });
+          };
+        });
+      }).catch(()=>{res.innerHTML='<div class="empty">Client search unavailable.</div>';});
+  };
+  document.getElementById('grpGo').onclick=go;
+  document.getElementById('grpQ').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+}
+
 function loadBrandAndWork(name){
   loadForms(name);
+  loadGroup(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
