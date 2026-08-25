@@ -313,6 +313,129 @@ def authenticate(email: str, password: str) -> User:
     return user
 
 
+def create_account(email: str, name: str, role: str = "member",
+                   password: str = "", status: str = "pending",
+                   approved_by: str = "") -> User:
+    """Create an account directly — the roster upload's path, not sign-up.
+
+    Sign-up exists for somebody registering themselves and so lands in
+    `pending` by design. An account an admin (or the census) creates has
+    already been authorised by the act of creating it, so it can start active.
+
+    The password goes through `set_starting_password`, which means every
+    account created here begins life needing a change. That is deliberate even
+    when an admin typed the password themselves: a password one person chose
+    for another is known to two people, and the only way it stops being is the
+    forced change.
+    """
+    email = check_email(email)
+    if role not in ROLES:
+        raise UserError("Unknown role.")
+    if status not in STATUSES:
+        raise UserError("Unknown status.")
+    if User.query.filter_by(email=email).first():
+        raise UserError("There is already an account for that address.")
+    user = User(email=email, name=(name or "").strip()[:160] or email.split("@")[0],
+                role=role, status=status, created_at=_now(),
+                session_epoch=1)
+    if status == "active":
+        user.approved_at = _now()
+        user.approved_by = approved_by or "created"
+    db.session.add(user)
+    db.session.flush()
+    if password:
+        set_starting_password(user, password, commit=False)
+    db.session.commit()
+    audit.log("users", "created", actor=approved_by or "system", target=email,
+              role=role, status=status)
+    return user
+
+
+def set_starting_password(user: User, password: str, *, commit: bool = True) -> User:
+    """Write a password the user did not choose, and require them to replace it.
+
+    The policy in `check_password()` is deliberately **not** applied. It is the
+    right rule for a password somebody picks and the wrong one for a starting
+    credential: the roster default is short and contains the company name, and
+    both of those are fine for something valid until first sign-in and
+    intolerable for something kept. What makes that true is the second line —
+    `must_change_password` — so the two are one function rather than two calls
+    that could be made separately. There is no way to issue a starting password
+    here without the gate that retires it.
+
+    The session epoch is bumped for the same reason a reset does: whoever held
+    a session on the old password does not keep it.
+    """
+    if not password:
+        raise UserError("A starting password cannot be empty.")
+    if len(password) > 200:
+        raise UserError("That password is too long.")
+    user.password_hash = generate_password_hash(password)
+    user.must_change_password = True
+    user.failed_logins = 0
+    user.locked_until = None
+    user.reset_token_hash = ""
+    user.reset_expires_at = None
+    user.session_epoch = (user.session_epoch or 1) + 1
+    if commit:
+        db.session.commit()
+    return user
+
+
+def activate(user: User, by: str = "") -> User:
+    """Mark an account usable without going through the admin-actor check.
+
+    `approve()` is the route an admin takes and rightly demands an actor;
+    this is the boot path, where the actor is the roster itself.
+    """
+    user.status = "active"
+    user.approved_at = _now()
+    user.approved_by = by or "system"
+    db.session.commit()
+    audit.log("users", "activated", actor=by or "system", target=user.email)
+    return user
+
+
+def set_password_admin(actor: User, user_id: int, password: str) -> tuple[User, str]:
+    """An admin setting somebody's password directly. Returns (user, password).
+
+    This is the key icon on the Users panel, and it exists because there is no
+    email sender: the reset-link flow needs a link handed over, and handing
+    over a password somebody can type while you are on the phone with them is
+    the same trust with fewer moving parts. Both survive; neither is stored in
+    the clear.
+
+    A blank password means "generate one", so the ordinary case never has an
+    admin inventing a password on the spot — that is how `Spring2026` gets
+    used for four people. The plaintext is returned once, exactly like a reset
+    link, and nothing keeps it.
+    """
+    _require_admin(actor)
+    user = User.query.get(user_id)
+    if not user:
+        raise UserError("No such user.")
+    if user.is_super and not actor.is_super:
+        raise UserError("Only a super admin can set a super admin's password.")
+    chosen = (password or "").strip() or generate_password()
+    set_starting_password(user, chosen)
+    audit.log("users", "password_set_by_admin", actor=actor.email,
+              target=user.email)
+    return user, chosen
+
+
+# Deliberately excludes the characters people mis-read down a phone line —
+# O/0, I/l/1 — because this password gets read aloud roughly as often as it
+# gets pasted, and a generated password nobody can dictate gets replaced by a
+# typed one that is worse.
+_PW_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+
+
+def generate_password(words: int = 4) -> str:
+    """A random starting password, long enough to pass the policy afterwards."""
+    return "-".join("".join(secrets.choice(_PW_ALPHABET) for _ in range(4))
+                    for _ in range(words))
+
+
 # ---------------------------------------------------------------------------
 # Admin actions
 # ---------------------------------------------------------------------------
@@ -393,6 +516,14 @@ def delete(actor: User, user_id: int) -> str:
     email = user.email
     db.session.delete(user)
     db.session.commit()
+    # The census fields live in their own table, so deleting the account row
+    # leaves them behind — and the next person on that address would inherit
+    # a stranger's title, phone number and birthday.
+    try:
+        from hub.user_directory import delete_profile
+        delete_profile(email)
+    except Exception:                                   # noqa: BLE001
+        pass
     audit.log("users", "deleted", actor=actor.email, target=email)
     return email
 
@@ -516,6 +647,25 @@ def by_email(email: str) -> User | None:
 def listing(include_admin_fields: bool = True) -> dict:
     users = User.query.order_by(User.status.desc(), User.email).all()
     rows = [u.as_dict(include_admin_fields) for u in users]
+
+    # The census fields, joined on in one read rather than a query per row.
+    # A profile that is missing leaves the columns blank and says `source: ""`
+    # — an account created by sign-up genuinely has no census row behind it,
+    # and that is different from one whose fields nobody filled in.
+    try:
+        from hub.user_directory import LEVEL_ADMIN, LEVEL_GENERAL, profiles_by_email
+        profiles = profiles_by_email()
+    except Exception:                                   # noqa: BLE001
+        profiles, LEVEL_ADMIN, LEVEL_GENERAL = {}, "Admin", "General"
+    for row in rows:
+        row["profile"] = profiles.get(row["email"], {})
+        # The level shown is derived from the role, never read back from the
+        # profile: the role is what every access decision actually consults,
+        # so a level column reading "General" beside an admin role would be a
+        # confident wrong answer about who can see what.
+        row["level"] = LEVEL_ADMIN if row["role"] in ("admin", "super_admin") \
+            else LEVEL_GENERAL
+
     return {
         "users": rows,
         "counts": {
@@ -524,6 +674,8 @@ def listing(include_admin_fields: bool = True) -> dict:
             "active": sum(1 for r in rows if r["status"] == "active"),
             "suspended": sum(1 for r in rows if r["status"] == "suspended"),
             "super_admins": sum(1 for r in rows if r["role"] == "super_admin"),
+            "admins": sum(1 for r in rows if r["role"] in ("admin", "super_admin")),
+            "must_change": sum(1 for r in rows if r.get("must_change_password")),
         },
         "reset_ttl_minutes": RESET_TTL_MINUTES,
         "min_password_len": MIN_PASSWORD_LEN,

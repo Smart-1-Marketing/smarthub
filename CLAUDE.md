@@ -1629,6 +1629,121 @@ being a dialog nobody can revisit. "Every size" writes the default **and**
 clears that field's per-size overrides, or the override keeps winning and the
 edit reads as having failed.
 
+## Everyone has their own login, and there are two levels of it
+
+Fourteen people, uploaded from the company census. `hub/user_directory.py`
+holds the roster as data — level, name, title, phone, birthday, date of hire,
+work email — and `sync_roster()` creates the missing accounts on boot. The
+census fields live in `hub_user_profiles`, a **table of their own**, because
+`create_all()` creates missing tables and never adds a column to an existing
+one: six columns added to `hub_users` would exist on every local SQLite run and
+be silently absent on the live Postgres, with every test green and every read
+of them `None` in production.
+
+**A re-run creates and nothing else, and each half of that is a way to be
+wrong quietly.** A password is written at creation only — a sync that
+re-applied it would hand all fourteen accounts back to a password printed in
+this repository, on every deploy, with nothing on any screen saying so. A role
+is never demoted, so a promotion made in the Users panel survives the next
+deploy. A profile field is filled in, never overwritten, because somebody who
+corrected a phone number has better information than the export does. What is
+left is the one case a re-run is for: a person added to the roster afterwards
+gets an account on the next boot.
+
+**The starting password is valid for exactly one sign-in, and that is enforced
+rather than noted.** `Smart12026!` is eleven characters and contains "smart1",
+so `users.check_password()` refuses it — correct for a password somebody
+chooses and wrong for a credential that exists to be replaced. It is written
+through `users.set_starting_password()`, which bypasses the policy **and** sets
+`must_change_password` in the same function, precisely so a starting password
+cannot be issued without the gate that retires it. `must_change_password` was
+already on the model and stopped nothing; it now blocks every page until it is
+cleared. Both halves of that: the hub app's `before_request`, and **`AuthGuard`
+in `wsgi.py`** — the hub gate covers hub routes only, so opening
+`/tools/social/` instead of the dashboard was a way past the whole thing, with
+the panel still showing the pill against their name. The flag rides in the
+signed session cookie so the middleware can answer without a database read per
+module request, and it cannot go stale: setting a starting password and
+changing one both bump the session epoch, which invalidates the cookie carrying
+the old answer.
+
+**General Access is everything except Utilities.** `hub/access.py` is one
+prefix list — `/diagnostics` (the Users panel included), `/status`,
+`/activity`, and the APIs each of those pages fetches — checked in one
+`before_request`. Not a decorator on forty views: that shape shipped once
+already, and `hub/auth.py` names the result in its own docstring. The APIs are
+in the list because gating the page while its data stays readable is a gate in
+name only. Prefixes are matched on **path segments**, so `/statuses` is not
+`/status`. `/login/health` and `/api/version` are exempt, because being locked
+out of the sign-in diagnostic is how somebody locked out reports the problem.
+
+The sidebar hides the Utilities section for a General account and that is
+**only the hiding** — a General user who types `/diagnostics` still meets the
+gate, and `test_user_accounts.py` asserts every admin-only nav entry is a path
+`access.is_utility()` actually refuses, so the two cannot drift. Inside a
+mounted module the nav reads the role from the **signed cookie** rather than
+the database, because `HubBar` runs with no app context in front of every
+module page; a stale nav is cosmetic and the gate re-reads the row.
+
+**The shared password counts as Admin, and that is a decision rather than an
+oversight.** `PANEL_PASSWORD` grants a session with no account behind it, so
+there is no role to read — and it is the emergency door, which is how somebody
+reaches Diagnostics when sign-in itself is what is broken. Every use of it on
+a Utilities path is logged as `shared_password_utility`. Clearing the variable
+on Render is what closes the door once every account exists.
+
+**Forgotten passwords name a person.** There is no mail sender here, so
+"Forgot password?" on the sign-in page opens `/forgot`, which says so and names
+John. The form it replaced collected an address and reported that an admin had
+been flagged — a queue nobody watches, presented as though something had
+happened. `/reset` still completes an admin-issued token; a GET with no token
+redirects to `/forgot`, so there is one answer rather than two pages
+disagreeing about whether the Hub can email you.
+
+The Users panel has both routes and they trade differently: the **key icon**
+sets a password directly and shows it once, for reading down a phone line; the
+**link icon** issues the one-time reset link, for when you would rather not
+know it. Both force a change at next sign-in — a password two people know is
+not a password — and neither is stored. A blank box generates one, from an
+alphabet with no `O/0` or `I/l/1` in it, because these get dictated as often as
+they get pasted and a generated password nobody can read aloud gets replaced by
+a typed one that is worse.
+
+**Nothing here is a crawler's business.** `hub/no_crawl.py`: `robots.txt`,
+`/llms.txt`, and an `X-Robots-Tag` on every response — added as WSGI middleware
+in `wsgi.py` rather than as a Flask `after_request`, or it would have covered
+the hub's own pages and left twenty mounted modules without it, including every
+public landing page, which is the only part of this Hub a crawler can actually
+reach. The header is also the only layer that reaches a proposal PDF or a CSV
+export, which a `<meta>` tag cannot. The AI crawlers are listed **by name**
+beside the wildcard because several of them read robots.txt by name only —
+`Google-Extended` and `Applebot-Extended` exist as their own tokens precisely
+so a site can refuse AI training while staying in the search index, and a
+wildcard does not always register with them. There is deliberately no
+`Sitemap:` line.
+
+**Three shapes of brute force, and the old counter caught one.** One account
+hammered from one place is what six-strikes-per-IP was for. One account
+hammered from everywhere is caught by the per-account lockout on the user row,
+which is shared across both gunicorn workers and survives a restart — the
+in-memory counter does neither. **Credential stuffing** was caught by nothing:
+one guess against each of fourteen known addresses never reaches six on any
+account, and the per-IP counter was only ever reset by a success.
+`throttle_fail()` takes the address now and locks an IP that has tried more
+than four distinct ones; the addresses are **hashed**, because that dict is
+read by a status report. Lockouts **escalate** — 15 minutes, an hour, six
+hours — since an attacker who can wait fifteen minutes has unlimited six-guess
+batches, and the ladder resets on a success so three bad mornings do not
+compound. Every credential endpoint goes through it now, `/reset` and
+`/account` included: completing a reset was the one with no throttle at all.
+`auth.client_ip()` is the single place the last-hop rule lives — it was written
+out longhand at four call sites and one of them had it backwards.
+
+Google sign-in is the intended destination and `hub/identity.py` already has
+it, behind `HUB_GOOGLE_LOGIN`; it stays off until the OAuth consent screen
+clears review. Both routes resolve to the same account row, so nothing above
+has to change when it lands.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -1687,6 +1802,7 @@ python3 test_client_groups.py      # grouped clients: what merges, what must not
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
 python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the chrome, who may frame
 python3 test_display_ads.py        # the display layouts, and the build screen's contracts
+python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle
 ```
 
 The test files need no pytest and no new dependencies; each runs against a

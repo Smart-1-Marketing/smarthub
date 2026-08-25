@@ -1,0 +1,19 @@
+{% extends "_users_base.html" %}{% block title %}Forgotten your password?{% endblock %}
+{% block body %}
+{# There is no email sender on this Hub, so the honest answer to "I've
+   forgotten it" is a person, not a form. A form that collects an address and
+   flags an admin looks like it did something; this says who to ask. The name
+   and address come from hub/user_directory.py so this page and the sign-in
+   copy cannot end up naming different people. #}
+<h1>Well, that&rsquo;s not good.</h1>
+<p class="sub">Now you have to chat or email {{ support_name }}.</p>
+<div class="ok" style="text-align:left">
+  <p style="margin:0 0 10px"><b>{{ support_name }}</b> can set you a new
+    password in about ten seconds &mdash; message him on chat, or email:</p>
+  <p style="margin:0"><a href="mailto:{{ support_email }}?subject=Smart%201%20Hub%20password"
+     style="font-weight:700;color:#11633f">{{ support_email }}</a></p>
+</div>
+<p class="hint">Self-service resets arrive when the Hub gets a mail sender.
+  Until then this is the whole procedure, and it is faster than it sounds.</p>
+{% endblock %}
+{% block alt %}<p class="alt"><a href="/login">Back to sign in</a></p>{% endblock %}

@@ -15,6 +15,9 @@ chip so phone layouts are untouched.
 # The keys are what render_sidebar() matches `active` against, so they are
 # fixed points: reordering or relabelling is free, renaming a key silently
 # stops that page highlighting itself in the nav.
+EVERYONE = "everyone"
+ADMIN_ONLY = "admin"
+
 _ITEMS = [
     ("dashboard", "/", "&#127968;", "Dashboard"),
     ("c360", "/client360", "&#127919;", "Client 360"),
@@ -48,15 +51,27 @@ _ITEMS = [
     ("google", "/google/", "&#128202;", "Google"),
     ("sites", "/sites/", "&#127760;", "Sites"),
     ("suite", "/suite/", "&#129520;", "Suite"),
-    ("_sec3", "", "", "Utilities"),
-    ("diagnostics", "/diagnostics", "&#128300;", "Diagnostics"),
-    ("status", "/status", "&#128678;", "System Status"),
-    ("users", "/diagnostics/users", "&#128100;", "Users"),
+    # Everything from here down is Utilities, and Utilities is the Admin-only
+    # section: hub/access.py gates the same paths server-side. This flag is
+    # what hides them, and it is *only* the hiding — a General user who types
+    # /diagnostics still meets the gate. Nav that lies about what you can
+    # reach is a worse experience than a refusal, but nav is not the guard.
+    ("_sec3", "", "", "Utilities", ADMIN_ONLY),
+    ("diagnostics", "/diagnostics", "&#128300;", "Diagnostics", ADMIN_ONLY),
+    ("status", "/status", "&#128678;", "System Status", ADMIN_ONLY),
+    ("users", "/diagnostics/users", "&#128100;", "Users", ADMIN_ONLY),
     # Not named in the reshuffle, and it had to land somewhere rather than be
     # dropped: it is a system-wide record read for the same reason as the three
     # above, so it sits with them rather than among the tools that write to it.
-    ("activity", "/activity", "&#128220;", "Activity Log"),
+    ("activity", "/activity", "&#128220;", "Activity Log", ADMIN_ONLY),
 ]
+
+# Rows are 4-tuples or 5-tuples; the fifth is the access level. Left off, an
+# entry is visible to everyone, so an entry added later is public by default
+# and a *new Utilities* entry has to say so. That is the safe direction to be
+# wrong in for a nav, and the wrong one for the gate — which is why the gate
+# in hub/access.py names its paths explicitly instead of inferring them here.
+_ITEMS = [row if len(row) == 5 else row + (EVERYONE,) for row in _ITEMS]
 
 _CSS = """
 <style>
@@ -210,11 +225,40 @@ def render_footer() -> bytes:
     return FOOTER_HTML.encode()
 
 
-def render_sidebar(active: str = "") -> bytes:
+def visible_items(is_admin: bool = True) -> list[tuple]:
+    """The nav rows this person should see, section headers included.
+
+    A section whose every entry was filtered out has its header dropped too —
+    a bare "Utilities" heading with nothing under it reads as a nav that
+    failed to load rather than as a section that isn't yours.
+    """
+    rows = [r for r in _ITEMS if is_admin or r[4] != ADMIN_ONLY]
+    out = []
+    for i, row in enumerate(rows):
+        if row[0].startswith("_sec"):
+            follows = rows[i + 1:]
+            nxt = next((r for r in follows if not r[0].startswith("_sec")), None)
+            has_entries = nxt is not None and not any(
+                r[0].startswith("_sec") for r in follows[:follows.index(nxt)])
+            if not has_entries:
+                continue
+        out.append(row)
+    return out
+
+
+def render_sidebar(active: str = "", is_admin: bool = True) -> bytes:
+    """The nav. ``is_admin=False`` drops the Utilities section.
+
+    Defaults to True because every existing caller renders for a signed-in
+    session and passing the flag is the new part; a caller that cannot work
+    out the role gets the full nav and the server-side gate still refuses the
+    click. The reverse default would hide Diagnostics from an admin whenever
+    the role lookup hiccuped, which is a bug nobody would report as one.
+    """
     rows = []
     rows.append('<div class="s1hub-logo"><div class="s1hub-mark">S1</div><span class="s1hub-name">Smart 1 Hub</span></div>')
     rows.append('<div class="s1hub-sec">Overview</div>')
-    for key, href, ico, label in _ITEMS:
+    for key, href, ico, label, _level in visible_items(is_admin):
         if key.startswith("_sec"):
             rows.append(f'<div class="s1hub-sec">{label}</div>')
             continue
