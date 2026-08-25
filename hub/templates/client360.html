@@ -289,6 +289,11 @@ function render(g,q){
       if(gtmId)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(gtmId)]);
       if(links.length)html+=gbtns(links);
       html+=`<div style="margin-top:6px"><a class="gbtn web-ticket" data-site="${esc(w.name||'')}" data-domain="${esc(w.domain||'')}" style="cursor:pointer;color:#b45309">&#127915; + Web ticket</a></div>`;
+      // The domain record itself, straight off Knack object_153: when the site
+      // went live, what status the client is in, whether we bought the domain
+      // and when it renews. Loaded per domain after the card is drawn, because
+      // it is one API call per site and the card must not wait on Knack.
+      html+=`<div class="web-knack" data-domain="${esc(w.domain||'')}" data-client="${esc(name||'')}"></div>`;
       html+='</div>';
     });
   } else html+='<div class="empty" style="flex:1">No website record matched — use <b>+ Attach website record</b> above to link one.</div>';
@@ -932,6 +937,101 @@ function render(g,q){
         .then(r=>r.json()).then(res=>{if(msg)msg.textContent=res.error||'corrected ✓';});
     };
   });
+  // ---------- The Knack domain record (object_153), per website ----------
+  document.querySelectorAll('.web-knack').forEach(host=>{
+    const dom=host.dataset.domain||'', cli=host.dataset.client||'';
+    if(!dom&&!cli)return;
+    host.innerHTML='<div class="muted" style="font-size:11.5px;margin-top:8px">Reading the website registry… <span class="spin"></span></div>';
+    fetch('/api/client/website-record?name='+encodeURIComponent(cli)+
+          '&domain='+encodeURIComponent(dom))
+      .then(r=>r.json()).then(d=>drawDomainRecord(host,d,cli))
+      .catch(()=>{host.innerHTML='<div class="muted" style="font-size:11.5px;margin-top:8px">'+
+        'The website registry could not be read.</div>';});
+  });
+
+  function drawDomainRecord(host,d,cli){
+    if(!d||!d.found){
+      // Nothing is invented here. A domain with no object_153 record has no
+      // live date and no renewal date, and drawing empty boxes that cannot
+      // save would read as "not filled in yet" rather than "not on file".
+      // And a registry we could not READ is not a registry with nothing in
+      // it: the two are said differently or the panel is lying about one.
+      const why=(d&&d.read_error)
+        ? esc(d.read_error)+' The domain record could not be looked up — this '+
+          'is not the same as there being none.'
+        : 'No record in the Knack website registry (object_153) carries this '+
+          'domain, so there is nothing to record the live date or the domain '+
+          'purchase against. Attach it on <a href="/tools/sites-match">Match '+
+          'clients</a>.';
+      host.innerHTML='<div class="muted" style="font-size:11.5px;margin-top:8px">'+why+'</div>';
+      return;
+    }
+    const dis=d.writable?'':' disabled';
+    const fields=(d.fields||[]).map((f,i)=>{
+      const id='wk-'+Math.abs(hashStr(d.record_id+f.key));
+      let ctl;
+      if(f.control==='select'||f.control==='multi'){
+        const opts=['<option value="">—</option>'].concat((f.choices||[]).map(o=>
+          `<option value="${esc(o)}"${String(o)===String(f.value)?' selected':''}>${esc(o)}</option>`));
+        ctl=`<select id="${id}" data-key="${esc(f.key)}" class="wk-in"${dis}>${opts.join('')}</select>`;
+      }else if(f.control==='boolean'){
+        const v=String(f.value).toLowerCase();
+        ctl=`<select id="${id}" data-key="${esc(f.key)}" class="wk-in"${dis}>
+          <option value=""${!v||v==='none'?' selected':''}>—</option>
+          <option value="yes"${v==='yes'||v==='true'?' selected':''}>Yes</option>
+          <option value="no"${v==='no'||v==='false'?' selected':''}>No</option></select>`;
+      }else{
+        ctl=`<input id="${id}" data-key="${esc(f.key)}" class="wk-in" value="${esc(f.value||'')}"${dis}
+              placeholder="${f.kind==='date'?'as Knack stores it, e.g. 01/31/2026':'not recorded'}">`;
+      }
+      // A registrar nobody recorded is usually in the last Insites scan of the
+      // same domain — WHOIS. Offered to be copied in, never written for you:
+      // "observed by a scan" and "recorded by us" are different claims.
+      let extra='';
+      if(f.key==='registrar'&&!f.value&&d.registrar&&d.registrar.value){
+        extra=`<div class="muted" style="font-size:11px;margin-top:3px">WHOIS on the latest scan says
+          <b>${esc(d.registrar.value)}</b>${d.registrar.expires?' · expires '+esc(d.registrar.expires):''}
+          <a class="gbtn wk-use" data-for="${id}" data-val="${esc(d.registrar.value)}"
+             style="cursor:pointer;font-size:11px;margin-left:4px">use it</a></div>`;
+      }
+      if(f.known===false){
+        extra+='<div class="muted" style="font-size:11px;color:#b45309;margin-top:3px">'+
+          'This field id is not on object_153 any more — it is drawn, but it '+
+          'will not save until the pinned id is corrected.</div>';
+      }
+      return `<dt>${esc(f.label)}</dt><dd>${ctl}${extra}</dd>`;
+    }).join('');
+    host.innerHTML=`<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <b style="font-size:12.5px">Domain record</b>
+        <span class="muted" style="font-size:11px">Knack object_153</span></div>
+      <dl class="kv wk-kv">${fields}</dl>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+        <a class="gbtn wk-save" style="cursor:pointer"${d.writable?'':' hidden'}>Save to Knack</a>
+        <span class="wk-msg muted" style="font-size:11.5px">${d.writable?'':esc(d.note||'')}</span></div></div>`;
+    host.querySelectorAll('.wk-use').forEach(a=>{
+      a.onclick=()=>{const t=document.getElementById(a.dataset.for);if(t)t.value=a.dataset.val;};
+    });
+    const save=host.querySelector('.wk-save');
+    if(save)save.onclick=()=>{
+      const msg=host.querySelector('.wk-msg'), values={};
+      host.querySelectorAll('.wk-in').forEach(el=>{values[el.dataset.key]=el.value;});
+      msg.textContent='Saving…';
+      fetch('/api/client/website-record/save',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({record_id:d.record_id,client:cli,values:values})})
+        .then(r=>r.json()).then(res=>{
+          // Never a silent partial success: Knack refuses a whole record over
+          // one value it does not publish, so what was refused is named.
+          if(!res.ok){msg.textContent=res.error||'That did not save.';return;}
+          msg.textContent='saved ✓'+((res.rejected||[]).length?
+            ' — refused: '+res.rejected.join('; '):'');
+        }).catch(()=>{msg.textContent='could not save';});
+    };
+  }
+
+  function hashStr(s){let h=0;for(let i=0;i<String(s).length;i++){h=(h*31+String(s).charCodeAt(i))|0;}return h;}
+
   document.querySelectorAll('.ga-lookup').forEach(a=>{
     a.onclick=()=>{
       showTrafficAttach(name);
@@ -1293,12 +1393,19 @@ function showTrafficAttach(clientName){
       document.querySelectorAll('.ta-attach').forEach(btn=>{
         btn.onclick=()=>{
           const x=items[parseInt(btn.dataset.i,10)];
-          fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({client:clientName,kind:'analytics',
-              data:{name:x.name,resource_id:x.resource_id,google_login:x.google_login,account_id:x.account_id}})})
+          // Through the shared attach path, not a bare link write: attaching a
+          // property here has to reach the account index (so it stops reading
+          // as an orphan) and the Knack website record (which is what every
+          // report that never touches Google reads). Each system reports
+          // separately — "attached" and "attached in one of three places" are
+          // different outcomes.
+          fetch('/api/google/attach',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({client:clientName,resource_id:x.resource_id})})
             .then(r=>r.json()).then(res=>{
-              if(res.error){$('ta-res').innerHTML='<div class="empty">'+esc(res.error)+'</div>';return}
+              if(!res.ok){$('ta-res').innerHTML='<div class="empty">'+esc(res.error||'That did not go through.')+'</div>';return}
+              const skipped=(res.skipped||[]).map(w=>w.label+': '+w.why).join(' · ');
               $('c-traffic-meta').textContent=(x.name||x.resource_id)+' · '+x.google_login+' · attached';
+              if(skipped)$('ta-res').innerHTML='<div class="empty">'+esc(res.note||'')+'<br>'+esc(skipped)+'</div>';
               c360Traffic(x.resource_id,x.google_login);   // attach auto-runs the report
             });
         };

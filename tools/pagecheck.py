@@ -84,6 +84,10 @@ HUB_PAGES = [
     # takes; it also renders two panels' worth of JavaScript that no mount
     # enumeration would reach.
     "/tools/sites-match",
+    # Same shape, same reason: a hub route under /tools that renders its whole
+    # table from JavaScript.
+    "/tools/domains",
+    "/tools/google-match",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:

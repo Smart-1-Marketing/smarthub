@@ -127,7 +127,8 @@ def _live_google(client: str, domain: str) -> dict:
     if found.get("never_built"):
         out["error"] = ("The Google account index has not been built yet, so "
                         "nothing can be said about live access. It is rebuilt "
-                        "every three hours, or now from /diagnostics.")
+                        "on a schedule, or now from Match Google Accounts "
+                        "(/tools/google-match).")
         return out
 
     for item in found.get("ga4") or []:

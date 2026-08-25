@@ -93,7 +93,22 @@
       <td><a href="{{url_for('project_detail',pid=r.project_id)}}"><b>{{r.internal_client_name or r.name}}</b><small>Project #{{r.project_id}}</small></a></td>
       <td><span class="pill {{status_class(r.status)}}">{{r.lifecycle_state or r.status or 'UNKNOWN'}}</span></td>
       <td>{{r.plan_name or '—'}}<small>{{money(r.monthly_price)}} catalog</small></td>
-      <td>{{r.domain or '—'}}</td>
+      {#
+        The domain cell doubles as the orphan-domain search. A project with no
+        domain on it is half of a pair: the other half is a URL somewhere in
+        the Hub with no client attached to it. Searching the orphan list here
+        means the person looking at the account can close that pair without
+        leaving the page, and attaching writes the client registry, Client 360,
+        this project and the Knack website record through the same path the
+        Match Clients page uses.
+      #}
+      <td class="domcell">
+        {{r.domain or '—'}}
+        <a class="orphan-link" href="#" onclick="return orphanBox(this)"
+           data-client="{{r.internal_client_name or ''}}"
+           data-project="{{r.project_id}}">search orphan domains</a>
+        <div class="orphan-box" hidden></div>
+      </td>
       <td>{{r.next_billing_date or '—'}}</td>
       <td>{{money(r.client_price if r.client_price is not none else r.monthly_price)}}</td>
       <td><a href="{{url_for('dashboard', partner=r.partner_display)}}">{{r.partner_display}}</a></td>
@@ -112,4 +127,86 @@
 {% endif %}
 
 {% if last %}<p class="syncnote">Last sync: {{last.status}} · {{last.completed_at or last.started_at}} · {{last.details or ''}}</p>{% endif %}
+
+<style>
+.domcell .orphan-link{display:block;font-size:11px;color:#1769AA;margin-top:3px;text-decoration:none}
+.domcell .orphan-link:hover{text-decoration:underline}
+.orphan-box{margin-top:6px;padding:8px;border:1px solid #e2e8f0;border-radius:8px;background:#fbfcfe;min-width:240px}
+.orphan-box input{width:100%;padding:5px 8px;border:1px solid #d7dfe8;border-radius:6px;font:12px inherit}
+.orphan-box .hit{display:block;width:100%;text-align:left;margin-top:5px;padding:4px 7px;
+  border:1px solid #d7dfe8;border-radius:6px;background:#fff;font:12px inherit;cursor:pointer}
+.orphan-box .msg{display:block;font-size:11px;color:#64748b;margin-top:5px;line-height:1.5}
+</style>
+<script>
+/* Read once, filtered in the browser: the orphan list is one request for the
+   whole page rather than one per row, and a person opening three cells in a
+   row should not wait three times. */
+var ORPHANS = null;
+
+function orphanBox(link){
+  var box = link.parentElement.querySelector('.orphan-box');
+  if (!box.hidden) { box.hidden = true; return false; }
+  box.hidden = false;
+  var client = link.dataset.client || '';
+  if (!client) {
+    box.innerHTML = '<span class="msg">This project has no internal client '
+      + 'name, so there is no client to attach a domain to yet. Set one on the '
+      + 'project, or use Match clients in the Hub.</span>';
+    return false;
+  }
+  box.innerHTML = '<input placeholder="Search orphan domains…" oninput="orphanFind(this)">'
+    + '<div class="hits"></div><span class="msg">Reading the orphan list…</span>';
+  var input = box.querySelector('input');
+  if (ORPHANS) { orphanFind(input); return false; }
+  fetch('/api/orphan-urls', {credentials: 'same-origin'})
+    .then(function (r) { return r.json(); })
+    .then(function (d) { ORPHANS = d.domains || []; orphanFind(input); })
+    .catch(function () {
+      box.querySelector('.msg').textContent = 'The orphan list could not be read.';
+    });
+  return false;
+}
+
+function orphanFind(input){
+  var box = input.parentElement, q = (input.value || '').trim().toLowerCase();
+  var hits = (ORPHANS || []).filter(function (r) {
+    return !q || r.domain.toLowerCase().indexOf(q) >= 0;
+  }).slice(0, 8);
+  var client = box.parentElement.querySelector('.orphan-link').dataset.client;
+  box.querySelector('.hits').innerHTML = hits.map(function (r) {
+    return '<button type="button" class="hit" onclick="orphanAttach(this)" data-d="'
+      + r.domain + '">' + r.domain + ' <span style="color:#94a3b8">('
+      + (r.sources || []).length + ' system)</span></button>';
+  }).join('');
+  box.querySelector('.msg').textContent = (ORPHANS || []).length
+    ? (hits.length ? 'Attaching writes this project, the client registry, their '
+        + 'Client 360 record and the Knack website record — as ' + client + '.'
+        : 'No orphan domain matches that.')
+    : 'No orphan URLs — every URL we hold is already attached to a client.';
+}
+
+function orphanAttach(btn){
+  var box = btn.closest('.orphan-box');
+  var link = box.parentElement.querySelector('.orphan-link');
+  var client = link.dataset.client, domain = btn.dataset.d;
+  if (!confirm('Attach ' + domain + ' to "' + client + '"?')) return;
+  box.querySelector('.msg').textContent = 'Attaching…';
+  fetch('/api/domain/attach', {
+    method: 'POST', credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({domain: domain, client: client})
+  }).then(function (r) { return r.json(); }).then(function (rep) {
+    /* Every system, named. "Attached" and "attached in two of four places"
+       are different outcomes and one tick for both is not worth showing. */
+    var lines = (rep.written || []).map(function (w) { return '✓ ' + w.label + ' — ' + w.detail; })
+      .concat((rep.skipped || []).map(function (w) { return '— ' + w.label + ': ' + w.why; }));
+    box.querySelector('.hits').innerHTML = '';
+    box.querySelector('.msg').innerHTML = (rep.note || rep.error || '')
+      + '<br>' + lines.join('<br>');
+    ORPHANS = (ORPHANS || []).filter(function (r) { return r.domain !== domain; });
+  }).catch(function () {
+    box.querySelector('.msg').textContent = 'That did not go through.';
+  });
+}
+</script>
 {% endblock %}

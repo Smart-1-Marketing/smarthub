@@ -134,6 +134,22 @@ def suggest(limit: int = 2000, active_only: bool = True) -> dict:
             by_domain.setdefault(d, name)
         by_name.setdefault(_norm_name(name), name)
 
+    # object_153, read once. Each entry is {domain: {client, record_id, why}}
+    # and a record carrying a domain but nobody's name is deliberately absent:
+    # that is an orphan for the orphan list, not a match.
+    knack_by_domain: dict[str, dict] = {}
+    knack_error = ""
+    try:
+        from hub import knack_websites
+        for r in knack_websites.rows():
+            if r["domain"] and r["has_client"] and not _is_platform(r["domain"]):
+                knack_by_domain.setdefault(r["domain"], {
+                    "client": r["client"], "record_id": r["id"],
+                    "why": "The Knack website registry (object_153) records "
+                           f"this domain against “{r['client']}”."})
+    except Exception as exc:                            # noqa: BLE001
+        knack_error = f"{type(exc).__name__}: {exc}"[:160]
+
     all_rows = _site_rows()[:limit]
     if active_only:
         rows = [r for r in all_rows if is_active(r)]
@@ -173,6 +189,19 @@ def suggest(limit: int = 2000, active_only: bool = True) -> dict:
                             "client": hit, "confidence": "domain",
                             "why": "Exact domain match against the client "
                                    "registry."})
+            continue
+        # The Knack website registry, on the domain. object_153 pairs a URL
+        # domain (field_3111) with the client organisation (field_2924) or the
+        # client (field_3112), which is an exact identifier in the same way a
+        # registry domain is — and it covers the clients the Hub's own registry
+        # has no URL for, which is most of the ones still unmatched here.
+        reg = knack_by_domain.get(dom)
+        if reg:
+            matched.append({"project_id": pid, "site": site, "domain": dom,
+                            "client": reg["client"], "confidence": "domain",
+                            "source": "knack_registry",
+                            "record_id": reg.get("record_id", ""),
+                            "why": reg["why"]})
             continue
         # Fall back to a normalised name, reported separately because it is a
         # guess and should be eyeballed before being applied.
@@ -223,6 +252,10 @@ def suggest(limit: int = 2000, active_only: bool = True) -> dict:
         "unmatched_count": len(unmatched),
         "with_suggestions": sum(1 for u in unmatched if u.get("maybe")),
         "clients_with_domain": len(by_domain),
+        "registry_domains": len(knack_by_domain),
+        # Named rather than counted as zero: "Knack is down" and "Knack knows
+        # none of these domains" must never look alike.
+        "registry_error": knack_error,
         "note": "Nothing has been changed. A wrong internal_client_name is "
                 "worse than a blank one — it attributes revenue to the wrong "
                 "client and makes the billing audits disagree. Review these, "
@@ -236,23 +269,54 @@ def suggest(limit: int = 2000, active_only: bool = True) -> dict:
     }
 
 
-def apply(matches: list[dict], actor: str = "") -> dict:
-    """Write accepted matches. Takes an explicit list, never the whole set."""
+def apply(matches: list[dict], actor: str = "", force: bool = False) -> dict:
+    """Write accepted matches. Takes an explicit list, never the whole set.
+
+    A match is not one write. `internal_client_name` on the Simvoly project is
+    what the margin report reads, but a rep who matched a site here and then
+    opened Client 360 used to find it still saying "No website record matched"
+    — the join was real and invisible everywhere except the tool that made it.
+    So each accepted match goes through `hub/domain_links.attach()`, which
+    writes the Hub's client registry, the client's 360 record, the project and
+    the Knack website record, and reports each one separately.
+
+    A match with no domain (a name-confidence one on a project whose domain we
+    could not read) still writes the project, because that is the only system
+    that can be keyed on a project id.
+    """
+    saved, failed, reports = [], [], []
+    have_sites = True
     try:
         from modules.sites_admin import db as sdb
     except Exception as exc:                            # noqa: BLE001
-        return {"error": f"Sites module unavailable ({type(exc).__name__})."}
+        sdb, have_sites = None, False
+        sites_error = f"Sites module unavailable ({type(exc).__name__})."
 
-    saved, failed = [], []
     for m in matches or []:
         pid = str(m.get("project_id") or "").strip()
         client = str(m.get("client") or "").strip()
+        domain = canonical_domain(m.get("domain") or "")
         if not pid or not client:
             failed.append({"project_id": pid, "error": "missing id or client"})
             continue
+        if domain:
+            from hub.domain_links import attach
+            rep = attach(domain, client, actor=actor, force=force)
+            reports.append(rep)
+            if rep.get("ok"):
+                saved.append({"project_id": pid, "client": client,
+                              "domain": domain})
+            else:
+                failed.append({"project_id": pid,
+                               "error": rep.get("error")
+                               or "nothing could be written — see the detail"})
+            continue
+        if not have_sites:
+            failed.append({"project_id": pid, "error": sites_error})
+            continue
         try:
             sdb.save_meta(pid, internal_client_name=client)
-            saved.append({"project_id": pid, "client": client})
+            saved.append({"project_id": pid, "client": client, "domain": ""})
         except Exception as exc:                        # noqa: BLE001
             failed.append({"project_id": pid, "error": type(exc).__name__})
 
@@ -262,4 +326,14 @@ def apply(matches: list[dict], actor: str = "") -> dict:
                   saved=len(saved), failed=len(failed))
     except Exception:                                   # noqa: BLE001
         pass
-    return {"saved": len(saved), "failed": failed, "items": saved}
+    partial = [r for r in reports if r.get("skipped")]
+    return {"saved": len(saved), "failed": failed, "items": saved,
+            "reports": reports,
+            # Named rather than folded into the count: "linked" and "linked in
+            # two of four systems" are different outcomes, and one tick for
+            # both is how a rep learns not to trust the tick.
+            "note": (f"{len(saved)} match(es) written."
+                     + (f" {len(partial)} of them could not be written "
+                        "everywhere — open the detail to see which system and "
+                        "why." if partial else "")
+                     + (f" {len(failed)} failed." if failed else ""))}
