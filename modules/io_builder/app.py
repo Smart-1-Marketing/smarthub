@@ -1063,6 +1063,13 @@ def submit_io():
         "media_mix_recommendation": data.get("mediaMixRecommendation", {}),
         "naming_conventions": data.get("naming", {}),
         "campaign_owner": data.get("campaignOwner"),
+        # Which order this one supersedes, and the date that one stops. Both
+        # at the top level rather than only inside campaign_data: a Suite
+        # automation that has to close the old opportunity should not have to
+        # dig for the number, and an end date nobody read is an order that
+        # keeps billing.
+        "replaces_io": data.get("replacesIo") or "",
+        "replaces_io_end": data.get("replacesIoEnd") or "",
         "campaign_data": data
     }
 

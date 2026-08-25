@@ -1081,6 +1081,10 @@ def create_hub_app() -> Flask:
             return jsonify(io_prefill.from_last_io(client))
         if mode == "creative":
             return jsonify(io_prefill.creative_for(client))
+        if mode == "existing":
+            # What a New IO for this client might be replacing. Asked before
+            # the interview builds a second order that bills beside the first.
+            return jsonify(io_prefill.open_ios(client))
         return jsonify(io_prefill.from_client(client))
 
     @app.route("/api/io/from-proposal", methods=["POST"])
@@ -1127,11 +1131,16 @@ def create_hub_app() -> Flask:
                                        .get("term_months") or 0)))
             except (TypeError, ValueError):
                 months = 0
-            result["product_intake"] = product_intake.read_products(
+            rows = product_intake.read_products(
                 (result.get("fields") or {}).get("products_detail") or [],
                 months=months or 1)
-            result["intake_summary"] = product_intake.summary(
-                result["product_intake"])
+            # The card matches what it can by name; the model is asked about
+            # the rest. It suggests and never decides -- see the rules at the
+            # foot of hub/product_intake.py. A model that is off or slow costs
+            # the ordering of a candidate list and nothing else.
+            rows = product_intake.ai_match(rows)
+            result["product_intake"] = rows
+            result["intake_summary"] = product_intake.summary(rows)
             result["consulting_product"] = product_intake.CONSULTING["product"]
         except Exception as exc:                            # noqa: BLE001
             # A reader that works and an intake that does not is still worth
@@ -1139,6 +1148,15 @@ def create_hub_app() -> Flask:
             # failures, and record them.
             app.logger.warning("product intake failed: %s", exc)
             result["product_intake_error"] = str(exc)
+
+        # Flights the document disagrees with itself about, as questions the
+        # interview asks up front rather than as a note nobody reads.
+        try:
+            result["flight_questions"] = io_prefill.flight_questions(
+                result.get("fields") or {})
+        except Exception as exc:                            # noqa: BLE001
+            app.logger.warning("flight questions failed: %s", exc)
+            result["flight_questions"] = []
         return jsonify(result)
 
     @app.route("/api/products/classify", methods=["POST"])

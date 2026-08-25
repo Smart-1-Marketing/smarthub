@@ -120,6 +120,12 @@ td{padding:7px;border:1px solid var(--line);vertical-align:top}
 .upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.upload-box{border:1px solid var(--line);border-radius:8px;padding:14px}.upload-box.wide{grid-column:1/-1}
 .upload-box label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin:9px 0 4px}.upload-box select,.upload-box input,.upload-box textarea{width:100%;padding:9px;border:1px solid #b8c6d5;border-radius:6px;font:inherit}
 .upload-actions{display:flex;gap:8px;align-items:center;margin-top:12px}.upload-actions button{border:0;border-radius:7px;padding:10px 13px;font-weight:700;cursor:pointer}.upload-primary{background:var(--blue);color:#fff}.upload-secondary{background:#eef3f8;color:var(--navy)}
+/* The evergreen tick. A checkbox inherits .upload-box input's width:100%,
+   which stretches it across the panel and leaves the label orphaned beside
+   it -- hence the explicit width here rather than a rule somewhere general. */
+.evergreen-check{display:flex;gap:9px;align-items:flex-start;margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:7px;background:#f7fafd;cursor:pointer;font-weight:400}
+.evergreen-check input[type=checkbox]{width:16px;height:16px;flex:0 0 auto;margin-top:2px;padding:0}
+.evergreen-check small{color:var(--muted);font-weight:400}
 .asset-list{margin-top:16px}.asset-item{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:9px}.asset-top{display:flex;justify-content:space-between;gap:12px}.ok{color:#157347;font-weight:700}.warn{color:#a15c00;font-weight:700}.pending{color:#66758a;font-weight:700}
 .progress-line{height:7px;background:#e8edf3;border-radius:9px;overflow:hidden;margin-top:8px}.progress-line div{height:100%;background:var(--blue);width:0}.tiny{font-size:11px;color:var(--muted);line-height:1.4}.url-field{display:flex;gap:6px;margin-top:7px}.url-field input{flex:1}.brand-colors{display:flex;flex-wrap:wrap;gap:8px}.brand-color{display:inline-flex;align-items:center;gap:5px;font-size:11px}.brand-swatch{width:18px;height:18px;border:1px solid #9aa7b5;border-radius:3px}.brand-logo-img{max-width:180px;max-height:80px;display:block;margin:4px 0}.creative-thumb{width:64px;height:48px;object-fit:contain;border:1px solid #d5dee9;border-radius:4px;background:#fff;margin-bottom:4px}
 @media(max-width:780px){.upload-grid{grid-template-columns:1fr}.upload-box.wide{grid-column:auto}}
@@ -338,9 +344,13 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
   <div class="section">
    <div class="section-title">Creative Assets</div>
    <table>
-    <thead><tr><th>Product</th><th>File</th><th>Status</th><th>Validation</th><th>Asset URL</th></tr></thead>
-    <tbody id="creativeRows"><tr><td colspan="5" class="empty">No creative assets uploaded yet.</td></tr></tbody>
+    <thead><tr><th>Product</th><th>File</th><th>Status</th><th>Evergreen</th><th>Validation</th><th>Asset URL</th></tr></thead>
+    <tbody id="creativeRows"><tr><td colspan="6" class="empty">No creative assets uploaded yet.</td></tr></tbody>
    </table>
+   <!-- The internal PDF has carried an Evergreen column since it was written.
+        The table on screen did not, so the one place a rep checks their own
+        order disagreed with the document they sent. -->
+   <div class="tiny" id="evergreenNote" style="margin-top:6px"></div>
   </div>
 
   <div class="section">
@@ -644,7 +654,21 @@ const state={
  targetAreas:[],targetAreaName:"",
  geoType:"",geoOrigin:"",geoRadius:"",geoDMA:"",geoState:"",geoOther:"",geoZipcodes:"",geo:"",industry:"",descriptionMode:"",description:"",
  sameDates:null,start:"",end:"",dayparting:"",objectives:[],kpis:[],creativeSource:"",gender:"",ages:[],income:[],audiences:[],audienceNotes:"",
- selectedCategories:[],currentCategory:"",selected:[],items:[],creativeAssets:[],creativeChecklist:{},internalWarnings:[],generatedDocuments:{},aiDescription:"",exclusions:"",strategy:{},recommendations:[],managementFee:"",creativeFee:"",campaignOwner:"",specialInstructions:"",frequencyCap:"",trackingPlan:{primaryConversion:"",secondaryConversions:[],ga4:"",gtm:"",callTracking:"",thankYouPage:"",offlineImport:"",verifier:""},guardrailWarnings:[],mediaMixRecommendation:{},mediaMixDecision:"",naming:{}
+ selectedCategories:[],currentCategory:"",selected:[],items:[],creativeAssets:[],creativeChecklist:{},internalWarnings:[],generatedDocuments:{},aiDescription:"",exclusions:"",strategy:{},recommendations:[],managementFee:"",creativeFee:"",campaignOwner:"",specialInstructions:"",frequencyCap:"",trackingPlan:{primaryConversion:"",secondaryConversions:[],ga4:"",gtm:"",callTracking:"",thankYouPage:"",offlineImport:"",verifier:""},guardrailWarnings:[],mediaMixRecommendation:{},mediaMixDecision:"",naming:{},
+ /* What the proposal left for a person to settle. All of it lives on state
+    rather than on PROPOSAL so that Back restores it and so that it reaches
+    the submitted order -- a decision a rep made about the document is part
+    of the record of what was agreed.
+      proposalKeep     the products staying on this IO. Everything the
+                       reader found is ticked; unticking one drops it before
+                       the walk asks a single question about it.
+      productDates     per-product flights the document stated separately
+                       from the campaign's.
+      replacesIo       the order this one supersedes, and the date that one
+                       stops. Never derived from this campaign's start. */
+ proposalKeep:[],proposalRosterDone:false,proposalNotes:[],productDates:{},
+ replacesIo:"",replacesIoEnd:"",proposalReplaceAsked:false,monthlyBudgetAgreed:0,
+ proposalConflictIx:0,proposalFlightIx:0,proposalNoteIx:0
 };
 
 let flow=[],index=0,currentProduct=0,tempItem=null,finished=false;
@@ -652,8 +676,50 @@ const messages=document.getElementById("messages"),answer=document.getElementByI
 
 function baseFlow(){
  return[
+  /* =====================================================================
+     WHAT THE DOCUMENT LEFT UNSETTLED — asked before anything else
+
+     A proposal that has just been read raises questions of its own: two
+     figures for one budget, a product with its own flight, a line the rate
+     card cannot name. Those used to arrive as bullets printed under the
+     summary — "• which is the agreed figure?" — and then the interview asked
+     what kind of IO this was, for another twenty questions, and nobody ever
+     answered the bullets. They are not notes. They are the decisions every
+     later question is built on: what the monthly budget is decides what each
+     product's budget is checked against, which products are staying decides
+     what is walked, and the flights decide whether the campaign has shared
+     dates at all.
+
+     So they are asked first, and each one changes what follows.
+     ===================================================================== */
+  {key:"proposalKeep",q:"",multi:true,condition:()=>rosterPending(),
+   dynamicOptions:rosterOptions},
+  {key:"proposalBudget",q:"",condition:()=>!!pendingConflict()},
+  {key:"proposalFlight",q:"",condition:()=>!!pendingFlight()},
+  {key:"proposalNote",q:"",condition:()=>!!pendingNote()},
+  /* ---- what the proposal quoted, one product at a time ----
+     Only when a proposal was read and left something to settle. These used
+     to be a sentence -- "Not on the rate card, so not selected: X, Y. Add
+     the matching product yourself" -- printed once into a chat log the rep
+     scrolls past. The client agreed to those products; stating them and
+     moving on is how they failed to reach the document that bills. */
+  {key:"intakeMode",q:"",condition:()=>intakeRows().length>0&&!PROPOSAL.intakeMode,
+   options:["Walk me through them one at a time","Fill in what you can, ask only what you can't"]},
+  {key:"intakeProduct",q:"",condition:()=>intakeActive()},
+  {key:"intakeDescribe",q:"",condition:()=>intakeActive()&&intakeNeeds("description")},
+  {key:"intakeBasis",q:"",condition:()=>intakeActive()&&intakeNeeds("basis"),
+   options:["Monthly","One time"]},
+  {key:"intakeTerm",q:"",condition:()=>intakeActive()&&intakeNeeds("term_months")},
+  {key:"intakeAmount",q:"",condition:()=>intakeActive()&&intakeNeeds("amount")},
+  {key:"intakeNext",q:"",condition:()=>intakeActive()},
   {key:"ioType",q:"Is this a New IO or a Revised IO?",options:["New IO","Revised IO"]},
   {key:"existingOrderNumber",q:"What is the existing order number?",condition:()=>state.ioType==="Revised IO"},
+  /* A New IO for a client who already has one is usually a replacement, and
+     nothing asked — so both orders stayed open and the client was billed for
+     two campaigns. Only offered when we can actually list their orders; a
+     question whose options we could not load is worse than no question. */
+  {key:"replacesIo",q:"",condition:()=>replacePending(),dynamicOptions:replaceOptions},
+  {key:"replacesIoEnd",q:"",condition:()=>!!state.replacesIo&&!state.replacesIoEnd},
   {key:"salesContact",q:"Who is the Sales / Contact person?"},
   {key:"salesEmail",q:"What is their email address?"},
   {key:"partner",q:"What is the media partner name?",default:"Smart 1 Marketing"},
@@ -662,6 +728,13 @@ function baseFlow(){
   {key:"end",q:"What is the shared campaign end date? Use MM/DD/YYYY.",condition:()=>state.sameDates===true},
   {key:"dayparting",q:"Is there any dayparting for the campaigns?",options:daypartOptions},
   {key:"client",q:"What is the client name?"},
+  /* The same pair again. On a proposal conversion the client is known before
+     the IO type is asked and the questions above do the work; on a blank IO
+     nobody knows who this is until here, and a replacement question that
+     only fires down one of the two paths is one that quietly stops
+     happening. `proposalReplaceAsked` makes it at most once either way. */
+  {key:"replacesIo",q:"",condition:()=>replacePending(),dynamicOptions:replaceOptions},
+  {key:"replacesIoEnd",q:"",condition:()=>!!state.replacesIo&&!state.replacesIoEnd},
   {key:"url",q:"What is the client's website URL?"},
   {key:"clientContactName",q:"Who is the client contact (the person the opportunity belongs to in Smart 1 Suite)? Type NONE to skip."},
   {key:"clientContactEmail",q:"What is the client contact's email? Smart 1 Suite needs an email or phone to create the opportunity. Type NONE to skip."},
@@ -688,21 +761,6 @@ function baseFlow(){
   {key:"income",q:"Which household income levels should be targeted? Select all that apply, then choose Continue.",multi:true,options:incomeOptions},
   {key:"audiences",q:"Which audiences should be targeted? Select all that apply, or add the SMART1 suggestions, then choose Continue.",multi:true,dynamicOptions:suggestedAudienceOptions},
   {key:"audienceNotes",q:"Add any custom audience notes or type NONE."},
-  /* ---- what the proposal quoted, one product at a time ----
-     Only when a proposal was read and left something to settle. These used
-     to be a sentence -- "Not on the rate card, so not selected: X, Y. Add
-     the matching product yourself" -- printed once into a chat log the rep
-     scrolls past. The client agreed to those products; stating them and
-     moving on is how they failed to reach the document that bills. */
-  {key:"intakeMode",q:"",condition:()=>intakeRows().length>0&&!PROPOSAL.intakeMode,
-   options:["Walk me through them one at a time","Fill in what you can, ask only what you can't"]},
-  {key:"intakeProduct",q:"",condition:()=>intakeActive()},
-  {key:"intakeDescribe",q:"",condition:()=>intakeActive()&&intakeNeeds("description")},
-  {key:"intakeBasis",q:"",condition:()=>intakeActive()&&intakeNeeds("basis"),
-   options:["Monthly","One time"]},
-  {key:"intakeTerm",q:"",condition:()=>intakeActive()&&intakeNeeds("term_months")},
-  {key:"intakeAmount",q:"",condition:()=>intakeActive()&&intakeNeeds("amount")},
-  {key:"intakeNext",q:"",condition:()=>intakeActive()},
   {key:"productCategory",q:"Choose a product category.",options:productCategories},
   {key:"selected",q:"Choose all products needed from this category, then choose Continue.",multi:true,dynamicOptions:()=>productsForCategory(state.currentCategory)},
   {key:"moreCategory",q:"Would you like to add products from another category?",options:["Yes","No"]},
@@ -724,6 +782,122 @@ function baseFlow(){
  ];
 }
 /* ============================================================
+   WHAT THE PROPOSAL LEFT UNSETTLED
+
+   Four queues, each drained before the interview proper begins, each one
+   changing what the interview then asks:
+
+     keep       which of the products the reader found are staying on this
+                IO. Asked FIRST, because every question after it is about a
+                product — and asking "is this monthly or one-time?" about a
+                line the rep was never going to bill is the fastest way to
+                teach them to stop reading the questions.
+     conflicts  two figures for one number. The reader refuses to choose
+                between them (hub/io_prefill.py), so a person does.
+     flights    a product the document gave its own dates, or gave a window
+                with no year in it. Confirmed or supplied, never computed.
+     notes      the reader's own open questions. These genuinely are notes —
+                they are about the document rather than about a line that has
+                to reach the IO — but they are asked rather than printed, so
+                the answer is written down somewhere.
+
+   Every answer is kept on `state`, so Back restores it and the finished order
+   carries it. A decision a rep made about a document nobody else will re-read
+   is part of the record of what was agreed.
+   ============================================================ */
+
+/* ---- which products are staying ------------------------------------ */
+function rosterPending(){return intakeRows().length>0&&!state.proposalRosterDone;}
+function rosterOptions(){return intakeRows().map(e=>e.query).filter(Boolean);}
+function intakeDropped(e){
+ return !!state.proposalRosterDone&&!(state.proposalKeep||[]).includes(e&&e.query);
+}
+/* The line as the proposal wrote it, with what we make of it beside it. The
+   rep is deciding whether to bill this, so the price is not optional detail. */
+function rosterLabel(name){
+ const e=intakeRows().find(x=>x.query===name);
+ if(!e)return name;
+ const bits=[];
+ if(e.amount>0)bits.push(money(e.amount));
+ if(e.product)bits.push("→ "+intakeShortName(e.product));
+ else if(e.suggested)bits.push("→ "+intakeShortName(e.suggested)+"?");
+ else bits.push("not on the rate card");
+ return name+" ("+bits.join(" · ")+")";
+}
+function rosterQuestion(q){
+ const rows=intakeRows(),n=rows.length;
+ return {...q,q:`The proposal names ${n} product${n===1?"":"s"}. Untick anything that is NOT going on this insertion order — I'll drop it now rather than asking you ${n===1?"a question":"questions"} about it. Everything left ticked, I'll walk one at a time.`};
+}
+
+/* ---- a figure the document gave twice ------------------------------ */
+/* Each queue is walked by a counter ON STATE rather than by shifting the
+   array. The Back button restores state and nothing else, so a queue that
+   consumed its own head could never be re-entered: pressing Back would land
+   on the question AFTER the one you came back to look at. That is worse than
+   no Back button, because it looks like it worked. */
+function pendingConflict(){return (PROPOSAL.conflicts||[])[state.proposalConflictIx||0]||null;}
+function conflictQuestion(q){
+ const c=pendingConflict();if(!c)return q;
+ return {...q,q:c.question,options:(c.options||[]).map(v=>"$"+v),
+         suggestion:c.suggested||undefined};
+}
+
+/* ---- a product with its own flight --------------------------------- */
+function pendingFlight(){return (PROPOSAL.flights||[])[state.proposalFlightIx||0]||null;}
+function flightQuestion(q){
+ const f=pendingFlight();if(!f)return q;
+ if(f.kind==="stated")
+  return {...q,q:f.question,options:["Yes — use those dates",
+    "No — use the campaign dates","I'll type the dates"]};
+ /* Nothing here to confirm. A month with no year is not a date, and turning
+    one into a date is a launch nobody agreed to. */
+ return {...q,q:f.question+"\n\nType them as MM/DD/YYYY to MM/DD/YYYY, or type SKIP to use the campaign dates."};
+}
+
+/* ---- the reader's own questions ------------------------------------ */
+function pendingNote(){return (PROPOSAL.notes||[])[state.proposalNoteIx||0]||null;}
+function noteQuestion(q){
+ const n=pendingNote();if(!n)return q;
+ return {...q,q:n+"\n\nType the answer, or SKIP if it doesn't apply. Whatever you say is filed on the order."};
+}
+
+/* ---- the order this one replaces ------------------------------------ */
+/* Only when there is something to replace AND we could read it. REPLACE.ios
+   is filled by a background lookup; REPLACE.checked says the lookup finished.
+   Asking "which order does this replace?" with an empty list is a question
+   with no answers, which reads as a broken screen. */
+var REPLACE={checked:false,ios:[],error:""};
+const REPLACE_NONE="No — this doesn't replace anything";
+function replacePending(){
+ return state.ioType==="New IO"&&REPLACE.checked&&REPLACE.ios.length>0
+   &&!state.proposalReplaceAsked;
+}
+function replaceOptions(){
+ return REPLACE.ios.map(r=>r.label).concat([REPLACE_NONE]);
+}
+function replaceQuestion(q){
+ const n=REPLACE.ios.length;
+ return {...q,q:`${state.client||"This client"} already has ${n} insertion order${n===1?"":"s"} on file. Does this new IO replace one of them? Leaving the old one open bills both campaigns.`};
+}
+function replaceEndQuestion(q){
+ return {...q,q:`What date should ${state.replacesIo} end? It runs until that date whatever this IO does — I won't assume the day before this campaign starts, because overlapping on purpose is common.`};
+}
+
+/* Their existing orders, looked up in the background as soon as we know who
+   the client is. A hub route, so no script root — see the mount note above. */
+function loadExistingIOs(client){
+ if(!client||REPLACE.checked)return Promise.resolve();
+ return fetch("/api/io/prefill?mode=existing&client="+encodeURIComponent(client),
+       {credentials:"same-origin"})
+  .then(r=>r.json())
+  .then(d=>{REPLACE.checked=true;REPLACE.ios=(d&&d.ios)||[];REPLACE.error=(d&&d.error)||"";})
+  /* A lookup that failed is not "they have no orders". The question simply
+     does not get asked, which is the honest outcome — but it is recorded so
+     /diagnostics is not the only place it shows. */
+  .catch(err=>{REPLACE.checked=true;REPLACE.ios=[];REPLACE.error=String(err&&err.message||err);});
+}
+
+/* ============================================================
    PROPOSAL PRODUCT INTAKE
    Every product the reader pulled out of a proposal, asked about one at a
    time. Mirrors hub/product_intake.py, which the server fills in on
@@ -744,7 +918,16 @@ const CONSULTING_PRODUCT="Consulting & Strategic Services";
 const INTAKE_SKIP="Not on this IO — leave it off";
 
 function intakeRows(){return (PROPOSAL&&PROPOSAL.intake)||[];}
-function intakeCurrent(){const r=intakeRows();return r[PROPOSAL.intakeIx||0]||null;}
+/* Walks past anything the roster question dropped. `dropped` and `skipped`
+   are deliberately different things: dropped is a decision made up front
+   about a line nobody intends to bill, skipped is one made during the walk.
+   Collapsing them would lose which questions were actually answered. */
+function intakeCurrent(){
+ const r=intakeRows();let i=PROPOSAL.intakeIx||0;
+ while(i<r.length&&intakeDropped(r[i]))i++;
+ PROPOSAL.intakeIx=i;
+ return r[i]||null;
+}
 function intakeActive(){return !!intakeCurrent();}
 
 /* What the current product still needs. Order matters: the product has to be
@@ -794,7 +977,18 @@ function intakeQuestion(q){
   const lead=(e.status==="near")
    ? `${head}the proposal quoted “${name}”. Which rate-card product is that?`
    : `${head}“${name}” is not on the rate card. Add it as ${CONSULTING_PRODUCT}, or pick the product it matches.`;
-  return {...q,q:lead+(e.amount?`\n\nThe proposal shows ${money(e.amount)} against it.`:""),options:opts};
+  /* A product name a proposal wrote for a client and a product name the card
+     wrote for billing rarely share words, so the model is asked which card
+     line is the same thing. Named as its suggestion and offered first, never
+     pre-selected: the wrong product on an IO is the error a rep cannot spot
+     later, and one that arrived already ticked is the one they scroll past.
+     Where the model said nothing, this reads exactly as it did before. */
+  const hint=e.suggested
+   ? `\n\nClosest match I can find: ${intakeShortName(e.suggested)}`
+     +(e.suggested_why?` — ${e.suggested_why}`:"")
+     +`. Confirm it or choose another.`
+   : "";
+  return {...q,q:lead+(e.amount?`\n\nThe proposal shows ${money(e.amount)} against it.`:"")+hint,options:opts};
  }
  if(q.key==="intakeProduct"){
   /* Matched outright. Still shown, still confirmable -- a rep who knows the
@@ -1098,6 +1292,7 @@ function showOptions(opts){
 }
 
 function multiArrayFor(key){
+ if(key==="proposalKeep")return state.proposalKeep;
  if(key==="objectives")return state.objectives;
  if(key==="kpis")return state.kpis;
  if(key==="ages")return state.ages;
@@ -1109,6 +1304,7 @@ function multiArrayFor(key){
 }
 function optionLabel(key,value){
  if(key==="selected")return ((productConfig[value]||{}).product||value);
+ if(key==="proposalKeep")return rosterLabel(value);
  return value;
 }
 function toggleMultiValue(key,value,checked){
@@ -1178,9 +1374,62 @@ function showMultiOptions(q,opts){
  messages.scrollTop=messages.scrollHeight;
 }
 function completeMultiQuestion(q){
- if(selectedCountFor(q)<1){addMsg("Please select at least one option before continuing.");return}
+ /* Every other multi-select needs at least one answer. This one does not: a
+    proposal whose products are all going somewhere else is a real answer, and
+    refusing it would leave the rep unticking nine of ten and then stuck. */
+ if(q.key!=="proposalKeep"&&selectedCountFor(q)<1){addMsg("Please select at least one option before continuing.");return}
  document.querySelectorAll(".multi-panel").forEach(x=>x.remove());
+ if(q.key==="proposalKeep")finishRoster();
  index++;render();ask();
+}
+
+/* Closing the roster. Says what was dropped as well as what was kept —
+   "8 products" tells a rep nothing about the two that left. */
+function finishRoster(){
+ state.proposalRosterDone=true;
+ const rows=intakeRows();
+ const dropped=rows.filter(e=>!(state.proposalKeep||[]).includes(e.query));
+ const kept=rows.length-dropped.length;
+ if(dropped.length)
+  addMsg(`Left off this IO: ${dropped.map(e=>e.query).join(", ")}. I won't ask about ${dropped.length===1?"it":"them"} again.`);
+ addMsg(kept
+  ? `${kept} product${kept===1?"":"s"} to settle. I'll take ${kept===1?"it":"them"} one at a time — what each one is, whether it's monthly or one-time, and for how long.`
+  : "Nothing from the proposal is going on this IO. You can still add products from the categories later.");
+ /* A dropped product comes off the selection, or the media plan carries a
+    line for something nobody is buying. Its quoted price stays in
+    PROPOSAL.budgets: that is what the proposal said, it is still true, and
+    deleting it would mean a rep who un-drops the product — or presses Back —
+    is asked for a budget the document already gave. */
+ dropped.forEach(e=>{
+  const label=(typeof cardLabelFor==="function"&&cardLabelFor(e.product||e.query))||"";
+  if(!label)return;
+  state.selected=state.selected.filter(x=>x!==label);
+ });
+ state.selectedCategories=state.selectedCategories.filter(c=>
+  state.selected.some(k=>(productConfig[k]||{}).category===c));
+}
+
+/* A per-product flight, kept where the product loop can offer it back. */
+function setProductDates(product,start,end){
+ const label=(typeof cardLabelFor==="function"&&cardLabelFor(product))||product;
+ state.productDates[label]={start:start||"",end:end||""};
+ /* The campaign no longer has one flight, and the question that asks whether
+    it does must not be answered "Yes" on its behalf. */
+ if(state.sameDates===true){
+  state.sameDates=false;
+  delete PROPOSAL.filled.sameDates;
+  addMsg("Because at least one product runs its own dates, I'll ask for dates product by product rather than once for the campaign.");
+ }
+}
+
+/* MM/DD/YYYY or YYYY-MM-DD in, ISO out. Anything else comes back unchanged
+   rather than becoming a plausible wrong date. */
+function normaliseDate(v){
+ const t=String(v||"").trim();
+ if(/^\d{4}-\d{2}-\d{2}$/.test(t))return t;
+ const m=t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+ if(!m)return t;
+ return `${m[3]}-${String(m[1]).padStart(2,"0")}-${String(m[2]).padStart(2,"0")}`;
 }
 function cancelProductCategory(q){
  document.querySelectorAll(".multi-panel").forEach(x=>x.remove());
@@ -1197,6 +1446,12 @@ function question(){
   }
 
   if(String(q.key||"").indexOf("intake")===0)return intakeQuestion(q);
+  if(q.key==="proposalKeep")return rosterQuestion(q);
+  if(q.key==="proposalBudget")return conflictQuestion(q);
+  if(q.key==="proposalFlight")return flightQuestion(q);
+  if(q.key==="proposalNote")return noteQuestion(q);
+  if(q.key==="replacesIo")return replaceQuestion(q);
+  if(q.key==="replacesIoEnd")return replaceEndQuestion(q);
 
   if(q.key==="targetAreaName"){
    const n=(state.targetAreas||[]).length;
@@ -1315,6 +1570,15 @@ function question(){
    return{...q,q:`Does this campaign run anywhere else?${summary}`};
   }
 
+  /* Two things already write here before this question is asked: a consulting
+     line's description (intakeCommit) and the order this IO replaces. The
+     generic answer handler assigns, so answering this question threw both
+     away — silently, on the field trafficking actually reads. Shown, and
+     appended to. */
+  if(q.key==="specialInstructions"&&state.specialInstructions){
+   return{...q,q:`Already on this order:\n${state.specialInstructions}\n\nAdd any further product or trafficking special instructions — I'll keep what's above. Type NONE to add nothing.`};
+  }
+
   if(q.key==="generatedDescription"){
    const suggestion=buildBusinessDescription();
    return{key:"generatedDescription",q:`SMART1 suggests:
@@ -1327,8 +1591,19 @@ Type Y to use this description, or enter your own.`,suggestion};
  if(currentProduct<state.selected.length){
   const product=state.selected[currentProduct],cfg=productConfig[product];
   if(!tempItem)tempItem={product,budget:null,rate:null,budgetChangesAsked:null,budgetChanges:[],pendingBudgetChange:null,start:state.sameDates?state.start:"",end:state.sameDates?state.end:"",landingUrl:state.landingMode==="One landing page"?state.landingUrl:"",listedRate:cfg.listedRate,description:cfg.description,requirements:cfg.requirements,timeline:cfg.timeline};
-  if(!state.sameDates&&!tempItem.start)return{key:"productStart",q:`What is the campaign start date for ${cfg.product}? Use MM/DD/YYYY.`};
-  if(!state.sameDates&&!tempItem.end)return{key:"productEnd",q:`What is the campaign end date for ${cfg.product}? Use MM/DD/YYYY.`};
+  /* A flight the proposal stated for this product, offered back rather than
+     re-typed. It got there through the flight question at the top of the
+     interview, so it has already been confirmed once by a person -- which is
+     the difference between a suggestion and a value read off a document. */
+  const quoted=(state.productDates||{})[product]||{};
+  if(!state.sameDates&&!tempItem.start)return{key:"productStart",
+    q:`What is the campaign start date for ${cfg.product}? Use MM/DD/YYYY.`
+      +(quoted.start?` The proposal has it starting ${quoted.start}.`:""),
+    suggestion:quoted.start||undefined};
+  if(!state.sameDates&&!tempItem.end)return{key:"productEnd",
+    q:`What is the campaign end date for ${cfg.product}? Use MM/DD/YYYY.`
+      +(quoted.end?` The proposal has it ending ${quoted.end}.`:""),
+    suggestion:quoted.end||undefined};
   if(state.landingMode==="Multiple landing pages by product"&&!tempItem.landingUrl)return{key:"productLandingUrl",q:`What landing-page URL should be used for ${cfg.product}?`};
   if(tempItem.budget===null){
    /* A price read off the proposal beats the rate card's own suggestion here,
@@ -1378,7 +1653,7 @@ function ask(){
  }
  inputRow.style.display="flex";
  if(opts)showOptions(opts.filter(Boolean));
- const isDate=["start","end","productStart","productEnd","budgetChangeStart","budgetChangeEnd"].includes(q.key);
+ const isDate=["start","end","productStart","productEnd","budgetChangeStart","budgetChangeEnd","replacesIoEnd"].includes(q.key);
  const answerControl=document.querySelector(".answer-control");
  const calendarButton=document.getElementById("calendarButton");
  answer.type=isDate?"date":"text";
@@ -1420,13 +1695,86 @@ async function submit(raw){
  addMsg(val,"user");
 
  
+ /* ---- the questions the document raised, answered ------------------ */
+ if(q.key==="proposalBudget"){
+  const n=num(val);
+  if(!(n>0)){addMsg("⚠ Enter the agreed monthly budget as a number, for example 6525.");ask();return}
+  state.monthlyBudgetAgreed=n;
+  PROPOSAL.filled.monthly_budget=String(n);
+  state.proposalConflictIx=(state.proposalConflictIx||0)+1;
+  addMsg(`Agreed monthly budget recorded as ${money(n)}. Every product budget below is checked against it.`);
+  render();ask();return
+ }
+ if(q.key==="proposalFlight"){
+  const f=pendingFlight();
+  if(f){
+   const iso=String(val).match(/\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4}/g)||[];
+   if(/^(skip|no)\b/i.test(val)||/campaign dates/i.test(val)){
+    addMsg(`${intakeShortName(f.product)} will use the campaign dates.`);
+   }else if(f.kind==="stated"&&/^y/i.test(val)){
+    setProductDates(f.product,f.start,f.end);
+    addMsg(`${intakeShortName(f.product)} runs ${f.start} to ${f.end}.`);
+   }else if(iso.length>=2){
+    setProductDates(f.product,normaliseDate(iso[0]),normaliseDate(iso[1]));
+    addMsg(`${intakeShortName(f.product)} runs ${normaliseDate(iso[0])} to ${normaliseDate(iso[1])}.`);
+   }else{
+    addMsg("⚠ Give both dates as MM/DD/YYYY to MM/DD/YYYY, or type SKIP to use the campaign dates.");ask();return
+   }
+   state.proposalFlightIx=(state.proposalFlightIx||0)+1;
+  }
+  render();ask();return
+ }
+ if(q.key==="proposalNote"){
+  const n=pendingNote();
+  if(n){
+   const ix=state.proposalNoteIx||0;
+   /* Written at its own index, not pushed. Back and re-answer would otherwise
+      file the same question twice with two different answers on the order. */
+   state.proposalNotes[ix]=/^skip$/i.test(val)?null:{question:n,answer:val};
+   state.proposalNoteIx=ix+1;
+  }
+  render();ask();return
+ }
+
  if(q.key==="ioType"){
   state.ioType=val;
   if(val==="New IO"){
    addMsg("Creating the next order number…");
    try{await allocateOrderNumber();addMsg(`Order ${state.orderNumber} created.`)}
    catch(err){addMsg(`Order number warning: ${err.message}`)}
+   /* Awaited, not fired off: the replacement question is two questions away
+      and a lookup still in flight when it comes round means the question is
+      silently skipped for a client who does have orders. */
+   if(state.client)try{await loadExistingIOs(state.client)}catch(err){}
   }
+  index++;render();ask();return
+ }
+ if(q.key==="client"){
+  state.client=val;
+  if(state.ioType==="New IO")try{await loadExistingIOs(val)}catch(err){}
+  index++;render();ask();return
+ }
+ if(q.key==="replacesIo"){
+  state.proposalReplaceAsked=true;
+  if(val===REPLACE_NONE||/^(no|none|n)$/i.test(val)){
+   state.replacesIo="";state.replacesIoEnd="";
+   render();ask();return
+  }
+  const row=REPLACE.ios.find(r=>r.label===val)
+    ||REPLACE.ios.find(r=>String(val).indexOf(r.io)>=0);
+  if(!row){addMsg("⚠ Choose one of the orders listed, or "+REPLACE_NONE+".");ask();return}
+  state.replacesIo=row.io;
+  addMsg(`This IO replaces ${row.label}.`);
+  render();ask();return
+ }
+ if(q.key==="replacesIoEnd"){
+  state.replacesIoEnd=val;
+  /* Written where trafficking reads it, not only into a field on a payload.
+     An order that has to be stopped by a person is stopped by a person who
+     was told. */
+  const line=`Replaces IO ${state.replacesIo} — that order ends ${val}.`;
+  state.specialInstructions=state.specialInstructions?state.specialInstructions+"\n"+line:line;
+  addMsg(line);
   index++;render();ask();return
  }
  if(q.key==="existingOrderNumber"){
@@ -1555,6 +1903,11 @@ async function submit(raw){
   tempItem.pendingBudgetChange=null;tempItem.budgetChangesAsked=false;ask();return
  }
 
+ if(q.key==="specialInstructions"){
+  const extra=val.toUpperCase()==="NONE"?"":val;
+  state.specialInstructions=[state.specialInstructions,extra].filter(Boolean).join("\n");
+  index++;render();ask();return
+ }
  if(q.key==="productBudget"){tempItem.budget=num(val);ask();return}
  if(q.key==="productRate"){tempItem.rate=num(val);ask();return}
 
@@ -1934,7 +2287,7 @@ function render(){
  state.items.forEach(recalculateItem);
  if(typeof updateLiveTotals==="function")updateLiveTotals();
  text("f-landing-pages",state.landingMode==="One landing page"?(state.landingUrl||"—"):state.items.map(i=>`${(productConfig[i.product]||{}).product||i.product}: ${i.landingUrl||"—"}`).join("\n"));
- text("f-date",state.date);text("f-io-type",state.ioType);text("f-order-number",state.orderNumber);text("f-partner",state.partner);text("f-sales-contact",state.salesContact);text("f-sales-email",state.salesEmail);text("f-client",state.client);text("f-url",state.url);
+ text("f-date",state.date);text("f-io-type",state.ioType+(state.replacesIo?` — replaces IO ${state.replacesIo}${state.replacesIoEnd?` (ends ${state.replacesIoEnd})`:""}`:""));text("f-order-number",state.orderNumber);text("f-partner",state.partner);text("f-sales-contact",state.salesContact);text("f-sales-email",state.salesEmail);text("f-client",state.client);text("f-url",state.url);
  const b=state.brandfetch||{};text("f-brand-name",b.name);text("f-brand-domain",b.domain||normalizeWebsiteDomain(state.url));text("f-brand-description",b.description);const colorEl=document.getElementById("f-brand-colors");if(colorEl)colorEl.innerHTML=(b.colors||[]).length?`<div class="brand-colors">${(b.colors||[]).map(c=>`<span class="brand-color"><span class="brand-swatch" style="background:${esc(c)}"></span>${esc(c)}</span>`).join("")}</div>`:"—";text("f-brand-fonts",(b.fonts||[]).join(", "));
  const logoEl=document.getElementById("f-brand-logo");if(logoEl)logoEl.innerHTML=b.logo?`<a href="${esc(b.logo)}" target="_blank"><img class="brand-logo-img" src="${esc(b.logo)}" alt="Brand logo">Open full logo</a><br><small>${esc(b.logo)}</small>`:"—";
  const linksEl=document.getElementById("f-brand-links");if(linksEl)linksEl.innerHTML=(b.links||[]).length?(b.links||[]).map(x=>{const u=typeof x==="string"?x:(x.url||"");const n=typeof x==="string"?x:((x.name?x.name+": ":"")+u);return u?`<a href="${esc(u)}" target="_blank">${esc(n)}</a>`:esc(n)}).join("<br>"):"—";
@@ -2372,7 +2725,11 @@ function toggleUploadFields(){document.getElementById("uploadFields").style.disp
 function clearCreativeForm(){document.getElementById("creativeFiles").value="";const ev=document.getElementById("creativeEvergreen");if(ev)ev.checked=false;document.getElementById("creativeNote").value="";document.getElementById("creativeStatus").value="upload";toggleUploadFields()}
 async function checkUploadConnection(){
  const el=document.getElementById("uploadConnection");
- try{const r=await fetch('{{ request.script_root }}/api/cloudinary-config');if(!r.ok)throw new Error();const d=await r.json();el.innerHTML=`<strong>Cloudinary connected:</strong> ${esc(d.cloud_name||CLOUDINARY_CLOUD_NAME)}`;el.style.borderLeftColor="#178653"}
+ /* The check is still the storage config — it is the only thing that can
+    answer "will this upload work". What comes back is the ANSWER, not the
+    vendor and not the account name: neither is something a rep can act on,
+    and this panel is screenshotted into chats. */
+ try{const r=await fetch('{{ request.script_root }}/api/cloudinary-config');if(!r.ok)throw new Error();await r.json();el.innerHTML='<strong>Upload connection ready.</strong> Files added here are stored and attached to this order.';el.style.borderLeftColor="#178653"}
  catch(e){el.innerHTML='<strong>Upload server not connected.</strong> Open this builder through the included SMART1 server rather than as a standalone HTML file.';el.style.borderLeftColor="#e5a323"}
 }
 function fileExtension(name){return String(name).split('.').pop().toLowerCase()}
@@ -2457,7 +2814,11 @@ async function attachFromGallery(imageId){
  state.creativeAssets.push({id:`gallery_${img.id}_${Date.now()}`,product,fileName:img.filename||`Gallery image ${img.id}`,
   status:"uploaded",spec,validation:spec.summary,validationStatus:spec.result,url:img.url,publicId:img.public_id,
   resourceType:img.resource_type,bytes:img.bytes,width:img.width,height:img.height,
-  note:"Attached from the client gallery",tags:spec.tags||[],evergreen:false,
+  note:"Attached from the client gallery",tags:spec.tags||[],
+  /* Same checkbox as an upload. A file already on file is the likeliest
+     thing on the order to BE the evergreen one, so hard-coding false here
+     made the flag unreachable for exactly the case it is for. */
+  evergreen:!!document.getElementById("creativeEvergreen")?.checked,
   galleryStatus:"already in gallery",galleryUrl:GALLERY_CACHE.gallery_url||""});
  if(spec.result==="fail"){
   const warning=`${cfg.product||product}: ${img.filename||"gallery file"} — FAIL. ${spec.summary}`;
@@ -2498,7 +2859,8 @@ async function handleCreativeAction(){
 }
 function renderCreativeAssets(){
  const list=document.getElementById("creativeAssetList"),rows=document.getElementById("creativeRows");if(!list||!rows)return;
- if(!state.creativeAssets.length){list.innerHTML='<p class="tiny">No creative has been added.</p>';rows.innerHTML='<tr><td colspan="5" class="empty">No creative assets uploaded yet.</td></tr>';return}
+ const note=document.getElementById("evergreenNote");
+ if(!state.creativeAssets.length){list.innerHTML='<p class="tiny">No creative has been added.</p>';rows.innerHTML='<tr><td colspan="6" class="empty">No creative assets uploaded yet.</td></tr>';if(note)note.textContent="";return}
  list.innerHTML=state.creativeAssets.map(a=>{
   const v=a.validationStatus||"unknown";
   const detail=((a.spec&&a.spec.checks)||[]).map(c=>`<div class="tiny ${c.status==='fail'?'warn':c.status==='pass'?'ok':''}">${esc(c.label)}: ${esc(c.detail)}</div>`).join("");
@@ -2506,7 +2868,17 @@ function renderCreativeAssets(){
   const notes=((a.spec&&a.spec.unit&&a.spec.unit.notes)||[]).map(n=>`<div class="tiny">${esc(n)}</div>`).join("");
   return `<div class="asset-item"><div class="asset-top"><div><strong>${esc(a.fileName)}</strong><div class="tiny">${esc((productConfig[a.product]||{}).product||a.product)}${a.spec&&a.spec.unit?" · "+esc(a.spec.unit.name):""}</div></div><span class="${specClass(v)}">${specLabel(v)}</span></div><div class="tiny"><strong>Evergreen:</strong> ${a.evergreen?"Yes":"No"}${a.width&&a.height?" · "+a.width+"x"+a.height:""}${a.bytes?" · "+Math.round(a.bytes/1024)+" KB":""}${a.galleryStatus?" · "+esc(a.galleryStatus):""}</div><div class="tiny ${specClass(v)}">${esc(a.validation||'')}</div>${detail?`<details style="margin-top:6px"><summary class="tiny">Every check</summary>${detail}${notes}</details>`:""}${alts?`<div class="tiny">This file would pass as: ${alts}</div>`:""}${a.url?`<div class="url-field"><input readonly value="${esc(a.url)}"><button class="upload-secondary" onclick="navigator.clipboard.writeText('${esc(a.url)}')">Copy URL</button></div>`:''}</div>`;
  }).join('');
- rows.innerHTML=state.creativeAssets.map(a=>{const isImage=a.resourceType==='image'||/\.(png|jpe?g|gif|webp)$/i.test(a.fileName||'');const preview=a.url&&isImage?`<a href="${esc(a.url)}" target="_blank"><img class="creative-thumb" src="${esc(a.url)}" alt="Creative thumbnail"></a>`:'';return `<tr><td>${esc((productConfig[a.product]||{}).product||a.product)}</td><td>${preview}${esc(a.fileName)}</td><td>${esc(a.status)}</td><td class="${specClass(a.validationStatus)}"><strong>${specLabel(a.validationStatus)}</strong><br><small>${esc(a.validation)}</small></td><td>${a.url?`<a href="${esc(a.url)}" target="_blank">Open asset</a><br><small>${esc(a.url)}</small>`:'—'}</td></tr>`}).join('')
+ rows.innerHTML=state.creativeAssets.map(a=>{const isImage=a.resourceType==='image'||/\.(png|jpe?g|gif|webp)$/i.test(a.fileName||'');const preview=a.url&&isImage?`<a href="${esc(a.url)}" target="_blank"><img class="creative-thumb" src="${esc(a.url)}" alt="Creative thumbnail"></a>`:'';return `<tr><td>${esc((productConfig[a.product]||{}).product||a.product)}</td><td>${preview}${esc(a.fileName)}</td><td>${esc(a.status)}</td><td>${a.evergreen?'<strong>Evergreen</strong>':'—'}</td><td class="${specClass(a.validationStatus)}"><strong>${specLabel(a.validationStatus)}</strong><br><small>${esc(a.validation)}</small></td><td>${a.url?`<a href="${esc(a.url)}" target="_blank">Open asset</a><br><small>${esc(a.url)}</small>`:'—'}</td></tr>`}).join('')
+ /* Said at the foot of the column rather than only in each row: what
+    "evergreen" obliges trafficking to do is the part a reader of this order
+    does not already know. A column of ticks with no rule beside it gets read
+    as a filing label. */
+ if(note){
+  const ever=state.creativeAssets.filter(a=>a.evergreen);
+  note.innerHTML=ever.length
+   ? `<strong>Evergreen:</strong> ${ever.length} of ${state.creativeAssets.length} file${state.creativeAssets.length===1?"":"s"} — ${ever.map(a=>esc(a.fileName)).join(", ")}. Evergreen creative runs whenever no updated creative has been supplied, so the placement does not go dark between refreshes.`
+   : "No creative on this order is marked evergreen — every placement needs supplied creative to run.";
+ }
 }
 
 function customerRequirementItems(){
@@ -2733,6 +3105,11 @@ document.addEventListener("keydown",e=>{
      document can be corrected rather than being locked in behind a question
      that never gets asked. */
 const PROPOSAL={filled:{},budgets:{},skip:false,
+ /* Questions the document raised, drained before the interview proper.
+    conflicts: one number the document gave twice. flights: a product with
+    its own dates, or a window with no year in it. notes: the reader's own
+    open questions. */
+ conflicts:[],flights:[],notes:[],
  /* Products the reader pulled out of the proposal, each still carrying the
     question it needs answered. Emptied once the interview has walked them,
     which is what turns the intake questions off. */
@@ -2910,11 +3287,18 @@ function applyReadPayload(d,client){
       matcher here is the one the Proposal Builder uses. */
    PROPOSAL.intake=(d.product_intake||[]).filter(e=>e&&e.query);
    PROPOSAL.intakeIx=0;
+   /* Everything the reader found starts on the IO. The roster question is
+      about taking things OFF, which is the decision a rep actually has —
+      a proposal is what was quoted, and most of it is what was bought. */
+   state.proposalKeep=PROPOSAL.intake.map(e=>e.query);
+   state.proposalRosterDone=false;
    const settle=PROPOSAL.intake.length;
    if(settle){
     const un=(d.intake_summary||{}).unknown||0;
-    addMsg("I'll walk the "+settle+" product"+(settle===1?"":"s")+" the proposal named, one at a time — what each one is, whether it is monthly or one-time, and for how long."
-      +(un?" "+un+" of them "+(un===1?"is":"are")+" not on the rate card; I'll ask what to do with "+(un===1?"it":"those")+" rather than dropping "+(un===1?"it":"them")+".":""));
+    const guessed=PROPOSAL.intake.filter(e=>e.suggested_by==="ai").length;
+    addMsg("The proposal names "+settle+" product"+(settle===1?"":"s")+". Before I ask anything about "+(settle===1?"it":"them")+", I'll check which "+(settle===1?"one is":"ones are")+" actually going on this IO."
+      +(guessed?" "+guessed+" of them "+(guessed===1?"doesn't":"don't")+" match the rate card by name, so I've found the closest product for "+(guessed===1?"it":"each")+" for you to confirm.":"")
+      +(un?" "+un+" "+(un===1?"is":"are")+" not on the card at all; I'll ask what to do with "+(un===1?"it":"those")+" rather than dropping "+(un===1?"it":"them")+".":""));
    }else if(unmatched.length){
     /* The intake could not be built -- the reader worked but the classifier
        did not. Say so, rather than silently reverting to the old sentence. */
@@ -2922,11 +3306,28 @@ function applyReadPayload(d,client){
      +". Add them from the categories when you get to the product step.");
    }
 
+   /* Flights the document stated per product, and the figures it gave twice.
+      Both are queues the interview drains before it asks anything else --
+      see the WHAT THE PROPOSAL LEFT UNSETTLED block above. Printed here as a
+      count rather than as the questions themselves, because the questions are
+      about to be asked and saying each one twice trains people to skim. */
+   PROPOSAL.conflicts=(d.conflicts||[]).filter(c=>c&&c.question);
+   PROPOSAL.flights=(d.flight_questions||[]).filter(f=>f&&f.question);
+   /* The reader's own open questions. These are genuinely about the document
+      rather than about a line that has to reach the IO -- but printing them
+      as bullets is what put them in a log nobody answers, so they are asked
+      too, one at a time, and the answers are filed on the order. */
+   PROPOSAL.notes=(d.ask||[]).filter(Boolean);
+
+   const raised=PROPOSAL.conflicts.length+PROPOSAL.flights.length+PROPOSAL.notes.length;
+   if(raised)
+    addMsg("The proposal left "+raised+" thing"+(raised===1?"":"s")+" I can't settle from the document — different dates on some products, a figure given twice, that sort of thing. I'll ask about "+(raised===1?"it":"those")+" first, because the rest of the interview is built on the answers.");
+
    if(d.note)addMsg(d.note);
-   /* The reader's own open questions. These are genuinely notes -- they are
-      about the document, not about a product that has to reach the IO -- so
-      listing them is right where listing products was not. */
-   (d.ask||[]).forEach(q2=>addMsg("• "+q2));
+   /* Their existing orders, in the background. By the time the interview
+      reaches "New IO or Revised IO?" the answer is here or it is not, and a
+      question with no options is never asked. */
+   if(state.client)loadExistingIOs(state.client);
    ask();
 }
 
@@ -3454,14 +3855,30 @@ async function submitCompletedIO(){
      <label>Select one or more files</label><input id="creativeFiles" type="file" multiple accept="image/*,video/*,.pdf,.zip,.html,.mp3,.wav">
      <label>Optional note</label><textarea id="creativeNote" rows="2" placeholder="Version, placement, language, approval note, etc."></textarea>
     </div>
+    <!-- Evergreen. Every path that adds creative already read this checkbox
+         and it did not exist, so getElementById returned null, the optional
+         chain swallowed it, and every asset on every order was filed
+         "Evergreen: No" — printed on screen and in the internal PDF as
+         though somebody had answered the question. It applies to a file
+         uploaded now, a file promised for later and a file attached from the
+         client's gallery, which is why it sits outside #uploadFields rather
+         than inside the upload-only block. -->
+    <label class="evergreen-check" for="creativeEvergreen">
+     <input id="creativeEvergreen" type="checkbox">
+     <span><strong>Evergreen creative</strong><br>
+      <small>Runs whenever the client has not supplied an update. Trafficking
+      keeps it live between refreshes instead of letting the placement go
+      dark.</small></span>
+    </label>
     <div class="upload-actions"><button class="upload-primary" onclick="handleCreativeAction()">Add Creative</button><button class="upload-secondary" onclick="clearCreativeForm()">Clear</button></div>
     <div class="tiny" style="margin-top:10px">Files are tagged with the customer name and campaign start date. Uploads require the secure SMART1 server package included with this builder.</div>
+    <div class="tiny">Marking a file evergreen is recorded against it in the Creative Assets table on the order.</div>
    </div>
    <div class="upload-box">
     <strong>Specification check</strong>
-    <p class="tiny">Every file is checked against the 2025 Creative Spec Kit before it uploads. <strong>Fail</strong> means the platform will refuse it. <strong>Warning</strong> means it will run but is outside what the kit recommends. Files upload either way — the verdict travels with the order.</p>
+    <p class="tiny">Every file is checked against the 2026 Creative Spec Kit before it uploads. <strong>Fail</strong> means the platform will refuse it. <strong>Warning</strong> means it will run but is outside what the kit recommends. Files upload either way — the verdict travels with the order.</p>
     <div id="smart1snapValidationWarning" class="callout" style="display:none;margin-top:8px"><strong>Spec warning:</strong> <span></span></div>
-    <div id="uploadConnection" class="callout">Checking secure Cloudinary connection…</div>
+    <div id="uploadConnection" class="callout">Checking the upload connection…</div>
     <label style="margin-top:10px">Spec sheet for this product</label>
     <div id="specSheet" class="tiny">Choose a product to see the sizes it accepts.</div>
    </div>
