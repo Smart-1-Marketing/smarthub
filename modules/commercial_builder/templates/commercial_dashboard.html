@@ -13,22 +13,27 @@
 <div class="cb-card" style="margin-bottom:20px;">
   <div class="cb-flex-between" style="margin-bottom:10px;">
     <h3>Connected production engines</h3>
-    <span class="cb-muted" style="font-size:12px;">V1 stack — see .env.example to go live on any of these</span>
+    <button type="button" class="cb-btn cb-btn-sm" id="cb-verify-btn">Check keys</button>
   </div>
   <div class="cb-provider-row">
-    {% for p in v1_providers %}
+    {% for p in providers %}
       <span class="cb-provider-chip">
         <span class="cb-provider-dot {{ 'on' if provider_status.get(p) else 'off' }}"></span>
-        {{ p|capitalize }} <span class="cb-muted">{{ 'live' if provider_status.get(p) else 'mock mode' }}</span>
+        {{ provider_labels.get(p, p|capitalize) }}
+        <span class="cb-muted">{{ 'key set' if provider_status.get(p) else 'mock mode' }}</span>
       </span>
     {% endfor %}
-    {% for p in v1_5_providers %}
-      <span class="cb-provider-chip" style="opacity:.55;"><span class="cb-provider-dot off"></span>{{ p|capitalize }} <span class="cb-muted">V1.5</span></span>
-    {% endfor %}
     {% for p in v2_providers %}
-      <span class="cb-provider-chip" style="opacity:.55;"><span class="cb-provider-dot off"></span>{{ p|capitalize }} <span class="cb-muted">V2</span></span>
+      <span class="cb-provider-chip" style="opacity:.55;"><span class="cb-provider-dot off"></span>{{ p|capitalize }} <span class="cb-muted">not built yet</span></span>
     {% endfor %}
   </div>
+  <p class="cb-muted" style="font-size:12px;margin:10px 0 0;">
+    A dot only says a key is <em>set</em>. Check keys asks each provider whether it
+    accepts ours — the two answers differ when a key is truncated, revoked, out of
+    credit, or set under a name nothing reads. <code>env.example</code> in the repo
+    root lists every name accepted.
+  </p>
+  <div id="cb-verify-out" style="margin-top:12px;"></div>
 </div>
 
 <div class="cb-grid cb-grid-2" style="align-items:start;">
@@ -78,4 +83,76 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  var btn = document.getElementById("cb-verify-btn");
+  var out = document.getElementById("cb-verify-out");
+  if (!btn || !out) return;
+
+  var TONE = {
+    ok: {colour: "var(--cb-accent)", word: "accepted"},
+    rejected: {colour: "var(--cb-danger)", word: "refused"},
+    unreachable: {colour: "var(--cb-warn)", word: "not measured"},
+    inconclusive: {colour: "var(--cb-warn)", word: "not measured"},
+    absent: {colour: "#68707e", word: "no key"}
+  };
+
+  function esc(value) {
+    var d = document.createElement("div");
+    d.textContent = value == null ? "" : String(value);
+    return d.innerHTML;
+  }
+
+  function render(rows) {
+    var html = '<table class="cb-table"><thead><tr>' +
+               "<th>Provider</th><th>Result</th><th>Detail</th></tr></thead><tbody>";
+    rows.forEach(function (r) {
+      var tone = TONE[r.state] || TONE.inconclusive;
+      /* The consequence is shown only where there is one: a provider that
+         accepted the key does not need telling what would otherwise break. */
+      var cost = (r.state === "ok" || !r.cost) ? "" :
+                 '<br><span class="cb-muted">' + esc(r.cost) + "</span>";
+      html += "<tr><td><strong>" + esc(r.label) + "</strong></td>" +
+              '<td><span class="cb-status-pill" style="color:' + tone.colour + ';">' +
+              tone.word + "</span></td>" +
+              "<td>" + esc(r.detail) + cost + "</td></tr>";
+    });
+    out.innerHTML = html + "</tbody></table>";
+  }
+
+  btn.addEventListener("click", function () {
+    btn.disabled = true;
+    btn.textContent = "Checking\u2026";
+    out.innerHTML = '<span class="cb-muted">Asking each provider\u2026</span>';
+    /* The path is written out here, inside fetch(), rather than held in a
+       variable or built from CB.API_ROOT: tools/linkcheck.py only sees a
+       literal that sits directly in the call, and a path it cannot see is a
+       path nothing checks. That is how four Proposal Builder buttons came to
+       point at a route existing on neither app while every page looked
+       healthy. Verified: renaming it fails linkcheck. */
+    fetch("/tools/commercial-builder/api/providers/verify",
+          {method: "POST", headers: {"Content-Type": "application/json"},
+           body: "{}"})
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (!data || data.ok === false) throw new Error(data && data.error);
+        render(data.results || []);
+      })
+      .catch(function (err) {
+        /* A check that could not run is not a key that failed, and must not
+           be drawn as one. */
+        out.innerHTML = '<span class="cb-muted">The check could not run (' +
+                        esc(err && err.message ? err.message : "no response") +
+                        "). Nothing was learned about the keys.</span>";
+      })
+      .then(function () {
+        btn.disabled = false;
+        btn.textContent = "Check keys";
+      });
+  });
+})();
+</script>
 {% endblock %}

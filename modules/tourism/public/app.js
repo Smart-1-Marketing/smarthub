@@ -92,13 +92,19 @@ function sendPartial() {
     if (!p.website && !p.businessName) return; // need at least something identifying
     partialSent = true;
     const body = JSON.stringify(p);
+    // Relative, not '/api/...': this file is served as a plain asset under the
+    // /land/tourism mount, so there is no Jinja to inject the prefix. A
+    // relative path resolves against the DIRECTORY of the document URL, which
+    // is /land/tourism/ from both /land/tourism/ (Werkzeug 308s the slashless
+    // form) and /land/tourism/embed.
+    //
+    // The beacon had the leading slash and so posted to the hub app, which has
+    // no such route. It fires on pagehide and its return value is read by
+    // nobody, so every abandoned-form lead 404'd in silence — the fetch beside
+    // it was correct, which is why the page looked healthy.
     if (navigator.sendBeacon) {
-      navigator.sendBeacon('/api/partial-lead', new Blob([body], { type: 'application/json' }));
+      navigator.sendBeacon('api/partial-lead', new Blob([body], { type: 'application/json' }));
     } else {
-      // Relative, not '/api/...': this file is served as a plain asset under
-      // the /land/tourism mount, so there is no Jinja to inject the prefix.
-      // fetch() resolves against the document URL, which is always
-      // /land/tourism/ (Werkzeug 308s the slashless form).
       fetch('api/partial-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
     }
   } catch (e) { /* best-effort — never break the wizard */ }

@@ -1,0 +1,267 @@
+"""Every OAuth scope the Marketplace app asks for, and what each one costs when
+it is missing.
+
+## Why this is a table and not a string
+
+`DEFAULT_SCOPES` was one space-joined literal in `hub/ghl_oauth.py`: eight
+read-only scopes and no write scope at all. Two things follow from that, and
+both are the kind of quiet wrongness this codebase keeps having to undo.
+
+**Adding a scope costs a re-consent.** A location token inherits whatever the
+agency token was granted, so a scope missing here is missing for every
+sub-account, for ever, until an agency owner sits through the consent screen
+again. That makes the scope set a decision to be made *once, before the
+install* — not something to extend the week a feature turns out to need it.
+`modules/social_planner` is the standing example: it stops at a CSV because
+`social-media-posting.write` was never asked for.
+
+**HighLevel grants what it recognises and says nothing about the rest.** A
+scope string it does not know is not an error — consent succeeds, a token comes
+back, `status()` says *Connected*, and the one endpoint that needed it 401s
+months later looking exactly like a bad token. The Suite panel printed the
+granted list verbatim, which reads as confirmation and is nothing of the kind:
+a list of eight scopes looks identical whether you asked for eight or fourteen.
+So `compare()` diffs granted against requested and names the difference by the
+**feature it costs**, not by the string. "Social Planner cannot publish" is
+actionable; "1 scope missing" is not.
+
+## What `verified` means
+
+`verified=True` is a scope string this deployment has actually authenticated
+with — transcribed from working code, not from documentation:
+
+* the eight read scopes the app already requests and the panel already runs on;
+* `contacts.write`, which every lead in `hub/ghl_contacts.py` is written with;
+* the six blog scopes `hub/ghl_blog.py` publishes through.
+
+`verified=False` is our best reading of the string, unconfirmed against
+HighLevel's published list. It is still requested — asking for a scope that
+does not exist costs nothing, and *not* asking costs a re-consent — but
+`compare()` reports an unverified scope that came back missing differently from
+a verified one, because the likely cause differs. A verified scope missing
+means the app was not granted it (fix it on the app's own scope list). An
+unverified one missing usually means the string is wrong (fix it here).
+
+That distinction is the whole point of the file. Without it the first install
+produces a list of missing scopes with no way to tell a HighLevel problem from
+a typo of ours.
+
+## What is deliberately not requested
+
+See `NOT_REQUESTED`. A scope left out on purpose is named with its reason, so
+the next person to read a 401 knows whether they are looking at an oversight or
+at a decision.
+"""
+from __future__ import annotations
+
+import os
+from typing import NamedTuple
+
+
+class Scope(NamedTuple):
+    """One scope, and what stops working without it."""
+
+    name: str
+    feature: str          # named in the report when this scope is missing
+    needed_by: tuple      # call sites, so the test can check none is orphaned
+    verified: bool        # have we authenticated with this exact string?
+
+
+# --------------------------------------------------------------------------
+# Reads — the set the app already requests, all proven in production.
+# --------------------------------------------------------------------------
+READ: tuple[Scope, ...] = (
+    Scope("locations.readonly", "Sub-account lookup, and every domain-keyed join",
+          ("modules/suite_panel/app.py", "hub/ghl_contacts.py", "hub/diagnostics.py"), True),
+    Scope("forms.readonly", "Forms on a client's sub-account",
+          ("hub/ghl_forms.py",), True),
+    Scope("forms/submissions.readonly", "Form submission counts on Client 360",
+          ("hub/ghl_forms.py",), True),
+    Scope("contacts.readonly", "Finding the contact a proposal is filed against",
+          ("modules/suite_panel/app.py", "hub/suite_opportunity.py"), True),
+    Scope("opportunities.readonly", "Pipeline discovery, and the opportunity list",
+          ("modules/suite_panel/app.py", "hub/suite_opportunity.py"), True),
+    Scope("calendars.readonly", "Calendar counts in the sub-account analytics panel",
+          ("modules/suite_panel/app.py",), True),
+    Scope("conversations.readonly", "Conversation counts in the same panel",
+          ("modules/suite_panel/app.py",), True),
+    Scope("users.readonly", "Who is on a sub-account",
+          ("modules/suite_panel/app.py",), True),
+)
+
+# --------------------------------------------------------------------------
+# Writes — everything below currently runs on the agency Private Integration
+# Token. Requesting them here is what lets a per-sub-account token do the same
+# work, which is the only reason the Marketplace app exists.
+# --------------------------------------------------------------------------
+WRITE: tuple[Scope, ...] = (
+    Scope("contacts.write", "Lead delivery — every Hub form writes a contact",
+          ("hub/ghl_contacts.py", "hub/suite_opportunity.py"), True),
+    Scope("opportunities.write", "Filing a delivered proposal as an opportunity",
+          ("hub/suite_opportunity.py",), False),
+    Scope("medias.write", "Pushing a client's images into their Suite media library",
+          ("modules/image_picker/ghl.py", "modules/suite_panel/app.py"), False),
+
+    # The blog set. hub/ghl_blog.py names all six in its own docstring and
+    # publishes through them today, so the strings are transcribed rather than
+    # guessed — note the shape is `blogs/<thing>.<verb>`, not `blogs.<verb>`.
+    Scope("blogs/list.readonly", "Finding the client's blog site",
+          ("hub/ghl_blog.py",), True),
+    Scope("blogs/author.readonly", "A post requires an author id",
+          ("hub/ghl_blog.py",), True),
+    Scope("blogs/category.readonly", "A post requires at least one category",
+          ("hub/ghl_blog.py",), True),
+    Scope("blogs/check-slug.readonly", "Not colliding with an existing post's slug",
+          ("hub/ghl_blog.py",), True),
+    Scope("blogs/post.write", "Publishing a generated blog post",
+          ("hub/ghl_blog.py",), True),
+    Scope("blogs/post-update.write", "Editing a published post instead of duplicating it",
+          ("hub/ghl_blog.py",), True),
+
+    # The one this whole exercise is for. Social Planner ends at a CSV without
+    # it; see modules/social_planner/app.py. Unverified, and deliberately asked
+    # for anyway — the cost of a wrong string here is a line in the missing
+    # report, and the cost of omitting it is another agency re-consent.
+    Scope("social-media-posting.write", "Social Planner publishing instead of exporting a CSV",
+          ("modules/social_planner/app.py",), False),
+    Scope("social-media-posting.readonly", "Reading back what Social Planner scheduled",
+          ("modules/social_planner/app.py",), False),
+)
+
+REQUESTED: tuple[Scope, ...] = READ + WRITE
+
+# --------------------------------------------------------------------------
+# Left out on purpose. Each of these has a live call site running on the agency
+# Private Integration Token, so the omission is a decision and not an oversight
+# — which is exactly why it is written down rather than simply absent.
+# --------------------------------------------------------------------------
+NOT_REQUESTED: tuple[tuple[str, str], ...] = (
+    ("locations.write",
+     "Creating and deleting sub-accounts stays on the agency token. A "
+     "location-scoped token that can delete its own location is a blast radius "
+     "nothing in the Hub needs; modules/suite_panel/app.py does this "
+     "deliberately as the agency."),
+    ("snapshots.readonly",
+     "Snapshots are an agency-level concept — a sub-account token would not "
+     "widen what modules/suite_panel/app.py can already read."),
+    ("workflows.readonly",
+     "docs/ghl-nurture-automations.md establishes that the Workflows API is "
+     "read-only with no create path, so a scope buys visibility into "
+     "automations nobody builds from here. Add it when something reads them."),
+)
+
+
+# ------------------------------------------------------------------ requested
+def requested_names() -> list[str]:
+    """The scope strings to ask for, honouring the environment override.
+
+    `GHL_OAUTH_SCOPES` replaces the set outright rather than adding to it: an
+    override that silently kept a scope the operator removed would make the
+    variable untrustworthy, and this is the one knob available mid-incident.
+    """
+    override = (os.environ.get("GHL_OAUTH_SCOPES") or "").strip()
+    if override:
+        return _split(override)
+    return [s.name for s in REQUESTED]
+
+
+def scope_string() -> str:
+    return " ".join(requested_names())
+
+
+def _split(raw: str) -> list[str]:
+    """Scopes arrive space-separated, but a hand-edited env var arrives however
+    it was typed. Commas and newlines are accepted, and order is preserved so a
+    report reads the way the operator wrote it."""
+    out, seen = [], set()
+    for part in (raw or "").replace(",", " ").split():
+        part = part.strip()
+        if part and part not in seen:
+            seen.add(part)
+            out.append(part)
+    return out
+
+
+def by_name(name: str) -> Scope | None:
+    for s in REQUESTED:
+        if s.name == name:
+            return s
+    return None
+
+
+# ------------------------------------------------------------------- compare
+def compare(granted: str | list[str] | None) -> dict:
+    """Diff what HighLevel granted against what we asked for.
+
+    `granted` is the `scope` field off the token response. HighLevel has been
+    seen to omit it entirely; that is **not** evidence of nothing being granted,
+    so it comes back as `known: False` and every count is None rather than
+    zero. A missing-scope report that reads "all 20 missing" because the field
+    was absent would send someone to re-consent an install that is fine.
+    """
+    if isinstance(granted, str):
+        have = _split(granted)
+    elif granted:
+        have = _split(" ".join(granted))
+    else:
+        have = []
+
+    asked = requested_names()
+
+    if not have:
+        return {
+            "known": False,
+            "granted": [],
+            "requested": asked,
+            "missing": None,
+            "missing_verified": None,
+            "missing_unverified": None,
+            "unexpected": None,
+            "blocked": [],
+            "detail": "HighLevel did not report a scope list, so what was "
+                      "granted is not measured. It is not evidence that "
+                      "nothing was granted.",
+        }
+
+    have_set = set(have)
+    missing = [n for n in asked if n not in have_set]
+    unexpected = [n for n in have if n not in set(asked)]
+
+    verified, unverified = [], []
+    for name in missing:
+        s = by_name(name)
+        (verified if (s and s.verified) else unverified).append(name)
+
+    blocked = []
+    for name in missing:
+        s = by_name(name)
+        if s and s.feature not in blocked:
+            blocked.append(s.feature)
+
+    return {
+        "known": True,
+        "granted": have,
+        "requested": asked,
+        "missing": missing,
+        "missing_verified": verified,
+        "missing_unverified": unverified,
+        "unexpected": unexpected,
+        "blocked": blocked,
+        "detail": _detail(missing, verified, unverified),
+    }
+
+
+def _detail(missing: list[str], verified: list[str], unverified: list[str]) -> str:
+    if not missing:
+        return "Every requested scope was granted."
+    bits = [f"{len(missing)} requested scope(s) were not granted."]
+    if verified:
+        bits.append(
+            "Known-good string(s) missing — add them to the app's scope list "
+            "in the Marketplace and re-consent: " + ", ".join(verified) + ".")
+    if unverified:
+        bits.append(
+            "Unconfirmed string(s) missing — most likely the scope name is "
+            "wrong rather than withheld; check it against HighLevel's list "
+            "before re-consenting: " + ", ".join(unverified) + ".")
+    return " ".join(bits)

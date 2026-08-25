@@ -53,6 +53,20 @@ services:
         sync: false
       - key: FLASK_SECRET_KEY
         generateValue: true
+      # ---- Smart 1 Ads (/tools/ads) ----
+      # Unset, the module serves its own settings page naming what is missing.
+      - key: GOOGLE_ADS_CLIENT_ID
+        sync: false
+      - key: GOOGLE_ADS_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_ADS_DEVELOPER_TOKEN
+        sync: false
+      - key: GOOGLE_ADS_LOGIN_CUSTOMER_ID
+        sync: false
+      - key: GOOGLE_ADS_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_ADS_REFRESH_TOKEN
+        sync: false
       # ---- Smart 1 Marketing sub-account (GHL) ----
       - key: SUITE_COMPANY_ID
         sync: false
@@ -71,6 +85,10 @@ services:
         sync: false
       # Optional — overrides the default read-only scope set if you need more.
       - key: GHL_OAUTH_SCOPES
+        sync: false
+      # Hosts allowed to frame a Hub page (CSP frame-ancestors). Optional;
+      # defaults to HighLevel's own hosts. Set it for a whitelabel domain.
+      - key: HUB_EMBED_FRAME_ANCESTORS
         sync: false
       # ---- Scans (Insites Audit API) ----
       - key: INSITES_API_KEY
@@ -126,6 +144,40 @@ services:
         sync: false
       - key: UNSPLASH_ACCESS_KEY
         sync: false
+      # ---- Commercial Builder (/tools/commercial-builder) ----
+      # Also uses OPENAI_API_KEY, PEXELS_API, PIXABAY_API and CLOUDINARY_URL
+      # above. None of these were declared here at all, which is how the tool
+      # came to be the one place in the Hub where "the key is set" and "the
+      # key is read" could differ without anything saying so.
+      #
+      # Every one is read through hub/config.py, which accepts <NAME>_API,
+      # <NAME>_API_KEY and <NAME>_KEY. The short spelling is what this
+      # deployment uses; either works, and there is no need to rename anything
+      # in the dashboard. Each provider degrades to mock data rather than
+      # erroring, so a name nothing reads costs a silent feature, not a 500 —
+      # the dashboard's "Check keys" button is what tells them apart.
+      #
+      # Spokesperson scenes. Without it a presenter scene has no clip.
+      - key: HEYGEN_API
+        sync: false
+      # Real HeyGen avatar ids for the Smart 1 talent roster, as a JSON object
+      # keyed by roster id. Until a person appears here the picker shows them
+      # as not yet available rather than offering a tile that fails on click.
+      - key: SMART1_TALENT_AVATARS
+        sync: false
+      # AI video scenes. Runway animates a generated still; clips are 5s or 10s.
+      - key: RUNWAY_API
+        sync: false
+      # Voiceover. Without it a commercial renders with no voice track — and
+      # this is the same key Radio Promo and Fan Radio read.
+      - key: ELEVENLABS_API
+        sync: false
+      # Final render, and the last step in the tool. Without it a project goes
+      # all the way through brief, script, storyboard and QC and produces no
+      # file.
+      - key: CREATOMATE_API
+        sync: false
+
       # ---- Background Remover (billed per image) ----
       - key: REMOVE_BG_API_KEY
         sync: false

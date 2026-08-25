@@ -459,7 +459,11 @@
     const form = document.getElementById('legalForm');
 
     // ---- Partial lead capture (SPEC §3) ----
-    const API_BASE = '';
+    // The mount, not the site root: this app answers on /land/legal, and a
+    // root-absolute path leaves it for the hub app, which 404s. The beacon
+    // below is the one that made that invisible — it fires on pagehide and
+    // reports nothing, so every abandoned-form lead was lost in silence.
+    const API_BASE = '{{ request.script_root }}';
     const LEAD_ID = (crypto.randomUUID ? crypto.randomUUID() : Date.now()+'-'+Math.random().toString(16).slice(2));
     const ATTR = (() => {
       const q = new URLSearchParams(location.search);

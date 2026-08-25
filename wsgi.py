@@ -66,6 +66,10 @@ _MOUNT_ACTIVE = {
     "/tools/google-access": "google_access",
     "/tools/image-picker": "image_picker",
     "/tools/page-images": "page_image_optimizer",
+    # Its own sidebar entry rather than "tools": this one operates a
+    # client's live Google Ads account, and a page that can enable
+    # spend should say where it is in the nav.
+    "/tools/ads": "ads",
 }
 
 
@@ -367,6 +371,15 @@ except Exception as _gptads_exc:  # noqa: BLE001
     traceback.print_exc()
     gptads, gptads_fb = None, _fallback_app("GPT Ads Builder", str(_gptads_exc))
 
+try:
+    import importlib as _il_adsb
+    adsb = _il_adsb.import_module("modules.ads_builder.app")
+    adsb_fb = None
+except Exception as _adsb_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    adsb, adsb_fb = None, _fallback_app("Smart 1 Ads", str(_adsb_exc))
+
 
 def _install_error_reporter(flask_app, label):
     """Make every module's 500 name its own cause.
@@ -549,6 +562,11 @@ application = DispatcherMiddleware(hub_app, {
                           if siteblk else siteblk_fb,
     "/tools/social": _mount(social.app, "/tools/social") if social else social_fb,
     "/tools/gpt-ads": _mount(gptads.app, "/tools/gpt-ads") if gptads else gptads_fb,
+    # Google Ads campaign operations. With no GOOGLE_ADS_* credentials it
+    # still serves its own settings page naming each variable it is
+    # missing, so an unconnected account reads as "not connected"
+    # rather than as a broken tool.
+    "/tools/ads": _mount(adsb.app, "/tools/ads") if adsb else adsb_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
     "/tools/io": _mount(iob.app, "/tools/io") if iob else iob_fb,

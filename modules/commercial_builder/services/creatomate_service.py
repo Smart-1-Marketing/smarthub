@@ -22,7 +22,6 @@ import requests
 from ..config import (OUTPUT_FORMATS, MUSIC_LEVELS, QR_CODE_RULES, LOGO_PERSISTENCE_RULES,
                       CHROMA_KEY_COLOR)
 
-API_KEY = os.environ.get("CREATOMATE_API_KEY")
 BASE_URL = "https://api.creatomate.com/v1"
 
 _FORMAT_DIMS = {f["id"]: (f["width"], f["height"]) for f in OUTPUT_FORMATS}
@@ -46,12 +45,35 @@ _CORNER_ANCHORS = {
 }
 
 
+def _api_key():
+    """Read at call time, not import time.
+
+    This is the last step in the whole tool: with no key here a project gets
+    all the way through brief, script, storyboard and QC and then produces no
+    file. It read CREATOMATE_API_KEY at import and nothing else, so a key
+    added as CREATOMATE_API — the spelling every other key on this deployment
+    uses — left the render silently mocked. Settings first, environ as the
+    standalone fallback, exactly as heygen_service and runway_service do.
+    """
+    try:
+        from hub.config import settings
+        if settings.creatomate_key:
+            return settings.creatomate_key
+    except Exception:  # noqa: BLE001 — standalone, or settings failed to build
+        pass
+    for name in ("CREATOMATE_API", "CREATOMATE_API_KEY", "CREATOMATE_KEY"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def is_live():
-    return bool(API_KEY)
+    return bool(_api_key())
 
 
 def _headers():
-    return {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    return {"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"}
 
 
 def build_source(project_dict, scenes, format_id, voice_track_url=None, music_track_url=None):

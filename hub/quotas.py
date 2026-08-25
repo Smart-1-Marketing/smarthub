@@ -504,10 +504,18 @@ def _account(key: str, fetch) -> dict:
 
 def elevenlabs_account() -> dict:
     """Characters used and allowed, from ElevenLabs itself."""
-    key = (os.environ.get("ELEVENLABS_API_KEY") or "").strip()
+    # Through settings, which accepts ELEVENLABS_API too. Reading the one
+    # spelling here meant the usage page could report "no key set" while the
+    # key was set under the name every other provider on this deployment uses.
+    try:
+        from hub.config import settings
+        key = settings.elevenlabs_key
+    except Exception:                                   # noqa: BLE001
+        key = (os.environ.get("ELEVENLABS_API_KEY") or "").strip()
     if not key:
         return {"available": False,
-                "reason": "ELEVENLABS_API_KEY is not set on this deployment."}
+                "reason": "ELEVENLABS_API / ELEVENLABS_API_KEY is not set on "
+                          "this deployment."}
 
     def go():
         import requests

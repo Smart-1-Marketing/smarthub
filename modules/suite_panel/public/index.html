@@ -908,15 +908,51 @@ async function loadOauthStatus() {
     const s = await api('/suite/api/oauth/status');
     $('oauthConnectBtn').textContent = s.connected ? 'Reconnect' : 'Connect';
     $('oauthDisconnectBtn').classList.toggle('hidden', !s.connected);
-    let html = '<div class="diag-row ' + (s.connected ? 'ok' : (s.configured ? 'warn' : 'error')) +
+    // Connected and usable are different states. A consent that granted eight
+    // of the scopes asked for returns a healthy token, so a flat green tick
+    // here would be a confident wrong answer -- the row goes amber and the
+    // features behind the missing scopes are named underneath.
+    const sc = s.scopes || {};
+    const shortScopes = s.connected && !s.scopes_complete;
+    const rowClass = !s.connected ? (s.configured ? 'warn' : 'error')
+                                  : (shortScopes ? 'warn' : 'ok');
+    const rowName = !s.connected ? 'Not connected'
+                                 : (shortScopes ? 'Connected, with gaps' : 'Connected');
+    let html = '<div class="diag-row ' + rowClass +
       '"><span class="dot"></span><div><div class="diag-name">' +
-      (s.connected ? 'Connected' : 'Not connected') + '</div><div class="diag-msg">' +
+      rowName + '</div><div class="diag-msg">' +
       esc(s.detail || '') + '</div></div></div>';
     if (s.connected) {
       const hrs = Math.round((s.expires_in_seconds || 0) / 360) / 10;
       html += '<p class="hint">Agency token renews itself (' + hrs + 'h left). ' +
-        (s.cached_location_tokens || 0) + ' sub-account token(s) cached. Scopes: ' +
-        esc(s.scope || 'none reported') + '</p>';
+        (s.cached_location_tokens || 0) + ' sub-account token(s) cached. ' +
+        (sc.known ? ((sc.granted || []).length + ' of ' +
+                     (sc.requested || []).length + ' requested scopes granted.')
+                  : 'HighLevel reported no scope list, so what was granted is ' +
+                    'not measured -- this is not the same as none.') + '</p>';
+      if ((sc.blocked || []).length) {
+        html += '<p class="hint"><strong>Unavailable until re-consent:</strong></p><ul class="hint">' +
+          sc.blocked.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') +
+          '</ul>';
+      }
+      // Split the missing list the way ghl_scopes does: a string we have
+      // authenticated with before that came back missing is a permissions
+      // problem on the app; one we have never confirmed is probably our typo.
+      // Sending someone to re-consent for a typo wastes the one manual step
+      // this whole module exists to avoid repeating.
+      if ((sc.missing_verified || []).length) {
+        html += '<p class="hint">Add to the app in the Marketplace, then reconnect: <code>' +
+          esc(sc.missing_verified.join(' ')) + '</code></p>';
+      }
+      if ((sc.missing_unverified || []).length) {
+        html += '<p class="hint">Not granted, and never confirmed against ' +
+          "HighLevel's own list -- check the spelling in hub/ghl_scopes.py " +
+          'before re-consenting: <code>' + esc(sc.missing_unverified.join(' ')) + '</code></p>';
+      }
+      if ((sc.unexpected || []).length) {
+        html += '<p class="hint">Granted but not asked for: <code>' +
+          esc(sc.unexpected.join(' ')) + '</code></p>';
+      }
     }
     box.innerHTML = html;
   } catch (err) {

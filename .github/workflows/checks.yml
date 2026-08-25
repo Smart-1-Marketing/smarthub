@@ -135,6 +135,14 @@ jobs:
       - name: Commercial Builder HeyGen tests
         run: python test_commercial_heygen.py
 
+      - name: Commercial Builder provider key tests
+        run: |
+          if [ -f test_commercial_providers.py ]; then
+            python test_commercial_providers.py
+          else
+            echo "test_commercial_providers.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -153,6 +161,20 @@ jobs:
             python test_msa_embed.py
           else
             echo "test_msa_embed.py not on this branch — nothing to run."
+          fi
+
+      - name: Landing-page embeds for smart1marketing.com
+        # The one check that would have caught the marketing site's forms and
+        # the Hub's forms being two different things. It also holds the line on
+        # sendBeacon('/api/partial-lead'), which tools/linkcheck.py cannot see:
+        # under a /land/... mount that leaves the module, 404s on the hub app,
+        # and reports nothing, because a beacon fires on pagehide and its
+        # return value is read by nobody. Six modules had it.
+        run: |
+          if [ -f test_landing_embeds.py ]; then
+            python test_landing_embeds.py
+          else
+            echo "test_landing_embeds.py not on this branch — nothing to run."
           fi
 
       - name: IO Builder start-screen tests
@@ -282,6 +304,35 @@ jobs:
             python test_domain_links.py
           else
             echo "test_domain_links.py not on this branch — nothing to run."
+          fi
+
+      - name: Suite embed tests
+        # Hub pages framed inside Smart 1 Suite: the SameSite=None companion
+        # cookie that reaches a cross-site frame, the safe-method + allowlist
+        # limits that stop it being a second front door, the frame-ancestors
+        # allowlist, and the sidebar not arriving inside somebody else's
+        # navigation. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_suite_embed.py ]; then
+            python test_suite_embed.py
+          else
+            echo "test_suite_embed.py not on this branch — nothing to run."
+          fi
+
+      - name: Marketplace app scope tests
+        # The scope set the GHL Marketplace app asks for, and the diff between
+        # what was requested and what HighLevel actually granted. Adding a
+        # scope costs an agency re-consent, so a write call site with no scope
+        # declared is a feature that silently cannot move off the Private
+        # Integration Token. Guarded like the steps around it so this workflow
+        # stays mergeable on a branch that predates the file. Nothing here
+        # reaches HighLevel -- the token record is a fixture.
+        run: |
+          if [ -f test_ghl_scopes.py ]; then
+            python test_ghl_scopes.py
+          else
+            echo "test_ghl_scopes.py not on this branch — nothing to run."
           fi
 
       - name: Orphaned Google account tests
