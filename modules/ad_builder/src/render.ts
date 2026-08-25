@@ -76,6 +76,8 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     noBakedCta: rule.noBakedCta,
     backgroundImage: concept.backgroundImage,
     backgroundOverlay: concept.backgroundOverlay,
+    backgroundOverlayColor: concept.backgroundOverlayColor,
+    backgroundPosition: concept.backgroundPosition,
     assetRoot,
   });
 
@@ -91,6 +93,8 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     noBakedCta: rule.noBakedCta,
     backgroundImage: concept.backgroundImage,
     backgroundOverlay: concept.backgroundOverlay,
+    backgroundOverlayColor: concept.backgroundOverlayColor,
+    backgroundPosition: concept.backgroundPosition,
     assetRoot,
   });
   const backgroundPng = await sharp(Buffer.from(bgPass.svg)).png().toBuffer();
@@ -111,6 +115,8 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     backgroundPng,
     scale,
     backgroundImage: concept.backgroundImage,
+    backgroundOverlay: concept.backgroundOverlay,
+    backgroundOverlayColor: concept.backgroundOverlayColor,
   });
 
   const dir = path.join(outDir, platform, concept.conceptId);
@@ -165,11 +171,15 @@ export async function renderPreview(opts: {
     layout, brand, copy, hero: concept.hero, scale,
     noBakedCta: rule.noBakedCta, assetRoot,
     backgroundImage: concept.backgroundImage, backgroundOverlay: concept.backgroundOverlay,
+    backgroundOverlayColor: concept.backgroundOverlayColor,
+    backgroundPosition: concept.backgroundPosition,
   });
   const bgPass = await compose({
     layout, brand, copy, hero: concept.hero, scale,
     includeText: false, noBakedCta: rule.noBakedCta, assetRoot,
     backgroundImage: concept.backgroundImage, backgroundOverlay: concept.backgroundOverlay,
+    backgroundOverlayColor: concept.backgroundOverlayColor,
+    backgroundPosition: concept.backgroundPosition,
   });
   const backgroundPng = await sharp(Buffer.from(bgPass.svg)).png().toBuffer();
 
@@ -178,7 +188,12 @@ export async function renderPreview(opts: {
   const png = await sharp(Buffer.from(composed.svg)).png().toBuffer();
   const raster = { buffer: png, format: 'png' as const, bytes: png.length, overweight: false, attempts: 1 };
 
-  const qa = await runQa({ layout, brand, copy, rule, composed, raster, backgroundPng, scale, backgroundImage: concept.backgroundImage });
+  const qa = await runQa({
+    layout, brand, copy, rule, composed, raster, backgroundPng, scale,
+    backgroundImage: concept.backgroundImage,
+    backgroundOverlay: concept.backgroundOverlay,
+    backgroundOverlayColor: concept.backgroundOverlayColor,
+  });
 
   return {
     png,

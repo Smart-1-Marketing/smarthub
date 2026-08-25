@@ -107,6 +107,22 @@ jobs:
       - name: Ad builder module tests
         run: python test_ads_module.py
 
+      - name: Display ad layout and build screen tests
+        # The Node ad builder's own tests need an npm install this workflow
+        # deliberately does not do, so this asserts what lives in the files:
+        # that the Proof point field has a box to draw into on every layout
+        # with room for one, that those boxes are inside the safe area and
+        # clear of everything else, and that the build screen and the render
+        # server still agree about the shapes they exchange. Guarded like the
+        # steps below so this workflow stays mergeable on a branch that
+        # predates the file. Reads files only — no database, no network.
+        run: |
+          if [ -f test_display_ads.py ]; then
+            python test_display_ads.py
+          else
+            echo "test_display_ads.py not on this branch — nothing to run."
+          fi
+
       - name: JSON store tests
         run: python test_jsonstore.py
 

@@ -88,9 +88,29 @@ export interface CreativeConcept {
    *  using the flat brand background. Used by the image-background option on
    *  Concept C. */
   backgroundImage?: string;
-  /** Strength of the dark overlay over a background image, 0..1. Auto-set from
+  /** Strength of the overlay over a background image, 0..1. Auto-set from
    *  the image's brightness when not specified. */
   backgroundOverlay?: number;
+  /**
+   * The overlay's color. Absent means the graded dark scrim the composer has
+   * always drawn -- heavier where the copy sits, lighter on the other side.
+   * Set to a hex and the overlay becomes a FLAT wash of that color at
+   * `backgroundOverlay` opacity, because "a color and a level of transparency"
+   * is the thing a person is choosing, and a graded version of it would not
+   * be the color they picked anywhere on the canvas.
+   */
+  backgroundOverlayColor?: string;
+  /**
+   * Which part of the background photo survives the crop.
+   *
+   * A photo is drawn `slice`: it covers the canvas and the overflow is cut
+   * off. On a 300x250 that throws away most of a landscape shot, and which
+   * part it throws away is the difference between a house and a lawn. This is
+   * an SVG preserveAspectRatio alignment ("xMidYMid", "xMidYMin"...); the
+   * build screen offers it as a nine-way grid. Absent means centred, which is
+   * what every ad built before this field did.
+   */
+  backgroundPosition?: string;
   conceptId: string;
   name: string;
   /** Which template family renders this concept, e.g. 'T01'. */

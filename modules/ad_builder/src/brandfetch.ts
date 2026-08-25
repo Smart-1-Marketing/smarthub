@@ -99,14 +99,25 @@ export function reconcileColors(
   // do not contrast, the templates cannot produce readable text at all.
   if (contrastRatio(hexLuminance(light), hexLuminance(dark)) < 7) {
     warnings.push(
-      'Reported light and dark colours did not contrast enough for readable text; using white and near-black instead.',
+      'Reported light and dark colors did not contrast enough for readable text; using white and near-black instead.',
     );
     light = '#FFFFFF';
     dark = '#111111';
   }
 
   if (!byType('brand') && !byType('primary')) {
-    warnings.push('No primary brand colour was identified; the first palette colour was used.');
+    // Named, not just reported. "No primary brand colour was identified"
+    // reads as "there is no primary colour" beside a build screen that is
+    // showing one in the Brand colours swatches, and the two look like a
+    // contradiction. What actually happened is narrower: Brandfetch returned
+    // a palette without saying which entry is the brand colour.
+    warnings.push(
+      clean.length
+        ? `Brandfetch did not label a primary color, so ${primary} — the first in their ` +
+          `palette — is being used as the primary. Check it under Brand colors.`
+        : `Brandfetch returned no palette at all, so ${primary} is a placeholder. ` +
+          `Set the real colors under Brand colors before sending a proof.`,
+    );
   }
 
   return { colors: { primary, secondary, accent, light, dark }, warnings };

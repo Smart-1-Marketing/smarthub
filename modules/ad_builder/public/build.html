@@ -12,10 +12,10 @@
    * The build screen is the operator's workbench, not the client's proof.
    * Different job, so a deliberately different room: the proof screen is a
    * light neutral gallery, this is a dark studio. Dark because the operator
-   * spends an hour here judging brand colour against a backdrop, and a bright
+   * spends an hour here judging brand color against a backdrop, and a bright
    * white surround skews that judgement all day.
    *
-   * Layout is a fixed three-column bench: controls left, live canvas centre,
+   * Layout is a fixed three-column bench: controls left, live canvas center,
    * every size and its QA state right. Nothing moves as you type — the preview
    * is the only thing that changes, which is what makes small edits legible.
    */
@@ -30,8 +30,8 @@
     --pass: #35C089;
     --warn: #E0A72B;
     --fail: #EF6B62;
-    /* The canvas surround is a neutral mid-grey, not the panel colour: brand
-       colours must be judged against something that does not tint them. */
+    /* The canvas surround is a neutral mid-grey, not the panel color: brand
+       colors must be judged against something that does not tint them. */
     --stage: #8A8F98;
   }
   * { box-sizing: border-box; }
@@ -87,8 +87,12 @@
   .health .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
   .health.healthy .dot { background: var(--pass); }
   .health.degraded .dot { background: var(--warn); }
-  .health.broken .dot { background: var(--fail); animation: pulse 1.2s ease infinite; }
-  @keyframes pulse { 50% { opacity: .45; } }
+  /* Not animated. A pulsing red dot in the corner of a screen somebody works
+     in for an hour is an alarm, and this is a status: whatever it is reporting
+     will still be true in five minutes, and it is almost never something the
+     person laying out an ad can act on. It is red, it says "Broken", and it
+     links to the page that explains why -- that is enough. */
+  .health.broken .dot { background: var(--fail); }
   .pill { font-size: 11.5px; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
   .pill.revision { background: rgba(224,167,43,.16); color: var(--warn); }
   .pill.approved { background: rgba(53,192,137,.16); color: var(--pass); }
@@ -108,8 +112,6 @@
   .field { margin-bottom: 12px; }
   .field:last-child { margin-bottom: 0; }
   label { display: block; font-size: 12px; color: var(--ink-2); margin-bottom: 5px; }
-  .count { float: right; font-size: 11px; }
-  .count.over { color: var(--warn); }
   textarea { min-height: 58px; resize: vertical; }
 
   .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -160,11 +162,62 @@
   .size:hover { background: var(--panel-2); }
   .size.on { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--signal); }
   .size .nm { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; }
-  .size .st { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+  .size .st { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
   .size .st.pass { background: var(--pass); }
   .size .st.warn { background: var(--warn); }
   .size .st.fail { background: var(--fail); }
-  .size .words { font-size: 11px; color: var(--ink-2); }
+
+  /* Approval, per size.
+     
+     A set is worked one size at a time and there was nothing recording which
+     ones were finished, so "have I done the 300x600" was answered by looking
+     at it and remembering. The tick is small on purpose -- it sits in the rail
+     next to the QA dot rather than becoming a column of its own -- and it is
+     a toggle, because a lock nobody can undo is a lock people work around. */
+  .size .ok { flex: none; width: 20px; height: 20px; border-radius: 5px; padding: 0;
+    font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink-2); }
+  .size .ok:hover { border-color: var(--pass); color: var(--pass); }
+  .size .ok.on { background: rgba(53,192,137,.18); border-color: var(--pass); color: var(--pass); }
+  .size.approved .nm { color: var(--pass); }
+
+  /* What an approved size looks like from the controls: everything is
+     readable, nothing is editable, and the reason is at the top rather than
+     left for someone to work out from a greyed-out box. */
+  .locked { padding: 11px 12px; margin-bottom: 12px; border-radius: 7px;
+    background: rgba(53,192,137,.12); border: 1px solid rgba(53,192,137,.4);
+    font-size: 12.5px; line-height: 1.45; }
+  .locked b { color: var(--pass); }
+  .locked button { margin-top: 8px; }
+  .col.left.lock input, .col.left.lock textarea, .col.left.lock select,
+  .col.left.lock .bgmode, .col.left.lock .famcard, .col.left.lock .bsclear,
+  .col.left.lock .inkchip, .col.left.lock .bgpos button {
+    pointer-events: none; opacity: .5;
+  }
+  .col.left.lock .locked, .col.left.lock .locked button { pointer-events: auto; opacity: 1; }
+
+  /* One question, two buttons, in the middle of the screen. Used where the
+     answer changes what the click does and guessing costs work: which sizes
+     an edit applies to, and whether unsaved edits survive moving on. */
+  .ask { position: fixed; inset: 0; z-index: 70; background: rgba(9,11,15,.72);
+    display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .askbox { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px; max-width: 26rem; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .askbox h4 { margin: 0 0 8px; font-size: 15px; font-family: Poppins, sans-serif; }
+  .askbox p { margin: 0 0 15px; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+  .askacts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* The scope of a copy edit, kept beside the field it governs so the answer
+     stays visible and changeable rather than being asked once and forgotten. */
+  .scope { display: flex; gap: 4px; align-items: center; margin: 5px 0 0; }
+  .scope span { font-size: 10.5px; color: var(--ink-2); margin-right: 2px; }
+  .scope button { font: inherit; font-size: 10.5px; padding: 3px 8px; border-radius: 20px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink-2); cursor: pointer; }
+  .scope button[aria-pressed="true"] { background: var(--panel-2); color: var(--ink);
+    border-color: var(--ink-2); font-weight: 600; }
+
+  /* A copy field this size's layout will not draw. */
+  .nodraw { font-size: 11.5px; color: var(--warn); margin: -2px 0 6px; line-height: 1.4; }
 
   .qa { padding: 14px 16px; }
   .qa h3 { margin: 0 0 10px; font-size: 11px; letter-spacing: .13em; text-transform: uppercase; color: var(--ink-2); }
@@ -197,14 +250,14 @@
 
   /* What happens after Save. Sits between the toolbar and the bench so it is
      read on the way back to the work, not hunted for. */
-  .nextstep { position: relative; margin: 0 0 12px; padding: 12px 40px 12px 14px;
-    border: 1px solid var(--line); border-left: 3px solid var(--accent, #2563eb);
-    border-radius: 8px; background: #fff; }
+  .nextstep { position: relative; margin: 0; padding: 12px 40px 12px 14px;
+    border-bottom: 1px solid var(--line); border-left: 3px solid var(--signal);
+    background: var(--panel-2); color: var(--ink); }
   .nsmsg { font-size: 13px; margin-bottom: 9px; }
-  .nsmsg.bad { color: #b3261e; }
+  .nsmsg.bad { color: var(--fail); }
   .nsacts { display: flex; gap: 8px; flex-wrap: wrap; }
-  .nsbtn { text-align: left; font: inherit; padding: 8px 11px; background: #fff;
-    border: 1px solid var(--line); border-radius: 7px; cursor: pointer;
+  .nsbtn { text-align: left; font: inherit; padding: 8px 11px; background: var(--bg);
+    color: var(--ink); border: 1px solid var(--line); border-radius: 7px; cursor: pointer;
     display: flex; flex-direction: column; gap: 2px; max-width: 15rem; }
   .nsbtn:hover { border-color: var(--ink-2); }
   .nsbtn b { font-size: 12.5px; }
@@ -213,55 +266,108 @@
   .nsclose { position: absolute; top: 7px; right: 9px; border: 0; background: none;
     font-size: 19px; line-height: 1; color: var(--ink-2); cursor: pointer; padding: 2px 5px; }
 
-  /* Per-block text styling. */
-  .blockstyle { border: 1px solid var(--line); border-radius: 7px; padding: 8px 9px;
-    margin-bottom: 7px; background: #fff; }
+  /* Per-block text styling.
+     
+     These panels were authored white -- #fff cards with #98A1B0 labels and
+     #fff inputs -- inside a room whose body colour is near-white. So a label
+     sat at about 2:1 against its own card and a typed value was white on
+     white: the control was legible only while it was empty and showing its
+     placeholder. Everything in the left column is the studio's own palette
+     now, which is also the reason the studio has one. */
+  .blockstyle { border: 1px solid var(--line); border-radius: 7px; padding: 9px 10px;
+    margin-bottom: 8px; background: var(--panel-2); }
   .bsname { font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
-    color: var(--ink-2); font-weight: 700; margin-bottom: 6px; }
-  .bsrow { display: flex; gap: 7px; margin-bottom: 5px; }
-  .bsrow > label { flex: 1; font-size: 10.5px; color: var(--ink-2);
-    display: flex; flex-direction: column; gap: 3px; text-transform: none;
-    letter-spacing: 0; font-weight: 400; }
-  .bsrow input, .bsrow select { width: 100%; padding: 5px 7px; font-size: 12px;
-    border: 1px solid var(--line); border-radius: 5px; background: #fff; }
-  .bsrow input[type=color] { padding: 2px; height: 28px; }
-  .bsclear { align-self: flex-end; font: inherit; font-size: 11px; padding: 6px 9px;
-    background: #fff; border: 1px solid var(--line); border-radius: 5px; cursor: pointer;
+    color: var(--ink); font-weight: 700; margin-bottom: 7px; }
+  .bsrow { display: flex; gap: 7px; margin-bottom: 6px; align-items: flex-end; }
+  .bsrow > label { flex: 1; font-size: 11px; color: var(--ink-2);
+    display: flex; flex-direction: column; gap: 4px; text-transform: none;
+    letter-spacing: 0; font-weight: 500; min-width: 0; }
+  .bsrow input, .bsrow select { width: 100%; padding: 6px 8px; font-size: 12.5px;
+    border: 1px solid var(--line); border-radius: 5px;
+    background: var(--bg); color: var(--ink); }
+  .bsrow input::placeholder { color: var(--ink-2); opacity: .8; }
+  .bsrow input[type=color] { padding: 2px; height: 30px; background: var(--bg); }
+  .bsrow input[type=file] { padding: 5px; font-size: 11.5px; }
+  .bsclear { align-self: flex-end; font: inherit; font-size: 11px; padding: 7px 9px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 5px; cursor: pointer;
     color: var(--ink-2); white-space: nowrap; }
-  .bsclear:hover { border-color: var(--ink-2); }
+  .bsclear:hover { border-color: var(--ink-2); color: var(--ink); }
+
+  /* A row of the client's own five colours under every colour control.
+     Choosing "the brand's accent" and choosing "#F2B705" are different acts:
+     the first follows the palette when somebody corrects a swatch, and it is
+     what a person means nine times out of ten. The picker stays beside it for
+     the tenth. */
+  .inkrow { display: flex; gap: 5px; align-items: center; flex-wrap: wrap;
+    margin: 2px 0 4px; }
+  .inkchip { width: 24px; height: 24px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--line); padding: 0; position: relative; }
+  .inkchip:hover { border-color: var(--ink); }
+  .inkchip[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--signal); border-color: var(--signal); }
+  .inklabel { font-size: 10.5px; color: var(--ink-2); margin-right: 2px; }
 
   /* Background chooser: four sources, one panel. */
   .bgmodes { display: grid; gap: 5px; margin-bottom: 8px; }
-  .bgmode { text-align: left; font: inherit; font-size: 12px; padding: 7px 10px;
-    background: #fff; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+  .bgmode { text-align: left; font: inherit; font-size: 12.5px; padding: 8px 10px;
+    background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
   .bgmode:hover { border-color: var(--ink-2); }
-  .bgmode.on { border-color: var(--accent, #2563eb);
-    box-shadow: 0 0 0 1px var(--accent, #2563eb) inset; font-weight: 600; }
+  .bgmode.on { border-color: var(--signal);
+    box-shadow: 0 0 0 1px var(--signal) inset; font-weight: 600; }
   .bgresults:not(:empty) { margin-bottom: 8px; }
   .bgmsg { font-size: 11.5px; color: var(--ink-2); display: block; margin-bottom: 6px; }
-  .bggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+  /* Two columns, not four. A 76px-wide thumbnail of a photograph is a smear
+     of colour: you cannot tell a house from a hedge in one, which is most of
+     why the suggestions "did not look close at all". Bigger tiles, and a
+     click on the magnifier opens the picture full size before anything is
+     applied to the ad. */
+  .bggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 8px; }
+  .bgtile { position: relative; }
   .bgthumb { padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
-    background: #fff; cursor: pointer; display: block; font: inherit; }
-  .bgthumb img { width: 100%; height: 54px; object-fit: cover; display: block; }
-  .bgthumb span { display: block; font-size: 10px; color: var(--ink-2); padding: 2px 4px; }
+    background: var(--bg); cursor: pointer; display: block; font: inherit; width: 100%; }
+  .bgthumb img { width: 100%; height: 94px; object-fit: cover; display: block; }
+  .bgthumb span { display: block; font-size: 10.5px; color: var(--ink-2); padding: 3px 5px; }
   .bgthumb:hover { border-color: var(--ink-2); }
-  .bgthumb.on { border-color: var(--accent, #2563eb);
-    box-shadow: 0 0 0 1px var(--accent, #2563eb) inset; }
+  .bgthumb.on { border-color: var(--signal); box-shadow: 0 0 0 1px var(--signal) inset; }
+  .bgzoom { position: absolute; top: 5px; right: 5px; width: 26px; height: 26px;
+    border-radius: 5px; border: 1px solid rgba(255,255,255,.35); cursor: pointer;
+    background: rgba(11,18,32,.72); color: #fff; font-size: 13px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; padding: 0; }
+  .bgzoom:hover { background: rgba(11,18,32,.92); }
+
+  /* The lightbox. A picture is judged at the size it will be seen, and a
+     photo behind a 970x250 is not judged at 126 pixels wide. */
+  .lightbox { position: fixed; inset: 0; z-index: 60; background: rgba(9,11,15,.88);
+    display: flex; align-items: center; justify-content: center; flex-direction: column;
+    gap: 12px; padding: 26px; }
+  .lightbox img { max-width: 92vw; max-height: 76vh; border-radius: 8px;
+    box-shadow: 0 18px 60px rgba(0,0,0,.6); }
+  .lightbox .lbbar { display: flex; gap: 8px; align-items: center; }
+  .lightbox .lbnote { color: var(--ink-2); font-size: 12px; }
+
+  /* The nine-way crop grid. A background is drawn to cover the canvas and the
+     overflow is cut off; on a 300x250 that is most of a landscape photo. */
+  .bgpos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+    width: 108px; margin-bottom: 6px; }
+  .bgpos button { aspect-ratio: 1; border: 1px solid var(--line); border-radius: 4px;
+    background: var(--bg); cursor: pointer; padding: 0; }
+  .bgpos button:hover { border-color: var(--ink-2); }
+  .bgpos button[aria-pressed="true"] { background: var(--signal); border-color: var(--signal); }
 
   /* Layout families, chosen by looking rather than by reading a dropdown. */
   .famgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
     gap: 8px; margin-bottom: 8px; }
   .famcard { display: flex; flex-direction: column; gap: 5px; align-items: stretch;
-    padding: 7px; background: #fff; border: 1px solid var(--line); border-radius: 7px;
+    padding: 7px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px;
     cursor: pointer; text-align: left; font: inherit; }
   .famcard:hover { border-color: var(--ink-2); }
-  .famcard.on { border-color: var(--accent, #2563eb); box-shadow: 0 0 0 1px var(--accent, #2563eb) inset; }
+  .famcard.on { border-color: var(--signal); box-shadow: 0 0 0 1px var(--signal) inset; }
   .famcard svg { width: 100%; height: auto; }
   .famname { font-size: 11px; line-height: 1.25; color: var(--ink-2); }
-  .famcard.on .famname { color: var(--ink, #0f172a); font-weight: 600; }
-  .fammiss { font-size: 10px; color: var(--warn, #b45309); }
+  .famcard.on .famname { color: var(--ink); font-weight: 600; }
+  .fammiss { font-size: 10px; color: var(--warn); }
   .famnone { font-size: 11px; color: var(--ink-2); padding: 12px 0; text-align: center;
-    background: #fff; border: 1px dashed var(--line); border-radius: 4px; }
+    background: var(--bg); border: 1px dashed var(--line); border-radius: 4px; }
 
   .empty { padding: 40px 22px; color: var(--ink-2); text-align: center; }
   .empty h2 { font-size: 15px; margin: 0 0 6px; color: var(--ink); }
@@ -284,10 +390,18 @@
   <a class="health" id="health" href="/diagnostics" title="Checking…"><span class="dot"></span><span class="lbl">…</span></a>
   <select id="campaignPick" style="width:auto;min-width:230px"></select>
   <select id="conceptPick" style="width:auto"></select>
-  <select id="platformPick" style="width:auto">
-    <option value="google">Google Display</option>
-    <option value="amazon">Amazon DSP</option>
-  </select>
+  <!--
+    There is no platform picker.
+
+    It offered Google Display and Amazon DSP, and the choice changed nothing a
+    person here is deciding: the two agree on every size in this package, and
+    where they differ (Amazon supplies the artwork at 2x and caps some
+    placements at 40 KB) the renderer already knows and applies it per size.
+    So it was a control that reordered nobody's work and quietly changed which
+    files "Render all sizes" produced. The campaign's own platform list decides
+    that now -- set at intake, from what was actually sold -- and it is stated
+    on the render button rather than chosen here.
+  -->
   <span class="pill" id="statusPill" style="display:none"></span>
   <span class="grow"></span>
   <span class="saved" id="saved">Saved</span>
@@ -298,7 +412,12 @@
        client registry to attach anything to, so the button would lead nowhere. -->
   <a class="btn" id="attachClient" href="#" style="display:none">Attach to client</a>
   <div id="deliveries" style="display:none;margin-top:10px;font-size:13px"></div>
-  <button class="btn primary" id="renderAll">Render all sizes</button>
+  <!-- "Render all sizes" said what it did and not what it was for, so nobody
+       knew whether they needed it. The title says the rest: the preview is one
+       size and lives in the browser, and this is what writes the actual files
+       every other step reads. -->
+  <button class="btn primary" id="renderAll"
+    title="Build the finished file for every size in this layout, not just the one on screen. The preview is a live sketch; this is what the proof, the delivery ZIP and the client gallery all read.">Render all sizes</button>
 </div>
 
 <div class="nextstep" id="nextStep" hidden>
@@ -334,10 +453,16 @@
     conceptId: null,
     size: '300x250',
     platform: 'google',
+    platforms: ['google'],
     templates: [],
     fonts: [],        // families the renderer has, from /api/build/options
     dirty: false,
-    sizeStatus: {},   // size -> { status, words }
+    sizeStatus: {},   // size -> { status }
+    /** field -> 'size' | 'all'. Asked once per field per campaign; see
+     *  setCopy for why an unasked edit is not just defaulted. */
+    copyScope: {},
+    /** Approvals for the loaded project, as [{conceptId, platform, size}]. */
+    approvals: [],
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -360,18 +485,78 @@
     var o = c.copy[state.size] || {};
     return o[field] !== undefined ? o[field] : (d[field] || '');
   }
+  /* Where a copy edit lands.
+     
+     Copy is a default plus per-size overrides, and every edit used to go to
+     the override for the size on screen. That is right for tightening a
+     headline that will not fit a 320x50, and wrong -- silently -- for fixing
+     a typo, which then stayed wrong on the other seven sizes with nothing
+     saying so.
+     
+     So the scope is asked, once per field, the first time that field is
+     edited, and then stays on screen as a two-way toggle. `all` writes the
+     default AND clears that field's per-size overrides, because an override
+     left behind would keep winning over the value just typed everywhere it
+     existed -- which looks exactly like the edit not having worked. */
+  function scopeOf(field) {
+    return state.copyScope[field] || null;
+  }
+
   function setCopy(field, value) {
     var c = concept(); if (!c) return;
-    if (!c.copy[state.size]) c.copy[state.size] = {};
-    c.copy[state.size][field] = value;
+    if (scopeOf(field) === 'all') {
+      if (!c.copy['default']) c.copy['default'] = {};
+      c.copy['default'][field] = value;
+      Object.keys(c.copy).forEach(function (k) {
+        if (k === 'default') return;
+        if (c.copy[k] && c.copy[k][field] !== undefined) delete c.copy[k][field];
+      });
+    } else {
+      if (!c.copy[state.size]) c.copy[state.size] = {};
+      c.copy[state.size][field] = value;
+    }
     state.dirty = true;
   }
 
+  /* Which copy blocks this size's layout will actually draw.
+     
+     Every size gets the same five fields. No layout carries all five: a proof
+     point is a badge beside the button and there is no room for one on a
+     728x90, and the offer flash belongs to one family. A field typed into,
+     saved, and then drawn nowhere is worse than a missing field -- the proof
+     point was exactly that on every layout in the tool until this release --
+     so the field says so instead. */
+  function drawnBlocks() {
+    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
+    var b = t && t.blocks && t.blocks[state.size];
+    // An older server does not send `blocks`. Say nothing rather than
+    // labelling every field as missing.
+    return b || null;
+  }
+
+  function willDraw(field) {
+    var b = drawnBlocks();
+    return !b || b.indexOf(field) >= 0;
+  }
+
+  /* Sizes in this family whose layout does draw a block, so "not here" can
+     name where it is instead of only where it is not. */
+  function sizesDrawing(field) {
+    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
+    if (!t || !t.blocks) return [];
+    return (t.sizes || []).filter(function (sz) {
+      return (t.blocks[sz] || []).indexOf(field) >= 0;
+    });
+  }
+
   /* ------------------------------------------------------------ controls */
-  var WORD_BUDGET = {
-    '300x250': 18, '336x280': 20, '728x90': 13, '160x600': 18,
-    '300x600': 26, '320x50': 9, '970x250': 22, '414x125': 12
-  };
+  /* There is no word budget here any more.
+     
+     The header counted every word on the canvas against a per-size band and
+     turned amber either side of it, which made a perfectly legible ad look
+     wrong for being four words short of a guideline nobody publishes. The
+     question it stood in for -- does the copy fit -- is answered per block by
+     the overflow check in the rail, from real glyph measurements. */
 
   function drawControls() {
     var c = concept();
@@ -384,28 +569,43 @@
       ['cta', 'Call to action', 'text'],
       ['trust', 'Proof point', 'text',
        'One line of evidence that this business is safe to call \u2014 years in ' +
-       'business, review score, licence, guarantee. e.g. "Serving Riverside ' +
+       'business, review score, license, guarantee. e.g. "Serving Riverside ' +
        'since 1998" or "4.9 stars, 300+ reviews".']
     ].map(function (f) {
-      var v = effective(f[0]);
+      var key = f[0];
+      var v = effective(key);
       var input = f[2] === 'textarea'
-        ? '<textarea data-copy="' + f[0] + '">' + esc(v) + '</textarea>'
-        : '<input type="text" data-copy="' + f[0] + '" value="' + esc(v) + '">';
+        ? '<textarea data-copy="' + key + '">' + esc(v) + '</textarea>'
+        : '<input type="text" data-copy="' + key + '" value="' + esc(v) + '">';
       // A field label nobody can act on is a field nobody fills in well.
       var hint = f[3]
         ? '<div style="font-size:11.5px;color:var(--ink-2);margin:-2px 0 6px">' + esc(f[3]) + '</div>'
         : '';
-      return '<div class="field"><label>' + f[1] +
-        '<span class="count" data-count="' + f[0] + '"></span></label>' + hint + input + '</div>';
+      // Say it before the box, not after the ad comes back without it.
+      var absent = '';
+      if (!willDraw(key)) {
+        var elsewhere = sizesDrawing(key);
+        absent = '<div class="nodraw">The ' + esc(f[1].toLowerCase()) +
+          ' is not in this layout at ' + esc(state.size) + ', so it will not ' +
+          'appear on this ad. ' +
+          (elsewhere.length
+            ? 'It does draw at ' + esc(elsewhere.join(', ')) + '.'
+            : 'No size in this layout family draws it \u2014 try another layout.') +
+          '</div>';
+      }
+      return '<div class="field"><label>' + f[1] + '</label>' + hint + absent + input +
+        scopeControl(key) + '</div>';
     }).join('');
 
     $('controls').innerHTML =
+      lockedBanner() +
       '<div class="group"><h3>Copy for ' + esc(state.size) + '</h3>' + fields +
         '<div style="font-size:11.5px;color:var(--ink-2);margin-top:4px">' +
-        'Edits apply to this size only. Clear a field to fall back to the default copy.</div></div>' +
+        'Each field asks, the first time you change it, whether the edit is for ' +
+        'this size or for every size in the set.</div></div>' +
       '<div class="group"><h3>Background</h3>' +
         '<div class="bgmodes">' +
-          '<button type="button" class="bgmode' + (concept().backgroundImage ? '' : ' on') + '" data-bgmode="none">Solid brand colour</button>' +
+          '<button type="button" class="bgmode' + (concept().backgroundImage ? '' : ' on') + '" data-bgmode="none">Solid brand color</button>' +
           '<button type="button" class="bgmode" data-bgmode="landing">From their landing page</button>' +
           '<button type="button" class="bgmode" data-bgmode="gallery">From their image gallery</button>' +
           '<button type="button" class="bgmode" data-bgmode="upload">Upload a picture</button>' +
@@ -416,12 +616,14 @@
         '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="bgNote">' +
           (concept().backgroundImage
             ? 'A photo background is applied to this concept.'
-            : 'This concept uses the flat brand colour.') +
-        '</div></div>' +
+            : 'This concept uses the flat brand color.') +
+        '</div>' +
+        backgroundAdjust() +
+        '</div>' +
       '<div class="group"><h3>Layout</h3>' +
         '<div class="famgrid" id="famGrid">' + familyCards() + '</div>' +
         '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div></div>' +
-      '<div class="group"><h3>Brand colours</h3><div class="swatches">' +
+      '<div class="group"><h3>Brand colors</h3><div class="swatches">' +
         ['primary','secondary','accent','light','dark'].map(function (k) {
           return '<div class="swatch"><input type="color" data-color="' + k + '" value="' + esc(b.colors[k]) + '"><span>' + k + '</span></div>';
         }).join('') +
@@ -431,21 +633,54 @@
         '<div class="field"><label>Body face</label><input type="text" data-font="body" value="' + esc(b.fonts.body) + '"></div>' +
         '<div style="font-size:11.5px;color:var(--ink-2)">Only installed families render. An unknown name falls back and is flagged in checks.</div>' +
       '</div>' +
-      '<div class="group"><h3>Text boxes for ' + esc(state.size) + '</h3>' +
+      // This heading used to read "Text boxes for 300x250" and it was not
+      // true: these overrides live on the concept and every size renders
+      // from them. Saying which size they belonged to made a person set a
+      // type size to suit the leaderboard and shrink the skyscraper with it,
+      // with the panel insisting it had only touched one.
+      '<div class="group"><h3>Text boxes \u2014 every size</h3>' +
+        '<div style="font-size:11.5px;color:var(--ink-2);margin:-6px 0 10px">' +
+        'Unlike the copy above, these apply to the whole set.</div>' +
         blockStyleControls() + logoStyleControls() +
         '<div style="font-size:11.5px;color:var(--ink-2);margin-top:2px">' +
-        'Blank means "use the layout\u2019s own setting". Sizes are a ceiling \u2014 ' +
+        '"Layout" means use the layout\u2019s own setting. Sizes are a ceiling \u2014 ' +
         'long copy still shrinks to fit. Width is where the line wraps, and is ' +
         'capped at the edge of the ad.</div></div>';
 
-    updateCounts();
     describeFamily();
+    applyLock();
+
+    var LABELS = {
+      headline: 'Headline', support: 'Supporting line', offer: 'Offer',
+      cta: 'Call to action', trust: 'Proof point',
+    };
 
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-copy]'), function (el) {
       el.addEventListener('input', function () {
-        setCopy(el.dataset.copy, el.value);
-        updateCounts();
-        schedule();
+        var field = el.dataset.copy;
+        // The question is asked once, and asked BEFORE the value is written,
+        // so the very first keystroke lands where it was meant to. While the
+        // dialog is open the field keeps whatever was typed -- it is only the
+        // campaign that waits.
+        ensureScope(field, LABELS[field] || field).then(function () {
+          setCopy(field, el.value);
+          markScope(field);
+          schedule();
+        });
+      });
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-scope]'), function (el) {
+      el.addEventListener('click', function () {
+        var field = el.parentNode.dataset.scopefor;
+        var was = scopeOf(field);
+        state.copyScope[field] = el.dataset.scope;
+        markScope(field);
+        // Changing the scope after the fact has to move the value too, or the
+        // toggle says "every size" over an edit that is still on one of them.
+        if (was !== state.copyScope[field]) {
+          var box = $('controls').querySelector('[data-copy="' + field + '"]');
+          if (box) { setCopy(field, box.value); schedule(); }
+        }
       });
     });
     Array.prototype.forEach.call($('controls').querySelectorAll('.bsclear'), function (el) {
@@ -458,12 +693,20 @@
       var ev = el.tagName === 'SELECT' || el.type === 'color' ? 'change' : 'input';
       el.addEventListener(ev, function () {
         setBlockStyle(el.dataset.style, el.dataset.prop, el.value);
+        if (el.type === 'color') markInk(el.dataset.style, el.dataset.prop);
+      });
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-ink]'), function (el) {
+      el.addEventListener('click', function () {
+        setBlockStyle(el.dataset.ink, el.dataset.inkprop, el.dataset.inkvalue);
+        markInk(el.dataset.ink, el.dataset.inkprop);
       });
     });
     var logoPicker = $('logoFile');
     if (logoPicker) logoPicker.addEventListener('change', function () {
       replaceLogo(this.files && this.files[0]);
     });
+    wireBackgroundAdjust();
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgmode]'), function (el) {
       el.addEventListener('click', function () { chooseBackground(el.dataset.bgmode, el); });
     });
@@ -493,6 +736,163 @@
         state.dirty = true;
         preview();
       });
+    });
+  }
+
+  /* Repaint one colour row in place rather than redrawing the whole column:
+     a full redraw on every swatch click loses the scroll position, and the
+     type panel is at the bottom of a long column. */
+  function markInk(block, prop) {
+    var current = (styleOf(block) || {})[prop];
+    Array.prototype.forEach.call(
+      $('controls').querySelectorAll('[data-ink="' + block + '"][data-inkprop="' + prop + '"]'),
+      function (chip) {
+        chip.setAttribute('aria-pressed', chip.dataset.inkvalue === current ? 'true' : 'false');
+      });
+  }
+
+  function markScope(field) {
+    var row = $('controls').querySelector('[data-scopefor="' + field + '"]');
+    if (!row) return;
+    Array.prototype.forEach.call(row.querySelectorAll('[data-scope]'), function (b) {
+      b.setAttribute('aria-pressed', b.dataset.scope === scopeOf(field) ? 'true' : 'false');
+    });
+  }
+
+  /* --------------------------------------------------------- approvals */
+  function railSizes() {
+    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
+    return t ? t.sizes : [];
+  }
+
+  function isApproved(size) {
+    return (state.approvals || []).some(function (a) {
+      return a.conceptId === state.conceptId && a.platform === state.platform &&
+             a.size === (size || state.size);
+    });
+  }
+
+  function unapprovedSizes() {
+    return railSizes().filter(function (sz) { return !isApproved(sz); });
+  }
+
+  /* An approved size is read-only. The banner is the whole explanation --
+     a panel of greyed-out boxes with no reason attached is a bug report
+     waiting to be filed. */
+  function lockedBanner() {
+    if (!isApproved()) return '';
+    var a = (state.approvals || []).filter(function (x) {
+      return x.conceptId === state.conceptId && x.platform === state.platform &&
+             x.size === state.size;
+    })[0];
+    var who = a && a.by ? ' by ' + esc(a.by) : '';
+    var when = a && a.at ? ' on ' + new Date(a.at).toLocaleDateString() : '';
+    return '<div class="group"><div class="locked">' +
+      '<b>' + esc(state.size) + ' is approved</b>' + who + when + '. ' +
+      'Nothing on it can be changed while it stays that way, so work on the ' +
+      'other sizes cannot quietly move it.' +
+      '<br><button type="button" class="btn" id="unlockSize">Unapprove it to edit</button>' +
+      '</div></div>';
+  }
+
+  function applyLock() {
+    var col = $('controls');
+    col.classList.toggle('lock', isApproved());
+    var btn = $('unlockSize');
+    if (btn) btn.addEventListener('click', function () { setApproved(state.size, false); });
+  }
+
+  function setApproved(size, approved) {
+    var pid = projectIdOf();
+    if (!pid) {
+      showNextSteps('This build has no project record yet, so sizes cannot be ' +
+                    'approved. Render the set once and it will have one.', true);
+      return;
+    }
+    post('/api/project/' + encodeURIComponent(pid) + '/approve-size', {
+      conceptId: state.conceptId, platform: state.platform,
+      size: size, approved: approved,
+    })
+      .then(function (d) {
+        if (!d || !d.approvals) {
+          // A refused write must not be read as "no approvals": that would
+          // silently unlock every size somebody had signed off.
+          showNextSteps((d && d.error) ||
+            'That approval did not save. Nothing has changed.', true);
+          return;
+        }
+        // The server's list, not a local guess: two people can be in here.
+        state.approvals = d.approvals;
+        drawControls(); drawRail();
+      })
+      .catch(function () {
+        showNextSteps('That approval did not save. Nothing has changed.', true);
+      });
+  }
+
+  /* ------------------------------------------------------- one question
+     A dialog rather than window.confirm, because confirm gives two words and
+     these questions each need a sentence: which sizes an edit is for, and
+     whether unsaved work survives moving on. Returns a promise of the chosen
+     value; Escape and the backdrop both resolve to null, which every caller
+     reads as "do nothing". */
+  function ask(title, body, choices) {
+    return new Promise(function (resolve) {
+      var wrap = document.createElement('div');
+      wrap.className = 'ask';
+      wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
+        '<h4>' + esc(title) + '</h4><p>' + esc(body) + '</p><div class="askacts">' +
+        choices.map(function (c, i) {
+          return '<button type="button" class="btn' + (i === 0 ? ' primary' : '') +
+            '" data-pick="' + i + '">' + esc(c[0]) + '</button>';
+        }).join('') + '</div></div>';
+      function done(value) {
+        document.removeEventListener('keydown', onKey);
+        wrap.remove();
+        resolve(value);
+      }
+      function onKey(e) { if (e.key === 'Escape') done(null); }
+      wrap.addEventListener('click', function (e) { if (e.target === wrap) done(null); });
+      Array.prototype.forEach.call(wrap.querySelectorAll('[data-pick]'), function (b) {
+        b.addEventListener('click', function () { done(choices[Number(b.dataset.pick)][1]); });
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(wrap);
+      var first = wrap.querySelector('[data-pick]');
+      if (first) first.focus();
+    });
+  }
+
+  /* The scope toggle under a copy field. Present from the start so the answer
+     is visible and changeable, rather than asked once in a dialog and then
+     invisible for the rest of the session. */
+  function scopeControl(field) {
+    var chosen = scopeOf(field);
+    return '<div class="scope" data-scopefor="' + field + '">' +
+      '<span>Applies to</span>' +
+      '<button type="button" data-scope="size" aria-pressed="' +
+        (chosen === 'size' ? 'true' : 'false') + '">' + esc(state.size) + ' only</button>' +
+      '<button type="button" data-scope="all" aria-pressed="' +
+        (chosen === 'all' ? 'true' : 'false') + '">Every size</button>' +
+      '</div>';
+  }
+
+  /* The first edit to a field asks. After that the toggle above answers it,
+     and the edit that triggered the question is applied to whichever was
+     chosen -- so nobody has to retype what they just typed. */
+  function ensureScope(field, label) {
+    if (scopeOf(field)) return Promise.resolve(scopeOf(field));
+    return ask(
+      'Apply this to every size?',
+      'You are editing the ' + label.toLowerCase() + '. The set has ' +
+      (railSizes().length || 'several') + ' sizes in it. Change this one ' +
+      'design, or change all of them?',
+      [['Every size', 'all'], ['Just ' + state.size, 'size']],
+    ).then(function (choice) {
+      // Escape means "not now". Defaulting to either answer here would put
+      // the edit somewhere nobody chose.
+      state.copyScope[field] = choice || 'size';
+      return state.copyScope[field];
     });
   }
 
@@ -539,7 +939,7 @@
       '<div class="bsrow">' +
         '<label>Anchor across<select data-style="logo" data-prop="align">' +
           opt('', 'Layout', lg.align) + opt('left', 'Left', lg.align) +
-          opt('center', 'Centre', lg.align) + opt('right', 'Right', lg.align) +
+          opt('center', 'Center', lg.align) + opt('right', 'Right', lg.align) +
         '</select></label>' +
         '<label>Anchor down<select data-style="logo" data-prop="valign">' +
           opt('', 'Layout', lg.valign) + opt('top', 'Top', lg.valign) +
@@ -595,18 +995,58 @@
           '</select></label>' +
           '<label>Align<select data-style="' + key + '" data-prop="align">' +
             opt('', 'Layout', st.align) + opt('left', 'Left', st.align) +
-            opt('center', 'Centre', st.align) + opt('right', 'Right', st.align) +
+            opt('center', 'Center', st.align) + opt('right', 'Right', st.align) +
           '</select></label>' +
         '</div>' +
+        // Text colour. There was no control for this at all: the layout's ink
+        // was the only ink, and a client whose brand is a dark green on cream
+        // got near-black.
+        (key === 'cta' ? '' : colorControl(key, 'color', 'Text color', st.color)) +
         (key === 'cta'
-          ? '<div class="bsrow"><label>Button colour' +
-              '<input type="color" data-style="cta" data-prop="bg"' +
-              ' value="' + esc(st.bg || currentAccent()) + '"></label>' +
-              '<button type="button" class="bsclear" data-style="cta" data-prop="bg">' +
-              'Use brand accent</button></div>'
+          ? colorControl('cta', 'bg', 'Button color', st.bg) +
+            colorControl('cta', 'color', 'Button text color', st.color)
+          : '') +
+        (concept().backgroundImage && key !== 'cta' && key !== 'offer'
+          ? '<div style="font-size:11px;color:var(--ink-2);line-height:1.35">' +
+            'Over a photo background the renderer picks the ink that survives ' +
+            'the overlay, so a color set here is ignored on this concept.' +
+            '</div>'
           : '') +
         '</div>';
     }).join('');
+  }
+
+  /* A colour control is a row of the client's five, then a picker.
+     
+     The brand names are first and are what a person almost always means:
+     "the accent" follows the palette when a swatch is corrected upstream,
+     where #F2B705 is a snapshot of it that silently goes stale. The picker
+     stays for the colour that is genuinely one-off, and "Layout" is how you
+     put it back. */
+  var BRAND_ROLES = ['primary', 'secondary', 'accent', 'light', 'dark'];
+
+  function colorControl(block, prop, label, current) {
+    var colors = (state.doc.campaign.brand.colors) || {};
+    var chips = BRAND_ROLES.map(function (role) {
+      return '<button type="button" class="inkchip" title="Brand ' + role +
+        ' \u2014 ' + esc(colors[role] || '') + '"' +
+        ' style="background:' + esc(colors[role] || '#888') + '"' +
+        ' data-ink="' + block + '" data-inkprop="' + prop + '" data-inkvalue="' + role + '"' +
+        ' aria-pressed="' + (current === role ? 'true' : 'false') + '"></button>';
+    }).join('');
+    // A hex the picker produced, or the resolved brand colour so the well is
+    // never showing a colour the block is not using.
+    var swatch = (current && current.charAt(0) === '#')
+      ? current
+      : (colors[current] || colors[block === 'cta' && prop === 'bg' ? 'accent' : 'dark'] || '#111111');
+    return '<div class="bsrow" style="flex-direction:column;align-items:stretch;gap:4px">' +
+      '<label style="flex:none">' + esc(label) + '</label>' +
+      '<div class="inkrow"><span class="inklabel">Brand</span>' + chips +
+        '<input type="color" style="width:34px;height:24px;padding:1px;flex:none"' +
+        ' data-style="' + block + '" data-prop="' + prop + '" value="' + esc(swatch) + '">' +
+        '<button type="button" class="bsclear" style="padding:3px 8px;font-size:10.5px"' +
+        ' data-style="' + block + '" data-prop="' + prop + '">Layout</button>' +
+      '</div></div>';
   }
 
   function opt(value, label, current) {
@@ -654,6 +1094,121 @@
     schedule();          // same debounce the copy fields use
   }
 
+  /* ---------------------------------------------- adjusting a background
+     
+     Two things you could not do at all until now, and both are the first
+     thing anybody asks for once a photo is behind an ad.
+     
+     **Where the photo sits.** A background is drawn to cover the canvas and
+     the overflow is cut off. On a 300x250 that throws away most of a
+     landscape shot, and which part it throws away is the difference between
+     a house and a lawn -- so the crop anchor is a nine-way grid, showing the
+     same alignment the renderer uses rather than a slider that means nothing
+     until you move it.
+     
+     **The overlay.** There has always been one, painted so text stays
+     readable, and it was a fixed dark scrim nobody could see or set. It is a
+     colour and a strength now. Leaving the colour alone keeps the graded dark
+     scrim exactly as it was, so no existing ad changes; choosing one paints a
+     flat wash of that colour, because a graded version of a chosen colour is
+     that colour nowhere on the canvas. */
+  var BG_POS = [
+    ['xMinYMin', 'Top left'], ['xMidYMin', 'Top'], ['xMaxYMin', 'Top right'],
+    ['xMinYMid', 'Left'], ['xMidYMid', 'Center'], ['xMaxYMid', 'Right'],
+    ['xMinYMax', 'Bottom left'], ['xMidYMax', 'Bottom'], ['xMaxYMax', 'Bottom right'],
+  ];
+  var DEFAULT_OVERLAY = 0.42;
+
+  function backgroundAdjust() {
+    var c = concept();
+    if (!c.backgroundImage) return '';
+    var pos = c.backgroundPosition || 'xMidYMid';
+    var strength = typeof c.backgroundOverlay === 'number' ? c.backgroundOverlay : DEFAULT_OVERLAY;
+    var wash = c.backgroundOverlayColor || '';
+    return '<div class="blockstyle" style="margin-top:10px">' +
+      '<div class="bsname">Where the picture sits</div>' +
+      '<div class="bgpos" id="bgPos">' +
+        BG_POS.map(function (p) {
+          return '<button type="button" data-bgpos="' + p[0] + '" title="' + esc(p[1]) +
+            '" aria-label="' + esc(p[1]) + '" aria-pressed="' +
+            (p[0] === pos ? 'true' : 'false') + '"></button>';
+        }).join('') +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--ink-2);line-height:1.35;margin-bottom:4px">' +
+        'The picture always fills the ad; this is the part that survives the ' +
+        'crop. Top keeps the sky, bottom keeps the ground.' +
+      '</div>' +
+      '<div class="bsname" style="margin-top:12px">Overlay</div>' +
+      '<div class="inkrow"><span class="inklabel">Color</span>' +
+        BRAND_ROLES.map(function (role) {
+          var hex = (state.doc.campaign.brand.colors || {})[role] || '#888888';
+          return '<button type="button" class="inkchip" title="Brand ' + role + '"' +
+            ' style="background:' + esc(hex) + '" data-overlay="' + esc(hex) + '"' +
+            ' aria-pressed="' + (wash.toUpperCase() === hex.toUpperCase() ? 'true' : 'false') +
+            '"></button>';
+        }).join('') +
+        '<input type="color" id="bgWash" style="width:34px;height:24px;padding:1px;flex:none"' +
+          ' value="' + esc(wash || '#0B1220') + '">' +
+        '<button type="button" class="bsclear" id="bgWashClear"' +
+          ' style="padding:3px 8px;font-size:10.5px">Auto</button>' +
+      '</div>' +
+      '<label style="font-size:11px;color:var(--ink-2);display:block;margin-top:6px">' +
+        'Transparency <b id="bgOpacityLabel" style="color:var(--ink)">' +
+        Math.round((1 - strength) * 100) + '% see-through</b>' +
+        '<input type="range" id="bgOpacity" min="0" max="100" step="5" style="width:100%"' +
+        ' value="' + Math.round(strength * 100) + '">' +
+      '</label>' +
+      '<div style="font-size:11px;color:var(--ink-2);line-height:1.35">' +
+        (wash
+          ? 'A flat wash of the color above.'
+          : 'No color chosen, so this is the built-in dark scrim \u2014 heavier ' +
+            'where the copy sits, lighter on the other side. Pick a color to ' +
+            'replace it with a flat wash.') +
+      '</div></div>';
+  }
+
+  function wireBackgroundAdjust() {
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgpos]'), function (el) {
+      el.addEventListener('click', function () {
+        concept().backgroundPosition = el.dataset.bgpos;
+        state.dirty = true;
+        Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgpos]'), function (b) {
+          b.setAttribute('aria-pressed', b === el ? 'true' : 'false');
+        });
+        preview();
+      });
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-overlay]'), function (el) {
+      el.addEventListener('click', function () { setOverlayColor(el.dataset.overlay); });
+    });
+    var picker = $('bgWash');
+    if (picker) picker.addEventListener('change', function () { setOverlayColor(this.value); });
+    var clear = $('bgWashClear');
+    if (clear) clear.addEventListener('click', function () { setOverlayColor(''); });
+    var slider = $('bgOpacity');
+    if (slider) slider.addEventListener('input', function () {
+      var pct = Number(this.value);
+      concept().backgroundOverlay = pct / 100;
+      state.dirty = true;
+      var lbl = $('bgOpacityLabel');
+      if (lbl) lbl.textContent = (100 - pct) + '% see-through';
+      schedule();
+    });
+  }
+
+  function setOverlayColor(hex) {
+    var c = concept();
+    if (hex) c.backgroundOverlayColor = hex.toUpperCase();
+    else delete c.backgroundOverlayColor;
+    // A strength has to exist before a colour means anything, or the first
+    // pick paints the composer's default 0.42 with no slider position behind
+    // it and the panel and the ad disagree.
+    if (typeof c.backgroundOverlay !== 'number') c.backgroundOverlay = DEFAULT_OVERLAY;
+    state.dirty = true;
+    drawControls();
+    preview();
+  }
+
   /* ------------------------------------------------- background chooser
      Four ways to put a picture behind the ad, in one place, because the
      question "what goes behind this" is one question however it gets
@@ -676,11 +1231,15 @@
       function (el) { el.classList.toggle('on', el === btn); });
 
     if (mode === 'none') {
-      delete concept().backgroundImage;
-      delete concept().backgroundOverlay;
+      var c0 = concept();
+      delete c0.backgroundImage;
+      delete c0.backgroundOverlay;
+      delete c0.backgroundOverlayColor;
+      delete c0.backgroundPosition;
       state.dirty = true;
-      bgSay('');
-      $('bgNote').textContent = 'This concept uses the flat brand colour.';
+      drawControls();
+      var n0 = $('bgNote');
+      if (n0) n0.textContent = 'This concept uses the flat brand color.';
       preview();
       return;
     }
@@ -747,23 +1306,7 @@
     }
 
     if (mode === 'stock') {
-      bgBusy('Finding photos that fit this campaign\u2026');
-      var c = concept();
-      post('/api/images/search', {
-        business: state.doc.campaign.client || '',
-        promoting: effective('headline') || '',
-        benefit: effective('support') || '',
-        offer: effective('offer') || ''
-      })
-        .then(function (d) {
-          var cands = d.candidates || [];
-          if (!cands.length) {
-            bgSay('<span class="bgmsg">' + esc(d.reason || 'No stock photos came back.') + '</span>');
-            return;
-          }
-          bgGrid(cands.map(function (x) { return { url: x.url, label: '' }; }), 'stock');
-        })
-        .catch(function () { bgSay('<span class="bgmsg">Photo search is unavailable.</span>'); });
+      stockSearch('');
       return;
     }
 
@@ -772,19 +1315,82 @@
       post('/api/images/generate', {
         business: state.doc.campaign.client || '',
         promoting: effective('headline') || '',
-        benefit: effective('support') || ''
+        benefit: effective('support') || '',
+        offer: effective('offer') || '',
+        palette: state.doc.campaign.brand.colors || undefined
       })
         .then(function (d) {
-          var cands = d.candidates || (d.url ? [{ url: d.url }] : []);
+          // The server answers { candidate }. This read only { candidates },
+          // found nothing, found no reason either, and printed its fallback
+          // sentence -- so a generation that had just worked reported "image
+          // generation is not configured". Both shapes are read now, and the
+          // server sends both.
+          var cands = d.candidates ||
+            (d.candidate ? [d.candidate] : (d.url ? [{ url: d.url }] : []));
+          cands = cands.filter(function (x) { return x && x.url; });
           if (!cands.length) {
             bgSay('<span class="bgmsg">' + esc(d.reason || d.error ||
-              'Image generation is not configured.') + '</span>');
+              'Nothing came back from the image generator.') + '</span>');
             return;
           }
-          bgGrid(cands.map(function (x) { return { url: x.url, label: '' }; }), 'ai');
+          bgGrid(cands.map(function (x) { return { url: x.url, label: 'AI' }; }), 'ai');
         })
         .catch(function () { bgSay('<span class="bgmsg">Image generation is unavailable.</span>'); });
     }
+  }
+
+  /* Stock, with the search phrase on screen and editable.
+     
+     The phrase used to be derived from the copy and never shown, so two
+     photos would come back looking nothing like the client and there was no
+     way to tell what had been searched, let alone correct it. Now the server
+     says which phrase produced these -- including when it had to drop terms
+     to find anything -- and the box above the results is the fix. */
+  function stockSearch(phrase) {
+    bgBusy(phrase ? 'Looking for "' + phrase + '"\u2026'
+                  : 'Finding photos that fit this campaign\u2026');
+    post('/api/images/search', {
+      business: state.doc.campaign.client || '',
+      promoting: effective('headline') || '',
+      benefit: effective('support') || '',
+      offer: effective('offer') || '',
+      search: phrase || undefined,
+      count: 12
+    })
+      .then(function (d) {
+        var cands = (d.candidates || []).filter(function (x) { return x && x.url; });
+        var box = '<div class="bsrow" style="margin-bottom:8px">' +
+          '<label style="flex:1">Search for' +
+            '<input type="text" id="bgQuery" value="' + esc(d.query || phrase || '') +
+            '" placeholder="what the picture is of"></label>' +
+          '<button type="button" class="bsclear" id="bgQueryGo">Search</button></div>';
+        if (!cands.length) {
+          bgSay(box + '<span class="bgmsg">' +
+            esc(d.reason || 'No stock photos came back.') + '</span>');
+          wireStockSearch();
+          return;
+        }
+        var note = d.narrowed
+          ? 'Nothing matched the whole phrase, so this is "' + (d.query || '') + '".'
+          : 'Searched for "' + (d.query || '') + '".';
+        bgGrid(cands.map(function (x) { return { url: x.url, label: '' }; }), 'stock',
+               box + '<p class="bgmsg">' + esc(note) +
+               ' Not right? Change the words above. Click the magnifier to see ' +
+               'one full size, or the picture itself to put it behind this ' +
+               'concept.</p>');
+        wireStockSearch();
+      })
+      .catch(function () { bgSay('<span class="bgmsg">Photo search is unavailable.</span>'); });
+  }
+
+  function wireStockSearch() {
+    var box = $('bgQuery'), go = $('bgQueryGo');
+    if (!box || !go) return;
+    var run = function () { stockSearch(box.value.trim()); };
+    go.addEventListener('click', run);
+    box.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); run(); }
+    });
   }
 
   /* Who this build is for. The intake writes the business onto the brand and
@@ -951,19 +1557,62 @@
     }).catch(function () {});
   }
 
-  function bgGrid(items, mode) {
-    bgSay('<p class="bgmsg">Click one to put it behind this concept.</p>' +
+  function bgGrid(items, mode, header) {
+    bgSay((header || '<p class="bgmsg">Click one to put it behind this concept, ' +
+           'or the magnifier to see it full size first.</p>') +
       '<div class="bggrid">' + items.map(function (it, i) {
-        return '<button type="button" class="bgthumb" data-pick="' + i + '"' +
-          ' title="' + esc(it.url) + '">' +
+        return '<div class="bgtile">' +
+          '<button type="button" class="bgthumb" data-pick="' + i + '"' +
+          ' title="Use this picture">' +
           '<img src="' + esc(it.url) + '" alt="" loading="lazy">' +
-          (it.label ? '<span>' + esc(it.label) + '</span>' : '') + '</button>';
+          (it.label ? '<span>' + esc(it.label) + '</span>' : '') + '</button>' +
+          // Judging a photograph at 126px wide is guessing. This opens it at
+          // the size it will actually be looked at, without applying it.
+          '<button type="button" class="bgzoom" data-zoom="' + i + '"' +
+          ' title="See it full size" aria-label="See it full size">\u2315</button>' +
+          '</div>';
       }).join('') + '</div>');
     Array.prototype.forEach.call(bgResults().querySelectorAll('[data-pick]'), function (el) {
       el.addEventListener('click', function () {
         applyBackground(items[Number(el.dataset.pick)].url, mode, el);
       });
     });
+    Array.prototype.forEach.call(bgResults().querySelectorAll('[data-zoom]'), function (el) {
+      el.addEventListener('click', function () {
+        var i = Number(el.dataset.zoom);
+        lightbox(items[i].url, function () {
+          applyBackground(items[i].url, mode,
+            bgResults().querySelector('[data-pick="' + i + '"]'));
+        });
+      });
+    });
+  }
+
+  /* One picture, big, with the same action available from in there -- looking
+     at it and then having to find it again in the grid is how you end up
+     picking the one next to it. */
+  function lightbox(url, onUse) {
+    var wrap = document.createElement('div');
+    wrap.className = 'lightbox';
+    wrap.innerHTML = '<img src="' + esc(url) + '" alt="">' +
+      '<div class="lbbar">' +
+        '<button type="button" class="btn primary" data-lb="use">Use this picture</button>' +
+        '<button type="button" class="btn" data-lb="close">Close</button>' +
+        '<span class="lbnote">Esc closes</span>' +
+      '</div>';
+    function close() {
+      document.removeEventListener('keydown', onKey);
+      wrap.remove();
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
+    wrap.querySelector('[data-lb="close"]').addEventListener('click', close);
+    wrap.querySelector('[data-lb="use"]').addEventListener('click', function () {
+      close();
+      if (onUse) onUse();
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(wrap);
   }
 
   /* The chooser has a URL; the renderer needs a local file. The server does
@@ -981,7 +1630,11 @@
         }
         concept().backgroundImage = d.path;
         state.dirty = true;
-        $('bgNote').textContent = 'Photo background applied to this concept (' + mode + ').';
+        // Redraw: the crop grid and the overlay controls only exist while
+        // there is a picture, and they are what somebody reaches for next.
+        drawControls();
+        var note = $('bgNote');
+        if (note) note.textContent = 'Photo background applied to this concept (' + mode + ').';
         preview();
       })
       .catch(function () { $('bgNote').textContent = 'That picture could not be used.'; });
@@ -1006,7 +1659,7 @@
     cta: 'rgba(22,163,74,.62)', trust: 'rgba(15,23,42,.22)'
   };
   // The renderer resolves these against the client's brand; the card only has
-  // to say "flat colour field" versus "white card", which is the difference
+  // to say "flat color field" versus "white card", which is the difference
   // someone is actually choosing between.
   var WIRE_BG = {
     primary: '#dbeafe', secondary: '#e0e7ff', accent: '#fef3c7',
@@ -1070,27 +1723,6 @@
       (has ? '' : '<br><b style="color:var(--warn)">No ' + esc(state.size) + ' layout in this family.</b>');
   }
 
-  function updateCounts() {
-    var total = 0;
-    ['headline','support','offer','cta','trust'].forEach(function (f) {
-      var v = effective(f).trim();
-      var n = v ? v.split(/\s+/).length : 0;
-      total += n;
-      var el = $('controls').querySelector('[data-count="' + f + '"]');
-      if (el) el.textContent = n ? n + 'w' : '';
-    });
-    var budget = WORD_BUDGET[state.size] || 20;
-    var head = $('controls').querySelector('[data-count="headline"]');
-    if (head) head.parentNode.parentNode.parentNode.firstChild;
-    var note = $('controls').querySelector('.group');
-    if (note) {
-      var h3 = note.querySelector('h3');
-      h3.innerHTML = 'Copy for ' + esc(state.size) +
-        ' <span style="float:right;text-transform:none;letter-spacing:0" class="count ' +
-        (total > budget ? 'over' : '') + '">' + total + ' / ' + budget + ' words</span>';
-    }
-  }
-
   /* -------------------------------------------------------------- preview */
   var timer = null;
   function schedule() { clearTimeout(timer); timer = setTimeout(preview, 320); }
@@ -1113,8 +1745,8 @@
         $('canvas').classList.remove('busy');
         if (!res.ok) { drawQa([{ check: 'preview', status: 'fail', detail: res.b.error }]); return; }
         $('preview').src = res.b.image;
-        $('dims').textContent = res.b.width + ' x ' + res.b.height + ' · ' + res.b.wordCount + ' words';
-        state.sizeStatus[state.size] = { status: res.b.status, words: res.b.wordCount };
+        $('dims').textContent = res.b.width + ' x ' + res.b.height;
+        state.sizeStatus[state.size] = { status: res.b.status };
         drawQa(res.b.qa);
         markRail();
       })
@@ -1123,14 +1755,32 @@
 
   /* ----------------------------------------------------------- size rail */
   function drawRail() {
-    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
-    var sizes = t ? t.sizes : [];
+    var sizes = railSizes();
+    var left = unapprovedSizes().length;
     $('rail').innerHTML =
-      '<div style="padding:14px 16px 4px"><h3 style="margin:0 0 4px;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)">Sizes</h3></div>' +
-      sizes.map(function (s) {
-        return '<button class="size' + (s === state.size ? ' on' : '') + '" data-size="' + esc(s) + '">' +
-          '<span class="nm">' + esc(s) + '</span><span class="words" data-words="' + esc(s) + '"></span>' +
-          '<span class="st" data-st="' + esc(s) + '"></span></button>';
+      '<div style="padding:14px 16px 4px">' +
+        '<h3 style="margin:0 0 4px;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)">' +
+        'Sizes' +
+        (sizes.length
+          ? '<span style="float:right;letter-spacing:0;text-transform:none;color:' +
+            (left ? 'var(--ink-2)' : 'var(--pass)') + '">' +
+            (sizes.length - left) + '/' + sizes.length + ' approved</span>'
+          : '') +
+        '</h3></div>' +
+      sizes.map(function (sz) {
+        var ok = isApproved(sz);
+        return '<div class="size' + (sz === state.size ? ' on' : '') +
+          (ok ? ' approved' : '') + '">' +
+          '<button class="nm" data-size="' + esc(sz) + '" style="background:none;border:0;' +
+            'color:inherit;font:inherit;cursor:pointer;padding:0;flex:1;text-align:left">' +
+            esc(sz) + '</button>' +
+          '<span class="st" data-st="' + esc(sz) + '"></span>' +
+          '<button type="button" class="ok' + (ok ? ' on' : '') + '" data-approve="' + esc(sz) + '"' +
+            ' title="' + (ok ? 'Approved — click to unapprove and edit again'
+                             : 'Approve this size and lock it') + '"' +
+            ' aria-pressed="' + (ok ? 'true' : 'false') + '">' +
+            (ok ? '\u2713' : '\u25CB') + '</button>' +
+          '</div>';
       }).join('') +
       '<div class="qa" id="qa"></div>' +
       (state.doc.notes && state.doc.notes.length
@@ -1141,22 +1791,57 @@
           '</ul></details>'
         : '');
 
-    Array.prototype.forEach.call($('rail').querySelectorAll('.size'), function (el) {
+    Array.prototype.forEach.call($('rail').querySelectorAll('[data-size]'), function (el) {
+      el.addEventListener('click', function () { goToSize(el.dataset.size); });
+    });
+    Array.prototype.forEach.call($('rail').querySelectorAll('[data-approve]'), function (el) {
       el.addEventListener('click', function () {
-        state.size = el.dataset.size;
-        drawControls(); drawRail(); preview();
-        refreshOverrideNote();
+        var sz = el.dataset.approve;
+        setApproved(sz, !isApproved(sz));
       });
     });
     markRail();
   }
 
+  /* Moving to another size with unsaved edits behind you.
+     
+     Nothing asked, and the edits stayed in the browser -- they were not lost,
+     but nothing on screen said they were still unsaved either, so the
+     ordinary way to lose an hour here was to work through four sizes and
+     close the tab. */
+  function goToSize(size) {
+    if (size === state.size) return;
+    if (!state.dirty) return showSize(size);
+    ask(
+      'Save your changes first?',
+      'You have edits to ' + state.size + ' that are not saved yet. Moving to ' +
+      size + ' keeps them on screen, but nothing is written down until you save.',
+      [['Save, then go', 'save'], ['Go without saving', 'go'], ['Stay here', null]],
+    ).then(function (choice) {
+      if (!choice) return;
+      if (choice === 'go') return showSize(size);
+      saveCampaign()
+        .then(function () {
+          flashSaved();
+          showSize(size);
+        })
+        .catch(function () {
+          showNextSteps('That did not save, so nothing has moved. Your edits ' +
+                        'are still on screen.', true);
+        });
+    });
+  }
+
+  function showSize(size) {
+    state.size = size;
+    drawControls(); drawRail(); preview();
+    refreshOverrideNote();
+  }
+
   function markRail() {
-    Object.keys(state.sizeStatus).forEach(function (s) {
-      var dot = $('rail').querySelector('[data-st="' + s + '"]');
-      var w = $('rail').querySelector('[data-words="' + s + '"]');
-      if (dot) dot.className = 'st ' + state.sizeStatus[s].status;
-      if (w) w.textContent = state.sizeStatus[s].words + 'w';
+    Object.keys(state.sizeStatus).forEach(function (sz) {
+      var dot = $('rail').querySelector('[data-st="' + sz + '"]');
+      if (dot) dot.className = 'st ' + state.sizeStatus[sz].status;
     });
   }
 
@@ -1207,6 +1892,18 @@
         state.doc = doc;
         state.conceptId = doc.campaign.concepts[0].conceptId;
         state.sizeStatus = {};
+        state.approvals = [];
+        // Scope is a per-campaign answer, not a per-session one: "every size"
+        // meant this set's sizes.
+        state.copyScope = {};
+        /* Which platform this set is built for is the campaign's own answer,
+           set at intake from what was sold, rather than a dropdown in the
+           toolbar that quietly changed which files got written. Where the two
+           platforms differ -- Amazon supplies at 2x and caps some placements
+           at 40 KB -- the renderer applies it per size either way. */
+        state.platforms = (doc.platforms && doc.platforms.length)
+          ? doc.platforms : ['google'];
+        state.platform = state.platforms[0];
         $('who').textContent = '— ' + doc.campaign.brand.name + ' · ' + doc.campaign.campaignName;
         var listEntry = (window.__campaignList || []).filter(function (c) { return c.requestId === id; })[0];
         var pill = $('statusPill');
@@ -1227,17 +1924,41 @@
         if (t && t.sizes.indexOf(state.size) < 0) state.size = t.sizes[0];
         drawControls(); drawRail(); preview();
         refreshDeliver(); refreshOverrideNote(); refreshAttachLink();
+        loadApprovals();
       });
   }
 
-  $('campaignPick').addEventListener('change', function () { loadCampaign(this.value); });
-  $('conceptPick').addEventListener('change', function () {
-    state.conceptId = this.value;
-    state.sizeStatus = {};
-    drawControls(); drawRail(); preview();
+  /* Leaving unsaved work behind is asked about wherever it can happen, not
+     only when moving between sizes: the campaign and concept pickers throw
+     away exactly the same edits. */
+  function leaveIfSafe(what, then) {
+    if (!state.dirty) return then();
+    ask(
+      'Save your changes first?',
+      'You have edits that are not saved yet. Opening ' + what + ' will lose them.',
+      [['Save, then open', 'save'], ['Open without saving', 'go'], ['Stay here', null]],
+    ).then(function (choice) {
+      if (!choice) return;
+      if (choice === 'go') { state.dirty = false; return then(); }
+      saveCampaign().then(function () { flashSaved(); then(); })
+        .catch(function () {
+          showNextSteps('That did not save, so nothing has moved.', true);
+        });
+    });
+  }
+
+  $('campaignPick').addEventListener('change', function () {
+    var pick = this.value;
+    leaveIfSafe('another campaign', function () { loadCampaign(pick); });
   });
-  $('platformPick').addEventListener('change', function () {
-    state.platform = this.value; state.sizeStatus = {}; preview();
+  $('conceptPick').addEventListener('change', function () {
+    var pick = this.value;
+    leaveIfSafe('another concept', function () {
+      state.conceptId = pick;
+      state.sizeStatus = {};
+      state.copyScope = {};
+      drawControls(); drawRail(); preview();
+    });
   });
 
   /* Saving used to flash the word "Saved" for 1.6 seconds and stop, which
@@ -1245,14 +1966,28 @@
      is not delivered, and nothing on screen says what the remaining steps
      are -- so this names them, in the order they actually happen, and offers
      duplicating the set as one of them. */
+  function flashSaved() {
+    $('saved').classList.add('on');
+    setTimeout(function () { $('saved').classList.remove('on'); }, 1600);
+  }
+
   $('save').addEventListener('click', function () {
     var btn = this; btn.disabled = true;
     saveCampaign()
       .then(function () {
         btn.disabled = false;
-        $('saved').classList.add('on');
-        setTimeout(function () { $('saved').classList.remove('on'); }, 1600);
-        showNextSteps('Saved. Nothing is delivered to the client yet \u2014 here is what is left.');
+        flashSaved();
+        // Which sizes are still unapproved, by name. "Saved" on a set where
+        // three of eight have been looked at reads as "done", and the sizes
+        // nobody has opened are exactly the ones that ship wrong.
+        var left = unapprovedSizes();
+        showNextSteps(
+          left.length
+            ? 'Saved. ' + left.length + ' of ' + railSizes().length +
+              ' sizes are not approved yet \u2014 ' + left.join(', ') +
+              '. Nothing is delivered to the client yet; here is what is left.'
+            : 'Saved, and every size is approved. Nothing is delivered to the ' +
+              'client yet \u2014 here is what is left.');
       })
       .catch(function () {
         btn.disabled = false;
@@ -1288,9 +2023,10 @@
       acts.push(['Render all sizes', 'render',
                  'Build every size in this family, not just the one on screen.']);
       if (projectIdForCurrent()) {
-        acts.push(['Duplicate this ad set', 'clone',
-                   'A fresh copy on its own number. Change the background, ' +
-                   'the words or the layout on the copy and leave this one alone.']);
+        acts.push(['Duplicate as the next concept', 'clone',
+                   'A fresh copy on its own number, named Concept B \u2014 then ' +
+                   'C, then D. Change the background, the words or the layout ' +
+                   'on the copy and leave this one alone.']);
       }
       var proof = $('proofLink');
       if (proof && proof.style.display !== 'none' && proof.href && proof.href !== '#') {
@@ -1331,6 +2067,9 @@
         }
         // Land on the copy, so the next change edits the duplicate rather than
         // the original -- which is the whole reason for duplicating.
+        $('nsMsg').textContent = res.b.conceptLetter
+          ? 'Copied as Concept ' + res.b.conceptLetter + '. Opening it\u2026'
+          : 'Copied. Opening it\u2026';
         window.location.search = '?request=' + encodeURIComponent(res.b.requestId);
       })
       .catch(function () {
@@ -1341,25 +2080,71 @@
 
   $('nsClose').addEventListener('click', function () { $('nextStep').hidden = true; });
 
+  /* "Render all sizes" said what it did and never what it produced: it went
+     to "Queued a1b2c3" for two seconds and back, and whether anything had
+     come out of it was somebody else's problem. It says what it is doing,
+     follows the job, and reports the count -- and it names the sizes that
+     were not approved, since this is the step that writes the files a proof
+     and a delivery ZIP are built from. */
   $('renderAll').addEventListener('click', function () {
     var btn = this; btn.disabled = true; btn.textContent = 'Rendering…';
-    fetch('/api/campaign/' + encodeURIComponent(state.requestId), {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(state.doc)
-    })
+    var sizes = railSizes().length;
+    saveCampaign()
       .then(function () {
-        return fetch('/api/render', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ campaign: state.doc.campaign, platforms: [state.platform] })
+        return post('/api/render', {
+          campaign: state.doc.campaign, platforms: state.platforms || ['google'],
         });
       })
-      .then(function (r) { return r.json(); })
       .then(function (b) {
-        btn.textContent = b.jobId ? 'Queued ' + b.jobId : 'Render all sizes';
-        setTimeout(function () { btn.disabled = false; btn.textContent = 'Render all sizes'; }, 2600);
+        if (b && b.error) throw new Error(b.error);
+        btn.disabled = false; btn.textContent = 'Render all sizes';
+        var left = unapprovedSizes();
+        showNextSteps(
+          'Building ' + sizes + ' finished files' +
+          ((state.platforms || []).length > 1
+            ? ' for ' + state.platforms.join(' and ')
+            : '') +
+          '. These are what the client proof and the delivery ZIP read \u2014 ' +
+          'the preview on screen is a live sketch and is not filed anywhere.' +
+          (left.length
+            ? ' Still unapproved: ' + left.join(', ') + '.'
+            : ' Every size is approved.'));
+        if (b && b.jobId) followRender(b.jobId, sizes);
       })
-      .catch(function () { btn.disabled = false; btn.textContent = 'Render all sizes'; });
+      .catch(function (e) {
+        btn.disabled = false; btn.textContent = 'Render all sizes';
+        showNextSteps((e && e.message) || 'That render could not be started.', true);
+      });
   });
+
+  /* A queued job that nobody watches is a job nobody knows failed. */
+  function followRender(jobId, sizes) {
+    var tries = 0;
+    (function poll() {
+      if (++tries > 60) return;                 // ~3 minutes, then stop asking
+      fetch('/api/render/' + encodeURIComponent(jobId))
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j || !j.status) return;
+          var prog = j.progress || {};
+          if (j.status === 'complete') {
+            $('nsMsg').textContent = 'Built ' + (prog.done != null ? prog.done : sizes) +
+              ' of ' + (prog.total != null ? prog.total : sizes) +
+              ' files. Open the proof to see them.';
+            refreshDeliver();
+            return;
+          }
+          if (j.status === 'failed') {
+            $('nsMsg').className = 'nsmsg bad';
+            $('nsMsg').textContent = 'That render failed: ' +
+              (j.error || 'no reason given') + '. Nothing was written.';
+            return;
+          }
+          setTimeout(poll, 3000);
+        })
+        .catch(function () { /* stop quietly; the proof link still works */ });
+    })();
+  }
 
   /* ------------------------------------------------------- delivery */
   function projectIdOf() {
@@ -1417,6 +2202,20 @@
       })
       .catch(function () { btn.disabled = false; btn.textContent = 'Deliver final files'; });
   });
+
+  /* The project record owns the approvals, so they survive a reload and are
+     the same list for whoever else has this campaign open. */
+  function loadApprovals() {
+    var pid = projectIdOf();
+    if (!pid) { state.approvals = []; return; }
+    fetch('/api/project/' + encodeURIComponent(pid))
+      .then(function (r) { return r.json(); })
+      .then(function (proj) {
+        state.approvals = proj.approvals || [];
+        drawControls(); drawRail();
+      })
+      .catch(function () { /* an unreadable record is no approvals, not a lock */ });
+  }
 
   /* ------------------------------------------------- manual override */
   function refreshOverrideNote() {

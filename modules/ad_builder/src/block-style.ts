@@ -49,11 +49,46 @@ export interface BlockStyle {
   font?: string;
   weight?: Weight;
   align?: HAlign;
+  /**
+   * The ink for this block: a literal hex, or one of the brand's five colour
+   * names. A name is the better answer where it fits, because it follows the
+   * client's palette when somebody corrects a swatch; a hex is what a colour
+   * picker produces and so has to be accepted too.
+   *
+   * Deliberately NOT applied over a full-bleed background photo. The composer
+   * forces an ink that survives the overlay there, and a chosen colour that
+   * the overlay swallows is the one change that looks right in the panel and
+   * ships an unreadable ad -- so on a photo background this is ignored and the
+   * panel says so rather than pretending.
+   */
+  color?: string;
   /** Block width in px at 1x — where the line wraps. */
   w?: number;
   lineHeight?: number;
   /** CTA only: the button fill. */
   bg?: string;
+}
+
+/** The brand's five roles, plus any literal hex. */
+export const COLOR_NAMES = ['primary', 'secondary', 'accent', 'light', 'dark'] as const;
+
+/**
+ * A colour this renderer will actually resolve, or nothing.
+ *
+ * `resolveColor` falls back to a default for anything it does not recognise,
+ * so an unvalidated value renders as near-black while the control shows the
+ * colour that was asked for -- the ad is wrong and the panel says it is right.
+ * Same rule the font check above follows, for the same reason.
+ */
+export function resolveStyleColor(value: string | undefined): string | null {
+  const v = String(value ?? '').trim();
+  if (!v) return null;
+  if ((COLOR_NAMES as readonly string[]).includes(v)) return v;
+  // Kept exactly as written rather than normalised to a case. SVG does not
+  // care, and rewriting what somebody typed means the value they read back
+  // out of a saved campaign is not the value they put in.
+  if (/^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v)) return v;
+  return null;
 }
 
 /**
@@ -131,6 +166,9 @@ export function applyBlockStyles(
     if (style.weight) { patched.weight = style.weight; changed = true; }
     if (style.align) { patched.align = style.align; changed = true; }
 
+    const ink = resolveStyleColor(style.color);
+    if (ink) { patched.color = ink; changed = true; }
+
     if (typeof style.lineHeight === 'number' && Number.isFinite(style.lineHeight)) {
       patched.lineHeight = clamp(style.lineHeight, 0.8, 2.5);
       changed = true;
@@ -147,7 +185,10 @@ export function applyBlockStyles(
 
     // Only the CTA has a fill; on anything else a background is not a thing
     // the composer draws, so accepting it would be a control that does nothing.
-    if (style.bg && key === 'cta') { patched.bg = style.bg; changed = true; }
+    if (key === 'cta') {
+      const fill = resolveStyleColor(style.bg);
+      if (fill) { patched.bg = fill; changed = true; }
+    }
 
     if (changed) {
       (next as any)[key] = patched;

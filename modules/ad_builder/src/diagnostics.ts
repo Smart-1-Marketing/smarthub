@@ -337,16 +337,37 @@ function checkDisk(outDir: string): Check[] {
 
   // Free space, and how much of it this app is holding. Nothing prunes
   // renders automatically, so this is the check that catches a slow leak.
+  //
+  // The two numbers df gives are not interchangeable, and this treated them as
+  // if they were: under a gigabyte free was a FAIL on its own, so a small
+  // volume with almost nothing on it reported "0.9 GB free, volume 2% used"
+  // as Broken -- a red banner on this page and a pulsing dot on every build
+  // screen, over a disk that is fine. A verdict contradicting the number
+  // printed beside it is the fastest way to teach somebody to ignore the
+  // whole page.
+  //
+  // So the percentage decides, because that is the one that says whether this
+  // volume is filling up. Absolute free space can only make things worse when
+  // the two agree, and a small-but-empty volume is described rather than
+  // failed.
   try {
     const df = execSync(`df -Pk ${JSON.stringify(outDir)}`, { encoding: 'utf8' }).trim().split('\n')[1];
     const cols = df.split(/\s+/);
     const availGb = Number(cols[3]) / 1048576;
     const usedPct = Number(String(cols[4]).replace('%', ''));
-    const level: Level = usedPct >= 90 || availGb < 1 ? 'fail' : usedPct >= 75 || availGb < 3 ? 'warn' : 'ok';
+    const level: Level =
+      usedPct >= 95 ? 'fail'
+        : usedPct >= 85 ? 'warn'
+          // Nearly empty in absolute terms AND filling up: both have to agree
+          // before a volume this app writes a few MB a day to is called broken.
+          : availGb < 0.5 && usedPct >= 75 ? 'warn'
+            : 'ok';
+    const small = availGb < 1 && level === 'ok';
     out.push({
       id: 'disk.space', group: 'Storage', label: 'Free disk',
       level,
-      detail: `${availGb.toFixed(1)} GB free, volume ${usedPct}% used`,
+      detail: `${availGb.toFixed(1)} GB free, volume ${usedPct}% used` +
+        (small ? ' \u2014 a small volume, not a filling one' : ''),
       fix: level === 'ok' ? undefined : 'Rendered files are kept after upload and nothing prunes them. Run the cleanup task or lower the retention window.',
     });
   } catch {

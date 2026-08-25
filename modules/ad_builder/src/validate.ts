@@ -55,7 +55,7 @@ export function validateCampaign(
     if (!v) {
       err(`brand.colors.${role}`, 'missing — templates reference all five roles by name');
     } else if (!HEX.test(v)) {
-      err(`brand.colors.${role}`, `"${v}" is not a hex colour`);
+      err(`brand.colors.${role}`, `"${v}" is not a hex color`);
     }
   }
   if (b.colors?.light && b.colors?.dark && b.colors.light.toLowerCase() === b.colors.dark.toLowerCase()) {
@@ -116,7 +116,7 @@ export function validateCampaign(
       if (!src) {
         warn(
           `${at}.hero.${o}`,
-          `${c.layoutFamily} uses a ${o} hero but none is supplied — that area will render as a flat colour block`,
+          `${c.layoutFamily} uses a ${o} hero but none is supplied — that area will render as a flat color block`,
         );
       } else if (!exists(assetRoot, src)) {
         err(`${at}.hero.${o}`, `file not found: ${src}`);

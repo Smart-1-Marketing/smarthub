@@ -25,6 +25,10 @@ export interface ComposeInput {
   /** Full-bleed background photo path + overlay strength (0..1). */
   backgroundImage?: string;
   backgroundOverlay?: number;
+  /** Flat overlay colour. Absent keeps the graded dark scrim. */
+  backgroundOverlayColor?: string;
+  /** preserveAspectRatio alignment for the background crop. */
+  backgroundPosition?: string;
   assetRoot?: string;
 }
 
@@ -85,6 +89,65 @@ async function dataUri(file: string): Promise<{ uri: string; w: number; h: numbe
   return { uri: `data:${mime};base64,${buf.toString('base64')}`, w, h };
 }
 
+/**
+ * The nine alignments SVG accepts for a `slice` crop, and nothing else.
+ *
+ * This value reaches the composer from a saved campaign file, so it is
+ * attacker-adjacent in the same way a copy field is: it is interpolated
+ * straight into an attribute. An unknown value is dropped for centre rather
+ * than passed through -- a malformed preserveAspectRatio makes librsvg ignore
+ * the whole attribute, which is a silently different crop.
+ */
+const BG_POSITIONS = new Set([
+  'xMinYMin', 'xMidYMin', 'xMaxYMin',
+  'xMinYMid', 'xMidYMid', 'xMaxYMid',
+  'xMinYMax', 'xMidYMax', 'xMaxYMax',
+]);
+
+export function resolveBgPosition(value: string | undefined): string {
+  const v = String(value ?? '').trim();
+  return BG_POSITIONS.has(v) ? v : 'xMidYMid';
+}
+
+/** A hex colour, or nothing. Same reasoning as resolveBgPosition. */
+export function normaliseHex(value: string | undefined): string | null {
+  const v = String(value ?? '').trim();
+  if (/^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v)) return v.toUpperCase();
+  return null;
+}
+
+/**
+ * Which brand ink survives whatever is painted over the photo.
+ *
+ * Exported because QA has to reach the same answer: measuring the template's
+ * ink over a photo reports a contrast failure the render does not have, and
+ * measuring light ink under a light wash reports a pass it does not have
+ * either.
+ */
+export function inkOverBackground(
+  input: { backgroundOverlayColor?: string; backgroundOverlay?: number },
+  brand: Brand,
+): 'light' | 'dark' {
+  const wash = normaliseHex(input.backgroundOverlayColor);
+  if (!wash) return 'light';                      // the dark scrim
+  const strength = Math.max(0, Math.min(1, input.backgroundOverlay ?? 0.42));
+  // A thin wash barely changes the photo, and a photo is an unknown, so the
+  // light ink the scrim path uses stays the safer bet until the wash is
+  // actually carrying the background.
+  if (strength < 0.45) return 'light';
+  return hexIsLight(wash) ? 'dark' : 'light';
+}
+
+/** Perceived lightness, the cheap way. Good enough to pick an ink. */
+function hexIsLight(hex: string): boolean {
+  const h = hex.replace('#', '');
+  const f = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const r = parseInt(f.slice(0, 2), 16);
+  const g = parseInt(f.slice(2, 4), 16);
+  const b = parseInt(f.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6;
+}
+
 function scrimGradient(id: string, dir: string, from: number, to: number): string {
   const coords =
     dir === 'right'
@@ -130,20 +193,38 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
   // caller's brightness read; 0.42 is a safe mid when unknown.
   const bgImg = input.backgroundImage ? await dataUri(abs(input.backgroundImage)) : null;
   if (bgImg) {
+    // Which part of the photo survives the crop. `slice` covers the canvas and
+    // cuts the overflow, so on a 300x250 most of a landscape shot is thrown
+    // away -- and which part is thrown away is the whole picture as far as the
+    // person looking at it is concerned. The concept's own choice wins; the
+    // intake's per-size hint is the fallback; centred is what everything built
+    // before either existed did.
+    const bgPos = resolveBgPosition(input.backgroundPosition ?? (copy as any).__bgPos);
     body.push(
-      `<image x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="${(copy as any).__bgPos ?? 'xMidYMid'} slice" href="${bgImg.uri}"/>`,
+      `<image x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="${bgPos} slice" href="${bgImg.uri}"/>`,
     );
     const strength = Math.max(0, Math.min(1, input.backgroundOverlay ?? 0.42));
-    // A vertical gradient: heavier where text sits (left/bottom on most
-    // layouts), lighter elsewhere, so the photo still reads.
-    defs.push(
-      `<linearGradient id="bgScrim" x1="0" y1="0" x2="1" y2="0">` +
-      `<stop offset="0" stop-color="#0b1220" stop-opacity="${(strength + 0.15).toFixed(2)}"/>` +
-      `<stop offset="0.6" stop-color="#0b1220" stop-opacity="${strength.toFixed(2)}"/>` +
-      `<stop offset="1" stop-color="#0b1220" stop-opacity="${Math.max(0, strength - 0.25).toFixed(2)}"/>` +
-      `</linearGradient>`,
-    );
-    body.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="url(#bgScrim)"/>`);
+    const wash = normaliseHex(input.backgroundOverlayColor);
+    if (wash) {
+      // A chosen colour is painted FLAT. Grading it would mean the colour that
+      // was picked appears nowhere on the canvas at the opacity that was
+      // picked, which is a control that lies about what it did.
+      body.push(
+        `<rect x="0" y="0" width="${W}" height="${H}" fill="${wash}" fill-opacity="${strength.toFixed(2)}"/>`,
+      );
+    } else {
+      // No colour chosen: the legibility scrim this has always drawn --
+      // heavier where text sits (left on most layouts), lighter elsewhere, so
+      // the photo still reads.
+      defs.push(
+        `<linearGradient id="bgScrim" x1="0" y1="0" x2="1" y2="0">` +
+        `<stop offset="0" stop-color="#0b1220" stop-opacity="${(strength + 0.15).toFixed(2)}"/>` +
+        `<stop offset="0.6" stop-color="#0b1220" stop-opacity="${strength.toFixed(2)}"/>` +
+        `<stop offset="1" stop-color="#0b1220" stop-opacity="${Math.max(0, strength - 0.25).toFixed(2)}"/>` +
+        `</linearGradient>`,
+      );
+      body.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="url(#bgScrim)"/>`);
+    }
   } else {
     body.push(
       `<rect x="0" y="0" width="${W}" height="${H}" fill="${resolveColor(layout.background, brand, '#ffffff')}"/>`,
@@ -255,10 +336,13 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
     let fill = (role === 'headline' && (brand.colors as any).headlineInk)
       ? resolveColor('headlineInk', brand)
       : resolveColor(spec.color, brand, '#111111');
-    // Over a full-bleed background photo, text must be light to survive the
-    // overlay — the template's dark ink would fail the contrast check.
+    // Over a full-bleed background photo, text must survive the overlay. Under
+    // the default dark scrim that means light ink; under a chosen wash it
+    // means whichever of light/dark the wash can carry, because a white
+    // overlay with white text on it is the same unreadable ad in the other
+    // direction. QA still measures the real contrast either way.
     if (input.backgroundImage && role !== 'offer' && !(spec as any).keepColorOnBg) {
-      fill = resolveColor('light', brand, '#ffffff');
+      fill = resolveColor(inkOverBackground(input, brand), brand, '#ffffff');
     }
     const inkW = fit.width;
     const inkX = xForAlign(inkW, spec.x, spec.w, spec.align);

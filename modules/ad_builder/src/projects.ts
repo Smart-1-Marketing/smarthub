@@ -25,6 +25,27 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Brand, RenderResult } from './types';
 
+/**
+ * One size, signed off.
+ *
+ * A set is worked size by size and there was nothing recording which ones were
+ * finished, so "have I done the 300x600 yet" was answered by looking at it and
+ * remembering. Worse: nothing stopped an edit to the brand colours or the
+ * layout family — both of which are concept-wide — from silently changing a
+ * size somebody had already passed.
+ *
+ * So an approval is stored per concept, platform and size, and the build
+ * screen locks the controls on a size that carries one. Unapproving is one
+ * click, because a lock nobody can undo is a lock people work around.
+ */
+export interface SizeApproval {
+  conceptId: string;
+  platform: string;
+  size: string;
+  at: string;
+  by?: string;
+}
+
 export interface CreativeOverride {
   conceptId: string;
   platform: string;
@@ -89,6 +110,22 @@ export interface Project {
   approvedConcept?: string;
   /** Hand-edited files that replace a rendered creative for one size. */
   overrides?: CreativeOverride[];
+  /** Sizes a person has signed off. See SizeApproval. */
+  approvals?: SizeApproval[];
+  /**
+   * Which lettered variant of an ad set this is.
+   *
+   * A duplicate used to be called "<name> (copy)", and a second duplicate
+   * "<name> (copy) (copy)", which stops being a name and starts being a
+   * count of clicks. Concepts are lettered in this business, so a duplicate
+   * is Concept B, its next duplicate is Concept C, and the letter is stored
+   * rather than parsed back out of the name.
+   */
+  conceptLetter?: string;
+  /** The project this set was first duplicated from, however many
+   *  duplications ago. The letters are allocated across that whole family, so
+   *  duplicating B gives C rather than a second B. */
+  conceptRoot?: string;
   /** Set once a delivery zip has been produced. */
   delivered?: { at: string; zipUrl: string; fileCount: number }[];
   /** The job id of the automatic render started at intake, so the public
@@ -197,6 +234,53 @@ export class ProjectStore {
   get(projectId: string): Project | null {
     const f = this.file(projectId);
     return fs.existsSync(f) ? (JSON.parse(fs.readFileSync(f, 'utf8')) as Project) : null;
+  }
+
+  /* ------------------------------------------------------------ approvals */
+
+  /** Sign one size off, or take the sign-off back. Returns the new list. */
+  setApproval(
+    project: Project,
+    key: { conceptId: string; platform: string; size: string },
+    approved: boolean,
+    by?: string,
+  ): SizeApproval[] {
+    const same = (a: SizeApproval) =>
+      a.conceptId === key.conceptId && a.platform === key.platform && a.size === key.size;
+    const kept = (project.approvals ?? []).filter((a) => !same(a));
+    project.approvals = approved
+      ? [...kept, { ...key, at: new Date().toISOString(), by }]
+      : kept;
+    this.save(project);
+    return project.approvals;
+  }
+
+  /* ------------------------------------------------------- concept letters
+     A duplicate is Concept B, its duplicate is Concept C, and so on across
+     the whole family rather than per parent -- duplicating B twice must not
+     produce two Concept Cs, because the letter is what people say out loud
+     when they mean a particular set. */
+
+  /** Every project descended from the same original, the original included. */
+  familyOf(project: Project): Project[] {
+    const root = project.conceptRoot ?? project.projectId;
+    return this.all().filter((p) => (p.conceptRoot ?? p.projectId) === root);
+  }
+
+  /**
+   * The next free letter in `project`'s family. Runs A..Z and then stops
+   * lettering rather than wrapping to a second A: twenty-six variants of one
+   * ad set is not a naming problem any more.
+   */
+  nextConceptLetter(project: Project): string | null {
+    const taken = new Set(
+      this.familyOf(project).map((p) => (p.conceptLetter ?? 'A').toUpperCase()),
+    );
+    for (let i = 0; i < 26; i++) {
+      const letter = String.fromCharCode(65 + i);
+      if (!taken.has(letter)) return letter;
+    }
+    return null;
   }
 
   /** Find by the request id the intake form issued. */

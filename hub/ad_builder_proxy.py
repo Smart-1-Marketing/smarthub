@@ -129,6 +129,15 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         # So the upstream builds links back through the Hub rather than to
         # its own loopback address.
         headers["X-Forwarded-Prefix"] = url_prefix
+        # Who is signed in. The renderer has no login of its own, so without
+        # this an approval is recorded against nobody -- and "who signed this
+        # size off" is the only question an approval exists to answer.
+        # ASCII only and bounded: a header carrying anything else raises
+        # UnicodeEncodeError inside requests, and losing the whole proxied
+        # request over a name with an accent in it would be absurd.
+        who = (current_user() or "").encode("ascii", "ignore").decode()[:120].strip()
+        if who:
+            headers["X-S1-User"] = who
 
         try:
             upstream = requests.request(

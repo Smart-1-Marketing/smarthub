@@ -32,7 +32,7 @@ import { scheduleSweep, sweep } from './retention';
 import { deliverProject, latestManifest } from './deliver';
 import { renderProof } from './proof';
 import { suggestCopy, critiqueCopy } from './copy-approval';
-import { searchPixabay, generateHero, imageKeywords } from './imagery';
+import { searchPixabay, generateHero } from './imagery';
 import { reworkLogo } from './logo-tools';
 import { resolveAsset } from './assets';
 import { fitImageToBudget } from './image-budget';
@@ -842,6 +842,29 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { saved: true, file: path.basename(file), bytes: data.length });
     }
 
+    /* --------------------------------------------- one size, signed off */
+    // Internal, unlike the customer approval below: this is the operator
+    // saying "this one is finished, stop changing it", which is what makes it
+    // safe to keep editing the other seven. The build screen locks the
+    // controls on an approved size and the same route takes it back.
+    const approveSizeMatch = url.pathname.match(/^\/api\/project\/([\w.-]+)\/approve-size$/);
+    if (approveSizeMatch && req.method === 'POST') {
+      const project = projects.get(approveSizeMatch[1]);
+      if (!project) return json(res, 404, { error: 'No such project' });
+      const body = JSON.parse(await readBody(req, 20_000)) as {
+        conceptId?: string; platform?: string; size?: string; approved?: boolean;
+      };
+      const { conceptId, platform, size } = body;
+      if (!conceptId || !platform || !size) {
+        return json(res, 400, { error: 'conceptId, platform and size are required' });
+      }
+      const approvals = projects.setApproval(
+        project, { conceptId, platform, size }, body.approved !== false,
+        (req.headers['x-s1-user'] as string) || undefined,
+      );
+      return json(res, 200, { approvals });
+    }
+
     /* ------------------------------------------------------------ approvals */
     // Posted by the proof screen. Public on purpose: the customer opening a
     // In-place rebuild. The heart of "revisions happen in the same window":
@@ -977,7 +1000,7 @@ const server = http.createServer(async (req, res) => {
               if (has('right')) fx = 'xMax';
               if (has('top', 'up', 'higher', 'head', 'face', 'sky')) fy = 'YMin';
               if (has('bottom', 'down', 'lower', 'ground', 'floor')) fy = 'YMax';
-              if (has('center', 'centre', 'middle')) { if (!has('left','right')) fx = 'xMid'; if (!has('top','bottom','up','down')) fy = 'YMid'; }
+              if (has('center', 'center', 'middle')) { if (!has('left','right')) fx = 'xMid'; if (!has('top','bottom','up','down')) fy = 'YMid'; }
               (target as any).__bgPos = `${fx}${fy}`;
               (target as any).__bgPosNote = body.picturePlacement.trim();
             }
@@ -1175,13 +1198,33 @@ const server = http.createServer(async (req, res) => {
       const body = JSON.parse(await readBody(req, 50_000)) as any;
       try {
         const cacheDir = path.join(OUT, 'imagery', slug(body.requestId ?? "adhoc"));
-        const cands = await searchPixabay(
-          { business: body.business ?? '', promoting: body.promoting ?? '', objective: body.objective, landing: body.landingAnalysis, keywords: body.keywords },
-          { cacheDir, count: 2 },
+        // `benefit` and `offer` were being dropped here: the build screen sent
+        // them and only `promoting` ever reached the keyword builder, so a
+        // campaign whose subject lives in the support line searched on the
+        // headline alone.
+        const found = await searchPixabay(
+          {
+            business: body.business ?? '', promoting: body.promoting ?? '',
+            objective: body.objective, landing: body.landingAnalysis,
+            benefit: body.benefit, offer: body.offer,
+            // A phrase typed on the build screen is the operator telling us
+            // what the picture is of, and beats anything derived from copy.
+            keywords: Array.isArray(body.keywords) ? body.keywords
+              : (typeof body.search === 'string' && body.search.trim())
+                ? body.search.trim().split(/\s+/).slice(0, 6)
+                : undefined,
+          },
+          { cacheDir, count: Math.max(1, Math.min(24, Number(body.count) || 12)) },
         );
         // expose each under /files with a public url the browser can load
-        const withUrls = cands.map((c) => ({ ...c, url: `/files/${path.relative(OUT, c.file)}` , file: undefined }));
-        return json(res, 200, { candidates: withUrls, query: imageKeywords({ business: body.business ?? '', promoting: body.promoting ?? '', landing: body.landingAnalysis, keywords: body.keywords }) }, cors);
+        const withUrls = found.candidates.map((c) => ({ ...c, url: `/files/${path.relative(OUT, c.file)}`, file: undefined }));
+        return json(res, 200, {
+          candidates: withUrls,
+          query: found.query,
+          narrowed: found.narrowed,
+          reason: withUrls.length ? undefined
+            : `Nothing on Pixabay matched "${found.query}". Try different words.`,
+        }, cors);
       } catch (e: any) {
         return json(res, 200, { candidates: [], reason: e?.message ?? 'Image search failed' }, cors);
       }
@@ -1193,7 +1236,7 @@ const server = http.createServer(async (req, res) => {
       const limit = rateLimit(route, req);
       if (!limit.allowed) return json(res, 429, { error: 'Slow down a moment.' }, cors);
       if (!process.env.OPENAI_API_KEY) {
-        return json(res, 200, { candidate: null, reason: 'Image generation is not configured (OPENAI_API_KEY missing).' }, cors);
+        return json(res, 200, { candidate: null, candidates: [], reason: 'Image generation is not configured (OPENAI_API_KEY missing).' }, cors);
       }
       const body = JSON.parse(await readBody(req, 50_000)) as any;
       try {
@@ -1236,9 +1279,15 @@ const server = http.createServer(async (req, res) => {
           },
           { cacheDir },
         );
-        return json(res, 200, { candidate: { ...cand, url: `/files/${path.relative(OUT, cand.file)}`, file: undefined } }, cors);
+        const withUrl = { ...cand, url: `/files/${path.relative(OUT, cand.file)}`, file: undefined };
+        // Both shapes. The intake screen reads `candidate`; the build screen
+        // reads `candidates`, and answering only the first is how a working
+        // generation reported "image generation is not configured" -- the
+        // build screen found no list, found no reason, and printed its
+        // fallback sentence.
+        return json(res, 200, { candidate: withUrl, candidates: [withUrl] }, cors);
       } catch (e: any) {
-        return json(res, 200, { candidate: null, reason: e?.message ?? 'Image generation failed' }, cors);
+        return json(res, 200, { candidate: null, candidates: [], reason: e?.message ?? 'Image generation failed' }, cors);
       }
     }
 
@@ -1486,15 +1535,38 @@ const server = http.createServer(async (req, res) => {
           fs.writeFileSync(path.join(OUT, 'requests', `${newRequestId}.json`), JSON.stringify(rec, null, 2));
         }
       } catch { /* overview simply shows less without it */ }
+      // A duplicate is the next lettered concept, not "(copy)". Duplicating
+      // twice used to give "(copy)" and "(copy) (copy)", which is a count of
+      // clicks rather than a name -- and the letters are what people say out
+      // loud when they mean one particular set.
+      const root = src.conceptRoot ?? src.projectId;
+      const letter = projects.nextConceptLetter(src);
+      const base = src.projectName.replace(/\s*[—-]\s*Concept [A-Z]$/, '').replace(/\s*\(copy\)+$/i, '');
       const clone = projects.create({
-        projectName: `${src.projectName} (copy)`,
+        projectName: letter ? `${base} — Concept ${letter}` : `${base} (copy)`,
         client: src.client, domain: src.domain, campaignName: src.campaignName,
         requestId: newRequestId, landingPage: src.landingPage, brand: src.brand,
         brandEnteredManually: src.brandEnteredManually,
         cloudinaryFolder: src.cloudinaryFolder, keywords: src.keywords,
-        notes: [`Cloned from ${src.requestId} (${src.projectId}).`],
+        notes: [
+          letter
+            ? `Concept ${letter}, duplicated from ${src.projectName} (${src.requestId}).`
+            : `Cloned from ${src.requestId} (${src.projectId}).`,
+        ],
       } as any);
       clone.status = 'in-build';
+      clone.conceptRoot = root;
+      if (letter) clone.conceptLetter = letter;
+      // The original is Concept A whether or not anybody ever said so. Naming
+      // it now is what stops the next duplicate claiming the letter.
+      if (!src.conceptLetter) {
+        src.conceptLetter = 'A';
+        src.conceptRoot = root;
+        projects.save(src);
+      }
+      // A duplicate starts unapproved. Carrying the original's sign-offs over
+      // would lock a set nobody has looked at.
+      delete (clone as any).approvals;
       projects.save(clone);
       // Render the clone so its proof is immediately reviewable/editable.
       const platforms: string[] = doc.platforms ?? ['google'];
@@ -1504,6 +1576,7 @@ const server = http.createServer(async (req, res) => {
       console.log(`[clone] ${src.requestId} -> ${newRequestId}`);
       return json(res, 200, {
         requestId: newRequestId, projectId: clone.projectId,
+        projectName: clone.projectName, conceptLetter: letter ?? undefined,
         proofUrl: `/proof/${newRequestId}`, overviewUrl: `/overview/${newRequestId}`,
         building: true,
       });
@@ -1633,11 +1706,27 @@ const server = http.createServer(async (req, res) => {
             }
           }
         }
+        // Which copy blocks each size in this family actually draws.
+        //
+        // The build screen offers Headline, Supporting line, Offer, Proof
+        // point and Call to action on every size. Not every layout carries
+        // every one of them -- an offer flash is a T04 idea, and neither the
+        // leaderboard nor the mobile banner has room for a proof point -- and
+        // a field that is typed into, saved, and then drawn nowhere is the
+        // worst kind of control. So the screen is told, per size, what this
+        // family will render, and says so beside the field.
+        const drawn: Record<string, string[]> = {};
+        for (const [sizeKey, sizeLayout] of Object.entries(t.sizes as Record<string, any>)) {
+          if (!sizeLayout) continue;
+          drawn[sizeKey] = ['headline', 'support', 'offer', 'trust', 'cta']
+            .filter((role) => !!sizeLayout[role]);
+        }
         return {
           id: t.id,
           name: t.name,
           description: t.description,
           sizes: sizeKeys,
+          blocks: drawn,
           // The field colour matters as much as the boxes: two families differ
           // mainly in whether the ad is a flat brand field or a white card.
           wire: canvas?.w && canvas?.h

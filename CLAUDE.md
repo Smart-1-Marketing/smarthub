@@ -1097,6 +1097,34 @@ Things that follow from that, each of which has a comment where it lives:
   The renderer never learns who our clients are; finished ads are filed into
   the client gallery through `modules/image_picker/filing.file_asset`, which
   records the public_id Cloudinary already has rather than re-uploading.
+- **Its own tests need an `npm install` CI does not do**, so the gate is
+  `test_display_ads.py` — pure Python over the files. That is a weak substitute
+  for most of a renderer and exactly the right test for two things. The layouts
+  are hand-authored coordinates, so whether a box exists, sits inside the safe
+  area and clears every other block is a fact about the JSON. And the build
+  screen talks to the render server across a wire nothing typechecks: the
+  generate route answered `{ candidate }`, the screen read `{ candidates }`,
+  and a generation that had just succeeded reported "image generation is not
+  configured" — no runtime in between, so both halves are asserted together.
+
+**A field the build screen offers is not a field any layout draws.** Every size
+gets Headline, Supporting line, Offer, Proof point and Call to action. Not one
+template carried a `trust` box, so the proof point was typed in, saved,
+word-counted and rendered nowhere on every ad this tool has ever produced. The
+box exists now wherever there is room — beside the button on the rectangles,
+above it on the skyscrapers — and the two canvases with genuinely no room
+(728x90, 320x50) say so beside the field rather than accepting copy they will
+throw away. `/api/build/options` reports which blocks each size draws, so a
+family added later cannot reintroduce the silence.
+
+**A copy edit is per size; a text-box style is per concept.** The panel headed
+"Text boxes for 300x250" was applying to all eight, so a type size set to suit
+the leaderboard shrank the skyscraper with it while the heading insisted
+otherwise. Copy genuinely is per size, and now asks which it means the first
+time each field is edited — the answer stays on screen as a toggle rather than
+being a dialog nobody can revisit. "Every size" writes the default **and**
+clears that field's per-size overrides, or the override keeps winning and the
+edit reads as having failed.
 
 ## Conventions
 
@@ -1148,6 +1176,7 @@ python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 python3 test_landing_spec.py       # what a landing page is for, and what it sells
 python3 test_client_groups.py      # grouped clients: what merges, what must not double
+python3 test_display_ads.py        # the display layouts, and the build screen's contracts
 ```
 
 The test files need no pytest and no new dependencies; each runs against a
