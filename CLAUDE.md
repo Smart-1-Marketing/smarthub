@@ -488,6 +488,64 @@ edited. So `/tools/ads/api/areas/preview` normalises and sizes server-side and
 the browser renders what comes back — the choice Social Planner made about its
 calendar, for the same reason.
 
+**A field that redraws itself while you are typing in it eats what you type.**
+The target-area rows asked the server for labels on every keystroke and then
+redrew the whole list from the answer — which replaced the `<input>` mid-word,
+so "Carmel showroom" came out as "Car". The structure and the derived text are
+drawn by two different functions now: `drawAreas()` builds the inputs and runs
+only when the shape changes (add, remove, change of type), and `paintMeta()`
+writes the label and the reach into reserved spans and can never touch an
+input. Anything that re-renders a container a person is typing into has this
+bug; `test_ads_estimate.py` asserts the two halves stay apart.
+
+**The provider that answered is not what a rep needs to know.** The logo panel
+said "Brandfetch" — a name that means nothing to the person reading it and
+invites the question of what to do when it says no. What a screen shows is
+where the logo came from: the client record, a lookup, or an upload. The
+variable that switches the lookup on is named on Settings, where somebody can
+act on it, and not in front of a rep who cannot.
+
+**A client is filed under a name and a domain, and a campaign reliably has
+neither.** A logo plainly on file came back empty because brand data is stored
+two ways — under the slugified client name and in a cache keyed by domain — and
+the generator has the name a rep typed and the URL of a landing page, which is
+often a microsite rather than the client's own site. `logo._candidates()`
+resolves the client through `hub/client_key.py` first, then tries the registry's
+name and the registry's URL alongside what the campaign carries, and **names
+what it looked under** when it finds nothing: "this client has no logo" and "we
+asked under a name they are not filed as" are different answers.
+
+**Most calls to action are links, not `<button>`s.** The conversion-point scan
+counted `<button>` elements and missed every "Get a free quote" anchor on every
+page built with a page builder. A link counts when it says what a CTA says or
+carries a class a builder gives its buttons — matched on the whole class token,
+because a substring match on `btn` also matches `subtle`. A styled button with
+no words in it is skipped: it is a chevron, and it tells a reader nothing.
+
+**A name the model researched is a suggestion until a person ticks it.** The
+competitor list arrives `accepted: False` and only ticked names reach the client
+document. Printing all of them is us telling a client who their competitors are
+on the model's say-so, and that is the paragraph a client checks hardest.
+
+**`navigator.clipboard` is not available on http, and refusing is allowed.**
+The copy button reported success it never had. It tries the clipboard API, then
+`execCommand`, and only if both fail does it put the link on screen selected
+with "press Ctrl-C" — a button that lies about copying is worse than one that
+asks.
+
+**The step that blocks everything else belongs where the queue is.** An
+estimate that has not been approved cannot be sent to a client at all — the
+share route refuses it — and that was visible only inside each proposal, so the
+approval hub read as "nothing to do" while every row waited on the same press.
+"Approve these estimates first" sits at the top of the hub, links straight to
+the approve card, and leaves archived proposals out: nobody is going to approve
+those.
+
+**Quiet controls need saying out loud.** The per-section pencils on the client
+estimate are deliberately faint so eight of them do not turn a proposal into a
+form — which means nobody finds them. The page now says so above the document,
+before the first section a pencil applies to.
+
 **A logo is looked up, never guessed at.** `modules/ads_builder/logo.py` tries
 the brand data already stored against the client, then a live Brandfetch
 lookup **behind a button** because that one is billed, then upload — and each

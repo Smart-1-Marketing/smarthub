@@ -36,6 +36,11 @@
   .bub-green { background:#059669 } .bub-yellow { background:#eab308 }
   .bub-red { background:#dc2626 } .bub-grey { background:#cbd5e1 }
   .est { color:#94a3b8; font-weight:400 }
+  .pickrow { display:flex; gap:9px; align-items:flex-start; padding:7px 9px; border-radius:8px;
+             border:1px solid transparent; cursor:pointer; margin:0 }
+  .pickrow:hover { background:#f8fafc; border-color:var(--line) }
+  .pickrow input { width:auto; margin-top:3px }
+  .pickrow:has(input:checked) { background:var(--blue-soft); border-color:#bfdbfe }
   .evid { font-family:ui-monospace,Consolas,Menlo,monospace; font-size:12px; color:#64748b;
           overflow-wrap:anywhere }
   .logobox { display:flex; gap:16px; align-items:center; flex-wrap:wrap }
@@ -101,37 +106,6 @@
 
 {% if (c.budgetSource or {}).stated is defined and not (c.budgetSource or {}).stated %}
   <div class="note n-info"><b>No budget was given</b>{{ (c.budgetSource or {}).note }}</div>
-{% endif %}
-
-{# ------------------------------------------------------------- client join #}
-{% set link = (c.clientLink or {}).get('result') %}
-{% if link %}
-<div class="card">
-  <h3>Client record <span class="sub">{{ p.client_name }}</span></h3>
-  <table>
-    <tbody>
-      <tr><td style="width:150px">Proposal</td>
-        <td><span class="tag {{ 't-good' if link.filed.ok else 't-bad' }}">{{ 'Filed' if link.filed.ok else 'Not filed' }}</span>
-          <span style="color:#64748b;margin-left:8px">{{ link.filed.note }}
-            {%- if link.filed.quote_number %} · {{ link.filed.quote_number }}{% endif %}</span></td></tr>
-      <tr><td>Work log</td>
-        <td><span class="tag {{ 't-good' if link.work.ok else 't-warn' }}">{{ 'Recorded' if link.work.ok else 'Not recorded' }}</span>
-          <span style="color:#64748b;margin-left:8px">{{ link.work.note }}</span></td></tr>
-      <tr><td>Client</td>
-        <td>{% if link.known_client.known %}
-            <span class="tag t-good">Known client</span>
-            <span style="color:#64748b;margin-left:8px">Matched on {{ link.known_client.matched_on or 'name' }}.</span>
-          {% else %}
-            <span class="tag t-info">New</span>
-            <span style="color:#64748b;margin-left:8px">Not in the client list — nothing was written to Knack.</span>
-          {% endif %}</td></tr>
-      <tr><td>Suite lead</td>
-        <td>{% if link.lead.created %}<span class="tag {{ 't-good' if link.lead.ok else 't-warn' }}">{{ 'Created' if link.lead.ok else 'Queued' }}</span>
-          {% else %}<span class="tag t-mute">None</span>{% endif %}
-          <span style="color:#64748b;margin-left:8px">{{ link.lead.note }}</span></td></tr>
-    </tbody>
-  </table>
-</div>
 {% endif %}
 
 {# ---------------------------------------------------------------- details #}
@@ -262,8 +236,8 @@
 <div class="card">
   <div class="row" style="margin-bottom:6px">
     <h3 style="margin:0">Keywords</h3>
-    <span style="color:#64748b;font-size:12.5px">click a keyword to mark it for removal —
-      nothing is removed until you apply</span>
+    <span style="color:#64748b;font-size:12.5px">click a keyword to mark it for removal, or
+      type your own into any group below — nothing is removed until you apply</span>
     <div class="spacer"></div>
     <button class="b-sm b-bad" id="applyCuts" onclick="applyCuts()" disabled>Remove selected</button>
   </div>
@@ -285,6 +259,19 @@
       </span>
     {% endfor %}
   </div>
+  <div class="row" style="margin-top:10px;align-items:flex-end">
+    <div style="flex:1;min-width:240px">
+      <label>Add keywords to this group</label>
+      <input class="kwAdd" data-group="{{ g.name }}"
+             placeholder="[exact term], &quot;phrase term&quot;, broad term"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();addKeywords(this)}">
+    </div>
+    <button class="b-sm" onclick="addKeywords(this.previousElementSibling.querySelector('input'))">Add</button>
+  </div>
+  <div class="hint">Comma-separated. Match type is read the way Google reads it —
+    <span class="mono">[brackets]</span> exact, <span class="mono">"quotes"</span> phrase,
+    bare is broad.</div>
+
   {% if g.ads and g.ads.headlines %}
     <div class="grid g2" style="margin-top:14px">
       <div>
@@ -330,6 +317,15 @@
 {# --------------------------------------------------------------- negatives #}
 <div class="card">
   <h3>Negative keyword vault <span class="sub">{{ p.negative_count }} terms · click to mark for removal</span></h3>
+  <div class="row" style="margin-bottom:12px;align-items:flex-end">
+    <div style="flex:1;min-width:240px">
+      <label>Add negative keywords</label>
+      <input id="negAdd" placeholder="roof jobs, roofing school, diy roof"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();addNegatives()}">
+    </div>
+    <button class="b-sm" onclick="addNegatives()">Add</button>
+  </div>
+
   <div class="grid g2">
     {% for bucket, terms in (c.negativeKeywordVault or {}).items() %}
       <div>
@@ -402,7 +398,7 @@
 </div>
 
 {# ---------------------------------------------------- approve and send it #}
-<div class="card">
+<div class="card" id="approve">
   <h3>Approve the estimate <span class="sub">then send it to the client</span></h3>
 
   {% if estimate.approved_at %}
@@ -464,6 +460,40 @@
     {% endfor %}
   </div>
 </div>
+
+{# ------------------------------------------------------------- client join
+   Near the bottom: it is a record of what filing the campaign wrote, which
+   matters once rather than every time somebody opens the page. The campaign
+   itself is what a rep came here to read. #}
+{% set link = (c.clientLink or {}).get('result') %}
+{% if link %}
+<div class="card">
+  <h3>Client record <span class="sub">{{ p.client_name }}</span></h3>
+  <table>
+    <tbody>
+      <tr><td style="width:150px">Proposal</td>
+        <td><span class="tag {{ 't-good' if link.filed.ok else 't-bad' }}">{{ 'Filed' if link.filed.ok else 'Not filed' }}</span>
+          <span style="color:#64748b;margin-left:8px">{{ link.filed.note }}
+            {%- if link.filed.quote_number %} · {{ link.filed.quote_number }}{% endif %}</span></td></tr>
+      <tr><td>Work log</td>
+        <td><span class="tag {{ 't-good' if link.work.ok else 't-warn' }}">{{ 'Recorded' if link.work.ok else 'Not recorded' }}</span>
+          <span style="color:#64748b;margin-left:8px">{{ link.work.note }}</span></td></tr>
+      <tr><td>Client</td>
+        <td>{% if link.known_client.known %}
+            <span class="tag t-good">Known client</span>
+            <span style="color:#64748b;margin-left:8px">Matched on {{ link.known_client.matched_on or 'name' }}.</span>
+          {% else %}
+            <span class="tag t-info">New</span>
+            <span style="color:#64748b;margin-left:8px">Not in the client list — nothing was written to Knack.</span>
+          {% endif %}</td></tr>
+      <tr><td>Suite lead</td>
+        <td>{% if link.lead.created %}<span class="tag {{ 't-good' if link.lead.ok else 't-warn' }}">{{ 'Created' if link.lead.ok else 'Queued' }}</span>
+          {% else %}<span class="tag t-mute">None</span>{% endif %}
+          <span style="color:#64748b;margin-left:8px">{{ link.lead.note }}</span></td></tr>
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 <!-- ------------------------------------------------------------- launch -->
 {# Last on the page, after review and approval, because that is the order the
@@ -713,6 +743,34 @@ async function applyCuts() {
   }
 }
 
+async function addKeywords(input) {
+  const text = (input.value || '').trim();
+  if (!text) return;
+  input.disabled = true;
+  try {
+    await api('POST', `${MOUNT}/api/proposals/${PID}/edit`,
+      {addKeywords: [{group: input.dataset.group, keywords: text}]});
+    window.location.reload();
+  } catch (err) {
+    toast('bad', err.message);
+    input.disabled = false;
+  }
+}
+
+async function addNegatives() {
+  const input = document.getElementById('negAdd');
+  const text = (input.value || '').trim();
+  if (!text) return;
+  input.disabled = true;
+  try {
+    await api('POST', `${MOUNT}/api/proposals/${PID}/edit`, {addNegatives: text});
+    window.location.reload();
+  } catch (err) {
+    toast('bad', err.message);
+    input.disabled = false;
+  }
+}
+
 // --------------------------------------------------------------- analysis
 async function analysePage(force) {
   const box = document.getElementById('pagePanel');
@@ -788,11 +846,18 @@ function drawCompetitors(r) {
       '</ul>';
   }
   if ((r.researched || []).length) {
-    html += '<label style="margin-top:10px">Our research <span class="est">(unverified)</span></label>' +
-      '<ul style="color:#475569;padding-left:18px">' +
-      r.researched.map(x => `<li><b>${esc(x.name)}</b> <span class="est">${esc(x.confidence)} confidence</span>` +
-        `${x.why ? ' — ' + esc(x.why) : ''}</li>`).join('') + '</ul>';
-    html += `<div class="hint">${esc(r.note || '')}</div>`;
+    // Each one is a proposal, not a finding: tick it and it goes on the client
+    // document, leave it and it does not. Nothing here reaches a client until
+    // a person has vouched for the name.
+    html += '<label style="margin-top:10px">Our research — tick the ones to use</label>' +
+      '<div id="compPicks">' + r.researched.map((x, i) =>
+        `<label class="pickrow">
+           <input type="checkbox" data-comp="${esc(x.name)}" ${x.accepted ? 'checked' : ''}
+                  onchange="saveCompetitors()">
+           <span><b>${esc(x.name)}</b> <span class="est">${esc(x.confidence)} confidence</span>
+             ${x.why ? '<div style="color:#64748b;font-size:12.5px">' + esc(x.why) + '</div>' : ''}</span>
+         </label>`).join('') + '</div>';
+    html += `<div class="hint" id="compMsg">${esc(r.note || '')}</div>`;
   }
   if ((r.implications || []).length) {
     html += '<label style="margin-top:10px">What it means for the campaign</label>' +
@@ -802,6 +867,20 @@ function drawCompetitors(r) {
   if (r.brandTermAdvice) html += `<div class="hint">${esc(r.brandTermAdvice)}</div>`;
   document.getElementById('compPanel').innerHTML = html ||
     '<div style="color:#94a3b8">No competitor research yet.</div>';
+}
+
+async function saveCompetitors() {
+  const accepted = Array.from(document.querySelectorAll('#compPicks input:checked'))
+    .map(el => el.dataset.comp);
+  const msg = document.getElementById('compMsg');
+  try {
+    await api('POST', `${MOUNT}/api/proposals/${PID}/competitors/accept`, {accepted});
+    msg.textContent = accepted.length
+      ? `${accepted.length} competitor${accepted.length === 1 ? '' : 's'} will appear on the client estimate.`
+      : 'None ticked — the estimate will name only the competitors the client gave us.';
+  } catch (err) {
+    msg.innerHTML = `<span style="color:var(--bad)">${esc(err.message)}</span>`;
+  }
 }
 
 async function loadTiers(force) {
@@ -843,6 +922,15 @@ function useTier(monthly) {
 }
 
 // -------------------------------------------------------------------- logo
+// Where a logo came from, in words a rep uses. The provider that answered is
+// not one of them: it is an implementation detail and naming it only invites
+// the question of what to do when it says no.
+const SOURCE_LABEL = {
+  'client record': 'From the client record',
+  'logo lookup': 'Looked up from the website',
+  'upload': 'Uploaded by hand',
+};
+
 async function loadLogo() {
   const box = document.getElementById('logoBox');
   try {
@@ -862,7 +950,7 @@ function drawLogo(l) {
         <div><b>From the ${esc(l.source)}</b></div>
         <div class="hint" style="margin:2px 0 8px">${esc(l.note || '')}</div>
         <div class="row">
-          <button class="b-sm" onclick="fetchLogo()">Try Brandfetch again</button>
+          <button class="b-sm" onclick="fetchLogo()">Look it up again</button>
           <label class="btn b-sm" style="cursor:pointer">Upload a different one
             <input type="file" accept="image/*" style="display:none" onchange="uploadLogo(this)"></label>
           <button class="b-sm b-bad" onclick="clearLogo()">Remove</button>
@@ -871,10 +959,12 @@ function drawLogo(l) {
   } else {
     html += `<div>
       <div class="hint" style="margin:0 0 8px">${esc((l && l.note) || 'No logo yet.')}
-        ${l && l.next ? esc(l.next) : ''}</div>
+        ${l && l.next ? esc(l.next) : ''}
+        ${l && l.tried && l.tried.length
+            ? `<div style="margin-top:4px">Looked under: ${esc(l.tried.join('; '))}</div>` : ''}</div>
       <div class="row">
         <button class="b-sm" onclick="fetchLogo()" ${l && l.can_fetch === false ? 'disabled' : ''}>
-          Look it up with Brandfetch</button>
+          Look up the logo</button>
         <label class="btn b-sm" style="cursor:pointer">Upload a logo
           <input type="file" accept="image/*" style="display:none" onchange="uploadLogo(this)"></label>
       </div></div>`;
@@ -883,9 +973,9 @@ function drawLogo(l) {
 }
 
 async function fetchLogo() {
-  document.getElementById('logoBox').innerHTML = '<span class="spin"></span> Asking Brandfetch…';
+  document.getElementById('logoBox').innerHTML = '<span class="spin"></span> Looking up the logo…';
   try {
-    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/logo/brandfetch`);
+    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/logo/lookup`);
     drawLogo(d.logo);
   } catch (err) { drawLogo({found: false, note: err.message}); }
 }
@@ -961,10 +1051,48 @@ async function revokeShare(token) {
   } catch (err) { toast('bad', err.message); }
 }
 
+// navigator.clipboard needs a secure context and a permission the browser may
+// simply refuse. It is tried first, then the old execCommand path, and only if
+// BOTH fail does the link get selected so a person can press Ctrl-C — a button
+// that reports success it did not have is worse than one that says "copy this".
 function copyLink(url) {
-  navigator.clipboard.writeText(url).then(
-    () => toast('good', 'Link copied.'),
-    () => toast('warn', 'Could not copy — select the link and copy it by hand.'));
+  const fallback = () => {
+    const box = document.createElement('textarea');
+    box.value = url;
+    box.setAttribute('readonly', '');
+    box.style.position = 'fixed';
+    box.style.top = '-1000px';
+    document.body.appendChild(box);
+    box.select();
+    box.setSelectionRange(0, url.length);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(box);
+    if (ok) toast('good', 'Link copied — paste it into your email.');
+    else showLinkToCopy(url);
+  };
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(url).then(
+      () => toast('good', 'Link copied — paste it into your email.'),
+      fallback);
+  } else {
+    fallback();
+  }
+}
+
+// Last resort: put it on screen, selected, and say so.
+function showLinkToCopy(url) {
+  const box = document.getElementById('shares');
+  const holder = document.createElement('div');
+  holder.className = 'note n-warn';
+  holder.innerHTML = '<b>Your browser would not let us copy it</b>' +
+    'The link is selected below — press Ctrl-C (Cmd-C on a Mac).' +
+    `<input class="mono" style="margin-top:6px" readonly value="${esc(url)}">`;
+  box.prepend(holder);
+  const field = holder.querySelector('input');
+  field.focus();
+  field.select();
 }
 
 // What the handoff carries and what it cannot, said before anyone downloads

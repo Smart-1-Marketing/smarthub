@@ -151,6 +151,10 @@
       <tr><td class="mono">GOOGLE_ADS_REDIRECT_URI</td><td>Hub URL + <span class="mono">{{ mount }}/oauth/callback</span></td></tr>
       <tr><td class="mono">GOOGLE_ADS_REFRESH_TOKEN</td><td>Shown once after you connect — paste it back to pin it</td></tr>
       <tr><td class="mono">GOOGLE_ADS_API_VERSION</td><td>Optional. Defaults to <span class="mono">{{ status.api_version }}</span></td></tr>
+      <tr><td class="mono">BRANDFETCH_API</td>
+        <td>Optional. Powers the logo lookup on a proposal; without it the logo comes from
+          the client record or an upload. Also spelled <span class="mono">BRANDFETCH_API_KEY</span>
+          — <span class="mono">hub/config.py</span> accepts either.</td></tr>
     </tbody>
   </table>
   <div class="hint">

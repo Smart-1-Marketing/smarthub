@@ -13,6 +13,22 @@
   .pick:has(input:checked) { border-color:var(--blue); background:var(--blue-soft); color:var(--blue) }
   .picks { display:flex; flex-wrap:wrap; gap:7px }
   .est { color:#94a3b8; font-weight:400; text-transform:none; letter-spacing:0 }
+  /* The stage a build is on pulses; the ones behind it go solid navy. Purely
+     decorative, so it is switched off entirely for anyone who has asked for
+     reduced motion rather than being slowed down. */
+  .gstage.on circle:first-of-type { stroke:var(--blue); fill:var(--blue-soft);
+                                    animation:gpulse 1.4s ease-in-out infinite }
+  .gstage.on text { fill:var(--blue); font-weight:600 }
+  .gstage.done circle:first-of-type { stroke:var(--navy); fill:var(--navy) }
+  .gstage.done path, .gstage.done rect, .gstage.done line, .gstage.done circle:not(:first-of-type)
+    { stroke:#fff }
+  .gstage.done text { fill:var(--navy) }
+  #gwireFill { transition:x2 .7s ease }
+  @keyframes gpulse { 0%,100% { opacity:1 } 50% { opacity:.45 } }
+  @media (prefers-reduced-motion: reduce) {
+    .gstage.on circle:first-of-type { animation:none }
+    #gwireFill { transition:none }
+  }
   .arearow { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px;
              background:#fbfcfe }
   .arearow .top { display:flex; gap:10px; align-items:center; margin-bottom:9px }
@@ -51,8 +67,8 @@
       </div>
       <div id="clientHits"></div>
       <div class="row">
-        <div class="spacer"></div>
         <button type="button" class="b-sm" onclick="newClient()">This is a new client →</button>
+        <div class="spacer"></div>
       </div>
     </div>
 
@@ -234,6 +250,64 @@
     <div class="row end">
       <button class="b-primary" id="go" onclick="generate()">Generate campaign</button>
     </div>
+
+    {# The build takes 30–60 seconds and does four distinct things. A bare
+       spinner for a minute reads as a hung page, so the stages are drawn and
+       ticked off as they happen — the person can see which part is slow, and
+       that something is still happening. #}
+    <div id="genStage" style="display:none;margin-top:14px">
+      <svg viewBox="0 0 560 132" width="100%" style="max-width:560px;display:block;margin:0 auto"
+           role="img" aria-labelledby="genSvgTitle">
+        <title id="genSvgTitle">Building the campaign</title>
+        <defs>
+          <linearGradient id="gwire" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#2563eb"/><stop offset="100%" stop-color="#1a2e58"/>
+          </linearGradient>
+        </defs>
+
+        <!-- the wire every stage sits on -->
+        <line x1="52" y1="52" x2="508" y2="52" stroke="#e2e8f0" stroke-width="3" stroke-linecap="round"/>
+        <line id="gwireFill" x1="52" y1="52" x2="52" y2="52" stroke="url(#gwire)"
+              stroke-width="3" stroke-linecap="round"/>
+
+        <!-- 1: read the page -->
+        <g class="gstage" data-stage="0">
+          <circle cx="52" cy="52" r="17" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+          <rect x="45" y="44" width="14" height="17" rx="2" fill="none" stroke="#64748b" stroke-width="2"/>
+          <line x1="48" y1="49" x2="56" y2="49" stroke="#64748b" stroke-width="1.6"/>
+          <line x1="48" y1="53" x2="56" y2="53" stroke="#64748b" stroke-width="1.6"/>
+          <text x="52" y="88" text-anchor="middle" font-size="10.5" fill="#64748b">Read the page</text>
+        </g>
+
+        <!-- 2: think -->
+        <g class="gstage" data-stage="1">
+          <circle cx="204" cy="52" r="17" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+          <path d="M198 57a7 7 0 1 1 12 0c0 3-1.5 4-1.5 6h-9c0-2-1.5-3-1.5-6z"
+                fill="none" stroke="#64748b" stroke-width="2" stroke-linejoin="round"/>
+          <line x1="200.5" y1="66" x2="207.5" y2="66" stroke="#64748b" stroke-width="2"/>
+          <text x="204" y="88" text-anchor="middle" font-size="10.5" fill="#64748b">Plan the campaign</text>
+        </g>
+
+        <!-- 3: keywords -->
+        <g class="gstage" data-stage="2">
+          <circle cx="356" cy="52" r="17" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+          <circle cx="352" cy="49" r="6" fill="none" stroke="#64748b" stroke-width="2"/>
+          <line x1="356.5" y1="53.5" x2="362" y2="59" stroke="#64748b" stroke-width="2" stroke-linecap="round"/>
+          <text x="356" y="88" text-anchor="middle" font-size="10.5" fill="#64748b">Write the keywords</text>
+        </g>
+
+        <!-- 4: budget -->
+        <g class="gstage" data-stage="3">
+          <circle cx="508" cy="52" r="17" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+          <rect x="501" y="46" width="14" height="11" rx="2" fill="none" stroke="#64748b" stroke-width="2"/>
+          <circle cx="508" cy="51.5" r="2.4" fill="none" stroke="#64748b" stroke-width="1.6"/>
+          <text x="508" y="88" text-anchor="middle" font-size="10.5" fill="#64748b">Size the budget</text>
+        </g>
+
+        <text id="gnote" x="280" y="116" text-anchor="middle" font-size="12" fill="#1a2e58"></text>
+      </svg>
+    </div>
+
     <div class="hint" id="genHint" style="display:none">
       Reading the landing page, then building 2–3 ad groups with 20–50 keywords each and
       sizing the budget tiers. This usually takes 30–60 seconds.
@@ -346,6 +420,14 @@ function checkBudget() {
 // back from the server. Target areas already carry one JavaScript mirror in the
 // Proposal Builder with a test asserting the two halves agree — a second mirror
 // would need a second such test, and would drift the day either was edited.
+//
+// The structure and the derived labels are drawn SEPARATELY, and that is the
+// whole point of the split. The first version redrew every row's innerHTML each
+// time the server answered, which destroyed the <input> the person was typing
+// into — so a name came out as "Car" and the caret jumped to the end of
+// whatever survived. Inputs are now built once per structural change (add,
+// remove, change of type) and never touched again; only the title and the reach
+// figure are repainted as you type.
 let areas = [];
 let areaDebounce;
 
@@ -355,55 +437,59 @@ function blankArea() {
 }
 
 function addArea() { areas.push(blankArea()); drawAreas(); refreshAreas(); }
-function removeArea(i) { areas.splice(i, 1); if (!areas.length) areas.push(blankArea());
-                         drawAreas(); refreshAreas(); }
+
+function removeArea(i) {
+  areas.splice(i, 1);
+  if (!areas.length) areas.push(blankArea());
+  drawAreas();
+  refreshAreas();
+}
+
+// A value change never rebuilds the row — it updates the model and asks the
+// server for fresh labels, which land in the two <span>s reserved for them.
 function setArea(i, field, value) {
   areas[i][field] = value;
   clearTimeout(areaDebounce);
-  areaDebounce = setTimeout(refreshAreas, 350);
+  areaDebounce = setTimeout(refreshAreas, 400);
+}
+
+// Changing the type DOES change which fields exist, so this is the one edit
+// that has to rebuild. Focus is not an issue: it came from a <select>.
+function setAreaType(i, value) {
+  areas[i].type = value;
+  drawAreas();
+  refreshAreas();
 }
 
 const AREA_TYPES = {{ area_types|tojson }};
 
-function drawAreas(meta) {
-  meta = meta || [];
-  document.getElementById('areaRows').innerHTML = areas.map((a, i) => {
-    const m = meta[i] || {};
-    const t = a.type;
-    const f = [];
-    if (t === 'City/ZIP + Radius') {
-      f.push(`<div class="field"><label>City or ZIP</label>
-        <input value="${esc(a.origin)}" placeholder="Carmel, IN"
-               oninput="setArea(${i},'origin',this.value)"></div>`);
-      f.push(`<div class="field"><label>Radius (miles)</label>
-        <input type="number" min="1" max="500" value="${esc(a.radius)}"
-               oninput="setArea(${i},'radius',this.value)"></div>`);
-      f.push(`<div class="field"><label>ZIP codes (optional)</label>
-        <input value="${esc(a.zips)}" placeholder="46032, 46033"
-               oninput="setArea(${i},'zips',this.value)"></div>`);
-    } else if (t === 'DMA') {
-      f.push(`<div class="field"><label>DMA</label>
-        <input value="${esc(a.dma)}" placeholder="Indianapolis"
-               oninput="setArea(${i},'dma',this.value)"></div>`);
-    } else if (t === 'Statewide') {
-      f.push(`<div class="field"><label>State</label>
-        <input value="${esc(a.state)}" placeholder="Indiana"
-               oninput="setArea(${i},'state',this.value)"></div>`);
-    } else if (t === 'Other') {
-      f.push(`<div class="field"><label>Describe it</label>
-        <input value="${esc(a.other)}" placeholder="Our five delivery routes"
-               oninput="setArea(${i},'other',this.value)"></div>`);
-      f.push(`<div class="field"><label>ZIP codes</label>
-        <input value="${esc(a.zips)}" placeholder="46032, 46033"
-               oninput="setArea(${i},'zips',this.value)"></div>`);
-    }
-    const reach = m.population
-      ? `~${numf(m.population)} people`
-      : (m.complete ? '<span style="color:#94a3b8">reach not measured</span>' : '');
-    return `<div class="arearow">
+function areaFields(a, i) {
+  const f = [];
+  const input = (label, field, attrs, placeholder) =>
+    `<div class="field"><label>${label}</label>
+       <input ${attrs || ''} value="${esc(a[field])}" placeholder="${placeholder}"
+              oninput="setArea(${i},'${field}',this.value)"></div>`;
+  if (a.type === 'City/ZIP + Radius') {
+    f.push(input('City or ZIP', 'origin', '', 'Carmel, IN'));
+    f.push(input('Radius (miles)', 'radius', 'type="number" min="1" max="500"', '10'));
+    f.push(input('ZIP codes (optional)', 'zips', '', '46032, 46033'));
+  } else if (a.type === 'DMA') {
+    f.push(input('DMA', 'dma', '', 'Indianapolis'));
+  } else if (a.type === 'Statewide') {
+    f.push(input('State', 'state', '', 'Indiana'));
+  } else if (a.type === 'Other') {
+    f.push(input('Describe it', 'other', '', 'Our five delivery routes'));
+    f.push(input('ZIP codes', 'zips', '', '46032, 46033'));
+  }
+  return f.join('');
+}
+
+function drawAreas() {
+  document.getElementById('areaRows').innerHTML = areas.map((a, i) => `
+    <div class="arearow">
       <div class="top">
-        <strong>${esc(m.label || ('Area ' + (i + 1)))}</strong>
-        <span style="font-size:12px;color:#64748b">${reach}</span>
+        <strong data-area-label="${i}">Area ${i + 1}</strong>
+        <span data-area-reach="${i}" style="font-size:12px;color:#64748b"></span>
         <div class="spacer"></div>
         ${areas.length > 1 ? `<button type="button" class="b-sm b-bad"
             onclick="removeArea(${i})">Remove</button>` : ''}
@@ -413,26 +499,40 @@ function drawAreas(meta) {
           <input value="${esc(a.name)}" placeholder="Carmel showroom"
                  oninput="setArea(${i},'name',this.value)"></div>
         <div class="field"><label>Type</label>
-          <select onchange="setArea(${i},'type',this.value);drawAreas();refreshAreas()">
-            ${AREA_TYPES.map(x => `<option value="${esc(x)}" ${x === t ? 'selected' : ''}>${esc(x)}</option>`).join('')}
+          <select onchange="setAreaType(${i}, this.value)">
+            ${AREA_TYPES.map(x =>
+              `<option value="${esc(x)}" ${x === a.type ? 'selected' : ''}>${esc(x)}</option>`).join('')}
           </select></div>
-        ${f.join('')}
+        ${areaFields(a, i)}
       </div>
-    </div>`;
-  }).join('');
+    </div>`).join('');
+}
+
+// Only the derived text. Nothing here can touch an input or move a caret.
+function paintMeta(rows) {
+  (rows || []).forEach((m, i) => {
+    const label = document.querySelector(`[data-area-label="${i}"]`);
+    const reach = document.querySelector(`[data-area-reach="${i}"]`);
+    if (label) label.textContent = m.label || ('Area ' + (i + 1));
+    if (reach) {
+      reach.innerHTML = m.population
+        ? `~${numf(m.population)} people`
+        : (m.complete ? '<span style="color:#94a3b8">reach not measured</span>' : '');
+    }
+  });
 }
 
 async function refreshAreas() {
   try {
     const d = await api('POST', MOUNT + '/api/areas/preview', {areas: areas});
-    drawAreas(d.areas);
+    paintMeta(d.areas);
     const box = document.getElementById('areaReach');
     box.innerHTML = d.total_population
       ? `Estimated reach across ${d.areas.filter(a => a.complete).length} area(s): ` +
         `<b>${numf(d.total_population)}</b> people. ${esc(d.note)}` +
         (d.unsized.length ? ` Not measured: ${esc(d.unsized.join(', '))}.` : '')
       : esc(d.note);
-  } catch (e) { /* the rows still render from what is typed */ }
+  } catch (e) { /* the rows still stand on whatever has been typed */ }
 }
 
 function radioValue(name) {
@@ -498,17 +598,80 @@ async function generate() {
   btn.innerHTML = '<span class="spin"></span> Generating…';
   document.getElementById('genHint').style.display = 'block';
   document.getElementById('genError').innerHTML = '';
+  startBuild();
 
   try {
     const d = await api('POST', MOUNT + '/api/generate', body);
+    finishBuild();
     window.location = d.url;
   } catch (err) {
+    stopBuild();
+    document.getElementById('genStage').style.display = 'none';
     document.getElementById('genError').innerHTML =
       `<div class="note n-bad"><b>Generation failed</b>${esc(err.message)}</div>`;
     btn.disabled = false;
     btn.textContent = 'Generate campaign';
     document.getElementById('genHint').style.display = 'none';
   }
+}
+
+// ------------------------------------------------------- the build animation
+// The stages are TIMED, not reported: the server does this work in one request
+// and does not stream progress back. So the wording is careful — it says what
+// is being worked on, never that a step has finished, because this cannot know
+// that. The only honest completion is the last one, drawn when the response
+// actually lands.
+const BUILD_STAGES = [
+  {at: 0,     note: 'Reading the landing page…'},
+  {at: 6000,  note: 'Working out who to target and what to say…'},
+  {at: 16000, note: 'Writing ad groups, keywords and ad copy…'},
+  {at: 34000, note: 'Sizing Good / Better / Best…'},
+];
+const WIRE = {x0: 52, x1: 508};
+let buildTimers = [];
+
+function markStage(i) {
+  document.querySelectorAll('.gstage').forEach(g => {
+    const n = Number(g.dataset.stage);
+    g.classList.toggle('on', n === i);
+    g.classList.toggle('done', n < i);
+  });
+  const fill = document.getElementById('gwireFill');
+  if (fill) {
+    const span = WIRE.x1 - WIRE.x0;
+    fill.setAttribute('x2', WIRE.x0 + (span * i) / (BUILD_STAGES.length - 1));
+  }
+}
+
+function startBuild() {
+  stopBuild();
+  document.getElementById('genStage').style.display = '';
+  BUILD_STAGES.forEach((stage, i) => {
+    buildTimers.push(setTimeout(() => {
+      markStage(i);
+      document.getElementById('gnote').textContent = stage.note;
+    }, stage.at));
+  });
+}
+
+function finishBuild() {
+  stopBuild();
+  document.querySelectorAll('.gstage').forEach(g => {
+    g.classList.remove('on');
+    g.classList.add('done');
+  });
+  const fill = document.getElementById('gwireFill');
+  if (fill) fill.setAttribute('x2', WIRE.x1);
+  const note = document.getElementById('gnote');
+  if (note) note.textContent = 'Campaign built — opening it…';
+}
+
+// Only cancels the timers. Whether the panel stays on screen is the caller's
+// call: it stays on success (we are navigating away from it) and is hidden on
+// failure, and only the caller knows which happened.
+function stopBuild() {
+  buildTimers.forEach(clearTimeout);
+  buildTimers = [];
 }
 
 checkBudget();

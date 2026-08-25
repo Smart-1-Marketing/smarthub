@@ -20,6 +20,35 @@
   <a class="btn b-primary" href="{{ mount }}/">New campaign</a>
 </div>
 
+{# The blocking step, at the top and named. An estimate that has not been
+   approved cannot be sent to a client at all — the share route refuses it —
+   and before this section existed the only place that was visible was inside
+   each proposal. So the queue said "nothing to do" while every row in it was
+   waiting on the same one press. #}
+{% set awaiting = proposals|rejectattr('estimate_approved')|rejectattr('status', 'equalto', 'ARCHIVED')|list %}
+{% if awaiting %}
+<div class="card" style="border-color:#fde68a;background:#fffdf5">
+  <h3>Approve these estimates first
+    <span class="sub">{{ awaiting|length }} waiting · a client link cannot be created until the estimate is approved</span></h3>
+  <table>
+    <thead><tr><th>Client</th><th class="num">Budget</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+    <tbody>
+      {% for p in awaiting %}
+        <tr>
+          <td><div style="font-weight:600">{{ p.client_name }}</div>
+            <div style="color:#94a3b8;font-size:11.5px">{{ p.campaign.websiteUrl or '' }}</div></td>
+          <td class="num">${{ '{:,.0f}'.format(p.campaign.monthlyBudget or 0) }}</td>
+          <td><span class="tag t-warn">Not approved</span></td>
+          <td style="color:#64748b;white-space:nowrap">{{ (p.updated_at or '')[:16].replace('T',' ') }}</td>
+          <td style="text-align:right">
+            <a class="btn b-sm b-primary" href="{{ mount }}/proposal/{{ p.id }}#approve">Review and approve</a></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <div class="card">
   {% if not proposals %}
     <div class="empty">

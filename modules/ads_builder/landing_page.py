@@ -59,7 +59,17 @@ BOOKING_SIGNATURES = (
 
 CTA_WORDS = re.compile(
     r"\b(call|book|schedule|request|get (?:a )?(?:quote|estimate)|free (?:quote|estimate|consult\w*)"
-    r"|contact|buy|shop|order|apply|sign up|start|claim|download|directions)\b", re.I)
+    r"|contact|buy|shop|order|apply|sign up|start|claim|download|directions|"
+    r"talk to|speak to|find out|learn more|see pricing|view pricing|get started)\b", re.I)
+
+# Most calls to action on a real landing page are ANCHORS styled as buttons, not
+# <button> elements — a page can be covered in "Get a free quote" and have no
+# <button> on it anywhere. So a link counts as a CTA when it says something a
+# CTA says, or when it carries a class a builder gives its buttons. Matched on
+# the class token rather than a substring, or "subtle" matches "btn".
+CTA_CLASS = re.compile(
+    r"(?:^|[\s_-])(?:btn|button|cta|elementor-button|wp-block-button__link|"
+    r"hs-button|w-button|sqs-block-button-element)(?:$|[\s_-])", re.I)
 
 
 class _Page(HTMLParser):
@@ -76,9 +86,10 @@ class _Page(HTMLParser):
         self.map_links = []
         self.text_chunks = []
         self.headings = []
-        self.buttons = []
+        self.buttons = []          # {text, kind: "button" | "link", href}
         self._in = ""
         self._form = None
+        self._link = None          # the anchor whose text we are collecting
 
     # -- helpers
     @staticmethod
@@ -129,14 +140,32 @@ class _Page(HTMLParser):
             elif "google.com/maps" in low or "maps.app.goo.gl" in low or "goo.gl/maps" in low:
                 if href not in self.map_links:
                     self.map_links.append(href)
+            # Collect the link's own text; whether it is a CTA is decided when
+            # the tag closes and we know what it said.
+            self._link = {"href": href, "text": "",
+                          "styled": bool(CTA_CLASS.search(self._attr(attrs, "class")))
+                                    or self._attr(attrs, "role").lower() == "button"}
 
     def handle_endtag(self, tag):
         tag = tag.lower()
         if tag == "form" and self._form is not None:
             self.forms.append(self._form)
             self._form = None
+        if tag == "a" and self._link is not None:
+            link = self._link
+            self._link = None
+            text = " ".join(link["text"].split())[:120]
+            # A styled button with no words is a chevron or an icon and tells a
+            # reader nothing, so it is not reported as a conversion point.
+            if text and (link["styled"] or CTA_WORDS.search(text)):
+                self._add_button(text, "link", link["href"])
         if tag == self._in:
             self._in = ""
+
+    def _add_button(self, text, kind, href=""):
+        if any(b["text"].lower() == text.lower() for b in self.buttons):
+            return
+        self.buttons.append({"text": text, "kind": kind, "href": href})
 
     def handle_data(self, data):
         text = " ".join(data.split())
@@ -149,8 +178,9 @@ class _Page(HTMLParser):
         elif self._in in ("h1", "h2", "h3"):
             self.headings.append({"level": self._in, "text": text[:200]})
         elif self._in == "button":
-            if text not in self.buttons:
-                self.buttons.append(text[:120])
+            self._add_button(text[:120], "button")
+        if self._link is not None:
+            self._link["text"] += " " + text
         if len(self.text_chunks) < 900:
             self.text_chunks.append(text)
 
@@ -253,9 +283,15 @@ def observe(url: str, fetched: dict = None) -> dict:
         points.append({"kind": "directions", "label": "Directions link",
                        "evidence": link})
 
-    ctas = [b for b in page.buttons if CTA_WORDS.search(b)][:12]
-    for cta in ctas:
-        points.append({"kind": "cta", "label": "Call-to-action button", "evidence": cta})
+    # Every call to action found, button or styled link, each with the words it
+    # actually says. A <button> counts as-is: it is a button, which is a call to
+    # action whatever it is labelled.
+    for cta in page.buttons[:15]:
+        points.append({
+            "kind": "cta",
+            "label": "Call-to-action " + ("button" if cta["kind"] == "button" else "link"),
+            "evidence": cta["text"] + (f"  →  {cta['href']}" if cta.get("href") else ""),
+        })
 
     base.update({
         "conversion_points": points,
