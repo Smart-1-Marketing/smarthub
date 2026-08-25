@@ -23,8 +23,31 @@ except ImportError:
 _CONFIGURED = False
 
 
+def _configured():
+    """Whether Cloudinary is genuinely configured, placeholders excluded.
+
+    `CLOUDINARY_URL` sat at `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` on
+    this deployment for a while, and a bare `bool(os.environ.get(...))` said
+    yes to it — so this reported live and then failed to authenticate at the
+    provider. The placeholder list is `hub.config`'s, because it is the one
+    place that knows what env.example ships; the values are read here at call
+    time, like every other key in this module. With no Hub to import, a
+    placeholder is indistinguishable from a key and presence is all there is.
+    """
+    values = [(os.environ.get(n) or "").strip() for n in
+              ("CLOUDINARY_URL", "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY",
+               "CLOUDINARY_API_SECRET")]
+    try:
+        from hub.config import settings
+        if any(settings.is_placeholder(v) for v in values):
+            return False
+    except Exception:  # noqa: BLE001 — standalone, or settings failed to build
+        pass
+    return bool(values[0] or values[1])
+
+
 def is_live():
-    return _SDK_AVAILABLE and bool(os.environ.get("CLOUDINARY_URL") or os.environ.get("CLOUDINARY_CLOUD_NAME"))
+    return _SDK_AVAILABLE and _configured()
 
 
 def _ensure_configured():

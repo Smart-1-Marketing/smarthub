@@ -119,6 +119,14 @@ jobs:
       - name: Commercial Builder HeyGen tests
         run: python test_commercial_heygen.py
 
+      - name: Commercial Builder provider key tests
+        run: |
+          if [ -f test_commercial_providers.py ]; then
+            python test_commercial_providers.py
+          else
+            echo "test_commercial_providers.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.

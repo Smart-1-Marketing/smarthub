@@ -225,6 +225,34 @@ clip that stops early. That is also why "Generate AI" (OpenAI stills) and
 QC fails a scene whose clip is shorter than the scene, because the element
 simply runs out and the segment goes black with nothing reading as an error.
 
+**A key that is set is not a key that is read, and neither is a key that
+works.** Every provider in the Commercial Builder degrades to mock data rather
+than erroring, which is right — and is also what makes a misnamed key
+invisible: concepts come back from a template, stock search returns
+placehold.co images labelled like footage, the voice track is silent, and the
+render is a job id with no file behind it. ElevenLabs and Creatomate read
+`os.environ` at *import* under one spelling each, on a deployment that sets
+`PEXELS_API`, `PIXABAY_API`, `HEYGEN_API` — so adding `ELEVENLABS_API` and
+`CREATOMATE_API` would have changed nothing at all, with every screen healthy.
+Every key in the module now reads through `hub/config.py` at call time, and
+`/api/integrity` has a check that names any module still reading one spelling
+directly. Runway was quieter still: it had a working service and a real key
+check, and the dashboard drew it from a separate "V1.5" list as a hard-coded
+grey chip, so connecting Runway could not change what the page said about it.
+
+`bool(key)` is also the weak question. A truncated paste, a revoked key, an
+account out of credit and a key from the wrong workspace all look identical to
+it, and all fail at the moment somebody is waiting on a render.
+`services/provider_check.py` asks each provider — one cheap authenticated
+call, nothing generated, nothing billed — behind a **Check keys** button
+rather than on page load, because eight outbound calls per visit is a slow
+dashboard. Its four rules are the ways that answer goes confidently wrong: no
+key is *not measured* and never a cross; refused (401) and unreachable
+(timeout) are different answers, and calling the second one "bad key" sends
+somebody to rotate a key that was fine; a 404 means this file is out of date,
+not that the key is bad; and a result never carries the key value, because it
+is rendered into a page and pasted into chats.
+
 **A provider's asset URL is signed and expires.** A HeyGen clip linked
 directly plays today and 404s next week. Finished clips are mirrored into
 Cloudinary through `cloudinary_service.upload_asset`, the way rendered
@@ -1195,6 +1223,7 @@ python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
+python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 python3 test_landing_spec.py       # what a landing page is for, and what it sells
 python3 test_client_groups.py      # grouped clients: what merges, what must not double
