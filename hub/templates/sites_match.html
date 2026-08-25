@@ -12,6 +12,33 @@
     but the domain is one value.
   </p>
 
+  <!-- Orphan URLs first, because it is the question a person arrives with:
+       "whose site is this?" is asked far more often than "which project is
+       this client's". Both halves write through the same attach path. -->
+  <div class="sm-card sm-orphan-head">
+    <h3>Orphan URLs &mdash; a website with no client on it</h3>
+    <div class="card-b" style="padding:12px 14px">
+      <p class="sm-sub" style="margin:0 0 10px">
+        Every URL the Hub holds that nobody is attached to: a Knack website
+        record with no organisation, a live Simvoly project with no internal
+        client name, a site scan and a Google access request nobody ever filed
+        against a client. Search it, pick the client, attach &mdash; and the
+        attachment is written to the client registry, their Client 360 record,
+        the Simvoly project and the Knack website record, each reported
+        separately. <b>A client can have several: the shop, the landing pages,
+        the microsite.</b> Attaching one does not replace the last.
+      </p>
+      <div class="sm-bar" style="margin:0">
+        <button class="sm-btn primary" onclick="loadOrphans()">Find orphan URLs</button>
+        <input id="orQ" class="sm-search" placeholder="Search the orphan list — domain or where it was seen"
+               oninput="renderOrphans()" disabled>
+        <button class="sm-btn good" id="orBulk" onclick="attachSelected()" disabled>Attach selected</button>
+      </div>
+      <div id="orOut"><p class="sm-muted" style="margin:10px 0 0">Not looked yet.</p></div>
+    </div>
+  </div>
+
+  <h2 class="sm-h2">Match Simvoly projects to clients</h2>
   <div class="sm-metrics" id="smMetrics"></div>
   <div class="sm-bar">
     <button class="sm-btn primary" onclick="load()">Find matches</button>
@@ -37,8 +64,11 @@
   <div class="sm-metrics" id="cuMetrics"></div>
   <div class="sm-bar">
     <button class="sm-btn primary" onclick="loadUrls()">Find missing websites</button>
+    <button class="sm-btn good" id="cuBulk" onclick="acceptSelected()" disabled>Use selected</button>
     <label class="sm-only"><input type="checkbox" id="cuCandidatesOnly" checked
       onchange="renderUrls()"> Only those we can suggest something for</label>
+    <label class="sm-only"><input type="checkbox" id="cuStrongOnly"
+      onchange="pickStrong()"> Tick every client two sources agree on</label>
   </div>
   <div id="cuOut"><p class="sm-muted">Not looked yet.</p></div>
 </div>
@@ -79,6 +109,22 @@ table.sm-t{width:100%;border-collapse:collapse;font-size:13px;min-width:700px}
 .pill.live{background:#eef5fb;color:#1769AA}
 .cu-src{color:#94a3b8;font-size:11.5px;display:block;margin-top:2px}
 .cu-none{color:#a06a00;font-size:12px}
+.sm-search{flex:1;min-width:220px;padding:8px 11px;border:1px solid #d7dfe8;
+  border-radius:8px;font:13px system-ui}
+.sm-search:disabled{background:#f6f8fa}
+.sm-orphan-head h3{font-size:15px}
+.or-pick{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.or-pick input{padding:6px 9px;border:1px solid #d7dfe8;border-radius:7px;
+  font:12.5px system-ui;min-width:180px}
+.or-hits{margin-top:5px}
+.or-hit{display:inline-block;border:1px solid #d7dfe8;background:#fff;border-radius:20px;
+  padding:3px 10px;font:600 11.5px system-ui;margin:0 5px 5px 0;cursor:pointer}
+.or-hit.on{background:#147d52;border-color:#147d52;color:#fff}
+.or-report{background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;
+  padding:9px 11px;margin-top:7px;font-size:12px;line-height:1.55}
+.or-report b{color:#0d2340}
+.or-wrote{color:#147d52}
+.or-skip{color:#a06a00}
 </style>
 
 <script>
@@ -201,8 +247,11 @@ function renderUrls(){
         '</td></tr>';}).join('')+'</tbody></table></div>';
 
   var rows=(d.clients||[]).filter(function(c){return !only||c.candidates.length;});
+  window.__cuRows=rows;
   html+='<div class="sm-card"><h3>Clients with no website ('+rows.length+')</h3>'+
-    (rows.length?'<table class="sm-t"><thead><tr><th>Client</th><th>Status</th>'+
+    (rows.length?'<table class="sm-t"><thead><tr>'+
+    '<th><input type="checkbox" id="cuAll" onchange="cuToggleAll()"></th>'+
+    '<th>Client</th><th>Status</th>'+
     '<th>Candidate website</th><th></th></tr></thead><tbody>'+
     rows.slice(0,200).map(function(c,ci){
       var cands=c.candidates.map(function(m,mi){
@@ -212,31 +261,233 @@ function renderUrls(){
       var buttons=c.candidates.map(function(m,mi){
         return '<button class="sm-btn" style="padding:3px 9px;font-size:12px;margin-bottom:5px" '+
           'onclick="acceptUrl('+ci+','+mi+')">Use '+esc(m.domain)+'</button>';}).join('<br>');
-      return '<tr><td><b>'+esc(c.client)+'</b>'+
-        (c.accepted?'<span class="cu-src">now set to '+esc(c.accepted.domain)+
-          ' by '+esc(c.accepted.accepted_by||'someone')+'</span>':'')+'</td>'+
+      /* Every URL already accepted for them, not just the first: a client has
+         landing pages as well as a website, and showing one made the others
+         look like they had never been recorded. */
+      var have=(c.accepted_sites||[]).map(function(sX){
+        return '<span class="cu-src">on file: '+esc(sX.domain)+
+          (sX.accepted_by?' — '+esc(sX.accepted_by):'')+'</span>';}).join('');
+      var rep=ORREPORT[c.client]?attachReport(ORREPORT[c.client]):'';
+      return '<tr><td>'+(c.candidates.length?'<input type="checkbox" class="cuChk" data-i="'+ci+
+          '" data-conf="'+esc(c.candidates[0].confidence)+'" onchange="cuCount()">':'')+'</td>'+
+        '<td><b>'+esc(c.client)+'</b>'+have+'</td>'+
         '<td>'+(c.live?'<span class="pill live">running '+c.running_count+'</span>':
                 '<span class="sm-muted">dormant</span>')+'</td>'+
         '<td>'+(cands||'<span class="cu-none">Nothing in any data set.</span>')+'</td>'+
-        '<td>'+buttons+'</td></tr>';
+        '<td>'+buttons+rep+'</td></tr>';
     }).join('')+'</tbody></table>':'<p class="sm-muted" style="padding:12px 14px">'+
     'Nothing to suggest.</p>')+'</div>';
   document.getElementById('cuOut').innerHTML=html;
+  cuCount();
+}
+
+function cuToggleAll(){
+  var on=document.getElementById('cuAll').checked;
+  document.querySelectorAll('.cuChk').forEach(function(c){c.checked=on;});
+  cuCount();
+}
+
+function pickStrong(){
+  /* Two independent sources agreeing on a domain is close to proof; one is a
+     suggestion. This ticks the first kind and leaves the second to be read. */
+  var on=document.getElementById('cuStrongOnly').checked;
+  document.querySelectorAll('.cuChk').forEach(function(c){
+    c.checked=on&&c.dataset.conf==='strong';});
+  cuCount();
+}
+
+function cuCount(){
+  var n=document.querySelectorAll('.cuChk:checked').length;
+  var b=document.getElementById('cuBulk');
+  if(!b) return;
+  b.disabled=!n;
+  b.textContent=n?('Use the top candidate for '+n+' client'+(n===1?'':'s')):'Use selected';
+}
+
+function acceptSelected(){
+  var rows=window.__cuRows||[], links=[];
+  document.querySelectorAll('.cuChk:checked').forEach(function(c){
+    var row=rows[+c.dataset.i]; if(!row||!row.candidates.length) return;
+    links.push({client:row.client, domain:row.candidates[0].domain,
+                url:row.candidates[0].url});});
+  if(!links.length) return;
+  if(!confirm('Record the top candidate for '+links.length+' client'+
+              (links.length===1?'':'s')+'?\n\n'+
+              links.map(function(l){return l.client+' → '+l.domain;}).join('\n')+
+              '\n\nEach one is written to the client registry, their Client 360 '+
+              'record, the Simvoly project and the Knack website record.')) return;
+  fetch('/api/client-urls/accept-many',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({links:links})})
+   .then(function(r){return r.json();}).then(function(d){
+     (d.items||[]).concat(d.failed||[]).forEach(function(rep){
+       if(rep&&rep.client) ORREPORT[rep.client]=rep;});
+     alert(d.note||'Done.');
+     loadUrls();
+   }).catch(function(){alert('That did not go through.');});
 }
 
 function acceptUrl(ci, mi){
-  /* One at a time, and confirmed. Bulk-accepting suggestions is how a plausible
-     wrong domain gets attached to a dozen clients in a single click. */
-  var rows=(URLS.clients||[]).filter(function(c){
-    return !document.getElementById('cuCandidatesOnly').checked||c.candidates.length;});
+  /* One, confirmed, and reported per system afterwards. The bulk button above
+     exists for a reviewed list; this stays for the one row somebody read. */
+  var rows=window.__cuRows||[];
   var c=rows[ci], m=c.candidates[mi];
-  if(!confirm('Record '+m.domain+' as the website for "'+c.client+'"?\n\n'+m.why)) return;
+  if(!confirm('Record '+m.domain+' as a website for "'+c.client+'"?\n\n'+m.why)) return;
   fetch('/api/client-urls/accept',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({client:c.client, url:m.url, source:(m.sources||[])[0]||''})})
+    body:JSON.stringify({client:c.client, url:m.url, domain:m.domain,
+                         source:(m.sources||[])[0]||''})})
    .then(function(r){return r.json();}).then(function(d){
-     if(!d.ok){alert(d.error||'That did not go through.');return;}
+     ORREPORT[c.client]=d;
+     if(!d.ok){alert(d.error||'Nothing could be written — see the row.');}
      loadUrls();
+   }).catch(function(){alert('That did not go through.');});
+}
+
+/* ------------------------------------------------------------- orphan URLs
+   The other direction from the list below: not "this client has no website"
+   but "this website has no client". One row per canonical domain, however
+   many systems saw it, because reconciling three rows for one domain by eye
+   is exactly the work this is supposed to remove. */
+var ORPHANS=null, ORPICK={}, ORREPORT={};
+
+function loadOrphans(){
+  document.getElementById('orOut').innerHTML='<p class="sm-muted">Reading every source…</p>';
+  fetch('/api/orphan-urls',{credentials:'same-origin'}).then(function(r){return r.json();})
+    .then(function(d){ORPHANS=d;ORPICK={};document.getElementById('orQ').disabled=false;
+      renderOrphans();})
+    .catch(function(){document.getElementById('orOut').innerHTML=
+      '<p class="sm-muted">Could not read the orphan list.</p>';});
+}
+
+function orRows(){
+  if(!ORPHANS) return [];
+  var q=(document.getElementById('orQ').value||'').trim().toLowerCase();
+  return (ORPHANS.domains||[]).filter(function(r){
+    if(!q) return true;
+    if(r.domain.toLowerCase().indexOf(q)>=0) return true;
+    return (r.sightings||[]).some(function(s){
+      return (s.detail||'').toLowerCase().indexOf(q)>=0
+          || (s.label||'').toLowerCase().indexOf(q)>=0;});
+  });
+}
+
+function renderOrphans(){
+  if(!ORPHANS) return;
+  var d=ORPHANS, rows=orRows();
+  var html='<div class="sm-note">'+esc(d.note)+'</div>';
+  var bad=(d.sources||[]).filter(function(s){return !s.ok;});
+  if(bad.length){
+    html+='<div class="sm-card"><h3>Where we looked</h3><table class="sm-t"><tbody>'+
+      (d.sources||[]).map(function(s){
+        return '<tr><td><b>'+esc(s.label)+'</b></td><td class="sm-muted">'+
+          (s.ok?('read '+(s.rows||0)+' record(s)'):
+                '<span class="cu-none">not read: '+esc(s.error||'unavailable')+'</span>')+
+          '</td></tr>';}).join('')+'</tbody></table></div>';
+  }
+  html+='<div class="sm-card"><h3>Orphan URLs ('+rows.length+
+        (rows.length!==d.count?' of '+d.count:'')+')</h3>'+
+    (rows.length?'<table class="sm-t"><thead><tr><th></th><th>URL</th>'+
+    '<th>Where it was seen</th><th>Attach to a client</th></tr></thead><tbody>'+
+    rows.map(function(r,i){
+      var seen=(r.sightings||[]).map(function(s){
+        return '<div class="cu-src"><b>'+esc(s.label)+'</b> — '+esc(s.detail)+'</div>';}).join('');
+      var rep=ORREPORT[r.domain]?attachReport(ORREPORT[r.domain]):'';
+      return '<tr><td><input type="checkbox" class="orChk" data-d="'+esc(r.domain)+'" onchange="orCount()"></td>'+
+        '<td><b><a href="'+esc(r.url)+'" target="_blank" rel="noopener">'+esc(r.domain)+'</a></b>'+
+        '<span class="cu-src">seen in '+(r.sources||[]).length+' system'+
+        ((r.sources||[]).length===1?'':'s')+'</span></td>'+
+        '<td>'+(seen||'<span class="sm-muted">—</span>')+'</td>'+
+        '<td><div class="or-pick"><input placeholder="Search clients…" data-i="'+i+'" '+
+        'class="orSearch" onkeydown="orKey(event,'+i+')"><button class="sm-btn" '+
+        'style="padding:5px 10px;font-size:12px" onclick="orFind('+i+')">Search</button></div>'+
+        '<div class="or-hits" id="orHits'+i+'"></div>'+rep+'</td></tr>';
+    }).join('')+'</tbody></table>':'<p class="sm-muted" style="padding:12px 14px">'+
+      (d.count?'Nothing matches that search.':'No orphan URLs — every URL we hold is attached to a client.')+
+      '</p>')+'</div>';
+  document.getElementById('orOut').innerHTML=html;
+  orCount();
+}
+
+function attachReport(rep){
+  /* What actually got written, per system. "Attached" and "attached in two of
+     four places" are different outcomes, and one tick for both is how a rep
+     learns not to trust the tick. */
+  var out='<div class="or-report"><b>'+esc(rep.client||'')+'</b> — '+esc(rep.note||rep.error||'');
+  (rep.written||[]).forEach(function(w){
+    out+='<div class="or-wrote">✓ '+esc(w.label)+' — '+esc(w.detail)+'</div>';});
+  (rep.skipped||[]).forEach(function(w){
+    out+='<div class="or-skip">— '+esc(w.label)+': '+esc(w.why)+'</div>';});
+  return out+'</div>';
+}
+
+function orKey(ev,i){ if(ev.key==='Enter'){ev.preventDefault();orFind(i);} }
+
+function orFind(i){
+  var box=document.querySelector('.orSearch[data-i="'+i+'"]');
+  var q=(box&&box.value||'').trim();
+  var host=document.getElementById('orHits'+i);
+  if(!q){host.innerHTML='<span class="sm-muted" style="font-size:12px">Type a client name.</span>';return;}
+  host.innerHTML='<span class="sm-muted" style="font-size:12px">Searching…</span>';
+  fetch('/api/clients/search?q='+encodeURIComponent(q),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      var items=d.clients||d.results||[];
+      if(!items.length){host.innerHTML='<span class="cu-none">No client matches that. '+
+        'Names match exactly here — no substring, no fuzzy pass.</span>';return;}
+      host.innerHTML=items.slice(0,6).map(function(c,ci){
+        return '<span class="or-hit" onclick="orAttach('+i+','+ci+')" data-n="'+esc(c.name)+'">'+
+          esc(c.name)+(c.domain?' <span style="opacity:.6">'+esc(c.domain)+'</span>':'')+'</span>';
+      }).join('');
+      host.__items=items;
+    }).catch(function(){host.innerHTML='<span class="cu-none">That search failed.</span>';});
+}
+
+function orAttach(i,ci){
+  var host=document.getElementById('orHits'+i), row=orRows()[i];
+  var c=(host.__items||[])[ci]; if(!c||!row) return;
+  if(!confirm('Attach '+row.domain+' to "'+c.name+'"?\n\nThis writes the client '+
+              'registry, their Client 360 record, the Simvoly project and the '+
+              'Knack website record.')) return;
+  host.innerHTML='<span class="sm-muted" style="font-size:12px">Attaching…</span>';
+  fetch('/api/domain/attach',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({domain:row.domain,url:row.url,client:c.name})})
+   .then(function(r){return r.json();}).then(function(rep){
+     ORREPORT[row.domain]=rep;
+     if(rep.ok){ORPHANS.domains=(ORPHANS.domains||[]).filter(function(x){
+       return x.domain!==row.domain;}); ORPHANS.count=Math.max(0,(ORPHANS.count||1)-1);}
+     renderOrphans();
+     var box=document.getElementById('orOut');
+     if(box) box.insertAdjacentHTML('afterbegin', attachReport(rep));
+   }).catch(function(){host.innerHTML='<span class="cu-none">That did not go through.</span>';});
+}
+
+function orCount(){
+  var n=document.querySelectorAll('.orChk:checked').length;
+  var b=document.getElementById('orBulk');
+  b.disabled=!n;
+  b.textContent=n?('Attach '+n+' URL'+(n===1?'':'s')+' to one client'):'Attach selected';
+}
+
+function attachSelected(){
+  /* Several URLs, one client — a client's shop, their landing pages and their
+     microsite are one client with four real URLs, and attaching them one at a
+     time is four confirm dialogs nobody reads by the third. */
+  var picked=[];
+  document.querySelectorAll('.orChk:checked').forEach(function(c){picked.push(c.dataset.d);});
+  if(!picked.length) return;
+  var name=prompt('Attach these '+picked.length+' URL(s) to which client?\n\n'+
+                  picked.join('\n')+'\n\nType the client name exactly as it is filed.');
+  if(!name) return;
+  var links=picked.map(function(d){return {domain:d, client:name};});
+  fetch('/api/domain/attach',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({links:links})})
+   .then(function(r){return r.json();}).then(function(d){
+     (d.items||[]).concat(d.failed||[]).forEach(function(rep){
+       if(rep&&rep.domain) ORREPORT[rep.domain]=rep;});
+     alert((d.note||'')+((d.failed||[]).length?'\n\nOpen the rows to see why.':''));
+     loadOrphans();
    }).catch(function(){alert('That did not go through.');});
 }
 

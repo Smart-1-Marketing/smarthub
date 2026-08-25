@@ -239,6 +239,53 @@ def create_hub_app() -> Flask:
         return jsonify(google_index.for_client(
             request.args.get("name", ""), request.args.get("url", "")))
 
+    # Also a hub route, not one under /google, and under /tools rather than
+    # /tools/<something-mounted> — the same trap the note above describes.
+    @app.route("/tools/google-match")
+    def page_google_match():
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("google_match.html", user=current_user(),
+                               active="google")
+
+    @app.route("/api/google/orphans")
+    def api_google_orphans():
+        """Google resources no client is attached to, with who they might be.
+
+        The other half of the index: it can say what it joined, and this says
+        what it could not. An index that has never been built reports that,
+        never "no orphans".
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .google_links import orphans
+        return jsonify(orphans(
+            q=request.args.get("q", ""),
+            platform=request.args.get("platform", ""),
+            include_other=str(request.args.get("include_other", "")).lower()
+            in ("1", "true", "yes"),
+            limit=clamp_int(request.args.get("limit"), 400, 1, 2000)))
+
+    @app.route("/api/google/attach", methods=["POST"])
+    def api_google_attach():
+        """Attach one Google resource to a client, or several at once."""
+        gate = _require_api()
+        if gate:
+            return gate
+        body = request.get_json(silent=True) or {}
+        actor = current_user() or ""
+        links = body.get("links")
+        if links:
+            from .google_links import attach_many
+            return jsonify(attach_many(links, actor=actor,
+                                       force=bool(body.get("force"))))
+        from .google_links import attach
+        return jsonify(attach(str(body.get("resource_id") or ""),
+                              str(body.get("client") or ""), actor=actor,
+                              force=bool(body.get("force"))))
+
     @app.route("/api/google/rebuild", methods=["POST"])
     def api_google_rebuild():
         """Force a re-sweep now, rather than waiting for the three-hour job."""
@@ -400,29 +447,94 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/client-urls/accept", methods=["POST"])
     def api_client_urls_accept():
-        """Record one URL a human recognised. One at a time, on purpose."""
+        """Record one URL a human recognised — everywhere it belongs.
+
+        This used to write the Hub's overlay and nothing else, so a rep who
+        accepted a domain here found Client 360 still saying the client had no
+        website. It goes through `domain_links.attach()` now, which writes the
+        overlay, the client's 360 record, the Simvoly project and the Knack
+        website record, and reports each one separately.
+        """
         gate = _require_api()
         if gate:
             return gate
-        from .client_urls import accept
+        from .domain_links import attach
         body = request.get_json(silent=True) or {}
-        out = accept(body.get("client", ""), body.get("url", ""),
-                     source=body.get("source", ""), actor=current_user() or "")
+        out = attach(str(body.get("domain") or body.get("url") or ""),
+                     str(body.get("client") or ""),
+                     actor=current_user() or "",
+                     url=str(body.get("url") or ""),
+                     force=bool(body.get("force")))
         if out.get("ok"):
             audit.log("hub", "client_url_accepted", actor=current_user(),
-                      client=body.get("client", ""),
-                      detail=out["row"]["domain"])
+                      client=body.get("client", ""), detail=out["domain"])
         return jsonify(out)
+
+    @app.route("/api/client-urls/accept-many", methods=["POST"])
+    def api_client_urls_accept_many():
+        """Accept several at once, each with its own outcome.
+
+        Reviewing thirty proposals and clicking thirty confirm dialogs is how
+        a reviewer stops reading them. Each result carries its own report — a
+        bulk action that returns one number hides the two that failed.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_links import attach_many
+        body = request.get_json(silent=True) or {}
+        links = body.get("links") or body.get("matches") or []
+        return jsonify(attach_many(links, actor=current_user() or "",
+                                   force=bool(body.get("force"))))
+
+    @app.route("/api/orphan-urls")
+    def api_orphan_urls():
+        """Every URL the Hub holds that no client is attached to.
+
+        The other direction from /api/client-urls: not "this client has no
+        website" but "this website has no client". Same four systems, read
+        rather than written, and a source that could not be read is named.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_links import orphans
+        return jsonify(orphans(q=request.args.get("q", ""),
+                               limit=clamp_int(request.args.get("limit"),
+                                               400, 1, 2000)))
+
+    @app.route("/api/domain/attach", methods=["POST"])
+    def api_domain_attach():
+        """Attach one orphan URL, or several, to a client."""
+        gate = _require_api()
+        if gate:
+            return gate
+        body = request.get_json(silent=True) or {}
+        actor = current_user() or ""
+        links = body.get("links")
+        if links:
+            from .domain_links import attach_many
+            return jsonify(attach_many(links, actor=actor,
+                                       force=bool(body.get("force"))))
+        from .domain_links import attach
+        return jsonify(attach(str(body.get("domain") or ""),
+                              str(body.get("client") or ""), actor=actor,
+                              url=str(body.get("url") or ""),
+                              force=bool(body.get("force"))))
 
     @app.route("/api/client-urls/clear", methods=["POST"])
     def api_client_urls_clear():
-        """Undo one. A wrong URL has to be removable without a deploy."""
+        """Undo one. A wrong URL has to be removable without a deploy.
+
+        With a `domain` this removes that one site and leaves the client's
+        others alone; without one it clears every site accepted for them.
+        """
         gate = _require_api()
         if gate:
             return gate
         from .client_urls import clear
         body = request.get_json(silent=True) or {}
-        out = clear(body.get("client", ""))
+        out = clear(body.get("client", ""), str(body.get("domain") or ""))
         if out.get("ok"):
             audit.log("hub", "client_url_cleared", actor=current_user(),
                       client=body.get("client", ""))
@@ -438,6 +550,49 @@ def create_hub_app() -> Flask:
         body = request.get_json(silent=True) or {}
         return jsonify(apply_matches(body.get("matches") or [],
                                      actor=current_user() or ""))
+
+    # /tools/domains, like /tools/sites-match, is a hub route under /tools —
+    # which is not itself a mount. The mounts are longer prefixes
+    # (/tools/io, /tools/social...), so this one reaches the hub app.
+    @app.route("/tools/domains")
+    def page_domain_purchase():
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("domain_purchase.html", user=current_user(),
+                               active="domains")
+
+    @app.route("/api/domains/purchased")
+    def api_domains_purchased():
+        """Domains Smart 1 bought for a client, by renewal billing date."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_purchase import report
+        return jsonify(report(q=request.args.get("q", "")))
+
+    @app.route("/api/domains/billed", methods=["POST"])
+    def api_domains_billed():
+        """Tick or untick one renewal as billed.
+
+        Knack publishes no billed field, so this is the Hub's own — kept
+        against the renewal billing date it was ticked for, so next year's
+        renewal does not inherit this year's tick.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_purchase import set_billed
+        body = request.get_json(silent=True) or {}
+        out = set_billed(str(body.get("record_id") or ""),
+                         bool(body.get("billed")),
+                         for_date=str(body.get("for_date") or ""),
+                         actor=current_user() or "")
+        if out.get("ok"):
+            audit.log("hub", "domain_billed", actor=current_user(),
+                      detail=f"{body.get('record_id')} "
+                             f"{'billed' if body.get('billed') else 'unbilled'}")
+        return jsonify(out)
 
     @app.route("/api/db/urls")
     def api_db_urls():
@@ -630,6 +785,39 @@ def create_hub_app() -> Flask:
         from .knack_websites import enrich
         return jsonify(enrich(request.args.get("name", ""),
                               request.args.get("domain", "")))
+
+    @app.route("/api/client/website-record")
+    def api_website_record():
+        """The domain record on object_153: live date, status, the domain.
+
+        Client 360 draws this per website. The *choices* come from the live
+        schema for the reason the web ticket form's do: the field ids are ours
+        but a dropdown's options are Knack's, and Knack refuses the whole
+        record over one value it does not publish.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .knack_websites import domain_record
+        return jsonify(domain_record(request.args.get("name", ""),
+                                     request.args.get("domain", "")))
+
+    @app.route("/api/client/website-record/save", methods=["POST"])
+    def api_website_record_save():
+        """Write the domain record back to Knack. Says what was refused."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .knack_websites import update_record
+        body = request.get_json(silent=True) or {}
+        out = update_record(str(body.get("record_id") or ""),
+                            body.get("values") or {},
+                            actor=current_user() or "")
+        if out.get("ok"):
+            audit.log("hub", "website_record_saved", actor=current_user(),
+                      client=str(body.get("client") or ""),
+                      detail=",".join(out.get("updated") or [])[:200])
+        return jsonify(out)
 
     @app.route("/api/client/analytics-ids")
     def api_analytics_ids():
@@ -4065,6 +4253,8 @@ def create_hub_app() -> Flask:
                        "google-access": "google_access",
                        "image-picker": "image_picker",
                        "sites-match": "sites_admin",
+                       "domains": "sites_admin",
+                       "google-match": "google_access",
                        "stale-creative": "qa", "qa": "qa"}.get(slug, "")
                 if mod:
                     body = re.sub(rb"<body\b",

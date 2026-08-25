@@ -489,6 +489,56 @@ def _product_source() -> tuple[list[dict], str, int | None]:
     return products(), "export", None
 
 
+def _attachment_only_websites(client: str) -> list[dict]:
+    """Websites attached to a client that the websites export knows nothing of.
+
+    `seo._client_websites()` resolves an attachment against the export and
+    drops anything it cannot find there — which is every domain discovered
+    somewhere else in the Hub and attached on Match Clients, because the export
+    is refreshed by hand and stale by definition. A rep attached a domain and
+    Client 360 went on saying "No website record matched": the join was made
+    and then not shown.
+
+    Enriched from the live Knack registry where that carries the domain, and
+    marked `attached` so it never reads as filed data.
+    """
+    try:
+        from . import seo as _s
+        att = _s.get_links(client).get("website") or []
+        if not att:
+            return []
+        have = {str(w.get("domain") or "").strip().lower()
+                for w in _s._client_websites(client)}
+    except Exception:                                   # noqa: BLE001
+        return []
+    out = []
+    for a in att:
+        d = str(a.get("domain") or "").strip().lower()
+        if not d or d in have:
+            continue
+        have.add(d)
+        try:
+            from . import knack_websites as _kw
+            extra = _kw.record_for_domain(d) or {}
+        except Exception:                               # noqa: BLE001
+            extra = {}
+        out.append({
+            "name": extra.get("client") or a.get("name") or d,
+            "domain": d,
+            "liveUrl": extra.get("production_url") or a.get("liveUrl")
+                       or ("https://" + d),
+            "platform": extra.get("platform", ""),
+            "status": extra.get("client_status", ""),
+            "hmMonthly": extra.get("hm_fee", 0),
+            "partner": extra.get("media_partner", ""), "manager": "",
+            "ga": extra.get("ga_account", ""), "gtm": extra.get("gtm_account", ""),
+            "registrar": extra.get("registrar", ""),
+            "domainPurchased": extra.get("domain_bought", ""),
+            "attached": True,
+        })
+    return out
+
+
 def _exact_client_rows(rows: list[dict], name: str) -> list[dict]:
     """Product rows belonging to exactly this client — no substring match.
 
@@ -599,13 +649,16 @@ def _merge_group_members(g: dict, raw_rows: list[dict], product_rows: list[dict]
             web_key, member=oname, into=g["websites"], seen=wseen)
         merged["websites"] += len(g["websites"]) - before
 
-        # Website records the Hub attached to the member rather than Knack.
+        # Website records the Hub attached to the member rather than Knack —
+        # including the ones the export has never heard of, which is most of
+        # the discovered ones.
         try:
             from . import seo as _seog
             if _seog.get_links(oname).get("website"):
                 before = len(g["websites"])
                 client_groups.merge_rows(
-                    [dict(w, attached=True) for w in _seog._client_websites(oname)],
+                    [dict(w, attached=True) for w in _seog._client_websites(oname)]
+                    + _attachment_only_websites(oname),
                     web_key, member=oname, into=g["websites"], seen=wseen)
                 merged["websites"] += len(g["websites"]) - before
         except Exception:                               # noqa: BLE001
@@ -713,6 +766,13 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
                     "domainPurchased": w.get("domainPurchased"),
                     "attached": True,
                 })
+            # And the attachments the export has never heard of, which is how
+            # a domain discovered elsewhere in the Hub reaches the record.
+            for w in _attachment_only_websites(str(g["client"])):
+                if w["domain"] in have:
+                    continue
+                have.add(w["domain"])
+                g["websites"].append(w)
     except Exception:  # noqa: BLE001 — attachments must never break search
         pass
 
