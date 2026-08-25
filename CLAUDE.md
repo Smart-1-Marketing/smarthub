@@ -119,6 +119,55 @@ sizing helpers so the reach panel updates live; `test_target_areas.py` asserts
 the two produce identical output, because when they drift the proposal
 contradicts the screen it was quoted from and nothing errors.
 
+**A granted scope list is not the scope list you asked for.** HighLevel grants
+the scopes it recognises at consent and says *nothing* about the rest — no
+error, no warning. So a Marketplace app consented with half its scopes hands
+back a perfectly healthy token, `status()` reports **Connected**, and every
+feature behind a missing scope 401s months later looking exactly like a bad
+token. The Suite panel used to print the granted list verbatim, which reads as
+confirmation and is nothing of the kind: eight scopes look identical whether you
+asked for eight or twenty. `hub/ghl_scopes.py` holds the set as data and
+`compare()` diffs granted against requested, naming the **feature** each gap
+costs rather than the string — and separating a scope we have authenticated with
+before (a permission to grant) from one we have never confirmed (probably our
+typo), because sending someone to re-consent over a misspelling wastes the one
+manual step the whole app exists to stop repeating. A scope left out on purpose
+is in `NOT_REQUESTED` with its reason, so a 401 is never ambiguous between an
+oversight and a decision. And because a location token inherits only what the
+agency token was granted, a scope missed at install is missed for every client
+until somebody re-consents — which is why the write scopes are requested now
+rather than when a feature turns out to need them. `test_ghl_scopes.py` asserts
+that every GHL write call site in the Hub has a scope declared for it.
+
+**A `SameSite=Lax` cookie is not sent into somebody else's iframe.** Which is
+the whole difficulty of putting a Hub page inside Smart 1 Suite: the rep is
+signed in, the browser declines to say so, `AuthGuard` redirects, and a login
+form appears inside Suite for an account they already hold. Nothing errors.
+Relaxing `s1hub_auth` to `SameSite=None` would fix it and would also attach
+that cookie to every cross-site request, including a POST from a page an
+attacker controls — and this Hub has delete buttons behind it. So `hub/suite_embed.py`
+adds a **companion** cookie carrying the same signed value, accepted only for
+**GET/HEAD** and only on an explicit path **allowlist**, which makes it useless
+for that attack and makes an embedded page **read-only**. That last part is a
+consequence to state, not to discover: a write-heavy tool added to `EMBEDDABLE`
+would load, look complete and fail on save. The client-facing version cannot use
+any of this — a client has no Hub session at all — and needs HighLevel's SSO
+handshake instead; `SSO_NOT_BUILT` says what that involves and why the location
+id in it is the entire security model.
+
+Three things had to move for it, each its own quiet failure. `HubBar` already
+skips the sidebar for an iframe, but the **hub app's own `after_request` did
+not** — and Client 360, the page most worth embedding, is a hub route. Nor was
+suppressing the injector enough: `base.html` calls the `hub_sidebar` global
+**directly**, so the page rendered its own sidebar and the injector, which skips
+a body that already has one, agreed there was nothing to do. And no
+`X-Frame-Options` or CSP was set on hub pages at all, so adding an embed path
+without `framable()` would have widened a clickjacking oversight into a feature.
+Flask runs `after_request` handlers in **reverse** registration order, so the
+chrome check asks `suite_embed.is_embedded()` itself rather than reading a flag the
+policy handler sets — which would still be unset. `test_suite_embed.py` asserts
+all of it.
+
 **`linkcheck` sees `fetch("…")` and nothing else, and `sendBeacon` is where
 the leads were.** The trap above is about the URL it cannot verify; this is
 about the call it cannot see at all. Six landing modules posted their
@@ -742,10 +791,11 @@ the module, the exporter and the AI prompt alike, the same way
 `hub/proposal_spec.py` is.
 
 **It stops at a CSV on purpose.** Social Planner's write API needs
-`social-media-posting.write`, and `DEFAULT_SCOPES` in `hub/ghl_oauth.py` does
-not request it; adding a scope requires re-consent at the agency, a one-time
-manual step. Ending at the bulk-upload CSV means the drafting pipeline earns its
-keep while that is pending, and works regardless of whether it ever lands. When
+`social-media-posting.write`. That scope is now in `hub/ghl_scopes.py` and is
+asked for at consent, but *requested is not granted* — until the agency
+re-consents and the Suite panel's scope report shows it granted, the write path
+does not exist. Ending at the bulk-upload CSV means the drafting pipeline earns
+its keep while that is pending, and works regardless of whether it ever lands. When
 it does, `PickerClient.ghl_location_id` already holds the sub-account id per
 client — that mapping does not need building. **Resolve a client to a location
 by domain, never by name**: posting to the wrong sub-account publishes one
@@ -1227,6 +1277,8 @@ python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 python3 test_landing_spec.py       # what a landing page is for, and what it sells
 python3 test_client_groups.py      # grouped clients: what merges, what must not double
+python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
+python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the chrome, who may frame
 ```
 
 The test files need no pytest and no new dependencies; each runs against a
