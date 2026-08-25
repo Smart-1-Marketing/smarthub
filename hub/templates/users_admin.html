@@ -5,8 +5,9 @@
   <div class="um-head">
     <div>
       <h1>Users</h1>
-      <p class="um-sub">Approve new accounts, change roles, and issue reset
-        links. Signed in as {{ account.email }} ({{ account.role.replace('_',' ') }}).</p>
+      <p class="um-sub">Everyone with a Hub login, what they can see, and the
+        details the company census carried. Signed in as {{ account.email }}
+        ({{ account.role.replace('_',' ') }}).</p>
     </div>
     <button class="um-btn" onclick="load()">Refresh</button>
   </div>
@@ -15,15 +16,35 @@
 
   <div class="um-metrics" id="umMetrics"></div>
 
+  <div class="um-tools">
+    <input id="umSearch" placeholder="Search name, email, title&hellip;"
+           oninput="draw()" autocomplete="off">
+    <label class="um-check"><input type="checkbox" id="umDetail" onchange="draw()">
+      Show census fields</label>
+  </div>
+
   <div class="um-card">
-    <table class="um-t" id="umTable"><tbody><tr><td>Loading…</td></tr></tbody></table>
+    <table class="um-t" id="umTable"><tbody><tr><td>Loading&hellip;</td></tr></tbody></table>
   </div>
 
   <div class="um-note">
-    <b>How resets work here.</b> This Hub has no email sender, so a reset link
-    is shown to you once when you issue it and you pass it to the person
-    directly. Nothing stores the link — if you lose it, issue a new one. Links
-    are single-use and expire in <span id="umTtl">30</span> minutes.
+    <b>Two levels.</b> <b>General</b> reaches everything in the Hub except
+    Utilities &mdash; Diagnostics, System Status, this page and the Activity
+    Log. <b>Admin</b> reaches all of it. The level is the role: change the role
+    and the level changes with it, on the person&rsquo;s next click.
+  </div>
+
+  <div class="um-note">
+    <b>Passwords, until there is a mail sender.</b> The key icon
+    (<span class="um-ico">&#128273;</span>) sets someone&rsquo;s password
+    directly and shows it to you once &mdash; read it to them, and the Hub
+    makes them replace it at their next sign-in. The link icon
+    (<span class="um-ico">&#128279;</span>) issues a one-time reset link
+    instead, if you would rather they choose it themselves without you knowing
+    it; links are single-use and expire in <span id="umTtl">30</span> minutes.
+    Nothing stores either one. Neither is emailed, because this Hub has no
+    sender &mdash; which is also what <a href="/forgot">Forgot password?</a>
+    tells anyone who clicks it.
   </div>
 </div>
 
@@ -33,15 +54,34 @@
     <p class="um-sub" id="umModalSub"></p>
     <input id="umLink" readonly onclick="this.select()">
     <div class="um-modal-actions">
-      <button class="um-btn primary" onclick="copyLink()">Copy link</button>
+      <button class="um-btn primary" onclick="copyLink()">Copy</button>
       <button class="um-btn" onclick="closeModal()">Done</button>
     </div>
-    <p class="um-warn">Shown once. Close this and it's gone.</p>
+    <p class="um-warn">Shown once. Close this and it&rsquo;s gone.</p>
+  </div>
+</div>
+
+<div id="umPwModal" class="um-modal" hidden>
+  <div class="um-modal-box">
+    <h3>Set a password</h3>
+    <p class="um-sub" id="umPwSub"></p>
+    <input id="umPwValue" placeholder="Leave blank and the Hub generates one"
+           autocomplete="off">
+    <p class="um-hint">Whatever you set here, they are made to replace it at
+      their next sign-in &mdash; a password two people know is not a password.
+      A generated one avoids everyone getting the same season and year.</p>
+    <div class="um-modal-actions">
+      <button class="um-btn primary" onclick="submitPw()">Set password</button>
+      <button class="um-btn" onclick="closePw()">Cancel</button>
+    </div>
+    <p class="um-hint" style="text-align:center;margin-bottom:0">
+      <a href="#" onclick="submitPw(true);return false">Reset to the starting
+        password instead</a></p>
   </div>
 </div>
 
 <style>
-.um{max-width:1080px;margin:0 auto;font-family:system-ui,sans-serif;color:#1b2733}
+.um{max-width:1180px;margin:0 auto;font-family:system-ui,sans-serif;color:#1b2733}
 .um-crumb{color:#94a3b8;font-size:12.5px;margin:0 0 8px}
 .um-crumb a{color:#1769AA;text-decoration:none}
 .um-head{display:flex;align-items:flex-start;gap:14px;margin-bottom:16px}
@@ -53,6 +93,18 @@
 .um-btn.good{background:#147d52;border-color:#147d52;color:#fff}
 .um-btn.bad{background:#fff;border-color:#f3b8b3;color:#b42318}
 .um-btn.sm{padding:4px 9px;font-size:12px;margin-left:0}
+/* Icon actions carry a title AND an aria-label: an icon with no label is a
+   guess, and the destructive ones say so in the rollover rather than in a
+   confirm nobody reads until after they have clicked. */
+.um-icon{margin-left:0;padding:4px 7px;font-size:14px;line-height:1.1;
+  background:#fff;border:1px solid #d7dfe8;border-radius:7px;cursor:pointer}
+.um-icon:hover{background:#f1f5f9;border-color:#94a3b8}
+.um-icon.bad:hover{background:#fff1f0;border-color:#f3b8b3}
+.um-ico{font-size:14px}
+.um-tools{display:flex;gap:12px;align-items:center;margin:0 0 12px}
+.um-tools input{flex:1;max-width:320px;padding:8px 11px;border:1px solid #d7dfe8;
+  border-radius:8px;font:13px system-ui}
+.um-check{font-size:12.5px;color:#64748b;display:flex;align-items:center;gap:6px}
 .um-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
   gap:11px;margin-bottom:14px}
 .um-metric{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:13px}
@@ -71,6 +123,8 @@
 .pill.super_admin{background:#e0e7ff;color:#3730a3}
 .pill.admin{background:#e0f2fe;color:#075985}
 .pill.member{background:#eef1f4;color:#475569}
+.pill.lvl-Admin{background:#e0e7ff;color:#3730a3}
+.pill.lvl-General{background:#eef1f4;color:#475569}
 .um-acts{display:flex;gap:5px;flex-wrap:wrap}
 .um-banner{background:#fff4d7;border:1px solid #f0d99a;color:#78350f;
   padding:11px 14px;border-radius:9px;margin-bottom:14px;font-size:13.5px}
@@ -86,81 +140,147 @@
 .um-modal-actions{display:flex;gap:8px;margin-top:14px}
 .um-modal-actions .um-btn{margin-left:0;flex:1}
 .um-warn{color:#b42318;font-size:12px;margin:12px 0 0;text-align:center}
+.um-hint{color:#64748b;font-size:12px;margin:10px 0 0;line-height:1.5}
 .um-muted{color:#94a3b8;font-size:12px}
+.um-nope{color:#cbd5e1}
 </style>
 
 <script>
 var ME = {{ account.id }}, MESUPER = {{ 'true' if account.is_super else 'false' }};
+var DATA = {users:[], counts:{}, reset_ttl_minutes:30};
+var PWTARGET = null;
+
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 
 function load(){
   fetch('/api/users',{credentials:'same-origin'}).then(function(r){return r.json();})
-  .then(render).catch(function(){
+  .then(function(d){ if(d.error){alert(d.error);return;} DATA=d; draw(); })
+  .catch(function(){
     document.getElementById('umTable').innerHTML='<tbody><tr><td>Could not load users.</td></tr></tbody>';});
 }
 
-function render(d){
+function draw(){
+  var d=DATA, c=d.counts||{};
   document.getElementById('umTtl').textContent=d.reset_ttl_minutes;
-  var c=d.counts;
   document.getElementById('umMetrics').innerHTML=
-    [['Total',c.total],['Awaiting approval',c.pending],['Active',c.active],
-     ['Suspended',c.suspended],['Super admins',c.super_admins]]
-    .map(function(x){return '<div class="um-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
+    [['Total',c.total],['Admin',c.admins],['General',(c.total||0)-(c.admins||0)],
+     ['Awaiting approval',c.pending],['Suspended',c.suspended],
+     ['Owe a password change',c.must_change]]
+    .map(function(x){return '<div class="um-metric"><b>'+(x[1]||0)+'</b><span>'+x[0]+'</span></div>';}).join('');
 
   document.getElementById('umPending').innerHTML = c.pending
     ? '<div class="um-banner"><b>'+c.pending+' account'+(c.pending===1?'':'s')+
       ' waiting for approval.</b> Nobody can sign in until you approve them.</div>' : '';
 
-  document.getElementById('umTable').innerHTML =
-    '<thead><tr><th>Person</th><th>Role</th><th>Status</th><th>Last sign-in</th>'+
-    '<th>Actions</th></tr></thead><tbody>'+
-    d.users.map(function(u){
-      var acts=[];
-      if(u.status==='pending') acts.push(btn('good','Approve',u.id,'approve'));
-      if(u.status==='active')  acts.push(btn('bad','Suspend',u.id,'status',{status:'suspended'}));
-      if(u.status==='suspended') acts.push(btn('good','Reactivate',u.id,'status',{status:'active'}));
-      acts.push(btn('','Reset password',u.id,'reset'));
-      if(MESUPER){
-        if(u.role!=='super_admin') acts.push(btn('','Make admin',u.id,'role',{role:'admin'}));
-        if(u.role==='admin') acts.push(btn('','Make member',u.id,'role',{role:'member'}));
-        if(u.id!==ME) acts.push(btn('bad','Delete',u.id,'delete'));
-      }
-      return '<tr class="'+(u.status==='pending'?'pending':'')+'">'+
-        '<td><b>'+esc(u.name||'—')+'</b><br><span class="um-muted">'+esc(u.email)+'</span>'+
-          (u.locked?'<br><span class="pill suspended">locked out</span>':'')+
-          (u.has_open_reset?'<br><span class="pill pending">reset pending</span>':'')+'</td>'+
-        '<td><span class="pill '+u.role+'">'+esc(u.role.replace('_',' '))+'</span></td>'+
-        '<td><span class="pill '+u.status+'">'+esc(u.status)+'</span></td>'+
-        '<td class="um-muted">'+(u.last_login_at?esc(u.last_login_at.slice(0,16).replace('T',' ')):'never')+'</td>'+
-        '<td><div class="um-acts">'+acts.join('')+'</div></td></tr>';
-    }).join('')+'</tbody>';
+  var q=(document.getElementById('umSearch').value||'').trim().toLowerCase();
+  var detail=document.getElementById('umDetail').checked;
+  var rows=(d.users||[]).filter(function(u){
+    if(!q) return true;
+    var p=u.profile||{};
+    return [u.name,u.email,p.title,p.phone,u.level].join(' ').toLowerCase().indexOf(q)>=0;
+  });
+
+  var head='<thead><tr><th>Person</th><th>Title</th><th>Level</th><th>Status</th>'+
+    (detail?'<th>Phone</th><th>Birthday</th><th>Started</th>':'<th>Last sign-in</th>')+
+    '<th>Actions</th></tr></thead>';
+
+  document.getElementById('umTable').innerHTML = head+'<tbody>'+
+    (rows.length? rows.map(function(u){ return rowHtml(u,detail); }).join('')
+      : '<tr><td colspan="8" class="um-muted">Nobody matches that.</td></tr>')+
+    '</tbody>';
+}
+
+/* "not set" rather than a blank cell. An empty cell reads as a field that
+   does not exist; the words say the field exists and nobody filled it in. */
+function val(v){ return v ? esc(v) : '<span class="um-nope">not set</span>'; }
+
+function rowHtml(u,detail){
+  var p=u.profile||{};
+  var acts=[];
+  if(u.status==='pending') acts.push(btn('good','Approve',u.id,'approve'));
+  if(u.status==='active')  acts.push(btn('bad','Suspend',u.id,'status',{status:'suspended'}));
+  if(u.status==='suspended') acts.push(btn('good','Reactivate',u.id,'status',{status:'active'}));
+  acts.push(icon('&#128273;','Set a new password for this person',u.id,'openpw'));
+  acts.push(icon('&#128279;','Issue a one-time reset link instead',u.id,'reset'));
+  if(MESUPER){
+    if(u.role!=='super_admin') acts.push(btn('','Make '+(u.role==='admin'?'General':'Admin'),
+      u.id,'role',{role:u.role==='admin'?'member':'admin'}));
+    if(u.id!==ME) acts.push(icon('&#128465;','Delete this account permanently',u.id,'delete','bad'));
+  }
+  return '<tr class="'+(u.status==='pending'?'pending':'')+'">'+
+    '<td><b>'+esc(u.name||'—')+'</b><br><span class="um-muted">'+esc(u.email)+'</span>'+
+      (u.locked?'<br><span class="pill suspended">locked out</span>':'')+
+      (u.must_change_password?'<br><span class="pill pending">must change password</span>':'')+
+      (u.has_open_reset?'<br><span class="pill pending">reset pending</span>':'')+'</td>'+
+    '<td>'+val(p.title)+'</td>'+
+    '<td><span class="pill lvl-'+esc(u.level)+'">'+esc(u.level)+'</span>'+
+      '<br><span class="um-muted">'+esc((u.role||'').replace('_',' '))+'</span></td>'+
+    '<td><span class="pill '+u.status+'">'+esc(u.status)+'</span></td>'+
+    (detail
+      ? '<td>'+val(p.phone)+'</td><td>'+val(p.birthday_pretty)+'</td><td>'+
+        val(p.hired_at_pretty)+(p.years_of_service!=null
+          ? '<br><span class="um-muted">'+p.years_of_service+' yrs</span>':'')+'</td>'
+      : '<td class="um-muted">'+(u.last_login_at
+          ? esc(u.last_login_at.slice(0,16).replace('T',' ')) : 'never')+'</td>')+
+    '<td><div class="um-acts">'+acts.join('')+'</div></td></tr>';
 }
 
 function btn(kind,label,id,action,body){
   return '<button class="um-btn sm '+kind+'" onclick=\'act('+id+',"'+action+'",'+
-    JSON.stringify(body||{})+',"'+label+'")\'>'+label+'</button>';
+    JSON.stringify(body||{})+')\'>'+label+'</button>';
+}
+function icon(glyph,label,id,action,kind){
+  return '<button class="um-icon '+(kind||'')+'" title="'+label+'" aria-label="'+label+
+    '" onclick=\'act('+id+',"'+action+'",{})\'>'+glyph+'</button>';
 }
 
-function act(id,action,body,label){
+function act(id,action,body){
+  if(action==='openpw'){ openPw(id); return; }
   if(action==='delete'&&!confirm('Delete this account permanently?')) return;
   if(action==='status'&&body.status==='suspended'&&
      !confirm('Suspend this account? They will be signed out immediately.')) return;
+  post(id,action,body);
+}
+
+function post(id,action,body){
   fetch('/api/users/'+id+'/'+action,{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
   .then(function(r){return r.json();})
   .then(function(d){
     if(d.error){alert(d.error);return;}
-    if(d.link) showLink(d.link,d.expires_minutes,d.user);
+    if(d.link) showOnce('Reset link',
+      'Send this to '+(d.user?d.user.email:'them')+' directly — chat, text, in '+
+      'person. It works once and expires in '+d.expires_minutes+' minutes.', d.link);
+    else if(d.password) showOnce('New password',
+      (d.user?d.user.email:'They')+' can sign in with this once, and the Hub '+
+      'will make them replace it. Nothing stores it — lose it and set another.',
+      d.password);
     load();
   }).catch(function(){alert('That did not go through.');});
 }
 
-function showLink(link,mins,user){
-  document.getElementById('umModalSub').textContent =
-    'Send this to '+(user?user.email:'them')+' directly — Slack, text, in person. '+
-    'It works once and expires in '+mins+' minutes.';
-  document.getElementById('umLink').value=link;
+function openPw(id){
+  PWTARGET=id;
+  var u=(DATA.users||[]).filter(function(x){return x.id===id;})[0];
+  document.getElementById('umPwSub').textContent =
+    'For '+(u?u.email:'this account')+'.';
+  document.getElementById('umPwValue').value='';
+  document.getElementById('umPwModal').hidden=false;
+  document.getElementById('umPwValue').focus();
+}
+function closePw(){ document.getElementById('umPwModal').hidden=true; PWTARGET=null; }
+function submitPw(useDefault){
+  var id=PWTARGET, v=document.getElementById('umPwValue').value;
+  closePw();
+  if(id==null) return;
+  post(id, useDefault===true?'default-password':'set-password', {password:v});
+}
+
+function showOnce(title,sub,value){
+  document.getElementById('umModalTitle').textContent=title;
+  document.getElementById('umModalSub').textContent=sub;
+  document.getElementById('umLink').value=value;
   document.getElementById('umModal').hidden=false;
   document.getElementById('umLink').select();
 }

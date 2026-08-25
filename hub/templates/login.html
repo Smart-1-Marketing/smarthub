@@ -1,6 +1,9 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sign in · Smart 1 Hub</title>
+{# The X-Robots-Tag header in hub/no_crawl.py is what enforces this; the meta
+   tag is here for the crawler that keeps the body and drops the headers. #}
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, notranslate, noai, noimageai">
 <style>
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.55 'Segoe UI',system-ui,sans-serif;background:#f4f6fa;color:#1e293b}
@@ -73,7 +76,9 @@ button:hover{background:#145a92}
       <a href="/signup">Sign up</a>
     </div>
   </div>
-  <p class="alt"><a href="/reset">Forgotten your password?</a>
+  {# /forgot, not /reset. /reset completes an admin-issued token; this is the
+     page for somebody who has nothing and needs to be told who to ask. #}
+  <p class="alt"><a href="/forgot">Forgot password?</a>
      &nbsp;·&nbsp; <a href="/login/health">Sign-in diagnostics</a></p>
 </div>
 </body></html>

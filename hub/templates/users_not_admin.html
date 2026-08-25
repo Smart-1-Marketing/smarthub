@@ -1,0 +1,18 @@
+{% extends "_users_base.html" %}{% block title %}{{ section }} is for admins{% endblock %}
+{% block body %}
+{# The refusal a General account meets under /diagnostics, /status, /activity
+   or the Users panel. It says which section, what the two levels are, and who
+   changes one -- a bare 403 leaves somebody guessing whether the page is
+   broken, which is how a working gate gets reported as an outage. #}
+<h1>{{ section }} is for admin accounts</h1>
+<p class="sub">You have <b>General Access</b>, which reaches everything in the
+  Hub except this section &mdash; Diagnostics, System Status, Users and the
+  Activity Log.</p>
+<div class="ok" style="text-align:left">
+  Nothing is wrong with your account{% if account %} ({{ account.email }}){% endif %}.
+  If you need one of these pages, ask {{ support_name }} to change your level
+  to Admin: <a href="mailto:{{ support_email }}" style="font-weight:700;color:#11633f">{{ support_email }}</a>
+</div>
+{% endblock %}
+{% block alt %}<p class="alt"><a href="/">Back to the Hub</a> &nbsp;·&nbsp;
+  <a href="/account">Your account</a></p>{% endblock %}

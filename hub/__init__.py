@@ -181,7 +181,7 @@ def create_hub_app() -> Flask:
             except Exception:  # noqa: BLE001
                 pass
             try:
-                return render_sidebar(active or "").decode()
+                return render_sidebar(active or "", is_admin=viewer_is_admin()).decode()
             except Exception:  # noqa: BLE001 — nav must never break a page
                 return ""
         return {"hub_sidebar": hub_sidebar}
@@ -1894,9 +1894,10 @@ def create_hub_app() -> Flask:
 
         # Last hop, not the first: the client-supplied first entry in
         # X-Forwarded-For is spoofable, and this exact mistake was flagged in
-        # three separate apps during the suite audit.
-        fwd = request.headers.get("X-Forwarded-For", "")
-        ip = (fwd.split(",")[-1].strip() if fwd else (request.remote_addr or "?"))
+        # three separate apps during the suite audit. One helper now, because
+        # it was written out longhand at four call sites and one of them had
+        # it backwards.
+        ip = auth.client_ip(request.headers, request.remote_addr or "")
         wait = auth.throttle_check(ip)
         if wait:
             return page(f"Too many attempts. Try again in "
@@ -1931,7 +1932,7 @@ def create_hub_app() -> Flask:
                         auth.throttle_reset(ip)
                         return _login_response(user, nxt)
                     except _users.UserError as exc:
-                        auth.throttle_fail(ip)
+                        auth.throttle_fail(ip, email)
                         return page(str(exc), last_email=email, code=401)
             except ImportError:
                 account = None
@@ -1953,7 +1954,10 @@ def create_hub_app() -> Flask:
             return resp
 
         # ---- 3. no account, and not the shared password ----
-        auth.throttle_fail(ip)
+        # The address goes in too: one IP working down the staff list is the
+        # attack a per-attempt counter cannot see, because fourteen addresses
+        # at one guess each never reaches six on any of them.
+        auth.throttle_fail(ip, email)
         audit.log("hub", "login_failed", actor=email or "?", ip=ip)
         if email and account is None:
             return page(f"There's no account for {email} yet.",
@@ -1970,6 +1974,142 @@ def create_hub_app() -> Flask:
         # it worked.
         from . import suite_embed as _embed
         _embed.clear_cookie(resp)
+        return resp
+
+    # ---------------- access level: General or Admin ----------------
+    def current_account():
+        """The signed-in *account* row, or None for a shared-password session.
+
+        Re-read every request rather than trusted from the cookie: a role
+        change or a suspension has to take effect on the next click, not
+        whenever the cookie happens to expire.
+        """
+        try:
+            from .users_routes import current_account as _acct
+            return _acct()
+        except Exception:  # noqa: BLE001 — never 500 a page over the gate
+            return None
+
+    def viewer_is_admin() -> bool:
+        """Does this request get the Utilities section?
+
+        Three cases, and the middle one is the decision worth stating:
+
+          * an account -> its own role decides;
+          * a shared-password session -> Admin, because PANEL_PASSWORD is the
+            emergency door and an emergency door that cannot reach Diagnostics
+            leads nowhere. `hub/access.py` says the rest of it, including that
+            the way to close the door is to clear the variable;
+          * nobody signed in -> False, though no gate reaches here: the login
+            redirect runs first.
+        """
+        account = current_account()
+        if account is not None:
+            return bool(account.is_admin)
+        return bool(current_user())
+
+    # Paths a signed-in account may reach while it still owes a password
+    # change. Everything else redirects to /account until the starting
+    # password is gone -- including the API routes, or a page would render its
+    # shell and then fail every fetch inside it.
+    _PASSWORD_GATE_OPEN = ("/account", "/signout", "/logout", "/login",
+                           "/reset", "/forgot", "/assets/", "/static/",
+                           "/hub-", "/favicon.ico", "/robots.txt",
+                           "/llms.txt", "/api/version")
+
+    @app.before_request
+    def _password_change_gate():
+        """A starting password is valid for exactly one sign-in.
+
+        Without this, `must_change_password` is a note on an admin panel:
+        every roster account would keep `Smart12026!` indefinitely, on a Hub
+        whose password is written down in a repository. The flag has to stop
+        something, and this is the something.
+
+        A JSON path answers 403 with the redirect named in the body, rather
+        than serving a redirect a `fetch()` would follow into an HTML login
+        page and report as malformed data.
+        """
+        path = request.path or "/"
+        if any(path.startswith(p) for p in _PASSWORD_GATE_OPEN):
+            return None
+        account = current_account()
+        if account is None or not account.must_change_password:
+            return None
+        from . import access
+        if access.wants_json(path, request.headers.get("Accept", "")):
+            return jsonify({"error": "Set a new password before using the Hub.",
+                            "redirect": "/account"}), 403
+        return redirect("/account?first=1")
+
+    @app.before_request
+    def _utilities_gate():
+        """General Access sees everything except Utilities.
+
+        One list in `hub/access.py`, checked here on every request, rather
+        than a decorator each new Utilities route has to remember. The
+        alternative shipped once already: a whole module answered 200 to
+        anyone with the URL because it never passed the guard the tiles beside
+        it did.
+        """
+        from . import access
+        path = request.path or "/"
+        if not access.is_utility(path):
+            return None
+        if not current_user():
+            return None                 # not signed in: the login gate answers
+        if viewer_is_admin():
+            if current_account() is None:
+                audit.log("auth", "shared_password_utility", path=path)
+            return None
+        account = current_account()
+        audit.log("auth", "utility_refused",
+                  actor=account.email if account else current_user(), path=path)
+        if access.wants_json(path, request.headers.get("Accept", "")):
+            return jsonify({
+                "error": f"{access.SECTION_LABEL} is for admin accounts.",
+                "level": "General"}), 403
+        return render_template("users_not_admin.html",
+                               section=access.SECTION_LABEL,
+                               account=account, user=current_user(),
+                               support_email=_support_email(),
+                               support_name=_support_name()), 403
+
+    def _support_name() -> str:
+        from .user_directory import SUPPORT_NAME
+        return SUPPORT_NAME
+
+    def _support_email() -> str:
+        from .user_directory import SUPPORT_EMAIL
+        return SUPPORT_EMAIL
+
+    # ---------------- keeping crawlers out ----------------
+    @app.route("/robots.txt")
+    def robots_txt():
+        """Deliberately no login: a robots.txt behind a login is not read.
+
+        The header in `hub/no_crawl.NoIndex` is what actually removes a page
+        from an index; this is the half the well-behaved crawler asks for
+        first, and it names the AI crawlers individually because several of
+        them -- Google-Extended and Applebot-Extended among them -- honour
+        only their own token and ignore the wildcard.
+        """
+        from . import no_crawl
+        resp = make_response(no_crawl.robots_txt())
+        resp.mimetype = "text/plain"
+        return resp
+
+    @app.route("/llms.txt")
+    def hub_llms_txt():
+        """The Hub's own llms.txt, which says the opposite of a client's.
+
+        `hub/llms_txt.py` builds one FOR a client, where being read is the
+        point. This one is about this host, and a model that fetches it and
+        finds a 404 learns nothing about whether it was welcome.
+        """
+        from . import no_crawl
+        resp = make_response(no_crawl.llms_txt())
+        resp.mimetype = "text/plain"
         return resp
 
     def _require_page():
@@ -3782,12 +3922,13 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .sidebar import render_sidebar
+        _admin = viewer_is_admin()
         with open(os.path.join(CLIENTS_APP, "index.html"), "rb") as fh:
             body = fh.read()
         snippet = b'<link rel="stylesheet" href="/assets/theme.css">'
         if b"</head>" in body:
             body = body.replace(b"</head>", snippet + b"</head>", 1)
-        bar = render_sidebar("clients")
+        bar = render_sidebar("clients", is_admin=_admin)
         # Deep links from Client 360: /clients?q=<client> auto-fills and runs
         # the React app's search (native value setter so React sees the input).
         autosearch = b"""<script>
@@ -4348,6 +4489,16 @@ def create_hub_app() -> Flask:
     # keeps its chrome -- which is why this is the longer prefix and not
     # "/sales/landing".
     CHROMELESS = ("/login", "/signup", "/reset", "/signin", "/account",
+                  # The forgotten-password page and the admin-only refusal both
+                  # render on _users_base.html, which is a bare card with no
+                  # <body> the injector would recognise -- and injecting the
+                  # staff nav into a page somebody reached because they cannot
+                  # sign in is the wrong thing to show them anyway.
+                  "/forgot",
+                  # Plain text, and not HTML, so the injector would skip them
+                  # regardless. Named so it is a decision rather than a
+                  # coincidence of the mimetype check.
+                  "/robots.txt", "/llms.txt",
                   "/connect", "/api/", "/assets/", "/hub-", "/static/",
                   "/sales/landing/p/")
 
@@ -4412,7 +4563,8 @@ def create_hub_app() -> Flask:
                 return resp                      # a fragment, not a page
             from .sidebar import render_sidebar
             bar = render_sidebar(_MOUNT_ACTIVE_HUB.get(
-                "/" + path.strip("/").split("/")[0], ""))
+                "/" + path.strip("/").split("/")[0], ""),
+                is_admin=viewer_is_admin())
             # The help/demo/autofill layer has to come with the sidebar. It
             # was injected by HubBar for dispatcher-mounted modules and by
             # base.html for hub pages, which left blueprint-registered pages

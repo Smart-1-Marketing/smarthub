@@ -481,6 +481,27 @@ jobs:
             echo "test_client_groups.py not on this branch — nothing to run."
           fi
 
+      - name: User account, access level and crawler tests
+        # The census roster and the two levels it creates: that a re-run never
+        # resets a password or takes back a promotion, that the starting
+        # password is valid for exactly one sign-in (mounted modules included
+        # — the hub app's own before_request covered its routes and nothing
+        # else), that General is refused every Utilities path rather than just
+        # not shown the link, that no password or hash reaches /api/users, that
+        # the login throttle catches one guess against fourteen addresses as
+        # well as fourteen guesses against one, and that robots.txt and the
+        # X-Robots-Tag both keep search and AI crawlers out. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file. It *sets* DATABASE_URL, HUB_DATA_DIR and
+        # AUDIT_LOG_PATH rather than setdefault-ing them, so it always gets its
+        # own throwaway database and never appends to the real activity log.
+        run: |
+          if [ -f test_user_accounts.py ]; then
+            python test_user_accounts.py
+          else
+            echo "test_user_accounts.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a
@@ -500,6 +521,11 @@ jobs:
 
           pages = ["/", "/status", "/diagnostics", "/sales/leads",
                    "/api/integrity", "/api/leads", "/login/health",
+                   # The three pages that must answer without a session: the
+                   # crawler files (one behind a login is not read) and the
+                   # forgotten-password page, which is the one page somebody
+                   # who cannot sign in actually needs.
+                   "/robots.txt", "/llms.txt", "/forgot",
                    # The proposal builder and Client 360 render the largest
                    # templates in the repo and are where a bad section kind or
                    # a template typo surfaces as a 500 rather than a test
