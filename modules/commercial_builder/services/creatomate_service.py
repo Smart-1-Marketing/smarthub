@@ -145,15 +145,32 @@ _VIDEO_SUFFIXES = (".mp4", ".mov", ".webm", ".m4v")
 # URL does not have to carry a file extension — Cloudinary's often does not —
 # and guessing from the suffix alone typed a spokesperson clip as an image,
 # which renders as a still frame or as nothing at all.
-_VIDEO_ASSET_TYPES = {"spokesperson", "ai_generated", "stock"}
+#
+# "ai_generated" is deliberately NOT in this set. The Generate AI button
+# produces OpenAI *stills* today (Runway is V1.5 and not wired up), so an
+# ai_generated scene holds a PNG. Listing it here declared that PNG to
+# Creatomate as a video element — the same class of mistake in the opposite
+# direction. When a real text-to-video provider lands it will record
+# media="video" below and be typed from that, not from its label.
+_VIDEO_ASSET_TYPES = {"spokesperson", "stock"}
 
 
 def _element_type(scene):
+    """image, video or text — decided by what the asset IS.
+
+    `asset_meta["media"]` is written at the moment an asset is attached, by
+    whichever route attached it, and is the only source here that cannot go
+    stale: an asset_type is a label whose meaning changes when the provider
+    behind it changes, and a URL suffix is frequently absent.
+    """
     url = (scene.get("asset_url") or "")
     if scene.get("is_cta") and not url:
         return "text"
     if not url:
         return "image"
+    media = (scene.get("asset_meta") or {}).get("media")
+    if media in ("image", "video"):
+        return media
     if scene.get("asset_type") in _VIDEO_ASSET_TYPES:
         return "video"
     return "video" if url.lower().split("?")[0].endswith(_VIDEO_SUFFIXES) else "image"

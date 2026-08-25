@@ -248,6 +248,30 @@ check("and is typed as video even though the URL carries no suffix",
           scene(id=11, asset_url="https://res.cloudinary.com/x/upload/v1/pres",
                 asset_type="spokesperson")), "video")
 
+# The Generate AI button produces OpenAI STILLS today — Runway is V1.5 and is
+# not wired up. Typing an ai_generated scene as video handed Creatomate a PNG
+# declared as a video element. What the asset IS beats what its label says.
+check("an AI still is typed as an image, not a video",
+      creatomate_service._element_type(
+          scene(id=12, asset_url="https://oaidalleapi.example/img.png",
+                asset_type="ai_generated",
+                asset_meta={"media": "image"})), "image")
+check("even when the URL carries no suffix at all",
+      creatomate_service._element_type(
+          scene(id=13, asset_url="https://oaidalleapi.example/abc123",
+                asset_type="ai_generated",
+                asset_meta={"media": "image"})), "image")
+# The label alone must not promote a still to video, for a record written
+# before media was recorded.
+check("and an unrecorded ai_generated scene falls back to the URL, not the label",
+      creatomate_service._element_type(
+          scene(id=14, asset_url="https://oaidalleapi.example/img.png",
+                asset_type="ai_generated", asset_meta={})), "image")
+check("a recorded media kind wins over a misleading suffix",
+      creatomate_service._element_type(
+          scene(id=15, asset_url="https://cdn.example/clip.png",
+                asset_type="stock", asset_meta={"media": "video"})), "video")
+
 # Tracks are layers only when they differ; two things sharing a track play one
 # after the other, which would run the presenter after the spot had ended.
 tracks = {creatomate_service.TRACK_SCENES, creatomate_service.TRACK_VOICE,

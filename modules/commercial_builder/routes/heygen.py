@@ -159,6 +159,7 @@ def spokesperson_status(project_id, scene_id):
         # able to tell you which one you are looking at.
         url = stored.get("secure_url") or status["video_url"]
         meta["spokesperson_url"] = url
+        meta["media"] = "video"
         meta["spokesperson_mirrored"] = bool(stored.get("secure_url")) and not stored.get("_mock")
         if stored.get("error"):
             meta["spokesperson_mirror_error"] = stored["error"]
@@ -201,6 +202,7 @@ def apply_spokesperson_result(project_id, scene_id):
         return jsonify({"ok": False, "error": "video_url is required."}), 400
     meta = dict(scene.asset_meta or {})
     meta["spokesperson_url"] = video_url
+    meta["media"] = "video"
     if not meta.get("spokesperson_over_footage"):
         scene.asset_url = video_url
         scene.asset_type = "spokesperson"

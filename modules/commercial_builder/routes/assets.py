@@ -41,6 +41,13 @@ def choose_ai_option(project_id, scene_id):
     scene.asset_source = "openai"
     scene.asset_url = url
     scene.asset_thumb_url = url
+    meta = dict(scene.asset_meta or {})
+    # A still, and recorded as one. "Generate AI" produces OpenAI images until
+    # a text-to-video provider is wired up; the compositor reads this rather
+    # than guessing from the asset_type label, so the day that changes it is
+    # this line that changes with it.
+    meta["media"] = "image"
+    scene.asset_meta = meta
     db.session.commit()
     return jsonify({"ok": True, "scene": scene.to_dict()})
 
