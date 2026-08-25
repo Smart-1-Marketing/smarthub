@@ -53,9 +53,29 @@ def _check_scene_assets(scenes):
     if not scenes:
         return {"passed": False, "message": "No scenes in storyboard yet."}
 
-    empty, pending, failed, mocked = [], [], [], []
+    empty, pending, failed, mocked, short = [], [], [], [], []
     for index, scene in enumerate(scenes, start=1):
         meta = scene.get("asset_meta") or {}
+
+        # An AI video job is the same shape as a spokesperson one: generated,
+        # then attached later. Unattached, the scene renders as nothing.
+        video_job = meta.get("runway_job") or {}
+        if video_job and not meta.get("runway_url"):
+            if video_job.get("status") == "failed":
+                failed.append(index)
+            elif video_job.get("_mock"):
+                mocked.append(index)
+            else:
+                pending.append(index)
+            continue
+
+        # A 5-second clip on a 7-second scene goes black for two seconds, and
+        # nothing upstream notices: the element simply runs out.
+        clip = meta.get("clip_seconds")
+        scene_len = float(scene.get("end") or 0) - float(scene.get("start") or 0)
+        if clip and scene_len - float(clip) > 0.05:
+            short.append(index)
+
         job = meta.get("heygen_job") or {}
         has_presenter = bool(meta.get("spokesperson_url"))
         if job and not has_presenter:
@@ -86,6 +106,11 @@ def _check_scene_assets(scenes):
     if empty:
         return {"passed": False,
                 "message": f"Scene(s) {_join(empty)} have no footage or presenter on them."}
+    if short:
+        return {"passed": False,
+                "message": f"Scene(s) {_join(short)} run longer than the clip attached to them, "
+                           f"so they would go black partway. Shorten the scene or regenerate "
+                           f"the clip at a longer length."}
     return {"passed": True, "message": f"All {len(scenes)} scenes have an asset attached."}
 
 

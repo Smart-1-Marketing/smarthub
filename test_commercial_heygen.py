@@ -280,6 +280,61 @@ tracks = {creatomate_service.TRACK_SCENES, creatomate_service.TRACK_VOICE,
 check("every layer has a track of its own", len(tracks), 5)
 
 
+# ------------------------------------------------------- 6b. AI video
+section("AI video animates a frame, and knows what it cannot do")
+
+from modules.commercial_builder.services import runway_service   # noqa: E402
+
+# Two provider constraints drive the whole design, so they are asserted rather
+# than trusted: a clip is 5 or 10 seconds, and it animates a starting frame.
+check("a short scene takes the 5s clip", cb_config.runway_duration(4.0), 5)
+check("exactly 5s still takes the 5s clip", cb_config.runway_duration(5.0), 5)
+check("a scene over 5s takes the 10s clip", cb_config.runway_duration(7.5), 10)
+check("a scene over 10s cannot be covered at all", cb_config.runway_duration(12.0), None)
+
+check("the frame follows the project's format",
+      cb_config.runway_ratio("9:16"), cb_config.RUNWAY_RATIOS["9:16"])
+check("and an unknown format falls back rather than raising",
+      cb_config.runway_ratio("banana"), cb_config.RUNWAY_DEFAULT_RATIO)
+
+check("with no key set the service is not live", runway_service.is_live(), False)
+
+no_frame = runway_service.generate_from_image("", "prompt", scene_seconds=4.0)
+check("no starting frame is refused", no_frame["status"], "failed")
+check("and says a frame is what is missing",
+      "starting frame" in no_frame["error"], True)
+
+too_long = runway_service.generate_from_image("https://img/x.png", "p", scene_seconds=16.0)
+check("a scene longer than any clip is refused", too_long["status"], "failed")
+check("with its own length named", "16.0s" in too_long["error"], True)
+
+mock = runway_service.generate_from_image("https://img/x.png", "p", scene_seconds=4.0)
+check("mock mode is flagged", mock.get("_mock"), True)
+check("and produces no video URL", mock.get("video_url"), None)
+check("a job with no task id reports failed",
+      runway_service.check_status(None)["status"], "failed")
+
+# QC: a clip that does not cover its scene goes black partway, and nothing
+# upstream notices — the element simply runs out.
+uncovered = scene(id=20, asset_url="https://cdn/x.mp4", asset_type="ai_generated",
+                  start=0.0, end=8.0,
+                  asset_meta={"runway_url": "https://cdn/x.mp4", "clip_seconds": 5,
+                              "media": "video"})
+check("a clip shorter than its scene blocks the render", assets([uncovered])["passed"], False)
+check("and says why", "go black partway" in assets([uncovered])["message"], True)
+
+covered = scene(id=21, asset_url="https://cdn/x.mp4", asset_type="ai_generated",
+                start=0.0, end=5.0,
+                asset_meta={"runway_url": "https://cdn/x.mp4", "clip_seconds": 5,
+                            "media": "video"})
+check("a clip that covers its scene passes", assets([covered])["passed"], True)
+
+pending_video = scene(id=22, asset_url=None, asset_type=None,
+                      asset_meta={"runway_job": {"job_id": "t1", "status": "processing"}})
+check("a video still generating blocks the render",
+      assets([pending_video])["passed"], False)
+
+
 # ------------------------------------------- 7. the write-through path
 section("Polling the status finishes the job")
 

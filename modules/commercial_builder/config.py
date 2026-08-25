@@ -239,6 +239,48 @@ def talent_avatar_overrides():
     return {str(k): str(v) for k, v in parsed.items() if v}
 
 
+# ---------------------------------------------------------------------------
+# AI video scenes (Runway).
+#
+# Two constraints come from the provider and drive everything else here:
+#
+#   * **A reference image is required.** Gen-4 and Gen-4 Turbo animate a
+#     starting frame; there is no usable text-only path. That suits this tool,
+#     which already generates stills — the frame is art-directed first and
+#     then moved, rather than hoping one prompt lands both.
+#   * **Clips are 5 or 10 seconds.** Nothing else. A storyboard scene is
+#     whatever length the script needs, so the clip is requested at the
+#     shortest length that COVERS the scene and the compositor trims it. A
+#     scene longer than 10s cannot be covered by one clip and is said so
+#     rather than left with a gap nobody sees until the render comes back.
+#
+# The ratio strings are the part most likely to differ between accounts and
+# model versions; they are here, in one dict, for that reason.
+# ---------------------------------------------------------------------------
+RUNWAY_MODEL = "gen4_turbo"
+RUNWAY_DURATIONS = [5, 10]
+RUNWAY_MAX_SCENE_SECONDS = 10
+RUNWAY_RATIOS = {"16:9": "1280:720", "9:16": "720:1280", "1:1": "960:960"}
+RUNWAY_DEFAULT_RATIO = "1280:720"
+
+
+def runway_ratio(format_id):
+    return RUNWAY_RATIOS.get(format_id, RUNWAY_DEFAULT_RATIO)
+
+
+def runway_duration(scene_seconds):
+    """The shortest offered clip that covers the scene, or None if none does.
+
+    None is the honest answer for a scene over 10 seconds: returning 10 would
+    render a clip that stops early, and a segment that goes black partway is
+    the kind of defect nobody catches until a client does.
+    """
+    for length in sorted(RUNWAY_DURATIONS):
+        if scene_seconds <= length:
+            return length
+    return None
+
+
 # V1 API roster (section "V1 API stack"). Used to render the integration
 # status panel on the dashboard so it's obvious at a glance which providers
 # are live vs. running in mock mode.

@@ -98,6 +98,9 @@ class Settings:
     # two spellings — the same drift that made Pexels report "no key set" with
     # the key plainly present.
     heygen_key: str = field(default_factory=lambda: _first("HEYGEN_API", "HEYGEN_API_KEY", "HEYGEN_KEY"))
+    # Commercial Builder's AI video scenes. Same three spellings for the same
+    # reason as every other provider key here.
+    runway_key: str = field(default_factory=lambda: _first("RUNWAY_API", "RUNWAY_API_KEY", "RUNWAY_KEY"))
     knack_app_id: str = field(default_factory=lambda: _s("KNACK_APP_ID"))
     knack_api_key: str = field(default_factory=lambda: _s("KNACK_API_KEY"))
     ghl_token: str = field(default_factory=lambda: _first("GHL_PRIVATE_TOKEN", "SMART1SUITE_PRIVATE_TOKEN"))
@@ -236,6 +239,8 @@ class Settings:
             row("Insites", bool(self.insites_key), False, "INSITES_API_KEY — Site Scans disabled without it."),
             row("HeyGen", bool(self.heygen_key), False,
                 "HEYGEN_API / HEYGEN_API_KEY — spokesperson scenes run in mock mode without it."),
+            row("Runway", bool(self.runway_key), False,
+                "RUNWAY_API / RUNWAY_API_KEY — AI video scenes run in mock mode without it."),
             row("Knack", bool(self.knack_app_id and self.knack_api_key), False, "KNACK_APP_ID / KNACK_API_KEY — client registry."),
             row("GoHighLevel", bool(self.ghl_token and self.ghl_company_id), False, "GHL_PRIVATE_TOKEN (or SMART1SUITE_PRIVATE_TOKEN) + GHL_COMPANY_ID (or SUITE_COMPANY_ID)."),
             row("Lead delivery to Suite",

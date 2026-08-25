@@ -177,6 +177,18 @@ route's* job, not the browser's: any request for it writes the finished URL
 onto the row, so closing the tab no longer loses the clip. The same shape
 applies to any provider added later.
 
+**AI video animates a frame; it does not conjure one.** Runway's Gen-4 models
+take a starting image — there is no usable text-only path — and return clips
+of **5 or 10 seconds and nothing else**. Both constraints are in
+`config.runway_duration()` / `runway_ratio()` rather than spread through the
+service: a scene is requested at the shortest clip that *covers* it, and a
+scene over 10s is refused with its own length named instead of being handed a
+clip that stops early. That is also why "Generate AI" (OpenAI stills) and
+"Generate Video" are two buttons — the still is the input to the video, and
+`openai_service.write_runway_prompt()` sat written and uncalled until it was.
+QC fails a scene whose clip is shorter than the scene, because the element
+simply runs out and the segment goes black with nothing reading as an error.
+
 **A provider's asset URL is signed and expires.** A HeyGen clip linked
 directly plays today and 404s next week. Finished clips are mirrored into
 Cloudinary through `cloudinary_service.upload_asset`, the way rendered
