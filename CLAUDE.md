@@ -553,7 +553,30 @@ property we do not administer or the record is stale — and flattening it
 destroys the only evidence of it.
 
 Client 360's own "attach a property" button goes through the same path, so
-attaching there records in Knack and clears the orphan too.
+attaching there records in Knack and clears the orphan too. So does the
+customer picker on the **Google Accounts & Mapping** QA report — the report is
+where somebody notices that a property maps to nobody, so it is where they can
+say whose it is, rather than being sent to another screen to find the row
+again. It is a searchable list of real customers and never a text box: a
+typo'd name files the attachment under a client nothing joins to and reads as
+success. The suggestions open it and a person still chooses.
+
+**The domain rule runs on every load of that report, not only at the sweep.**
+`google_index.apply_domain_matches()`. The join itself is the index's own rule
+2 — what changed is when it runs. The stored index only ever saw the client
+list as it stood at sweep time, and that list moves constantly: a URL
+discovered by `hub/client_urls.py`, a site matched in Sites Admin, a Knack
+record that finally gained a website. Every one of those makes a resource
+joinable that the last sweep left orphaned, and waiting six hours for it reads
+on the page as a property nobody can explain sitting next to the client whose
+domain it plainly carries. It never touches a resource that already has a
+client — a domain that disagrees with an attachment is a finding, and a page
+load is the worst possible place to resolve one — it leaves a domain two
+clients share to a human, and it writes nothing when nothing changed, because
+this runs in two gunicorn workers on every open of the page. Only the index is
+written: this is a derivation re-made on every build, and writing it onto the
+client record would turn it into a stored fact that outlives the domain it
+came from.
 
 ### A service that cannot be granted must not be offered
 
