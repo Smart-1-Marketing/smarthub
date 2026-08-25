@@ -63,11 +63,15 @@
     ".s1-acc-caret{border:0;background:none;cursor:pointer;color:#94a3b8;",
     "font-size:12px;padding:0 7px 0 0;line-height:1;transition:transform .15s}",
     ".s1-acc-closed .s1-acc-caret{transform:rotate(-90deg)}",
-    ".s1-acc-all{display:flex;gap:8px;margin:0 0 14px;grid-column:1 / -1}",
+    /* Wraps. This bar carries Expand all, Collapse all, Group and three IO
+       actions; on a narrow screen an unwrapped row is what pushes the page
+       sideways even after the cards below it behave. */
+    ".s1-acc-all{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px;grid-column:1 / -1}",
     ".s1-acc-all button{border:1px solid #d7dfe8;background:#fff;border-radius:7px;",
     "padding:6px 12px;font:600 12px 'Segoe UI',system-ui,sans-serif;color:#41525f;cursor:pointer}",
     ".s1-acc-all button:hover{background:#f1f5f9}",
-    ".s1-acc-actions{margin-left:auto;display:flex;gap:8px}",
+    ".s1-acc-actions{margin-left:auto;display:flex;flex-wrap:wrap;gap:8px}",
+    "@media(max-width:700px){.s1-acc-actions{margin-left:0}}",
     ".s1-acc-actions button{border:1px solid #cfe2f2;background:#eef5fb;color:#1769AA}",
     ".s1-acc-actions button:hover{background:#e2eef8}",
     ".s1-acc-all button.s1-acc-group{border-color:#cfe2f2;background:#eef5fb;color:#1769AA}",
