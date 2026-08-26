@@ -28,6 +28,21 @@ on domain then agrees — confidently — about the wrong company.
   * **Names match exactly or not at all**, the rule client_key.resolve()
     exists to enforce and the one the billing audit broke.
 
+  * **A Simvoly project name is not the business's name.** 548 of this
+    deployment's 1,021 projects begin with a media partner ("TMRG - JWS
+    Pottery"), 249 are placeholders naming a person rather than a company
+    ("Anna's Website"), and matching on the raw string found 42 of them. The
+    prefix has to come off, the trailing "2026 Refresh" has to come off, and
+    the partner's own name must never be proposed as the client — every one of
+    FabLocal's thirty-seven SERVPRO franchises contains the string "FabLocal",
+    and the old substring rule scored that at 0.92, top of the list.
+
+  * **A placeholder is named, not matched.** A fuzzy pass over "Anna's
+    Website" eventually finds an Anna and attaches a stranger's site to her.
+
+  * **A name two clients answer to proposes neither.** Both are shown. Picking
+    one is the guess that files one company's website under another.
+
   * **A source that could not be read says so.** "Knack is down" and "Knack has
     nothing for them" must never look alike — only one of them means the client
     really has no website anywhere in our data.
@@ -157,6 +172,125 @@ check("...and says so rather than implying the same scan",
 check("the expired domain is only matchable when explicitly asked for",
       "expired-and-repointed.example" in
       {m["domain"] for m in everything["suggested"]})
+
+
+# ---------------------------------------------------------------------------
+section("A Simvoly project name is not the business's name")
+# ---------------------------------------------------------------------------
+from hub import site_names                                       # noqa: E402
+
+check("the media partner comes off the front",
+      "JWS Pottery" in [c["name"] for c in site_names.candidates("TMRG - JWS Pottery")],
+      site_names.candidates("TMRG - JWS Pottery"))
+check("...and the whole name is still offered, most conservative first",
+      site_names.candidates("TMRG - JWS Pottery")[0]["name"] == "TMRG - JWS Pottery")
+check("every candidate says how it was derived",
+      all(c["why"] for c in site_names.candidates("TMRG - JWS Pottery")))
+check("a trailing job marker comes off the end",
+      "Helena Valley Addiction Services" in
+      [c["name"] for c in site_names.candidates(
+          "TMRG - Helena Valley Addiction Services - 2026 Refresh")])
+check("a year on the end is a marker too",
+      "Exec Air" in [c["name"] for c in site_names.candidates("TMRC - Exec Air 2025")],
+      site_names.candidates("TMRC - Exec Air 2025"))
+check("trimming does not cut a word off mid-name",
+      site_names.best_name("Elsie Consulting - Main Site") == "Elsie Consulting",
+      site_names.best_name("Elsie Consulting - Main Site"))
+check("a remainder that is only a label is never a candidate",
+      not any(c["name"].lower() in ("main site", "landing page", "2026 refresh")
+              for c in site_names.candidates("Elsie Consulting - Main Site")
+              + site_names.candidates("Moto - Fina Med Spa - Landing Page")),
+      site_names.candidates("Moto - Fina Med Spa - Landing Page"))
+check("a name with no separator is left alone",
+      [c["name"] for c in site_names.candidates("Holiday Bazaar")] == ["Holiday Bazaar"])
+
+check("a trial named after a person names nobody",
+      site_names.is_placeholder("Anna's Website"))
+check("...including one named after an email address",
+      site_names.is_placeholder("chatita521@yahoo.com's Website"))
+check("a test project names nobody", site_names.is_placeholder("S1M Test"))
+check("and it says so in words, never just False",
+      "trial project" in site_names.is_placeholder("Anna's Website"),
+      site_names.is_placeholder("Anna's Website"))
+check("a placeholder produces no candidates at all",
+      site_names.candidates("Anna's Website") == [])
+check("a real business is not called a placeholder",
+      not site_names.is_placeholder("TMRG - Colby Landscaping"))
+check("...nor is one whose name happens to end in s",
+      not site_names.is_placeholder("Brothers That Just Do Gutters"))
+
+BOOK = site_names.index_names([
+    ("JWS Pottery", "the Knack website registry"),
+    ("FabLocal", "the Knack website registry"),
+    ("SERVPRO of Northeast San Antonio", "the Knack website registry"),
+    ("SERVPRO Southwest San Antonio", "the Knack website registry"),
+    ("Smitty's Fireplace Shop", "the Knack website registry"),
+    ("Riverside HVAC", "the Hub client registry"),
+    ("Riverside HVAC", "the Knack website registry"),
+])
+hits = site_names.exact_matches("TMRG - JWS Pottery", BOOK)
+check("the business behind the partner prefix matches exactly",
+      [h["client"] for h in hits] == ["JWS Pottery"], hits)
+check("...and the match says which reading of the name did it",
+      hits[0]["matched"] == "JWS Pottery", hits)
+check("the media partner is never proposed as the client",
+      "FabLocal" not in [h["client"] for h in site_names.exact_matches(
+          "FabLocal -  SERVPRO of Southwest San Antonio", BOOK)])
+check("the right franchise is the exact match, not the neighbouring one",
+      [h["client"] for h in site_names.exact_matches(
+          "FabLocal -  SERVPRO of Southwest San Antonio", BOOK)]
+      == ["SERVPRO Southwest San Antonio"],
+      site_names.exact_matches("FabLocal -  SERVPRO of Southwest San Antonio", BOOK))
+check("one client filed twice is offered once, not as an ambiguity",
+      len(site_names.exact_matches("Riverside HVAC LLC", BOOK)) == 1,
+      site_names.exact_matches("Riverside HVAC LLC", BOOK))
+
+# Two client records, two different companies, one normalised name — which is
+# the shape this deployment actually has: an old record and a re-filed one.
+TWO = site_names.index_names([("Riverside HVAC LLC", "a"),
+                              ("Riverside HVAC, Inc.", "b")])
+check("two different clients answering to one name is an ambiguity",
+      len(site_names.exact_matches("TMRG - Riverside HVAC", TWO)) == 2,
+      site_names.exact_matches("TMRG - Riverside HVAC", TWO))
+
+near = site_names.near_matches("TMRG - Smitty's Fireplace", BOOK)
+check("a near miss is offered", [n["client"] for n in near] == ["Smitty's Fireplace Shop"], near)
+check("...with the score in the reason", "%" in near[0]["why"], near[0])
+check("a placeholder is never fuzzy-matched",
+      site_names.near_matches("Anna's Website", BOOK) == [])
+check("a substring is not a match — Acme is not Acme Plumbing",
+      site_names.exact_matches("Acme", site_names.index_names(
+          [("Acme Plumbing", "a")])) == [])
+check("...and does not clear the near threshold either",
+      site_names.near_matches("Acme", site_names.index_names(
+          [("Acme Plumbing", "a")])) == [])
+
+
+# ---------------------------------------------------------------------------
+section("The scorer does not rank a substring above a resemblance")
+# ---------------------------------------------------------------------------
+# This is the rule client_key.py exists to enforce, and knack_websites scored
+# a containment at a flat 0.92 — above almost every genuine similarity. On the
+# real portfolio export that put the *media partner* top of the list on 39 of
+# 242 suggested rows: accepting one files a client's website under FabLocal.
+from hub import knack_websites                                   # noqa: E402
+
+check("a partner prefix does not score 0.92 against the partner",
+      knack_websites._similar(                                   # noqa: SLF001
+          "FabLocal -  SERVPRO of Southwest San Antonio", "FabLocal") < 0.6,
+      knack_websites._similar("FabLocal -  SERVPRO of Southwest San Antonio",
+                              "FabLocal"))
+check("Acme does not score 0.92 against Acme Plumbing",
+      knack_websites._similar("Acme", "Acme Plumbing") < 0.72,
+      knack_websites._similar("Acme", "Acme Plumbing"))
+check("a genuine containment still clears the suggestion threshold",
+      knack_websites._similar("Smitty's Fireplace",
+                              "Smitty's Fireplace Shop") >= 0.72,
+      knack_websites._similar("Smitty's Fireplace", "Smitty's Fireplace Shop"))
+check("the same name either way round is still 1.0",
+      knack_websites._similar("Riverside HVAC, LLC", "The Riverside HVAC Co.") == 1.0)
+check("words are kept as words — ab cd is not abcd",
+      knack_websites._norm_name("ab cd") != knack_websites._norm_name("abcd"))
 
 
 # ---------------------------------------------------------------------------

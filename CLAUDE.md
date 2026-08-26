@@ -696,6 +696,67 @@ client to one attributes them a website that is no longer theirs. What is
 skipped is counted and named — "we checked 1,200 projects" and "we checked the
 380 that are live" are different claims — and a toggle shows the rest.
 
+**And a Simvoly project name is not the business's name.** Where there is no
+domain to match on, the name is all there is — and matching on the raw project
+title found 42 of this deployment's 1,021 projects, because that is not what a
+project is called. 548 of them begin with a **media partner**
+("TMRG - JWS Pottery", "FabLocal -  SERVPRO of Fresno NW"), 249 are
+**placeholders** naming a person rather than a company ("Anna's Website",
+"chatita521@yahoo.com's Website", "S1M Test"), and a good number carry a
+trailing marker describing the job rather than the client ("Helena Valley
+Addiction Services - 2026 Refresh"). `hub/site_names.py` reads those three
+shapes and hands the matcher **candidates a human confirms**, each saying how
+it was derived: the same portfolio export then matched **305 projects exactly
+and offered a candidate for 60 more**, with nothing ambiguous.
+
+Four rules in it, each a way to be confidently wrong:
+
+- **A placeholder is named as one, never matched loosely.** A fuzzy pass over
+  "Anna's Website" eventually finds an Anna and attaches a stranger's site to
+  her. Those are counted on the page as *names nobody*, which is a different
+  situation from a matcher that found nothing.
+- **A name two clients answer to proposes neither**, and shows both.
+- **A remainder that is only a label is not a name.** Stripping the prefix
+  from "Elsie Consulting - Main Site" leaves "Main Site", which identifies
+  nobody and would join every project called that; the trim is done on the
+  *parts* rather than the string, or it cuts the word "Site" off the end and
+  leaves "Elsie Consulting - Main" — a shorter version of the same wrong
+  answer.
+- **A shared word that identifies nobody is no evidence.** The same rule
+  `hub/google_links.py` applies to its word index. It is also the cheap gate
+  before the expensive ratio: without it the pass takes 24 seconds instead of
+  1.2, and the two suggestions it costs were one right and one wrong.
+
+**The substring rule that ranked the media partner above the client.**
+`knack_websites._similar()` scored a containment at a flat **0.92** — above
+almost every genuine resemblance — which is the rule `hub/client_key.py` exists
+to refuse, wearing a score. A Simvoly project is named "<partner> - <business>",
+so every one of FabLocal's thirty-seven SERVPRO franchises contained the string
+"FabLocal" and was offered, **top of the list**, as the website of *FabLocal*:
+on this deployment's own export the top suggestion was the media partner rather
+than the client on **39 of 242** suggested rows, and accepting one files a
+client's website under their agency. It is the ratio now, and its normaliser is
+the shared one — the local copy ran the words together, so "ab cd" and "abcd"
+read as one business. A genuine containment still clears the threshold on its
+own merits ("Smitty's Fireplace" against "Smitty's Fireplace Shop" is 0.88)
+while "Acme" against "Acme Plumbing" is 0.47 and is refused, which is the
+point. `suggest_for()` is also handed the *cleaned* name now: comparing the raw
+"FabLocal -  SERVPRO of Southwest San Antonio" against the registry ranked the
+**neighbouring** franchise above the right one, because half of what it was
+comparing was the media partner.
+
+**A project with no domain is exactly where the name is all there is, and it
+was offered nothing at all.** Those rows were listed under "No real domain yet"
+with no candidates and no button. They carry the name matches now — and the
+confirmation never sends the domain, because the domain on those rows is a
+*platform* one (`something.simvoly.com`) and attaching that to a client would
+file every unlaunched site under whoever was confirmed first. Confirming a
+match on a row that does have a real domain now sends it, too: without it
+`apply()` could only write the Simvoly project, so a confirmed match landed in
+one of the four systems and Client 360 went on saying the client had no
+website — the join real and invisible, which is the failure `hub/domain_links.py`
+exists to stop.
+
 The other half is `hub/client_urls.py`. `client_context.url_audit()` could
 already say *which* clients have no URL, which is the useless half: a client
 with no URL cannot be joined to a scan, a brand lookup or anything else keyed
@@ -1981,7 +2042,7 @@ python3 test_image_download.py     # image downloads, the shared zip builder
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
 python3 test_video_library.py      # the footage index, its status row, the page's palette
-python3 test_sites_match.py        # live-only matching, and finding a client's missing URL
+python3 test_sites_match.py        # live-only matching, the name pass, a client's missing URL
 python3 test_domain_links.py       # attaching a domain everywhere, orphans, renewals
 python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
 python3 test_google_access.py      # the paused Ads flow, and who an invite is for
