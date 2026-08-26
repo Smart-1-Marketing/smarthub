@@ -7,7 +7,6 @@ from hub import jsonstore
 import uuid
 from typing import Any
 
-import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_file
 
@@ -40,8 +39,6 @@ load_dotenv()
 app = Flask(__name__)
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-# Standardized on GHL_WEBHOOK_URL (falls back to the old SMART1_WEBHOOK_URL if present).
-WEBHOOK_URL = (os.getenv("GHL_WEBHOOK_URL", "") or os.getenv("SMART1_WEBHOOK_URL", "")).strip()
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
 
 # Was tempfile.gettempdir(). A report here is what /r/<id> serves to a dealer
@@ -92,7 +89,6 @@ INK = (37, 54, 75)
 LINE = (214, 226, 236)
 CARD = (247, 250, 252)
 CONSULT_URL = "https://smart1marketing.com/boatmarketingconsult"
-SOURCE_NAME = "Smart 1 Boat Dealer Market Intelligence"
 
 
 class ReportPDF(FPDF):
@@ -816,16 +812,6 @@ LEAD_FIELDS = [
 ]
 
 
-def split_name(full_name: str) -> tuple:
-    """Simple convention: first token = first name, everything after = last name.
-    ("Mary Jo Van Dyke" -> first "Mary", last "Jo Van Dyke"). Imperfect for
-    multi-word first names, but predictable for CRM mapping."""
-    parts = (full_name or "").strip().split()
-    if not parts:
-        return "", ""
-    return parts[0], " ".join(parts[1:])
-
-
 def clean_payload(data: dict) -> dict:
     cleaned = {k: str(data.get(k, "")).strip()[:1500] for k in LEAD_FIELDS}
     if not re.fullmatch(r"\d{5}(-\d{4})?", cleaned["dealer_zip"]):
@@ -960,11 +946,16 @@ def generate_report(payload: dict) -> Any:
 def send_webhook(payload: dict, report: Any, status: str, report_url: str = "", report_pdf_url: str = "") -> None:
     """Deliver a lead through the Hub's lead panel.
 
-    This used to be a fire-and-forget POST that returned silently when
-    WEBHOOK_URL was unset — so with a blank env var every lead was discarded
-    while the visitor saw success. The panel stores the lead first and
-    forwards second, so a bad URL or a Suite outage delays delivery instead of
-    destroying it, and undelivered leads stay visible.
+    Was a fire-and-forget POST that returned silently with an unset webhook
+    URL, so a blank env var discarded every lead while the visitor saw
+    success.
+
+    The panel is the only route. It stores the lead first and forwards second,
+    so a Suite outage delays delivery rather than destroying it, and anything
+    undelivered stays visible. There is deliberately nothing to fall back to:
+    the inbound Suite webhook this used to try next is retired, so a fallback
+    could only write the second contact the panel exists to prevent — or,
+    once the trigger behind it is off, nothing at all, silently.
     """
     rep_ = report or {}
     pkg_ = rep_.get("recommended_package", {}) or {}
@@ -997,40 +988,11 @@ def send_webhook(payload: dict, report: Any, status: str, report_url: str = "", 
             pass
         return
     except Exception:                                   # noqa: BLE001
-        pass          # fall through to the original webhook
-
-    if not WEBHOOK_URL:
-        return
-    rep = report or {}
-    pkg = rep.get("recommended_package", {}) or {}
-    first_name, last_name = split_name(payload.get("contact_name") or "")
-    market_type = (rep.get("market_type") or "").strip()
-    package_name = (pkg.get("package_name") or "").strip()
-    body = {
-        **payload,
-        "contact_first_name": first_name,
-        "contact_last_name": last_name,
-        "source": SOURCE_NAME,
-        "report_status": status,
-        "opportunity_name": f"{payload.get('dealer_name', '').strip()} — Weather Marketing Proposal".strip(" —"),
-        "market_type": market_type,
-        # Ready-to-use CRM tags for auto-segmentation (map these to GHL "Add Tag" actions):
-        "market_tag": (f"Boat - {market_type}" if market_type else "Boat - Lead"),
-        "package_tag": (f"Boat - {package_name}" if package_name else ""),
-        "estimated_boat_owner_households_base": rep.get("market_profile", {}).get(
-            "estimated_boat_owner_households_base"
-        ),
-        "recommended_package": package_name,
-        "recommended_monthly_investment": pkg.get("monthly_investment", ""),
-        "market_summary": rep.get("market_summary", ""),
-        "report_url": report_url or "",
-        "report_pdf_url": report_pdf_url or "",
-        "report_json": json.dumps(rep, separators=(",", ":"))[:60000],
-    }
-    try:
-        requests.post(WEBHOOK_URL, json=body, timeout=12)
-    except requests.RequestException:
-        app.logger.exception("Webhook delivery failed")
+        # No second route. The inbound Suite webhook this used to fall back to
+        # is retired, so a fallback would post a lead the panel has already
+        # stored at a URL nothing answers — a double write while it is live,
+        # and a silent hole once it is not.
+        app.logger.exception("Boat lead capture failed")
 
 
 @app.get("/")
@@ -1096,10 +1058,15 @@ def _rate_limited(bucket: str, limit: int) -> bool:
 
 @app.post("/api/partial-lead")
 def partial_lead():
-    """Best-effort capture of partially completed forms (sent via beacon on page exit).
+    """Someone who filled part of the form in and left, through the lead panel.
 
-    Relaxed on purpose: no email requirement, no ZIP validation — salvage whatever
-    arrived and forward it to the webhook with report_status "partial". Always
+    This used to post straight at the inbound Suite webhook and nowhere else,
+    which made it the one lead on this page the panel never saw — and it is
+    sent by ``navigator.sendBeacon`` on ``pagehide``, so nobody was ever
+    watching when it failed. That route is retired, so the panel is the route:
+    stored first, forwarded second, visible either way.
+
+    Relaxed on purpose: no ZIP validation, salvage whatever arrived. Always
     responds {ok:true}; this endpoint must never surface errors to the page.
     """
     if _rate_limited("partial", PARTIAL_LIMIT):
@@ -1109,18 +1076,32 @@ def partial_lead():
         # Honeypot: bots fill this hidden field. Pretend success, send nothing.
         if (data.get("company_website") or "").strip():
             return jsonify({"ok": True})
-        body = {"source": SOURCE_NAME, "report_status": "partial"}
+        fields = {}
         lead_id = str(data.get("lead_id") or "").strip()[:100]
         if lead_id:
-            body["lead_id"] = lead_id
+            fields["lead_id"] = lead_id
         for k in PARTIAL_FIELDS:
             v = str(data.get(k) or "").strip()[:1500]
             if v:
-                body[k] = v
-        if WEBHOOK_URL and len(body) > 2:  # only forward if something beyond source/status arrived
-            requests.post(WEBHOOK_URL, json=body, timeout=8)
+                fields[k] = v
+        # Nothing but the honeypot and a rate-limit hit: not a lead.
+        if not fields:
+            return jsonify({"ok": True})
+        from hub import leads as hub_leads
+        hub_leads.capture_and_deliver(
+            source="boat",
+            page="Boat Dealer Weather Marketing (partial)",
+            fields={
+                "name": fields.get("contact_name", ""),
+                "email": fields.get("contact_email", ""),
+                "phone": fields.get("contact_phone", ""),
+                "company": fields.get("dealer_name", ""),
+                "report_status": "partial",
+                **fields,
+            },
+            client=fields.get("dealer_name", ""))
     except Exception:
-        app.logger.exception("Partial lead forward failed")
+        app.logger.exception("Partial lead capture failed")
     return jsonify({"ok": True})
 
 

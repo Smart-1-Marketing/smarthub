@@ -36,9 +36,6 @@ app = Flask(__name__)
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 
-# Standardized on GHL_WEBHOOK_URL (was SMART1_WEBHOOK_URL).
-WEBHOOK_URL = os.getenv("GHL_WEBHOOK_URL", "").strip()
-
 # Cloudinary stores the generated PDFs and (for shareable links) report JSON.
 # The SDK reads CLOUDINARY_URL from the environment automatically.
 CLOUDINARY_URL = os.getenv("CLOUDINARY_URL", "").strip()
@@ -982,9 +979,16 @@ def send_webhook(payload: dict, report: Any, status: str, pdf_url: str = "",
                  report_view_url: str = "") -> None:
     """Deliver the lead through the Hub's lead panel.
 
-    Was a fire-and-forget POST that returned silently with no WEBHOOK_URL, so
-    a blank env var discarded every lead while the visitor saw success. The
-    panel stores first and forwards second.
+    Was a fire-and-forget POST that returned silently with an unset webhook
+    URL, so a blank env var discarded every lead while the visitor saw
+    success.
+
+    The panel is the only route. It stores the lead first and forwards second,
+    so a Suite outage delays delivery rather than destroying it, and anything
+    undelivered stays visible. There is deliberately nothing to fall back to:
+    the inbound Suite webhook this used to try next is retired, so a fallback
+    could only write the second contact the panel exists to prevent — or,
+    once the trigger behind it is off, nothing at all, silently.
     """
     try:
         from hub import leads as hub_leads
@@ -1010,41 +1014,10 @@ def send_webhook(payload: dict, report: Any, status: str, pdf_url: str = "",
             pass
         return
     except Exception:  # noqa: BLE001
-        pass
-
-    if not WEBHOOK_URL:
-        return
-    report = report or {}
-    mp = report.get("market_profile", {}) or {}
-    rp = report.get("recommended_package", {}) or {}
-    monthly = _money_to_int(rp.get("monthly_investment", ""))
-    body = {
-        # --- Contact / lead fields ---
-        **payload,
-        "lead_id": payload.get("lead_id", ""),
-        "source": "Smart 1 Restaurant Market Intelligence",
-        "report_status": status,
-        # --- Opportunity fields ---
-        "opportunity_name": f"{payload.get('restaurant_name', 'Lead')} — Restaurant Market Report",
-        "recommended_package": rp.get("package_name", ""),
-        "recommended_investment": rp.get("monthly_investment", ""),
-        "opportunity_value_monthly": monthly,
-        "opportunity_value_annual": monthly * 12 if monthly else None,
-        # --- Report custom fields ---
-        "market_type": report.get("market_type", ""),
-        "market_summary": report.get("market_summary", ""),
-        "est_households": mp.get("estimated_frequent_diner_households_base"),
-        "estimated_frequent_diner_households_base": mp.get("estimated_frequent_diner_households_base"),
-        "demand_triggers": ", ".join(report.get("demand_triggers", []) or []),
-        # Cloudinary-hosted PDF + shareable interactive report link.
-        "report_pdf_url": pdf_url,
-        "report_view_url": report_view_url,
-        "report_json": json.dumps(report, separators=(",", ":"))[:60000] if report else "",
-    }
-    try:
-        requests.post(WEBHOOK_URL, json=body, timeout=12)
-    except requests.RequestException:
-        app.logger.exception("Webhook delivery failed")
+        # No second route. The inbound Suite webhook this used to fall back to
+        # is retired, so a fallback would post a lead the panel has already
+        # stored at a URL nothing answers.
+        app.logger.exception("Restaurant lead capture failed")
 
 
 def _send_webhook_async(*args, **kwargs) -> None:

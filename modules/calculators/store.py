@@ -225,14 +225,20 @@ def _override_env(slug):
 
 
 def webhook_url(app, slug):
-    """The legacy per-calculator override, then the legacy shared URL.
+    """The legacy per-calculator override, or "".
 
-    Neither is the delivery route any more — see `delivery_status()`. Kept
-    because a deployment that set one is entitled to have it keep working.
+    Not the delivery route — see `delivery_status()`. Kept because a
+    deployment that set one is entitled to have it keep working, and because
+    it is an explicit per-calculator opt-out the page names.
+
+    `CALCULATORS_LEAD_WEBHOOK_URL`, the shared one, is deliberately not read
+    any more: it was only ever reached when the panel raised, and it would
+    then have posted a lead the panel had already stored — the double write
+    the panel exists to prevent. The inbound Suite webhook behind it is
+    retired, so what it bought was a duplicate contact while that trigger was
+    live and a silent hole once it was not.
     """
-    per = os.environ.get(_override_env(slug))
-    return (per or app.config.get("CALCULATORS_LEAD_WEBHOOK_URL")
-            or os.environ.get("CALCULATORS_LEAD_WEBHOOK_URL") or "").strip()
+    return (os.environ.get(_override_env(slug)) or "").strip()
 
 
 def delivery_status(app, slugs=()):
@@ -242,9 +248,9 @@ def delivery_status(app, slugs=()):
     "unavailable" if hub.leads could not be imported at all). `overrides` are
     the calculators still pointed at a webhook of their own — those bypass the
     panel completely, so they get no contact id, no central record and no
-    retry. `legacy_fallback` is the shared URL, which is only reached if the
-    panel path raises: it would then post a lead the panel has already stored,
-    which is the double-write the panel exists to prevent.
+    retry. `legacy_fallback` says the shared URL is still set on this
+    deployment. Nothing reads it any more, so it is reported in order to be
+    cleared, not because it does anything.
     """
     route, reason = "unavailable", ""
     try:
@@ -274,7 +280,9 @@ def send_webhook(app, row, calc_title):
     first, forwards from one place, and shows what hasn't landed.
 
     The per-calculator URL still wins if one is set, so an existing override
-    keeps working.
+    keeps working. There is nothing beyond it: the shared inbound webhook is
+    retired, and posting there after the panel had already stored the lead is
+    exactly the second contact the panel exists to prevent.
     """
     per = os.environ.get("CALC_WEBHOOK_" + row.slug.upper().replace("-", "_"))
     if not per:
@@ -292,16 +300,17 @@ def send_webhook(app, row, calc_title):
                 row.token, "sent" if out.get("delivered") else "queued",
                 out.get("note", ""))
             return bool(out.get("delivered"))
-        except Exception:                               # noqa: BLE001
-            pass          # fall through to the original path
+        except Exception as exc:                        # noqa: BLE001
+            # No second route. The lead is in this module's own table either
+            # way — that is what the CSV export is for — and saying so beats
+            # posting it somewhere nothing answers.
+            set_webhook_status(
+                row.token, "failed",
+                "The Hub lead panel couldn't take this lead ({}), so it is "
+                "stored here only. Check /sales/leads.".format(type(exc).__name__))
+            return False
 
-    url = per or webhook_url(app, row.slug)
-    if not url:
-        set_webhook_status(row.token, "no_url",
-                           "The Hub lead panel couldn't take this lead and no legacy "
-                           "webhook is set, so it was stored here only. Check "
-                           "/sales/leads.")
-        return False
+    url = per
 
     payload = dict(row.contact())
     payload.update({

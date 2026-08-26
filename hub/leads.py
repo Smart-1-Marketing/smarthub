@@ -29,6 +29,20 @@ mean something.
 still sitting there and should be cleared. Setting it does not give the Hub a
 delivery route back.
 
+**And no page falls back to one either.** Retiring the route here was only
+half of it: six landing modules kept a webhook POST one call level up, reached
+when `capture_and_deliver` raised, and four of them sent their abandoned-form
+partial lead straight there and nowhere else. Both are invisible from either
+end. The fallback fires exactly in the case a fallback must not — we cannot
+know whether the API write landed, which is the timeout `delivery_mode()`
+below is written about — so it writes the second contact rather than saving a
+lead. And the partial went out on `pagehide` by `navigator.sendBeacon`, which
+returns a boolean nobody reads: the panel never saw those leads at all while
+the trigger was live, and would have gone on not seeing them, with a 200 in
+front of the visitor, once it was off. Every one of them goes through this
+module now, and `test_lead_delivery.py` reads the sources to keep it that way,
+because neither failure shows on any screen.
+
 ## The order matters
 
     store the lead  ->  return success to the visitor  ->  push to GHL
@@ -511,11 +525,19 @@ def route_status(rows: list[dict] | None = None) -> dict:
             note += (f" {WEBHOOK_ENV} is set, but that route is retired and the "
                      f"Hub no longer posts to it — it is not a fallback.")
     elif leftover:
-        # The Hub itself can no longer double-write: there is one route and
-        # nothing left that fires the webhook. What remains is outside this
-        # codebase — a Suite workflow still triggered by that URL, or a page
-        # posting straight at it — so name those two and stop describing this
-        # as "two routes configured", which it no longer is.
+        # The Hub itself can no longer double-write: there is one route, no
+        # page falls back to a webhook, and no partial lead goes out down one.
+        # What remains is outside this codebase — a Suite workflow still
+        # triggered by that URL, or a page posting straight at it — so name
+        # those two and stop describing this as "two routes configured", which
+        # it no longer is.
+        #
+        # The check before the switch is named too, because it is the one way
+        # this step causes an outage: GHL_WEBHOOK_URL is a separate variable
+        # that the IO Builder posts insertion orders to. If somebody set both
+        # to the same URL, the workflow being turned off here is the one that
+        # files insertion orders, and nothing would say so until an IO went
+        # missing.
         title = "Finish retiring the lead webhook"
         warning = (
             f"{WEBHOOK_ENV} is still set on this deployment. The Hub no longer "
@@ -523,7 +545,10 @@ def route_status(rows: list[dict] | None = None) -> dict:
             f"create a second contact. What still can is outside the Hub: a "
             f"Suite workflow triggered by that URL, or a page posting directly "
             f"to it. Turn the trigger off in Suite, then clear {WEBHOOK_ENV} on "
-            f"Render. ")
+            f"Render. Check first whether GHL_WEBHOOK_URL holds the same URL: "
+            f"that one is the IO Builder's, it submits insertion orders, and "
+            f"if the two share a workflow then switching it off stops those "
+            f"too. ")
         warning += (
             f"The API route has written {api_contacts} Suite "
             f"{'contact' if api_contacts == 1 else 'contacts'}, most recently "
