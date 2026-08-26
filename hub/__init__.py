@@ -444,10 +444,18 @@ def create_hub_app() -> Flask:
         # did not work.
         res = brand_lookup.lookup(domain, client=client, module="client360",
                                   use_cache=False)
+        # A lookup that found nothing still answers with the whole card, not
+        # with a bare shell: their own website may have published the logo and
+        # the palette all along, and returning `{found: False}` alone would
+        # have the refresh button wipe them off the card it was pressed on —
+        # the two-blocks failure hub/client_brand._merge closes, coming back
+        # in through the one control that redraws the card.
         if not res.get("found"):
-            return jsonify({"found": False, "note": res.get("note", ""),
-                            "unconfigured": bool(res.get("unconfigured")),
-                            "refused": bool(res.get("refused"))}), 200
+            kit = brand_kit(client, domain)
+            kit["note"] = res.get("note", "") or kit.get("note", "")
+            kit["unconfigured"] = bool(res.get("unconfigured"))
+            kit["refused"] = bool(res.get("refused"))
+            return jsonify(kit), 200
         kit = brand_kit(client, domain)
         kit["looked_up"] = True
         kit["note"] = res.get("note", "")
@@ -2765,11 +2773,17 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        from . import seo, client_groups
+        from . import seo, client_groups, scan_facts
         name = (request.args.get("name") or "").strip()
         if not name:
             return jsonify({"profile": {}})
         prof = seo.get_profile(name)
+        # What their own website publishes, offered into the fields nobody has
+        # filled in. Suggested, never saved: the profile is what a person
+        # typed and it wins from the moment they press Save — the overlay rule
+        # hub/client_urls.py works to. See hub/scan_facts.contact_suggestions.
+        prof["suggested"] = scan_facts.contact_suggestions(
+            prof, (request.args.get("domain") or "").strip())
         # Notes are shared across a group; contacts, address and category are
         # not. Two brands of one parent company have their own front desk, and
         # showing one company's phone number under the other's name is a
