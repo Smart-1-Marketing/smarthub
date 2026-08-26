@@ -7,12 +7,69 @@ from ..db import db
 from ..models import Client, CommercialProject, Scene
 from ..services import elevenlabs_service
 
+# The casting question, shared with the Radio Promo builder. Guarded because
+# this module runs standalone, where there is no hub to read it from.
+try:
+    from hub import voice_casting
+except Exception:                                    # noqa: BLE001
+    voice_casting = None
+
 bp = Blueprint("cb_voices", __name__, url_prefix="/api")
 
 
 @bp.get("/voices")
 def list_voices():
-    return jsonify({"ok": True, "voices": elevenlabs_service.list_voices(), "live": elevenlabs_service.is_live()})
+    return jsonify({"ok": True, "voices": elevenlabs_service.list_voices(),
+                    "live": elevenlabs_service.is_live()})
+
+
+@bp.get("/voice-characteristics")
+def voice_characteristics():
+    """What the read should sound like, as a set of choices.
+
+    The Voice Studio asked for a voice id out of a flat dropdown of everything
+    on the account, in whatever order ElevenLabs returned it and with no way
+    to hear any of it. The Radio Promo builder — same provider, same account,
+    same question — asks what the read should sound like and offers three
+    ranked voices with a preview on each. There is one question now, in
+    hub/voice_casting.py, and both tools ask it.
+    """
+    if voice_casting is None:
+        return jsonify({"ok": True, "characteristics": [], "default": {},
+                        "note": "Voice casting is unavailable outside the Hub."})
+    return jsonify({"ok": True, "characteristics": voice_casting.CHARACTERISTICS,
+                    "default": voice_casting.DEFAULT_WANT, "note": ""})
+
+
+@bp.post("/voices/cast")
+def cast_voices():
+    """Rank the account's voices against what the read should sound like.
+
+    A POST because the answer depends on a body of choices, and because the
+    result is not cacheable by URL in any way a reader would expect. It reads
+    only — nothing is saved until a voice is picked.
+    """
+    data = request.get_json(force=True) or {}
+    want = data.get("want") or {}
+
+    # A spot's own tone is a real signal and it has already been captured on
+    # the brief. Folding it into the search terms means the casting starts
+    # somewhere sensible rather than from nothing — the Proposal Builder
+    # shipped four discovery answers that were read by nobody, and this is the
+    # same failure one screen along.
+    project_id = data.get("project_id")
+    if project_id:
+        project = CommercialProject.query.get(project_id)
+        if project:
+            terms = list(want.get("search_terms") or [])
+            tone = (project.brief or {}).get("tone")
+            if tone:
+                terms.append(str(tone))
+            want = {**want, "search_terms": terms}
+
+    matched, note = elevenlabs_service.cast_voices(want, int(data.get("count") or 3))
+    return jsonify({"ok": True, "voices": matched, "note": note,
+                    "live": elevenlabs_service.is_live()})
 
 
 @bp.put("/clients/<int:client_id>/pronunciation")
