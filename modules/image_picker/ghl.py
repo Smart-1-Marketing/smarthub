@@ -48,17 +48,19 @@ class GHLError(RuntimeError):
 
 
 def agency_token() -> str:
-    """The agency token, under whichever name it is set.
+    """The agency-level Suite token, under whichever name it is set.
 
-    This deployment sets both GHL_PRIVATE_TOKEN and SMART1SUITE_PRIVATE_TOKEN,
-    and hub/ghl_contacts.py — the one write path for the whole Hub — reads
-    either. Reading one of them here meant a Hub whose Suite integration worked
-    everywhere else reported the picker's media library as unconfigured.
+    Read through hub.config rather than os.environ: this deployment has the
+    same value under two spellings across the codebase, and a module reading
+    only one reports the token as missing and degrades in silence — every push
+    coming back "skipped" while the Suite panel reports Connected.
+    `/api/integrity` has a check that names any module still doing it.
     """
     try:
         from hub.config import settings
         return (settings.ghl_token or "").strip()
-    except Exception:                                 # noqa: BLE001
+    except Exception:                                   # noqa: BLE001
+        # Standalone, without the Hub package alongside it.
         return (os.environ.get("GHL_PRIVATE_TOKEN")
                 or os.environ.get("SMART1SUITE_PRIVATE_TOKEN") or "").strip()
 

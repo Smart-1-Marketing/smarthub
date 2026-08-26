@@ -31,6 +31,49 @@
     {% endif %}
   </section>
 
+  {# Where a client's own files can come from. On this page rather than in a
+     diagnostic, because "the client can't see Dropbox" is asked here and has
+     three different answers. #}
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Where clients can upload from</h2>
+      <span class="hint">
+        {{ upload_source_rows|selectattr('on')|list|length }} of
+        {{ upload_source_rows|length }} offered
+      </span>
+    </div>
+    {% if upload_source_unknown %}
+    <div class="note bad"><h3>Unrecognised upload source</h3>
+      <p><code>{{ upload_source_unknown|join(', ') }}</code> — not something the
+      widget offers, so it is being dropped rather than passed on. Check
+      <code>PICKER_UPLOAD_SOURCES</code>.</p></div>
+    {% endif %}
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Source</th><th>What it is</th><th>Status</th><th>Signs in as</th></tr></thead>
+        <tbody>
+        {% for s in upload_source_rows %}
+          <tr>
+            <td><strong>{{ s.label }}</strong></td>
+            <td style="color:var(--ink-3);font-size:.82rem">{{ s.what }}</td>
+            <td>
+              {% if s.on %}<span class="pill on">Offered</span>
+              {% else %}<span class="pill off">Off</span>{% endif %}
+              <div style="color:var(--ink-3);font-size:.75rem;margin-top:3px">{{ s.why }}</div>
+            </td>
+            <td style="color:var(--ink-3);font-size:.78rem">
+              {# Not measured, never a cross: these credentials change whose
+                 consent screen the client sees, they do not gate the source. #}
+              {% if s.env %}{{ s.signs_in_as }}<br><code>{{ s.env }}</code>
+              {% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="panel">
     <div class="panel-head">
       <h2>Add a client</h2>
@@ -66,6 +109,10 @@
   padding:9px 12px;font:13px inherit;cursor:pointer}
 .suggest button:hover{background:var(--paper)}
 .suggest .s-sub{color:var(--ink-3);font-size:11.5px}
+/* The one irreversible button in the row. It sits beside four safe ones, so it
+   does not look like them. */
+.btn.danger{color:#A33327;border-color:#E7C7C2}
+.btn.danger:hover{background:#FBEFED}
 </style>
     <div id="addMsg"></div>
   </section>
@@ -104,6 +151,8 @@
               <a class="btn quiet small" href="{{ url_for('image_picker.staff_picker', client_id=c.id) }}">Pick</a>
               <a class="btn quiet small" href="{{ url_for('image_picker.staff_gallery', client_id=c.id) }}">Gallery</a>
               <button class="btn quiet small rotate" type="button">New link</button>
+              <button class="btn quiet small danger delete" type="button"
+                      data-name="{{ c.name }}" data-count="{{ counts.get(c.id, 0) }}">Delete</button>
             </td>
           </tr>
         {% endfor %}
@@ -262,6 +311,34 @@
         if (d.ok) window.location.reload();
         else note($("rowMsg"), "bad", "Couldn't create a new link", d.error || "");
       });
+    }
+
+    /* Delete the whole gallery. The only irreversible button on this page, and
+       it sits in a row of four safe ones — so the name has to be typed. An OK
+       button means the same thing whichever row was mis-tapped, and for a file
+       the client uploaded our copy is very often the only copy. */
+    if (e.target.classList.contains("delete")){
+      var name = e.target.dataset.name || "";
+      var count = parseInt(e.target.dataset.count || "0", 10) || 0;
+      var typed = window.prompt(
+        "Delete " + name + " and " + count + " saved file" + (count === 1 ? "" : "s") +
+        " from Cloudinary?\n\nThis cannot be undone — for anything the client " +
+        "uploaded, ours is often the only copy. Anything already in their " +
+        "Smart 1 Suite media library stays there.\n\nType the name to confirm:", "");
+      if (typed === null) return;                 // they backed out
+      e.target.disabled = true;
+      post("/api/clients/" + id + "/delete", {confirm: typed}).then(function(d){
+        e.target.disabled = false;
+        if (!d.ok){ note($("rowMsg"), "bad", "Not deleted", d.error || ""); return; }
+        /* Cloudinary and the database reported separately: "deleted" and
+           "deleted, and four files are still in the account" are different
+           outcomes, and one tick for both is how somebody learns not to trust
+           the tick. */
+        row.parentNode.removeChild(row);
+        note($("rowMsg"), d.cloudinary_left ? "warn" : "good",
+             "Deleted " + d.deleted, d.note || "");
+      });
+      return;
     }
 
     if (e.target.classList.contains("probe")){

@@ -665,12 +665,38 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/domains/purchased")
     def api_domains_purchased():
-        """Domains Smart 1 bought for a client, by renewal billing date."""
+        """Domains Smart 1 bought for a client, by renewal billing date.
+
+        Served from the nightly snapshot of object_153, not from Knack. The
+        report says how old that snapshot is; forcing a fresh pull is the
+        POST below, so a page load can never be the thing that pulls.
+        """
         gate = _require_api()
         if gate:
             return gate
         from .domain_purchase import report
         return jsonify(report(q=request.args.get("q", "")))
+
+    @app.route("/api/domains/refresh", methods=["POST"])
+    def api_domains_refresh():
+        """Pull object_153 now, for the Refresh button.
+
+        POST rather than a `?refresh=1` on the read: this reaches Knack and
+        rewrites the stored snapshot, and a GET that does that is one a
+        prefetch or a reload can fire without anybody asking for it.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_purchase import refresh, report
+        out = refresh(force=True)
+        audit.log("hub", "domains_refresh", actor=current_user(),
+                  ok=bool(out.get("ok")), count=out.get("count"),
+                  error=out.get("error") or None)
+        # The report comes back with it, so the button is one round trip and
+        # the page cannot end up showing a fresh timestamp over old rows.
+        return jsonify({**report(q=request.args.get("q", ""), build=False),
+                        "refresh": out})
 
     @app.route("/api/domains/billed", methods=["POST"])
     def api_domains_billed():

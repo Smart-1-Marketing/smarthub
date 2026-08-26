@@ -35,18 +35,77 @@ renews every year, and a tick that stays green when next year's date arrives is
 a confident wrong answer of exactly the kind this codebase keeps having to
 undo. When the date moves on, the row reads as unbilled again and says when it
 was last billed.
+
+## The pull is nightly, not per visit
+
+Every open of this page used to pull object_153 in full — every website
+record, paged, over the wire — to answer a question whose answer changes when
+somebody buys a domain, which is a few times a month. So the registry is
+**snapshotted**: the scheduler re-pulls it once a night and the page renders
+what is stored, which is a dictionary scan. A **Refresh** button forces the
+pull for the person who has just changed something and wants to see it.
+
+Three rules hold that up, and each is a way for a cache to lie:
+
+**A snapshot carries when it was taken.** `cache_state()` returns the age
+beside the rows and the page prints it, because a stale figure presented
+without a date is read as today's.
+
+**A failed pull never empties a good snapshot.** The `knack_products` rule:
+a transient Knack failure would otherwise turn "seventy domains renew this
+year" into "we have bought no domains", which is a confident wrong answer of
+exactly the kind this codebase treats as worse than an error. A failed
+attempt is recorded *beside* the rows it could not replace, so the page shows
+yesterday's list and says the pull failed.
+
+**Only the Knack half is cached.** The billed ticks, the month window and the
+search run over the snapshot on every request, so ticking a row reads back
+immediately and the calendar rolls into a new month on the day rather than at
+the next pull.
 """
 from __future__ import annotations
 
 import os
 import re
-from datetime import date, datetime, timezone
+import time
+from datetime import date, datetime, timedelta, timezone
 
 from hub import jsonstore
 
 MONTHS_AHEAD = 3
 
 _YES = {"yes", "y", "true", "1", "checked", "on"}
+
+# Bumped when `_purchased()` starts carrying a field it did not before. A
+# snapshot written under an older number is missing that key on every row, and
+# age cannot see that — the same trap `knack_products.FIELDS_VERSION` exists
+# for. An older snapshot is rebuilt rather than served with a hole in it.
+SNAPSHOT_VERSION = 1
+
+# The hour (UTC) the nightly pull is due after. Around 3-4am US Eastern, which
+# is when nobody is reading this page. The scheduler ticks hourly and asks
+# `due_for_refresh()`, so a leader that restarted through the window still
+# picks the pull up rather than skipping a day in silence.
+def refresh_hour() -> int:
+    try:
+        return max(0, min(23, int(os.environ.get("DOMAINS_REFRESH_HOUR") or 8)))
+    except ValueError:
+        return 8
+
+
+# When there is no snapshot at all, `report()` builds one — but only one, and
+# then not again for this long. Without the cooldown a Knack that is up and
+# slow costs every visitor the full timeout, one after another, which is the
+# per-visit pull back again in its worst form. Per process rather than stored:
+# it is a stampede guard, and the nightly job is the real path.
+BUILD_RETRY_SECONDS = 300
+_BUILD = {"tried": 0.0, "error": ""}
+
+# How old a snapshot has to be before the page stops presenting it as current.
+# One missed nightly window plus a margin: a pull that ran last night is fine,
+# and one that has not run for a day and a half means the scheduler is not
+# doing it and somebody should press Refresh.
+STALE_HOURS = 36
 
 
 def is_ours(row: dict) -> bool:
@@ -104,6 +163,193 @@ def month_window(today: date | None = None, ahead: int = MONTHS_AHEAD) -> list[d
 
 
 # ---------------------------------------------------------------------------
+# The registry snapshot — pulled nightly, not on every visit
+# ---------------------------------------------------------------------------
+def _snapshot_path() -> str:
+    return os.path.join(jsonstore.data_dir("domains"), "registry.json")
+
+
+def _purchased(rows) -> list[dict]:
+    """The registry reduced to the domains we bought — what the snapshot holds.
+
+    Only the Knack half. No month, no billed state and no search: those are
+    derived per request from the clock and from the Hub's own tick store, and
+    a snapshot carrying them would freeze the calendar on the day it was taken.
+    """
+    out = []
+    for r in rows or []:
+        if not is_ours(r):
+            continue
+        out.append({
+            "record_id": r.get("id", ""),
+            "domain": r.get("domain", ""),
+            "client": r.get("client", ""),
+            "registrar": r.get("registrar", ""),
+            "client_status": r.get("client_status", ""),
+            "fee": r.get("domain_fee", 0),
+            "renewal_billing_date": r.get("renewal_billing_date") or "",
+            "renews": r.get("domain_renews", ""),
+            "bought_on": r.get("domain_bought_on", ""),
+        })
+    return out
+
+
+def snapshot() -> dict:
+    """The stored pull, or {} if there has never been one this code can read."""
+    data = jsonstore.read_json(_snapshot_path(), default={})
+    if not isinstance(data, dict) or not data.get("fetched"):
+        return {}
+    if int(data.get("version") or 0) != SNAPSHOT_VERSION:
+        # Written against an older shape of `_purchased()`. Rebuilt rather
+        # than served: the rows are complete for what was being read when they
+        # were written and absent for anything added since, and only one of
+        # those is visible on the page.
+        return {}
+    return data
+
+
+def invalidate() -> None:
+    """Drop the snapshot so the next read pulls.
+
+    Called by `knack_websites.forget()`, which runs after any write to
+    object_153 — somebody who ticks "did we buy the domain?" on Client 360
+    must not have to wait until tomorrow to see the row appear here.
+    """
+    try:
+        jsonstore.delete_json(_snapshot_path())
+    except Exception:                                   # noqa: BLE001
+        pass
+    # And the build cooldown with it: somebody who has just written to the
+    # registry is asking for the rebuild now, not in five minutes.
+    _BUILD["tried"], _BUILD["error"] = 0.0, ""
+
+
+def _last_window(now: datetime) -> datetime:
+    """The most recent time the nightly pull was due."""
+    mark = now.replace(hour=refresh_hour(), minute=0, second=0, microsecond=0)
+    return mark if mark <= now else mark - timedelta(days=1)
+
+
+def due_for_refresh(now: datetime | None = None) -> bool:
+    """Has the nightly window passed since the last successful pull?"""
+    now = now or datetime.now(timezone.utc)
+    snap = snapshot()
+    if not snap:
+        return True
+    taken = datetime.fromtimestamp(float(snap.get("fetched") or 0), timezone.utc)
+    return taken < _last_window(now)
+
+
+def refresh(*, force: bool = True, now: datetime | None = None) -> dict:
+    """Re-pull object_153 into the snapshot. Safe to call from anywhere.
+
+    `force=False` is what the scheduler passes: it ticks hourly and this
+    returns without touching Knack unless the nightly window has passed.
+    """
+    now = now or datetime.now(timezone.utc)
+    if not force and not due_for_refresh(now):
+        return {"ok": True, "skipped": "Not due yet.",
+                "next_refresh": _next_refresh(now).isoformat(timespec="minutes")}
+
+    try:
+        from hub import knack_websites
+        rows = knack_websites.rows(refresh=True)
+        error = knack_websites.last_error()
+    except Exception as exc:                            # noqa: BLE001
+        rows, error = [], f"{type(exc).__name__}: {exc}"
+
+    if not rows:
+        # Never overwrite a good snapshot with nothing. A transient Knack
+        # failure would otherwise turn a year of renewals into "we have bought
+        # no domains", which reads exactly like a true answer. The failed
+        # attempt is recorded beside the rows it could not replace.
+        why = error or ("Knack returned no website records at all, which is "
+                        "a failed read rather than an empty registry.")
+        old = snapshot()
+        if old:
+            old["attempted"] = time.time()
+            old["attempt_error"] = why
+            jsonstore.write_json(_snapshot_path(), old, indent=1)
+            return {"ok": False, "error": why, "kept": len(old.get("rows") or []),
+                    "fetched": _iso(old.get("fetched"))}
+        return {"ok": False, "error": why, "kept": 0, "fetched": ""}
+
+    ours = _purchased(rows)
+    payload = {"version": SNAPSHOT_VERSION, "fetched": time.time(),
+               "scanned": len(rows), "count": len(ours), "rows": ours,
+               "attempted": time.time(), "attempt_error": ""}
+    # Mirrored (the jsonstore default). It is a few hundred small rows, and
+    # the mirror is what stops a deploy — which wipes the disk — costing the
+    # first person to open the page a full paged pull of the object.
+    jsonstore.write_json(_snapshot_path(), payload, indent=1)
+    try:
+        from hub import audit
+        audit.log("hub", "domains_refreshed", count=len(ours),
+                  scanned=len(rows))
+    except Exception:                                   # noqa: BLE001
+        pass
+    # Pressing Refresh after fixing whatever was wrong must work at once,
+    # rather than being held off by the cooldown the failures set.
+    _BUILD["tried"], _BUILD["error"] = 0.0, ""
+    return {"ok": True, "count": len(ours), "scanned": len(rows),
+            "fetched": _iso(payload["fetched"])}
+
+
+def _iso(epoch) -> str:
+    try:
+        return datetime.fromtimestamp(float(epoch or 0), timezone.utc
+                                      ).isoformat(timespec="seconds")
+    except (TypeError, ValueError, OSError):
+        return ""
+
+
+def _next_refresh(now: datetime) -> datetime:
+    return _last_window(now) + timedelta(days=1)
+
+
+def cache_state(now: datetime | None = None) -> dict:
+    """When this was last pulled, and whether it can still be called current.
+
+    Printed on the page beside the table. A cached figure with no date on it
+    is read as today's, which is the whole way a cache comes to mislead.
+    """
+    now = now or datetime.now(timezone.utc)
+    snap = snapshot()
+    if not snap:
+        return {"fetched": "", "age_minutes": None, "stale": False,
+                "measured": False, "scanned": 0,
+                "next_refresh": _next_refresh(now).isoformat(timespec="minutes"),
+                "hour": refresh_hour(), "attempt_error": "",
+                "line": "Not pulled yet."}
+    age = (now.timestamp() - float(snap.get("fetched") or 0)) / 60
+    stale = age > STALE_HOURS * 60
+    err = str(snap.get("attempt_error") or "")
+    line = f"Registry pulled {_ago(age)}."
+    if stale:
+        line += (" That is older than a night, so the scheduled pull is not "
+                 "running — press Refresh.")
+    if err:
+        line += f" The last attempt to refresh it failed: {err}"
+    return {"fetched": _iso(snap.get("fetched")), "age_minutes": round(age),
+            "stale": stale, "measured": True,
+            "scanned": int(snap.get("scanned") or 0),
+            "next_refresh": _next_refresh(now).isoformat(timespec="minutes"),
+            "hour": refresh_hour(), "attempt_error": err,
+            "attempted": _iso(snap.get("attempted")), "line": line}
+
+
+def _ago(minutes: float) -> str:
+    if minutes < 2:
+        return "just now"
+    if minutes < 90:
+        return f"{round(minutes)} minutes ago"
+    hours = minutes / 60
+    if hours < 36:
+        return f"{round(hours)} hours ago"
+    return f"{round(hours / 24)} days ago"
+
+
+# ---------------------------------------------------------------------------
 # The billed tick
 # ---------------------------------------------------------------------------
 def _store_path() -> str:
@@ -153,39 +399,47 @@ def _billed_state(rid: str, renewal_raw: str, store: dict) -> dict:
 # ---------------------------------------------------------------------------
 # The report
 # ---------------------------------------------------------------------------
-def report(q: str = "", today: date | None = None) -> dict:
-    """The purchased-domain table: this month, the next three, then the rest."""
-    today = today or date.today()
-    try:
-        from hub import knack_websites
-        rows = knack_websites.rows()
-        read_error = ""
-    except Exception as exc:                            # noqa: BLE001
-        rows, read_error = [], f"{type(exc).__name__}: {exc}"
+def report(q: str = "", today: date | None = None, *,
+           build: bool = True) -> dict:
+    """The purchased-domain table: this month, the next three, then the rest.
 
+    Reads the nightly snapshot rather than Knack. `build=False` refuses even
+    the one first-run pull, so a caller that must never reach the network —
+    a test, or a status panel — can ask what is stored and nothing else.
+    """
+    today = today or date.today()
+    snap = snapshot()
+    build_error = ""
+    if not snap and build:
+        # No snapshot at all: the first open after a deploy onto a fresh disk
+        # with no mirror, or the first open ever. One pull, then the nightly
+        # job has it. Age is *not* a reason to pull here — that is the whole
+        # point of the change, and a page that re-pulls whenever it dislikes
+        # the age is the per-visit pull wearing a cache.
+        if _BUILD["error"] and time.time() - _BUILD["tried"] < BUILD_RETRY_SECONDS:
+            build_error = _BUILD["error"]      # still inside the cooldown
+        else:
+            out = refresh(force=True)
+            if out.get("ok"):
+                _BUILD["tried"], _BUILD["error"] = 0.0, ""
+            else:
+                _BUILD["tried"], _BUILD["error"] = (time.time(),
+                                                    str(out.get("error") or ""))
+            build_error = _BUILD["error"]
+            snap = snapshot()
+
+    state = cache_state()
     store = billed_store()
     ours, undated, unreadable = [], [], 0
-    for r in rows:
-        if not is_ours(r):
-            continue
+    for r in snap.get("rows") or []:
         raw = r.get("renewal_billing_date") or ""
         when = parse_date(raw)
         if raw and not when:
             unreadable += 1
-        row = {
-            "record_id": r.get("id", ""),
-            "domain": r.get("domain", ""),
-            "client": r.get("client", ""),
-            "registrar": r.get("registrar", ""),
-            "client_status": r.get("client_status", ""),
-            "fee": r.get("domain_fee", 0),
-            "renewal_billing_date": raw,
-            "renewal_billing_iso": when.isoformat() if when else "",
-            "renews": r.get("domain_renews", ""),
-            "bought_on": r.get("domain_bought_on", ""),
-            "month": _month_key(when) if when else "",
-            **_billed_state(r.get("id", ""), raw, store),
-        }
+        row = {**r,
+               "renewal_billing_iso": when.isoformat() if when else "",
+               "month": _month_key(when) if when else "",
+               **_billed_state(r.get("record_id", ""), raw, store)}
         (ours if when else undated).append(row)
 
     ours.sort(key=lambda x: (x["renewal_billing_iso"], x["domain"]))
@@ -212,15 +466,18 @@ def report(q: str = "", today: date | None = None) -> dict:
     note = ("Every domain Smart 1 bought for a client, by the renewal billing "
             "date Knack holds (field_3298). Only records where “S1M Purchase "
             "Domain for Client?” is yes are listed.")
-    if read_error:
-        note = ("The Knack website registry could not be read (" + read_error +
-                "), so this is empty rather than complete.")
-    else:
-        why = _registry_error()
-        if why:
-            # Empty because Knack holds none, or empty because we could not
-            # ask? Only one of those means "we have bought no domains".
-            note += (" " + why + " Nothing was read, so this is not a total.")
+    if state["measured"]:
+        note += " " + state["line"]
+    if build_error:
+        # No snapshot and the pull to make one failed. Empty because we could
+        # not look, never because there is nothing — the two must not read
+        # alike, and only the second means we have bought no domains.
+        note = ("The Knack website registry could not be read (" + build_error +
+                "), and there is no earlier pull to fall back on, so this is "
+                "empty rather than complete.")
+    elif not state["measured"]:
+        note += (" Nothing has been pulled yet, so this is not a total. "
+                 "Press Refresh.")
     if unreadable:
         note += (f" {unreadable} record(s) carry a renewal billing date this "
                  "could not read; they are with the undated ones rather than "
@@ -235,15 +492,7 @@ def report(q: str = "", today: date | None = None) -> dict:
         "total": len(ours) + len(undated),
         "billed_count": sum(1 for x in ours + undated if x["billed"]),
         "fee_total": round(sum(x["fee"] or 0 for x in ours + undated), 2),
-        "read_error": read_error,
+        "read_error": build_error,
+        "cache": state,
         "note": note,
     }
-
-
-def _registry_error() -> str:
-    """Why the registry read came back empty, or "" if it genuinely was."""
-    try:
-        from hub import knack_websites
-        return knack_websites.last_error()
-    except Exception:                                   # noqa: BLE001
-        return ""
