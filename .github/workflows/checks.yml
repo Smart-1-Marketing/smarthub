@@ -659,6 +659,23 @@ jobs:
             echo "test_celebrations.py not on this branch — nothing to run."
           fi
 
+      - name: Housekeeping tests
+        # Warnings that show on a page the whole company reads and that only
+        # an admin can act on: that each one is listed with the page it shows
+        # on and where it is fixed, that a source which could not be read
+        # reports "not measured" rather than nothing outstanding, that one
+        # broken source does not empty the panel, and that a General account
+        # is told the roster is incomplete without being handed a to-do it is
+        # answered 403 for. Guarded like the steps above so this workflow
+        # stays mergeable on a branch that predates the file. It sets its own
+        # DATABASE_URL, HUB_DATA_DIR and AUDIT_LOG_PATH.
+        run: |
+          if [ -f test_housekeeping.py ]; then
+            python test_housekeeping.py
+          else
+            echo "test_housekeeping.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a

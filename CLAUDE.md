@@ -2781,6 +2781,63 @@ raised once. `test_celebrations.py` asserts all of it, including that the
 block sits above System checks and that the API refuses an anonymous request —
 these are staff dates of birth.
 
+### A warning nobody reading it can act on
+
+`hub/housekeeping.py`, the **Housekeeping** card at the top of `/diagnostics`,
+and `/api/housekeeping`. The birthday block ended with a sentence naming the
+seven placeholder start dates and telling the reader to fill them in under
+Users. Every word of it was true and it was on the wrong screen: eleven of the
+fourteen accounts are General Access, and `/diagnostics/users` answers those
+eleven **403** — a to-do addressed to people who cannot do it, printed under a
+card somebody opened to find out whose birthday it is. And because that
+sentence was the only record of the gap anywhere in the Hub, the three people
+who *could* fix it learned about it by looking over somebody's shoulder. A
+warning with no reader who can act on it is not a warning; it is furniture.
+
+So a warning of that shape is collected here and listed where the person who
+can act is already looking. Each finding names **the page a reader meets it
+on** — the whole point of moving it is that the person who can fix it never
+saw that page, so "7 placeholder start dates" without "on the dashboard, under
+birthdays" has lost the half that makes it actionable — and names where it is
+fixed. The panel sits above API health because its rows are somebody's to-do
+rather than a machine's report.
+
+What is *not* in it matters as much: a defect (`/api/integrity`), a provider
+that is down (`hub/diagnostics.py`) and a setting that resolved oddly
+(`/api/environment`) each already have a panel on that page, and two checks
+asking one question and answering it differently on one screen is the trap
+`jsonstore.unmirrored_json_writers()` exists to close. Housekeeping is data
+somebody has to type in, and nothing else.
+
+Four rules hold it up. **A source that could not be read is a finding, not an
+absence** — `roster_gaps()` carries an error *beside* a perfectly good
+fallback answer, so the error alone is not the test, and a report reading it
+that way would call a working roster unmeasurable; the row says which store
+answered when it was not the first-choice one, because the profile table is
+where a corrected date lands and a census-roster answer may name somebody
+already fixed. **A source that fails costs only itself**, named by the
+exception it raised. **Nothing here reaches a provider**: each source reads
+what the page it describes already reads, since a triage panel that costs
+eight outbound calls is one people stop opening. And **a clean source is still
+named**, in `clean`, or a panel with one row on it cannot be told from a panel
+that only ran one check.
+
+**The block still says it is not the whole roster.** That sentence existed for
+a good reason — a list that quietly shrinks reads as a quiet month — so what
+was withheld is only the half a General account cannot act on: the counts, the
+names and the link. `housekeeping.withheld()` is the one place that decides,
+because a template deciding it would be a second description of what a General
+user sees, drifting the day a fourth kind of gap is added; the API applies it,
+so the page cannot render a count that was never sent. `test_housekeeping.py`
+asserts all of it, including that `/api/housekeeping` is refused to General —
+it names staff and what is missing about them.
+
+`celebrations._gaps()` is now the single classifier both screens read, and
+`knack_data.export_state()` is the single answer to whether the committed
+products export is behind the calendar — two copies of either would let the
+dashboard and this panel disagree, with nothing on either screen saying which
+to believe.
+
 **A page that exists is not a page anybody can reach.** The dashboard's
 partner row was five buttons written into `dashboard.html` — four links and a
 grey "New Partner · Page coming" placeholder — while `partner.available()` sat
@@ -2920,6 +2977,7 @@ python3 test_web_tickets.py        # the object_107 ids, the form, what a write 
 python3 test_campaign_assets.py    # campaigns waiting on an asset, by media partner
 python3 test_dashboard_trends.py   # the monthly readings accumulate; no card claims a comparison
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
+python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
 python3 test_client_images.py      # deleting a client image, the count, the brand card,

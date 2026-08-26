@@ -147,6 +147,47 @@ def _day_this_month(anniversary: _dt.date, year: int, month: int) -> int | None:
     return min(anniversary.day, last)
 
 
+def _gaps(people: list[dict]) -> dict:
+    """Who has no date on file, and who has one nobody believes.
+
+    One classifier, read by `this_month()` for the line under the block and by
+    `hub/housekeeping.py` for the Diagnostics row. Two copies would drift the
+    day a second placeholder date joined the set, and the two screens would
+    then disagree about how many people need a start date — which is worse
+    than either being wrong on its own, because nothing on either screen says
+    which of them to believe.
+    """
+    no_birthday: list[str] = []
+    no_hire: list[str] = []
+    placeholder: list[str] = []
+    for p in people:
+        if _iso(p["birthday"]) is None:
+            no_birthday.append(p["name"])
+        if p["hired_at"] in PLACEHOLDER_HIRE_DATES:
+            # Kept apart from the blanks: "we have no date" and "we have a
+            # date nobody believes" are explained differently to somebody who
+            # can see one sitting on the Users panel.
+            placeholder.append(p["name"])
+        elif _iso(p["hired_at"]) is None:
+            no_hire.append(p["name"])
+    return {"birthday": sorted(no_birthday), "hired_at": sorted(no_hire),
+            "hired_placeholder": sorted(placeholder)}
+
+
+def roster_gaps() -> dict:
+    """The dates the roster is missing, asked without a month around them.
+
+    `this_month()` answers this too, as a footnote to a list that changes with
+    the day it is read on. Housekeeping wants the gaps and none of the
+    birthdays, so it asks for them directly rather than reading them off a
+    month — and it needs the count of people they are out of, because "3 with
+    no start date" says nothing without the 14.
+    """
+    people, source, error = _people()
+    return {"gaps": _gaps(people), "people": len(people),
+            "source": source, "error": error}
+
+
 def _ordinal(n: int) -> str:
     if 10 <= n % 100 <= 20:
         return f"{n}th"
@@ -164,29 +205,23 @@ def this_month(today: _dt.date | None = None) -> dict:
 
     birthdays: list[dict] = []
     anniversaries: list[dict] = []
-    no_birthday: list[str] = []
-    no_hire_date: list[str] = []
-    placeholder_hire: list[str] = []
+    # Who is missing a date is not a question about this month, so it is not
+    # answered in this loop: `_gaps()` is the one classifier, and the
+    # Diagnostics row reads the same one.
+    gaps = _gaps(people)
 
     for p in people:
         bday = _iso(p["birthday"])
-        if bday is None:
-            no_birthday.append(p["name"])
-        else:
+        if bday is not None:
             day = _day_this_month(bday, now.year, now.month)
             if day:
                 birthdays.append(_entry(p, day, now, kind="birthday"))
 
         hired = _iso(p["hired_at"])
-        if p["hired_at"] in PLACEHOLDER_HIRE_DATES:
-            # Named in its own list rather than folded in with the blanks:
-            # "we have no date" and "we have a date nobody believes" are
-            # answered differently, and only the second needs explaining to
-            # somebody who can see a date sitting on the Users panel.
-            placeholder_hire.append(p["name"])
-        elif hired is None:
-            no_hire_date.append(p["name"])
-        elif hired.year <= now.year:
+        # A placeholder start date is a missing one, so nobody is
+        # congratulated on the day the Hub's own records begin.
+        if hired is not None and hired.year <= now.year \
+                and p["hired_at"] not in PLACEHOLDER_HIRE_DATES:
             day = _day_this_month(hired, now.year, now.month)
             years = now.year - hired.year
             # Hired in an earlier year: an anniversary, whether or not the day
@@ -217,13 +252,7 @@ def this_month(today: _dt.date | None = None) -> dict:
                    "anniversaries": len(anniversaries)},
         # Named, not silently dropped: a shorter list is indistinguishable
         # from a quiet month unless the page can say who is missing from it.
-        "not_recorded": {
-            "birthday": sorted(no_birthday),
-            "hired_at": sorted(no_hire_date),
-            # A date that is on file and means nothing. Kept apart from the
-            # blanks so the block can say which of the two it is.
-            "hired_placeholder": sorted(placeholder_hire),
-        },
+        "not_recorded": gaps,
         "people": len(people),
         "source": source,
         "error": error,
