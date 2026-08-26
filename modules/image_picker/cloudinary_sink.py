@@ -122,13 +122,24 @@ def upload_from_url(
     }
 
 
-def destroy(public_id: str) -> bool:
-    """Remove an asset. Used when a client deletes from their gallery."""
+def destroy(public_id: str, resource_type: str = "image") -> bool:
+    """Remove an asset. Used when a client deletes from their gallery.
+
+    The resource type has to be passed because Cloudinary keeps images, videos
+    and raw files in separate namespaces: a brochure PDF is stored `raw`, and
+    asking to destroy it as an `image` returns "not found" — which this function
+    then reported as a clean success. The row went, the file stayed, and the
+    only place that showed was the Cloudinary account itself. Callers hold the
+    row that knows which it is, so they say.
+    """
     if not configured() or not public_id:
         return False
+    rtype = str(resource_type or "image").strip().lower()
+    if rtype not in ("image", "video", "raw"):
+        rtype = "image"
     try:
         _configure()
-        res = cloudinary.uploader.destroy(public_id, resource_type="image", invalidate=True)
+        res = cloudinary.uploader.destroy(public_id, resource_type=rtype, invalidate=True)
         return (res or {}).get("result") in ("ok", "not found")
     except Exception as exc:  # noqa: BLE001
         log.warning("cloudinary destroy failed for %s: %s", public_id, exc)

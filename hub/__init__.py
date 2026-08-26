@@ -643,17 +643,16 @@ def create_hub_app() -> Flask:
     def api_domains_purchased():
         """Domains Smart 1 bought for a client, by renewal billing date.
 
-        `refresh=1` re-reads QuickBooks rather than the cached copy of the
-        Website Domain Renewal lines. Behind a button on purpose: a year of
-        invoices is a large read and the answer moves once a month.
+        Served from the nightly snapshot of object_153 and from the cached
+        QuickBooks renewal charges, not from either provider. The report says
+        how old each is; forcing a fresh pull is the POST below, so a page
+        load can never be the thing that pulls.
         """
         gate = _require_api()
         if gate:
             return gate
         from .domain_purchase import report
-        return jsonify(report(q=request.args.get("q", ""),
-                              refresh=request.args.get("refresh") in
-                              ("1", "true", "yes")))
+        return jsonify(report(q=request.args.get("q", "")))
 
     @app.route("/api/domains/do-not-renew", methods=["POST"])
     def api_domains_do_not_renew():
@@ -705,9 +704,9 @@ def create_hub_app() -> Flask:
             year = int(request.args.get("year") or 0) or None
         except ValueError:
             year = None
-        return jsonify(year_to_date(year=year,
-                                    refresh=request.args.get("refresh") in
-                                    ("1", "true", "yes")))
+        # No refresh here either: this reads the same two caches the calendar
+        # does, and POST /api/domains/refresh is the one control that pulls.
+        return jsonify(year_to_date(year=year))
 
     @app.route("/api/domains/charges/link", methods=["POST"])
     def api_domains_charge_link():
@@ -732,6 +731,42 @@ def create_hub_app() -> Flask:
                       detail=f"{body.get('key')} -> "
                              f"{body.get('record_id') or '(cleared)'}")
         return jsonify(out)
+
+    @app.route("/api/domains/refresh", methods=["POST"])
+    def api_domains_refresh():
+        """Pull object_153 now, for the Refresh button.
+
+        POST rather than a `?refresh=1` on the read: this reaches Knack and
+        rewrites the stored snapshot, and a GET that does that is one a
+        prefetch or a reload can fire without anybody asking for it.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from datetime import date as _date
+
+        from .domain_purchase import refresh, report
+        out = refresh(force=True)
+        audit.log("hub", "domains_refresh", actor=current_user(),
+                  ok=bool(out.get("ok")), count=out.get("count"),
+                  error=out.get("error") or None)
+        # Both halves, through the one button. Billed is read from QuickBooks
+        # and cached exactly as the registry is, and a Refresh that pulled one
+        # of the two would leave the page reporting a fresh timestamp over a
+        # stale answer to the question it is actually asked.
+        qb = {}
+        try:
+            from .domain_renewals import charges
+            qb = charges(_date.today().year, refresh=True)
+            qb = {"error": qb.get("error", ""), "count": len(qb.get("lines") or []),
+                  "fetched": qb.get("fetched_at", "")}
+        except Exception as exc:                        # noqa: BLE001
+            qb = {"error": f"{type(exc).__name__}: {exc}", "count": 0,
+                  "fetched": ""}
+        # The report comes back with it, so the button is one round trip and
+        # the page cannot end up showing a fresh timestamp over old rows.
+        return jsonify({**report(q=request.args.get("q", ""), build=False),
+                        "refresh": out, "quickbooks_refresh": qb})
 
     @app.route("/api/domains/billed", methods=["POST"])
     def api_domains_billed():

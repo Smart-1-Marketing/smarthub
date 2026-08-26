@@ -313,6 +313,53 @@ def job_refresh_google_index(app) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+def job_refresh_purchased_domains(app) -> dict:
+    """Re-pull the two sources behind /tools/domains, once a night.
+
+    The page used to pull object_153 in full on every visit to answer a
+    question whose answer changes when somebody buys a domain. This ticks
+    hourly and the module decides: `refresh(force=False)` returns without
+    touching Knack unless the nightly window has passed, so a leader that
+    restarted through that window picks the pull up on its next tick rather
+    than skipping a day in silence.
+
+    The QuickBooks renewal charges ride on the same tick, because "was this
+    billed?" is read off them and a page whose two halves are pulled on
+    different schedules reports one age for an answer that came from the
+    other.
+    """
+    try:
+        from hub import domain_purchase
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    try:
+        out = domain_purchase.refresh(force=False)
+    except Exception as exc:                            # noqa: BLE001
+        # A Knack outage must not take the scheduler down with it. The stored
+        # snapshot simply ages, and the page says how old it is.
+        out = {"ok": False, "error": type(exc).__name__}
+
+    # The billed column comes from QuickBooks and is cached the same way, so
+    # it is pulled on the same night. Only when the registry pull actually
+    # ran: `refresh(force=False)` returns "not due yet" on every other tick,
+    # and re-reading a year of invoices hourly for an answer that moves once a
+    # month is the per-visit pull wearing a schedule.
+    if out.get("ok") and not out.get("skipped"):
+        try:
+            import datetime as _dt
+
+            from hub import domain_renewals
+            qb = domain_renewals.charges(_dt.date.today().year, refresh=True)
+            # Named, never counted as a failure of this job: the registry half
+            # succeeded, and reporting the whole tick as failed would hide it.
+            out["quickbooks"] = {"charges": len(qb.get("lines") or []),
+                                 "error": qb.get("error") or ""}
+        except Exception as exc:                        # noqa: BLE001
+            out["quickbooks"] = {"charges": 0,
+                                 "error": f"{type(exc).__name__}: {exc}"}
+    return out
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -328,6 +375,8 @@ JOBS = {
                           "Refresh public QuickBooks invoice links (3x daily)."),
     "google_index":      (180, job_refresh_google_index,
                           "Re-sweep Google and re-join every account to a client."),
+    "purchased_domains": (60, job_refresh_purchased_domains,
+                          "Re-pull the purchased-domain registry once a night."),
 }
 
 

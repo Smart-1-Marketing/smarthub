@@ -11,7 +11,8 @@
     everything else in the website registry is somebody else's domain.
     <b>This month</b> asks whether each renewal was billed. <b>Later months</b>
     ask the question worth asking that far ahead instead: should this domain
-    renew at all.
+    renew at all. Both sources behind it are pulled on a schedule rather than
+    on every visit &mdash; <b>Refresh</b> pulls them now.
   </p>
 
   <div class="dp-tabs">
@@ -23,12 +24,12 @@
   <div id="tab-cal">
     <div class="dp-metrics" id="dpMetrics"></div>
     <div class="dp-bar">
-      <button class="dp-btn primary" onclick="load(false)">Load renewals</button>
-      <button class="dp-btn" onclick="load(true)" title="Re-read the Website Domain Renewal lines from QuickBooks rather than the cached copy">Refresh from QuickBooks</button>
+      <button class="dp-btn primary" id="dpRefresh" onclick="refresh()">Refresh</button>
       <input id="dpQ" class="dp-search" placeholder="Search every purchased domain — domain, client, partner or registrar"
              oninput="renderSearch()" disabled>
     </div>
-    <div id="dpOut"><p class="dp-muted">Nothing loaded yet.</p></div>
+    <p class="dp-age" id="dpAge">&nbsp;</p>
+    <div id="dpOut"><p class="dp-muted">Reading the stored registry…</p></div>
   </div>
 
   <div id="tab-dnr" hidden>
@@ -39,8 +40,10 @@
   <div id="tab-ytd" hidden>
     <div class="dp-metrics" id="ytdMetrics"></div>
     <div class="dp-bar">
-      <button class="dp-btn primary" onclick="loadYtd(false)">Load year to date</button>
-      <button class="dp-btn" onclick="loadYtd(true)">Refresh from QuickBooks</button>
+      <button class="dp-btn primary" onclick="loadYtd()">Load year to date</button>
+      <span class="dp-muted">Reads the same two stored pulls the calendar
+        does. Refresh, on the calendar tab, is the one control that reaches
+        Knack and QuickBooks.</span>
     </div>
     <div id="ytdOut"><p class="dp-muted">Nothing loaded yet.</p></div>
   </div>
@@ -79,6 +82,8 @@ table.dp-t{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
   text-transform:uppercase;letter-spacing:.04em;color:#94a3b8}
 .dp-t td{padding:9px 12px;border-bottom:1px solid #f4f7fa;vertical-align:top}
 .dp-muted{color:#94a3b8;font-size:13px}
+.dp-age{color:#94a3b8;font-size:12px;margin:-6px 0 14px}
+.dp-age.stale{color:#a06a00}
 .dp-note{background:#eef5fb;border-left:3px solid #1769AA;border-radius:0 9px 9px 0;
   padding:11px 14px;font-size:12.8px;line-height:1.6;color:#2b4a63;margin-bottom:14px}
 .dp-warn{background:#fff8e8;border-left-color:#a06a00;color:#6b4a00}
@@ -125,13 +130,64 @@ function showTab(which){
 /* ------------------------------------------------------------------ *
  * The renewal calendar
  * ------------------------------------------------------------------ */
-function load(refresh){
-  document.getElementById('dpOut').innerHTML='<p class="dp-muted">Reading the website registry and QuickBooks…</p>';
-  fetch('/api/domains/purchased'+(refresh?'?refresh=1':''),{credentials:'same-origin'})
+function load(){
+  /* The two stored pulls, not Knack and not QuickBooks. This is a dictionary
+     scan, so the page loads itself rather than waiting behind a button. */
+  document.getElementById('dpOut').innerHTML='<p class="dp-muted">Reading the stored registry…</p>';
+  fetch('/api/domains/purchased',{credentials:'same-origin'})
     .then(function(r){return r.json();})
     .then(function(d){DATA=d;document.getElementById('dpQ').disabled=false;render();})
     .catch(function(){document.getElementById('dpOut').innerHTML=
       '<p class="dp-muted">Could not read the registry.</p>';});
+}
+
+function refresh(){
+  /* The only thing on this page that reaches a provider, and it reaches both:
+     billed is read from QuickBooks and cached exactly as the registry is, so
+     a Refresh that pulled one of the two would put a fresh timestamp over a
+     stale answer. It comes back with the rebuilt report in the same response,
+     so the page cannot end up showing one over the other. */
+  var b=document.getElementById('dpRefresh');
+  b.disabled=true; b.textContent='Pulling from Knack and QuickBooks…';
+  fetch('/api/domains/refresh',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      b.disabled=false; b.textContent='Refresh';
+      DATA=d; document.getElementById('dpQ').disabled=false; render();
+      YTD=null;   /* the reconciliation is built from the same two pulls */
+      var out=d.refresh||{};
+      if(out.ok===false){
+        alert('The Knack pull failed: '+(out.error||'Knack could not be read.')+
+              (out.kept?'\n\nThe list below is the last successful pull — '+
+                out.kept+' domains — not an empty registry.':''));
+      }
+      var qb=d.quickbooks_refresh||{};
+      if(qb.error){
+        alert('The QuickBooks pull failed: '+qb.error+
+              '\n\nBilled below is whatever has been ticked here, not a '+
+              'statement about what was invoiced.');
+      }
+    })
+    .catch(function(){b.disabled=false;b.textContent='Refresh';
+      alert('That did not run.');});
+}
+
+function paintAge(){
+  var el=document.getElementById('dpAge');
+  var c=(DATA&&DATA.cache)||null;
+  if(!c){el.innerHTML='&nbsp;';el.className='dp-age';return;}
+  var qb=(DATA&&DATA.quickbooks)||{};
+  el.className='dp-age'+((c.stale||c.attempt_error||qb.error)?' stale':'');
+  /* Two pulls, two ages. One line reporting only the registry's would read as
+     a statement about the billed column, which comes from the other one. */
+  var txt=c.measured
+    ? c.line+' It refreshes on its own overnight; '+
+      (c.scanned?c.scanned+' website records were read.':'')
+    : 'Nothing has been pulled yet — press Refresh.';
+  if(qb.error) txt+=' QuickBooks: '+qb.error;
+  else if(qb.fetched_at) txt+=' QuickBooks read '+
+    qb.fetched_at.slice(0,16).replace('T',' ')+'.';
+  el.textContent=txt;
 }
 
 /* Billed is an observation with an invoice behind it where QuickBooks could
@@ -205,6 +261,7 @@ function render(){
      ['Fees on file',dollars(d.fee_total)]]
     .map(function(x){return '<div class="dp-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
 
+  paintAge();
   var html='<div class="dp-note'+(d.read_error?' dp-warn':'')+'">'+esc(d.note)+'</div>';
   var qb=d.quickbooks||{};
   html+='<div class="dp-note'+(qb.error?' dp-warn':'')+'">'+esc(d.quickbooks_note||'')+
@@ -370,9 +427,9 @@ function clearDnr(btn,id){
 /* ------------------------------------------------------------------ *
  * Year to date — both directions of the same question
  * ------------------------------------------------------------------ */
-function loadYtd(refresh){
-  document.getElementById('ytdOut').innerHTML='<p class="dp-muted">Reading the registry and QuickBooks…</p>';
-  fetch('/api/domains/ytd'+(refresh?'?refresh=1':''),{credentials:'same-origin'})
+function loadYtd(){
+  document.getElementById('ytdOut').innerHTML='<p class="dp-muted">Reading the stored registry and charges…</p>';
+  fetch('/api/domains/ytd',{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(function(d){YTD=d;renderYtd();})
     .catch(function(){document.getElementById('ytdOut').innerHTML=
       '<p class="dp-muted">Could not build the reconciliation.</p>';});
@@ -515,5 +572,9 @@ function renderYtd(){
   }
   document.getElementById('ytdOut').innerHTML=html;
 }
+
+/* The calendar is a scan of two stored pulls, so it loads itself rather than
+   waiting behind a button. The other two tabs are loaded on demand. */
+load();
 </script>
 {% endblock %}

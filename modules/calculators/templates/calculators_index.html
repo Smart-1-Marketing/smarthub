@@ -67,10 +67,10 @@ code{display:block;background:#0f2747;color:#dbe8ff;padding:12px;border-radius:9
         put {{ 'them' if delivery.overrides|length != 1 else 'it' }} back on the shared route.</div>
     {% endif %}
     {% if delivery.legacy_fallback %}
-      <div class="banner warn"><b>A legacy fallback webhook is still set.</b>
-        <code style="display:inline;padding:2px 6px">CALCULATORS_LEAD_WEBHOOK_URL</code> is only reached if
-        the lead panel itself fails — and it would then post a lead the panel has already stored, creating
-        the second contact the panel exists to prevent. Clear it on Render.</div>
+      <div class="banner warn"><b>A retired webhook variable is still set.</b>
+        <code style="display:inline;padding:2px 6px">CALCULATORS_LEAD_WEBHOOK_URL</code> is no longer read
+        at all — nothing here posts to it, so it cannot create a second contact. It is named here so it
+        gets cleared on Render rather than sitting there looking like a route.</div>
     {% endif %}
   {% endif %}
 

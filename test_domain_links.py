@@ -37,13 +37,21 @@ the renewal billing date would stay green for a charge nobody has raised.
 
 **A registrar we recorded and a registrar WHOIS observed are different
 claims.** Both are useful; presenting the second as the first is not.
+
+**A page does not pull an object to render it.** /tools/domains used to pull
+object_153 in full on every visit for an answer that changes a few times a
+month. The pull is nightly now, so what is worth asserting is the three ways
+a cache lies: that a failed pull never empties a good snapshot, that the age
+travels with the rows and is printed, and that the half which is *not* cached
+— the billed tick and the month window — still answers per request.
 """
 import os
 import shutil
 import sys
 import tempfile
+import time
 import types
-from datetime import date
+from datetime import date, datetime, timezone
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
@@ -113,7 +121,8 @@ WEB_ROWS = [
      "client": "Buckeye Lake Marina", "has_client": True,
      "production_url": "https://buckeyelakemarina.example",
      "domain": "buckeyelakemarina.example", "ga_account": "", "gtm_account": "",
-     "platform": "WordPress", "go_live": "", "hm_fee": 0, "media_partner": "",
+     "platform": "WordPress", "go_live": "", "hm_fee": 0,
+     "media_partner": "The Montana Radio Group",
      "registrar": "GoDaddy", "live_date": "01/04/2024",
      "client_status": "Active", "domain_bought": "Yes",
      "domain_bought_raw": True, "domain_bought_on": "01/02/2024",
@@ -152,7 +161,18 @@ WEB_ROWS = [
      "domain_bought_on": "", "domain_renews": "", "domain_fee": 0,
      "renewal_billing_date": ""},
 ]
-knack_websites.rows = lambda limit=2000, refresh=False: list(WEB_ROWS)
+PULLS = {"n": 0}
+
+
+def _stub_rows(limit=2000, refresh=False):
+    """Counted, so a test can assert that opening the page pulls nothing."""
+    PULLS["n"] += 1
+    return list(WEB_ROWS)
+
+
+REGISTRY_ERROR = {"why": ""}
+knack_websites.rows = _stub_rows
+knack_websites.last_error = lambda: REGISTRY_ERROR["why"]
 
 hit = knack_websites.client_for_domain("https://WWW.BuckeyeLakeMarina.example/about")
 check("a domain resolves to the client the registry files it under",
@@ -484,6 +504,7 @@ check("...saying who ticked it", "Todd" in row.get("note", ""), row)
 
 # The renewal rolls to next year. The tick was for last year's charge.
 WEB_ROWS[0]["renewal_billing_date"] = "08/14/2027"
+domain_purchase.refresh()
 rep = domain_purchase.report(today=date(2027, 8, 1))
 row = next(r for g in rep["groups"] for r in g["rows"]
            if r["domain"] == "buckeyelakemarina.example")
@@ -492,10 +513,158 @@ check("when the renewal date rolls the tick does not come with it",
 check("...and it says what it was billed for rather than losing the history",
       "08/14/2026" in row.get("note", ""), row)
 WEB_ROWS[0]["renewal_billing_date"] = "08/14/2026"
+domain_purchase.refresh()
 check("unticking works too",
       domain_purchase.set_billed("rec1", False)["ok"]
       and not domain_purchase.billed_store().get("rec1"),
       domain_purchase.billed_store())
+
+
+# ---------------------------------------------------------------------------
+section("The registry is pulled nightly, not on every visit")
+# ---------------------------------------------------------------------------
+# Every open of /tools/domains used to pull object_153 in full — every website
+# record, paged, over the wire — to answer a question whose answer changes
+# when somebody buys a domain. The page reads a stored snapshot now, and the
+# only two things that reach Knack are the nightly job and the Refresh button.
+from hub import jsonstore, scheduler                                # noqa: E402
+
+domain_purchase.refresh()
+before = PULLS["n"]
+domain_purchase.report(today=date(2026, 8, 1))
+domain_purchase.report(today=date(2026, 8, 1))
+check("opening the page twice pulls the registry no times",
+      PULLS["n"] == before, PULLS["n"] - before)
+domain_purchase.refresh()
+check("...and Refresh is the one thing on the page that does",
+      PULLS["n"] == before + 1, PULLS["n"] - before)
+
+# Only the Knack half is cached. A tick is the Hub's own and the month window
+# comes off the clock, so neither may wait for tomorrow's pull.
+domain_purchase.set_billed("rec1", True, for_date="08/14/2026", actor="Todd")
+at = PULLS["n"]
+snap_rep = domain_purchase.report(today=date(2026, 8, 1))
+snap_row = next(r for g in snap_rep["groups"] for r in g["rows"]
+                if r["domain"] == "buckeyelakemarina.example")
+check("a tick reads back straight away, and still without a pull",
+      snap_row["billed"] is True and PULLS["n"] == at, snap_row)
+domain_purchase.set_billed("rec1", False)
+check("...and the calendar rolls with the clock, not with the pull",
+      domain_purchase.report(today=date(2026, 11, 1))["groups"][0]["label"]
+      == "November 2026")
+
+check("the report says how old the snapshot is",
+      domain_purchase.report(today=date(2026, 8, 1))["cache"]["measured"] is True)
+check("...in words, on the page, so a cached figure is not read as today's",
+      "pulled" in domain_purchase.cache_state()["line"].lower(),
+      domain_purchase.cache_state()["line"])
+
+# A failed pull must never empty a good snapshot: "we could not look" and "we
+# have bought no domains" are different answers and only one is actionable.
+REGISTRY_ERROR["why"] = "Knack returned HTTP 502."
+_live_rows = knack_websites.rows
+knack_websites.rows = lambda limit=2000, refresh=False: []
+out = domain_purchase.refresh()
+check("a failed pull says it failed", out["ok"] is False and "502" in out["error"],
+      out)
+check("...and keeps the rows it could not replace", out["kept"] >= 1, out)
+stale_rep = domain_purchase.report(today=date(2026, 8, 1))
+check("so the page still lists them rather than reading as an empty registry",
+      stale_rep["total"] >= 2, stale_rep["total"])
+check("...and the note says the last refresh failed",
+      "502" in stale_rep["note"], stale_rep["note"])
+knack_websites.rows = _live_rows
+REGISTRY_ERROR["why"] = ""
+domain_purchase.refresh()
+check("a good pull afterwards clears the failure",
+      domain_purchase.cache_state()["attempt_error"] == "")
+
+# Nightly means a window on the clock, not an interval since boot.
+noon = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+check("the window is an hour of the night",
+      domain_purchase._last_window(noon).hour == domain_purchase.refresh_hour(),
+      domain_purchase._last_window(noon))
+check("a snapshot taken since that window is not due again",
+      not domain_purchase.due_for_refresh())
+aged = domain_purchase.snapshot()
+aged["fetched"] = time.time() - 86400 * 2
+jsonstore.write_json(domain_purchase._snapshot_path(), aged, indent=1)
+check("one two days old is", domain_purchase.due_for_refresh())
+check("...and is presented as stale rather than as current",
+      domain_purchase.cache_state()["stale"] is True,
+      domain_purchase.cache_state())
+check("...saying how old it is and what to press",
+      "days ago" in domain_purchase.cache_state()["line"]
+      and "Refresh" in domain_purchase.cache_state()["line"],
+      domain_purchase.cache_state()["line"])
+
+check("the scheduler owns the nightly pull",
+      "purchased_domains" in scheduler.JOBS, list(scheduler.JOBS))
+check("...ticking hourly, so a leader that restarted through the window "
+      "picks it up rather than skipping a day",
+      scheduler.JOBS["purchased_domains"][0] == 60)
+before = PULLS["n"]
+check("a due tick pulls",
+      scheduler.job_refresh_purchased_domains(None).get("ok") is True
+      and PULLS["n"] == before + 1)
+before = PULLS["n"]
+skipped = scheduler.job_refresh_purchased_domains(None)
+check("...and the next tick that night does not",
+      PULLS["n"] == before and bool(skipped.get("skipped")), skipped)
+
+# With no snapshot at all the report builds one — once. Without a cooldown a
+# Knack that is up and slow costs every visitor the full timeout in turn,
+# which is the per-visit pull back in its worst form.
+domain_purchase.invalidate()
+REGISTRY_ERROR["why"] = "Knack timed out."
+knack_websites.rows = lambda limit=2000, refresh=False: []
+domain_purchase.report(today=date(2026, 8, 1))
+before = PULLS["n"]
+empty = domain_purchase.report(today=date(2026, 8, 1))
+check("a failed build is not retried on the next page load",
+      PULLS["n"] == before)
+check("...and the page still says why it is empty rather than showing zero",
+      "timed out" in empty["note"] and empty["total"] == 0, empty["note"])
+knack_websites.rows = _stub_rows
+REGISTRY_ERROR["why"] = ""
+check("Refresh works straight away rather than waiting out the cooldown",
+      domain_purchase.refresh()["ok"] is True)
+check("...and the page has its rows back",
+      domain_purchase.report(today=date(2026, 8, 1))["total"] >= 2)
+
+# A write to object_153 has to drop it, or ticking "did we buy the domain?"
+# on Client 360 leaves this calendar showing yesterday's answer until
+# tomorrow, which reads as a save that did not happen.
+knack_websites.forget()
+check("a write to the registry drops the snapshot",
+      domain_purchase.snapshot() == {}, domain_purchase.snapshot())
+rebuilt = domain_purchase.report(today=date(2026, 8, 1))
+check("...and the next read rebuilds it rather than showing nothing",
+      rebuilt["total"] >= 2 and domain_purchase.snapshot() != {}, rebuilt["total"])
+
+
+# -------------------------------------------------------------------------
+section("The snapshot carries what the new columns read")
+# ---------------------------------------------------------------------------
+# A snapshot written before the partner and the `others` index existed answers
+# "no partner" on every row and "no record here" for every domain we did not
+# buy — and age cannot see either. That is what SNAPSHOT_VERSION is for, and
+# this change is the first thing to need it.
+check("the snapshot carries the partner and the rest of the registry",
+      domain_purchase.snapshot()["rows"][0].get("partner")
+      == "The Montana Radio Group"
+      and any(r["domain"] == "orphaned.example"
+              for r in domain_purchase.snapshot().get("others") or []),
+      domain_purchase.snapshot().get("others"))
+_snap = jsonstore.read_json(domain_purchase._snapshot_path(), default={})
+_snap["version"] = 1
+jsonstore.write_json(domain_purchase._snapshot_path(), _snap, indent=1)
+check("one written before they existed is rebuilt rather than served",
+      domain_purchase.snapshot() == {}, domain_purchase.snapshot())
+domain_purchase.refresh()
+check("...and the rebuild has them",
+      domain_purchase.snapshot()["rows"][0].get("partner")
+      == "The Montana Radio Group")
 
 
 # ---------------------------------------------------------------------------
@@ -576,7 +745,8 @@ hit = by_key["1001:2"]
 check("the domain in the description is the join key",
       hit["record_id"] == "rec1" and hit["matched_on"] == "domain", hit)
 check("...and that is exact, not a suggestion", hit["confidence"] == "exact")
-check("the record's media partner comes back with it", "partner" in hit)
+check("the record's media partner comes back with it",
+      hit["partner"] == "The Montana Radio Group", hit)
 
 near = by_key["1002:2"]
 check("a near name is offered, and only as probable",
@@ -636,8 +806,8 @@ check("...and the row carries the invoice rather than only a tick",
       row["charges"])
 check("...saying which invoice, when and for how much",
       "TSN-1001" in row["note"] and "24.99" in row["note"], row["note"])
-check("the media partner is beside the domain",
-      "partner" in row, row)
+check("the media partner is beside the domain, with a value in it",
+      row.get("partner") == "The Montana Radio Group", row)
 
 # A domain renews every year and is invoiced once. Without the window, last
 # year's charge marks this year's renewal billed.
@@ -655,6 +825,7 @@ check("...though it is still counted against the record for the year",
 # A near name is a suggestion. A suggestion that ticks a box is a fact nobody
 # agreed to.
 WEB_ROWS[2]["renewal_billing_date"] = "03/03/2026"
+domain_purchase.refresh()
 domain_renewals.charges = _stub_charges([
     _line("1002", "2", "2026-03-11", "Riverstone Heat Co - annual renewal")])
 rep = domain_purchase.report(today=date(2026, 3, 1))
@@ -665,6 +836,7 @@ check("a probable match does not mark a renewal billed",
 check("...but it is shown, named as needing confirming",
       row["maybe_charges"] and "not counted as billed" in row["note"], row)
 WEB_ROWS[2]["renewal_billing_date"] = ""
+domain_purchase.refresh()
 
 # A QuickBooks that could not be read must never produce a finding.
 domain_renewals.charges = _stub_charges([], error="QuickBooks is not connected.")
@@ -713,6 +885,7 @@ check("...and nothing has renewed against a mark yet", dnr["renewed_count"] == 0
 # domain renewed after somebody said it should not, and clearing the mark
 # would delete the only evidence of that.
 WEB_ROWS[0]["renewal_billing_date"] = "08/14/2027"
+domain_purchase.refresh()
 dnr = domain_purchase.do_not_renew_report(today=date(2027, 1, 1))
 check("a renewal date that moved on means it renewed anyway",
       [r["domain"] for r in dnr["renewed_anyway"]]
@@ -724,6 +897,7 @@ check("...saying both dates rather than only the new one",
       and "08/14/2027" in dnr["renewed_anyway"][0]["dnr_note"],
       dnr["renewed_anyway"][0]["dnr_note"])
 WEB_ROWS[0]["renewal_billing_date"] = "08/14/2026"
+domain_purchase.refresh()
 domain_purchase.set_do_not_renew("rec1", False)
 check("clearing the mark works too",
       not domain_purchase.dnr_store().get("rec1"),
@@ -754,6 +928,7 @@ check("the value of the unrecorded charges is totalled",
 
 # A renewal that came due with no charge behind it is the money question.
 WEB_ROWS[2]["renewal_billing_date"] = "03/03/2026"
+domain_purchase.refresh()
 domain_renewals.charges = _stub_charges([QB_LINES[0]])
 ytd = domain_purchase.year_to_date(year=2026, today=date(2026, 8, 26))
 check("a renewal due this year with no invoice is named",
@@ -770,6 +945,7 @@ check("a domain marked do-not-renew is not counted as an unbilled renewal",
       ytd["not_billed_count"] == 0 and ytd["not_renewing_count"] == 1, ytd)
 domain_purchase.set_do_not_renew("rec3", False)
 WEB_ROWS[2]["renewal_billing_date"] = ""
+domain_purchase.refresh()
 
 # Neither side is presented as a total when either failed to read.
 domain_renewals.charges = _stub_charges([], error="QuickBooks is not connected.")
@@ -788,7 +964,8 @@ check("a domain we bought carries its renewal standing",
       st["applies"] is True and st["billed"] is True, st)
 check("...with the invoice that says so",
       st["charges"] and st["charges"][0]["doc_number"] == "TSN-1001", st)
-check("...and the media partner beside it", "partner" in st, st)
+check("...and the media partner beside it",
+      st.get("partner") == "The Montana Radio Group", st)
 check("a domain we did not buy is not “not billed” — it does not apply",
       domain_purchase.status_for_record("rec2")["applies"] is False,
       domain_purchase.status_for_record("rec2"))
@@ -827,8 +1004,24 @@ try:
           composed.post("/api/client/website-record/save",
                         json={"record_id": "", "values": {"live_date": "x"}}
                         ).get_json()["ok"] is False)
+    ref = composed.post("/api/domains/refresh").get_json()
+    check("Refresh pulls now and hands back the rebuilt table in one trip",
+          ref["refresh"]["ok"] is True and "groups" in ref,
+          ref.get("refresh"))
+    check("...and it is a POST, so no reload or prefetch can pull for you",
+          composed.get("/api/domains/refresh").status_code == 405)
 except Exception as exc:                                        # noqa: BLE001
     check("the composed app boots with these routes", False, exc)
+
+TPL = open(os.path.join(ROOT, "hub", "templates", "domain_purchase.html"),
+           encoding="utf-8").read()
+check("the page loads itself now that the read is a dictionary scan",
+      "\nload();" in TPL and "Load renewals" not in TPL)
+check("...with Refresh as the one control on it that reaches Knack",
+      TPL.count("fetch('/api/domains/refresh'") == 1
+      and TPL.count("fetch('/api/domains/purchased'") == 1)
+check("and the age of the snapshot printed beside the table",
+      "dpAge" in TPL and "paintAge(" in TPL)
 
 
 # ---------------------------------------------------------------------------
