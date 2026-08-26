@@ -4471,23 +4471,6 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
-    # ---------------- sidebar for blueprint-registered pages ----------------
-    # Modules mounted through DispatcherMiddleware get the sidebar injected by
-    # HubBar in wsgi.py. Modules registered as blueprints on this app do not,
-    # and they don't extend base.html either — so Tickets, Calculators, Image
-    # Picker, Page Images and Google Access rendered with no navigation at all.
-    #
-    # Editing five modules' templates would fix today and break again the next
-    # time one is added. Injecting on the way out covers every one of them, and
-    # anything registered later, automatically.
-    #
-    # "/sales/landing/p/" is a built landing page, served to a prospect on a
-    # client's campaign and often pasted onto the client's own domain. The
-    # staff sidebar, the help layer and the feedback tab must never appear on
-    # one: it leaks internal navigation to a third party and makes the page
-    # look broken. The maker itself, at /sales/landing, is a staff page and
-    # keeps its chrome -- which is why this is the longer prefix and not
-    # "/sales/landing".
     # ---- The hub app's own prospect-facing pages -------------------------
     #
     # A blueprint-registered module is not a dispatcher-mounted one, and the
@@ -4513,6 +4496,23 @@ def create_hub_app() -> Flask:
     except Exception:  # noqa: BLE001 -- a module that will not import must
         PUBLIC_EMBED_PREFIXES = ()      # not take the hub's chrome with it
 
+    # ---------------- sidebar for blueprint-registered pages ----------------
+    # Modules mounted through DispatcherMiddleware get the sidebar injected by
+    # HubBar in wsgi.py. Modules registered as blueprints on this app do not,
+    # and they don't extend base.html either — so Tickets, Calculators, Image
+    # Picker, Page Images and Google Access rendered with no navigation at all.
+    #
+    # Editing five modules' templates would fix today and break again the next
+    # time one is added. Injecting on the way out covers every one of them, and
+    # anything registered later, automatically.
+    #
+    # "/sales/landing/p/" is a built landing page, served to a prospect on a
+    # client's campaign and often pasted onto the client's own domain. The
+    # staff sidebar, the help layer and the feedback tab must never appear on
+    # one: it leaks internal navigation to a third party and makes the page
+    # look broken. The maker itself, at /sales/landing, is a staff page and
+    # keeps its chrome -- which is why this is the longer prefix and not
+    # "/sales/landing".
     CHROMELESS = ("/login", "/signup", "/reset", "/signin", "/account",
                   # The forgotten-password page and the admin-only refusal both
                   # render on _users_base.html, which is a bare card with no
