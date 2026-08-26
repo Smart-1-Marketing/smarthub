@@ -358,8 +358,13 @@ def gaps(state) -> list[dict]:
             continue
         name = row["label"].split(" (")[0].lower()
         if not row["answer"]:
-            label = (f"Whether the client has {name} creative — the plan plays "
-                     f"{name} and nothing has said a spot exists")
+            # "A spot" is a video and audio word. Banners are not spots, and
+            # the gate covers them now.
+            file_word = ("banners" if row["medium"] in (DISPLAY, RETARGETING)
+                         else "spot")
+            label = (f"Whether the client has {name} creative — the plan runs "
+                     f"{name} and nothing has said the {file_word} exist"
+                     f"{'' if file_word == 'banners' else 's'}")
         else:
             label = (f"Confirmation that Smart 1 comps the {name} production on a "
                      f"${row['spend']:,.0f} campaign")
@@ -425,12 +430,16 @@ def required_units(state, medium: str) -> dict:
                 pairs = creative_specs._sizes_of(unit)
             except Exception:                           # noqa: BLE001
                 pairs = [unit.get("size")] if unit.get("size") else []
+            duration = unit.get("duration") or ()
             units.append({
                 "id": unit["id"],
                 "label": unit.get("name") or unit["id"],
+                "kind": unit.get("kind") or "image",
                 "channel": creative_specs.CHANNEL_LABELS.get(
                     unit.get("channel", ""), unit.get("channel", "")),
                 "sizes": [f"{w}x{h}" for w, h in pairs if w and h],
+                "formats": [str(f).upper() for f in (unit.get("formats") or [])],
+                "seconds": list(duration) if len(duration) == 2 else [],
             })
 
     note = ""
@@ -443,15 +452,60 @@ def required_units(state, medium: str) -> dict:
             "source": getattr(creative_specs, "SPEC_KIT_URL", "")}
 
 
+def _describe_unit(unit) -> str:
+    """One spec-kit unit in the terms it is actually specified in.
+
+    An audio spot has no pixel size -- it has a length and a bitrate -- and
+    listing the sizes alone made the audio row read "300x250", which is the
+    *optional companion banner* presented as the whole requirement. A client
+    reading that sends a banner and no spot, which is the confident wrong
+    answer this codebase keeps having to undo. So each unit is described by
+    what it is: an image by its size, a video or audio by its length and
+    format.
+    """
+    kind = unit.get("kind") or "image"
+    seconds = unit.get("seconds") or []
+    length = (f"{seconds[0]}–{seconds[1]}s" if len(seconds) == 2
+              and seconds[0] != seconds[1] else
+              (f"{seconds[0]}s" if seconds else ""))
+    fmt = "/".join(unit.get("formats") or [])
+    if kind in ("video", "audio"):
+        bits = [b for b in (", ".join(unit.get("sizes") or []), fmt, length) if b]
+        return f"{unit['label']} ({', '.join(bits)})" if bits else unit["label"]
+    if unit.get("sizes"):
+        return ", ".join(unit["sizes"])
+    return unit["label"]
+
+
 def units_line(state, medium: str) -> str:
-    """The sizes needed for one medium, in one line for a rep or a document."""
+    """What one medium needs, in one line for a rep or a client document."""
     result = required_units(state, medium)
     if not result["measured"]:
         return result.get("note") or "Sizes not measured."
-    sizes = []
-    for unit in result["units"]:
-        sizes.extend(unit["sizes"])
-    unique = list(dict.fromkeys(sizes))
-    if not unique:
+
+    # Banner units are listed as a run of sizes, because there are nine of
+    # them and nine labels is a wall. Anything else is described.
+    images = [u for u in result["units"] if (u.get("kind") or "image") == "image"]
+    others = [u for u in result["units"] if (u.get("kind") or "image") != "image"]
+    # Desktop, mobile and tablet each carry their own "HTML5 package" unit,
+    # so describing all three printed the same words three times.
+    described = list(dict.fromkeys(_describe_unit(u) for u in others))
+    sizes = list(dict.fromkeys(sz for u in images for sz in u["sizes"]))
+
+    # Lead with what the ask actually is. A display buy is a set of banner
+    # sizes, and the HTML5 package is another way to deliver the same set --
+    # named first it reads as an extra thing to produce. A radio buy is a
+    # spot, and the 300x250 beside it is the optional companion; named first
+    # it reads as the whole requirement, which is how somebody sends a banner
+    # and no audio.
+    if not sizes:
+        parts = described
+    elif len(sizes) == 1 and described:
+        parts = described + [f"plus a companion banner: {sizes[0]}"]
+    elif described:
+        parts = [", ".join(sizes)] + [f"or {d}" for d in described]
+    else:
+        parts = [", ".join(sizes)]
+    if not parts:
         return result.get("note") or "Sizes not measured."
-    return ", ".join(unique)
+    return " · ".join(parts)

@@ -244,6 +244,38 @@ check("and they are real banner units",
       "300x250" in cn.units_line(retarget, cn.DISPLAY),
       cn.units_line(retarget, cn.DISPLAY))
 
+# A unit is described in the terms it is actually specified in. An audio spot
+# has no pixel size -- it has a length and a bitrate -- and listing sizes alone
+# made the audio row read "300x250", which is the *optional companion banner*
+# presented as the whole requirement. A client reading that sends a banner and
+# no spot.
+audio_plan = {"months": 3, "items": [
+    {"category": "DIGITAL RADIO", "product": "Podcasts - Targeted", "dollars": 900}]}
+audio_line = cn.units_line(audio_plan, cn.AUDIO)
+check("an audio spot is described as a spot, not as a banner size",
+      audio_line.startswith("Audio Spot") and "15–60s" in audio_line, audio_line)
+check("and the companion banner is named as the companion",
+      "companion banner: 300x250" in audio_line, audio_line)
+video_plan = {"months": 3, "items": [
+    {"category": "OTT", "product": "Connected TV - Targeted", "dollars": 900}]}
+check("a video unit carries its length and format",
+      "1920x1080" in cn.units_line(video_plan, cn.VIDEO)
+      and "15–30s" in cn.units_line(video_plan, cn.VIDEO),
+      cn.units_line(video_plan, cn.VIDEO))
+# Desktop, mobile and tablet each carry their own HTML5 package unit.
+check("an alternative delivery format is named once, after the sizes",
+      cn.units_line(retarget, cn.DISPLAY).count("HTML5 package") == 1,
+      cn.units_line(retarget, cn.DISPLAY))
+check("and the sizes lead, because that is what the ask is",
+      cn.units_line(retarget, cn.DISPLAY).startswith("728x90"),
+      cn.units_line(retarget, cn.DISPLAY))
+
+# "A spot" is a video and audio word; the gate covers banners now.
+banner_gap = cn.gaps({"months": 1, "items": [
+    {"category": "RETARGETING", "product": "Website Retargeting", "dollars": 100}]})
+check("a banner gap asks for banners, not for a spot",
+      "banners exist" in banner_gap[0]["label"], banner_gap[0]["label"])
+
 # Display creative is $250 of design on the card, so comping it stops being
 # sensible far lower down than a shoot does. A confirmation that fires on
 # every plan is one nobody reads.
@@ -712,8 +744,19 @@ check("and it is covered once the tier is raised",
       "chat" in {r["key"] for r in cm.suite_coverage(lacking, "Smarter")["covered"]})
 # An unanswered question is not a gap the Suite gets credit for closing.
 check("an unanswered question is not measured, not a gap",
-      {r["key"] for r in cover["not_measured"]} == {"email", "socialPosting"},
+      {r["key"] for r in cover["not_measured"]} == {"email"},
       [r["key"] for r in cover["not_measured"]])
+# Two questions can want the same part of the Suite. Claimed twice they read
+# as two things the licence buys -- "Social planner" directly above "Social
+# planner and media library" -- on the one panel whose job is to justify a
+# recurring charge. `socialPosting` is unanswered in this fixture and its
+# capability is already covered by `socialScheduling`, so it is neither
+# claimed again nor reported as a hole.
+check("a capability is claimed once, however many questions want it",
+      [r["feature"] for r in cover["covered"]].count("Social planner") == 1,
+      [r["feature"] for r in cover["covered"]])
+check("and a covered capability is not also reported as not measured",
+      "socialPosting" not in {r["key"] for r in cover["not_measured"]})
 check("the proposal line names them in prose",
       "texting" in cm.suite_line(lacking, "Smart 1"), cm.suite_line(lacking, "Smart 1"))
 check("and says nothing at all when they already have everything",

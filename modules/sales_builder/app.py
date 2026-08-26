@@ -557,18 +557,20 @@ def _creative_sizes() -> dict:
     }
     out = {}
     for medium, (product, category) in probes.items():
-        sizes = []
-        for unit in creative_specs.units_for_product(product, category):
-            try:
-                pairs = creative_specs._sizes_of(unit)
-            except Exception:                           # noqa: BLE001
-                pairs = [unit.get("size")] if unit.get("size") else []
-            for w, h in pairs:
-                if w and h and f"{w}x{h}" not in sizes:
-                    sizes.append(f"{w}x{h}")
-        if sizes:
-            out[medium] = {"sizes": sizes,
-                           "source": getattr(creative_specs, "SPEC_KIT_URL", "")}
+        # The same sentence the proposal prints, from the same function.
+        # Built here from a flat list of pixel sizes, the audio row read
+        # "300x250" -- the optional companion banner presented as the whole
+        # requirement, on the screen that asks whether the client has the
+        # creative. Somebody sends a banner and no spot.
+        probe = {"months": 1, "items": [{"product": product, "category": category,
+                                         "dollars": 1}]}
+        line = hub_creative.units_line(probe, medium)
+        detail = hub_creative.required_units(probe, medium)
+        if detail["measured"]:
+            out[medium] = {"line": line,
+                           "sizes": [sz for unit in detail["units"]
+                                     for sz in unit["sizes"]],
+                           "source": detail.get("source") or ""}
     return out
 
 

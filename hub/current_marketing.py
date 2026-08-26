@@ -427,12 +427,18 @@ SUITE_FEATURES = [
      "feature": "Reputation centre",
      "detail": "Automated Google review requests after a job, and every "
                "review answered from one inbox."},
-    {"key": "socialScheduling", "tier": "Smart 1",
+    # Both social questions are answered by the same part of the Suite, so
+    # they share a group and are claimed once. Listed separately they read as
+    # two things the licence buys -- "Social planner" directly above "Social
+    # planner and media library" -- which makes the whole list look padded,
+    # on the one panel whose job is to justify a recurring charge.
+    {"key": "socialScheduling", "tier": "Smart 1", "group": "social",
      "feature": "Social planner",
      "detail": "A month of posts written, queued and scheduled in one sitting "
-               "across every connected channel."},
-    {"key": "socialPosting", "tier": "Smart 1",
-     "feature": "Social planner and media library",
+               "across every connected channel, with the campaign's own "
+               "creative already in the media library."},
+    {"key": "socialPosting", "tier": "Smart 1", "group": "social",
+     "feature": "Social planner",
      "detail": "Somewhere for the posting to actually happen, with the "
                "campaign's own creative already in it."},
     {"key": "email", "tier": "Smart 1",
@@ -497,6 +503,7 @@ def suite_coverage(state, tier_name: str = "") -> dict:
         if answer == YES:
             continue
         row = {k: feature[k] for k in ("key", "feature", "detail", "tier")}
+        row["group"] = feature.get("group") or feature["key"]
         row["answer"] = answer or ""
         if answer not in (NO, UNKNOWN):
             not_measured.append(row)
@@ -507,8 +514,21 @@ def suite_coverage(state, tier_name: str = "") -> dict:
             need = 0
         (covered if need <= have else needs_upgrade).append(row)
 
-    return {"tier": tier, "covered": covered, "needs_upgrade": needs_upgrade,
-            "not_measured": not_measured,
+    def once(rows):
+        """One row per capability. Two questions can want the same feature."""
+        seen, out = set(), []
+        for row in rows:
+            if row["group"] in seen:
+                continue
+            seen.add(row["group"])
+            out.append(row)
+        return out
+
+    covered = once(covered)
+    return {"tier": tier, "covered": covered,
+            "needs_upgrade": once(needs_upgrade),
+            "not_measured": [r for r in once(not_measured)
+                             if r["group"] not in {c["group"] for c in covered}],
             "ok": bool(covered) or bool(needs_upgrade)}
 
 

@@ -948,18 +948,28 @@ function freshState(){return{
  // hand-off payload, an old saved quote being re-opened -- still reads a
  // correct campaign. hub/target_areas.py owns the same conversion server-side.
  targetAreas:[],geoType:"City/ZIP + Radius",geo:"",radius:10,population:0,
+ // Age and income are a low, a high and an explicit none. The bucket lists
+ // are written alongside because the IO, the Suite webhook and
+ // /api/estimate-audience all read those and none of them knows about a
+ // range -- the same arrangement hub/target_areas.py keeps for geography.
  ages:["25-34","35-44","45-54"],gender:"Both",income:["No income targeting"],
+ ageRange:{low:1,high:3,none:false},incomeRange:{low:0,high:5,none:true},
+ // Who we are taking customers from, by name, with the addresses a
+ // geo-fence needs. "Competitor conquesting" as a tick box is a tactic, not
+ // a campaign.
+ targetsOfInterest:[],
  audiences:[],budgetMode:"range",budget:8000,months:6,
  items:[],landingMode:"One landing page",landingUrl:"",landing:"",landingReview:"",
  // Per-medium creative answers, keyed "video"/"audio" -- see hub/creative_needs.py.
  // {answer:"has"|"client"|"comp", fee:number, confirmed:bool}
- creativePlan:{},suiteTier:{},
+ creativePlan:{},suiteTier:{include:true},
  packages:[],selPkg:1,selectedPackage:null,estimates:null,aiEst:null,
  // Discovery. The last three questions are the ones that change what we
  // recommend; `traditional` is the one with money behind it. Mirrors
  // hub/current_marketing.py.
- mkt:{seo:"",paidSearch:"",socialPosting:"",paidSocial:"",
-      retargeting:"",aiOptimized:"",websiteHappy:""},
+ mkt:{seo:"",paidSearch:"",socialPosting:"",socialScheduling:"",paidSocial:"",
+      retargeting:"",aiOptimized:"",websiteHappy:"",reputation:"",email:"",
+      chat:"",callTracking:"",texting:""},
  traditional:{running:"",detail:"",budget:"",posture:""},
  suggestDismissed:[],
  sections:null,
@@ -1085,9 +1095,13 @@ const SUITE_FEATURES=[
   detail:"The texting centre, so a lead is answered the way they expect rather than with a voicemail nobody returns."},
  {key:"reputation",tier:"Smart 1",feature:"Reputation centre",
   detail:"Automated Google review requests after a job, and every review answered from one inbox."},
- {key:"socialScheduling",tier:"Smart 1",feature:"Social planner",
-  detail:"A month of posts written, queued and scheduled in one sitting across every connected channel."},
- {key:"socialPosting",tier:"Smart 1",feature:"Social planner and media library",
+ /* Both social questions are answered by the same part of the Suite, so they
+    share a group and are claimed once -- listed separately they read as two
+    things the licence buys, on the one panel whose job is to justify a
+    recurring charge. */
+ {key:"socialScheduling",tier:"Smart 1",group:"social",feature:"Social planner",
+  detail:"A month of posts written, queued and scheduled in one sitting across every connected channel, with the campaign's own creative already in the media library."},
+ {key:"socialPosting",tier:"Smart 1",group:"social",feature:"Social planner",
   detail:"Somewhere for the posting to actually happen, with the campaign's own creative already in it."},
  {key:"email",tier:"Smart 1",feature:"Email centre",
   detail:"Campaigns and automated follow-up to the list they already own, at no media cost per send."},
@@ -1106,10 +1120,15 @@ function suiteCoverage(tierName){
  SUITE_FEATURES.forEach(f=>{
   const a=mkt[f.key];
   if(a==="Yes")return;
-  const row=Object.assign({answer:a||""},f);
+  const row=Object.assign({answer:a||"",group:f.group||f.key},f);
   if(a!=="No"&&a!=="Unknown"){unmeasured.push(row);return;}
   (Math.max(0,SUITE_TIER_ORDER.indexOf(f.tier))<=have?covered:upgrade).push(row);});
- return{tier,covered,upgrade,unmeasured};}
+ // One row per capability. Two questions can want the same feature.
+ const once=rows=>{const seen=new Set();return rows.filter(r=>
+  seen.has(r.group)?false:(seen.add(r.group),true));};
+ const cov=once(covered),covGroups=new Set(cov.map(r=>r.group));
+ return{tier,covered:cov,upgrade:once(upgrade),
+        unmeasured:once(unmeasured).filter(r=>!covGroups.has(r.group))};}
 function suiteLine(tierName){
  const c=suiteCoverage(tierName),names=c.covered.map(r=>r.feature.toLowerCase());
  if(!names.length)return "";
@@ -1124,7 +1143,11 @@ const TRADITIONAL_SUGGESTION={
 function suggestions(){
  const dismissed=S.suggestDismissed||[];
  const out=SUGGESTION_RULES.filter(r=>!dismissed.includes(r.key)&&r.when.includes(S.mkt[r.key]||""))
-  .map(r=>({key:r.key,title:r.title,detail:r.detail}));
+  // `products` travels with the suggestion. Dropped here, the media-mix
+  // step's own panel had nothing to offer and came back empty on a client
+  // with real gaps -- which reads as "discovery found nothing" rather than
+  // as a list that lost a field on the way.
+  .map(r=>({key:r.key,title:r.title,detail:r.detail,products:r.products||[]}));
  const t=S.traditional||{};
  if(t.running==="Yes"&&!dismissed.includes("traditional")&&TRADITIONAL_SUGGESTION[t.posture])
   out.push(Object.assign({},TRADITIONAL_SUGGESTION[t.posture]));
@@ -2026,7 +2049,7 @@ function generatedTable(sec,e){
  if(k==="creative"){const rows=creativeRows();if(!rows.length)return '';
   return dtable(["Medium","Campaign spend","Creative","What we need"],rows.map(r=>[
    esc(r.label),money(r.spend),esc(creativePhrase(r)),
-   r.sizes&&r.sizes.sizes&&r.sizes.sizes.length?esc(r.sizes.sizes.join(", ")):"<b>Not measured</b>"]));}
+   r.sizes&&r.sizes.line?esc(r.sizes.line):"<b>Not measured</b>"]));}
  if(k==="timeline")return dtable(["Phase","What happens"],TIMELINE_PHASES.map(t=>[esc(t[0])+"<br>"+esc(t[1]),esc(t[2])]));
  if(k==="kpis")return S.kpis.length?`<div class="dnote">KPIs: ${esc(S.kpis.join(', '))}</div>`:'';
  if(k==="mediaplan")return mediaPlanEditor();
@@ -2174,7 +2197,7 @@ function previewGuards(){
  let h='';
  if(g.length)h+=`<div class="warnbox" style="margin-top:10px"><b>🛡 Guardrails</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`;
  if(need.length)h+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
-  +need.map(m=>esc(MEDIUM_LABEL[m].split(" (")[0])+" is in the plan and no spot has been confirmed.").join("<br>")+`</div>`;
+  +need.map(m=>esc(MEDIUM_LABEL[m].split(" (")[0])+" is in the plan and nobody has been named to supply the "+(m==="display"||m==="retargeting"?"banners":"spot")+".").join("<br>")+`</div>`;
  return h;}
 function investmentTable(){
  const st=suiteState();
@@ -2470,12 +2493,12 @@ function creativeCard(r){
     answer until somebody says which sizes: a client who hands over a
     300x250 and nothing else has answered yes and blocked the buy, and the
     discovery happens at trafficking. */
- const sizes=r.sizes&&r.sizes.sizes&&r.sizes.sizes.length?r.sizes:null;
+ const sizes=r.sizes&&r.sizes.line?r.sizes:null;
  let html=`<div class="bpanel"><div class="ttl">🎬 ${esc(r.label)} — ${money(r.spend)} over ${S.months} month${S.months===1?'':'s'}</div>
-  ${sizes?`<div class="note" style="margin-top:4px">What this needs: <b>${sizes.sizes.map(esc).join(", ")}</b>. Straight from the Smart 1 creative spec kit, which is what the insertion order checks every delivered file against.</div>`
+  ${sizes?`<div class="note" style="margin-top:4px">What this needs: <b>${esc(sizes.line)}</b>. Straight from the Smart 1 creative spec kit, which is what the insertion order checks every delivered file against.</div>`
    :`<div class="note" style="margin-top:4px">The spec kit maps no unit for this medium, so the sizes are <b>not measured</b> here — confirm them with trafficking before the spot is booked.</div>`}
   <div class="cards c3" style="margin-top:10px">
-   ${pick("has","✅","They have creative","Finished "+n.toLowerCase()+" spots we can traffic")}
+   ${pick("has","✅","They have creative",(r.medium==="display"||r.medium==="retargeting"?"Finished banners in the sizes above":"Finished "+n.toLowerCase()+" spots")+" we can traffic")}
    ${pick("client","💳","They'll pay for it","Smart 1 produces it — the fee goes on this proposal")}
    ${pick("comp","🎁","We comp it","Smart 1 absorbs the production cost")}
   </div>`;
@@ -2697,7 +2720,7 @@ function drawGuards(){const w=document.getElementById('guardWrap');if(!w)return;
  const need=creativeUnresolved();
  let html=g.length?`<div class="warnbox"><b>🛡 IO guardrail warnings (not blocks)</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:"";
  if(need.length)html+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
-  +need.map(m=>"This plan runs "+esc(MEDIUM_LABEL[m].split(" (")[0].toLowerCase())+" — the next step asks whether a spot exists.").join("<br>")+`</div>`;
+  +need.map(m=>"This plan runs "+esc(MEDIUM_LABEL[m].split(" (")[0].toLowerCase())+" — the next step asks who is supplying the "+(m==="display"||m==="retargeting"?"banners":"spot")+".").join("<br>")+`</div>`;
  w.innerHTML=html;}
 function addItem(){const cat=document.getElementById('addCat').value;const p=findProduct(cat)||{};
  const real=p.category||cat;
