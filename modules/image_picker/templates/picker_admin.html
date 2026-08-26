@@ -16,63 +16,30 @@
 </header>
 
 <main class="wrap">
-  <section class="panel">
-    <div class="panel-head"><h2>Services</h2></div>
-    <div class="filters">
-      <span class="mini" aria-pressed="{{ 'true' if providers_on.pexels else 'false' }}">Pexels {{ '✓' if providers_on.pexels else '—' }}</span>
-      <span class="mini" aria-pressed="{{ 'true' if providers_on.pixabay else 'false' }}">Pixabay {{ '✓' if providers_on.pixabay else '—' }}</span>
-      <span class="mini" aria-pressed="{{ 'true' if providers_on.unsplash else 'false' }}">Unsplash {{ '✓' if providers_on.unsplash else '—' }}</span>
-      <span class="mini" aria-pressed="{{ 'true' if cloudinary_on else 'false' }}">client gallery {{ '✓' if cloudinary_on else '—' }}</span>
-      <span class="mini" aria-pressed="{{ 'true' if ghl_on else 'false' }}">Smart 1 Suite {{ '✓' if ghl_on else '—' }}</span>
-    </div>
-    {% if not cloudinary_on %}
-    <div class="note warn"><h3>client gallery is off</h3>
-      <p>Set <code>CLOUDINARY_URL</code> on Render. Clients can browse but not save until it's on.</p></div>
-    {% endif %}
-  </section>
-
-  {# Where a client's own files can come from. On this page rather than in a
-     diagnostic, because "the client can't see Dropbox" is asked here and has
-     three different answers. #}
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Where clients can upload from</h2>
-      <span class="hint">
-        {{ upload_source_rows|selectattr('on')|list|length }} of
-        {{ upload_source_rows|length }} offered
-      </span>
-    </div>
-    {% if upload_source_unknown %}
-    <div class="note bad"><h3>Unrecognised upload source</h3>
-      <p><code>{{ upload_source_unknown|join(', ') }}</code> — not something the
-      widget offers, so it is being dropped rather than passed on. Check
-      <code>PICKER_UPLOAD_SOURCES</code>.</p></div>
-    {% endif %}
-    <div style="overflow-x:auto">
-      <table>
-        <thead><tr><th>Source</th><th>What it is</th><th>Status</th><th>Signs in as</th></tr></thead>
-        <tbody>
-        {% for s in upload_source_rows %}
-          <tr>
-            <td><strong>{{ s.label }}</strong></td>
-            <td style="color:var(--ink-3);font-size:.82rem">{{ s.what }}</td>
-            <td>
-              {% if s.on %}<span class="pill on">Offered</span>
-              {% else %}<span class="pill off">Off</span>{% endif %}
-              <div style="color:var(--ink-3);font-size:.75rem;margin-top:3px">{{ s.why }}</div>
-            </td>
-            <td style="color:var(--ink-3);font-size:.78rem">
-              {# Not measured, never a cross: these credentials change whose
-                 consent screen the client sees, they do not gate the source. #}
-              {% if s.env %}{{ s.signs_in_as }}<br><code>{{ s.env }}</code>
-              {% else %}&mdash;{% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </section>
+  {# Nothing is reported here when there is nothing to act on. A row of green
+     ticks restating that the keys we have always had are still set is read
+     once and skipped for ever — and it pushes the client list, which is what
+     somebody opens this page for, below the fold. Only something that stops a
+     client sending a file gets a note. Per-client Suite status is not among
+     them: it is already a column on the row it belongs to, which is where
+     somebody can do anything about it. #}
+  {% if not cloudinary_on %}
+  <div class="note warn"><h3>Uploads and saving are off</h3>
+    <p>Set <code>CLOUDINARY_URL</code> on Render. Clients can browse photos but
+    nothing can be saved or uploaded until it's on.</p></div>
+  {% endif %}
+  {% if upload_source_unknown %}
+  <div class="note bad"><h3>Unrecognised upload source</h3>
+    <p><code>{{ upload_source_unknown|join(', ') }}</code> is not something the
+    upload widget offers, so it is being dropped rather than passed on — a name
+    it doesn't know draws a broken tab. Check <code>PICKER_UPLOAD_SOURCES</code>
+    on Render.</p></div>
+  {% endif %}
+  {% if not providers_on.pexels and not providers_on.pixabay and not providers_on.unsplash %}
+  <div class="note warn"><h3>Photo search is off</h3>
+    <p>No stock photo provider is configured, so the browse half of the picker
+    has nothing to show. Clients can still upload their own files.</p></div>
+  {% endif %}
 
   <section class="panel">
     <div class="panel-head">

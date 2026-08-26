@@ -31,10 +31,12 @@ Three rules here, each a way to be confidently wrong:
   pretending the choice was never there.
 
 * **A per-source key is an override, not a requirement.** Google Drive, Dropbox
-  and Instagram work on Cloudinary's own registered apps. Supplying our own
-  client id changes the name on the consent screen and lifts the referrer
-  restrictions; it does not gate the source. So a missing key is *not measured*
-  on the admin page, never a cross, and never a reason to hide the tab.
+  and Instagram work on Cloudinary's own registered apps, and **the client signs
+  in to their own account either way** — that is the whole point, and the Hub
+  never sees the password. Supplying our own client id only changes the name on
+  the consent screen and lifts the referrer restrictions; it does not gate the
+  source, so a missing key is never a reason to hide a tab and never something
+  a staff screen has to report.
 """
 
 from __future__ import annotations
@@ -149,11 +151,6 @@ def known(key: str) -> bool:
     return str(key or "").strip().lower() in BY_KEY
 
 
-def label(key: str) -> str:
-    s = BY_KEY.get(str(key or "").strip().lower())
-    return s["label"] if s else (str(key or "") or "Unknown")
-
-
 def widget_options() -> dict:
     """The per-source credentials, for the widget's own option names.
 
@@ -172,34 +169,16 @@ def widget_options() -> dict:
     return out
 
 
-def report() -> list[dict]:
-    """One row per source for the admin page: on or off, and what changes it.
+def unknown() -> list[str]:
+    """Source names in the environment that this catalogue does not know.
 
-    Every row says which of three things it is — offered, needs a subscription,
-    or switched off here — because "the client cannot see Dropbox" has three
-    different answers and only one of them is ours to fix.
+    The only thing about the source list worth putting on a staff screen. One
+    that is working is not a finding — a page that reports a roster of green
+    ticks anyway is read once and skipped for ever, and it pushes the client
+    list below the fold. A name the widget does not recognise is different: it
+    draws a broken tab or no tab, and somebody has to correct the variable.
     """
-    on = set(enabled())
-    rows = []
-    for s in CATALOGUE:
-        live = s["key"] in on
-        if live:
-            why = "Offered."
-        elif s["addon"]:
-            why = ("Needs the Cloudinary add-on, then add it to "
-                   "PICKER_STOCK_SOURCES.")
-        else:
-            why = "Left out of PICKER_UPLOAD_SOURCES."
-        key_state = ""
-        if s["env"]:
-            key_state = ("our own app" if (os.environ.get(s["env"]) or "").strip()
-                         else "Cloudinary's app")
-        rows.append({
-            "key": s["key"], "label": s["label"], "what": s["what"],
-            "on": live, "why": why, "addon": s["addon"],
-            "env": s["env"], "signs_in_as": key_state,
-        })
-    return rows
+    return configured()[1]
 
 
 def client_line() -> str:
