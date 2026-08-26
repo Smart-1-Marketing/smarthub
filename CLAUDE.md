@@ -1127,6 +1127,34 @@ knows (`domain_age.registrar`, with the registered and expiry dates beside it).
 `registrar_for()` offers it *labelled as observed*, to be copied in by a person
 — never written back on its own.
 
+**The domain record is the second column of the website, not its footer.** It
+sat underneath a card that already had ten rows in it, below the fold, so the
+live date and the renewal — the things somebody opens that card for — were
+reached by scrolling past everything else and mostly were not. One website is
+a two-column block now, stacking under 900px where two definition lists stop
+being readable.
+
+**And a question that cannot apply is not a blank somebody forgot.** With "did
+we buy the domain?" answered **no**, the purchase date, the renewal date and
+the registrar are not missing data — there is nothing to record — and a panel
+that goes on asking for them reads as unfinished for ever. They are hidden,
+with two rules on it. **Only the empty ones**: a registrar we actually hold
+stays on screen whatever the tickbox says, because hiding a recorded value is
+the panel deciding the record is wrong. And **never in silence** — what was
+left out is counted in one line with a link that brings it back, since a panel
+that quietly gets shorter is one nobody can tell from a panel that failed to
+load. *Not answered* is not *no*, so an unanswered question hides nothing.
+
+**An object number in front of a rep is not information.** `object_153` and
+`field_3298` are pinned in the code for the reason this file gives at length,
+and they were also being printed onto Client 360 and the renewals page —
+where they name nothing a person can act on and make a working panel read as
+a debug screen. The prose says *the website record*; `test_domain_links.py`
+asserts no `object_`/`field_` reaches any of the five strings these modules
+hand a page. Same reason the save button says **Save** rather than *Save to
+Knack*: which system it lands in is the Hub's business, not a decision the
+person pressing it makes.
+
 ### The same join, for Google accounts
 
 `hub/google_links.py` and `/tools/google-match`. `hub/google_index.py` already

@@ -1011,6 +1011,53 @@ domain_renewals.charges = _real_charges
 
 
 # ---------------------------------------------------------------------------
+section("The domain record is a column, and does not ask what cannot apply")
+# ---------------------------------------------------------------------------
+# It used to hang underneath the website's own ten rows, below the fold of a
+# card nobody scrolled, so the live date and the renewal were invisible on the
+# page that exists to show them. It is the second column of the same block now.
+C360 = open(os.path.join(ROOT, "hub", "templates", "client360.html"),
+            encoding="utf-8").read()
+check("one website is drawn as a two-column block",
+      'class="web-site"' in C360 and ".web-site{" in C360)
+check("...with the domain record as the second column, not a footer",
+      "grid-template-columns:minmax(230px,1fr) minmax(230px,1fr)" in C360
+      and ".web-knack{border-top" in C360)
+check("...and it stacks rather than squeezing two definition lists together",
+      "@media(min-width:900px)" in C360)
+
+# "Did we buy the domain?" is the question the rest of the panel hangs off.
+# When the answer is no, the purchase date, the renewal date and the registrar
+# are not blanks somebody forgot — they are questions that do not apply.
+check("a No hides the fields that do not apply",
+      "function applyBoughtRule(" in C360)
+check("...only the empty ones, so a registrar we recorded survives the rule",
+      "!String(el.value||'').trim()" in C360)
+check("...never the purchase question itself",
+      "if(key==='domain_bought')return;" in C360)
+check("...and never in silence: what was left out is counted and offered back",
+      "empty field" in C360 and "Show them" in C360)
+check("the rule re-runs when somebody changes the answer",
+      "bought.addEventListener('change',()=>applyBoughtRule(host))" in C360)
+
+check("the save button does not name the system it writes to",
+      "Save to Knack" not in C360 and ">Save</a>" in C360)
+check("and no object number is put in front of a person",
+      "object_153" not in C360)
+# The ids stay pinned in the code — that is what stops a renamed label
+# breaking a read in silence. What changed is that none of them is put in
+# front of a person: an object number tells a rep nothing they can act on.
+_prose = [knack_websites.domain_record("", "")["note"],
+          knack_websites.registrar_for("buckeyelakemarina.example")["label"],
+          knack_websites.client_for_domain("buckeyelakemarina.example")["why"],
+          knack_websites.enrich("Buckeye Lake Marina")["note"],
+          domain_purchase.report(today=date(2026, 8, 1))["note"]]
+for text in _prose:
+    check("no object or field number reaches a page: " + text[:44] + "…",
+          "object_" not in text and "field_" not in text, text)
+
+
+# ---------------------------------------------------------------------------
 section("The routes exist under the hub app, not a mount")
 # ---------------------------------------------------------------------------
 # CLAUDE.md's first trap: a hub route written under a mounted prefix is never
