@@ -4488,6 +4488,31 @@ def create_hub_app() -> Flask:
     # look broken. The maker itself, at /sales/landing, is a staff page and
     # keeps its chrome -- which is why this is the longer prefix and not
     # "/sales/landing".
+    # ---- The hub app's own prospect-facing pages -------------------------
+    #
+    # A blueprint-registered module is not a dispatcher-mounted one, and the
+    # two are protected by different code. `bare_prefixes` in wsgi.py keeps
+    # the chrome off a mounted module's public routes and `hub/embed.py`
+    # gives it the marketing-site frame-ancestors; a blueprint on the hub app
+    # passes through neither. The Media Calculators are exactly that: the
+    # pages behind smart1marketing.com/ims and the four calculator pages are
+    # blueprint routes, so every rule written for /land/<tool>/embed missed
+    # them and BOTH halves failed at once --- the staff sidebar was injected
+    # into a page a prospect reads, and `_embed_policy` below answered the
+    # marketing site's iframe with the Smart 1 Suite refusal, in plain text,
+    # 403. A prospect saw "This Hub page is not available inside Smart 1
+    # Suite." where the calculator should be, and nothing errored at either
+    # end.
+    #
+    # Read from the module's own declaration rather than restated here, for
+    # the reason modules/ads_builder gives wsgi.py: the mount and the module
+    # must not be able to disagree about what is public.
+    try:
+        from modules.calculators import public_paths as _calc_public_paths
+        PUBLIC_EMBED_PREFIXES = tuple(_calc_public_paths())
+    except Exception:  # noqa: BLE001 -- a module that will not import must
+        PUBLIC_EMBED_PREFIXES = ()      # not take the hub's chrome with it
+
     CHROMELESS = ("/login", "/signup", "/reset", "/signin", "/account",
                   # The forgotten-password page and the admin-only refusal both
                   # render on _users_base.html, which is a bare card with no
@@ -4500,7 +4525,7 @@ def create_hub_app() -> Flask:
                   # coincidence of the mimetype check.
                   "/robots.txt", "/llms.txt",
                   "/connect", "/api/", "/assets/", "/hub-", "/static/",
-                  "/sales/landing/p/")
+                  "/sales/landing/p/") + PUBLIC_EMBED_PREFIXES
 
     @app.after_request
     def _embed_policy(resp):
@@ -4520,6 +4545,16 @@ def create_hub_app() -> Flask:
             if not embed.is_embedded(request.environ):
                 return resp
             path = request.path or "/"
+            # A public page of ours, framed on the marketing site. This is not
+            # the Suite question at all: `is_embedded()` is true for ANY
+            # framer, so without this the marketing site's iframe is answered
+            # with the Suite refusal -- and the answer to "who may frame the
+            # calculators" is hub/embed.py's allowlist, the same one every
+            # /land/<tool>/embed already carries. Checked before `embeddable`
+            # so the refusal below can never reach a prospect.
+            if path.startswith(PUBLIC_EMBED_PREFIXES):
+                from . import embed as _site_embed
+                return _site_embed.framable(resp)
             if not embed.embeddable(path):
                 # Refuse in words. A blank frame gets reported as a broken
                 # integration; a named path gets fixed by whoever configured

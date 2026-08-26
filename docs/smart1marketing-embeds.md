@@ -42,7 +42,7 @@ smart1marketing.com.
 | `/ski-resort-markeitng-gameplan` | `https://smart1-hub.onrender.com/land/ski/embed` | `ski` |
 | `/recruitment-digital-marketing-gameplan` | `https://smart1-hub.onrender.com/land/recruit/embed` | `recruit` |
 | *(no page yet)* | `https://smart1-hub.onrender.com/land/hvac/embed` | `hvac` |
-| `/ims` — **check this one**, see §5 | `https://smart1-hub.onrender.com/tools/calculators/embed/trade` | `calculators` |
+| `/ims` and the four calculator pages — see §5 | *(in `docs/smart1marketing-calculator-embeds.md`)* | `calculators` |
 
 **Why boat and restaurant carry `?embed=1` and the others do not.** Those two
 tools have their own switch that hides their hero, so the host page does not
@@ -108,25 +108,27 @@ Its header comment also lists three fixes that belong in Simvoly's page
 settings: the empty meta description, the broken `og:image`, and a ~200-line
 audio-calculator script in the page header that does nothing on that page.
 
-## 5. `/ims` — not yet verified
+## 5. `/ims` and the four calculator pages — see the companion file
 
-The Hub has an **IMS Advertising Trade Calculator** (`hub` slug `trade`), live
-and public at `/tools/calculators/c/trade` and framable at
-`/tools/calculators/embed/trade`. Its leads go through `hub/leads.py` like
-every other tool here.
+`/ims` frames the **IMS Advertising Trade Calculator**, and four more
+marketing-site pages frame the other Hub calculators. They are a different
+module from the gameplan tools above — a blueprint on the hub app rather than a
+dispatcher-mounted app — and **none of the rules in this file applied to
+them**, which is exactly how they came to answer a prospect's browser with a
+403 that said "This Hub page is not available inside Smart 1 Suite."
 
-Whether `smart1marketing.com/ims` is currently pointed at it has **not been
-checked** — this repository's sandbox cannot reach smart1marketing.com. Paste
-that page's code block and it can be answered properly.
+That is fixed, and the URLs, the paste-ready blocks and the `/paid-search-calculator`
+problem are in **`docs/smart1marketing-calculator-embeds.md`**.
 
-One thing is already known, because it appears on the *boat* page: a
-**Smart 1 Digital Audio Calculator** script sits in that page's header code.
-It is not the IMS trade calculator — it estimates digital audio impressions and
-reach from a budget and a CPM — and wherever it runs it delivers no lead
-anywhere, because its own webhook POST is commented out and the only other
-thing it does with the captured contact is fire a browser event nothing
-listens for. If a copy of it is running on `/ims`, that page's leads are being
-collected and dropped.
+One thing that belongs here rather than there, because it appears on the *boat*
+page: a **Smart 1 Digital Audio Calculator** script sits in that page's header
+code. It is not the IMS trade calculator and it is not the Hub's digital-audio
+calculator either — it estimates impressions and reach from a budget and a CPM,
+and wherever it runs it delivers no lead anywhere, because its own webhook POST
+is commented out and the only other thing it does with the captured contact is
+fire a browser event nothing listens for. If a copy of it is running on `/ims`
+or on `/digital-audio-calculator`, that page's leads are being collected and
+dropped. Delete it when you paste the iframe.
 
 ## 6. Two settings, one of which you will not need
 

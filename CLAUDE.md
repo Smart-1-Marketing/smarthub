@@ -237,6 +237,45 @@ those. `docs/smart1marketing-embeds.md` is the line to paste, per page.
 resolves against the *directory* of the current URL, so `/embed/` is a 404 the
 prospect does not meet until they press submit.
 
+**Every rule above was written for a dispatcher-mounted module, and the
+calculators are a blueprint.** Five marketing-site pages frame a Hub media
+calculator — `/ims` frames the IMS Advertising Trade Calculator, and
+`/ctv-ott-calculator`, `/digital-audio-calculator` and `/dooh-calculator` frame
+the other three. `modules/calculators` registers on the hub app, so it passes
+through neither `bare_prefixes` in `wsgi.py` nor `hub/embed.py`'s `install()`,
+and **both halves failed at once**.
+
+`suite_embed.is_embedded()` reads `Sec-Fetch-Dest`, which a browser sends
+whoever owns the outer page — so it is true for the marketing site exactly as
+it is for Smart 1 Suite. The hub app's `_embed_policy` then refused every
+calculator path as not being in `EMBEDDABLE`, and a prospect on
+smart1marketing.com/ims got **"This Hub page is not available inside Smart 1
+Suite." in plain text, 403**, where the calculator should have been. The same
+403 answered the `/api/<slug>/estimate` POST, so a frame that did render could
+not compute either. Nothing errored at either end: the Hub was answering
+correctly, to a question nobody had asked it. And `/tools/calculators/` was not
+in `CHROMELESS`, so `/c/<slug>` — the standalone link an ad can point at —
+arrived carrying the staff sidebar, live links to `/client360`, `/sales/leads`
+and `/qa` among them, plus the help layer and the feedback tab.
+
+`_embed_policy` now answers a **public prefix of the hub app's own** with
+`hub/embed.py`'s marketing-site allowlist, checked *before* the Suite refusal so
+that refusal can never reach a prospect, and `CHROMELESS` extends itself from
+the same list. The list is read from `modules.calculators.public_paths()`
+rather than restated — the rule `modules/ads_builder` gives `wsgi.py`: the mount
+and the module must not be able to disagree about what is public. Nothing else
+we run catches this. linkcheck resolves the URL, the template is valid, and the
+page returns 200 to a member of staff opening it in a tab; it breaks only for
+the one visitor it exists for. `test_calculator_embeds.py` asserts every half,
+and asserts the staff index and leads pages keep their chrome — a prefix wide
+enough to fix this goes wrong in the other direction just as quietly.
+
+**A page on the marketing site is not a calculator in the Hub.**
+`/paid-search-calculator` is live and there is no paid-search calculator here;
+`female-18-34` is a working calculator with no page. `test_calculator_embeds.py`
+names both as known absences rather than leaving them implicit, so building one
+makes the assertion the reminder to point the page at it.
+
 **Placeholder values are worse than blanks.** `CLOUDINARY_URL` sat at
 `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` and every "is it configured?"
 check said yes. `hub/config.py` detects the known placeholders. Render also
@@ -1860,6 +1899,7 @@ python3 test_google_access.py      # the paused Ads flow, and who an invite is f
 python3 test_google_index.py       # the Google sweep: no request, and none vs cannot look
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
+python3 test_calculator_embeds.py  # the calculator embeds: framed, public, chrome-free
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
