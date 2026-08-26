@@ -1823,6 +1823,90 @@ must not have it re-guessed under them. `test_web_tickets.py` asserts the two
 name sets translate, so a pinned id that moves cannot leave a report column
 reading a field that no longer means what its heading says.
 
+## A client's photos are already somewhere, and it is not their laptop
+
+`modules/image_picker/upload_sources.py`. The client-facing picker
+(`/tools/image-picker/pick/<token>`) has always been able to take uploads
+through Cloudinary's own widget, which speaks Google Drive, Google Photos,
+Dropbox, Facebook, Instagram and a web image search out of the box. It offered
+three: a file dialog, the camera, and a URL box — because `PICKER_UPLOAD_SOURCES`
+defaulted to `local,camera,url` and nobody had ever set it. So a client asked
+for "your photos" got a file dialog while the photos sat in their own Instagram
+feed and the agency's Dropbox, and what actually happens then is that they do
+not send them.
+
+The sources are a catalogue with what each one is for, rather than a comma list
+in an environment variable, and four rules follow from that:
+
+- **A source is offered from the catalogue or not at all.** A name the widget
+  does not know draws a broken tab or no tab, and both read as our page being
+  broken. An unrecognised entry is dropped and **named on the admin page**
+  rather than forwarded — the same answer `hub/knack_websites.py` gives a value
+  Knack would refuse.
+- **A billed add-on is off until somebody turns it on.** Shutterstock, Getty,
+  iStock and Unsplash are Cloudinary add-on subscriptions; listed without one,
+  the client gets a tab that consents and then fails for a reason that is
+  nothing to do with them, which is exactly why Google Ads came off the Google
+  Access list. `PICKER_STOCK_SOURCES` names the ones the account actually has.
+- **A per-source key is an override, not a gate.** Drive, Dropbox and Instagram
+  work on Cloudinary's own registered apps; our own client id only changes
+  whose name is on the consent screen. So a missing key reads as *not measured*
+  on the admin page, never as a cross, and never hides the tab — and an **empty**
+  key is never sent, because the widget takes `dropboxAppKey: ""` at its word
+  and fails the tab against it.
+- **Recording an upload asks whether the source is one of ours, not whether it
+  is switched on now.** A source turned off between the widget opening and the
+  file landing must not file a real Instagram upload as `local`, which is the
+  one thing the gallery's source column exists to say.
+
+The paragraph the client reads is **built from the live list**, because a
+sentence naming Dropbox on a deployment where Dropbox is off is a promise the
+panel cannot keep.
+
+**The staff pick page 500'd on every visit.** `/tools/image-picker/c/<id>`
+includes the upload panel and never passed it the panel's variables, and
+`{{ sources|tojson }}` over an Undefined raises while Flask is *rendering* — so
+it was never a broken widget, it was the whole page, exactly like
+`url_for('website_check_limits')` in Sites Admin. `tools/pagecheck.py` covers
+the module root now and `test_image_picker.py` covers the page that needs a
+gallery id.
+
+**Deleting a gallery deletes files nobody can get back**, so the name is typed
+rather than an OK button pressed: the button sits in a row of four safe ones,
+and for anything the client uploaded our copy is very often the only copy. What
+Cloudinary removed and what it refused are **counted apart** — `hub/domain_links.py`
+says at length why one tick for both is how somebody learns not to trust the
+tick — and the Suite copies are named as staying, because a file already in the
+client's media library may be in a funnel. `cloudinary_sink.destroy()` takes the
+resource type now: Cloudinary keeps images and raw files in separate namespaces,
+so a brochure PDF asked for as an `image` comes back "not found", which the old
+signature reported as a **clean success** with the row gone and the file still
+in the account.
+
+**"General Business" is the busiest entry in the industry dropdown**, because
+"none of the above" always is — and it handed out four generic chips: a team, a
+counter, a storefront, a handshake. `modules/image_picker/profile.py` asks that
+client two questions instead (what kind of business, and what do you sell or
+show on your website) and the answers do three things, because **an answer that
+was captured must be used** — the Proposal Builder shipped four discovery
+questions that were read by nothing and produced an identical document whatever
+was typed. They become the client's **own** topic and service chips, they are
+blended into every free-text search from then on, and they are kept on the row
+so the next visit and the next rep picking on their behalf start from the same
+answers.
+
+Three rules in it. The model writes **search terms and nothing else is
+trusted**: `clamp()` caps the collections, the queries per collection and the
+lengths, and strips everything a stock query is not — these strings reach three
+provider APIs with three quoting rules and a page. **"We could not ask the
+model" is not "this business has no topics"**: the chips are still built, from
+the client's own words folded into the General Business queries, and the row
+records `source: "typed"` so a staff screen can tell that apart from copy
+written for this client. And **only General Business is overridden** — a staff
+member switching the industry selector to a real trade is asking for that
+trade's curated chips, not for a client's description to quietly replace them.
+`test_image_picker.py` asserts all of it.
+
 ## The one module that is not Python
 
 The **Display Ad Builder** (`modules/ad_builder`) is a Node service, not a
@@ -2039,6 +2123,7 @@ python3 test_campaign_assets.py    # campaigns waiting on an asset, by media par
 python3 test_dashboard_trends.py   # the KPI comparisons accumulate and name their months
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
+python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
 python3 test_video_library.py      # the footage index, its status row, the page's palette

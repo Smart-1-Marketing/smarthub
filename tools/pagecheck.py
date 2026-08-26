@@ -97,6 +97,12 @@ HUB_PAGES = [
     # script block beside a real one, which is the pair this checker exists to
     # tell apart.
     "/scans/widgets",
+    # A blueprint on the hub app, so no mount enumeration reaches it, and its
+    # three pages each build a table from JavaScript. Its staff pick page went
+    # on 500ing for want of one template variable, which is the failure this
+    # checker's whole existence is about — that one needs a gallery id, so
+    # test_image_picker.py holds it and this holds the root.
+    "/tools/image-picker/",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:
