@@ -207,3 +207,91 @@ test('an unresolvable button fill is dropped too', () => {
   const out = applyBlockStyles(layout(), { cta: { bg: 'not-a-colour' } });
   assert.equal((out as any).cta.bg, 'accent');       // the template's own
 });
+
+/* --------------------------------------------- the button, and the panel */
+
+test('aligning the button moves the BUTTON, not the label inside it', () => {
+  // The bug this fixes: `align` set the label's alignment inside the button,
+  // which every template already centres — so Center, Left and Right all
+  // rendered identically and the control read as broken.
+  const l = layout();                       // 300x250, safe 16, cta w=150 x=20
+  const centred = applyBlockStyles(l, { cta: { align: 'center' } });
+  assert.equal((centred as any).cta.x, 75, 'centred in the 268px safe region');
+  assert.equal((centred as any).cta.align, undefined, 'the label is left alone');
+
+  const right = applyBlockStyles(l, { cta: { align: 'right' } });
+  assert.equal((right as any).cta.x, 134, 'flush with the right safe edge');
+
+  const left = applyBlockStyles(l, { cta: { align: 'left' } });
+  assert.equal((left as any).cta.x, 16, 'flush with the left safe edge');
+});
+
+test('the button can be nudged, and cannot be nudged off the canvas', () => {
+  const out = applyBlockStyles(layout(), { cta: { x: 40, y: 200 } });
+  assert.equal((out as any).cta.x, 40);
+  assert.equal((out as any).cta.y, 200);
+
+  const off = applyBlockStyles(layout(), { cta: { x: 9999, y: -9999 } });
+  assert.equal((off as any).cta.x, 150, 'clamped to canvas width less the button');
+  assert.equal((off as any).cta.y, 0);
+});
+
+test('only the button moves; type is still placed by the layout', () => {
+  // Moving a block of copy is a layout decision, and layouts are chosen by
+  // picking a family. Accepting x/y here would be a control that quietly
+  // dismantles that.
+  const out = applyBlockStyles(layout(), { headline: { x: 5, y: 5 } as any });
+  assert.equal((out as any).headline.x, 20, 'untouched');
+  assert.equal((out as any).headline.y, 30, 'untouched');
+});
+
+test('the panel behind the copy takes a fill and an opacity', () => {
+  // "Full background with copy panel" puts the headline on this card, and the
+  // fill decides whether the copy can be read at all. It was a constant.
+  const l = { ...layout(), panels: [{ x: 0, y: 130, w: 300, h: 120, fill: 'primary', opacity: 0.88 }] } as any;
+  const out = applyBlockStyles(l, { panel: { fill: '#123456', opacity: 0.5 } });
+  assert.equal((out as any).panels[0].fill, '#123456');
+  assert.equal((out as any).panels[0].opacity, 0.5);
+  assert.equal(l.panels[0].fill, 'primary', 'the shared template is not mutated');
+});
+
+test('a panel opacity outside 0..1 is clamped, and a bad fill dropped', () => {
+  const l = { ...layout(), panels: [{ x: 0, y: 130, w: 300, h: 120, fill: 'primary' }] } as any;
+  assert.equal((applyBlockStyles(l, { panel: { opacity: 4 } }) as any).panels[0].opacity, 1);
+  assert.equal((applyBlockStyles(l, { panel: { opacity: -2 } }) as any).panels[0].opacity, 0);
+  assert.equal((applyBlockStyles(l, { panel: { fill: 'not-a-colour' } }) as any).panels[0].fill,
+               'primary', 'an unresolvable fill leaves the template alone');
+});
+
+test('a panel override on a layout with no panel changes nothing', () => {
+  const l = layout();
+  assert.equal(applyBlockStyles(l, { panel: { fill: '#123456' } }), l);
+});
+
+/* ------------------------------------------------------ the logo, sized */
+
+test('one slider scales the logo box proportionally', () => {
+  // Two number fields for width and height is the wrong control for "make it
+  // bigger": they have to be kept in step, and out of step they do nothing
+  // visible (the mark is contained inside the box) until they crop.
+  const l = { ...layout(), logo: { x: 20, y: 20, w: 100, h: 30 } } as any;
+  const out = applyBlockStyles(l, { logo: { scale: 1.5 } });
+  assert.equal((out as any).logo.w, 150);
+  assert.equal((out as any).logo.h, 45);
+});
+
+test('an explicit width still wins over the slider', () => {
+  // Or Advanced is a second control fighting the first.
+  const l = { ...layout(), logo: { x: 20, y: 20, w: 100, h: 30 } } as any;
+  const out = applyBlockStyles(l, { logo: { scale: 2, w: 60 } });
+  assert.equal((out as any).logo.w, 60);
+  assert.equal((out as any).logo.h, 60, 'the height still took the scale');
+});
+
+test('logo scale is bounded at both ends', () => {
+  const l = { ...layout(), logo: { x: 20, y: 20, w: 100, h: 30 } } as any;
+  assert.equal((applyBlockStyles(l, { logo: { scale: 99 } }) as any).logo.w, 280,
+               'clamped to 3x, then clamped again to the canvas');
+  const tiny = applyBlockStyles(l, { logo: { scale: 0.001 } }) as any;
+  assert.ok(tiny.logo.w >= MIN_LOGO, 'never smaller than a logo can be');
+});

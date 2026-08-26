@@ -4904,9 +4904,15 @@ def create_hub_app() -> Flask:
             if b"</body>" not in body:
                 return resp                      # a fragment, not a page
             from .sidebar import render_sidebar
+            # A tool that is itself a full-width workbench opens with the nav
+            # as an icon rail. The Display Ad Builder is a three-column bench
+            # -- controls, canvas, size rail -- and the nav takes a fifth of
+            # the screen it needs. A stored preference still wins, so this is
+            # a starting point rather than the page overruling anybody.
             bar = render_sidebar(_MOUNT_ACTIVE_HUB.get(
                 "/" + path.strip("/").split("/")[0], ""),
-                is_admin=viewer_is_admin())
+                is_admin=viewer_is_admin(),
+                collapsed_default=path.startswith("/tools/display-ads"))
             # The help/demo/autofill layer has to come with the sidebar. It
             # was injected by HubBar for dispatcher-mounted modules and by
             # base.html for hub pages, which left blueprint-registered pages
