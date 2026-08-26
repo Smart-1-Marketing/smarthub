@@ -276,7 +276,19 @@ def structure_report() -> dict:
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parent.parent
-    engines, json_stores, client_keys = [], [], []
+    engines, client_keys = [], []
+
+    # Who still writes JSON without the mirror is asked by hub/jsonstore.py
+    # now, not here. This file kept its own version of the test and reached a
+    # different answer from /api/integrity's — it counted build scripts, so
+    # the panel reported "1 file writes JSON outside hub/jsonstore.py —
+    # ad_builder" for modules/ad_builder/scripts/fix_safezones.py, which
+    # rewrites layout JSON committed to the repo and never touches the data
+    # disk. ad_builder is the Node renderer and keeps no Python state there at
+    # all, so the row named a module with nothing to move, immediately above an
+    # audit of the same question that had found nothing.
+    from . import jsonstore
+    json_stores = jsonstore.unmirrored_json_writers(root)
 
     # Vendored code is not ours to fix, and counting it buries the findings
     # that are. hub/integrity.py learned this when the scan reported the openai
@@ -298,15 +310,6 @@ def structure_report() -> dict:
             if builds or shared:
                 engines.append({"module": mod, "file": rel,
                                 "shared": shared and not builds})
-        # json.dump( — with the bracket. The substring also matches json.dumps,
-        # which serialises to a string and touches no disk at all; it is in
-        # every module that returns JSON from a route, so counting it made this
-        # number mostly noise. And a file going through hub/jsonstore.py *is*
-        # mirrored into the database, so it is no longer part of this risk —
-        # counting the fix as more of the problem is worse than not counting.
-        if "json.dump(" in src and "/templates/" not in rel:
-            if "jsonstore" not in src:
-                json_stores.append({"module": mod, "file": rel})
         for key in ("client_id", "client_name", "domain_key", "client_slug"):
             if re.search(rf"\b{key}\b\s*=\s*Column", src):
                 client_keys.append({"module": mod, "file": rel, "key": key})

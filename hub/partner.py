@@ -44,6 +44,44 @@ PAGES: tuple[tuple[str, str, str], ...] = (
 )
 _TITLES = {slug: title for slug, title, _ in PAGES}
 
+# What the dashboard's button row needs to draw each page: an icon and the
+# gradient that has always been on that button.
+#
+# The row used to be five buttons hard-coded into dashboard.html — four links
+# and a grey "New Partner / Page coming" placeholder. `available()` was
+# written for exactly this and nothing called it, so the row could not
+# change when the pages did: the Digital Dictionary has been in this repo,
+# served and reachable, since the day the other four arrived, and the
+# dashboard went on offering four links and a promise. A tile is drawn from
+# the file on disk now, so a page added here appears on the dashboard and a
+# page not yet filed greys out with its own name on it rather than a generic
+# one.
+_TILE_STYLE = {
+    "rate-card-universal": ("&#128181;", "pb-rate"),
+    "creative-specs": ("&#128208;", "pb-spec"),
+    "sales-kit": ("&#128188;", "pb-kit"),
+    "learning-library": ("&#127891;", "pb-learn"),
+    "digital-dictionary": ("&#128214;", "pb-dict"),
+}
+
+
+def tiles() -> list[dict]:
+    """Every partner page as a dashboard button, present or not."""
+    have = set(available())
+    out = []
+    for slug, title, blurb in PAGES:
+        icon, css = _TILE_STYLE.get(slug, ("&#10133;", "pb-new"))
+        out.append({
+            "slug": slug,
+            "title": title,
+            "blurb": blurb,
+            "href": f"/partner/{slug}",
+            "icon": icon,
+            "css": css,
+            "available": slug in have,
+        })
+    return out
+
 # Read once per process. These are static files of up to 768 KB; re-reading
 # them from disk on every request would be pure waste on a container that
 # never changes them between deploys.

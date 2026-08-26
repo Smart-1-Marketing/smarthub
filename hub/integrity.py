@@ -457,24 +457,18 @@ def check_unbacked_json() -> list[dict]:
     means to get to. It is not a defect on its own: a module here works exactly
     as it always has, right up until the disk is recreated.
     """
-    # Files that legitimately write JSON somewhere other than the data disk:
-    # repo fixtures, build scripts and one-off tools, none of which hold state.
-    exempt_files = {"hub/jsonstore.py", "hub/errors.py", "hub/audit.py",
-                    "modules/ad_builder/scripts/fix_safezones.py",
-                    "ui_check.py"}
+    # The rule itself lives in hub/jsonstore.py, and this reads it rather than
+    # keeping a copy. It kept one until /api/db/structure and this check
+    # disagreed on the same Diagnostics page — that one exempted build scripts
+    # and repo tooling and this one did not, so the panel reported a file
+    # ad_builder does not write to the data disk directly above an audit that
+    # had found nothing. Two answers to one question is worse than either.
+    from . import jsonstore
     out = []
-    for rel, src in _sources():
-        if rel in exempt_files or "/scripts/" in rel or rel.startswith("tools/"):
+    for hit in jsonstore.unmirrored_json_writers(ROOT):
+        rel, mod = hit["file"], hit["module"]
+        if rel in SELF:
             continue
-        if "json.dump(" not in src:
-            continue
-        # json.dump (not dumps) always writes to a file object, so its
-        # presence is the signal. Matching on a "*_DIR" name instead missed
-        # every module that called its directory something else — REPORT_DIR,
-        # REPORTS_DIR — which is most of the ones worth finding.
-        if "jsonstore" in src:
-            continue                    # already mirrored
-        mod = _module_of(rel)
         out.append({
             "file": rel, "module": mod,
             "detail": f"{mod} writes JSON to the persistent disk without a "
@@ -488,6 +482,31 @@ def check_unbacked_json() -> list[dict]:
                    "rebuildable, pass durable=False and say why.",
         })
     return out
+
+
+def check_stale_json_exemptions() -> list[dict]:
+    """Exemptions from the check above that no longer name a real file.
+
+    The exemption list is the one part of an audit that fails silently in the
+    wrong direction: every other finding here is something appearing that
+    should not, and this is something disappearing that should. A path left in
+    the list after its file is deleted goes on covering whatever is written at
+    that path next, and the audit stays green while doing it.
+
+    This one started green — every entry named a file that existed — which is
+    the only way it is worth having. The list it replaced did not: it named
+    ``ui_check.py`` and two modules that had moved to append-only JSONL and so
+    had not matched ``json.dump(`` for some time.
+    """
+    from . import jsonstore
+    return [{
+        "file": rel, "module": "hub",
+        "detail": f"hub/jsonstore.py exempts {rel} from the unbacked-JSON "
+                  f"check, and that path no longer exists. The entry now "
+                  f"covers anything written there next.",
+        "fix": "Drop the entry from jsonstore.UNMIRRORED_EXEMPT, or point it "
+               "at the path the code moved to.",
+    } for rel in jsonstore.stale_exemptions(ROOT)]
 
 
 def check_creative_medium_drift() -> list[dict]:
@@ -650,6 +669,8 @@ CHECKS = [
     ("bare_except_pass", "Silent exception handling", "low", check_bare_except_pass),
     ("shared_services", "Not yet on shared services", "low", check_shared_services),
     ("unbacked_json", "JSON on the disk with no backup", "medium", check_unbacked_json),
+    ("stale_json_exemptions", "Unbacked-JSON exemption names a missing file",
+     "medium", check_stale_json_exemptions),
     ("creative_medium_drift", "Creative gate lost a rate-card product", "high",
      check_creative_medium_drift),
     # High, as the note that stood here asked for once the list was empty. It

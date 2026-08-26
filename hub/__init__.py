@@ -2106,6 +2106,30 @@ def create_hub_app() -> Flask:
                                support_email=_support_email(),
                                support_name=_support_name()), 403
 
+    @app.before_request
+    def _record_presence():
+        """Note that this person was seen, for the headcount on the dashboard.
+
+        There is no session table — signing in issues a signed cookie and the
+        server keeps nothing — so "who is logged in" is answered by "who has
+        been seen lately", and `hub/presence.py` is where that is written down
+        along with why. Throttled to one write per person per minute per
+        worker, so this is a dict lookup on almost every request.
+
+        Registered after the gates rather than before them on purpose: a
+        person refused a Utilities page is still signed in and still at their
+        desk. It never returns a response and never raises — a headcount is a
+        nice-to-have and no route depends on it.
+        """
+        try:
+            name = current_user()
+            if name:
+                from . import presence
+                presence.touch_display(name)
+        except Exception:  # noqa: BLE001 — presence must never cost a page
+            pass
+        return None
+
     def _support_name() -> str:
         from .user_directory import SUPPORT_NAME
         return SUPPORT_NAME
@@ -2155,7 +2179,10 @@ def create_hub_app() -> Flask:
         gate = _require_page()
         if gate:
             return gate
-        return render_template("dashboard.html", user=current_user(), modules=MODULES, active="dashboard")
+        from . import partner as partner_pages
+        return render_template("dashboard.html", user=current_user(),
+                               modules=MODULES, active="dashboard",
+                               partner_tiles=partner_pages.tiles())
 
     @app.route("/client360")
     def client360():
@@ -4203,6 +4230,60 @@ def create_hub_app() -> Flask:
             data.setdefault("seo_billing_monthly", None)
         return jsonify(data)
 
+    @app.route("/api/presence")
+    def api_presence():
+        """How many people are around, and who.
+
+        A route of its own rather than a key on `/api/status`, and that is not
+        tidiness: `/api/status` is in `access.UTILITY_PREFIXES`, so for the
+        eleven General accounts it answers 403 — the headcount would have been
+        admin-only while sitting on everybody's dashboard, reading as zero.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import presence
+        data = presence.active()
+        data["line"] = presence.summary_line(data)
+        return jsonify(data)
+
+    @app.route("/api/celebrations")
+    def api_celebrations():
+        """Whose birthday and whose work anniversary, this month and today.
+
+        One request, two answers: the dashboard block reads the month and the
+        popup reads `today`. Splitting them into two routes would mean two
+        reads of the profile table on every page load for the same rows.
+
+        `me` is what the popup greets by name. It is resolved from the signed-
+        in *account* where there is one, and only falls back to the cookie's
+        display name — two people on this roster are called Todd, and the
+        shared PANEL_PASSWORD session carries a name with no account behind
+        it at all.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import celebrations
+        try:
+            data = celebrations.this_month()
+            data["today_list"] = celebrations.today()
+        except Exception as exc:  # noqa: BLE001 — never break the dashboard
+            return jsonify({"error": str(exc), "birthdays": [],
+                            "anniversaries": []})
+        email, name = "", current_user() or ""
+        try:
+            from .users_routes import current_account
+            account = current_account()
+            if account is not None:
+                email, name = (account.email or ""), (account.name or name)
+        except Exception:  # noqa: BLE001 — a session with no account row
+            pass
+        data["me"] = celebrations.mine(data["today_list"], email=email,
+                                       name=name)
+        data["me_name"] = name
+        return jsonify(data)
+
     @app.route("/api/c360")
     def api_c360():
         gate = _require_api()
@@ -4791,6 +4872,14 @@ def create_hub_app() -> Flask:
             errors.log_exception("hub", _sc_exc)
         except Exception:  # noqa: BLE001
             pass
+
+    # Imported for its side effect: the Presence model has to exist before the
+    # create_all() below or `hub_presence` is never created, and every read of
+    # it fails into "we could not look" for ever.
+    try:
+        from . import presence as _presence  # noqa: F401
+    except Exception:  # noqa: BLE001
+        pass
 
     # Create any tables the newly registered blueprints declared. Runs AFTER
     # all of them, so a module registered later still gets its tables. Guarded:

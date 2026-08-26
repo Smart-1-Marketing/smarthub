@@ -553,6 +553,22 @@ jobs:
             echo "test_env_config.py not on this branch — nothing to run."
           fi
 
+      - name: Birthday and work-anniversary tests
+        # The dashboard block and the once-a-day popup: that a date nobody
+        # recorded is named rather than dropped, that no year of birth reaches
+        # the payload, that 29 February is marked in a common year, that only
+        # *today* is allowed to interrupt anybody, and that the popup greets
+        # the right one of the two people on this roster called Todd. Guarded
+        # like the steps above so this workflow stays mergeable on a branch
+        # that predates the file. It sets its own DATABASE_URL, HUB_DATA_DIR
+        # and AUDIT_LOG_PATH, so it never touches the real ones.
+        run: |
+          if [ -f test_celebrations.py ]; then
+            python test_celebrations.py
+          else
+            echo "test_celebrations.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a

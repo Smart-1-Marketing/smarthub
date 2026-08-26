@@ -11,6 +11,17 @@
     "Riverside HVAC" and "Riverside HVAC LLC" are two strings for one business,
     but the domain is one value.
   </p>
+  <p class="sm-sub">
+    Where there is no domain to match on it falls back to the <b>name</b>, and
+    reads it the way Simvoly projects are actually named: "TMRG&nbsp;-&nbsp;JWS
+    Pottery" is a media partner, a business, and nothing that matches a client
+    until the partner comes off the front. A trailing "2026 Refresh" or
+    "Landing Page" comes off the end the same way. A project called
+    <i>Anna's Website</i> or <i>S1M Test</i> names no business at all and is
+    <b>said to name nobody</b> rather than matched loosely &mdash; and a name
+    two clients answer to proposes <b>neither</b>. Every name match is a
+    suggestion you tick; only a domain match is ticked for you.
+  </p>
 
   <!-- Orphan URLs first, because it is the question a person arrives with:
        "whose site is this?" is asked far more often than "which project is
@@ -150,7 +161,11 @@ function render(){
      ['Not live, skipped',d.skipped_inactive||0],
      ['Already linked',d.already_linked],
      ['Can be matched',d.suggested_count],['No real domain',d.no_domain_count],
-     ['No match found',d.unmatched_count]]
+     ['No match found',d.unmatched_count],
+     /* Named rather than folded into "no match": a project called "Anna's
+        Website" is not a matcher that failed, it is a project that is about
+        nobody, and the two need different actions. */
+     ['Name is about nobody',d.named_nobody||0]]
     .map(function(x){return '<div class="sm-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
 
   var list=d.suggested.filter(function(m){return !domainOnly||m.confidence==='domain';});
@@ -181,33 +196,82 @@ function render(){
           return '<div style="margin-bottom:5px"><button class="sm-btn" style="padding:3px 9px;font-size:12px" '+
             'onclick=\'confirmMaybe('+ui+','+mi+')\'>Yes &mdash; '+esc(m.client)+'</button> '+
             '<span class="sm-muted" style="font-size:11.5px">'+esc(m.why)+'</span></div>';}).join('');
+        /* "No candidate" is not an answer. A placeholder name and an
+           ambiguous one are different situations needing different actions,
+           and a row that says neither reads as the matcher having failed. */
+        var none=u.placeholder?('<span class="sm-muted">Names nobody &mdash; '+
+                   esc(u.placeholder)+'.</span>')
+                 :'<span class="sm-muted">No candidate.</span>';
         return '<tr><td><b>'+esc(u.site)+'</b></td><td class="sm-muted">'+esc(u.domain)+'</td>'+
-               '<td>'+(maybe||'<span class="sm-muted">no candidate</span>')+'</td></tr>';
+               '<td>'+(u.ambiguous?'<div class="sm-muted" style="font-size:11.5px;margin-bottom:4px">'+
+                       esc(u.why)+'</div>':'')+(maybe||none)+'</td></tr>';
       }).join('')+'</tbody></table></div>';
   }
   if(d.no_domain_count){
-    html+='<div class="sm-card"><h3>No real domain yet ('+d.no_domain_count+')</h3><table class="sm-t">'+
-      d.no_domain.slice(0,60).map(function(u){
-        return '<tr><td>'+esc(u.site)+'</td><td class="sm-muted">'+esc(u.why)+'</td></tr>';}).join('')+
-      '</table></div>';
+    /* These used to be listed and offered nothing at all — which is backwards,
+       because a project with no domain is exactly the one where the name is
+       all there is to go on. Confirming one here writes the client onto the
+       project; the other three systems are keyed on a domain there isn't. */
+    html+='<div class="sm-card"><h3>No real domain yet ('+d.no_domain_count+
+      (d.no_domain_with_suggestions?' &mdash; '+d.no_domain_with_suggestions+
+       ' can still be matched on the name':'')+')</h3>'+
+      '<table class="sm-t"><thead><tr><th>Site</th><th>Why</th>'+
+      '<th>Is this them?</th></tr></thead><tbody>'+
+      d.no_domain.slice(0,60).map(function(u,ui){
+        var maybe=(u.maybe||[]).map(function(m,mi){
+          return '<div style="margin-bottom:5px"><button class="sm-btn" style="padding:3px 9px;font-size:12px" '+
+            'onclick=\'confirmNoDomain('+ui+','+mi+')\'>Yes &mdash; '+esc(m.client)+'</button> '+
+            '<span class="sm-muted" style="font-size:11.5px">'+esc(m.why)+'</span></div>';}).join('');
+        var none=u.placeholder?('<span class="sm-muted">Names nobody &mdash; '+
+                   esc(u.placeholder)+'.</span>')
+                 :'<span class="sm-muted">No candidate.</span>';
+        return '<tr><td><b>'+esc(u.site)+'</b></td><td class="sm-muted">'+esc(u.why)+'</td>'+
+               '<td>'+(maybe||none)+'</td></tr>';}).join('')+
+      '</tbody></table></div>';
   }
   document.getElementById('smOut').innerHTML=html;
   window.__list=list; count();
 }
 
-function confirmMaybe(ui, mi){
+function confirmOne(u, m, domain, note){
   /* A fuzzy match is only ever a suggestion — this is the human confirming
      it. Applying these automatically would put the wrong client name on a
-     site, and a wrong internal_client_name is worse than a blank one. */
-  var u=DATA.unmatched[ui], m=u.maybe[mi];
-  if(!confirm('Link "'+u.site+'" to "'+m.client+'"?\n\n'+m.why)) return;
+     site, and a wrong internal_client_name is worse than a blank one.
+
+     The domain travels with it. Without it apply() can only write the
+     Simvoly project, so a confirmed match landed in one of the four systems
+     and Client 360 went on saying the client had no website — the join real
+     and invisible, which is the failure hub/domain_links.py exists to stop.
+     Where there genuinely is no domain the project is still the right and
+     only write, and the confirmation says so — and the domain is passed in
+     rather than read off the row, because a row in the "no real domain" list
+     carries a *platform* domain (something.simvoly.com), and attaching that
+     to a client would file every unlaunched site under whoever was confirmed
+     first. */
+  if(!confirm('Link "'+u.site+'" to "'+m.client+'"?\n\n'+m.why+
+              (note?'\n\n'+note:''))) return;
   fetch('/api/sites-match/apply',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({matches:[{project_id:u.project_id, client:m.client}]})})
+    body:JSON.stringify({matches:[{project_id:u.project_id, client:m.client,
+                                   domain:domain||''}]})})
    .then(function(r){return r.json();}).then(function(d){
      if(d.error){alert(d.error);return;}
      load();
    }).catch(function(){alert('That did not go through.');});
+}
+
+function confirmMaybe(ui, mi){
+  var u=DATA.unmatched[ui];
+  confirmOne(u, u.maybe[mi], u.domain, '');
+}
+
+function confirmNoDomain(ui, mi){
+  /* No domain, deliberately: the domain on these rows is a platform one. */
+  var u=DATA.no_domain[ui];
+  confirmOne(u, u.maybe[mi], '',
+    'This project has no real domain yet, so only the Simvoly project is '+
+    'written. The client registry, Client 360 and the Knack website record '+
+    'are all keyed on a domain there isn\'t one of.');
 }
 
 /* ---------------------------------------------------------------- websites
