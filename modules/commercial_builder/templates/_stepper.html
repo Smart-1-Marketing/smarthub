@@ -1,0 +1,21 @@
+{#
+  The wizard, drawn from routes/pages.STEPS.
+
+  Every template used to carry its own hand-written copy of this — five pills,
+  typed out five times — so adding a step meant editing five files and the one
+  that got missed said "4. Storyboard" while the page it was on was step five
+  of seven. There is one list now and it is Python's.
+
+  A finished step is a link. It was not, and on a seven-step wizard that made
+  "change the voice" three presses of Back.
+#}
+<div class="cb-stepper">
+  {% for step in wizard %}
+    {% if step.url and step.state == 'done' %}
+      <a class="cb-step done" href="{{ step.url }}">{{ loop.index }}. {{ step.label }}</a>
+    {% else %}
+      <div class="cb-step {{ step.state }}">{{ loop.index }}. {{ step.label }}</div>
+    {% endif %}
+    {% if not loop.last %}<span class="cb-step-arrow">›</span>{% endif %}
+  {% endfor %}
+</div>

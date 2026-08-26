@@ -1,0 +1,93 @@
+{% extends "_layout.html" %}
+{% block title %}CTA — {{ project.title }}{% endblock %}
+{% set screen = "commercial_builder.cta" %}
+{% block content %}
+
+{% include "_stepper.html" %}
+
+<div class="cb-page-head">
+  <div><h1>Call to action — {{ client.name }}</h1>
+    <p>The last scene, and the only part of the spot that asks for anything.</p></div>
+  <a class="cb-btn cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.preview', project_id=project.id) }}">Continue to Preview &amp; render →</a>
+</div>
+
+<div class="cb-card" id="cta-root" data-project-id="{{ project.id }}">
+  <div class="cb-field">
+    <label class="cb-label">CTA style
+      {{ help_dot('commercial_builder.cta.style') if help_dot is defined else '' }}
+    </label>
+    <div class="cb-choice-grid" id="cta-style-choices">
+      {% for s in cta_styles %}
+        <div class="cb-choice {{ 'selected' if project.cta and project.cta.style == s.id else '' }}" data-value="{{ s.id }}"><div class="cb-choice-title">{{ s.label }}</div></div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="cb-grid cb-grid-2">
+    <div class="cb-field"><label class="cb-label">Headline / offer</label><input type="text" id="cta-offer" value="{{ project.cta.offer if project.cta else '' }}"></div>
+    <div class="cb-field"><label class="cb-label">CTA line</label><input type="text" id="cta-headline" value="{{ project.cta.headline if project.cta else (client.cta or '') }}"></div>
+    <div class="cb-field"><label class="cb-label">Website <span class="cb-muted" style="font-weight:400;">(shown as a clean domain, e.g. BrandName.com)</span></label><input type="text" id="cta-website" value="{{ project.cta.website if project.cta else (client.website or '') }}"></div>
+    {% if project.length_seconds != 5 %}
+    <div class="cb-field"><label class="cb-label">Phone <span class="cb-muted" style="font-weight:400;">(memorable/toll-free, ideally)</span></label><input type="text" id="cta-phone" value="{{ project.cta.phone if project.cta else (client.phone or '') }}"></div>
+    {% endif %}
+  </div>
+
+  {% if qr_eligible %}
+  <div class="cb-field" style="border-top:1px solid var(--cb-border);padding-top:14px;margin-top:4px;">
+    <label class="cb-label">
+      <input type="checkbox" id="cta-qr-enabled" {{ 'checked' if project.cta and project.cta.qr_enabled else ('checked' if qr_required and not project.cta else '') }}>
+      QR code
+      {{ help_dot('commercial_builder.cta.qr') if help_dot is defined else '' }}
+    </label>
+    <p class="cb-hint">
+      {% if qr_required %}
+        Essential here — a viewer can't click a television, so this is the only way the spot
+        gets a response. High-contrast, at least {{ qr_rules.min_screen_pct }}% of the screen,
+        held for at least {{ qr_rules.min_duration_seconds }}s so someone can actually scan it.
+      {% elif social %}
+        Optional on a social buy — the ad is already tappable, and a code asks somebody to
+        scan the phone they're holding. Worth having if the cut also runs on a TV screen.
+      {% else %}
+        Optional here — a clickable end screen does the same job. Turn it on if the spot
+        will also run somewhere that can't be clicked.
+      {% endif %}
+    </p>
+
+    {# Where the code actually points, and whose account the scan lands in.
+       Neither was ever on screen: the code was generated from whatever the
+       landing page happened to be, with no way to see what it had resolved to
+       and nothing saying which Suite account would count the scan. #}
+    <div id="qr-plan" class="cb-note info" style="display:none;"></div>
+
+    <div id="qr-controls" style="display:flex;align-items:center;gap:16px;margin-top:8px;">
+      <div class="cb-field" style="flex:1;margin-bottom:0;">
+        <label class="cb-label">Corner</label>
+        <select id="cta-qr-corner">
+          {% for c in qr_rules.corners %}<option value="{{ c }}" {{ 'selected' if project.cta and project.cta.qr_corner == c else ('selected' if c == qr_rules.default_corner and not (project.cta and project.cta.qr_corner) else '') }}>{{ c|replace('-', ' ')|title }}</option>{% endfor %}
+        </select>
+      </div>
+      <img id="qr-preview" alt="QR code preview" src="{{ project.cta.qr_data_url if project.cta else '' }}" style="width:64px;height:64px;border:1px solid var(--cb-border);border-radius:6px;{{ '' if (project.cta and project.cta.qr_data_url) else 'display:none;' }}">
+    </div>
+  </div>
+
+  <div class="cb-field">
+    <label class="cb-label">
+      <input type="checkbox" id="cta-logo-persistent" {{ 'checked' if (not project.cta) or project.cta.logo_persistent else '' }}>
+      Persistent logo bug — keeps the brand visible the whole spot, not just the end card
+      {{ help_dot('commercial_builder.cta.logo') if help_dot is defined else '' }}
+    </label>
+    <div id="logo-corner-controls" class="cb-field" style="max-width:220px;margin-top:6px;">
+      <label class="cb-label">Corner</label>
+      <select id="cta-logo-corner">
+        {% for c in logo_rules.corners %}<option value="{{ c }}" {{ 'selected' if project.cta and project.cta.logo_corner == c else ('selected' if c == logo_rules.default_corner and not (project.cta and project.cta.logo_corner) else '') }}>{{ c|replace('-', ' ')|title }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  {% else %}
+  <p class="cb-hint" style="border-top:1px solid var(--cb-border);padding-top:12px;">:05 bumpers skip the QR code and persistent logo bug by design — it's pure brand recall (logo + URL), no response mechanism.</p>
+  {% endif %}
+
+  <button class="cb-btn cb-btn-primary" id="save-cta-btn">Save CTA</button>
+</div>
+
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/cta.js') }}"></script>{% endblock %}

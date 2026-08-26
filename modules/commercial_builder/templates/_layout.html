@@ -7,7 +7,18 @@
 <link rel="stylesheet" href="{{ url_for('commercial_builder.static', filename='css/commercial-builder.css') }}">
 {% block extra_head %}{% endblock %}
 </head>
-<body data-module="commercial_builder">
+{#
+  `data-screen` is what offers a screen its tour, and `data-module` is what
+  floats the walkthrough button. This module is blueprint-registered on the
+  hub app, so the hub's own after_request injects hub-help.js, hub-demo.js and
+  hub-help.css into every page here — nothing needs loading in this template.
+
+  A screen that names no tour gets no offer, which is right: the tour is per
+  screen (hub/help.py says at length what happened when Smart 1 Ads offered
+  one module-wide scenario on every screen, including two where none of its
+  selectors existed).
+#}
+<body data-module="commercial_builder"{% if screen %} data-screen="{{ screen }}"{% endif %}{% if no_demo %} data-demo="off"{% endif %}>
 <header class="cb-topbar">
   <div class="cb-topbar-inner">
     <a class="cb-brand" href="{{ url_for('commercial_builder.cb_pages.dashboard') }}">
@@ -16,6 +27,11 @@
     </a>
     <nav class="cb-topnav">
       <a href="{{ url_for('commercial_builder.cb_pages.dashboard') }}">Dashboard</a>
+      {% if screen %}
+      {# The way back to a tour once it has been dismissed. Without this the
+         offer is a one-shot and there is no second chance at it. #}
+      <a href="#" data-tour-start="{{ screen }}">How this works</a>
+      {% endif %}
       <a href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}" class="cb-btn cb-btn-primary cb-btn-sm">+ New Commercial</a>
     </nav>
   </div>

@@ -46,6 +46,18 @@ KB = 1024
 MB = 1024 * KB
 GB = 1024 * MB
 
+# Where a person checks these numbers against the published kit.
+#
+# It is a URL and not a fetch. Nothing in this Hub reads that page at runtime:
+# a spec table pulled live would change what a check says without anyone
+# editing anything, and the first time it did, a creative that passed on
+# Tuesday would fail on Wednesday with no diff to point at. The numbers above
+# are transcribed, deliberately, and this is the address to re-transcribe them
+# from -- printed wherever a verdict is shown so the source of a refusal is
+# one click away rather than folklore.
+SPEC_KIT_URL = "https://smart1.agency/partner/creative-specs"
+
+
 # --------------------------------------------------------------------------
 # The catalogue
 #
@@ -730,4 +742,5 @@ def catalogue() -> dict:
     # 2025" over all of them would misattribute those.
     return {"channels": list(chans.values()),
             "source": "S1M Creative Spec Kit 2025, plus the platform "
-                      "requirement sheets noted on individual units"}
+                      "requirement sheets noted on individual units",
+            "source_url": SPEC_KIT_URL}

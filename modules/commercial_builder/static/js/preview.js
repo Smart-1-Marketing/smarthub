@@ -3,12 +3,22 @@
   const projectId = root.dataset.projectId;
   let selectedFormats = new Set([...document.querySelectorAll("#render-format-choices .selected")].map((c) => c.dataset.value));
 
+  /* Every key run_qc returns. `scene_assets` was missing from this map and a
+     check absent from it is skipped silently by the loop below -- so the one
+     check that catches an unfinished scene, the whole reason it was written,
+     never appeared on the panel it was written for. The Blueprint step draws
+     the same list; both are complete, and test_commercial_qc.py asserts it. */
   const QC_LABELS = {
-    timing: "Timing", voice_fits: "Voice", cta: "CTA", brand: "Brand",
-    resolution: "Resolution", aspect_ratio: "Aspect ratio",
-    text_safe_area: "Text safe area", spelling: "Spelling",
-    qr_code: "QR code", logo_persistence: "Persistent logo", youtube_hook: "YouTube hook",
+    timing: "Timing", scene_assets: "Footage", voice_fits: "Narration length",
+    cta: "CTA", brand: "Brand", resolution: "Resolution", aspect_ratio: "Aspect ratio",
+    text_safe_area: "Text safe area", spelling: "Spelling", qr_code: "QR code",
+    logo_persistence: "Persistent logo", youtube_hook: "YouTube hook",
+    creative_spec: "Published spec", social_hook: "Feed hook", sound_off: "Sound off",
   };
+
+  /* A recommendation and a refusal are not the same finding, and painting
+     both red is how a panel of red teaches people to scroll past it. */
+  const ADVISORY = new Set(["logo_persistence", "brand", "aspect_ratio", "text_safe_area"]);
 
   document.getElementById("run-qc-btn").addEventListener("click", runQc);
 
@@ -19,9 +29,16 @@
     list.innerHTML = "";
     Object.entries(qc_results).forEach(([key, result]) => {
       if (key === "_all_passed" || !QC_LABELS[key]) return;
+      let tone = "pass", mark = "✓";
+      if (!result.passed) {
+        const advisory = ADVISORY.has(key);
+        tone = advisory ? "warn" : "fail";
+        mark = advisory ? "!" : "✕";
+      }
       const item = CB.el(`<div class="cb-qc-item">
-        <div class="cb-qc-icon ${result.passed ? "pass" : "fail"}">${result.passed ? "✓" : "!"}</div>
-        <div class="cb-qc-text"><strong>${QC_LABELS[key]}</strong><span>${result.message}</span></div>
+        <div class="cb-qc-icon ${tone}">${mark}</div>
+        <div class="cb-qc-text"><strong>${QC_LABELS[key]}</strong>
+        <span>${CB.escapeHtml(result.message)}</span></div>
       </div>`);
       list.appendChild(item);
     });

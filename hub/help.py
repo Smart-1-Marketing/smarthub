@@ -562,6 +562,145 @@ REGISTRY: list[Help] = [
        "key from me\u201d on a Hub that has had one set all along.",
        step=2, selector="[data-tour='ads-openai']"),
 
+
+    # ---------------- Commercial Builder ----------------
+    #
+    # This module had no explanation on any screen — no bubbles, no tour —
+    # while every screen of it makes a decision that costs money or gets a
+    # spot refused. The same failure Smart 1 Ads had: hub/help.py,
+    # hub/help_routes.py and hub-help.js were all working, and nothing reports
+    # a screen that placed neither a dot nor a data-screen.
+    #
+    # Per screen, not per module. The one thing that made Smart 1 Ads' help
+    # worse than absent was a module-wide walkthrough offered on screens whose
+    # selectors did not exist there, so "Do it for me" returned in silence.
+
+    _h("commercial_builder.start.client", "Pick the client, don\u2019t retype them",
+       "The first option searches the agency\u2019s real client list. Take it where "
+       "you can: a commercial filed under a name typed by hand joins to nothing "
+       "\u2014 no products, no scans, no Client 360 card, no logo or phone number "
+       "on file. \u201cNew business\u201d is for somebody we are pitching, who "
+       "genuinely has no client record yet. If the search comes back empty, read "
+       "what it says: no such client and \u201cwe could not read the client list\u201d "
+       "are different answers and only the first means create them as new.",
+       step=1, selector="#client-mode"),
+    _h("commercial_builder.start.platform", "Platform changes the spot, not the crop",
+       "A social cut is not a vertical CTV spot. It opens on its hook inside two "
+       "seconds because a feed has no slot holding the viewer in place, and it "
+       "carries its claims as on-screen text because most of that audience is "
+       "watching on mute \u2014 both are checked, not merely suggested to the "
+       "writer. CTV leans on a QR code instead, because a remote cannot click. "
+       "Picking this wrong gives you a spot that plays and does not work.",
+       step=2, selector="#platform-choices"),
+    _h("commercial_builder.start.lengths", "Several lengths, one concept",
+       "Tick as many as you need and each becomes its own commercial \u2014 its own "
+       "script, scenes and render \u2014 built from one shared concept so they say "
+       "the same thing. Building the :15 afterwards instead means walking the "
+       "wizard again and getting a different idea out of it. A :60 costs about "
+       "twice a :30 in AI video credits, voiceover characters and render time, "
+       "and on skippable inventory it is the length viewers skip most; the note "
+       "under the picker says so when you tick it. Watch for the red note too: "
+       "the published spec sells Connected TV at 15\u201330 seconds, so a :05 or a "
+       ":60 CTV cut is outside what that buy takes.",
+       step=3, selector="#length-choices"),
+
+    _h("commercial_builder.brief.what", "This is what the whole spot is built from",
+       "Everything downstream reads this: the three concepts, the timed script, "
+       "the stock searches and the end card\u2019s offer. Write the offer as a client "
+       "would say it \u2014 \u201c$79 air conditioning tune-up before August 31\u201d "
+       "rather than \u201cHVAC services\u201d."),
+    _h("commercial_builder.brief.landing", "The landing page becomes the QR code",
+       "Where there is one, this is what the QR code on the end card points at, "
+       "with tracking added so scans report as their own source rather than as "
+       "direct traffic. Without it the code falls back to the website on the CTA "
+       "card and then to the client\u2019s home page \u2014 which throws away the offer "
+       "the viewer just watched. Nothing is ever guessed at: with none of the "
+       "three, the code is refused rather than pointed somewhere invented."),
+
+    _h("commercial_builder.blueprint.beats", "The beats are the length\u2019s, not an even split",
+       "A :30 is a hook, the value, and a close that holds the end card long "
+       "enough to act on \u2014 not three equal thirds. The percentages are where "
+       "each beat starts and ends, and the script was written onto them. On a "
+       "social buy the first beat is different again: the hook is at zero, "
+       "because the thumb is already moving.",
+       step=1, selector="[data-tour='cb-beats']"),
+    _h("commercial_builder.blueprint.checks", "The same checks Render runs",
+       "They were only on the last step, and every one of them is about "
+       "something on this screen: a scene with no footage, a clip shorter than "
+       "the scene it sits in, narration outside the word budget. A red cross "
+       "blocks the render; an amber mark is a recommendation and will not. "
+       "\u201cPublished spec\u201d is the creative spec kit \u2014 the one the people "
+       "buying this inventory work from \u2014 and it is checked on the plan, before "
+       "a frame exists, because length and aspect ratio are what a platform "
+       "refuses creative over and both are decided here.",
+       step=2, selector="#run-checks-btn"),
+    _h("commercial_builder.blueprint.narration", "A longer spot needs more script, not longer pauses",
+       "The script writer sizes the read once, against the word budget for this "
+       "length, and stops \u2014 which is why a :60 can come back reading like a :30 "
+       "with gaps in it. This writes more, inside the room the budget actually "
+       "has, and re-measures. When there is no room left it says so rather than "
+       "quietly doing nothing: shorten a line first, or build a longer cut. A "
+       "scene you have locked is never rewritten under you.",
+       step=3, selector="#expand-narration-btn"),
+    _h("commercial_builder.blueprint.assets", "Make a frame, then animate it",
+       "The two AI buttons are one job in order, not two ways of doing the same "
+       "thing. Runway animates a starting image and has no usable text-only "
+       "path, so step 2 cannot run until step 1 (or stock, or an upload) has "
+       "given the scene a frame \u2014 which is why it stays disabled until then. "
+       "Clips come back at 5 or 10 seconds and nothing else, so a scene longer "
+       "than 10 seconds is refused rather than handed a clip that stops early. "
+       "Footage we already own is listed first and badged OWNED: it costs "
+       "nothing and needs no licence check.",
+       step=4, selector=".cb-step-pair"),
+
+    _h("commercial_builder.voice.cast", "Say what it should sound like, then listen",
+       "Ranked against the account\u2019s own voices by the same casting rules the "
+       "Radio Promo builder uses. Play the samples before you cast \u2014 the "
+       "ranking reads the labels ElevenLabs publishes, and a cloned voice "
+       "carries none, so a voice can come top having matched nothing. The note "
+       "beside the button says which of those happened.",
+       step=1, selector="#voice-wants"),
+    _h("commercial_builder.voice.settings", "Stability and style, and what they trade",
+       "Lower stability gives a more expressive, less predictable read; higher "
+       "makes it steadier and flatter. Style pushes it towards the character in "
+       "the voice\u2019s own samples. Both are worth a preview rather than a guess \u2014 "
+       "a :30 read is cheap to regenerate and expensive to notice at the render.",
+       step=2, selector="#voice-preview-btn"),
+    _h("commercial_builder.voice.pronunciation", "Local names, said properly",
+       "Kept against the client, not this spot, so \u201cGahanna\u201d is right in "
+       "every commercial they ever get. Write it as it sounds \u2014 guh-HAN-uh.",
+       step=3, selector="#pron-rows"),
+    _h("commercial_builder.voice.music", "The bed ducks under the read automatically",
+       "Level is how loud the music sits when nobody is speaking; it drops "
+       "under the voiceover on its own. High is for a spot carried by energy "
+       "rather than by what is said \u2014 on a feed, where most people watch "
+       "muted, it is doing very little.",
+       step=4, selector="#music-mood"),
+
+    _h("commercial_builder.cta.style", "The end card is the only part that asks for anything",
+       "Style decides what dominates the frame: the logo, the offer, the "
+       "website or the phone number. Pick the one the client actually wants "
+       "acted on \u2014 a card that shows all four equally gets none of them "
+       "remembered.",
+       step=1, selector="#cta-style-choices"),
+    _h("commercial_builder.cta.qr", "On CTV this is the whole response mechanism",
+       "There is nothing to click on a television, so a Connected TV spot "
+       "without a code asks for a response it has given nobody a way to make. "
+       "It has to be high-contrast, big enough, and held long enough to pull "
+       "out a phone \u2014 all three are checked. On social it is optional: the ad "
+       "is already tappable, and a code asks somebody to scan the phone they "
+       "are holding. The panel underneath says exactly where scanning it goes "
+       "and which Smart 1 Suite account will count the scan; a client with "
+       "their own sub-account gets their own, and a business we are pitching is "
+       "filed to Smart 1 Marketing, which is where prospects live.",
+       step=2, selector="#cta-qr-enabled"),
+    _h("commercial_builder.cta.logo", "For the viewer who looked away",
+       "A small corner bug keeps the brand on screen for the whole spot rather "
+       "than only on the end card, which matters most on CTV where the spot is "
+       "often heard rather than watched. It is a recommendation, not a "
+       "requirement \u2014 the check will mark it amber, not block the render.",
+       step=3, selector="#cta-logo-persistent"),
+
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

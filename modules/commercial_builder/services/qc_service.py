@@ -3,7 +3,20 @@ allowed to render. Each check returns {"passed": bool, "message": str} so
 the storyboard/review UI can render a simple pass/warn list."""
 
 from . import openai_service
-from ..config import VO_WORD_TARGETS, QR_CODE_RULES, qr_eligible
+from ..config import (VO_WORD_TARGETS, QR_CODE_RULES, OUTPUT_FORMATS, SOCIAL_RULES,
+                      qr_eligible, qr_required, is_social, spec_channels,
+                      spec_channel_mode)
+
+# The published creative specification. Imported defensively because this
+# module has to keep working when the Hub is not around it (db.py's STANDALONE
+# mode), and a missing Hub must cost this one check rather than the whole QC
+# panel -- the same shape routes/stock.py uses for the owned video library.
+try:
+    from hub import creative_specs
+except Exception:                                # noqa: BLE001
+    creative_specs = None
+
+_FORMAT_SIZES = {f["id"]: (f["width"], f["height"]) for f in OUTPUT_FORMATS}
 
 
 MIN_SUFFICIENT_WIDTH = 1280  # below this, an asset is flagged as low-resolution for HD delivery
@@ -24,6 +37,9 @@ def run_qc(project_dict, client_dict, scenes):
     checks["qr_code"] = _check_qr_code(project_dict, scenes)
     checks["logo_persistence"] = _check_logo_persistence(project_dict)
     checks["youtube_hook"] = _check_youtube_hook(project_dict, scenes)
+    checks["creative_spec"] = _check_creative_spec(project_dict)
+    checks["social_hook"] = _check_social_hook(project_dict, scenes)
+    checks["sound_off"] = _check_sound_off(project_dict, scenes)
 
     checks["_all_passed"] = all(c["passed"] for k, c in checks.items() if k != "_all_passed")
     return checks
@@ -207,14 +223,21 @@ def _check_qr_code(project_dict, scenes):
         return {"passed": True, "message": ":05 bumpers don't carry a QR code by design."}
 
     cta = project_dict.get("cta") or {}
-    requires_qr = platform in ("ctv", "both")
-    if not requires_qr:
-        # YouTube-only spots can lean on clickable end screens instead.
-        ok = True
-        msg = "YouTube-only spot — QR optional (clickable end screen covers the CTV use case)."
+    if not qr_required(length, platform):
+        # Somewhere the viewer can already tap or click. A QR code is still
+        # allowed — a Reel that gets shared to a television is a real thing —
+        # but its absence is not a finding, and reporting it as one on every
+        # social spot is how a warning stops being read.
         if cta.get("qr_enabled"):
-            msg = "QR code enabled."
-        return {"passed": ok, "message": msg}
+            return {"passed": True, "message": "QR code enabled."}
+        if is_social(platform):
+            return {"passed": True,
+                    "message": ("Social spot — no QR code needed. The ad is already "
+                                "tappable, and a code asks somebody to scan the phone "
+                                "they are holding.")}
+        return {"passed": True,
+                "message": ("YouTube-only spot — QR optional (a clickable end screen "
+                            "covers the same job).")}
 
     if not cta.get("qr_enabled"):
         return {"passed": False,
@@ -222,6 +245,13 @@ def _check_qr_code(project_dict, scenes):
                            "Turn it on in the CTA Builder."}
     if not (cta.get("qr_image_url") or cta.get("qr_data_url")):
         return {"passed": False, "message": "QR code is enabled but hasn't been generated yet."}
+    if not cta.get("qr_target_url"):
+        # A code with nothing behind it renders as a perfectly scannable
+        # square that opens nothing. hub/qr_codes.destination() refuses to
+        # invent a destination, so this is where that refusal surfaces.
+        return {"passed": False,
+                "message": ("QR code is enabled but has no destination. Add a landing "
+                            "page on the brief, or a website on the CTA.")}
 
     cta_scene = next((s for s in scenes if s.get("is_cta")), None)
     hold_seconds = (cta_scene["end"] - cta_scene["start"]) if cta_scene else 0
@@ -273,3 +303,223 @@ def _check_youtube_hook(project_dict, scenes):
                            f"as its own mini-hook so viewers don't click Skip before it lands."}
     return {"passed": True, "message": "Opening scene lands within the first 5 seconds — works as a "
                                         "standalone hook for skippable placements."}
+
+
+# ---------------------------------------------------------------------------
+# The published creative specification.
+#
+# This tool produced finished video for CTV, YouTube and social and never
+# checked it against the spec the agency publishes for the people buying that
+# inventory. hub/creative_specs.py has held those numbers all along -- read by
+# the IO builder's upload manager and by the client galleries -- and asking it
+# the same question here means a spot is judged the same way whether it
+# arrives through this tool or is attached to an insertion order by hand.
+#
+# What is judged is the **plan**, not a file: at QC time nothing has been
+# rendered. So the dimensions come from the output format the render will be
+# submitted at, and the duration from the spot's own length. Those are the two
+# things the kit refuses creative over most often, and both are decided before
+# a frame exists -- which is the whole reason to ask now rather than after a
+# platform has refused the delivery.
+# ---------------------------------------------------------------------------
+_RANK = {"pass": 0, "warn": 1, "unknown": 2, "fail": 3}
+
+
+def _best_unit_verdict(channel, width, height, seconds):
+    """The kindest verdict this channel can give one planned cut, and the unit.
+
+    "Kindest" is right here and not a fudge: a channel usually sells several
+    lengths of the same thing -- YouTube has TrueView and a Bumper -- and a :05
+    is a Bumper, not a TrueView that ran short. Judging against every unit and
+    keeping the best is how the channel itself would read it. `check()` already
+    picks the closest unit *within* a set; this picks between them, which it
+    cannot do from a unit_id.
+    """
+    best = None
+    for unit in creative_specs.UNITS:
+        if unit.get("channel") != channel or unit.get("kind") != "video":
+            continue
+        verdict = creative_specs.check(width=width, height=height, fmt="mp4",
+                                       duration=float(seconds), unit_id=unit["id"])
+        if best is None or _RANK[verdict["result"]] < _RANK[best[0]["result"]]:
+            best = (verdict, unit)
+    return best
+
+
+def _label(channel):
+    return creative_specs.CHANNEL_LABELS.get(channel, channel)
+
+
+def _unit_phrase(unit, channel):
+    """" as <unit>", or nothing where the unit adds nothing.
+
+    Several channels carry one unit named after the channel, so the obvious
+    phrasing produces "runs as Connected TV / OTT on Connected TV / OTT" —
+    which reads as a bug in the sentence and costs the rest of it its
+    credibility.
+    """
+    name = unit.get("name") or ""
+    return "" if not name or name == _label(channel) else f" as {name}"
+
+
+def _check_creative_spec(project_dict):
+    if creative_specs is None:
+        return {"passed": True,
+                "message": "Not measured — the creative spec kit is unavailable here."}
+
+    platform = project_dict.get("platform", "both")
+    length = project_dict.get("length_seconds") or 0
+    formats = project_dict.get("formats") or ["16:9"]
+    mode = spec_channel_mode(platform)
+
+    problems, accepted, unmapped = [], [], []
+
+    for fmt in formats:
+        channels = spec_channels(platform, fmt)
+        if not channels:
+            # A crop nobody sells on this buy. Naming it beats judging it
+            # against the nearest channel and reporting a verdict about a
+            # placement that does not exist -- creative_specs.check() makes
+            # the same distinction with its own "unknown" result.
+            unmapped.append(fmt)
+            continue
+
+        width, height = _FORMAT_SIZES.get(fmt, (0, 0))
+        refused, allowed = [], []
+        for channel in channels:
+            best = _best_unit_verdict(channel, width, height, length)
+            if best is None:
+                continue
+            verdict, unit = best
+            if verdict["result"] in ("fail", "warn"):
+                refused.append({"channel": _label(channel), "why": verdict["summary"]})
+            else:
+                allowed.append({"channel": _label(channel), "as": _unit_phrase(unit, channel)})
+
+        if not refused and not allowed:
+            unmapped.append(fmt)
+            continue
+
+        if mode == "any":
+            # Bought per network. One that takes it is a pass, and the ones
+            # that would not are named rather than dropped: a rep placing this
+            # needs to know where it can go, not merely that somewhere can.
+            if allowed:
+                accepted.append(f"{fmt} runs on "
+                                + ", ".join(a["channel"] + a["as"] for a in allowed))
+                for r in refused:
+                    accepted.append(f"but not on {r['channel']} — {r['why']}")
+            else:
+                problems.extend(f"{fmt} on {r['channel']} — {r['why']}" for r in refused)
+        else:
+            # One file, every channel in the buy. A cut half the buy refuses
+            # is not a pass.
+            problems.extend(f"{fmt} on {r['channel']} — {r['why']}" for r in refused)
+            if allowed:
+                accepted.append(f"{fmt} runs on "
+                                + ", ".join(a["channel"] + a["as"] for a in allowed))
+
+    where = f" Checked against the spec kit ({creative_specs.SPEC_KIT_URL})."
+
+    if problems:
+        return {"passed": False,
+                "message": ("This cut is outside the published spec — "
+                            + "; ".join(problems) + "." + where)}
+    if not accepted:
+        return {"passed": True,
+                "message": ("Not measured — the kit maps no video unit for "
+                            + ", ".join(unmapped) + f" on a {platform} buy, so nothing "
+                            "was checked. Check by hand against "
+                            + creative_specs.SPEC_KIT_URL + ".")}
+    message = "; ".join(accepted) + "."
+    if unmapped:
+        # Never silently. A format skipped inside a passing check is a format
+        # reported as fine when nothing looked at it.
+        message += (" " + ", ".join(unmapped) + " was not measured — the kit maps no "
+                    "video unit for it on this buy.")
+    return {"passed": True, "message": message + where}
+
+
+# ---------------------------------------------------------------------------
+# The two things a social cut has to do that a CTV one does not.
+#
+# Both are checked here rather than asked for in the prompt, for the reason
+# hub/blog_spec.py gives about a client's "never mention" list: a prompt is a
+# request, and "the model was told to" is not evidence that it did.
+# ---------------------------------------------------------------------------
+def _check_social_hook(project_dict, scenes):
+    platform = project_dict.get("platform", "both")
+    if not is_social(platform):
+        return {"passed": True, "message": "Not a social spot — feed-hook check not applicable."}
+    if not scenes:
+        return {"passed": False, "message": "No scenes yet to evaluate the opening hook."}
+
+    window = SOCIAL_RULES["hook_seconds"]
+    first = scenes[0]
+    has_content = bool((first.get("visual_description") or "").strip()
+                       or (first.get("narration") or "").strip())
+    if not has_content:
+        return {"passed": False,
+                "message": ("The first scene has no visual or narration — there is nothing "
+                            "to stop a thumb with.")}
+    # A first scene that runs long is the classic CTV habit carried into a
+    # feed: a slow establishing shot the viewer never sees the end of.
+    if float(first.get("end") or 0) > window + 0.5:
+        return {"passed": False,
+                "message": (f"The opening scene runs to {float(first.get('end') or 0):.1f}s. In a "
+                            f"feed the hook has about {window:g} seconds — cut the opening "
+                            f"shorter, or lead with the most arresting moment in the spot.")}
+    return {"passed": True,
+            "message": f"Opening lands inside the first {window:g} seconds."}
+
+
+def _check_sound_off(project_dict, scenes):
+    """A claim spoken and never shown is a claim a muted feed never hears.
+
+    Only social is checked. CTV plays with sound by design and YouTube's
+    in-stream inventory does too, so requiring burned-in text there would be
+    a finding on every spot — which is how a check gets switched off.
+    """
+    platform = project_dict.get("platform", "both")
+    if not is_social(platform):
+        return {"passed": True, "message": "Not a social spot — sound-off check not applicable."}
+
+    cta = project_dict.get("cta") or {}
+    spoken = [s for s in scenes if (s.get("narration") or "").strip() and not s.get("is_cta")]
+    if not spoken:
+        return {"passed": True, "message": "No spoken narration to caption."}
+
+    # What is genuinely on screen: the end card's own text. Anything else
+    # would be a claim about overlays this tool does not yet build, and
+    # asserting one is worse than reporting the gap.
+    on_screen = any((cta.get(field) or "").strip()
+                    for field in ("offer", "headline", "website"))
+    if not on_screen:
+        return {"passed": False,
+                "message": ("Nothing in this spot is written on screen. " 
+                            + SOCIAL_RULES["sound_off_note"]
+                            + " Fill in the offer or CTA line so the end card carries it.")}
+    return {"passed": True,
+            "message": ("The end card carries the offer in text as well as narration. "
+                        "Check the middle of the spot the same way — "
+                        + SOCIAL_RULES["sound_off_note"].lower())}
+
+
+def spec_preview(platform, length_seconds, formats):
+    """The spec verdict for a spot that does not exist yet.
+
+    The same check the QC panel runs, asked at the moment somebody picks a
+    length and a platform rather than after they have built the thing. That
+    matters here more than it looks: the kit sells Connected TV at 15-30
+    seconds, and this tool offers :05 and :60 on every platform — so a rep can
+    pick a combination the buy will refuse, spend an afternoon and a pile of
+    provider credits on it, and find out at the end. Two of the four lengths
+    on the Start page are in that position for a CTV buy.
+
+    Deliberately not a refusal. A :60 CTV spot is a real thing to want — for a
+    website, a lobby screen, a sales meeting — and a tool that blocked it
+    would be wrong. What it must not do is stay quiet.
+    """
+    return _check_creative_spec({"platform": platform,
+                                 "length_seconds": length_seconds,
+                                 "formats": list(formats or ["16:9"])})

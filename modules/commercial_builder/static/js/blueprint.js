@@ -1,12 +1,32 @@
+/* The Blueprint step: the scenes, their footage and their narration.
+   Voice, music and the CTA were on this same page and are their own steps now
+   -- see routes/pages.py for why. What is left here is one job. */
 (() => {
   const wrap = document.getElementById("scenes-wrap");
   const projectId = wrap.dataset.projectId;
   const clientId = wrap.dataset.clientId;
   const clientSlug = wrap.dataset.clientSlug;
+  const lengthSeconds = parseInt(wrap.dataset.length, 10) || 0;
   const tpl = document.getElementById("scene-card-tpl");
   let dragSourceId = null;
+
+  /* The voice is cast on the NEXT step, so this page has no picker of its own
+     -- and the spokesperson button still needs a voice id, because HeyGen
+     speaks the narration into the clip. Left null it comes back in HeyGen's
+     default: not the voice the spot was cast in, baked into a clip that has
+     already been paid for, and nobody notices until the render.
+
+     So it reads the voice cast against the client. Where none has been cast
+     yet, the picker says so rather than generating a presenter in a voice
+     nobody chose. */
   let selectedVoiceId = null;
-  let clientPronunciation = {};
+
+  async function loadCastVoice() {
+    try {
+      const { client } = await CB.api(`/api/clients/${clientId}`);
+      selectedVoiceId = client.preferred_voiceover_id || null;
+    } catch (e) { /* the picker says so below */ }
+  }
 
   const ASSET_TYPE_LABEL = {
     stock: "Stock", ai_generated: "AI generated", spokesperson: "Spokesperson",
@@ -66,12 +86,17 @@
   // server will only refuse.
   async function generateVideo(card, scene) {
     if (!scene.asset_url) {
-      return CB.toast("Pick or generate a frame for this scene first — AI video animates a "
-                      + "starting image.", true);
+      /* The button is disabled in this state, so this is the belt to that
+         brace -- a scene whose frame was cleared between render and click. */
+      return CB.toast("This scene needs a frame first. Press “Make a frame”, or "
+                      + "pick footage, then animate it.", true);
     }
     const picker = card.querySelector(".asset-picker");
     picker.innerHTML = '<div class="cb-card" style="margin-top:10px;padding:12px;">'
-      + '<span class="cb-spinner"></span> Sending this frame to Runway…</div>';
+      + CB.working("video", "Sending this frame to Runway…",
+                   "Runway animates the still you made — it does not invent one. "
+                   + "A clip takes a few minutes; you can leave this page and come back.")
+      + "</div>";
     try {
       await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/generate-video`,
                    { method: "POST", body: {} });
@@ -125,11 +150,16 @@
     const { project } = await CB.api(`/api/projects/${projectId}`);
     renderWordCount(project.script);
     renderScenes(project.scenes);
+    loadBudget();
   }
 
   function renderWordCount(script) {
     const el = document.getElementById("wc-summary");
-    if (!script || !script.word_count === undefined) { el.textContent = "No script yet."; return; }
+    /* `!script.word_count === undefined` parses as `(!script.word_count) === undefined`,
+       which is always false -- so a project with no script fell straight through
+       to reading `script.target_range` off null. This is the guard it was meant
+       to be. */
+    if (!script || script.word_count === undefined) { el.textContent = "No script yet."; return; }
     const [lo, hi] = script.target_range || [0, 0];
     const ok = script.within_target;
     el.innerHTML = `Narration: <strong class="${ok ? "" : "cb-word-count warn"}">${script.word_count} words</strong> (target ${lo}-${hi})`;
@@ -222,9 +252,28 @@
     node.querySelector(".duration-input").addEventListener("change", (e) =>
       updateScene(scene.id, { duration: parseFloat(e.target.value) }).then(loadScenes));
 
+    /* "Generate AI" and "Generate Video" sat side by side as peers and read
+       as two ways of doing the same thing. They are two halves of one: Runway
+       animates a starting frame and has no usable text-only path, so the
+       second cannot run before the first. Numbered, paired, and the second is
+       disabled until the scene has a frame -- a button that explains itself
+       only after being pressed has already wasted the press. */
+    const videoBtn = node.querySelector(".generate-video-btn");
+    const pairNote = node.querySelector(".ai-pair-note");
+    if (!scene.asset_url) {
+      videoBtn.disabled = true;
+      pairNote.textContent = "Make or pick a frame first \u2014 step 2 animates what step 1 makes.";
+    } else if ((scene.asset_meta || {}).media === "video") {
+      pairNote.textContent = "This scene is already video.";
+    } else {
+      pairNote.textContent = "Ready to animate this scene's frame.";
+    }
+
     node.querySelector(".find-stock-btn").addEventListener("click", () => openStockPicker(node, scene));
     node.querySelector(".generate-ai-btn").addEventListener("click", () => openAiPicker(node, scene));
-    node.querySelector(".generate-video-btn").addEventListener("click", () => generateVideo(node, scene));
+    videoBtn.addEventListener("click", () => generateVideo(node, scene));
+    node.querySelector(".more-narration-btn").addEventListener("click", (e) =>
+      expandNarration(scene.order_index, e.target));
     node.querySelector(".spokesperson-btn").addEventListener("click", () => openSpokespersonPicker(node, scene));
     node.querySelector(".upload-btn").addEventListener("click", () => openUploadPicker(node, scene));
     node.querySelector(".client-asset-btn").addEventListener("click", () => openClientAssetPicker(node, scene));
@@ -292,10 +341,17 @@
       const q = input.value.trim();
       if (!q) return;
       results.innerHTML = '<span class="cb-spinner"></span>';
-      const { results: items } = await CB.api(`/api/stock/search?q=${encodeURIComponent(q)}&expand=true`);
+      const data = await CB.api(`/api/stock/search?q=${encodeURIComponent(q)}&expand=true`);
+      const items = data.results || [];
       results.innerHTML = "";
+      renderOwnedNote(box, data);
       items.forEach((item) => {
-        const tier = item.tier === "PREMIUM" ? "cb-badge-premium" : "cb-badge-free";
+        /* OWNED footage was drawn with the FREE badge, so a clip we already
+           hold looked exactly like a Pexels result. routes/stock.py ranks it
+           first precisely because it costs nothing and needs no licence check,
+           and a badge that does not say so throws that away. */
+        const tier = item.tier === "PREMIUM" ? "cb-badge-premium"
+                   : (item.tier === "OWNED" ? "cb-badge-owned" : "cb-badge-free");
         const cell = CB.el(`
           <div class="cb-choice" style="padding:6px;">
             <div class="cb-scene-thumb" style="aspect-ratio:16/9;background-image:url('${item.thumbnail}')"></div>
@@ -323,30 +379,81 @@
     if (input.value) runSearch();
   }
 
-  // ------------------------------------------------------------ Generate AI
+  // ---------------------------------------------------- 1 · Make a frame
+  //
+  // This is the button that "finally gave me two options but it failed".
+  // gpt-image-1 returns b64_json and never a url, and the service read
+  // `resp.data[0].url` unconditionally -- so both options came back with no
+  // image on them, the picker drew Option A and Option B exactly as it would
+  // for a success, and clicking either said "This option failed to generate"
+  // with nothing anywhere saying why. The service is fixed; this half stops a
+  // dead option from looking like a live one.
   async function openAiPicker(card, scene) {
     closeExistingPickers();
     const picker = card.querySelector(".asset-picker");
-    picker.innerHTML = '<div class="cb-card" style="margin-top:10px;padding:12px;"><span class="cb-spinner"></span> Generating two options…</div>';
-    const { options, live } = await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/generate-ai`, { method: "POST" });
-    const box = CB.el(`<div class="cb-card" style="margin-top:10px;padding:12px;">
-      <p style="margin:0 0 8px;">${live ? "" : "Mock mode — no OPENAI_API_KEY set. "}Runway (V1.5) will add true AI video generation; this is a still-frame option in the meantime.</p>
-      <div class="cb-choice-grid"></div></div>`);
-    const grid = box.querySelector(".cb-choice-grid");
-    ["A", "B"].forEach((label, i) => {
-      const opt = options[i];
-      if (!opt) return;
+    picker.innerHTML = '<div class="cb-card" style="margin-top:10px;padding:12px;">'
+      + CB.working("concepts", "Drawing two options\u2026",
+                   "A still frame for this scene. Pick one, then press "
+                   + "\u201cAnimate it\u201d to turn it into video.")
+      + "</div>";
+
+    let payload;
+    try {
+      payload = await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/generate-ai`,
+                             { method: "POST" });
+    } catch (e) {
+      picker.innerHTML = "";
+      return;                              // CB.api has already surfaced the reason
+    }
+    const options = payload.options || [];
+    const live = payload.live;
+
+    const box = CB.el('<div class="cb-card" style="margin-top:10px;padding:12px;"></div>');
+    if (!live) {
+      box.appendChild(CB.el('<p class="cb-hint">Mock mode \u2014 no OPENAI_API_KEY is set, '
+        + "so these are placeholders rather than generated frames.</p>"));
+    }
+
+    const usable = options.filter((o) => o && o.url);
+    if (!usable.length) {
+      // Every option failed. The reason is the provider's own and it is the
+      // only thing worth showing -- an empty grid of two dead tiles is what
+      // this looked like before.
+      const why = options.map((o) => o && o.error).filter(Boolean);
+      box.appendChild(CB.el('<div class="cb-note bad"><strong>No frames came back</strong><p>'
+        + CB.escapeHtml(why.length ? why.join(" \u00b7 ")
+                                   : "OpenAI returned no image and gave no reason.")
+        + "</p></div>"));
+      picker.innerHTML = "";
+      picker.appendChild(box);
+      return;
+    }
+
+    const grid = CB.el('<div class="cb-choice-grid"></div>');
+    usable.forEach((opt, i) => {
       const cell = CB.el(`<div class="cb-choice" style="padding:6px;">
-        <div class="cb-scene-thumb" style="aspect-ratio:16/9;background-image:url('${opt.url || ""}')"></div>
-        <div class="cb-choice-title" style="margin-top:4px;">Option ${label}</div></div>`);
+        <div class="cb-scene-thumb" style="aspect-ratio:16/9;background-image:url('${opt.url}')"></div>
+        <div class="cb-choice-title" style="margin-top:4px;">Option ${String.fromCharCode(65 + i)}</div></div>`);
       cell.addEventListener("click", async () => {
-        if (!opt.url) return CB.toast("This option failed to generate.", true);
-        await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/choose-ai-option`, { method: "POST", body: { url: opt.url } });
+        await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/choose-ai-option`,
+                     { method: "POST", body: { url: opt.url } });
         picker.innerHTML = "";
         loadScenes();
       });
       grid.appendChild(cell);
     });
+    box.appendChild(grid);
+
+    // An option that failed while its partner worked is named rather than
+    // silently absent: asking for two and being shown one, with nothing
+    // saying so, reads as the tool having decided one was better.
+    const failed = options.filter((o) => o && !o.url && o.error);
+    if (failed.length) {
+      box.appendChild(CB.el('<p class="cb-hint">' + failed.length
+        + (failed.length === 1 ? " option" : " options") + " failed: "
+        + CB.escapeHtml(failed.map((o) => o.error).join(" \u00b7 ")) + "</p>"));
+    }
+
     picker.innerHTML = "";
     picker.appendChild(box);
   }
@@ -361,6 +468,14 @@
     if (!live) {
       box.appendChild(CB.el(`<p class="cb-hint">Mock mode — no HeyGen key set, so no video
         will be produced. Set HEYGEN_API to generate real presenter clips.</p>`));
+    }
+    if (!selectedVoiceId) {
+      // The clip is generated once and the voice is baked into it, so this is
+      // said before the money is spent rather than after.
+      box.appendChild(CB.el('<div class="cb-note"><strong>No voice cast yet</strong>'
+        + "<p>The presenter speaks this scene's narration, so the clip is rendered in "
+        + "whatever voice is chosen — and it cannot be changed afterwards without "
+        + "paying for a second clip. Cast the voice on the next step first.</p></div>"));
     }
 
     // A scene that already has footage can either keep it, with the presenter
@@ -480,145 +595,150 @@
     picker.appendChild(box);
   }
 
-  // ------------------------------------------------------------- Voice Studio
-  async function loadVoices() {
-    const select = document.getElementById("voice-select");
-    const { voices, live } = await CB.api("/api/voices");
-    select.innerHTML = voices.map((v) => `<option value="${v.voice_id}">${v.name}${v.style ? " — " + v.style : ""}</option>`).join("");
-    if (voices.length) selectedVoiceId = voices[0].voice_id;
-    select.addEventListener("change", () => (selectedVoiceId = select.value));
-    if (!live) document.getElementById("voice-status").textContent = "Mock mode — no ELEVENLABS_API_KEY set.";
+  // --------------------------------------------------- the owned library
+  //
+  // routes/stock.py has searched our own Cloudinary footage alongside Pexels
+  // and Pixabay all along, and ranked it first. None of that was visible: the
+  // OWNED tier was painted with the FREE badge and `owned_note` -- which says
+  // WHY the owned library returned nothing, and has three different answers
+  // for it -- was never printed at all. So "we own nothing relevant", "there
+  // is no Cloudinary key" and "indexing has not started" all rendered as the
+  // same silence, and a producer reading it goes and licenses a clip we may
+  // already have.
+  function renderOwnedNote(box, data) {
+    let note = box.querySelector(".owned-note");
+    if (!note) {
+      note = CB.el('<p class="cb-hint owned-note"></p>');
+      box.appendChild(note);
+    }
+    const providers = data.providers || {};
+    const owned = (data.results || []).filter((r) => r.tier === "OWNED").length;
+    if (data.owned_note) {
+      note.textContent = "Our own footage library: " + data.owned_note;
+      return;
+    }
+    if (!providers.owned) {
+      note.textContent = "Our own footage library was not searched.";
+      return;
+    }
+    note.textContent = owned
+      ? `${owned} clip${owned === 1 ? "" : "s"} from our own library are listed first — `
+        + "they cost nothing and need no licence check."
+      : "Our own library was searched and had nothing matching this. "
+        + "Everything below is stock.";
   }
 
-  ["voice-speed", "voice-stability", "voice-style"].forEach((id) => {
-    const input = document.getElementById(id);
-    const out = document.getElementById(id.replace("voice-", "") + "-val");
-    input.addEventListener("input", () => {
-      out.textContent = id === "voice-speed" ? `${input.value}×` : `${Math.round(input.value * 100)}%`;
-    });
-  });
-
-  async function loadPronunciation() {
-    const { client } = await CB.api(`/api/clients/${clientId}`);
-    clientPronunciation = client.pronunciation_dict || {};
-    renderPronRows();
-  }
-  function renderPronRows() {
-    const wrapEl = document.getElementById("pron-rows");
-    wrapEl.innerHTML = "";
-    Object.entries(clientPronunciation).forEach(([word, phonetic]) => addPronRow(word, phonetic));
-  }
-  function addPronRow(word = "", phonetic = "") {
-    const wrapEl = document.getElementById("pron-rows");
-    const row = CB.el(`<div style="display:flex;gap:8px;margin-bottom:6px;">
-      <input type="text" class="pron-word" placeholder="Gahanna" value="${word}" style="flex:1;">
-      <input type="text" class="pron-phonetic" placeholder="guh-HAN-uh" value="${phonetic}" style="flex:1;">
-      <button class="cb-btn cb-btn-sm cb-btn-danger pron-remove">✕</button></div>`);
-    row.querySelector(".pron-remove").addEventListener("click", async () => {
-      row.remove();
-      await savePronunciation();
-    });
-    row.querySelectorAll("input").forEach((i) => i.addEventListener("change", savePronunciation));
-    wrapEl.appendChild(row);
-  }
-  async function savePronunciation() {
-    const dict = {};
-    document.querySelectorAll("#pron-rows > div").forEach((row) => {
-      const word = row.querySelector(".pron-word").value.trim();
-      const phonetic = row.querySelector(".pron-phonetic").value.trim();
-      if (word) dict[word] = phonetic;
-    });
-    clientPronunciation = dict;
-    await CB.api(`/api/clients/${clientId}/pronunciation`, { method: "PUT", body: { pronunciation_dict: dict } });
-  }
-  document.getElementById("pron-add").addEventListener("click", () => addPronRow());
-
-  document.getElementById("voice-preview-btn").addEventListener("click", async () => {
-    if (!selectedVoiceId) return CB.toast("Choose a voice first.", true);
-    const status = document.getElementById("voice-status");
-    status.textContent = "Generating…";
-    const { voiceover, live } = await CB.api(`/api/projects/${projectId}/voiceover/full`, {
-      method: "POST",
-      body: {
-        voice_id: selectedVoiceId,
-        speed: parseFloat(document.getElementById("voice-speed").value),
-        stability: parseFloat(document.getElementById("voice-stability").value),
-        style: parseFloat(document.getElementById("voice-style").value),
-      },
-    });
-    status.textContent = live
-      ? `Generated — estimated ${voiceover.duration_estimate}s of narration.`
-      : `Mock mode — estimated ${voiceover.duration_estimate}s of narration (no audio file, no ELEVENLABS_API_KEY set).`;
-  });
-
-  // ------------------------------------------------------------------- Music
-  document.getElementById("save-music-btn").addEventListener("click", async () => {
-    await CB.api(`/api/projects/${projectId}/music`, {
-      method: "PUT",
-      body: { mood: document.getElementById("music-mood").value, level: document.getElementById("music-level").value },
-    });
-    CB.toast("Music selection saved.");
-  });
-
-  // --------------------------------------------------------------- CTA Builder
-  let ctaStyle = document.querySelector("#cta-style-choices .selected")?.dataset.value || "logo_centered";
-  document.getElementById("cta-style-choices").addEventListener("click", (e) => {
-    const choice = e.target.closest(".cb-choice");
-    if (!choice) return;
-    document.querySelectorAll("#cta-style-choices .cb-choice").forEach((c) => c.classList.remove("selected"));
-    choice.classList.add("selected");
-    ctaStyle = choice.dataset.value;
-  });
-  const phoneInput = document.getElementById("cta-phone"); // absent on :05 bumpers by design
-  const qrEnabledInput = document.getElementById("cta-qr-enabled");
-  const qrCornerInput = document.getElementById("cta-qr-corner");
-  const logoPersistentInput = document.getElementById("cta-logo-persistent");
-  const logoCornerInput = document.getElementById("cta-logo-corner");
-
-  function syncCtaToggleVisibility() {
-    const qrControls = document.getElementById("qr-controls");
-    if (qrControls && qrEnabledInput) qrControls.style.display = qrEnabledInput.checked ? "flex" : "none";
-    const logoControls = document.getElementById("logo-corner-controls");
-    if (logoControls && logoPersistentInput) logoControls.style.display = logoPersistentInput.checked ? "" : "none";
-  }
-  if (qrEnabledInput) qrEnabledInput.addEventListener("change", syncCtaToggleVisibility);
-  if (logoPersistentInput) logoPersistentInput.addEventListener("change", syncCtaToggleVisibility);
-  syncCtaToggleVisibility();
-
-  document.getElementById("save-cta-btn").addEventListener("click", async () => {
-    const btn = document.getElementById("save-cta-btn");
-    btn.disabled = true;
+  // ------------------------------------------------------------- narration
+  //
+  // A :60 has room for about 150 words and the script writer sizes the read
+  // once and stops, so a long spot came back reading like a :30 with pauses
+  // in it. Typing more by hand then turned the word count red, because
+  // nothing re-measured. This writes more inside the budget the length
+  // actually has, and re-measures.
+  async function loadBudget() {
+    const el = document.getElementById("narration-budget");
+    if (!el) return;
+    let data;
     try {
-      const { cta } = await CB.api(`/api/projects/${projectId}/cta`, {
-        method: "PUT",
-        body: {
-          style: ctaStyle,
-          offer: document.getElementById("cta-offer").value.trim(),
-          headline: document.getElementById("cta-headline").value.trim(),
-          website: document.getElementById("cta-website").value.trim(),
-          phone: phoneInput ? phoneInput.value.trim() : "",
-          qr_enabled: qrEnabledInput ? qrEnabledInput.checked : false,
-          qr_corner: qrCornerInput ? qrCornerInput.value : undefined,
-          logo_persistent: logoPersistentInput ? logoPersistentInput.checked : false,
-          logo_corner: logoCornerInput ? logoCornerInput.value : undefined,
-        },
-      });
-      const qrPreview = document.getElementById("qr-preview");
-      if (qrPreview) {
-        if (cta.qr_enabled && (cta.qr_data_url || cta.qr_image_url)) {
-          qrPreview.src = cta.qr_data_url || cta.qr_image_url;
-          qrPreview.style.display = "";
-        } else {
-          qrPreview.style.display = "none";
+      data = await CB.api(`/api/projects/${projectId}/narration/budget`);
+    } catch (e) { return; }
+    const b = data.budget;
+    let verdict = "on target";
+    if (b.under) verdict = "under — there is room for more";
+    if (b.over) verdict = "over — the read will feel rushed";
+    el.innerHTML = `<strong>${b.used} words</strong> against a target of `
+      + `${b.target_low}–${b.target_high} for a :${String(lengthSeconds).padStart(2, "0")} `
+      + `<span class="${b.over ? "cb-word-count warn" : ""}">(${verdict})</span>`;
+    const btn = document.getElementById("expand-narration-btn");
+    if (btn) btn.disabled = b.room < 5;
+  }
+
+  async function expandNarration(sceneIndex, btn) {
+    const label = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "Writing…"; }
+    const noteBox = document.getElementById("narration-note");
+    try {
+      const body = {};
+      if (sceneIndex !== undefined && sceneIndex !== null) body.scene_index = sceneIndex;
+      const data = await CB.api(`/api/projects/${projectId}/narration/expand`,
+                                { method: "POST", body });
+      if (noteBox) {
+        noteBox.innerHTML = "";
+        if (data.note) {
+          // A refusal with its reason, not a button that appears to work and
+          // changes nothing.
+          noteBox.appendChild(CB.el('<div class="cb-note"><p>'
+            + CB.escapeHtml(data.note) + "</p></div>"));
         }
       }
-      CB.toast("CTA saved.");
+      if (data.written) {
+        CB.toast(`Rewrote narration on ${data.written} scene${data.written === 1 ? "" : "s"}.`);
+        await loadScenes();
+      }
+    } catch (e) {
+      /* CB.api has already surfaced the reason */
     } finally {
-      btn.disabled = false;
+      if (btn) { btn.disabled = false; btn.textContent = label; }
     }
-  });
+  }
 
-  loadScenes();
-  loadVoices();
-  loadPronunciation();
+  const expandBtn = document.getElementById("expand-narration-btn");
+  if (expandBtn) expandBtn.addEventListener("click", () => expandNarration(null, expandBtn));
+
+  // ---------------------------------------------------------------- checks
+  //
+  // The same checks Render runs, on the screen everything they are about
+  // lives on. They were only on Preview, so the first sight of "scene 3 has
+  // no footage" was two steps after the screen with scene 3 on it -- and
+  // pressing Render then re-ran the identical set, which is the tool
+  // answering a question it had just been asked.
+  const QC_LABELS = {
+    timing: "Timing", scene_assets: "Footage", voice_fits: "Narration length",
+    cta: "CTA", brand: "Brand", resolution: "Resolution", aspect_ratio: "Aspect ratio",
+    text_safe_area: "Text safe area", spelling: "Spelling", qr_code: "QR code",
+    logo_persistence: "Persistent logo", youtube_hook: "YouTube hook",
+    creative_spec: "Published spec", social_hook: "Feed hook", sound_off: "Sound off",
+  };
+
+  // Which findings are worth stopping for and which are advice. Both used to
+  // paint red, and a page of red teaches people to scroll past it.
+  const ADVISORY = new Set(["logo_persistence", "brand", "aspect_ratio", "text_safe_area"]);
+
+  async function runChecks() {
+    const list = document.getElementById("qc-list");
+    if (!list) return;
+    list.innerHTML = '<span class="cb-spinner"></span>';
+    let data;
+    try {
+      data = await CB.api(`/api/projects/${projectId}/qc`, { method: "POST" });
+    } catch (e) {
+      list.innerHTML = '<div class="cb-empty">The checks could not run.</div>';
+      return;
+    }
+    const qc = data.qc_results || {};
+    list.innerHTML = "";
+    let blocking = 0;
+    Object.entries(qc).forEach(([key, result]) => {
+      if (key === "_all_passed" || !QC_LABELS[key]) return;
+      let tone = "pass", mark = "✓";
+      if (!result.passed) {
+        const advisory = ADVISORY.has(key);
+        tone = advisory ? "warn" : "fail";
+        mark = advisory ? "!" : "✕";
+        if (!advisory) blocking += 1;
+      }
+      list.appendChild(CB.el(`<div class="cb-qc-item">
+        <div class="cb-qc-icon ${tone}">${mark}</div>
+        <div class="cb-qc-text"><strong>${QC_LABELS[key]}</strong>
+        <span>${CB.escapeHtml(result.message)}</span></div>
+      </div>`));
+    });
+    if (qc._all_passed) CB.toast("Everything checks out.");
+    else if (!blocking) CB.toast("Nothing blocking — the rest are recommendations.");
+  }
+
+  const checksBtn = document.getElementById("run-checks-btn");
+  if (checksBtn) checksBtn.addEventListener("click", runChecks);
+
+  loadCastVoice().then(loadScenes);
 })();
