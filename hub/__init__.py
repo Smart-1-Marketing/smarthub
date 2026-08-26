@@ -288,12 +288,19 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .google_links import orphans
+        plats = [p for p in
+                 str(request.args.get("platforms", "")).split(",") if p.strip()]
         return jsonify(orphans(
             q=request.args.get("q", ""),
             platform=request.args.get("platform", ""),
+            platforms=plats,
             include_other=str(request.args.get("include_other", "")).lower()
             in ("1", "true", "yes"),
-            limit=clamp_int(request.args.get("limit"), 400, 1, 2000)))
+            # A page at a time. Clamped at both ends for the reason
+            # hub/webargs.py exists: ?limit=-1 was a 500 on Postgres and a
+            # full dump on SQLite.
+            limit=clamp_int(request.args.get("limit"), 25, 1, 200),
+            offset=clamp_int(request.args.get("offset"), 0, 0, 100000)))
 
     @app.route("/api/google/attach", methods=["POST"])
     def api_google_attach():

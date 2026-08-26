@@ -436,6 +436,226 @@ check("a resource nothing can be proposed for says so rather than showing one",
 
 
 # ---------------------------------------------------------------------------
+section("A shared word is a proposal, and it says which word")
+# ---------------------------------------------------------------------------
+# The four rules above join on a recorded id, a domain or a whole name. None
+# of them fires for a GTM container called "Buckeye Marina - new" against a
+# client filed as "Buckeye Lake Marina", which a person reading the row can
+# see in a second. So a shared word is offered too — last, weakest, and with
+# the word itself named so the guess can be judged rather than trusted.
+_write_index(LATE_ITEMS + [
+    {"platform": "Google Tag Manager", "type": "container",
+     "name": "Buckeye Marina - new", "resource_id": "GTM-WORDS",
+     "google_login": "ops@smart1.example", "domains": [], "client": "",
+     "match": ""},
+    # Nothing in this name identifies anybody: every word is either a company
+    # suffix or a platform word.
+    {"platform": "Google Analytics", "type": "property",
+     "name": "GA4 Property - Main Account", "resource_id": "G-NOWORDS",
+     "google_login": "ops@smart1.example", "domains": [], "client": "",
+     "match": ""},
+])
+ctx = google_links._context()                                   # noqa: SLF001
+words = google_links.suggest_for(
+    {"platform": "Google Tag Manager", "name": "Buckeye Marina - new",
+     "resource_id": "GTM-WORDS", "domains": []}, ctx)
+by_client = {w["client"]: w for w in words}
+check("a resource sharing a word with a client name proposes that client",
+      "Buckeye Lake Marina" in by_client, [w["client"] for w in words])
+check("...as possible, never as anything stronger",
+      by_client.get("Buckeye Lake Marina", {}).get("confidence") == "possible",
+      by_client.get("Buckeye Lake Marina"))
+check("...and names the words it matched on",
+      "buckeye" in by_client.get("Buckeye Lake Marina", {}).get("why", ""),
+      by_client.get("Buckeye Lake Marina", {}).get("why"))
+check("a client sharing no word with it is not proposed",
+      "Shared One" not in by_client, [w["client"] for w in words])
+
+# LLC is not a word that identifies a business, and matching on it would offer
+# every incorporated client as a possible owner of everything.
+plain = google_links.suggest_for(
+    {"platform": "Google Analytics", "name": "GA4 Property - Main Account",
+     "resource_id": "G-NOWORDS", "domains": []}, ctx)
+check("a name made only of company and platform words proposes nobody",
+      plain == [], plain)
+check("...because those words are not counted at all",
+      not google_links._words("LLC Inc the Google Analytics property"),   # noqa: SLF001
+      google_links._words("LLC Inc the Google Analytics property"))       # noqa: SLF001
+check("a real word survives tokenising",
+      google_links._words("Buckeye Lake Marina LLC")                      # noqa: SLF001
+      == {"buckeye", "lake", "marina"},
+      google_links._words("Buckeye Lake Marina LLC"))                     # noqa: SLF001
+
+# A word half the book shares identifies none of it. The ceiling is computed
+# against the client list rather than guessed at.
+many = [{"name": f"Heating Co {i}", "slug": f"h{i}",
+         "url": f"https://heating{i}.example", "domain": f"heating{i}.example",
+         "live": True, "running_count": 1, "product_count": 1, "source": "knack",
+         "is_house": False, "products": [], "running_products": [],
+         "key": f"d:heating{i}.example"} for i in range(30)]
+registry.all_clients = lambda refresh=False: [dict(c) for c in CLIENTS + many]
+client_key.alias_index(refresh=True)
+wide = google_links._context()                                  # noqa: SLF001
+check("a word shared by more clients than the ceiling is dropped",
+      "heating" in (wide.get("common_words") or set()),
+      sorted(wide.get("common_words") or []))
+flood = google_links.suggest_for(
+    {"platform": "Google Analytics", "name": "Heating GA4",
+     "resource_id": "G-FLOOD", "domains": []}, wide)
+check("...so it does not propose thirty clients for one resource",
+      len(flood) <= 3, [f["client"] for f in flood])
+registry.all_clients = lambda refresh=False: [dict(c) for c in CLIENTS]
+client_key.alias_index(refresh=True)
+
+
+# ---------------------------------------------------------------------------
+section("The orphan list is paged, and every count is of the whole book")
+# ---------------------------------------------------------------------------
+MANY = [{"platform": "Google Analytics", "type": "property",
+         "name": f"Orphan property {i}", "resource_id": f"G-PAGE{i}",
+         "google_login": "ops@smart1.example", "domains": [], "client": "",
+         "match": ""} for i in range(60)]
+_write_index(MANY)
+
+first = google_links.orphans(limit=25, offset=0)
+check("a page is the size that was asked for", len(first["rows"]) == 25,
+      len(first["rows"]))
+check("...and the count is of the whole list, not the page",
+      first["count"] == 60, first["count"])
+check("...which is the number a reader would otherwise get wrong",
+      first["orphans_total"] == 60, first["orphans_total"])
+check("it says there is more and where to continue from",
+      first["has_more"] is True and first["next_offset"] == 25, first)
+
+second = google_links.orphans(limit=25, offset=25)
+check("the next page carries different rows",
+      not ({r["resource_id"] for r in first["rows"]}
+           & {r["resource_id"] for r in second["rows"]}),
+      "pages overlap")
+last = google_links.orphans(limit=25, offset=50)
+check("the final page reports no more", last["has_more"] is False, last)
+check("...and holds the remainder", len(last["rows"]) == 10, len(last["rows"]))
+check("an offset past the end is empty rather than an error",
+      google_links.orphans(limit=25, offset=999)["rows"] == [])
+
+# Searching has to search the book, not the page. That is the whole reason it
+# moved off the browser: a filter over whichever 25 rows had been sent is a
+# filter that quietly answers about part of the list.
+_write_index(MANY + [
+    {"platform": "Google Analytics", "type": "property", "name": "Findable one",
+     "resource_id": "G-FINDME", "google_login": "ops@smart1.example",
+     "domains": [], "client": "", "match": ""}])
+hit = google_links.orphans(q="findable", limit=25, offset=0)
+check("a row on the last page is still found by a search",
+      [r["resource_id"] for r in hit["rows"]] == ["G-FINDME"], hit["rows"])
+check("...and the count reflects the search, not the book",
+      hit["count"] == 1, hit["count"])
+
+# The three tickboxes, not one platform at a time.
+_write_index(LATE_ITEMS)
+picked = google_links.orphans(platforms=["gsc"])
+check("the platform tickboxes filter the list",
+      {r["key"] for r in picked["rows"]} == {"gsc"},
+      [r["key"] for r in picked["rows"]])
+check("the older single-platform parameter still works",
+      {r["key"] for r in google_links.orphans(platform="ga4")["rows"]} == {"ga4"})
+
+
+# ---------------------------------------------------------------------------
+section("A platform that refused is not a platform with nothing in it")
+# ---------------------------------------------------------------------------
+# The reason Tag Manager and Search Console can vanish from this page with
+# nothing anywhere saying why: every fetcher swallows its own exception and
+# returns an empty list, so a 403 from a scope the token never got looks
+# exactly like a login that owns no containers.
+data = jsonstore.read_json(google_index._path(), default={})    # noqa: SLF001
+data["sweep"] = [
+    {"email": "a@x.example", "platform": "Google Analytics", "kind": "ok",
+     "ok": True, "count": 12, "error": ""},
+    {"email": "a@x.example", "platform": "Google Tag Manager", "kind": "refused",
+     "ok": False, "count": 0, "error": "403 insufficient scope"},
+    {"email": "a@x.example", "platform": "Google Business Profile",
+     "kind": "disabled", "ok": False, "count": 0,
+     "error": "GOOGLE_GMB_ENABLED is not set on this deployment."},
+]
+jsonstore.write_json(google_index._path(), data)                # noqa: SLF001
+
+st = google_index.status()
+check("the sweep is carried on the index", len(st["sweep"]) == 3, st["sweep"])
+check("...and what failed is separated from what answered",
+      {n["platform"] for n in st["sweep_problems"]}
+      == {"Google Tag Manager", "Google Business Profile"}, st["sweep_problems"])
+
+rep = google_links.orphans()
+check("the orphan page is handed the sweep", len(rep["sweep"]) == 3, rep["sweep"])
+check("...and the note says rows are missing rather than absent",
+      "missing rather than absent" in rep["note"], rep["note"])
+check("...naming the platforms that could not be swept",
+      "Tag Manager" in rep["note"], rep["note"])
+
+data["sweep"] = []
+jsonstore.write_json(google_index._path(), data)                # noqa: SLF001
+check("an index built before this existed says not measured, not all-clear",
+      "not measured" in google_links.orphans()["note"],
+      google_links.orphans()["note"])
+
+
+# ---------------------------------------------------------------------------
+section("The sweep itself tells refused apart from empty")
+# ---------------------------------------------------------------------------
+# Asserted against the real fetchers with only their HTTP call stubbed, because
+# the classification is the whole point: "reconnect this login" and "try again
+# later" need opposite things from a person, and an empty book needs neither.
+try:
+    from modules.google_finder import app as gf
+
+    def _403(*a, **k):
+        raise RuntimeError("HTTP 403: insufficient authentication scopes")
+
+    def _net(*a, **k):
+        raise RuntimeError("Connection reset by peer")
+
+    real_get, real_gtm = gf.google_get, gf.gtm_get
+    gf.google_get = gf.gtm_get = _403
+    notes = []
+    gf.fetch_ga_items("t", "a@x", notes)
+    gf.fetch_gtm_items("t", "a@x", notes)
+    gf.fetch_gsc_items("t", "a@x", notes)
+    check("a 403 on any platform is recorded as refused",
+          [n["kind"] for n in notes] == ["refused"] * 3, notes)
+    check("...against the login it happened to",
+          {n["email"] for n in notes} == {"a@x"}, notes)
+
+    gf.google_get = gf.gtm_get = _net
+    notes = []
+    gf.fetch_ga_items("t", "b@x", notes)
+    check("a network error is failed, not refused — they need opposite fixes",
+          notes and notes[0]["kind"] == "failed", notes)
+
+    gf.google_get = lambda *a, **k: {"accountSummaries": []}
+    notes = []
+    gf.fetch_ga_items("t", "c@x", notes)
+    check("a login that genuinely owns nothing is ok with a count of zero",
+          notes and notes[0]["kind"] == "ok" and notes[0]["count"] == 0, notes)
+    check("...and ok is the only kind that reads as an answer",
+          notes[0]["ok"] is True, notes)
+
+    notes = []
+    gf.fetch_gmb_items("t", "gmb@x", notes)
+    check("a platform switched off says so rather than returning an empty book",
+          notes and notes[0]["kind"] == "disabled", notes)
+    check("...and names the variable that would switch it on",
+          "GOOGLE_GMB_ENABLED" in notes[0]["error"], notes)
+
+    # The old signature has to keep working: nine other callers pass no notes.
+    check("a caller that wants no notes is unaffected",
+          gf.fetch_ga_items("t", "d@x") == [])
+    gf.google_get, gf.gtm_get = real_get, real_gtm
+except Exception as exc:                                        # noqa: BLE001
+    check("the Google Finder sweep can be inspected", False, exc)
+
+
+# ---------------------------------------------------------------------------
 section("The routes exist under the hub app, not a mount")
 # ---------------------------------------------------------------------------
 # /google belongs to Google Finder, so these have to be hub routes elsewhere —

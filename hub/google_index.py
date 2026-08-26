@@ -98,6 +98,7 @@ def load() -> dict:
     data.setdefault("items", [])
     data.setdefault("accounts", [])
     data.setdefault("errors", [])
+    data.setdefault("sweep", [])
     data.setdefault("last_attempt", "")
     data.setdefault("last_error", "")
     data["never_built"] = not data.get("built_at")
@@ -142,6 +143,9 @@ def status() -> dict:
         "unmapped": len(items) - len(mapped),
         "accounts": data.get("accounts") or [],
         "errors": data.get("errors") or [],
+        "sweep": data.get("sweep") or [],
+        "sweep_problems": [n for n in (data.get("sweep") or [])
+                           if not n.get("ok")],
         "by_platform": _count(items, "platform"),
         "by_match": _count(mapped, "match"),
     }
@@ -392,8 +396,22 @@ def build(force: bool = True) -> dict:
         return failed(f"Google Finder is not loaded ({type(exc).__name__}), "
                       f"so there is nothing to sweep.")
 
+    # Asked for by inspection rather than by calling and catching TypeError:
+    # a sweep that genuinely fails raises too, and retrying it in the handler
+    # both hides the real error and sweeps Google twice.
+    sweep: list = []
     try:
-        raw, errors = gf.get_index(force=force)
+        import inspect
+        takes_notes = "notes" in inspect.signature(gf.get_index).parameters
+    except Exception:                                   # noqa: BLE001
+        takes_notes = False
+    try:
+        if takes_notes:
+            raw, errors = gf.get_index(force=force, notes=sweep)
+        else:
+            # Reported as unmeasured rather than as a clean sweep: "we did not
+            # ask per platform" and "every platform answered" are different.
+            raw, errors = gf.get_index(force=force)
         accounts = sorted({str(i.get("google_login") or "") for i in raw} - {""})
     except Exception as exc:                            # noqa: BLE001
         return failed(f"{type(exc).__name__} while sweeping Google: {exc}"[:300])
@@ -444,6 +462,10 @@ def build(force: bool = True) -> dict:
         "items": items,
         "accounts": accounts,
         "errors": errors,
+        # One row per login per platform: what was asked and what came back.
+        # Without it a Tag Manager 403 and a login with no containers are the
+        # same empty list on every screen that reads this index.
+        "sweep": sweep,
     }
     jsonstore.write_json(_path(), payload)
     try:

@@ -855,6 +855,56 @@ re-examines, so these are proposals a human accepts:
   billing audit used to make.
 - **name** / **possible** — an exact normalised name, or a near name or the same
   registrable name on another TLD, labelled as worth an eyeball.
+- **possible, on a shared word** — the loosest rule and the last one tried. A
+  GTM container called "Buckeye Marina - new" matches a client filed as
+  "Buckeye Lake Marina" on none of the above, and a person reading the row can
+  see in a second that they are the same business. The row names *which* word
+  did it, because that is the only evidence there is. Company and platform
+  words (`llc`, `inc`, `analytics`, `container`) are not words that identify
+  anybody, and a word shared by more clients than a ceiling **computed against
+  the book** identifies none of them — on a client list where a tenth of the
+  names contain "heating", matching on it proposes a tenth of the book for
+  every resource, which is worse than proposing nobody because it buries the
+  two rows that meant something. Capped at three, for the same reason.
+
+**A platform that refused is not a platform with nothing in it.** Each fetcher
+in Google Finder swallows its own exception and returns an empty list — which
+is right, since one platform failing must not cost the other three, and is also
+how "this login has no Tag Manager containers" and "Tag Manager refused this
+token" came to look identical on every screen. A login consented before a scope
+was added to `SCOPES` keeps the grant it was given: Google does not widen an
+existing refresh token, so the call 403s for ever and the page shows nothing.
+Every sweep now files a note per login per platform — **ok** (with a count,
+which may legitimately be zero), **refused** (a scope this token never got, or
+an API not enabled; reconnecting re-consents, because the connect URL forces
+`prompt=consent`), **failed** (we could not ask) and **disabled** (we did not
+ask — Business Profile is behind `GOOGLE_GMB_ENABLED` because those APIs need
+per-project access granted by Google on top of the OAuth scope). The notes ride
+on the stored index, so `/tools/google-match` can say why a platform is empty
+rather than drawing a clean nothing, and an index built before they existed
+reports *not measured*.
+
+**The orphan list is paged on the server, 25 at a time.** The suggestions are
+the expensive half — a Knack read, the alias index and a word index per
+resource — so a long book paid for all of them before drawing a row. Searching
+and filtering moved with it: a filter over whichever rows had been sent is a
+filter that quietly answers about part of the list. Every count on screen is of
+the whole filtered list, never of the page, because a page reporting its own
+length as the total is how somebody concludes there are 25 orphans. **Rows are
+appended, never re-rendered**: each row holds a client-search box, and a
+container that redraws itself while somebody is typing into it eats what they
+typed — the same trap the Smart 1 Ads target-area rows had.
+
+**Bulk actions are two different statements, and both say which.** *Attach to
+their suggested owner* accepts what the Hub already worked out, per row, and
+names how many of the selection have no suggestion rather than skipping them
+silently. *Attach to one customer* overrides it with one name — and it is a
+searchable list of real clients, never a typed name. It used to be a `prompt()`
+box, which is the `client_key` trap in its purest form: a name typed into it
+that matches nothing files the resource under a client nothing joins to and
+reads as a clean success. Select-all selects the rows that are **loaded** and
+says so, because ticking 25 and calling it "all 400" is the confident wrong
+answer this codebase keeps having to undo.
 
 Attaching writes three systems and reports each: the **client record**
 attachment (the index's own strongest rule, so the next sweep re-applies it),
