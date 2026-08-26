@@ -616,3 +616,76 @@ def lookup(q: str, customer_id=None) -> dict:
             c["invoices"] = []
             c["error"] = str(exc)
     return {"configured": True, "connected": True, "customers": customers}
+
+
+# ---------------------------------------------------------------------------
+# Invoice lines for one product/service
+# ---------------------------------------------------------------------------
+#
+# The domain renewal report needs the *lines*, not the invoice totals: one
+# invoice to a media partner carries a renewal for five different clients, and
+# the client is named only in the line description. QuickBooks' query language
+# cannot filter on a line, so the invoices for the period are pulled whole and
+# the lines are sifted here.
+#
+# The item is matched on the **leaf** of its fully-qualified name. This
+# company files the service as `Website Hosting:Website Domain Renewal`, and a
+# caller asking for "Website Domain Renewal" — which is what it is called on
+# the invoice and what anybody would type — must not come back empty because
+# of a parent it did not know about. An item id, where the caller has one, is
+# checked first and is exact.
+
+def item_leaf(name: str) -> str:
+    """`Website Domain Renewal` from `Website Hosting:Website Domain Renewal`."""
+    return str(name or "").split(":")[-1].strip()
+
+
+def line_item_matches(ref_name: str, ref_id, *, item_name: str = "",
+                      item_id: str = "") -> bool:
+    if item_id:
+        return str(ref_id or "") == str(item_id)
+    if not item_name:
+        return False
+    return item_leaf(ref_name).lower() == item_leaf(item_name).lower()
+
+
+def invoice_item_lines(start_iso: str, end_iso: str, *, item_name: str = "",
+                       item_id: str = "") -> list[dict]:
+    """Every invoice line in a date range that carries one product/service.
+
+    The link is the QuickBooks app URL rather than the public InvoiceLink:
+    this is an internal accounting report, and `public_link()` costs one API
+    call per invoice, so a year of invoices would be a year of round trips to
+    render a table nobody sends to a client.
+    """
+    invoices = _query_all(
+        f"SELECT * FROM Invoice WHERE TxnDate >= '{_esc(start_iso)}' "
+        f"AND TxnDate <= '{_esc(end_iso)}' ORDERBY TxnDate"
+    )
+    out = []
+    for inv in invoices:
+        ref = inv.get("CustomerRef") or {}
+        iid = str(inv.get("Id") or "")
+        for line in inv.get("Line") or []:
+            detail = line.get("SalesItemLineDetail") or {}
+            item = detail.get("ItemRef") or {}
+            if not line_item_matches(item.get("name"), item.get("value"),
+                                     item_name=item_name, item_id=item_id):
+                continue
+            out.append({
+                "invoice_id": iid,
+                "line_id": str(line.get("Id") or ""),
+                "doc_number": inv.get("DocNumber") or "",
+                "date": inv.get("TxnDate") or "",
+                # Who the invoice was raised against. On a domain renewal this
+                # is almost always the media partner rather than the client —
+                # the client is named in the line description.
+                "customer": ref.get("name") or "",
+                "customer_id": ref.get("value") or "",
+                "description": str(line.get("Description") or ""),
+                "amount": float(line.get("Amount") or 0),
+                "item_id": str(item.get("value") or ""),
+                "item_name": item.get("name") or "",
+                "link": f"https://app.qbo.intuit.com/app/invoice?txnId={iid}",
+            })
+    return out

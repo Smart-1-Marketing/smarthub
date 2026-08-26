@@ -1015,6 +1015,7 @@ function render(g,q){
         <b style="font-size:12.5px">Domain record</b>
         <span class="muted" style="font-size:11px">Knack object_153</span></div>
       <dl class="kv wk-kv">${fields}</dl>
+      ${renewalBlock(d.renewal)}
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
         <a class="gbtn wk-save" style="cursor:pointer"${d.writable?'':' hidden'}>Save to Knack</a>
         <span class="wk-msg muted" style="font-size:11.5px">${d.writable?'':esc(d.note||'')}</span></div></div>`;
@@ -1037,6 +1038,56 @@ function render(g,q){
             ' — refused: '+res.rejected.join('; '):'');
         }).catch(()=>{msg.textContent='could not save';});
     };
+  }
+
+  // ---------- The renewal standing of the domain on this record ----------
+  //
+  // A domain attached to a client is a domain somebody on this page wants the
+  // renewal answer for, and sending them to /tools/domains to find the same
+  // row again is how a list stays unactioned. Three things are said apart
+  // rather than blurred: a domain we did not buy has no renewal for us to
+  // bill (that is not "not billed"), a renewal with no billing date recorded
+  // cannot be asked the question at all, and billed says *what* said so —
+  // an invoice in QuickBooks, or somebody's tick on the renewal calendar.
+  function renewalBlock(r){
+    if(!r) return '';
+    if(!r.applies){
+      return `<div class="muted" style="font-size:11.5px;margin-top:8px">
+        <b>Domain renewal.</b> ${esc(r.reason||'Not measured.')}</div>`;
+    }
+    let state;
+    if(!r.dated){
+      state=`<span class="muted">not measured</span>`;
+    }else if(r.billed){
+      state='<b style="color:#147d52">billed</b>'+
+        (r.billed_source==='quickbooks'?' — QuickBooks':
+         r.billed_source==='hub'?' — ticked on the renewal calendar':'');
+    }else{
+      state='<b style="color:#a06a00">not billed</b>';
+    }
+    const inv=(r.charges||[]).map(c=>
+      `<div class="muted" style="font-size:11px">${c.link
+        ?`<a href="${esc(c.link)}" target="_blank" rel="noopener">Invoice ${esc(c.doc_number||c.invoice_id)}</a>`
+        :`Invoice ${esc(c.doc_number||c.invoice_id)}`} · ${esc(c.date||'')} · $${Number(c.amount||0).toFixed(2)}${
+        c.customer?' · billed to '+esc(c.customer):''}</div>`).join('');
+    const dnr=r.do_not_renew
+      ? `<div style="font-size:11.5px;color:#a3352a;margin-top:3px"><b>${
+          r.renewed_anyway?'Marked do not renew — and it renewed anyway':'Marked do not renew'
+        }.</b> ${esc(r.dnr_note||'')}</div>` : '';
+    return `<div style="margin-top:10px;border-top:1px dashed var(--line);padding-top:8px">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <b style="font-size:12.5px">Domain renewal</b>
+        <a class="gbtn" href="/tools/domains" style="font-size:11px">Renewal calendar</a></div>
+      <div style="font-size:11.5px;margin-top:4px">
+        ${r.renewal_billing_date?'Billing date <b>'+esc(r.renewal_billing_date)+'</b>':
+          '<span class="muted">No renewal billing date recorded</span>'}
+        ${r.fee?' · fee $'+Number(r.fee).toFixed(2):''}
+        ${r.partner?' · partner '+esc(r.partner):''} · ${state}</div>
+      ${inv}
+      ${r.note?`<div class="muted" style="font-size:11px;margin-top:3px">${esc(r.note)}</div>`:''}
+      ${r.not_measured?`<div class="muted" style="font-size:11px;margin-top:3px">${esc(r.not_measured)}</div>`:''}
+      ${r.quickbooks_error?`<div class="muted" style="font-size:11px;color:#b45309;margin-top:3px">${esc(r.quickbooks_error)}</div>`:''}
+      ${dnr}</div>`;
   }
 
   function hashStr(s){let h=0;for(let i=0;i<String(s).length;i++){h=(h*31+String(s).charCodeAt(i))|0;}return h;}

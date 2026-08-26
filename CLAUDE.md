@@ -1149,11 +1149,73 @@ three are laid out from the clock (a hard-coded window is right the month it is
 written), and a row with no renewal billing date goes in its own group saying so
 rather than sorting to the top as if it were overdue.
 
-There is no billed field in Knack, so the tick is the Hub's — and it is kept
-**against the renewal billing date it was ticked for**, not against the record.
-A domain renews every year; a tick that stayed green when next year's date
-arrived would be a confident wrong answer of exactly the kind this codebase
-keeps having to undo.
+There is no billed field in Knack. **There is one in QuickBooks**, though not
+under that name: every renewal we invoice is a line carrying the product
+`Website Hosting:Website Domain Renewal`, and `hub/domain_renewals.py` reads
+those and matches each one back to a website record — so "billed" is an
+observation with an invoice number, a date and an amount behind it, and the row
+says which invoice said so. The Hub's own tick survives beside it for a renewal
+paid another way, kept **against the renewal billing date it was ticked for**,
+not against the record: a domain renews every year, and a tick that stayed green
+when next year's date arrived would be a confident wrong answer of exactly the
+kind this codebase keeps having to undo. A QuickBooks charge is held to the same
+rule — it bills the renewal it is *near* (`WINDOW_DAYS`), so last year's invoice
+can never mark this year's. `billed_source` is always printed: **quickbooks**,
+**hub**, or neither.
+
+Everything in that matcher exists because **the client is not the customer**. A
+domain renewal is invoiced to the media partner — one invoice to a radio group
+carries five renewals for five businesses — so the only place the client appears
+is the free-text line description, typed by a person in whatever shape that day
+suggested: `syrons-market.com<TAB>Syrons`, `Foreman Mechanical Services, LLC -
+foremanmechanical.com`, `http://friendsofbridges.org/ - Annual renewal`. The
+rules follow from that. **The domain in the description is the join key, never
+the name** — it is the one thing in that string that identifies a business
+exactly, and on this deployment's own invoices all 23 renewal lines carry one.
+**A name matches exactly or not at all**, and a near name is a *suggestion* that
+does not tick anything: a charge attributed to the wrong client's domain marks a
+renewal billed that was not *and* hides a real one from the reconciliation, so
+`confidence` says "probable", the row is offered for confirmation, and until
+somebody confirms it the charge counts as having no record here — in both
+directions, because a probable match that quietly satisfied one side would
+vanish from the report entirely. **"Annual renewal" is not a name**, the
+`hub/site_names.py` rule about "Main Site" again; a label-only remainder is
+dropped rather than matched loosely. And the item is matched on the **leaf** of
+its name, so a report asking for "Website Domain Renewal" is not defeated by a
+parent nobody knew about (`QB_DOMAIN_RENEWAL_ITEM` / `..._ITEM_ID` override it).
+
+**Billed is this month's question; do-not-renew is next month's.** Asking
+whether a renewal three months out was billed is asking about something that has
+not happened. So the current month carries the billed tick and every later month
+carries **do not renew** — and that flag is deliberately *not* retired when the
+date rolls the way the billed tick is. Somebody said this domain should not
+renew; a renewal billing date that has since moved on means it renewed anyway,
+which is a charge to chase rather than a mark to quietly clear. The
+do-not-renew report keeps those two apart for that reason: **Still to cancel**
+is the queue, **Renewed anyway** is the exception report, and a mark whose
+record has left the registry is *named* rather than dropped.
+
+**And the year-end question has two directions.** `year_to_date()` asks both:
+renewals that came due this year with **no invoice** behind them (money we paid
+a registrar and did not bill), and Website Domain Renewal charges that match
+**no record here** (money we billed for a domain this Hub has never heard of, or
+one whose description nothing can join up — each row carrying what was read out
+of it, and a searchable list of real purchased domains to attach it to, never a
+text box). Neither is presented as a total when either side failed to read: a
+Knack that would not answer makes every charge look unrecorded and a QuickBooks
+that would not answer makes every renewal look unbilled, so both errors travel
+with the numbers and `measured` is false. A domain marked do-not-renew is listed
+apart, because not billing one of those is correct rather than a finding.
+
+**A domain attached to a client is answered on Client 360.** The renewal
+standing rides on `/api/client/website-record` rather than being a second fetch,
+and the domain record panel prints the billing date, the fee, the partner and
+whether this year's renewal was invoiced, with the invoice linked — sending
+somebody to `/tools/domains` to find the same row again is how a list stays
+unactioned. Three answers are kept apart there: a domain we did not buy has no
+renewal for us to bill (which is not "not billed"), a record with no renewal
+billing date is *not measured*, and a QuickBooks that could not be read says so
+instead of reading as a clean nothing.
 
 ## One company, several client records
 
@@ -2236,7 +2298,8 @@ python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude p
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
 python3 test_video_library.py      # the footage index, its status row, the page's palette
 python3 test_sites_match.py        # live-only matching, the name pass, a client's missing URL
-python3 test_domain_links.py       # attaching a domain everywhere, orphans, renewals
+python3 test_domain_links.py       # attaching a domain everywhere, orphans, renewals,
+                                   #   the QuickBooks match and do-not-renew
 python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
 python3 test_google_access.py      # the paused Ads flow, and who an invite is for
 python3 test_google_index.py       # the Google sweep: no request, and none vs cannot look

@@ -499,6 +499,311 @@ check("unticking works too",
 
 
 # ---------------------------------------------------------------------------
+section("A QuickBooks line description is read, never guessed at")
+# ---------------------------------------------------------------------------
+# These are the real shapes on this company's invoices. The client is not the
+# QuickBooks customer — one invoice to a media partner carries five renewals
+# for five businesses — so the description is the only place the client
+# appears, and it is typed by a person in whatever shape that day suggested.
+from hub import domain_renewals                                     # noqa: E402
+
+for text, want_domain, want_name in (
+        (" syrons-market.com/\tSyrons", "syrons-market.com", "Syrons"),
+        ("Foreman Mechanical Services, LLC - foremanmechanical.com",
+         "foremanmechanical.com", "Foreman Mechanical Services, LLC"),
+        ("www.topsdigitalmarketing.com\tTOPS Marketing",
+         "topsdigitalmarketing.com", "TOPS Marketing"),
+        ("morningskyestates.com/ Morning Sky Estates",
+         "morningskyestates.com", "Morning Sky Estates"),
+        ("The Exchange Club of Helena -   helenaexchangeclub.org/ ",
+         "helenaexchangeclub.org", "The Exchange Club of Helena")):
+    got = domain_renewals.parse_description(text)
+    check(f"“{text.strip()[:34]}…” reads as {want_domain}",
+          got["domain"] == want_domain and got["name"] == want_name, got)
+
+check("a scheme and a trailing slash are noise, not part of the domain",
+      domain_renewals.parse_description("http://friendsofbridges.org/ - Annual "
+                                        "renewal")["domain"]
+      == "friendsofbridges.org")
+check("...and “Annual renewal” is a label, so it is not offered as a name",
+      domain_renewals.parse_description("http://friendsofbridges.org/ - Annual "
+                                        "renewal")["name"] == "")
+check("a label with a year on it identifies nobody either",
+      domain_renewals.parse_description("Annual renewal for 2026")["name"] == "")
+check("a file host is not a website, so it is not read as one",
+      domain_renewals.parse_description(
+          "Renewal - see drive.google.com/file/x")["domain"] == "")
+check("a description naming only a business still yields the business",
+      domain_renewals.parse_description("Acme Plumbing")["name"] == "Acme Plumbing")
+
+check("the item is matched on the leaf of its fully-qualified name",
+      __import__("hub.quickbooks", fromlist=["x"]).line_item_matches(
+          "Website Hosting:Website Domain Renewal", "143",
+          item_name="Website Domain Renewal"))
+check("...and an item id, where there is one, is exact and wins",
+      __import__("hub.quickbooks", fromlist=["x"]).line_item_matches(
+          "Something Else", "143", item_name="Website Domain Renewal",
+          item_id="143"))
+check("a different product on the same invoice is not a domain renewal",
+      not __import__("hub.quickbooks", fromlist=["x"]).line_item_matches(
+          "Video Advertising:Video Ads YouTube TrueView", "98",
+          item_name="Website Domain Renewal"))
+
+
+# ---------------------------------------------------------------------------
+section("A charge matches a domain exactly, or it is a suggestion")
+# ---------------------------------------------------------------------------
+def _line(iid, lid, date_, desc, amount=24.99, customer="The Montana Radio Group"):
+    return {"invoice_id": iid, "line_id": lid, "doc_number": "TSN-" + iid,
+            "date": date_, "customer": customer, "customer_id": "7",
+            "description": desc, "amount": amount, "item_id": "143",
+            "item_name": "Website Hosting:Website Domain Renewal",
+            "link": "https://app.qbo.intuit.com/app/invoice?txnId=" + iid}
+
+
+QB_LINES = [
+    _line("1001", "2", "2026-08-20",
+          "Buckeye Lake Marina -  buckeyelakemarina.example"),
+    _line("1002", "2", "2026-03-11", "Riverstone Heat Co - annual renewal"),
+    _line("1003", "2", "2026-05-02",
+          "Wholly Unknown Business LLC - nobodyhasthis.example"),
+    _line("1004", "2", "2026-06-02", "Annual renewal"),
+]
+matched = domain_renewals.match_charges(QB_LINES, WEB_ROWS)
+by_key = {c["key"]: c for c in matched}
+
+hit = by_key["1001:2"]
+check("the domain in the description is the join key",
+      hit["record_id"] == "rec1" and hit["matched_on"] == "domain", hit)
+check("...and that is exact, not a suggestion", hit["confidence"] == "exact")
+check("the record's media partner comes back with it", "partner" in hit)
+
+near = by_key["1002:2"]
+check("a near name is offered, and only as probable",
+      near["record_id"] == "rec3" and near["confidence"] == "probable", near)
+check("...saying so in words a person can act on",
+      "confirm" in near["why"].lower(), near["why"])
+
+miss = by_key["1003:2"]
+check("a domain nothing here carries matches nobody",
+      miss["record_id"] == "" and miss["confidence"] == "unmatched", miss)
+check("...and it says what it read rather than only that it failed",
+      miss["parsed"]["domain"] == "nobodyhasthis.example", miss["parsed"])
+
+blank = by_key["1004:2"]
+check("a description naming neither a domain nor a business says exactly that",
+      blank["record_id"] == "" and "neither" in blank["why"], blank)
+
+# A person's confirmation is the only fact in the matcher, and it outranks
+# every rule below it — including the near-name suggestion.
+check("a charge can be attached to a record by hand",
+      domain_renewals.link_charge("1003:2", "rec1", actor="Todd",
+                                  domain="buckeyelakemarina.example")["ok"])
+relinked = {c["key"]: c for c in domain_renewals.match_charges(QB_LINES, WEB_ROWS)}
+check("...and the confirmation wins over the parser",
+      relinked["1003:2"]["record_id"] == "rec1"
+      and relinked["1003:2"]["confidence"] == "confirmed", relinked["1003:2"])
+check("...naming who confirmed it", "Todd" in relinked["1003:2"]["why"])
+check("clearing it stores no blank match",
+      domain_renewals.link_charge("1003:2", "")["ok"]
+      and "1003:2" not in domain_renewals.links_store(),
+      domain_renewals.links_store())
+
+
+# ---------------------------------------------------------------------------
+section("Billed is read from QuickBooks, and says so")
+# ---------------------------------------------------------------------------
+_real_charges = domain_renewals.charges
+
+
+def _stub_charges(lines, error=""):
+    def _c(year=None, *, refresh=False, ttl=0):
+        return {"lines": list(lines), "error": error, "fetched_at":
+                "" if error else "2026-08-26T09:00:00+00:00",
+                "age_hours": None, "cached": False,
+                "item": "Website Domain Renewal"}
+    return _c
+
+
+domain_renewals.charges = _stub_charges(QB_LINES)
+rep = domain_purchase.report(today=date(2026, 8, 1))
+row = next(r for g in rep["groups"] for r in g["rows"]
+           if r["domain"] == "buckeyelakemarina.example")
+check("an invoice line marks the renewal billed",
+      row["billed"] is True and row["billed_source"] == "quickbooks", row)
+check("...and the row carries the invoice rather than only a tick",
+      row["charges"] and row["charges"][0]["doc_number"] == "TSN-1001",
+      row["charges"])
+check("...saying which invoice, when and for how much",
+      "TSN-1001" in row["note"] and "24.99" in row["note"], row["note"])
+check("the media partner is beside the domain",
+      "partner" in row, row)
+
+# A domain renews every year and is invoiced once. Without the window, last
+# year's charge marks this year's renewal billed.
+domain_renewals.charges = _stub_charges([
+    _line("900", "2", "2026-01-06",
+          "Buckeye Lake Marina -  buckeyelakemarina.example")])
+rep = domain_purchase.report(today=date(2026, 8, 1))
+row = next(r for g in rep["groups"] for r in g["rows"]
+           if r["domain"] == "buckeyelakemarina.example")
+check("a charge seven months from the renewal does not bill it",
+      row["billed"] is False, row)
+check("...though it is still counted against the record for the year",
+      row["charges_year"] == 1, row)
+
+# A near name is a suggestion. A suggestion that ticks a box is a fact nobody
+# agreed to.
+WEB_ROWS[2]["renewal_billing_date"] = "03/03/2026"
+domain_renewals.charges = _stub_charges([
+    _line("1002", "2", "2026-03-11", "Riverstone Heat Co - annual renewal")])
+rep = domain_purchase.report(today=date(2026, 3, 1))
+row = next(r for g in rep["groups"] for r in g["rows"]
+           if r["domain"] == "riverstoneheating.example")
+check("a probable match does not mark a renewal billed",
+      row["billed"] is False, row)
+check("...but it is shown, named as needing confirming",
+      row["maybe_charges"] and "not counted as billed" in row["note"], row)
+WEB_ROWS[2]["renewal_billing_date"] = ""
+
+# A QuickBooks that could not be read must never produce a finding.
+domain_renewals.charges = _stub_charges([], error="QuickBooks is not connected.")
+domain_purchase.set_billed("rec1", True, for_date="08/14/2026", actor="Todd")
+rep = domain_purchase.report(today=date(2026, 8, 1))
+row = next(r for g in rep["groups"] for r in g["rows"]
+           if r["domain"] == "buckeyelakemarina.example")
+check("a failed read is not reported as “no charge matches”",
+      "could not be read" in row["note"] and "No Website Domain Renewal charge"
+      not in row["note"], row["note"])
+check("...and the page says the same thing at the top",
+      "not connected" in rep["quickbooks_note"], rep["quickbooks_note"])
+domain_purchase.set_billed("rec1", False)
+
+
+# ---------------------------------------------------------------------------
+section("This month asks whether it was billed; later months ask whether to renew")
+# ---------------------------------------------------------------------------
+domain_renewals.charges = _stub_charges(QB_LINES)
+rep = domain_purchase.report(today=date(2026, 8, 1))
+check("the current month carries the billed column",
+      rep["groups"][0]["current"] and rep["groups"][0]["column"] == "billed",
+      rep["groups"][0]["column"])
+check("...and every later month carries do-not-renew instead",
+      all(g["column"] == "do_not_renew" for g in rep["groups"][1:]),
+      [g["column"] for g in rep["groups"]])
+
+out = domain_purchase.set_do_not_renew("rec1", True, for_date="08/14/2026",
+                                       reason="Client closed the shop",
+                                       actor="Todd")
+check("marking one is stored", out["ok"])
+rep = domain_purchase.report(today=date(2026, 8, 1))
+row = next(r for g in rep["groups"] for r in g["rows"]
+           if r["domain"] == "buckeyelakemarina.example")
+check("and it reads back on the row", row["do_not_renew"] is True, row)
+check("...with the reason, so nobody has to ask again",
+      "closed the shop" in row["dnr_note"], row["dnr_note"])
+
+dnr = domain_purchase.do_not_renew_report(today=date(2026, 8, 1))
+check("the do-not-renew report lists it as still to cancel",
+      [r["domain"] for r in dnr["standing"]] == ["buckeyelakemarina.example"],
+      dnr["standing"])
+check("...and nothing has renewed against a mark yet", dnr["renewed_count"] == 0)
+
+# Unlike the billed tick, this one is never retired when the date rolls: the
+# domain renewed after somebody said it should not, and clearing the mark
+# would delete the only evidence of that.
+WEB_ROWS[0]["renewal_billing_date"] = "08/14/2027"
+dnr = domain_purchase.do_not_renew_report(today=date(2027, 1, 1))
+check("a renewal date that moved on means it renewed anyway",
+      [r["domain"] for r in dnr["renewed_anyway"]]
+      == ["buckeyelakemarina.example"], dnr)
+check("...and that is a separate list, not a quiet unticking",
+      dnr["standing_count"] == 0 and dnr["renewed_count"] == 1, dnr)
+check("...saying both dates rather than only the new one",
+      "08/14/2026" in dnr["renewed_anyway"][0]["dnr_note"]
+      and "08/14/2027" in dnr["renewed_anyway"][0]["dnr_note"],
+      dnr["renewed_anyway"][0]["dnr_note"])
+WEB_ROWS[0]["renewal_billing_date"] = "08/14/2026"
+domain_purchase.set_do_not_renew("rec1", False)
+check("clearing the mark works too",
+      not domain_purchase.dnr_store().get("rec1"),
+      domain_purchase.dnr_store())
+
+
+# ---------------------------------------------------------------------------
+section("Year to date, in both directions")
+# ---------------------------------------------------------------------------
+domain_renewals.charges = _stub_charges(QB_LINES)
+ytd = domain_purchase.year_to_date(year=2026, today=date(2026, 8, 26))
+check("a renewal with an invoice behind it is reconciled",
+      ytd["reconciled_count"] == 1, ytd["reconciled_count"])
+check("...and it is not also counted as unbilled",
+      not any(r["domain"] == "buckeyelakemarina.example"
+              for r in ytd["not_billed"]), ytd["not_billed"])
+check("a charge nothing here carries is reported as billed with no record",
+      any(c["parsed_domain"] == "nobodyhasthis.example"
+          for c in ytd["unrecorded"]), ytd["unrecorded"])
+check("...with the line description, so a person can see what it says",
+      all("description" in c for c in ytd["unrecorded"]))
+check("a suggested owner is counted apart from a blank one",
+      ytd["suggested_count"] >= 1, ytd)
+check("every purchased domain travels with it, so a charge can be attached",
+      any(r["record_id"] == "rec1" for r in ytd["records"]), ytd["records"])
+check("the value of the unrecorded charges is totalled",
+      ytd["unrecorded_total"] > 0, ytd["unrecorded_total"])
+
+# A renewal that came due with no charge behind it is the money question.
+WEB_ROWS[2]["renewal_billing_date"] = "03/03/2026"
+domain_renewals.charges = _stub_charges([QB_LINES[0]])
+ytd = domain_purchase.year_to_date(year=2026, today=date(2026, 8, 26))
+check("a renewal due this year with no invoice is named",
+      [r["domain"] for r in ytd["not_billed"]] == ["riverstoneheating.example"],
+      ytd["not_billed"])
+check("...and the fees at risk are added up",
+      ytd["not_billed_fees"] == 18.0, ytd["not_billed_fees"])
+
+# Not billing a domain nobody is renewing is correct, not a finding.
+domain_purchase.set_do_not_renew("rec3", True, for_date="03/03/2026",
+                                 actor="Todd")
+ytd = domain_purchase.year_to_date(year=2026, today=date(2026, 8, 26))
+check("a domain marked do-not-renew is not counted as an unbilled renewal",
+      ytd["not_billed_count"] == 0 and ytd["not_renewing_count"] == 1, ytd)
+domain_purchase.set_do_not_renew("rec3", False)
+WEB_ROWS[2]["renewal_billing_date"] = ""
+
+# Neither side is presented as a total when either failed to read.
+domain_renewals.charges = _stub_charges([], error="QuickBooks is not connected.")
+ytd = domain_purchase.year_to_date(year=2026, today=date(2026, 8, 26))
+check("a QuickBooks that would not answer is not a year of unbilled renewals",
+      ytd["measured"] is False and any("not connected" in p
+                                       for p in ytd["problems"]), ytd["problems"])
+
+
+# ---------------------------------------------------------------------------
+section("The renewal standing rides on the Client 360 domain record")
+# ---------------------------------------------------------------------------
+domain_renewals.charges = _stub_charges(QB_LINES)
+st = domain_purchase.status_for_record("rec1", today=date(2026, 8, 26))
+check("a domain we bought carries its renewal standing",
+      st["applies"] is True and st["billed"] is True, st)
+check("...with the invoice that says so",
+      st["charges"] and st["charges"][0]["doc_number"] == "TSN-1001", st)
+check("...and the media partner beside it", "partner" in st, st)
+check("a domain we did not buy is not “not billed” — it does not apply",
+      domain_purchase.status_for_record("rec2")["applies"] is False,
+      domain_purchase.status_for_record("rec2"))
+check("...and says why rather than showing an empty panel",
+      "did not buy" in domain_purchase.status_for_record("rec2")["reason"],
+      domain_purchase.status_for_record("rec2"))
+check("a record with no renewal billing date is not measured, never unbilled",
+      domain_purchase.status_for_record("rec3")["dated"] is False
+      and "not_measured" in domain_purchase.status_for_record("rec3"),
+      domain_purchase.status_for_record("rec3"))
+
+domain_renewals.charges = _real_charges
+
+
+# ---------------------------------------------------------------------------
 section("The routes exist under the hub app, not a mount")
 # ---------------------------------------------------------------------------
 # CLAUDE.md's first trap: a hub route written under a mounted prefix is never
@@ -511,6 +816,7 @@ try:
     composed.post("/login", data={"password": os.environ["PANEL_PASSWORD"],
                                   "name": "T"})
     for path in ("/tools/domains", "/api/domains/purchased", "/api/orphan-urls",
+                 "/api/domains/ytd", "/api/domains/do-not-renew",
                  "/api/client/website-record?domain=example.com"):
         check(f"{path} answers", composed.get(path).status_code == 200)
     check("attach refuses a bad URL through the route too",

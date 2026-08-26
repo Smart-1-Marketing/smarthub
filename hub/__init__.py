@@ -641,12 +641,97 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/domains/purchased")
     def api_domains_purchased():
-        """Domains Smart 1 bought for a client, by renewal billing date."""
+        """Domains Smart 1 bought for a client, by renewal billing date.
+
+        `refresh=1` re-reads QuickBooks rather than the cached copy of the
+        Website Domain Renewal lines. Behind a button on purpose: a year of
+        invoices is a large read and the answer moves once a month.
+        """
         gate = _require_api()
         if gate:
             return gate
         from .domain_purchase import report
-        return jsonify(report(q=request.args.get("q", "")))
+        return jsonify(report(q=request.args.get("q", ""),
+                              refresh=request.args.get("refresh") in
+                              ("1", "true", "yes")))
+
+    @app.route("/api/domains/do-not-renew", methods=["POST"])
+    def api_domains_do_not_renew():
+        """Mark one domain as not to be renewed, or clear the mark.
+
+        Knack publishes no such field either, so like the billed tick this is
+        the Hub's own — but unlike the billed tick it is never retired when
+        the renewal date rolls: a domain that renewed after we said it should
+        not is a finding, and clearing the mark would delete the evidence.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_purchase import set_do_not_renew
+        body = request.get_json(silent=True) or {}
+        out = set_do_not_renew(str(body.get("record_id") or ""),
+                               bool(body.get("do_not_renew")),
+                               for_date=str(body.get("for_date") or ""),
+                               reason=str(body.get("reason") or ""),
+                               actor=current_user() or "")
+        if out.get("ok"):
+            audit.log("hub", "domain_do_not_renew", actor=current_user(),
+                      detail=f"{body.get('record_id')} "
+                             f"{'marked' if body.get('do_not_renew') else 'cleared'}")
+        return jsonify(out)
+
+    @app.route("/api/domains/do-not-renew")
+    def api_domains_do_not_renew_report():
+        """Everything marked do-not-renew, and what renewed anyway."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_purchase import do_not_renew_report
+        return jsonify(do_not_renew_report())
+
+    @app.route("/api/domains/ytd")
+    def api_domains_ytd():
+        """Year to date, both directions: unbilled renewals and unknown charges.
+
+        The two questions nobody could ask before QuickBooks was joined to the
+        registry — a renewal that came due with no invoice behind it, and a
+        Website Domain Renewal charge that matches no record here.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_purchase import year_to_date
+        try:
+            year = int(request.args.get("year") or 0) or None
+        except ValueError:
+            year = None
+        return jsonify(year_to_date(year=year,
+                                    refresh=request.args.get("refresh") in
+                                    ("1", "true", "yes")))
+
+    @app.route("/api/domains/charges/link", methods=["POST"])
+    def api_domains_charge_link():
+        """Attach one QuickBooks charge to one website record, or clear it.
+
+        A person saying "this charge is that domain" is the only fact in the
+        matcher — it outranks every rule and survives the next read of
+        QuickBooks, so a description nothing could join up is joined once
+        rather than every month.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_renewals import link_charge
+        body = request.get_json(silent=True) or {}
+        out = link_charge(str(body.get("key") or ""),
+                          str(body.get("record_id") or ""),
+                          actor=current_user() or "",
+                          domain=str(body.get("domain") or ""))
+        if out.get("ok"):
+            audit.log("hub", "domain_charge_linked", actor=current_user(),
+                      detail=f"{body.get('key')} -> "
+                             f"{body.get('record_id') or '(cleared)'}")
+        return jsonify(out)
 
     @app.route("/api/domains/billed", methods=["POST"])
     def api_domains_billed():
@@ -876,8 +961,22 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .knack_websites import domain_record
-        return jsonify(domain_record(request.args.get("name", ""),
-                                     request.args.get("domain", "")))
+        out = domain_record(request.args.get("name", ""),
+                            request.args.get("domain", ""))
+        # The renewal standing rides along with the record rather than being a
+        # second fetch: a domain attached to a client is a domain somebody on
+        # Client 360 wants the renewal answer for, and sending them to
+        # /tools/domains to find the same row again is how a list stays
+        # unactioned. Never raises — the domain record is the point of this
+        # route and a QuickBooks that will not answer must not cost it.
+        try:
+            from .domain_purchase import status_for_record
+            out["renewal"] = status_for_record(out.get("record_id", ""))
+        except Exception as exc:                        # noqa: BLE001
+            out["renewal"] = {"applies": False,
+                              "reason": f"The renewal standing could not be "
+                                        f"read ({type(exc).__name__})."}
+        return jsonify(out)
 
     @app.route("/api/client/website-record/save", methods=["POST"])
     def api_website_record_save():
