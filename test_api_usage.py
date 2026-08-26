@@ -242,7 +242,37 @@ check("an API with no published ceiling is listed", bool(ga4), True)
 check("...and not measured against an invented one", ga4[0]["daily_quota"], None)
 check("...and says so rather than showing ok", ga4[0]["state"], "not_measured")
 
+section("A refusal spends the quota, so it is counted per API and not only once")
+# One aggregate "failed" for every Google call this month cannot say that Tag
+# Manager is refusing a third of its requests while Analytics is fine — and
+# that rate is the whole early warning, because a 429 spends the daily quota
+# exactly as a useful call does and returns nothing for it. On the live
+# service a fixed pace had Tag Manager 429ing on very nearly every first
+# attempt, and the only place it showed was the raw activity log.
+clear_log()
+for _ in range(6):
+    quotas.record_google(cases[1][0], module="google_finder")
+for _ in range(2):
+    quotas.record_google(cases[1][0], module="google_finder", ok=False)
+quotas.record_google(cases[2][0], module="google_finder")
+g = quotas.google_estimate(MONTH)
+gtm = [a for a in g["apis"] if a["key"] == "gtm"][0]
+ga4 = [a for a in g["apis"] if a["key"] == "ga4"][0]
+check("refusals are counted against the API that made them", gtm["failed"], 2)
+check("...as a share of what that API sent, not of what worked",
+      gtm["failed_percent"], 25)
+check("...and a quiet API is not tarred with them", ga4["failed"], 0)
+# Zero refusals is a real answer and must not read as a suppressed number.
+check("...which is a measured nought, not a blank", ga4["failed_percent"], 0)
+check("the total still adds up", g["measured"]["failed"], 2)
+
+
 section("Google costs nothing, and the page says so instead of leaving a blank")
+clear_log()
+for _ in range(12_100):
+    quotas.record_google(cases[0][0], module="ads_builder")
+quotas.record_google(cases[1][0], module="google_finder")
+g = quotas.google_estimate(MONTH)
 check("zero, asserted", g["estimated_cost"], 0.0)
 check("no runaway projection either", g["projected_month_end"], 0.0)
 check("a refused call still spent its quota", g["measured"]["calls"], 12_101)

@@ -852,8 +852,15 @@ def google_estimate(month: str | None = None, rows: list[dict] | None = None,
         total += n
         by_module[r.get("tool") or "unknown"] = (
             by_module.get(r.get("tool") or "unknown", 0) + n)
-        acc = by_api.setdefault(key, {"calls": 0, "days": {}})
+        acc = by_api.setdefault(key, {"calls": 0, "failed": 0, "days": {}})
         acc["calls"] += n
+        # Per API, not only in the total. One number for every Google call
+        # this month cannot say that Tag Manager is refusing a third of its
+        # requests while Analytics is fine — and a refusal rate is the whole
+        # early warning here, since a 429 spends the daily quota exactly as a
+        # useful call does and returns nothing for it.
+        if r.get("ok") is False:
+            acc["failed"] += n
         day = str(r.get("time") or "")[:10]
         if day:
             acc["days"][day] = acc["days"].get(day, 0) + n
@@ -864,6 +871,7 @@ def google_estimate(month: str | None = None, rows: list[dict] | None = None,
         if not acc and key in ("other", "oauth"):
             continue                    # don't invent rows for APIs never called
         calls = acc["calls"] if acc else 0
+        fails = acc.get("failed", 0) if acc else 0
         days = acc["days"] if acc else {}
         quota = _env_int(env, default_quota) if env else default_quota
         used_today = days.get(today, 0)
@@ -881,6 +889,10 @@ def google_estimate(month: str | None = None, rows: list[dict] | None = None,
             state = "ok"
         apis.append({
             "key": key, "label": label, "calls": calls,
+            "failed": fails,
+            # Of the calls we made, not of the ones that worked: a refusal is
+            # a call, and the percentage is the number worth reading.
+            "failed_percent": (round(100 * fails / calls) if calls else None),
             "today": used_today, "busiest_day": peak_day or None,
             "busiest_day_calls": peak,
             "daily_quota": quota or None,
