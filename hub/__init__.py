@@ -4676,6 +4676,19 @@ def create_hub_app() -> Flask:
                 add("Video background library", "error",
                     "CLOUDINARY_URL is not set — the footage library cannot be "
                     "read at all.")
+            elif vs.get("missing_folders"):
+                # Checked before the indexing question, because it outranks it:
+                # indexing a folder Cloudinary does not have will report
+                # "nothing waiting" for ever and look like a quiet, healthy
+                # tool. Named as its own state rather than folded into the
+                # counts, which would be truthfully zero and useless.
+                add("Video background library", "error",
+                    "The library is scoped to folders this Cloudinary account "
+                    "does not have: "
+                    + ", ".join(vs["missing_folders"])
+                    + ". Nothing can be found until either the names or "
+                      "CLOUDINARY_URL is corrected — this is not an empty "
+                      "library.")
             elif not vs.get("indexing_started"):
                 add("Video background library", "warn",
                     "Indexing has never run, so nothing is searchable yet. "
@@ -4696,7 +4709,8 @@ def create_hub_app() -> Flask:
                        "described — what is already indexed stays searchable."
                        if not vs.get("openai") else
                        " Only our own Cloudinary footage is indexed; free "
-                       "stock is searched live in Commercial Builder."))
+                       "stock is searched live in Commercial Builder.")
+                    + " Scope: " + ", ".join(vs.get("folders") or []) + ".")
         except Exception as _vl_exc:  # noqa: BLE001
             add("Video background library", "warn",
                 f"Could not be checked: {_vl_exc}")

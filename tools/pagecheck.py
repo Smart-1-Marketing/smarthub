@@ -103,6 +103,13 @@ HUB_PAGES = [
     # checker's whole existence is about — that one needs a gallery id, so
     # test_image_picker.py holds it and this holds the root.
     "/tools/image-picker/",
+    # Another hub blueprint under /tools, and its status card renders a
+    # tri-state per allowlisted folder -- exists, missing, not measured -- in
+    # Jinja rather than from JavaScript. A `is false` test that the installed
+    # Jinja does not have would raise while *rendering*, which is the whole
+    # page rather than one row, exactly like url_for('website_check_limits')
+    # in Sites Admin.
+    "/tools/video-backgrounds/",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:

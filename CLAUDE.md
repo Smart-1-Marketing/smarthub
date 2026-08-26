@@ -463,6 +463,61 @@ somebody to rotate a key that was fine; a 404 means this file is out of date,
 not that the key is bad; and a result never carries the key value, because it
 is rendered into a page and pasted into chats.
 
+**A library with no scope is the whole account, and it reads as a deep
+library.** Video Backgrounds counted and searched bare `resource_type:video` —
+every video in the Cloudinary product environment. On the account it was built
+against that put 33 clips of genuine stock footage in a row headed "Clips in
+Cloudinary" beside a client's solar spots, a chiropractor's social cuts, an
+internal rebate explainer and four of Cloudinary's own demo files, on a tool
+whose entire job is footage you may put behind a headline. Nothing errored; the
+number was simply about a different question from the one the heading asked.
+`video_library.FOLDERS` is an allowlist of folder trees now — `Smart 1 Ads` and
+`Video Backgrounds`, each including everything beneath it — and it scopes the
+counts, the search *and* `index_asset`, which takes a public_id from its caller
+and is therefore the path that goes round a search filter.
+
+Four things it has to do that a filter alone would not. The clause asks for
+**both** `asset_folder` and `folder`, because Cloudinary publishes a folder
+under the first in dynamic folder mode and the second in fixed, and asking for
+only the wrong one returns zero with every screen healthy. It matches the
+folder itself *and* `"<path>/*"`, since neither alone catches both a clip
+sitting in the folder and one in a subfolder. It goes in **second**, straight
+after `resource_type`, because a comparison clause after a negated one is a
+parse error in that expression language and `pending_expression()` already
+carries the scars. And a folder **named here and absent there** is reported by
+name — `folder_report()` is tri-state, and the dashboard calls it an *error*
+rather than printing a count — because a renamed folder, a `CLOUDINARY_URL`
+pointing at another product environment, and nobody having uploaded anything
+yet all render as `0` and only two of them are something to act on. An empty
+allowlist refuses rather than widening back to the account: a scope that fails
+open the moment somebody deletes a line is worse than no scope.
+
+**And scoping it made the indexing gate the bug.** Indexing was forward-only —
+right when the in-scope library was thirty nameless supplier clips, and exactly
+wrong once the scope became the two folders that already hold the real footage:
+every clip in them would have been permanently unsearchable while the page
+reported a healthy count beside a zero. `INDEX_BACKLOG` is on and
+`index_backlog()` runs on `hub/scheduler.py`, twenty clips an hour under a
+**wall-clock budget** — scheduler jobs share one thread and a vision call has no
+useful ceiling, so a count limit alone lets one slow batch hold up every job
+behind it.
+
+Two things fall out of that. **A clip that fails comes straight back**, so
+without a ceiling one unreadable file costs a vision call an hour for ever, and
+every individual run looks like a normal batch that happened to have one
+failure in it; three attempts are counted in the state file and then the clip
+is given up on **in writing**, because a give-up held in memory forgets itself
+on the next deploy. And the give-up marker cannot be a second tag: Cloudinary's
+expression language takes exactly one trailing `-tags:x` here, and both
+alternatives are worse than a parse error — `-(tags:a OR tags:b)` parses and
+returns **nothing**, while `... (scope) NOT tags:a` parses and returns the
+**whole account**, folder scope silently discarded. So "described" and "given
+up on" are one `SEEN_TAG`, the sweep negates that, and *search* still filters on
+`INDEX_TAG` so a given-up clip is skipped by the sweep and invisible to search
+rather than surfacing undescribed. `waiting_count` and `undescribed_count` are
+on the page beside the other two, because "3,900 clips, 40 indexed" cannot say
+whether the sweep is moving or has stopped.
+
 **A provider's asset URL is signed and expires.** A HeyGen clip linked
 directly plays today and 404s next week. Finished clips are mirrored into
 Cloudinary through `cloudinary_service.upload_asset`, the way rendered

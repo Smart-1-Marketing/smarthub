@@ -360,6 +360,37 @@ def job_refresh_purchased_domains(app) -> dict:
     return out
 
 
+def job_index_video_backlog(app) -> dict:
+    """Describe another bounded batch of the video background library.
+
+    The library is a back catalogue of a few thousand clips carrying no usable
+    filenames, and each one costs a vision call to describe, so this works
+    through it rather than doing it in one go: twenty clips an hour, with a
+    four-minute wall-clock budget so a slow provider cannot hold up every job
+    behind it on this one thread.
+
+    Safe to run late, skip and repeat, as the job contract requires. Progress
+    lives on the assets themselves as Cloudinary tags rather than in a cursor
+    here, so a missed hour costs an hour and a double run re-reads a handful of
+    already-tagged clips and describes none of them twice.
+    """
+    try:
+        from hub import video_library
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    if not video_library.can_index():
+        # Not an error and not silence: an unconfigured Hub would otherwise
+        # write an identical failure into the activity log every hour for ever,
+        # which is the noise hub/google_index.py had to learn to stop making.
+        return {"skipped": "CLOUDINARY_URL or OPENAI_API_KEY is not set"}
+    try:
+        return video_library.index_backlog(actor="scheduler")
+    except Exception as exc:                            # noqa: BLE001
+        # A provider outage must not take the scheduler down with it. The
+        # untagged clips simply come back next hour.
+        return {"ok": False, "error": type(exc).__name__}
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -377,6 +408,8 @@ JOBS = {
                           "Re-sweep Google and re-join every account to a client."),
     "purchased_domains": (60, job_refresh_purchased_domains,
                           "Re-pull the purchased-domain registry once a night."),
+    "video_backlog":     (60, job_index_video_backlog,
+                          "Describe another batch of the video background library."),
 }
 
 
