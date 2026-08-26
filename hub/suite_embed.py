@@ -48,6 +48,21 @@ path without also adding the allowlist would widen that from an oversight into
 a feature. `framable()` is the same shape `modules/msa/app.py` already uses for
 the signing page, for the same reason stated there: one rule in charge of the
 answer rather than two that can disagree.
+
+## 4. A public tool is not a staff page wearing a hat
+
+Everything above is about a *staff* page borrowed into somebody else's UI. The
+media calculators are the opposite case and were being judged by the wrong
+rule: `modules/calculators` builds `/embed/<slug>` explicitly as the
+"chrome-free version for an iframe on smart1marketing.com or Sites", ships an
+`/embed.js` resizer for the host page to use, and keeps its own routes outside
+the Hub login. None of that reached a browser, because this file's allowlist is
+consulted for *every* framed hub request and a blueprint registered on the hub
+app is a hub route. A prospect on smart1marketing.com/ims got the refusal text
+below where the calculator should have been, from the day it shipped.
+
+`PUBLIC_EMBEDDABLE` is that second category, kept deliberately separate from
+`EMBEDDABLE` so widening one never quietly widens the other.
 """
 from __future__ import annotations
 
@@ -66,8 +81,24 @@ COOKIE_NAME = "s1hub_embed"
 FRAME_ANCESTORS = os.environ.get(
     "HUB_EMBED_FRAME_ANCESTORS",
     "'self' https://app.gohighlevel.com https://*.gohighlevel.com "
-    "https://*.leadconnectorhq.com https://*.smart1marketing.com"
+    "https://*.leadconnectorhq.com https://smart1marketing.com "
+    "https://*.smart1marketing.com"
 ).strip()
+
+# Who may frame a *public* tool page — see note 4 in the module docstring.
+#
+# A wildcard, and on purpose, for the reason modules/scans is one: these pages
+# are pasted onto domains nobody here chooses. smart1marketing.com today, a
+# Smart 1 Sites page tomorrow, a client's own site the week after. An allowlist
+# that has to be edited every time somebody builds a page is an allowlist that
+# will be discovered stale by a prospect looking at an empty box.
+#
+# The wildcard costs nothing here that it costs on a staff page: there is no
+# session on these routes, the embed cookie is refused on them (see
+# `suite_cookie_allowed`), and every write behind them is an unauthenticated
+# public endpoint that rate-limits itself in the module. Set
+# HUB_PUBLIC_FRAME_ANCESTORS to narrow it.
+PUBLIC_FRAME_ANCESTORS = os.environ.get("HUB_PUBLIC_FRAME_ANCESTORS", "*").strip()
 
 # Paths that may be served inside the frame. Prefixes, matched against the
 # composed app's path.
@@ -88,11 +119,56 @@ EMBEDDABLE: tuple[str, ...] = (
     "/static/",
 )
 
+# Public tool pages, built to be framed on somebody else's site.
+#
+# Keep this to routes that are already outside the Hub login. A staff page
+# added here would become framable by anyone, which is the exact thing
+# FRAME_ANCESTORS exists to prevent — so the two lists are checked separately
+# and only this one gets the wildcard.
+PUBLIC_EMBEDDABLE: tuple[str, ...] = (
+    "/tools/calculators/embed",   # /embed/<slug>, and /embed.js for the host
+    "/tools/calculators/c/",      # the hosted page you can send or run an ad to
+    "/tools/calculators/api/",    # estimate + unlock, called from in the frame
+)
+
+# One staff route hides under one of those prefixes. /tools/calculators/api/health
+# reports the calculator slugs, the database state and whether lead delivery is
+# configured — a diagnostic, sitting under /api/ beside the two routes that are
+# genuinely public.
+#
+# Excluded by name rather than by making the prefixes finer, because the public
+# two carry a variable slug (/api/<slug>/estimate) and no prefix can separate
+# them from a fixed sibling. Checked first, so adding a prefix above can never
+# quietly re-admit something listed here.
+PUBLIC_EXCLUDED: tuple[str, ...] = (
+    "/tools/calculators/api/health",
+)
+
 SAFE_METHODS = ("GET", "HEAD")
+
+
+def public_embeddable(path: str) -> bool:
+    """Is this a public tool page, built to be framed on any domain?"""
+    path = path or "/"
+    if path.startswith(PUBLIC_EXCLUDED):
+        return False
+    return path.startswith(PUBLIC_EMBEDDABLE)
 
 
 def embeddable(path: str) -> bool:
     """Is this path allowed to render inside somebody else's page?"""
+    return (path or "/").startswith(EMBEDDABLE) or public_embeddable(path)
+
+
+def suite_cookie_allowed(path: str) -> bool:
+    """May the embed *cookie* authenticate on this path?
+
+    Narrower than `embeddable()`, on purpose. The public pages carry no session
+    and need none, so letting the cookie ride along on them would widen its
+    reach and buy nothing. Splitting the two questions means the calculator
+    becoming embeddable did not also make it a place a signed cookie is
+    honoured.
+    """
     return (path or "/").startswith(EMBEDDABLE)
 
 
@@ -143,7 +219,7 @@ def user_from_environ(environ: dict) -> str | None:
     """
     if environ.get("REQUEST_METHOD") not in SAFE_METHODS:
         return None
-    if not embeddable(environ.get("PATH_INFO") or "/"):
+    if not suite_cookie_allowed(environ.get("PATH_INFO") or "/"):
         return None
     for part in (environ.get("HTTP_COOKIE") or "").split(";"):
         k, _, v = part.strip().partition("=")
@@ -153,9 +229,28 @@ def user_from_environ(environ: dict) -> str | None:
 
 
 # ------------------------------------------------------------------ response
-def framable(resp):
-    """Let the allowlisted hosts frame this response, and nobody else."""
-    resp.headers["Content-Security-Policy"] = "frame-ancestors " + FRAME_ANCESTORS
+def framable(resp, path: str = ""):
+    """Let the allowlisted hosts frame this response, and nobody else.
+
+    `path` decides which answer applies: a public calculator is framed on
+    domains nobody here picked, a staff page on exactly the ones named above.
+
+    Left out, it is read from the live request rather than defaulted to one of
+    the two lists. Every caller of this is an `after_request`, so the request
+    is always there — and asking it means the sole caller in hub/__init__.py
+    did not have to grow a second copy of "which path is this", which is the
+    kind of duplicate that goes stale. Outside a request context there is
+    nothing to ask, and the answer falls back to the *narrow* list: a caller
+    with no path gets the safe rule, never the wide one.
+    """
+    if not path:
+        try:
+            from flask import request
+            path = request.path or ""
+        except Exception:  # noqa: BLE001 — no request context, or no Flask
+            path = ""
+    ancestors = PUBLIC_FRAME_ANCESTORS if public_embeddable(path) else FRAME_ANCESTORS
+    resp.headers["Content-Security-Policy"] = "frame-ancestors " + ancestors
     # X-Frame-Options has no allowlist form: any value it could carry would
     # either forbid the embed outright or be honoured inconsistently, and some
     # browsers let it override CSP. Dropping it leaves one rule in charge.
@@ -174,7 +269,9 @@ def refuse(path: str) -> str:
         "This Hub page is not available inside Smart 1 Suite.\n\n"
         f"Path: {path}\n\n"
         "Only a short allowlist of read-only pages can be embedded — see "
-        "EMBEDDABLE in hub/suite_embed.py. Open the Hub directly for anything else."
+        "EMBEDDABLE in hub/suite_embed.py, or PUBLIC_EMBEDDABLE beside it if "
+        "this is a public tool page meant to be framed on another site. "
+        "Open the Hub directly for anything else."
     )
 
 
