@@ -49,6 +49,7 @@ UTILITY_PREFIXES = (
     "/activity",
     "/api/diagnostics",
     "/api/integrity",
+    "/api/oauth-redirects",
     "/api/backup",
     "/api/quotas",
     "/api/activity",

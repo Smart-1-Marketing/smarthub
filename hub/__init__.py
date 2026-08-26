@@ -369,6 +369,27 @@ def create_hub_app() -> Flask:
         return jsonify({"settings": _cfg.env_report(),
                         "problems": _cfg.placeholder_warnings()})
 
+    @app.route("/api/oauth-redirects")
+    def api_oauth_redirects():
+        """Every OAuth callback this Hub sends, and where it must be registered.
+
+        A redirect URI is matched by the provider as an exact string, hostname
+        included, and half of these are built from whichever hostname the
+        browser used. So a custom domain added to the service silently doubles
+        what has to be registered, and the first sign of the half that was not
+        is a customer meeting redirect_uri_mismatch on a consent screen.
+
+        The origin is taken from the request rather than from PUBLIC_BASE_URL,
+        because the point is to name the hostname somebody is actually on —
+        reading the variable instead would report the one host that was never
+        in doubt. No client id or secret is ever returned.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import oauth_redirects
+        return jsonify(oauth_redirects.report(request.url_root))
+
     @app.route("/api/integrity")
     def api_integrity():
         """Static audit for defect patterns that have each shipped before."""

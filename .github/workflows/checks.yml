@@ -595,6 +595,25 @@ jobs:
             echo "test_env_config.py not on this branch — nothing to run."
           fi
 
+      - name: OAuth redirect URI tests
+        # Every callback the Hub hands a provider, and the hostname trap under
+        # it: that a host-derived callback is one string PER HOSTNAME (a second
+        # domain on the service doubles what has to be registered, and nothing
+        # said so until a client met redirect_uri_mismatch), that an
+        # env-derived one does NOT follow the browser and so does not move when
+        # somebody registers the other three, that a provider with no client is
+        # "not in use" rather than an amber row standing for ever, that no
+        # client id or secret is ever returned, and that all six paths are
+        # routes the composed app actually serves. Guarded like the steps
+        # around it so this workflow stays mergeable on a branch that predates
+        # the file.
+        run: |
+          if [ -f test_oauth_redirects.py ]; then
+            python test_oauth_redirects.py
+          else
+            echo "test_oauth_redirects.py not on this branch — nothing to run."
+          fi
+
       - name: Birthday and work-anniversary tests
         # The dashboard block and the once-a-day popup: that a date nobody
         # recorded is named rather than dropped, that no year of birth reaches
