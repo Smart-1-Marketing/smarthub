@@ -225,8 +225,11 @@ ok("and carries today's slice for the popup", "today_list" in _api)
 _page = _in.get("/").get_data(as_text=True)
 ok("the dashboard draws the block", 'id="cheer-body"' in _page)
 ok("and loads the popup", "/hub-cheers.js" in _page)
-ok("the block sits above System checks, which is where it was asked for",
-   _page.index("cheer-card") < _page.index("System checks"))
+# The exact heading, not the words: the sidebar carries "System Status" too,
+# and matching that would compare the block against the nav rather than the
+# card it has to sit above.
+ok("the block sits above the System status card, which is where it was asked for",
+   _page.index("cheer-card") < _page.index("<h3>System status"))
 check("the popup script is served", _in.get("/hub-cheers.js").status_code, 200)
 
 # The fifth partner page has been in the repo, served and reachable, since the

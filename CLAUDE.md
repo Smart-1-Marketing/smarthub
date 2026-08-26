@@ -1934,6 +1934,59 @@ and the dashboard went on offering four links and a promise. `partner.tiles()`
 draws the row from the files on disk now: a page filed here appears without a
 template edit, and one not yet filed greys out under its own name.
 
+### Who is signed in, and what that number is allowed to claim
+
+`hub/presence.py`, the top of the **System status** card on the dashboard, and
+the list behind it on `/status`. There is no session table: signing in issues a
+**signed cookie** and the server keeps nothing, which is what makes two workers
+and a restart survivable and also means nothing is ever told that somebody has
+left. Closing a laptop and reading a long page are indistinguishable from here.
+So "logged in now" is not a question this Hub can answer, and the number it
+does answer — **people seen in the last fifteen minutes** — is printed with
+those words beside it on every screen that shows it, from
+`presence.summary_line()` so none of them can word it differently or print the
+count without the window.
+
+- **It is recorded from both halves of the app.** The hub app's
+  `before_request` covers hub pages; `AuthGuard` covers the twenty mounted
+  modules, and it is WSGI middleware with **no application context** — the
+  `flask.g` trap that made the Google sweep report an empty book. It pushes
+  the hub app's context itself, and only once the throttle says a write is
+  due. Without that half, somebody working in Smart 1 Ads all morning drops
+  out of the count fifteen minutes in, which is a wrong number that looks
+  exactly like a right one.
+- **One write per person per minute per worker.** Both hooks run on every
+  request, so without the throttle this is a database write per request. The
+  window is fifteen minutes wide; a minute of staleness changes no answer.
+- **The page somebody is on is deliberately not recorded**, and the test
+  asserts the table's columns to keep it that way. A path column turns a
+  headcount into a minute-by-minute log of what each member of staff was
+  doing, and the moment it exists somebody reads it that way. The row is
+  overwritten rather than appended, so it cannot become a timesheet either.
+- **A new table, not a column on `hub_users`** — `create_all()` never adds a
+  column to an existing table, the same reason `hub_user_profiles` is its own.
+- **Identity resolves to exactly one account or to none.** The module cookie
+  carries a display name, so `identify()` is the only way back to a person:
+  one match is that person, no match is a `PANEL_PASSWORD` session (counted,
+  and **named** as shared rather than folded into a headcount people read as
+  "how many of us are here"), and two matches is a real person we cannot name
+  — never a guess between them, and never promoted to "shared".
+- **`/api/presence` is deliberately not a key on `/api/status`.** That path is
+  in `access.UTILITY_PREFIXES`, so for the eleven General accounts it answers
+  403 — the headcount would have been admin-only while sitting on everybody's
+  dashboard, reading as zero. The count is everybody's; the account-by-account
+  list on `/status` stays in Utilities.
+- **Nothing in it may raise.** A presence write failing costs a page nothing,
+  and `active()` reports that it could not look rather than returning an empty
+  list: "nobody is signed in" and "we could not read the table" are different
+  answers.
+
+That last trap was already live on the card this sits on. The dashboard's
+mini status panel fetches `/api/status`, a General account is refused it, and
+the panel rendered the missing `checks` array as **"✓ 0 checks OK · no
+issues"** — a green tick over a question that was never asked, for eleven of
+the fourteen people. It says what happened now.
+
 **Nothing here is a crawler's business.** `hub/no_crawl.py`: `robots.txt`,
 `/llms.txt`, and an `X-Robots-Tag` on every response — added as WSGI middleware
 in `wsgi.py` rather than as a Flask `after_request`, or it would have covered
@@ -2030,7 +2083,8 @@ python3 test_client_groups.py      # grouped clients: what merges, what must not
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
 python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the chrome, who may frame
 python3 test_display_ads.py        # the display layouts, and the build screen's contracts
-python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle
+python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
+                                   #   and the signed-in headcount on the dashboard
 ```
 
 The test files need no pytest and no new dependencies; each runs against a

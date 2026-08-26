@@ -52,6 +52,23 @@
 .rb-support{background:linear-gradient(135deg,#1f4f66,#2f7fa3)}
 .req-row .partner-btn{cursor:pointer}
 
+/* Who is signed in. Sits above the checks in the same card, because "is the
+   Hub up" and "is anybody on it" are the two things that card is opened for. */
+.presence{padding:12px 14px;border-bottom:1px solid #eef2f6;
+  font:13px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+.presence-n{font-weight:800;color:#0f172a}
+.presence-who{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.presence-chip{display:inline-flex;align-items:center;gap:6px;
+  background:#eef5fb;color:#1a4971;border:1px solid #d6e6f4;border-radius:20px;
+  padding:3px 10px 3px 4px;font-size:12px;font-weight:600}
+.presence-chip .pav{width:19px;height:19px;border-radius:50%;background:#1769AA;color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800}
+.presence-chip.me{background:#fff7e0;border-color:#f6dfa0;color:#7a4d05}
+.presence-chip.me .pav{background:#c98a06}
+.presence-chip.shared{background:#f4f6f9;border-color:#e2e8f0;color:#64748b}
+.presence-chip.shared .pav{background:#94a3b8}
+.presence-note{color:#94a3b8;font-size:11.5px;margin-top:7px}
+
 /* Birthdays and anniversaries. Deliberately warm and deliberately above the
    system checks: it is the one block on this page about the people rather
    than the book, and under a table of green ticks nobody would ever see it. */
@@ -143,8 +160,15 @@
 
 <div class="grid-2">
   <div class="card">
-    <div class="card-h"><h3>System checks {{ help_dot('hub.dashboard.version') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
-    <div class="card-b flush"><table id="mini-status"><tbody><tr><td class="empty">Running checks… <span class="spin"></span></td></tr></tbody></table></div>
+    <div class="card-h"><h3>System status {{ help_dot('hub.dashboard.version') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
+    <div class="card-b flush">
+      {# Who is around, above the checks. There is no session table — the Hub
+         issues a signed cookie and is never told when somebody leaves — so
+         this is "seen lately", and the line says so in those words rather
+         than printing a number people would read as "at their desk". #}
+      <div class="presence" id="presence"><span class="muted">Counting who is around… <span class="spin"></span></span></div>
+      <table id="mini-status"><tbody><tr><td class="empty">Running checks… <span class="spin"></span></td></tr></tbody></table>
+    </div>
   </div>
   <div class="card">
     <div class="card-h"><h3>Recent activity {{ help_dot('hub.dashboard.activity') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/activity">View all →</a></div></div>
@@ -336,7 +360,47 @@ fetch('/api/celebrations').then(r=>r.json()).then(d=>{
     $('cheer-src').textContent='from the census roster';
 });
 
+/* Who is on the Hub. Its own request rather than a key on /api/status,
+   because that path is admin-only — see hub/access.py — and the eleven
+   General accounts would have seen a zero they could not tell from an
+   answer. */
+fetch('/api/presence').then(r=>r.json()).then(d=>{
+  const host=$('presence');
+  if(!host) return;
+  if(d.error){
+    host.innerHTML='<span class="muted">Signed in now: not measured — '+esc(d.error)+'</span>';
+    return;
+  }
+  const people=d.people||[];
+  const ini=n=>{const p=String(n||'').trim().split(/\s+/);
+    return ((p[0]||'?')[0]+(p.length>1?p[p.length-1][0]:'')).toUpperCase()};
+  const chips=people.map(p=>{
+    const me=user_name&&p.name===user_name;
+    const cls='presence-chip'+(p.shared?' shared':(me?' me':''));
+    const when=p.minutes_ago<1?'just now':(p.minutes_ago+' min ago');
+    return '<span class="'+cls+'" title="'+esc(p.name)+' — last seen '+esc(when)+'">'
+      +'<span class="pav">'+esc(ini(p.name))+'</span>'+esc(me?'You':p.name)+'</span>';
+  }).join('');
+  host.innerHTML='<span class="presence-n">&#128100; '+fmt(d.count)+' signed in now</span>'
+    +(people.length?('<div class="presence-who">'+chips+'</div>'):'')
+    // The window is never left off the number: this Hub is never told when
+    // somebody leaves, so "signed in now" means exactly this and nothing more.
+    +'<div class="presence-note">'+esc(d.line||'')+'</div>';
+}).catch(()=>{
+  const host=$('presence');
+  if(host) host.innerHTML='<span class="muted">Signed in now: not measured.</span>';
+});
+
 fetch('/api/status').then(r=>r.json()).then(d=>{
+  // A General account is refused /api/status — it is a Utilities path — and
+  // `d.checks` is then absent. Rendered as an empty list that reads
+  // "0 checks OK · no issues", which is a green tick over a question nobody
+  // asked. Say what happened instead.
+  if(d.error&&!d.checks){
+    $('mini-status').innerHTML='<tbody><tr><td class="empty">'+esc(d.error)
+      +' The Hub&rsquo;s own checks run either way.</td></tr></tbody>';
+    return;
+  }
   const checks=d.checks||[];
   const ok=checks.filter(c=>c.status==='ok').length;
   const warn=checks.filter(c=>c.status==='warn').length;

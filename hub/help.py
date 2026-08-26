@@ -273,6 +273,14 @@ REGISTRY: list[Help] = [
        step=3, selector="[data-tour='leads-convert']"),
 
     # ---------------- System status ----------------
+    _h("hub.status.presence", "What \u201csigned in now\u201d can and cannot mean",
+       "The Hub keeps no session table \u2014 signing in issues a signed "
+       "cookie and nothing is ever told that somebody has left, so closing a "
+       "laptop and reading a long page look identical from here. This is "
+       "everybody seen in the last fifteen minutes, which is a different "
+       "claim from who is at their desk. The page each person was on is "
+       "deliberately not recorded.",
+       step=1, selector="[data-tour='status-presence']"),
     _h("hub.status.checks", "What these checks actually do",
        "Each one makes a real call with the key that is configured, rather "
        "than reporting whether a variable is set. A key that is present but "

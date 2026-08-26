@@ -169,6 +169,17 @@ class AuthGuard:
                                          ("Content-Length", "0")])
             return [b""]
         environ["s1hub.user"] = user
+        # An hour spent in Smart 1 Ads is an hour signed in. Without this the
+        # headcount on the dashboard would only ever see hub pages, and
+        # somebody working in a mounted module all morning would drop out of
+        # it fifteen minutes in — a wrong number that looks exactly like a
+        # right one. Throttled to a dict lookup on almost every request, and
+        # it pushes the hub app's context itself because middleware has none.
+        try:
+            from hub import presence as _presence
+            _presence.touch_from_environ(environ, hub_app)
+        except Exception:  # noqa: BLE001 — never cost a module request
+            pass
         return self.app(environ, start_response)
 
 
