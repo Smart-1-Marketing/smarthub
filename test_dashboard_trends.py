@@ -1,34 +1,43 @@
-"""The dashboard's month-over-month comparisons.
+"""The dashboard's monthly readings, and why no comparison is drawn from them.
 
-Every scorecard trend on the main dashboard read "– vs last mo – vs last yr"
-and always would have, because the snapshot history was keyed on
-products.json's `thisMonth` — a committed export refreshed by hand, carrying
-one value since the day it was generated. Every load wrote into that one
-bucket. A second bucket could never appear, so the comparison could never
-resolve, and Website Movement said "building history — check back next month"
-in a month that would never come.
+    python3 test_dashboard_trends.py
 
-The fix is one line of intent — key the history on the calendar — and this
-file is what makes it checkable: the claim is "next month it resolves", so
-next month is simulated rather than promised.
+There were month-over-month comparisons under each headline number, and they
+are gone. This file is what keeps that a decision rather than a regression.
 
-Five things it holds:
+## What happened
 
-* the snapshot is keyed on the month the Hub is in, not the export's;
-* a second month therefore resolves, and each comparison names the month it
-  is against — a comparison that will not say what it compared to is one
-  nobody can check;
-* a month nobody recorded is rebuilt from the insertion-order dates, so last
-  month and last year answer today rather than in a year's time;
-* the rebuild is Knack's own definition of a live month and not a new one —
-  reconstructing the two months Knack flags itself (`thisM` / `lastM`)
-  reproduces both exactly, which is the check that makes the rest of it
-  trustworthy;
+The snapshot history was keyed on products.json's `thisMonth` — a committed
+export refreshed by hand, carrying one value since the day it was generated.
+Every load wrote into that one bucket, a second bucket could never appear, and
+every card read "– vs last mo – vs last yr" for ever. Keying it on the
+calendar fixed that and, on its own, still showed a dash on every card: the
+first reading is taken the month the Hub is opened.
+
+The missing months were then rebuilt from the export's insertion-order dates,
+which reproduced Knack's own `thisM` / `lastM` flags exactly — and that was
+still removed. `is_running` is deliberately a **union**: an IO counts if its
+term covers today *or* Knack still calls it Live, which takes in about 140
+month-to-month rows nobody has closed out. A term rebuild cannot see those, so
+the rebuilt month and the headline above it were measured differently and the
+percentage could not be reproduced from the two numbers on the card. A figure
+nobody can check is worse than no figure.
+
+## What this file holds
+
+* the reading is taken, every month, keyed on the calendar — that is the only
+  thing that can ever produce a comparison measured the same way at both ends,
+  and it cannot be taken retrospectively;
+* past months keep the value they were given, and a new month is a new bucket;
+* nothing on the scorecard claims a comparison — `summary()` carries no
+  `trends`, and the template renders none;
+* Website Movement, which is snapshot-derived and was never rebuilt, still
+  resolves and still names the month it compared against;
 * the export-derived counts (new / lost / up / down) say when they are from a
   month that has passed, instead of reading as this month's movement.
 
-Run directly: ``python3 test_dashboard_trends.py``. No pytest and no network —
-it points the store at a temporary directory and moves the clock by hand.
+No pytest and no network — it points the store at a temporary directory and
+moves the clock by hand.
 """
 import os
 import shutil
@@ -42,15 +51,15 @@ os.environ["HUB_DATA_DIR"] = _TMP
 os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(_TMP, "t.db"))
 os.environ.setdefault("SECRET_KEY", "test-not-a-secret")
 
-from hub import knack_data
+from hub import knack_data                                          # noqa: E402
 
 FAILURES = []
 
 
 def check(label, got, want):
-    ok = got == want
-    print(f"  {'ok  ' if ok else 'FAIL'}  {label}: {got!r}")
-    if not ok:
+    ok_ = got == want
+    print(f"  {'ok  ' if ok_ else 'FAIL'}  {label}: {got!r}")
+    if not ok_:
         FAILURES.append(f"{label}: expected {want!r}, got {got!r}")
 
 
@@ -67,104 +76,50 @@ def at(period):
 
 
 def main():
-    print("the snapshot is keyed on the month the Hub is in")
+    from hub import jsonstore
+
+    print("the reading is keyed on the month the Hub is in, not the export's")
     at("202608")
     s1 = knack_data.summary()
-    from hub import jsonstore
     hist = jsonstore.read_json(knack_data._history_path(), default={})
     check("one bucket, and it is this month", sorted(hist), ["202608"])
-    check("website movement has no earlier month either",
+    check("carrying every metric worth a reading",
+          sorted(hist["202608"]), sorted(knack_data.TRENDED))
+    check("website movement has no earlier month to compare against yet",
           s1["website_movement"], None)
 
     print()
-    print("with no reading of last month, it is rebuilt from the IO dates")
-    lm = s1["trends"]["clients_live"]["last_month"]
-    ok("last month answers on the first day the Hub is opened", lm["available"],
-       "this is the whole complaint: every card read '– vs last mo'")
-    check("and says how it was measured", lm["basis"], "io_terms")
-    check("naming the month it is against", lm["period"], "Jul 2026")
-    ly = s1["trends"]["live_budget_monthly"]["last_year"]
-    ok("so does the same month last year", ly["available"])
-    check("on the same basis", ly["basis"], "io_terms")
-    check("and it names that month too", ly["period"], "Aug 2025")
+    print("nothing on the scorecard claims a comparison")
+    ok("summary() carries no trends", "trends" not in s1,
+       "the rebuilt comparison was measured differently from the number it "
+       "sat under, and could not be reproduced from the card")
+    dash = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "hub", "templates", "dashboard.html"),
+                encoding="utf-8").read()
+    ok("and the dashboard renders none", "k-trend" not in dash)
+    ok("nor the wording that explained the rebuild",
+       "rebuilt from the insertion-order" not in dash)
 
     print()
-    print("both ends of a rebuilt comparison are rebuilt, never mixed")
-    ok("it carries the value it measured now, not the headline",
-       lm["now"] == knack_data.period_totals("202608")["clients_live"]
-       and lm["now"] != s1["clients_live"],
-       "the headline counts every IO still marked Live whatever its dates say")
-    check("and the movement is the difference between the two",
-          lm["diff"], lm["now"] - lm["from"])
-
-    print()
-    print("the rebuild is Knack's own definition of a live month")
-    # The export flags each row lastM / thisM itself. Rebuilding those two
-    # months from the start and end dates has to reproduce them exactly, or
-    # this is a new definition of "live" wearing Knack's clothes.
-    rows = knack_data.products()
-
-    def flagged(flag):
-        sel = [r for r in rows if r.get(flag)]
-        return {
-            "clients_live": len({str(r.get("client", "")).strip()
-                                 for r in sel if r.get("client")}),
-            "live_products": len(sel),
-            "live_budget_monthly": round(sum(knack_data._num(r.get("monthly"))
-                                             for r in sel)),
-        }
-
-    check("this month matches Knack's own thisM flag",
-          knack_data.period_totals("202608"), flagged("thisM"))
-    check("last month matches Knack's own lastM flag",
-          knack_data.period_totals("202607"), flagged("lastM"))
-
-    print()
-    print("a month outside the book is not a month with nothing in it")
-    check("no IO ran in 1999, so there is nothing to report",
-          knack_data.period_totals("199901"), None)
-    old = knack_data._compare("live_products", {"live_products": 1}, {},
-                              "199901", "202608")
-    ok("and it comes back not measured, never a 100% collapse",
-       not old["available"])
-    ok("saying why", "no insertion order" in old["why"])
-
-    print()
-    print("a website metric has nothing to rebuild from, and says so")
-    wm = s1["trends"]["websites_active"]["last_month"]
-    ok("so it stays not measured", not wm["available"])
-    ok("and names the reason rather than the month alone",
-       "website export carries no dates" in wm["why"])
-
-    print()
-    print("next month, the comparison resolves")
+    print("next month is a new bucket, and last month keeps its value")
     at("202609")
-    s2 = knack_data.summary()
+    knack_data.summary()
     hist = jsonstore.read_json(knack_data._history_path(), default={})
     check("two buckets now", sorted(hist), ["202608", "202609"])
-    lm = s2["trends"]["clients_live"]["last_month"]
-    ok("last month is available", lm["available"],
-       "this is the bug: it was never available, on any card, ever")
-    check("a recorded reading outranks a rebuild", lm["basis"], "snapshot")
-    check("and names the month it compared against", lm["period"], "Aug 2026")
-    check("the movement is measured, not guessed", lm["diff"], 0)
-    check("website movement resolves too", s2["website_movement"], 0)
-    check("and names its month", s2["website_movement_from"], "Aug 2026")
+    check("August still says what August said",
+          hist["202608"]["live_products"], s1["live_products"])
+    ok("which is the whole point of taking it — it cannot be taken later",
+       hist["202609"]["live_products"] == s1["live_products"])
 
     print()
-    print("a year on, both comparisons resolve")
-    at("202708")
+    print("website movement resolves, and names the month it used")
+    s2 = knack_data.summary()
+    check("it compares against the month it holds", s2["website_movement"], 0)
+    check("and says which one", s2["website_movement_from"], "Aug 2026")
+
+    at("202612")
     s3 = knack_data.summary()
-    ly = s3["trends"]["live_budget_monthly"]["last_year"]
-    ok("last year is available", ly["available"])
-    check("against the right month", ly["period"], "Aug 2026")
-    check("and on the reading that was taken, not a rebuild", ly["basis"], "snapshot")
-    check("the month nobody opened the Hub in is still named",
-          s3["trends"]["live_budget_monthly"]["last_month"]["period"], "Jul 2027")
-
-    print()
-    print("a gap does not become a silent 'last month'")
-    check("movement compares to the newest month it holds",
+    check("after a gap it names the newest month it holds, not 'last month'",
           s3["website_movement_from"], "Sep 2026")
 
     print()
@@ -187,7 +142,8 @@ def main():
         for f in FAILURES:
             print("  -", f)
         return 1
-    print("the dashboard comparisons accumulate, resolve, and name their months")
+    print("the readings accumulate, and no card claims a comparison it cannot "
+          "show the arithmetic for")
     return 0
 
 

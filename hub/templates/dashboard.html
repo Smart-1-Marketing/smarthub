@@ -4,22 +4,9 @@
 <div class="page-head"><h2>Dashboard</h2><p>Live rollup across all modules</p></div>
 
 <style>
-/* Movement under each headline number. Green up, red down, grey for a period
-   we have no snapshot of — never a 0% that claims we measured no change. */
-.k-trend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;
-  font:600 11.5px/1.35 system-ui,-apple-system,Segoe UI,sans-serif}
-.k-trend span{white-space:nowrap}
-.t-up{color:var(--ok)}
-.t-down{color:var(--danger)}
-.t-flat{color:var(--muted)}
-.t-none{color:#b6c0cc;font-weight:500}
-/* A rebuilt comparison is marked on the card, not only in its tooltip: it is
-   measured a different way from the number above it and reading it as the
-   same kind of thing is the one mistake available here. */
-.t-rebuilt{border-bottom:1px dotted currentColor;cursor:help}
-.trend-legend{display:none;margin:-8px 0 20px;color:#64748b;
-  font:500 11.5px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;
-  border-left:3px solid #cbd5e1;padding-left:10px;max-width:70ch}
+/* The three cards below the numbers sit in one column, so a card added there
+   stacks rather than starting a third grid track. */
+.col-stack{display:flex;flex-direction:column;gap:18px;min-width:0}
 
 /* Partner resources. These five are what a partner actually gets sent to, so
    they are one row of real buttons rather than links buried in a menu. */
@@ -75,7 +62,7 @@
 .cheer-card{margin:0 0 18px;border-top:3px solid #f0b429}
 .cheer-h-ico{font-size:16px}
 .cheer-month{color:#94a3b8;font-weight:600;font-size:12.5px;margin-left:6px}
-.cheer-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.cheer-body{display:flex;flex-direction:column;gap:16px}
 .cheer-col h4{margin:0 0 8px;font:800 12px/1 system-ui,-apple-system,Segoe UI,sans-serif;
   letter-spacing:.06em;text-transform:uppercase;color:#64748b}
 .cheer-list{list-style:none;margin:0;padding:0}
@@ -89,7 +76,6 @@
    rather than sitting third in a list of fourteen identical rows. */
 .cheer-list li.is-today{background:#fff7e0;box-shadow:inset 0 0 0 1px #f6dfa0}
 .cheer-list li.is-today .cheer-day{color:#a16207}
-.cheer-list li.is-past{opacity:.5}
 .cheer-today-tag{font-weight:800;color:#a16207;font-size:11px;letter-spacing:.04em}
 .cheer-gaps{margin-top:12px;color:#94a3b8;
   font:500 11.5px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
@@ -144,32 +130,38 @@
   <div class="kpi" style="cursor:pointer" onclick="location.href='/seo'"><div class="k-label">SEO Clients</div><div class="k-value" id="k-seo">—</div><div class="k-sub" id="k-seo-sub">live SEO products</div></div>
 </div>
 
-<div class="trend-legend" id="trend-legend"></div>
-
-<div class="card cheer-card">
-  <div class="card-h">
-    <h3><span class="cheer-h-ico">&#127874;</span> Birthdays &amp; work anniversaries
-      <span class="cheer-month" id="cheer-month"></span></h3>
-    <div class="right"><span class="muted" id="cheer-src"></span></div>
-  </div>
-  <div class="card-b">
-    <div id="cheer-body" class="cheer-body"><span class="muted">Loading&hellip; <span class="spin"></span></span></div>
-    <div id="cheer-gaps" class="cheer-gaps"></div>
-  </div>
-</div>
-
 <div class="grid-2">
-  <div class="card">
-    <div class="card-h"><h3>System status {{ help_dot('hub.dashboard.version') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
-    <div class="card-b flush">
-      {# Who is around, above the checks. There is no session table — the Hub
-         issues a signed cookie and is never told when somebody leaves — so
-         this is "seen lately", and the line says so in those words rather
-         than printing a number people would read as "at their desk". #}
-      <div class="presence" id="presence"><span class="muted">Counting who is around… <span class="spin"></span></span></div>
-      <table id="mini-status"><tbody><tr><td class="empty">Running checks… <span class="spin"></span></td></tr></tbody></table>
+  {# One column, in the order somebody reads it: who to say something to
+     today, then whether the Hub is up and who is on it. The birthdays and
+     the anniversaries are one list under one another rather than two side by
+     side — at this width two columns of three names each was a lot of empty
+     table. #}
+  <div class="col-stack">
+    <div class="card cheer-card">
+      <div class="card-h">
+        <h3><span class="cheer-h-ico">&#127874;</span> Birthdays &amp; work anniversaries
+          <span class="cheer-month" id="cheer-month"></span></h3>
+        <div class="right"><span class="muted" id="cheer-src"></span></div>
+      </div>
+      <div class="card-b">
+        <div id="cheer-body" class="cheer-body"><span class="muted">Loading&hellip; <span class="spin"></span></span></div>
+        <div id="cheer-gaps" class="cheer-gaps"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>System status {{ help_dot('hub.dashboard.version') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
+      <div class="card-b flush">
+        {# Who is around, above the checks. There is no session table — the Hub
+           issues a signed cookie and is never told when somebody leaves — so
+           this is "seen lately", and the line says so in those words rather
+           than printing a number people would read as "at their desk". #}
+        <div class="presence" id="presence"><span class="muted">Counting who is around… <span class="spin"></span></span></div>
+        <table id="mini-status"><tbody><tr><td class="empty">Running checks… <span class="spin"></span></td></tr></tbody></table>
+      </div>
     </div>
   </div>
+
   <div class="card">
     <div class="card-h"><h3>Recent activity {{ help_dot('hub.dashboard.activity') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/activity">View all →</a></div></div>
     <div class="card-b flush"><table id="mini-activity"><tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody></table></div>
@@ -207,67 +199,17 @@ const user_name={{ (user or '')|tojson }};
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt=n=>Number(n||0).toLocaleString();
 
-/* Two comparisons, because they answer different questions: last month is
-   "is this moving now", the same month last year is "is this moving at all"
-   — the one that survives a seasonal business. A period we hold no snapshot
-   for renders as a dash, not a flat 0%: absent history is not no change. */
-function trendHtml(t,money){
-  if(!t) return '';
-  const cash=v=>(money?'$':'')+fmt(v);
-  const one=(d,label)=>{
-    // Every comparison names the month it is against, and now also how it was
-    // measured. The label is short because the card is; the month and the
-    // basis are in the tooltip, so a dash says which month is missing rather
-    // than reading as a fault.
-    const when=(d&&d.period)?d.period:label.slice(3);
-    if(!d||!d.available)
-      return '<span class="t-none" title="'+esc(d&&d.why?d.why:('No reading for '+when))+'">– '+esc(label)+'</span>';
-    const arrow=d.dir==='up'?'&#9650;':d.dir==='down'?'&#9660;':'&#9644;';
-    const cls=d.dir==='up'?'t-up':d.dir==='down'?'t-down':'t-flat';
-    const pct=(d.pct===null||d.pct===undefined)?'':Math.abs(d.pct)+'%';
-    if(d.basis==='io_terms'){
-      // Rebuilt from the insertion-order dates, so BOTH ends are on that
-      // basis — and neither is the headline above it, which counts every IO
-      // Knack still calls Live whatever its dates say. The percentage is
-      // shown and the absolute difference is not, deliberately: a dollar
-      // figure here invites subtracting it from the headline, which is the
-      // one arithmetic that does not work. The pair is in the tooltip.
-      return '<span class="'+cls+' t-rebuilt" title="Rebuilt from insertion-order dates — '
-        +esc(when)+': '+cash(d.from)+', this month: '+cash(d.now)
-        +'. The headline above counts every IO still marked Live whatever its dates say, so it reads higher.">'
-        +arrow+' '+pct+' '+esc(label)+' &#8776;</span>';
-    }
-    const n=cash(Math.abs(d.diff));
-    return '<span class="'+cls+'" title="Recorded reading — '+esc(when)+': was '+cash(d.from)+'">'
-      +arrow+' '+n+(pct?' ('+pct+')':'')+' '+esc(label)+'</span>';
-  };
-  return '<div class="k-trend">'+one(t.last_month,'vs last mo')
-    +one(t.last_year,'vs last yr')+'</div>';
-}
-
-/* Say what the marker means, once, under the cards it appears on — rather
-   than in a tooltip nobody hovers. Only shown when something on the page is
-   actually rebuilt, so a Hub with a full year of readings never carries the
-   sentence. */
-function trendLegend(T){
-  const any=Object.keys(T||{}).some(k=>['last_month','last_year']
-    .some(w=>(T[k]||{})[w]&&T[k][w].basis==='io_terms'));
-  const host=$('trend-legend');
-  if(!host||!any) return;
-  host.innerHTML='&#8776; rebuilt from the insertion-order start and end dates in Smart 1 Team, '
-    +'because no monthly reading of that month was taken. Both ends of a rebuilt comparison '
-    +'are measured that way, so its percentage is against the rebuilt figure and not against '
-    +'the number above it. Recorded readings start with this month and fill in from here.';
-  host.style.display='block';
-}
-
+/* The headline numbers, and no month-over-month comparison under them.
+   There was one, worked out from the IO start and end dates, and it was
+   measured differently from the number it sat under — the headline counts
+   every IO Knack still calls Live whatever its dates say, and the other
+   counted only terms covering the month, about 140 products apart. A percentage that
+   cannot be reproduced from the number above it is worse than no percentage.
+   The monthly readings are still taken (see hub/knack_data._snapshot), so a
+   comparison measured the same way at both ends can be added once there are
+   two of them to compare. */
 fetch('/api/summary').then(r=>r.json()).then(s=>{
   if(s.error){$('k-clients').textContent='—';return}
-  const T=s.trends||{};
-  const trend=(id,key,money)=>{
-    const host=$(id);
-    if(host&&T[key]) host.insertAdjacentHTML('beforeend',trendHtml(T[key],money));
-  };
   $('k-clients').textContent=fmt(s.clients_live);
   $('k-clients-sub').textContent=fmt(s.clients_total)+' total in Smart 1 Team';
   $('k-live').textContent=fmt(s.live_products);
@@ -275,13 +217,6 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
   $('k-webs').textContent=fmt(s.websites_active);
   $('k-webs-sub').textContent=fmt(s.websites_total)+' total';
   $('k-hm').textContent='$'+fmt(s.hm_monthly);
-
-  trendLegend(T);
-  trend('k-clients-sub','clients_live');
-  trend('k-live-sub','live_products');
-  trend('k-budget-sub','live_budget_monthly',true);
-  trend('k-webs-sub','websites_active');
-  trend('k-hm-sub','hm_monthly',true);
 
   // ---- second row: billing rollup + month-over-month movement ----
   // These four come from the Knack export's own lastM/thisM flags, so they
@@ -291,7 +226,6 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
     ? ('in the '+(s.this_period||'export')+' export')
     : (s.last_period?('vs '+s.last_period):'vs last month');
   $('k-total').textContent='$'+fmt(s.estimated_total_monthly);
-  trend('k-total-sub','estimated_total_monthly',true);
   $('k-new').textContent=fmt(s.new_customers);
   $('k-new-sub').innerHTML=esc(vs)+(s.lost_customers?' · <span class="down" style="color:var(--danger);font-weight:600">'+fmt(s.lost_customers)+' lost</span>':'');
   $('k-up').textContent=fmt(s.increased_customers);
@@ -317,11 +251,11 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
 }).catch(()=>{$('k-clients').textContent='—'});
 
 /* Birthdays and work anniversaries, from the roster the Users panel already
-   holds. Three things this renders that a shorter version would not:
-   whose day it is *today* (a different statement from "this month"), a day
-   that has passed (dimmed, not dropped — the month is a calendar, not a
-   queue), and who has no date on file at all, because a list that quietly
-   shrinks reads as a quiet month. */
+   holds. What is still to come this month, today included — a day that has
+   passed is dropped by the API rather than dimmed here, because this card is
+   read to know who to say something to. Anybody whose date is missing, or is
+   the placeholder every seventh person came off the census with, is counted
+   underneath by name: a list that quietly shrinks reads as a quiet month. */
 fetch('/api/celebrations').then(r=>r.json()).then(d=>{
   const body=$('cheer-body'), gaps=$('cheer-gaps');
   if(!body) return;
@@ -332,11 +266,11 @@ fetch('/api/celebrations').then(r=>r.json()).then(d=>{
   }
   $('cheer-month').textContent=esc(d.month||'')+' '+esc(d.year||'');
   const row=e=>{
-    const cls=e.is_today?'is-today':(e.is_past?'is-past':'');
     const note=e.kind==='anniversary'
       ? esc(e.years_label||'')+(e.title?' &middot; '+esc(e.title):'')
       : esc(e.title||'');
-    return '<li class="'+cls+'"><span class="cheer-day">'+esc(e.date_pretty)+'</span>'
+    return '<li class="'+(e.is_today?'is-today':'')+'"><span class="cheer-day">'
+      +esc(e.date_pretty)+'</span>'
       +'<span><span class="cheer-who">'+esc(e.name)+'</span>'
       +(e.is_today?' <span class="cheer-today-tag">TODAY</span>':'')
       +(note?'<br><span class="cheer-note">'+note+'</span>':'')+'</span></li>';
@@ -344,15 +278,20 @@ fetch('/api/celebrations').then(r=>r.json()).then(d=>{
   const col=(title,ico,list,empty)=>'<div class="cheer-col"><h4>'+ico+' '+title+'</h4>'
     +(list.length?('<ul class="cheer-list">'+list.map(row).join('')+'</ul>')
                  :('<div class="cheer-empty">'+empty+'</div>'))+'</div>';
-  body.innerHTML=col('Birthdays','&#127880;',d.birthdays||[],
-                     'No birthdays on the roster this month.')
-    +col('Work anniversaries','&#127881;',d.anniversaries||[],
-         'No work anniversaries on the roster this month.');
+  body.innerHTML=col('Birthdays still to come','&#127880;',d.birthdays||[],
+                     'No more birthdays this month.')
+    +col('Work anniversaries still to come','&#127881;',d.anniversaries||[],
+         'No more work anniversaries this month.');
   // Named rather than skipped: without this the list is indistinguishable
   // from a month in which nobody has a birthday.
   const nr=d.not_recorded||{}, missing=[];
   if((nr.birthday||[]).length) missing.push((nr.birthday||[]).length+' with no birthday on file');
   if((nr.hired_at||[]).length) missing.push((nr.hired_at||[]).length+' with no start date on file');
+  // A date that is on file and means nothing is its own sentence: somebody
+  // looking at the Users panel can see a start date sitting right there.
+  if((nr.hired_placeholder||[]).length)
+    missing.push((nr.hired_placeholder||[]).length
+      +' whose start date is still the 01-08-19 placeholder from the census');
   if(missing.length&&gaps)
     gaps.innerHTML='Of '+esc(d.people||0)+' people on the roster: '+esc(missing.join(', '))
       +'. Fill them in under <a href="/diagnostics">Users</a> and they appear here.';
@@ -360,10 +299,6 @@ fetch('/api/celebrations').then(r=>r.json()).then(d=>{
     $('cheer-src').textContent='from the census roster';
 });
 
-/* Who is on the Hub. Its own request rather than a key on /api/status,
-   because that path is admin-only — see hub/access.py — and the eleven
-   General accounts would have seen a zero they could not tell from an
-   answer. */
 fetch('/api/presence').then(r=>r.json()).then(d=>{
   const host=$('presence');
   if(!host) return;
