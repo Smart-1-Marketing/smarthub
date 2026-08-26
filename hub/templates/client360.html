@@ -254,6 +254,16 @@ function render(g,q){
     <div class="card-b" id="c-health"><div class="empty">Checking for a recent scan… <span class="spin"></span></div></div>
     <div class="card-b" id="c-audits" style="padding-top:0"></div></div>`;
 
+  // ---------- What else the last scan knows ----------
+  // An Insites audit carries 440 fields and this record read four of them.
+  // The rest was already bought and paid for and sat in a JSON blob nobody
+  // opened. Collapsed by default because it is a reference, not a headline.
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e0edff;color:#1e40af">Insites</span>
+    <h3>What the last scan found {{ help_dot('hub.client360.scanfacts') if help_dot is defined else '' }}</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-scanfacts-acts"></div></div>
+    <div class="card-b" id="c-scanfacts"><div class="empty">Reading the last scan… <span class="spin"></span></div></div></div>`;
+
   // ---------- Website record (moved to the bottom) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
     <div class="right" style="display:flex;gap:10px"><a class="open-link" id="c-web-attach" style="cursor:pointer">+ Attach website record</a>
@@ -605,6 +615,10 @@ function render(g,q){
       '<a class="open-link" href="'+galleryHref+'">See client image gallery →</a>'
     + '<a class="open-link" href="'+optimizeHref+'">Optimize client images →</a>';
 
+  /* Named, because deleting one image has to redraw this card. It used to be
+     an anonymous fetch, which is why the brand logos were spliced into
+     whatever it had already drawn rather than re-run through it. */
+  window.loadClientImages = function(){
   fetch(imgBase+'api/gallery?company='+encodeURIComponent(name)+'&limit=12')
     .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
       const rows=d.gallery||[];
@@ -613,24 +627,132 @@ function render(g,q){
           +'<a href="'+optimizeHref+'">Optimize their first batch →</a></div>';
         return;
       }
+      // d.total is the total for THIS CLIENT. It used to be the size of the
+      // whole archive, so a client with one image read "Showing 1 of 7
+      // saved images" and the gallery it linked to then showed the one.
       const total=(d.total||0)+(window.BRAND_LOGOS?BRAND_LOGOS.length:0);
       $('c-images').innerHTML=
         '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">'
-        + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff">
+        + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff" data-img="${esc(r.id)}">
             <a href="${esc(r.url)}" target="_blank" rel="noopener" style="display:block;aspect-ratio:4/3;background:#f1f5f9">
               <img src="${esc(r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
                    style="width:100%;height:100%;object-fit:cover;display:block"></a>
             <div style="padding:7px 9px">
               <div style="font:600 10.5px ui-monospace,Consolas,monospace;color:var(--navy);overflow-wrap:anywhere">${esc(r.filename)}</div>
               <div class="muted" style="font-size:11px;margin-top:2px">${esc(r.project||'')}${r.page?' · '+esc(r.page):''}</div>
+              <div style="margin-top:6px;display:flex;gap:9px;align-items:center">
+                <a class="open-link" style="font-size:11px" href="${esc(imgBase)}api/gallery/download?id=${encodeURIComponent(r.id)}"
+                   title="Download this file, named ${esc(r.filename)}">&#8681; Download</a>
+                <a class="open-link img-del" style="font-size:11px;color:#dc2626;cursor:pointer"
+                   data-del="${esc(r.id)}" data-name="${esc(r.filename)}"
+                   title="Delete this image from the client gallery and the archive. This cannot be undone.">&#128465; Delete</a>
+              </div>
             </div></div>`).join('')
         + '</div>'
         + '<div class="muted" style="font-size:12px;margin-top:10px">Showing '+rows.length+' of '+total
         + ' saved image'+(total===1?'':'s')+' · <a href="'+galleryHref+'">see the full gallery →</a></div>';
+      wireImageDeletes();
+      addLogosToImages();
     }).catch(()=>{
       $('c-images').innerHTML='<div class="empty">Image pipeline unavailable. '
         +'<a href="'+optimizeHref+'">Open the tool →</a></div>';
     });
+  };
+
+  /* Delete one image, from the record the work was done for.
+     The tile has always linked out to the file and to the gallery and offered
+     nothing to do about a wrong one, so a bad image was a trip through two
+     screens. Same endpoint the pipeline's own archive table uses — one
+     description of what deleting an image means, and one place that decides
+     whether the Cloudinary copy goes with it. */
+  function wireImageDeletes(){
+    const host=$('c-images'); if(!host) return;
+    host.querySelectorAll('.img-del').forEach(function(a){
+      a.onclick=function(){
+        const id=a.dataset.del, fname=a.dataset.name||'';
+        // Said out loud that it cannot be undone: for an image a client sent
+        // us, the copy in the gallery is very often the only copy.
+        if(!confirm('Delete this image?\n\n'+fname
+          +'\n\nIt is removed from the client gallery and from the SEO Image '
+          +'Pipeline archive. This cannot be undone.')) return;
+        a.textContent='Deleting…';
+        fetch(imgBase+'api/gallery/update',{method:'POST',credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({id:id, delete:true})})
+          .then(r=>r.json()).then(function(res){
+            if(res && res.error){ alert(res.error); a.innerHTML='&#128465; Delete'; return; }
+            window.loadClientImages();
+          }).catch(function(){
+            alert("That image couldn't be deleted.");
+            a.innerHTML='&#128465; Delete';
+          });
+      };
+    });
+  }
+
+  window.loadClientImages();
+
+  // ---------- What else the last scan knows ----------
+  /* Read-only, and deliberately a second call rather than more keys on the
+     health payload: that one is the fix list and the speed, which is what
+     somebody acts on today, and burying it under forty reference rows would
+     cost it its readability. */
+  (function(){
+    const host=$('c-scanfacts'), acts=document.getElementById('c-scanfacts-acts');
+    if(!host) return;
+    const dom=(web0&&web0.domain)?String(web0.domain):'';
+    if(!dom){
+      host.innerHTML='<div class="empty">No website record attached, so there is '
+        +'no scan to read. Attach one below.</div>';
+      return;
+    }
+    fetch('/api/client/scan-facts?domain='+encodeURIComponent(dom),{credentials:'same-origin'})
+      .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+        if(d.error){
+          // "We could not look" is not "there is nothing" — never a clean nothing.
+          host.innerHTML='<div class="empty">The site scans could not be read, so '
+            +'this is <b>not measured</b>: '+esc(d.error)+'</div>';
+          return;
+        }
+        if(!d.found){
+          host.innerHTML='<div class="empty">'+esc(d.note||'No completed scan yet.')
+            +' <a href="/scans/?q='+encodeURIComponent(dom)+'">Run one →</a></div>';
+          return;
+        }
+        if(acts) acts.innerHTML=
+          '<span class="muted" style="font-size:12px">Scanned '
+          + esc(String(d.scanned_at||'').slice(0,10))+'</span>'
+          + (d.scan_url?'<a class="open-link" href="'+esc(d.scan_url)+'">Open the scan →</a>':'');
+        if(!d.groups || !d.groups.length){
+          host.innerHTML='<div class="empty">'+esc(d.note||'')+'</div>';
+          return;
+        }
+        /* Groups are <details>, closed. Ten open panels is a wall; the
+           headings say what is inside each so nobody has to open one to
+           find out. */
+        host.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">'
+          + d.groups.map(gp=>
+            '<details style="border:1px solid var(--line);border-radius:9px;background:#fff;padding:10px 12px">'
+            + '<summary style="cursor:pointer;font-weight:600;color:var(--navy);font-size:13px">'
+            + esc(gp.title)+' <span class="muted" style="font-weight:400">· '
+            + gp.rows.length+'</span></summary>'
+            + '<div class="muted" style="font-size:11.5px;margin:6px 0 8px">'+esc(gp.why)+'</div>'
+            + '<dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12.5px">'
+            + gp.rows.map(r=>
+                '<dt class="muted" style="white-space:nowrap"'
+                + (r.hint?' title="'+esc(r.hint)+'"':'')+'>'+esc(r.label)+'</dt>'
+                + '<dd style="margin:0;overflow-wrap:anywhere">'
+                + (r.link
+                    ? '<a href="'+esc(r.link)+'" target="_blank" rel="noopener">'+esc(r.value)+' ↗</a>'
+                    : esc(r.value))
+                + '</dd>').join('')
+            + '</dl></details>').join('')
+          + '</div>';
+      }).catch(()=>{
+        host.innerHTML='<div class="empty">The scan detail could not be loaded — '
+          +'<b>not measured</b> rather than nothing found.</div>';
+      });
+  })();
 
   // ---------- Site health: broken links / images + speed, from the last scan ----------
   // Matched on the website record's domain, since scans are keyed by domain
@@ -1599,8 +1721,16 @@ function renderBrand(d){
 
   const el=document.getElementById('c-brand'); if(!el) return;
   const acts=document.getElementById('c-brand-acts');
+  const lookBtn = (d&&d.can_lookup)
+    ? '<a class="gbtn" href="#" onclick="lookupBrand();return false" '
+      + 'title="Asks the brand service about '+esc(d.lookup_domain||'')
+      + '. This call is billed, which is why it is a button.">'
+      + (d&&d.found?'Refresh brand':'Look up the brand')+'</a>'
+    : '';
   if(!d || !d.found){
-    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>';
+    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>'
+      + observedHtml(d&&d.observed);
+    if(acts) acts.innerHTML = lookBtn;
     return;
   }
   const swatches = (d.colors||[]).map(c=>
@@ -1621,12 +1751,51 @@ function renderBrand(d){
     (swatches?`<div style="margin-bottom:6px"><div class="lbl">Brand colours</div>${swatches}</div>`:'')+
     (logos?`<div style="margin-bottom:10px"><div class="lbl">Logos</div>${logos}</div>`:'')+
     (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
-    (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'');
+    (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'')+
+    observedHtml(d.observed);
   /* Once the guide is in Suite the button is a trap: pressing it again just
      overwrites what's there. Show the state instead. */
-  if(acts) acts.innerHTML = d.suite_brand_guide
+  if(acts) acts.innerHTML = (d.suite_brand_guide
     ? '<span class="pill ok" title="Pushed '+esc(d.suite_brand_guide)+'">Brand Guide setup in Suite</span>'
-    : '<a class="gbtn" href="#" onclick="pushBrand();return false">Send to Suite Brand Guide</a>';
+    : '<a class="gbtn" href="#" onclick="pushBrand();return false">Send to Suite Brand Guide</a>')
+    + ' ' + lookBtn;
+}
+
+/* What the last site scan saw on the client's own website.
+   Deliberately a separate block with its own heading rather than more tiles
+   in "Logos": a logo lifted off a home page and a logo the client gave us
+   are different claims, and only the second belongs on a document a client
+   reads. Most local businesses have no published brand at all, so for them
+   this is the only logo the Hub will ever have — which is exactly why it has
+   to say where it came from. */
+function observedHtml(o){
+  if(!o) return '';
+  if(o.error) return '<div class="muted" style="font-size:12px;margin-top:12px;'
+    + 'border-top:1px solid var(--line);padding-top:10px">Site scans could not '
+    + 'be read, so we cannot say whether one has seen a logo — not measured.</div>';
+  if(!o.found) return '';
+  const swatches=(o.colors||[]).map(c=>
+    `<span title="${esc(c.hex)} — ${esc(c.type||'')}" style="display:inline-flex;
+      flex-direction:column;align-items:center;gap:4px;margin:0 8px 8px 0">
+      <span style="width:30px;height:30px;border-radius:7px;background:${esc(c.hex)};
+        border:1px solid rgba(0,0,0,.12);display:block"></span>
+      <code style="font-size:10px;color:#64748b">${esc(c.hex)}</code></span>`).join('');
+  return '<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:11px">'
+    + '<div class="lbl">Seen on their website '
+    + (o.scanned_at?'<span class="muted" style="font-weight:400">· last scan '
+        +esc(String(o.scanned_at).slice(0,10))+'</span>':'')
+    + '</div>'
+    + (o.logo_url
+        ? '<a href="'+esc(o.logo_url)+'" target="_blank" rel="noopener" '
+          + 'style="display:inline-block;padding:8px;border:1px solid var(--line);'
+          + 'border-radius:8px;background:#fff;margin:0 8px 8px 0">'
+          + '<img src="'+esc(o.logo_url)+'" alt="Logo seen on the site" '
+          + 'style="max-width:120px;max-height:52px;display:block"></a>'
+        : '')
+    + swatches
+    + '<div class="muted" style="font-size:11.5px;margin-top:4px">'+esc(o.note||'')
+    + (o.scan_url?' <a href="'+esc(o.scan_url)+'">See the scan →</a>':'')
+    + '</div></div>';
 }
 function pushBrand(){
   var acts = document.querySelector('#card-brand .right');
@@ -2061,6 +2230,35 @@ function grpRender(info){
   document.getElementById('grpQ').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
 }
 
+function loadBrand(name){
+  var dom = window.__c360domain || '';
+  fetch('/api/client/brand?name='+encodeURIComponent(name)
+        +(dom?'&domain='+encodeURIComponent(dom):''),{credentials:'same-origin'})
+    .then(r=>r.json()).then(renderBrand).catch(()=>{});
+}
+
+function lookupBrand(){
+  var el=document.getElementById('c-brand'); if(!el) return;
+  var acts=document.getElementById('c-brand-acts');
+  if(acts) acts.innerHTML='<span class="muted" style="font-size:12px">Looking…</span>';
+  fetch('/api/client/brand/lookup',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:window.CURRENT_CLIENT||'', domain:window.__c360domain||''})})
+    .then(r=>r.json()).then(function(d){
+      if(d && d.error){ alert(d.error); loadBrand(window.CURRENT_CLIENT||''); return; }
+      renderBrand(d);
+      /* A lookup that found nothing is an answer, not a failure — and the
+         reason matters: a refused key and a business nobody has published
+         are different things to do next. */
+      if(d && !d.found && d.note) alert(d.note);
+      /* The logo IS a client image, so the images card redraws with it. */
+      if(window.loadClientImages) window.loadClientImages();
+    }).catch(function(){
+      alert('The brand lookup could not be run.');
+      loadBrand(window.CURRENT_CLIENT||'');
+    });
+}
+
 function loadBrandAndWork(name){
   loadForms(name);
   loadGroup(name);
@@ -2069,8 +2267,11 @@ function loadBrandAndWork(name){
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderAnalyticsIds).catch(function(){});
   if(!name) return;
-  fetch('/api/client/brand?name='+encodeURIComponent(name),{credentials:'same-origin'})
-    .then(r=>r.json()).then(renderBrand).catch(()=>{});
+  /* The domain goes with the name. Brand data is stored two ways — under the
+     client name and in a cache keyed by domain — and every lookup anybody has
+     ever run landed in the second one, so asking by name alone is why this
+     card read "no brand data yet" for clients whose logo was plainly on file. */
+  loadBrand(name);
   fetch('/api/client/work?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(r=>r.json()).then(renderWork).catch(()=>{});
 }

@@ -665,8 +665,12 @@ async function loadArchive(){
     const r = await fetch('api/gallery' + (q ? '?q='+encodeURIComponent(q) : ''));
     const d = await r.json();
     archRows = d.gallery || [];
+    // d.total is the total OF THE SEARCH now; the whole archive is
+    // archive_total. Reading the archive-wide figure while showing a
+    // filtered list is what made Client 360 say "1 of 7" about a client
+    // with one image.
     $('archCount').textContent = q
-      ? archRows.length + ' of ' + d.total + ' images'
+      ? archRows.length + ' of ' + (d.archive_total||d.total) + ' images match'
       : d.total + ' image' + (d.total===1?'':'s') + ' saved';
     renderArchive(archRows);
   }catch(e){

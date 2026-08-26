@@ -825,7 +825,17 @@ def api_gallery():
         limit = clamp_int(request.args.get("limit"), 200, 1, 1000)
     except (TypeError, ValueError):
         limit = 200
-    return jsonify({"gallery": rows[:limit], "total": len(load_archive())})
+    # "total" is the total of what was ASKED for, not of the whole archive.
+    # It used to be len(load_archive()) whatever the filter said, so Client
+    # 360 -- which asks for one client and prints "Showing N of total" --
+    # read "Showing 1 of 7 saved images" for a client with exactly one, and
+    # the gallery it linked to then showed that one image. Both screens were
+    # right and the sentence joining them was wrong, which is the worst of
+    # the three. The archive-wide figure is still carried, under its own
+    # name, for anything that genuinely wants it.
+    return jsonify({"gallery": rows[:limit], "total": len(rows),
+                    "archive_total": len(load_archive()),
+                    "filtered": bool(company or client_slug or q)})
 
 
 @app.route("/api/gallery/update", methods=["POST"])
