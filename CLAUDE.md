@@ -220,6 +220,32 @@ against the document's directory) or a base derived from `location.pathname`.
 `apiUrl("/api/health")` is correct and a check that flags it teaches people to
 ignore the check.
 
+**Retiring a route is not done until nothing falls back to it.** `hub/leads.py`
+retired the inbound Suite webhook and said so at length — and six landing
+modules kept a POST to it one call level up, reached when
+`capture_and_deliver` raised, while four of them (boat, legal, ski, recruit)
+sent their abandoned-form partial lead *straight* there and through the panel
+never. So the lead panel's own warning could say the remaining risk was
+"outside the Hub" while the Hub was the risk. Both halves are invisible from
+either end. The fallback fires precisely when a fallback must not — a timeout,
+where the API write may well have landed — so it writes the **second contact**
+the single route exists to prevent; and the partial goes out on `pagehide` by
+`sendBeacon`, which returns a boolean nobody reads, so those leads were absent
+from the panel while the trigger was live and would have gone on being absent,
+behind a 200, once it was off. **Switching the trigger off in Suite is what
+converts a duplicate into a silent hole**, which is why the code had to be
+finished first and not after. Every landing lead and every partial goes
+through `hub/leads.py` now, the calculators' shared `CALCULATORS_LEAD_WEBHOOK_URL`
+fallback is gone with them (the per-calculator `CALC_WEBHOOK_…` override
+stays: it is an explicit opt-out the page names), and `test_lead_delivery.py`
+reads the module sources for both patterns — with an allowlist naming the
+files that may mention such a variable and why, so the check did not start
+life red. `GHL_WEBHOOK_URL` is on it: the IO Builder posts **insertion
+orders** down that one, which is a different workflow, and it refuses by name
+when unset instead of returning a quiet 200. Check the two do not hold the
+same URL before switching a trigger off, or the thing that stops is insertion
+orders.
+
 **The marketing site's form and the Hub's form were two different forms.**
 Nine industry tools live here (`/land/boat`, `/land/ski`, `/land/stadium`, …),
 each of which writes every lead through `hub/leads.py` into Smart 1 Suite.

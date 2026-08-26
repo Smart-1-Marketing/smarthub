@@ -4,7 +4,6 @@ import re
 import time
 from typing import Any
 
-import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
@@ -39,7 +38,6 @@ app = Flask(__name__)
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 # Standard GoHighLevel inbound-webhook URL for the Smart 1 Suite.
-WEBHOOK_URL = os.getenv("GHL_WEBHOOK_URL", "").strip()
 # Absolute base used to build the fallback report_pdf_url (e.g. https://recruitment-j62u.onrender.com).
 # If empty, the app derives it from the incoming request. Only used when Cloudinary is not configured.
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
@@ -431,12 +429,6 @@ MUTED = colors.HexColor("#68798c")
 AQUA = colors.HexColor("#eff9fc")
 
 
-def _money_to_int(value: str):
-    """'$5,000/month' -> 5000 (int) or None."""
-    digits = re.sub(r"[^\d]", "", (value or "").split("/")[0])
-    return int(digits) if digits else None
-
-
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (text or "report").lower()).strip("-") or "report"
 
@@ -682,9 +674,16 @@ def publish_pdf(path: str, company: str, base_url: str) -> str:
 def send_webhook(payload: dict, report: Any, status: str, pdf_url: str = "") -> None:
     """Deliver the lead through the Hub's lead panel.
 
-    Was a fire-and-forget POST that returned silently with no WEBHOOK_URL, so
-    a blank env var discarded every lead while the visitor saw success. The
-    panel stores first and forwards second.
+    Was a fire-and-forget POST that returned silently with an unset webhook
+    URL, so a blank env var discarded every lead while the visitor saw
+    success.
+
+    The panel is the only route. It stores the lead first and forwards second,
+    so a Suite outage delays delivery rather than destroying it, and anything
+    undelivered stays visible. There is deliberately nothing to fall back to:
+    the inbound Suite webhook this used to try next is retired, so a fallback
+    could only write the second contact the panel exists to prevent — or,
+    once the trigger behind it is off, nothing at all, silently.
     """
     try:
         from hub import leads as hub_leads
@@ -710,46 +709,10 @@ def send_webhook(payload: dict, report: Any, status: str, pdf_url: str = "") -> 
             pass
         return
     except Exception:  # noqa: BLE001
-        pass
-
-    if not WEBHOOK_URL:
-        return
-    report = report or {}
-    mp = report.get("market_profile", {}) or {}
-    rp = report.get("recommended_package", {}) or {}
-    monthly = _money_to_int(rp.get("monthly_investment", ""))
-    body = {
-        # --- Contact / lead fields ---
-        **payload,
-        "source": "Smart 1 Precision Recruitment Intelligence",
-        "report_status": status,
-        # --- Opportunity fields ---
-        "opportunity_name": f"{payload.get('company_name', 'Lead')} — Recruitment Plan",
-        "recommended_package": rp.get("package_name", ""),
-        "recommended_investment": rp.get("monthly_investment", ""),
-        "opportunity_value_monthly": monthly,
-        "opportunity_value_annual": monthly * 12 if monthly else None,
-        # --- Report custom fields ---
-        "market_type": report.get("market_type", ""),
-        "market_summary": report.get("market_summary", ""),
-        "est_qualified_candidates": mp.get("estimated_qualified_candidates_base"),
-        "estimated_active_jobseekers_base": mp.get("estimated_active_jobseekers_base"),
-        "hiring_triggers": ", ".join(report.get("hiring_triggers", []) or []),
-        "report_name": report_display_name(payload.get("company_name", "Company")),
-        "report_pdf_url": pdf_url,
-        "report_json": json.dumps(report, separators=(",", ":"))[:60000],
-    }
-    if status == "failed":
-        # No report exists on failure — omit empty report keys entirely so the
-        # webhook doesn't blank out fields GHL already holds for this contact.
-        # Sends only meta + non-empty lead fields + report_status.
-        body.pop("report_json", None)
-        body = {k: v for k, v in body.items() if v not in ("", None)}
-        body["report_status"] = "failed"
-    try:
-        requests.post(WEBHOOK_URL, json=body, timeout=12)
-    except requests.RequestException:
-        app.logger.exception("Webhook delivery failed")
+        # No second route. The inbound Suite webhook this used to fall back to
+        # is retired, so a fallback would post a lead the panel has already
+        # stored at a URL nothing answers.
+        app.logger.exception("Recruit lead capture failed")
 
 
 @app.get("/")
@@ -797,17 +760,20 @@ def partial_lead():
     # Need at least something identifying before bothering the CRM.
     if not (cleaned.get("website") or cleaned.get("company_name")):
         return jsonify({"ok": True})
-    if WEBHOOK_URL:
-        body = {
-            "source": "Smart 1 Precision Recruitment Intelligence",
-            "report_status": "partial",
-            "lead_id": cleaned.get("lead_id", ""),
-            **cleaned,
-        }
-        try:
-            requests.post(WEBHOOK_URL, json=body, timeout=8)
-        except requests.RequestException:
-            app.logger.exception("Partial-lead webhook delivery failed")
+    try:
+        from hub import leads as hub_leads
+        hub_leads.capture_and_deliver(
+            source="recruit",
+            page="Precision Recruitment Intelligence (partial)",
+            fields={"name": cleaned.get("contact_name", ""),
+                    "email": cleaned.get("contact_email", ""),
+                    "phone": cleaned.get("contact_phone", ""),
+                    "company": cleaned.get("company_name", ""),
+                    "report_status": "partial",
+                    **cleaned},
+            client=cleaned.get("company_name", ""))
+    except Exception:                                   # noqa: BLE001
+        app.logger.exception("Partial-lead capture failed")
     return jsonify({"ok": True})
 
 
