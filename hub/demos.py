@@ -491,93 +491,175 @@ SCENARIOS: list[Scenario] = [
     # ------------------------------------------------------------------
     Scenario(
         key="ads_builder.first_campaign", module="ads_builder",
-        title="Generate a Google Ads campaign and get it approved",
-        goal="An AI-drafted campaign checked against budget, sent for approval, "
-             "then handed to the client account — through the API, or as a "
-             "Google Ads Editor import when the API is not available. Paused "
-             "either way, with nothing spending until a human un-pauses it.",
-        minutes=9, path="/tools/ads",
+        title="Generate a Google Ads campaign from a landing page",
+        goal="A drafted campaign — ad groups, keywords, negatives and copy — "
+             "filed onto the client's record with an estimate ready to read, "
+             "edit and approve. Nothing has touched Google at the end of this.",
+        minutes=8, path="/tools/ads",
         spends=["openai.text"],
         steps=[
             Step("Find the client first",
                  "Search the client list, or say this is a new business.",
-                 "Look them up rather than typing the name: a campaign filed "
-                 "under a name nobody recognises never reaches the client's "
-                 "record, and a name typed slightly differently reaches the "
-                 "wrong one. A new business goes into Smart 1 Suite as a lead.",
+                 "Look them up rather than typing the name: picking the client "
+                 "is what files the finished proposal onto their 360 record. A "
+                 "free-typed name builds the same campaign and leaves the "
+                 "client's record showing nothing was ever quoted — and a name "
+                 "typed slightly differently reaches the wrong client, which is "
+                 "worse. A genuinely new business goes to Smart 1 Suite as a "
+                 "lead instead.",
                  action="fill", selector="#clientQuery", value="Riverside HVAC"),
-            Step("Describe the business, not the campaign",
-                 "Business name, sector and the geography you want to reach.",
-                 "The generator writes better ad copy from what the business "
-                 "*is* than from adjectives about the campaign. 'HVAC "
-                 "contractor, Columbus metro' beats 'high-converting summer "
-                 "promo'.",
+            Step("Name the business",
+                 "What the campaign and the estimate are headed with.",
+                 "This is what the client sees at the top of the document, so "
+                 "use the name they trade under rather than the legal entity.",
                  action="fill", selector="#businessName", value="Riverside HVAC"),
+            Step("Point it at the page the click lands on",
+                 "The landing page URL — a service page, not the home page if "
+                 "there is a better one.",
+                 "This page is fetched and read: phone links, forms and their "
+                 "field counts, booking tools and chat widgets by their own "
+                 "script signatures. Every finding carries the evidence, so the "
+                 "estimate quotes the number that is actually on the page. Get "
+                 "this wrong and the campaign is planned against a page nobody "
+                 "will land on.",
+                 action="fill", selector="#websiteUrl",
+                 value="https://riversidehvac.com/ac-repair"),
             Step("Set the sector",
-                 "This drives the keyword themes and the negative list.",
-                 "The negative keyword list matters more than the positive one "
-                 "for local service businesses — it's what stops you paying for "
-                 "'hvac jobs' and 'hvac school'.",
-                 action="choose", selector="#sector", value="Home Services"),
-            Step("Geography",
-                 "Where the ads should show. Be specific.",
-                 "A radius the business can't actually service is the fastest "
-                 "way to burn budget. Match it to their real van coverage, not "
-                 "their ambition.",
-                 action="fill", selector="#geography", value="Columbus, OH + 25 miles"),
-            Step("Set the budget",
-                 "Daily budget for the campaign.",
-                 "Watch the label update. This is the number the budget check "
-                 "runs against in two steps' time.",
-                 action="fill", selector="#budget", value="60"),
-            Step("Add anything the AI can't infer",
-                 "Notes: seasonality, the offer, what they don't want to sell.",
-                 "This is where you say 'they hate emergency callout work' or "
-                 "'the $89 tune-up is the hook'. It changes the copy "
-                 "meaningfully.",
-                 action="fill", selector="#notes",
-                 value="Push the $89 spring tune-up. No emergency callout work."),
+                 "It picks the CPC benchmark and seeds the negative themes.",
+                 "Every click estimate on the estimate is computed from this "
+                 "band — an industry benchmark for the sector, never a measured "
+                 "cost for this account, and labelled as such wherever it "
+                 "appears. For a local service business the negative list "
+                 "matters more than the positive one: it is what stops you "
+                 "paying for 'hvac jobs' and 'hvac school'.",
+                 action="choose", selector="#sector", value="homeservices"),
+            Step("Where the ads run",
+                 "One row per area. Add as many as the campaign covers.",
+                 "A dealer group with four rooftops is one campaign in four "
+                 "places, and typed into a single box the reach estimate sizes "
+                 "them as one. The sizing is done on the server with the same "
+                 "helper the Proposal Builder uses, so a campaign and its "
+                 "proposal cannot disagree about how big the audience is.",
+                 action="look", selector="[data-tour='ads-areas']"),
+            Step("Say what counts as a conversion",
+                 "Tick everything the client actually wants from this.",
+                 "These are structural, not a wish list. Calls bring call "
+                 "assets and hours matched to when somebody answers; "
+                 "appointment bookings need a live booking tool on the page. "
+                 "What you tick is checked against what the landing page can "
+                 "do — bidding for bookings against a page with no booking tool "
+                 "spends the budget and books nobody.",
+                 action="look", selector="[data-tour='ads-goals']"),
+            Step("Say what not to target",
+                 "Anything the client has ruled out.",
+                 "This is treated as a client instruction rather than a "
+                 "preference: it is written into the negative keywords and kept "
+                 "out of the positive ones. Taking one of those negatives back "
+                 "out later counts as a material change, because it reopens "
+                 "spend this list existed to stop.",
+                 action="fill", selector="#doNotTarget",
+                 value="No commercial or new-construction work. Not covering Delaware County."),
+            Step("The budget is optional",
+                 "Drag it, or tick 'they don't know a budget yet'.",
+                 "Most first conversations have no number in them, and "
+                 "refusing to build anything until a client picks one is how "
+                 "the conversation stops before it starts. Either way you get "
+                 "Good / Better / Best on the estimate — with a number, that is "
+                 "how you show what the next step up buys; without one, the "
+                 "estimate says in as many words that no budget was given.",
+                 action="fill", selector="#budget", value="3000"),
             Step("Generate",
-                 "The AI drafts campaigns, ad groups, keywords and copy.",
-                 "Simulated here so we don't spend tokens. Read what comes back "
-                 "as a first draft by a competent junior — good structure, "
-                 "always worth editing.",
-                 action="click", selector="#gen", simulated=True),
-            Step("Run the budget check",
-                 "Before anything is deployed.",
-                 "This is the guard between a typo and a real overspend. A "
-                 "daily budget entered as 600 instead of 60 is caught here or "
-                 "it isn't caught at all.",
-                 action="click", selector="[data-demo='budget-check']"),
-            Step("Try a dry run",
-                 "The dry toggle validates the whole deploy without sending it.",
-                 "Use this every time on a new account. It surfaces "
-                 "permission and structure problems while they're still free to "
-                 "fix.",
-                 action="click", selector="#dry"),
-            Step("Send it for approval",
-                 "It goes to the approvals page as a proposal.",
-                 "Only proposals marked APPROVED can deploy. That's enforced in "
-                 "code, not policy — you cannot skip it by clicking harder.",
-                 action="click", selector="[data-demo='send-approval']"),
-            Step("Hand it over without the API",
-                 "Ads Editor CSV and build sheet, on the proposal.",
-                 "The Google Ads API needs a developer token Google approves "
-                 "on its own timetable. Ads Editor imports the CSV under the "
-                 "account owner's own sign-in, so an approved campaign reaches "
-                 "the client account today and the same proposal still deploys "
-                 "through the API later, unchanged.",
-                 action="click", selector="[data-demo='export-csv']", simulated=True),
-            Step("Deploy, and note what deploy means",
-                 "One atomic mutate. Every campaign is created PAUSED.",
-                 "If any single operation fails, Google rolls the entire batch "
-                 "back — there is no such thing as a half-built campaign here. "
-                 "And nothing spends a cent until a human un-pauses it in Google "
-                 "Ads.",
-                 action="click", selector="[data-demo='deploy']", simulated=True),
+                 "Read the page, plan the campaign, write the keywords, size "
+                 "the budget — 30 to 60 seconds, and the stages tick off as "
+                 "they happen.",
+                 "Simulated here so it doesn't spend tokens. Nothing is sent to "
+                 "Google by this button: what comes back is a draft proposal "
+                 "and an estimate, and it is a first draft by a competent "
+                 "junior — good structure, always worth editing.",
+                 action="click", selector="[data-demo='ads-generate']", simulated=True),
         ]),
 
     # ------------------------------------------------------------------
+    # The second half, on the proposal screen. Split from the walkthrough above
+    # because a walkthrough drives one page: the steps below live behind
+    # /tools/ads/proposal/<id> and pointed at nothing while they sat in the
+    # generator's scenario.
+    Scenario(
+        key="ads_builder.review_and_launch", module="ads_builder",
+        title="Review an estimate, approve it, and get it to the client",
+        goal="An estimate you have read and approved, a client link that only "
+             "exists because it was approved, and the campaign in the client's "
+             "Google Ads account — paused — by whichever of the two routes is "
+             "open to you today.",
+        minutes=7, path="/tools/ads/proposal",
+        steps=[
+            Step("Read it as a draft, and edit in place",
+                 "Every panel on this page is editable.",
+                 "Approving is a statement about one specific document, so any "
+                 "edit marks the approval superseded — and a material one (the "
+                 "budget, the audience, the do-not-target list, a removed "
+                 "keyword, a removed negative) sends it back through the AI "
+                 "review first. That is two presses on purpose: a budget "
+                 "quartered by a typo shows you what it did to the plan before "
+                 "the document a client reads is signed off.",
+                 action="look", selector="[data-tour='ads-details']"),
+            Step("What was measured, and what was judged",
+                 "The landing page panel keeps the two apart.",
+                 "The facts were read off the page with the evidence beside "
+                 "them; the model was given those facts and asked only for "
+                 "judgment. A page that could not be fetched says not measured "
+                 "— never zero, which would read as a page with nothing on it.",
+                 action="look", selector="[data-tour='ads-page']"),
+            Step("Tick the competitors you will stand behind",
+                 "Researched names arrive unaccepted.",
+                 "Only ticked names reach the client's document. Printing all "
+                 "of them is us telling a client who their competitors are on "
+                 "the model's say-so, and it is the paragraph a client checks "
+                 "hardest.",
+                 action="look", selector="[data-tour='ads-competitors']"),
+            Step("Cut what does not belong",
+                 "Click keywords to mark them, then Remove selected.",
+                 "Nothing is removed until you apply it. Read the match types "
+                 "while you are in here — exact, phrase and broad are three "
+                 "different spend profiles on the same words — and remember "
+                 "that taking a term out of the negative vault is always "
+                 "material, however small it looks.",
+                 action="look", selector="[data-tour='ads-keywords']"),
+            Step("Approve it",
+                 "This is the gate on everything client-facing.",
+                 "The share route refuses an unapproved estimate outright, so "
+                 "no client link can exist until this press has happened. It "
+                 "records who approved what and when, and the version approved "
+                 "is the version the link shows.",
+                 action="click", selector="#approveBtn", autofill=False),
+            Step("Create the client link",
+                 "One URL, per send, and you can see whether it was opened.",
+                 "The client gets three answers, not two: yes, yes with my "
+                 "changes, and let's talk. The middle one is the most common "
+                 "real answer, and an approve/reject pair forces it into "
+                 "whichever end is nearest. No answer yet stays grey rather "
+                 "than reading as a no.",
+                 action="click", selector="[data-demo='ads-share']", autofill=False),
+            Step("Hand it over without the API",
+                 "Ads Editor CSV, plus a build sheet.",
+                 "Editor imports the CSV under the account owner's own "
+                 "sign-in, so this needs no developer token and no API access "
+                 "at all: an approved campaign can reach the client account "
+                 "this afternoon. The build sheet lists what Editor's columns "
+                 "cannot carry — sitelinks, callouts, snippets — and anything "
+                 "the proposal is still missing, named rather than guessed at.",
+                 action="look", selector="[data-demo='ads-export-csv']"),
+            Step("Or deploy, and note what deploy means",
+                 "One atomic mutate, and everything is created PAUSED.",
+                 "If any single operation fails Google rolls the entire batch "
+                 "back — there is no such thing as a half-built campaign here. "
+                 "And nothing spends a cent until a human un-pauses it. The API "
+                 "route needs a developer token Google approves on its own "
+                 "timetable; the same proposal deploys through it unchanged the "
+                 "day that lands.",
+                 action="look", selector="[data-tour='ads-launch']"),
+        ]),
+
     Scenario(
         key="sales_builder.first_quote", module="sales_builder",
         title="Build a client quote and send it as a PDF",

@@ -136,6 +136,23 @@ jobs:
             echo "test_ads_estimate.py not on this branch — nothing to run."
           fi
 
+      - name: Smart 1 Ads explainer tests
+        # The bubbles, the per-screen tour and the two walkthroughs. Every
+        # failure this covers is silent by design: a bubble whose key is not in
+        # the registry is removed rather than left dead on the page, a tour step
+        # whose selector matches nothing keeps its narration and hides the ring,
+        # and a walkthrough offered on a screen it cannot drive highlights
+        # nothing while "Do it for me" returns without doing anything. Guarded
+        # like the steps around it so this workflow stays mergeable on a branch
+        # that predates the file. Reads files and renders templates -- no
+        # database, no network.
+        run: |
+          if [ -f test_ads_explainer.py ]; then
+            python test_ads_explainer.py
+          else
+            echo "test_ads_explainer.py not on this branch — nothing to run."
+          fi
+
       - name: JSON store tests
         run: python test_jsonstore.py
 

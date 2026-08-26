@@ -1,16 +1,19 @@
 {% extends "ads_base.html" %}
 {% set active = 'activity' %}
+{% set screen = 'ads_builder.activity' %}
 {% block title %}Activity{% endblock %}
 {% block strap %}Every generation, status change, deployment and API error{% endblock %}
 
 {% block content %}
-<div class="row" style="margin-bottom:14px">
+<div class="row" style="margin-bottom:14px" data-tour="ads-log-filter">
   <input id="filter" style="max-width:280px" placeholder="Filter…" oninput="applyFilter()">
   <div class="spacer"></div>
   <a class="btn" href="{{ mount }}/activity">Refresh</a>
 </div>
 
-<div class="card">
+<div class="card" data-tour="ads-log">
+  <h3>Everything this module did {{ help_dot('ads_builder.activity.mirror') if help_dot is defined else '' }}
+    <span class="sub">mirrored into the Hub activity log and the client’s record</span></h3>
   {% if not events %}
     <div class="empty"><h4>Nothing logged yet</h4>Actions in this module will appear here.</div>
   {% else %}

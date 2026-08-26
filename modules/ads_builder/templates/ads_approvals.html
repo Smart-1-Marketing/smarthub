@@ -1,5 +1,6 @@
 {% extends "ads_base.html" %}
 {% set active = 'approvals' %}
+{% set screen = 'ads_builder.approvals' %}
 {% block title %}Approval hub{% endblock %}
 {% block strap %}Review, discuss, approve — then deploy to Google Ads{% endblock %}
 
@@ -27,8 +28,8 @@
    waiting on the same one press. #}
 {% set awaiting = proposals|rejectattr('estimate_approved')|rejectattr('status', 'equalto', 'ARCHIVED')|list %}
 {% if awaiting %}
-<div class="card" style="border-color:#fde68a;background:#fffdf5">
-  <h3>Approve these estimates first
+<div class="card" style="border-color:#fde68a;background:#fffdf5" data-tour="ads-blocking">
+  <h3>Approve these estimates first {{ help_dot('ads_builder.approvals.blocking') if help_dot is defined else '' }}
     <span class="sub">{{ awaiting|length }} waiting · a client link cannot be created until the estimate is approved</span></h3>
   <table>
     <thead><tr><th>Client</th><th class="num">Budget</th><th>Status</th><th>Updated</th><th></th></tr></thead>
@@ -58,7 +59,8 @@
   {% else %}
   <table>
     <thead><tr>
-      <th>Client</th><th>Status</th><th>Client review</th><th class="num">Budget</th>
+      <th>Client</th><th>Status</th>
+      <th data-tour="ads-colours">Client review {{ help_dot('ads_builder.approvals.colours') if help_dot is defined else '' }}</th><th class="num">Budget</th>
       <th class="num">Ad groups</th><th class="num">Keywords</th><th class="num">Comments</th>
       <th>Updated</th><th></th>
     </tr></thead>
