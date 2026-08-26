@@ -2684,6 +2684,7 @@ python3 test_celebrations.py       # birthdays and anniversaries: the month, and
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
 python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
+python3 test_stock_search.py       # four sources in one search; a missing folder is not an empty one
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
 python3 test_video_library.py      # the footage index, its status row, the page's palette
