@@ -20,8 +20,17 @@ So this module does three things:
    masters are 50-235 MB ProRes-ish `.mov` files, so linking one into a page is
    not an option. Every result carries a transformed URL instead.
 
-Three decisions worth keeping
------------------------------
+Four decisions worth keeping
+----------------------------
+
+**The library is two folder trees, not the account.** `FOLDERS` is an
+allowlist — `Smart 1 Ads` and `Video Backgrounds`, each including everything
+beneath it — and it scopes the counts, the search and what may be indexed
+alike. Before it, "Clips in Cloudinary" meant every video in the product
+environment: client commercials, internal explainers and Cloudinary's own demo
+files, counted and offered as background footage. A folder named here and
+absent there is *reported* rather than returning a confident zero, because a
+renamed folder and an empty one are different answers.
 
 **Indexing is forward-only, and the cutoff is recorded rather than assumed.**
 The existing library is deliberately out of scope: `cutoff()` is stamped the
@@ -116,6 +125,36 @@ CTX_INDEXED_AT = "s1_indexed_at"
 # in a diff rather than in a dashboard field at 2am.
 INDEX_BACKLOG = False
 
+# ---------------------------------------------------------------------------
+# Scope — the folders this tool is allowed to see
+# ---------------------------------------------------------------------------
+# There was no scope at all until now, and that is not a small omission: both
+# the counts on the status card and every search ran as bare
+# `resource_type:video`, which is *every video in the product environment*. On
+# the account this was built against that meant 33 clips of genuine stock
+# footage counted alongside a client's solar spots, a chiropractor's social
+# cuts, an internal rebate explainer and four of Cloudinary's own demo videos
+# — presented under a heading reading "Clips in Cloudinary" on a tool whose
+# entire job is backgrounds. A number that large reads as a deep library and
+# is mostly footage nobody may put behind a headline.
+#
+# So the library is an allowlist of folder trees. Everything else in the
+# account is invisible here: not ranked lower, not filtered on the way out —
+# never asked for. Each entry covers the folder itself *and* every subfolder
+# beneath it, so a new campaign folder inside one of them is in scope the day
+# it is created and needs no edit here.
+#
+# Deliberately a constant rather than an environment variable, for the reason
+# INDEX_BACKLOG is one: widening what a tool can reach is a decision that
+# belongs in a diff somebody reviewed, not in a dashboard field. A folder that
+# is renamed in Cloudinary must therefore be renamed here too — which is
+# exactly why `folder_report()` exists and why the page prints it. A rename
+# with no report would empty the library and read as "we own no footage".
+FOLDERS: tuple[str, ...] = (
+    "Smart 1 Ads",
+    "Video Backgrounds",
+)
+
 _STATE_FILE = "state.json"
 
 # Clamps. An unbounded max_results here is an unbounded Cloudinary bill and an
@@ -147,6 +186,117 @@ def can_index() -> bool:
 def _configure() -> None:
     if ready():
         cloudinary.config(secure=True)      # reads CLOUDINARY_URL
+
+
+# ---------------------------------------------------------------------------
+# The folder allowlist, as a search clause
+# ---------------------------------------------------------------------------
+
+def _folder_terms(path: str) -> list[str]:
+    """The clauses that match one folder tree.
+
+    Four of them, not two, and the pair that looks redundant is the point.
+    Cloudinary publishes a folder two ways depending on which folder mode the
+    product environment is in: `asset_folder` in dynamic folder mode, `folder`
+    (derived from the public_id path) in fixed. Both were run against this
+    account and both answer identically here, so asking for either costs
+    nothing — while asking for only the wrong one would return **zero** in an
+    environment set the other way, with every screen looking healthy and the
+    library reading as empty. That is not a hypothetical: the environment this
+    tool is pointed at is not the one it was written against.
+
+    The exact form (`=`) matches the folder itself and the trailing-wildcard
+    form (`:"path/*"`) matches everything below it. Neither alone is enough:
+    `asset_folder="Video Backgrounds"` misses every subfolder, and
+    `asset_folder:"Video Backgrounds/*"` misses every clip sitting directly in
+    it. Both were verified against the live search API.
+    """
+    # A double quote would close the quoted value and turn the rest of the
+    # folder name into syntax. Nothing else in a folder name is special once
+    # quoted, and a folder here is a code constant rather than user input --
+    # this is belt and braces on a name someone will one day paste in.
+    clean = str(path or "").strip().strip("/").replace('"', "")
+    if not clean:
+        return []
+    return [f'asset_folder="{clean}"', f'asset_folder:"{clean}/*"',
+            f'folder="{clean}"', f'folder:"{clean}/*"']
+
+
+def folder_clause() -> str:
+    """The parenthesised OR that scopes every query in this module.
+
+    Returns "" when the allowlist is empty, which no caller treats as "search
+    everything" -- see `search()`. An allowlist that widens to the whole
+    account when someone deletes a line is the failure this scope exists to
+    prevent.
+    """
+    terms: list[str] = []
+    for path in FOLDERS:
+        terms.extend(_folder_terms(path))
+    return "(" + " OR ".join(terms) + ")" if terms else ""
+
+
+def in_scope(folder: str) -> bool:
+    """Is this asset's folder inside the allowlist?
+
+    Applied to a single asset before it is indexed, so a public_id typed or
+    passed in by hand cannot reach round the scope and spend a vision call
+    describing a client's commercial. Matched on whole path segments: "Smart 1
+    Ads Archive" is not inside "Smart 1 Ads", exactly as `hub/access.py`
+    refuses to read `/statuses` as `/status`.
+    """
+    got = str(folder or "").strip().strip("/")
+    for path in FOLDERS:
+        allowed = str(path or "").strip().strip("/")
+        if allowed and (got == allowed or got.startswith(allowed + "/")):
+            return True
+    return False
+
+
+def scope_note() -> str:
+    """What the tool searched, in words, for any screen that shows results."""
+    if not FOLDERS:
+        return ("No folders are allowlisted, so there is nothing to search. "
+                "This is a configuration problem, not an empty library.")
+    names = ", ".join(f"{f}/" for f in FOLDERS)
+    return (f"Searching {names} and everything beneath them. Footage "
+            f"elsewhere in the account is deliberately out of scope.")
+
+
+def folder_report() -> list[dict]:
+    """Whether each allowlisted folder actually exists, one row each.
+
+    The whole point of the scope is that a folder named here and absent there
+    returns nothing -- and "nobody has uploaded backgrounds yet", "this folder
+    was renamed in Cloudinary" and "we could not ask Cloudinary" are three
+    different answers that a bare 0 renders identically. So `exists` is
+    tri-state: True, False, or None for *not measured*, which is the rule this
+    codebase applies everywhere else and the one thing a count cannot say.
+    """
+    rows: list[dict] = []
+    if not ready():
+        return [{"path": f, "exists": None,
+                 "note": "Cloudinary is not configured, so this could not be "
+                         "checked."} for f in FOLDERS]
+    _configure()
+    for path in FOLDERS:
+        row = {"path": path, "exists": None, "note": ""}
+        try:
+            cloudinary.api.subfolders(path)
+            row["exists"] = True
+        except Exception as exc:            # noqa: BLE001
+            # NotFound is an answer; anything else is a failure to look, and
+            # calling the second one "missing" sends somebody hunting for a
+            # folder that is sitting there.
+            if type(exc).__name__ == "NotFound":
+                row["exists"] = False
+                row["note"] = ("No folder of this name in this Cloudinary "
+                               "product environment. Nothing here can match "
+                               "it.")
+            else:
+                row["note"] = f"Could not be checked: {exc}"
+        rows.append(row)
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +604,20 @@ def index_asset(public_id: str, *, force: bool = False) -> dict:
         result["reason"] = f"Could not read the asset: {exc}"
         return result
 
+    # Before the cutoff test and before any vision call: the scope is about
+    # what this tool may look at at all, and a public_id arriving from a
+    # caller rather than from pending() is exactly the path that goes round a
+    # search filter. Skipped, not failed -- an asset outside the library is
+    # not an error, it is none of our business.
+    folder = info.get("asset_folder")
+    if folder is None:
+        folder = str(info.get("folder") or "")
+    if not in_scope(folder):
+        result["status"] = "skipped_out_of_scope"
+        result["reason"] = (f"Sits in {folder or 'no folder'}, which is outside "
+                            f"the library. " + scope_note())
+        return result
+
     mark = cutoff()
     if not _after_cutoff(info.get("created_at", ""), mark):
         result["status"] = "skipped_predates_cutoff"
@@ -513,6 +677,9 @@ def pending_expression(mark: str) -> str:
     "nothing to index" forever with nothing looking broken.
     """
     expr = "resource_type:video"
+    scope = folder_clause()
+    if scope:
+        expr += f" AND {scope}"
     if mark and not INDEX_BACKLOG:
         expr += f' AND created_at>"{mark}"'
     expr += f" AND -tags:{INDEX_TAG}"
@@ -583,6 +750,13 @@ def build_expression(query: str = "", *, tags: list[str] | None = None,
     rather than an empty result, which reads as the tool being broken.
     """
     clauses = ["resource_type:video"]
+    # Second, immediately after resource_type and before anything negated or
+    # compared -- see pending_expression() for why clause order is not free
+    # here. Every query in this module carries it: a search that could reach
+    # outside FOLDERS is the scope not existing.
+    scope = folder_clause()
+    if scope:
+        clauses.append(scope)
     if indexed_only:
         clauses.append(f"tags:{INDEX_TAG}")
 
@@ -611,8 +785,16 @@ def search(query: str = "", *, tags: list[str] | None = None,
     """
     limit = max(1, min(int(limit or DEFAULT_RESULTS), MAX_RESULTS))
     out = {"ok": False, "query": query, "results": [], "total": 0,
-           "cutoff": cutoff(), "indexed_only": indexed_only, "note": ""}
+           "cutoff": cutoff(), "indexed_only": indexed_only, "note": "",
+           "folders": list(FOLDERS), "scope": scope_note()}
 
+    if not FOLDERS:
+        # Never "search everything instead". An allowlist that falls back to
+        # the whole account the moment it is empty is the scope failing open,
+        # which is the one way this change could make things worse than they
+        # were.
+        out["note"] = scope_note()
+        return out
     if not ready():
         out["note"] = ("Cloudinary is not configured, so the owned library "
                        "cannot be searched. This is not an empty library.")
@@ -644,8 +826,9 @@ def search(query: str = "", *, tags: list[str] | None = None,
     items = [i for i in items if _matches(i, orientation, max_duration)]
     out.update(ok=True, results=items[:limit], total=len(items))
     if not items:
-        out["note"] = ("Nothing indexed matches that yet. Indexing covers "
-                       f"clips uploaded after {out['cutoff'] or 'it starts'}.")
+        out["note"] = ("Nothing indexed matches that yet. " + scope_note()
+                       + " Indexing covers clips uploaded after "
+                       + f"{out['cutoff'] or 'it starts'}.")
     return out
 
 
@@ -721,6 +904,10 @@ def status() -> dict:
         "indexing_started": bool(mark),
         "indexed_count": None,
         "library_count": None,
+        "folders": list(FOLDERS),
+        "folder_rows": [],
+        "missing_folders": [],
+        "scope": scope_note(),
         "note": "",
     }
     if not ready():
@@ -730,10 +917,28 @@ def status() -> dict:
         out["note"] = ("OPENAI_API_KEY is not set. Existing index entries are "
                        "searchable; new clips cannot be described.")
     _configure()
+    out["folder_rows"] = folder_report()
+    out["missing_folders"] = [r["path"] for r in out["folder_rows"]
+                              if r["exists"] is False]
+    if out["missing_folders"]:
+        # Said here rather than left for a reader to infer from a zero. A
+        # folder named in FOLDERS and absent from the account cannot match
+        # anything, and the count below will be honest and useless.
+        out["note"] = ((out["note"] + " ") if out["note"] else "") + (
+            "Not in this Cloudinary product environment: "
+            + ", ".join(out["missing_folders"])
+            + ". Nothing in the library can come from them — check the folder "
+              "names, or whether the Hub's CLOUDINARY_URL points at the "
+              "product environment that holds them.")
     # Counted rather than left as zero: "0 indexed" and "could not count" mean
-    # very different things and must not look the same on the page.
-    for key, expr in (("indexed_count", f"resource_type:video AND tags:{INDEX_TAG}"),
-                      ("library_count", "resource_type:video")):
+    # very different things and must not look the same on the page. Both counts
+    # are scoped to FOLDERS, so this row answers "how much of the background
+    # library is searchable" rather than "how many videos does the account
+    # hold" -- which is what it used to answer while claiming the first.
+    scope = folder_clause()
+    prefix = f"resource_type:video AND {scope}" if scope else "resource_type:video"
+    for key, expr in (("indexed_count", f"{prefix} AND tags:{INDEX_TAG}"),
+                      ("library_count", prefix)):
         try:
             out[key] = int((Search().expression(expr).max_results(0)
                             .execute()).get("total_count") or 0)

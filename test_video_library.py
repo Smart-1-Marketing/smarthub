@@ -40,6 +40,14 @@ from hub import video_library as vl            # noqa: E402
 
 FAILED = []
 
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _read(*parts):
+    with open(os.path.join(_ROOT, *parts), encoding="utf-8",
+              errors="ignore") as fh:
+        return fh.read()
+
 
 def check(label, got, want):
     if got != want:
@@ -126,8 +134,13 @@ for char in (":", "[", "]", "{", "}", "^", '"', "(", ")"):
     # so only assert that none survived from the user's input.
     if char in "()":
         continue
+    # The scope clause is emitted by this module from a code constant, not by
+    # the person typing, so it is stripped alongside the field prefixes --
+    # leaving the assertion about what it has always been about: the user's own
+    # characters.
     check_not_in(f"a bare {char!r} from user input never reaches the expression",
-                 char, nasty.replace("context.s1_desc:", "").replace("tags:", "")
+                 char, nasty.replace(vl.folder_clause(), "")
+                            .replace("context.s1_desc:", "").replace("tags:", "")
                             .replace("filename:", "").replace("resource_type:", ""))
 
 # The clause order pending() emits, asserted directly. Verified against the
@@ -143,6 +156,117 @@ check_not_in("...in Z form, because +00:00 is a parse error", "+00:00", pend)
 check_in("un-indexed clips only", "-tags:s1-indexed", pend)
 check_not_in("with no cutoff there is no date clause",
              "created_at", vl.pending_expression(""))
+
+
+# ---------------------------------------------------------------------------
+print("\nThe library is two folder trees, not the whole account")
+# ---------------------------------------------------------------------------
+# Before this scope existed, both counts and every search ran as bare
+# `resource_type:video` -- every video in the product environment, client
+# commercials and Cloudinary's own demo files included, presented under a
+# heading about background footage. Each assertion below is one way the scope
+# fails open again without anything looking broken.
+check("the allowlist is the two folders asked for",
+      list(vl.FOLDERS), ["Smart 1 Ads", "Video Backgrounds"])
+
+_clause = vl.folder_clause()
+for _f in vl.FOLDERS:
+    check_in(f"{_f} itself is matched exactly", f'asset_folder="{_f}"', _clause)
+    check_in(f"...and everything beneath {_f}", f'asset_folder:"{_f}/*"', _clause)
+    # Dynamic folder mode publishes asset_folder, fixed mode publishes folder.
+    # Asking for only one returns zero in an environment set the other way,
+    # with every screen healthy -- which is exactly the situation this tool is
+    # being pointed at a different product environment from the one it was
+    # written against.
+    check_in(f"...under either folder mode ({_f})", f'folder="{_f}"', _clause)
+check_true("the clause is one parenthesised OR", _clause.startswith("(")
+           and _clause.endswith(")") and " OR " in _clause)
+
+_search_expr = vl.build_expression("drone")
+check_in("every search carries the scope", _clause, _search_expr)
+check_true("...directly after resource_type, before any negation or comparison",
+           _search_expr.index(_clause) < _search_expr.index("tags:s1-indexed"))
+_pend_expr = vl.pending_expression("2026-08-24T10:09:05Z")
+check_in("so does the pending sweep", _clause, _pend_expr)
+check_true("...still ahead of the date clause and the negation",
+           _pend_expr.index(_clause) < _pend_expr.index('created_at>"')
+           < _pend_expr.index("-tags:"))
+
+# Whole path segments, for the reason hub/access.py refuses to read /statuses
+# as /status.
+check_true("a clip in an allowlisted folder is in scope",
+           vl.in_scope("Video Backgrounds"))
+check_true("...and one in a subfolder of it", vl.in_scope("Smart 1 Ads/Q3/cuts"))
+check_true("a client folder is not", not vl.in_scope("Icon Solar"))
+check_true("no folder at all is not", not vl.in_scope(""))
+check_true("a folder that merely starts with the same letters is not",
+           not vl.in_scope("Smart 1 Ads Archive"))
+check_true("nor is one that merely contains the name",
+           not vl.in_scope("clients/Smart 1 Ads"))
+
+# An empty allowlist must refuse, never widen to the whole account.
+_real = vl.FOLDERS
+vl.FOLDERS = ()
+check("an empty allowlist searches nothing", vl.folder_clause(), "")
+_empty = vl.search("anything")
+check("...and the search refuses rather than reading the account",
+      _empty["results"], [])
+check_in("...saying it is a configuration problem, not an empty library",
+         "configuration problem", _empty["note"])
+vl.FOLDERS = _real
+
+# A search payload has to carry what it searched, or three clips on screen
+# read as the whole library.
+check("a result payload names the folders",
+      vl.search("x")["folders"], list(vl.FOLDERS))
+check_in("...and says so in words", "Smart 1 Ads/", vl.scope_note())
+
+
+# ---------------------------------------------------------------------------
+print("\nA folder named here and absent there is reported, never a zero")
+# ---------------------------------------------------------------------------
+# The scope's own failure mode. A folder renamed in Cloudinary, or a
+# CLOUDINARY_URL pointing at a different product environment, matches nothing
+# -- and a count of 0 says that identically to "nobody has uploaded any
+# backgrounds yet". Only one of those is something to act on.
+_rows = vl.folder_report()
+check("one row per allowlisted folder", len(_rows), len(vl.FOLDERS))
+check_true("existence is tri-state, and unreachable is None not False",
+           all(r["exists"] is None for r in _rows))
+check_true("...with a reason on every unmeasured row",
+           all(r["note"] for r in _rows))
+
+_st_missing = dict(vl.status())
+check_true("status carries the folder rows", "folder_rows" in _st_missing)
+check_true("...and the list of missing ones separately",
+           isinstance(_st_missing.get("missing_folders"), list))
+
+# The dashboard check must treat a missing folder as its own state rather than
+# printing a truthful, useless zero.
+_hub_block = _read("hub", "__init__.py").split("--- Video background library ---", 1)[1]
+_hub_block = _hub_block.split("--- binaries for the PDF optimizer ---", 1)[0]
+check_in("the dashboard names a missing folder", "missing_folders", _hub_block)
+check_in("...as an error, not a count", '"error"', _hub_block)
+# Matched short, because the sentence is wrapped across two source lines and a
+# check that breaks on re-wrapping is a check somebody deletes.
+check_in("...and says it is not an empty library", "not an empty", _hub_block)
+
+
+# ---------------------------------------------------------------------------
+print("\nIndexing cannot reach round the scope")
+# ---------------------------------------------------------------------------
+# pending() only ever returns in-scope clips, but index_asset() takes a
+# public_id from its caller -- which is the path that goes round a search
+# filter. Asserted on the source because exercising it needs a live account.
+_src = _read("hub", "video_library.py")
+_idx = _src.split("def index_asset(", 1)[1].split("\ndef ", 1)[0]
+check_in("index_asset asks whether the asset is in scope", "in_scope(", _idx)
+check_in("...and skips rather than failing on one that is not",
+         "skipped_out_of_scope", _idx)
+check_true("...before spending a vision call on it",
+           _idx.index("in_scope(") < _idx.index("_describe("))
+check_true("out of scope counts as skipped, not failed",
+           'startswith("skipped")' in _src)
 
 
 # ---------------------------------------------------------------------------
@@ -314,14 +438,6 @@ print("\nThe library reports itself on System Status")
 # means something different in each.
 import re as _re                                                # noqa: E402
 
-_ROOT = os.path.dirname(os.path.abspath(__file__))
-
-
-def _read(*parts):
-    with open(os.path.join(_ROOT, *parts), encoding="utf-8", errors="ignore") as fh:
-        return fh.read()
-
-
 _hub_src = _read("hub", "__init__.py")
 check_in("/api/status carries a video library check",
          'add("Video background library"', _hub_src)
@@ -329,8 +445,8 @@ _block = _hub_src.split('# --- Video background library ---', 1)[-1].split(
     '# --- binaries for the PDF optimizer ---', 1)[0]
 check_true("it asks the library rather than reading the two env vars itself",
            "video_library" in _block and "os.environ" not in _block)
-check("it separates unset Cloudinary, never-indexed and working",
-      len(_re.findall(r'add\("Video background library"', _block)), 4)
+check("it separates unset Cloudinary, a missing folder, never-indexed and working",
+      len(_re.findall(r'add\("Video background library"', _block)), 5)
 check_in("never-indexed says so rather than reading as an empty library",
          "Indexing has never run", _block)
 check_in("a count that could not be taken is not printed as a number",
