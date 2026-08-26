@@ -2223,7 +2223,9 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001 — never 500 a page over the gate
             return None
 
-    def viewer_is_admin() -> bool:
+    _UNREAD = object()
+
+    def viewer_is_admin(account=_UNREAD) -> bool:
         """Does this request get the Utilities section?
 
         Three cases, and the middle one is the decision worth stating:
@@ -2235,8 +2237,15 @@ def create_hub_app() -> Flask:
             the way to close the door is to clear the variable;
           * nobody signed in -> False, though no gate reaches here: the login
             redirect runs first.
+
+        `account` is for a caller that has already read the row: it is
+        deliberately not cached per request, so asking again is a second query
+        for an answer just fetched. Passing it in keeps the rule in one place
+        rather than having each such caller restate `account.is_admin` and
+        quietly disagree about what None means.
         """
-        account = current_account()
+        if account is _UNREAD:
+            account = current_account()
         if account is not None:
             return bool(account.is_admin)
         return bool(current_user())
@@ -4449,6 +4458,21 @@ def create_hub_app() -> Flask:
         data["line"] = presence.summary_line(data)
         return jsonify(data)
 
+    @app.route("/api/housekeeping")
+    def api_housekeeping():
+        """What needs filling in across the Hub, and the page it shows on.
+
+        A Utilities path (`hub/access.py`), which is the whole point: these
+        are to-dos for whoever can open the Users panel, and until now the
+        only place any of them appeared was underneath a dashboard card
+        everybody reads and three people can act on.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import housekeeping
+        return jsonify(housekeeping.findings())
+
     @app.route("/api/celebrations")
     def api_celebrations():
         """Whose birthday and whose work anniversary, this month and today.
@@ -4474,9 +4498,10 @@ def create_hub_app() -> Flask:
             return jsonify({"error": str(exc), "birthdays": [],
                             "anniversaries": []})
         email, name = "", current_user() or ""
+        account, account_read = None, False
         try:
             from .users_routes import current_account
-            account = current_account()
+            account, account_read = current_account(), True
             if account is not None:
                 email, name = (account.email or ""), (account.name or name)
         except Exception:  # noqa: BLE001 — a session with no account row
@@ -4484,6 +4509,23 @@ def create_hub_app() -> Flask:
         data["me"] = celebrations.mine(data["today_list"], email=email,
                                        name=name)
         data["me_name"] = name
+        # Who is missing a date is a job for whoever can open the Users panel,
+        # and eleven of the fourteen accounts are answered 403 by it. A
+        # General account is still told the list is not the whole roster —
+        # that was the point of the sentence — and is told none of the rest:
+        # the counts, the names and the link are on /diagnostics, where the
+        # person who can act on them is looking. hub/housekeeping.py decides,
+        # so the template cannot describe it a second, different way.
+        # A row we could not read is not an admin: the gaps are withheld
+        # rather than shown, because the failure mode of guessing the other
+        # way is a to-do published to somebody who cannot act on it, which is
+        # the thing being fixed. A shared-password session reads as an admin
+        # here exactly as it does everywhere else — `account_read` is true and
+        # the row is legitimately None.
+        if not (account_read and viewer_is_admin(account)):
+            from . import housekeeping
+            data["not_recorded"] = housekeeping.withheld(
+                data.get("not_recorded") or {})
         return jsonify(data)
 
     @app.route("/api/c360")

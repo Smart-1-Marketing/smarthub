@@ -296,6 +296,33 @@ def month_over_month(prods: list[dict]) -> dict:
     return {"new": new, "lost": lost, "increased": increased, "decreased": decreased}
 
 
+def export_state() -> dict:
+    """The month the committed products export was generated for.
+
+    One place decides what "stale" means, because two things ask: the
+    dashboard, which labels its month-over-month counts with it, and
+    `hub/housekeeping.py`, which lists the export as something to regenerate.
+    A second copy of the comparison would let the scorecard and the
+    Diagnostics row disagree about whether the export is current, with nothing
+    on either screen saying which to believe.
+
+    `_load` is cached on the file's mtime, so this is a dictionary lookup on
+    every call after the first.
+    """
+    raw = _load("products.json")
+    period = str(raw.get("thisMonth") or "") if isinstance(raw, dict) else ""
+    current = _current_period()
+    return {
+        "period": period,
+        "label": _period_label(period),
+        "current": current,
+        "current_label": _period_label(current),
+        # An export with no month in it is neither stale nor current: the
+        # caller is told there is no period rather than handed a False.
+        "stale": bool(period and period != current),
+    }
+
+
 def summary() -> dict:
     raw = _load("products.json")
     prods = products()
@@ -319,8 +346,9 @@ def summary() -> dict:
     # `period` is now — what the snapshot history is keyed on. `export_period`
     # is the month products.json was generated for, which is what its lastM /
     # thisM flags describe and all the new/lost/up/down counts are measured in.
-    period = _current_period()
-    export_period = str(raw.get("thisMonth") or "") if isinstance(raw, dict) else ""
+    export = export_state()
+    period = export["current"]
+    export_period = export["period"]
     export_prev = str(raw.get("lastMonth") or "") if isinstance(raw, dict) else ""
     # Recorded even though nothing renders a comparison today: a reading of
     # this month is the only thing that can ever produce one measured the same
@@ -363,7 +391,7 @@ def summary() -> dict:
         # so they describe the export's month — not necessarily this one. When
         # the export is behind the calendar they are history, and the card has
         # to say so rather than presenting last quarter's movement as today's.
-        "export_stale": bool(export_period and export_period != period),
+        "export_stale": export["stale"],
         "period": _period_label(period),
         "data_age_hours": data_age_hours(),
     }

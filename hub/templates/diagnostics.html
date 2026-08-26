@@ -18,6 +18,20 @@
   <!-- ---------------- warnings ---------------- -->
   <div id="diag-alerts"></div>
 
+  <!-- ---------------- housekeeping ---------------- -->
+  <section class="diag-card">
+    <h2>Housekeeping &mdash; what needs filling in</h2>
+    <p class="diag-help">
+      Warnings that show on pages the whole company reads and that only an
+      admin can act on. The roster's missing start dates sat under the
+      dashboard's birthday block, addressed to eleven people the Users panel
+      answers 403 &mdash; so the person who could fix it found out by looking
+      at somebody else's screen. Each row says which page a reader meets it on
+      and where it is fixed.
+    </p>
+    <div id="diag-housekeeping" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
   <!-- ---------------- API health ---------------- -->
   <section class="diag-card">
     <h2>API health <span class="diag-note" id="diag-timing"></span></h2>
@@ -555,6 +569,44 @@ function renderOauth(d){
   el.innerHTML = head + problems + rows;
 }
 
+function renderHousekeeping(d){
+  var el=document.getElementById("diag-housekeeping"); if(!el) return;
+  var rows=(d.findings||[]).map(function(f){
+    // "not measured" is its own state and never a zero: a source that could
+    // not be read must not render as a clean row with nothing outstanding.
+    var state = !f.measured ? "error" : (f.level==="low" ? "off" : "warn");
+    var pill  = f.measured ? String(f.count||1) : "?";
+    var who   = (f.names||[]).length
+      ? '<br><span class="diag-note">'+f.names.map(esc).join(", ")+
+        (f.names_truncated?" &hellip;and "+f.names_truncated+" more":"")+'</span>'
+      : "";
+    var where = f.page
+      ? '<br><span class="diag-note">Shows on: '+
+        (f.page_path?'<a href="'+esc(f.page_path)+'">'+esc(f.page)+'</a>':esc(f.page))+
+        '</span>'
+      : "";
+    var note = f.note
+      ? '<br><span class="diag-note">'+esc(f.note)+'</span>' : "";
+    var fix = f.fix
+      ? '<em class="diag-fix">'+esc(f.fix)+
+        (f.fix_path?' &mdash; <a href="'+esc(f.fix_path)+'">'+esc(f.fix_path)+'</a>':'')+
+        '</em>'
+      : "";
+    return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+esc(pill)+'</span>'+
+      '<span class="diag-name">'+esc(f.page||f.key)+'</span>'+
+      '<span class="diag-detail">'+esc(f.issue)+who+where+note+fix+'</span></div>';
+  }).join("");
+  // What was checked and had nothing to say, so one row cannot be mistaken
+  // for one check having run.
+  var checked='<div class="diag-row"><span class="diag-pill p-'+
+    ((d.findings||[]).length?"warn":"ok")+'">'+((d.open||0)||"ok")+'</span>'+
+    '<span class="diag-name">Checked</span><span class="diag-detail">'+
+    esc((d.sources||[]).join(", ")||"nothing")+
+    ((d.clean||[]).length?' &mdash; nothing outstanding in '+esc(d.clean.join(", ")):'')+
+    '</span></div>';
+  el.innerHTML = checked + rows;
+}
+
 function renderIntegrity(d){
   document.getElementById("diag-integrity").innerHTML = d.groups.map(function(g){
     var state = g.count===0 ? "ok" : (g.severity==="high"?"error":g.severity==="medium"?"warn":"off");
@@ -764,6 +816,10 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderOauth)
     .catch(function(){document.getElementById("diag-oauth").innerHTML=
       '<p class="diag-loading">Could not read the redirect URIs.</p>';});
+  fetch("/api/housekeeping",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderHousekeeping)
+    .catch(function(){document.getElementById("diag-housekeeping").innerHTML=
+      '<p class="diag-loading">Could not read the housekeeping list.</p>';});
   fetch("/api/integrity",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderIntegrity)
     .catch(function(){document.getElementById("diag-integrity").innerHTML=

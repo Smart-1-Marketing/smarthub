@@ -283,18 +283,30 @@ fetch('/api/celebrations').then(r=>r.json()).then(d=>{
     +col('Work anniversaries still to come','&#127881;',d.anniversaries||[],
          'No more work anniversaries this month.');
   // Named rather than skipped: without this the list is indistinguishable
-  // from a month in which nobody has a birthday.
-  const nr=d.not_recorded||{}, missing=[];
-  if((nr.birthday||[]).length) missing.push((nr.birthday||[]).length+' with no birthday on file');
-  if((nr.hired_at||[]).length) missing.push((nr.hired_at||[]).length+' with no start date on file');
-  // A date that is on file and means nothing is its own sentence: somebody
-  // looking at the Users panel can see a start date sitting right there.
-  if((nr.hired_placeholder||[]).length)
-    missing.push((nr.hired_placeholder||[]).length
-      +' whose start date is still the 01-08-19 placeholder from the census');
-  if(missing.length&&gaps)
-    gaps.innerHTML='Of '+esc(d.people||0)+' people on the roster: '+esc(missing.join(', '))
-      +'. Fill them in under <a href="/diagnostics">Users</a> and they appear here.';
+  // from a month in which nobody has a birthday. What is named depends on who
+  // is reading — the API withholds the counts, the names and the Users link
+  // from a General account, because /diagnostics/users answers it 403 and a
+  // to-do addressed to somebody who cannot do it is read once and then never
+  // again. The full list is on the diagnostics page, under Housekeeping —
+  // see hub/housekeeping.py.
+  const nr=d.not_recorded||{};
+  if(nr.withheld){
+    if(nr.any&&gaps)
+      gaps.textContent='Not everyone\u2019s dates are on file yet, so this is '
+        +'not the whole roster.';
+  }else{
+    const missing=[];
+    if((nr.birthday||[]).length) missing.push((nr.birthday||[]).length+' with no birthday on file');
+    if((nr.hired_at||[]).length) missing.push((nr.hired_at||[]).length+' with no start date on file');
+    // A date that is on file and means nothing is its own sentence: somebody
+    // looking at the Users panel can see a start date sitting right there.
+    if((nr.hired_placeholder||[]).length)
+      missing.push((nr.hired_placeholder||[]).length
+        +' whose start date is still the 01-08-19 placeholder from the census');
+    if(missing.length&&gaps)
+      gaps.innerHTML='Of '+esc(d.people||0)+' people on the roster: '+esc(missing.join(', '))
+        +'. Fill them in under <a href="/diagnostics/users">Users</a> and they appear here.';
+  }
   if(d.source==='roster')
     $('cheer-src').textContent='from the census roster';
 });
