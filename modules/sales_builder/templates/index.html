@@ -383,7 +383,6 @@ const industryIdeas={
  retail:{behavioral:["Frequent shoppers","Category purchasers","Deal seekers","Loyalty-program users"],contextual:["Shopping and retail","Product reviews","Lifestyle interests","Local events"]},
  general:{behavioral:["Category intenders","Recent purchasers","Engaged website visitors","Lookalike audiences"],contextual:["Industry-related content","Local news and lifestyle","Product research","Relevant professional content"]}};
 const INDUSTRY_KEYS={"Healthcare / Dental":"healthcare","Automotive":"automotive","Restaurant / Hospitality":"restaurant","Home Services":"home","Legal":"legal","Retail / E-comm":"retail"};
-const incomeOptions=["No income targeting","Under $50,000","$50,000–$74,999","$75,000–$99,999","$100,000–$149,999","$150,000–$199,999","$200,000+"];
 /* Age and household income are ranges, and they were being asked as tick
    boxes -- six age chips and seven income chips, any combination of which
    could be on. So "25-34 and 55-64 but not the fifteen years between them"
@@ -1739,7 +1738,12 @@ function drawCompetitors(){
    `<button class="btn btn-ghost" title="${esc(k.help)}" onclick="addTarget('${k.key}')">+ ${esc(k.label)}</button>`).join('')}</div>
   <div class="note" id="compMeta" style="margin-top:8px">${esc(targetSummary())}</div>
  </div>`;}
-function pill(kind,v){const m={exc:S.exclusions,age:S.ages,inc:S.income,aud:S.audiences,kpi:S.kpis};toggle(m[kind],v);if(kind==='age'||kind==='inc')S.aiEst=null;saveSoon();renderStep();if(kind==='age'||kind==='inc')drawEst();}
+/* Age and income were chips and are sliders now, so 'age' and 'inc' are gone
+   from this map. Left in, they would toggle S.ages under a control that reads
+   its range from S.ageRange -- the screen and the reach estimate disagreeing
+   with nothing erroring. */
+function pill(kind,v){const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};
+ if(!m[kind])return;toggle(m[kind],v);saveSoon();renderStep();}
 function addCustom(kind,id){const el=document.getElementById(id);const v=(el.value||'').trim();if(!v)return;const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};if(!m[kind].includes(v))m[kind].push(v);el.value='';saveSoon();renderStep();}
 function goal(k){toggle(S.objectives,k);S.items=[];S.kpis=[];saveSoon();renderStep();}
 function setBudget(v){S.budget=+v||0;S.configured=false;applySeeds();saveSoon();renderStep();}
