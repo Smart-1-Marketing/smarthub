@@ -237,6 +237,17 @@ jobs:
             echo "test_scan_widgets.py not on this branch — nothing to run."
           fi
 
+      - name: Image picker tests
+        # Where a client can upload from, deleting a gallery, and what a
+        # General Business client is asked. Guarded like the steps around it so
+        # this workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_image_picker.py ]; then
+            python test_image_picker.py
+          else
+            echo "test_image_picker.py not on this branch — nothing to run."
+          fi
+
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.
