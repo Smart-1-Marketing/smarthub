@@ -289,13 +289,30 @@ def render_sidebar(active: str = "", is_admin: bool = True) -> bytes:
         "if(e.target.closest('a'))set(false);});"
         # Collapse to an icon rail, remembered across pages. Applied before
         # paint where possible so the layout doesn't jump on every navigation.
+        #
+        # A page can ask for the rail with `data-s1hub-collapse="1"` on its
+        # body. The wide tools -- the Proposal Builder's wizard, the IO's
+        # printable documents -- lose 224px of a laptop's width to a nav
+        # nobody is reading while they work, which is what turns a step into
+        # a horizontal scroll. The request is honoured only until somebody
+        # says otherwise: the toggle on such a page writes its own key rather
+        # than the global one, so opening the wizard cannot silently collapse
+        # the nav on every other screen in the Hub, and expanding it here is
+        # remembered here.
         "var t=document.querySelector('.s1hub-toggle');"
+        "var wants=document.body&&document.body.getAttribute("
+        "'data-s1hub-collapse')==='1';"
+        "var key=wants?('s1hub:collapsed:'+location.pathname.split('/')"
+        ".slice(0,3).join('/')):'s1hub:collapsed';"
         "function coll(on){document.body.classList.toggle('s1hub-collapsed',on);"
         "if(t){t.innerHTML=on?'\\u276F':'\\u276E';"
         "t.title=on?'Show menu':'Hide menu';"
         "t.setAttribute('aria-label',t.title);}"
-        "try{localStorage.setItem('s1hub:collapsed',on?'1':'0');}catch(e){}}"
-        "try{if(localStorage.getItem('s1hub:collapsed')==='1')coll(true);}catch(e){}"
+        "try{localStorage.setItem(key,on?'1':'0');}catch(e){}}"
+        "try{var v=localStorage.getItem(key);"
+        # No answer stored for this page and the page asked: collapse. An
+        # answer stored is the person's, either way.
+        "if(v===null?wants:(v==='1'))coll(true);}catch(e){if(wants)coll(true);}"
         "if(t)t.addEventListener('click',function(){"
         "coll(!document.body.classList.contains('s1hub-collapsed'));});"
         "})();</script>"

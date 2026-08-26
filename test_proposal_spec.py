@@ -204,15 +204,51 @@ plan = {"months": 3, "items": [
     {"category": "DIGITAL RADIO", "product": "Podcasts - Targeted", "dollars": 200},
     {"category": "DISPLAY", "product": "Category", "dollars": 1000}]}
 
-check("only video and audio are gated", cn.gated_media(plan) == ["video", "audio"])
-check("display raises no question",
-      not any(r["medium"] == "display" for r in cn.evaluate(plan)["media"]))
+# Display and retargeting joined the gate. A display plan reached the
+# insertion order with the creative box empty exactly as often as a CTV one
+# did -- it simply cost $250 and a week rather than a shoot, so it was found
+# at trafficking instead of at launch and nobody called it a failure.
+check("video, audio and display are all gated",
+      cn.gated_media(plan) == ["video", "audio", "display"], cn.gated_media(plan))
+check("display now raises its own question",
+      any(r["medium"] == "display" for r in cn.evaluate(plan)["media"]))
 check("spend is the whole flight, not one month",
       cn.medium_spend(plan, cn.VIDEO) == 12000.0, cn.medium_spend(plan, cn.VIDEO))
 check("nothing is resolved before it is asked",
-      cn.evaluate(plan)["unresolved"] == ["video", "audio"])
+      cn.evaluate(plan)["unresolved"] == ["video", "audio", "display"],
+      cn.evaluate(plan)["unresolved"])
 check("an unanswered gate is a stated gap",
-      {g["key"] for g in cn.gaps(plan)} == {"creative_video", "creative_audio"})
+      {g["key"] for g in cn.gaps(plan)} ==
+      {"creative_video", "creative_audio", "creative_display"})
+
+# Retargeting is asked separately from display: the same six sizes, carrying
+# the offer that brings somebody back rather than the one that introduced the
+# brand. A plan with both that answers once has answered for one of them.
+retarget = {"months": 3, "items": [
+    {"category": "RETARGETING", "product": "Website Retargeting", "dollars": 400},
+    {"category": "DATA TARGETED DISPLAY",
+     "product": "Select Tactics - Comes with Retargeting", "dollars": 1000}]}
+check("retargeting is its own medium",
+      cn.medium_of(retarget["items"][0]) == cn.RETARGETING)
+check("and the programmatic display buy is not retargeting because of its name",
+      cn.medium_of(retarget["items"][1]) == cn.DISPLAY,
+      cn.medium_of(retarget["items"][1]))
+check("so both are asked for",
+      cn.gated_media(retarget) == ["display", "retargeting"],
+      cn.gated_media(retarget))
+
+# The sizes come from the IO's own spec kit rather than from a second list.
+units = cn.required_units(retarget, cn.DISPLAY)
+check("the display sizes are the spec kit's", units["measured"] and units["units"])
+check("and they are real banner units",
+      "300x250" in cn.units_line(retarget, cn.DISPLAY),
+      cn.units_line(retarget, cn.DISPLAY))
+
+# Display creative is $250 of design on the card, so comping it stops being
+# sensible far lower down than a shoot does. A confirmation that fires on
+# every plan is one nobody reads.
+check("display is questioned at $500, not $1,500",
+      cn.confirm_under(cn.DISPLAY) == 500 and cn.confirm_under(cn.VIDEO) == 1500)
 check("and never quietly assumed",
       "not yet confirmed" in cn.summary_line(plan), cn.summary_line(plan))
 
@@ -246,7 +282,9 @@ check("with a warning that says why",
 
 plan["creativePlan"]["audio"] = {"answer": cn.COMP, "confirmed": True,
                                  "confirmed_at": 600}
-check("once confirmed, the gate is satisfied", cn.evaluate(plan)["ok"] is True)
+plan["creativePlan"]["display"] = {"answer": cn.HAS}
+check("once confirmed, the gate is satisfied", cn.evaluate(plan)["ok"] is True,
+      cn.evaluate(plan)["unresolved"])
 # Video is on comp too by this point, and it needed no confirmation — both
 # are recorded, because both are production Smart 1 is absorbing.
 check("and every comp is recorded",
@@ -263,11 +301,24 @@ plan["items"][1]["dollars"] = 400
 check("raising the budget back above what was confirmed keeps it",
       cn.evaluate(plan)["ok"] is True)
 
-check("a plan with no video or audio has nothing to ask",
-      cn.evaluate({"items": [{"category": "DISPLAY", "product": "Category",
-                              "dollars": 900}]})["ok"] is True)
+# A display-only plan is no longer a plan with nothing to ask -- that was the
+# assumption this whole change undoes.
+display_only = {"items": [{"category": "DISPLAY", "product": "Category",
+                           "dollars": 900}]}
+check("a display-only plan is asked for banners",
+      cn.evaluate(display_only)["ok"] is False,
+      cn.evaluate(display_only)["unresolved"])
+check("and says so on the proposal rather than staying silent",
+      "not yet confirmed" in cn.summary_line(display_only),
+      cn.summary_line(display_only))
+
+# A plan of pure management-fee work still has nothing to ask.
+fees_only = {"items": [{"category": "SEARCH ENGINE OPTIMIZATION",
+                        "product": "Search Engine Optimization", "dollars": 900}]}
+check("a plan with no media creative at all has nothing to ask",
+      cn.evaluate(fees_only)["ok"] is True, cn.evaluate(fees_only)["unresolved"])
 check("and no creative line on the proposal",
-      cn.summary_line({"items": [{"category": "DISPLAY", "product": "Category"}]}) == "")
+      cn.summary_line(fees_only) == "", cn.summary_line(fees_only))
 
 # ---------------------------------------------------------------------------
 section("the wizard and the server classify identically")
@@ -403,11 +454,28 @@ js_threshold = re.search(r"COMP_CONFIRM_UNDER\s*=\s*(\d+)", js_source)
 check("the comp threshold is the same on both sides",
       js_threshold and int(js_threshold.group(1)) == cn.COMP_CONFIRM_UNDER,
       js_threshold.group(1) if js_threshold else "not found")
-js_production = re.search(r"TYPICAL_PRODUCTION\s*=\s*\{video:(\d+),audio:(\d+)\}", js_source)
+js_production = re.search(r"TYPICAL_PRODUCTION\s*=\s*\{([^}]*)\}", js_source)
+js_figures = dict(re.findall(r"(\w+):(\d+)", js_production.group(1))) \
+    if js_production else {}
 check("so are the default production figures",
-      js_production and [int(js_production.group(1)), int(js_production.group(2))]
-      == [cn.TYPICAL_PRODUCTION[cn.VIDEO], cn.TYPICAL_PRODUCTION[cn.AUDIO]],
-      js_production.groups() if js_production else "not found")
+      {k: int(v) for k, v in js_figures.items()} == cn.TYPICAL_PRODUCTION,
+      js_figures or "not found")
+
+# Per medium, and it has to be the same table on both sides -- a display comp
+# questioned at $1,500 on screen and $500 on the server asks twice or never.
+js_by_medium = re.search(r"COMP_CONFIRM_BY_MEDIUM\s*=\s*\{([^}]*)\}", js_source)
+js_thresholds = dict(re.findall(r"(\w+):(\d+)", js_by_medium.group(1))) \
+    if js_by_medium else {}
+check("and the per-medium comp thresholds",
+      {k: int(v) for k, v in js_thresholds.items()} == cn.COMP_CONFIRM_BY_MEDIUM,
+      js_thresholds or "not found")
+
+# Every gated medium is gated on both sides, or the screen asks for a spot
+# the server does not require, or worse the reverse.
+js_gated = re.search(r"GATED_MEDIA\s*=\s*\[([^\]]*)\]", js_source)
+check("and which media are gated at all",
+      js_gated and tuple(re.findall(r'"(\w+)"', js_gated.group(1))) == cn.GATED,
+      js_gated.group(1) if js_gated else "not found")
 
 # ---------------------------------------------------------------------------
 section("Expected Results & ROI is computed, not written")
@@ -429,23 +497,50 @@ campaign = {
 results = builder.expected_results(campaign)
 by_product = {r["product"]: r for r in results["rows"]}
 
-# $4,000 at a $35.00 CPM is 114,285 impressions a month. If this number ever
-# changes, either the rate card moved or the arithmetic broke.
-check("a CPM buy is priced off the card rate",
-      by_product["Connected TV - Targeted"]["units"] == int(4000 / 35 * 1000),
+# The listed rate is what Smart 1 pays; the quoted rate is what is sold, and
+# it starts at 2x. Delivery is what the client's money buys at the rate the
+# client is quoted -- computed off the card's own number, a $4,000 line
+# promised 114,285 impressions on the client's own ROI table and could only
+# ever have bought half of them.
+SELL = rc.SELL_MULTIPLIER
+check("a CPM buy is priced off the quoted rate, not the card rate",
+      by_product["Connected TV - Targeted"]["units"] == int(4000 / (35 * SELL) * 1000),
       by_product["Connected TV - Targeted"]["units"])
+check("and the quoted rate is on the row",
+      by_product["Connected TV - Targeted"]["quoted_rate"] == 35 * SELL,
+      by_product["Connected TV - Targeted"]["quoted_rate"])
+# Four categories carry a product called "Demographic" or "TrueView", so the
+# quote names the line by its category as well -- a client cannot tell which
+# of the four they bought from the product name alone, and neither can the IO.
+check("an ambiguous product name is qualified by its category",
+      "Youtube — TrueView" in by_product, sorted(by_product))
 check("a CPV buy is counted in views",
-      by_product["TrueView"]["units"] == int(1000 / 0.20)
-      and by_product["TrueView"]["unit_label"].startswith("views"),
-      by_product["TrueView"])
+      by_product["Youtube — TrueView"]["units"] == int(1000 / (0.20 * SELL))
+      and by_product["Youtube — TrueView"]["unit_label"].startswith("views"),
+      by_product["Youtube — TrueView"])
 check("a management fee reports no impressions at all",
       by_product["Google Ads Management"]["units"] is None,
       by_product["Google Ads Management"])
+check("and is not marked up either — there is no rate to double",
+      by_product["Google Ads Management"]["quoted_rate"] is None,
+      by_product["Google Ads Management"]["quoted_rate"])
 check("and is named rather than silently excluded",
       results["unpriced"] == ["Google Ads Management"], results["unpriced"])
 check("impressions and views are totalled separately",
-      results["totals"]["impressions"] == int(4000 / 35 * 1000) * 6
-      and results["totals"]["views"] == int(1000 / 0.20) * 6, results["totals"])
+      results["totals"]["impressions"] == int(4000 / (35 * SELL) * 1000) * 6
+      and results["totals"]["views"] == int(1000 / (0.20 * SELL)) * 6,
+      results["totals"])
+
+# A rep's own number wins over the 2x start, and only for the line they set.
+adjusted = json.loads(json.dumps(campaign))
+adjusted["items"][0]["sellRate"] = 52.5
+adj = {r["product"]: r for r in builder.expected_results(adjusted)["rows"]}
+check("a rate a rep adjusts is what the delivery is computed at",
+      adj["Connected TV - Targeted"]["units"] == int(4000 / 52.5 * 1000),
+      adj["Connected TV - Targeted"]["units"])
+check("and the other lines keep the 2x start",
+      adj["Youtube — TrueView"]["quoted_rate"] == 0.20 * SELL,
+      adj["Youtube — TrueView"]["quoted_rate"])
 check("the campaign total is monthly x months",
       results["totals"]["campaign"] == 6900 * 6, results["totals"]["campaign"])
 check("video in the plan adds completion metrics",
@@ -555,6 +650,74 @@ mr = re.search(r"const SUGGESTION_RULES=\[(.*?)\n\];", wiz, re.S)
 js_rules = re.findall(r'key:"([^"]+)",when:', mr.group(1)) if mr else []
 check("and holds the same suggestion rules",
       js_rules == [r["key"] for r in cm.SUGGESTION_RULES], js_rules)
+# The products matter as much as the titles now: the media-mix step offers
+# what discovery pointed at as one press each, and it can only do that if the
+# wizard's copy of a rule names the same product the server's does. Without
+# this the panel would come back empty on a client with real gaps and read as
+# "discovery found nothing".
+js_products = re.findall(r'products:(\[[^\]]*\])', mr.group(1)) if mr else []
+check("including the products behind each one",
+      [json.loads(p) for p in js_products] ==
+      [list(r.get("products") or []) for r in cm.SUGGESTION_RULES],
+      js_products)
+# Every product a rule names has to be something a rep can act on, or the
+# row is advice with no next step. Two of them are deliberately not rate-card
+# lines and are allowed by name with the reason, so a typo cannot hide in the
+# gap -- the allowlist pattern hub/leads.py uses for its webhook variables.
+NOT_ON_THE_CARD = {
+    # Quoted as part of the Suite licence rather than as a media line; the
+    # Suite panel two steps on is where it is priced.
+    "Smart 1 Suite",
+    # The Suite's own call centre. It has never been a separate card product,
+    # and naming it here is what makes the suggestion readable to a rep.
+    "Call Tracking",
+}
+card_products = {p["product"] for p in rc.products()}
+unsellable = sorted({name for r in cm.SUGGESTION_RULES
+                     for name in (r.get("products") or [])
+                     if name not in card_products
+                     and not any(p.startswith(name) for p in card_products)
+                     and name not in NOT_ON_THE_CARD})
+check("and every product named is one the card sells, or is allowed by name",
+      unsellable == [], unsellable)
+
+# Every discovery question has to change something. An answer that changes
+# nothing is what this module was written to undo, and a thirteenth question
+# added without a rule is how it comes back.
+check("no discovery question is read by nothing",
+      cm.unanswered_keys() == [], cm.unanswered_keys())
+
+# ---------------------------------------------------------------------------
+section("the Suite covers what discovery says they lack")
+# ---------------------------------------------------------------------------
+# The Suite was quoted on every proposal at a tier picked purely from media
+# spend, with the client never told which of the things they said they were
+# not doing it closes -- so the one line on the Investment Summary that
+# recurs for ever had no stated reason for being there.
+lacking = {"mkt": {"chat": cm.NO, "texting": cm.NO, "reputation": cm.UNKNOWN,
+                   "socialScheduling": cm.NO, "callTracking": cm.YES}}
+cover = cm.suite_coverage(lacking, "Smart 1")
+check("what this tier closes is named",
+      {r["key"] for r in cover["covered"]} ==
+      {"texting", "reputation", "socialScheduling"},
+      [r["key"] for r in cover["covered"]])
+check("something they already do is not claimed",
+      "callTracking" not in {r["key"] for r in cover["covered"]})
+# Smart webchat is Smarter and up. Offering it against a Smart 1 licence
+# sells something the client cannot switch on.
+check("a feature above this tier is named with the tier that has it",
+      [(r["key"], r["tier"]) for r in cover["needs_upgrade"]] == [("chat", "Smarter")],
+      cover["needs_upgrade"])
+check("and it is covered once the tier is raised",
+      "chat" in {r["key"] for r in cm.suite_coverage(lacking, "Smarter")["covered"]})
+# An unanswered question is not a gap the Suite gets credit for closing.
+check("an unanswered question is not measured, not a gap",
+      {r["key"] for r in cover["not_measured"]} == {"email", "socialPosting"},
+      [r["key"] for r in cover["not_measured"]])
+check("the proposal line names them in prose",
+      "texting" in cm.suite_line(lacking, "Smart 1"), cm.suite_line(lacking, "Smart 1"))
+check("and says nothing at all when they already have everything",
+      cm.suite_line({"mkt": {q["key"]: cm.YES for q in cm.QUESTIONS}}, "Smart 1") == "")
 
 doing_everything = {"mkt": {q["key"]: cm.YES for q in cm.QUESTIONS},
                     "traditional": {"running": cm.NO}}
@@ -905,15 +1068,217 @@ check("the 13-part PDF builds", pdf.status_code == 200 and len(pdf.data) > 8000,
 docx = http.get(f"/sales/builder/api/quotes/{quote['id']}/docx")
 check("so does the Word copy", docx.status_code == 200 and len(docx.data) > 8000)
 
-# A plan with nothing gated must still produce a proposal.
+# A display plan is asked for banners now -- and an unanswered gate must
+# still produce a proposal, because a rep who has not answered it yet still
+# has to be able to read the document.
 display_only = dict(quote_state)
 display_only["items"] = [{"category": "DISPLAY", "product": "Advanced Audience",
                           "rate": "CPM", "rateValue": 5.5, "dollars": 3000}]
 plain = api("post", "/sales/builder/api/quotes", json={"data": display_only})["quote"]
-check("a display-only plan has no creative gate to answer",
-      plain["creative"]["ok"] is True and plain["creative"]["media"] == [])
+check("a display-only plan is asked for creative",
+      plain["creative"]["ok"] is False
+      and [r["medium"] for r in plain["creative"]["media"]] == ["display"],
+      plain["creative"]["media"])
+check("and the sizes it names are the IO's own spec kit",
+      "300x250" in " ".join(
+          sz for row in plain["creative"]["media"]
+          for unit in (row.get("units") or {}).get("units", [])
+          for sz in unit["sizes"]),
+      plain["creative"]["media"][0].get("units"))
 check("and still renders",
       http.get(f"/sales/builder/api/quotes/{plain['id']}/pdf").status_code == 200)
+
+# ---------------------------------------------------------------------------
+section("a table can be left out of the proposal, or edited")
+# ---------------------------------------------------------------------------
+# The standing rule is that a table is computed and the copy above it
+# introduces one -- a proposal whose prose and figures disagree is the failure
+# the whole specification is built around. What that rule never covered is a
+# table that is right and still wrong for this client: a row naming a location
+# under NDA, a KPI they asked us to drop. The alternative a rep actually has
+# is exporting to Word, which takes the document out of the system entirely.
+check("a section with no table is unaffected",
+      builder.section_table({"kind": "text", "showTable": False})["show"] is True)
+check("a generated table can be left out",
+      builder.section_table({"kind": "roi", "showTable": False})["show"] is False)
+check("an untouched table is still generated",
+      builder.section_table({"kind": "roi"})["rows"] is None)
+edited = builder.section_table({"kind": "roi", "tableEdit":
+                                {"head": ["Product", "Monthly"],
+                                 "rows": [["Connected TV", "$4,000"]]}})
+check("an edited table replaces the generated one",
+      edited["rows"] == [["Connected TV", "$4,000"]], edited)
+check("and keeps its own headings", edited["head"] == ["Product", "Monthly"])
+
+no_tables = json.loads(json.dumps(quote_state))
+for sec in no_tables.get("sections") or []:
+    sec["showTable"] = False
+hidden = api("post", "/sales/builder/api/quotes", json={"data": no_tables})["quote"]
+check("a proposal with every table excluded still renders",
+      http.get(f"/sales/builder/api/quotes/{hidden['id']}/pdf").status_code == 200)
+check("and so does its Word copy",
+      http.get(f"/sales/builder/api/quotes/{hidden['id']}/docx").status_code == 200)
+
+# ---------------------------------------------------------------------------
+from hub import target_areas as ta                                  # noqa: E402
+section("what a goal leads with, and what a client reads it as")
+# ---------------------------------------------------------------------------
+# `findProduct(category)` used to mean "the first row the card happens to list
+# under that heading", and the card's order is the order somebody typed it in.
+# So Run of Network -- $3.50 CPM of untargeted inventory, a volume top-up to a
+# targeted buy -- was the display product every awareness and traffic goal
+# opened with, on a document arguing that Smart 1 targets precisely.
+check("run of network is never what a goal picks",
+      rc.is_add_on("RON (Run of Network)")
+      and rc.is_add_on("Programmatic - RON (Run of Network)"))
+check("a display goal leads with programmatic",
+      rc.default_product("DISPLAY")["product"] == "Select Tactics - Comes with Retargeting",
+      rc.default_product("DISPLAY"))
+check("which is the data-targeted category, not a display row",
+      rc.default_product("DISPLAY")["category"] == "DATA TARGETED DISPLAY")
+check("and RON is still reachable by name",
+      any(p["product"] == "RON (Run of Network)" for p in rc.products()))
+check("a category with no add-ons is unaffected",
+      rc.default_product("OTT")["category"] == "OTT")
+
+# Four categories carry a product literally called "Demographic" or
+# "Behavioral". A quote line reading "Demographic" cannot tell a client which
+# of the four they bought, and neither can the IO.
+check("location lookback is named as location lookback",
+      rc.quote_label("Demographic", "LOCATION LOOKBACK")
+      == "Location Lookback — Demographic", rc.quote_label("Demographic", "LOCATION LOOKBACK"))
+check("and so is the display one, differently",
+      rc.quote_label("Demographic", "DISPLAY") == "Display — Demographic")
+check("a product that already says what it is keeps its own name",
+      rc.quote_label("Connected TV - Targeted", "OTT") == "Connected TV - Targeted")
+check("and a product with no category is left alone",
+      rc.quote_label("Website Retargeting", "") == "Website Retargeting")
+
+# Social Ads is video inventory -- Facebook and Instagram video, LinkedIn,
+# TikTok. The heading said "Social Ads", which reads as the whole of paid
+# social and is the Meta category next to it.
+check("the social video category says it is video",
+      "SOCIAL ADS - VIDEO" in rc.categories(), rc.categories())
+check("and the old heading is gone", "SOCIAL ADS" not in rc.categories())
+io_card = open(os.path.join(ROOT, "modules", "io_builder", "templates",
+                            "index.html"), encoding="utf-8").read()
+check("the insertion order renames it the same way",
+      '"VIDEO":"SOCIAL ADS - VIDEO"' in io_card)
+wiz_card = open(os.path.join(ROOT, "modules", "sales_builder", "templates",
+                             "index.html"), encoding="utf-8").read()
+check("and so does the wizard",
+      '"VIDEO":"SOCIAL ADS - VIDEO"' in wiz_card)
+
+# The card is the buy side. Every CPM and CPV line is quoted at a multiple of
+# it; a management fee has nothing to multiply.
+check("a CPM line starts at twice the card", rc.sell_rate(4.25, "CPM") == 8.50)
+check("so does a CPV line", rc.sell_rate(0.20, "CPV") == 0.40)
+check("a management fee is not marked up", rc.sell_rate(0.15, None) is None)
+check("and neither is a flat monthly", rc.sell_rate(199, None) is None)
+check("the multiplier is one number both sides read",
+      rc.rate_rules_for_js()["sellMultiplier"] == rc.SELL_MULTIPLIER)
+
+# SEO now sells AI-answer optimisation, and the client reads the product
+# description rather than the folklore.
+seo = next(p for p in rc.products() if p["product"] == "Search Engine Optimization")
+check("SEO says it covers AI answer engines",
+      "AI Overviews" in seo["description"] and "ChatGPT" in seo["description"],
+      seo["description"])
+
+# ---------------------------------------------------------------------------
+section("a ZIP exception is a rule, not a note")
+# ---------------------------------------------------------------------------
+# A radius does not stop at a state line and a campaign frequently does. The
+# restriction used to live in an email, and the only two outcomes were a rep
+# deleting a hundred ZIPs by hand or the list shipping as it came back.
+rule = ta.parse_zip_rule("only New Jersey zip codes")
+check("the way somebody says it is understood",
+      rule["understood"] and rule["mode"] == "only" and rule["states"] == ["NJ"], rule)
+check("a bare state name means only", ta.parse_zip_rule("New Jersey")["mode"] == "only")
+check("exclusions are read as exclusions",
+      ta.parse_zip_rule("everything except Ohio")["mode"] == "exclude")
+check("named ZIPs work as well as states",
+      ta.parse_zip_rule("exclude 46032, 46033")["zips"] == ["46032", "46033"])
+# The half that matters most: a rule nobody could read must never read as
+# applied. A restriction that reads as saved and does nothing is worse than
+# one nobody typed.
+unread = ta.parse_zip_rule("whatever john said on the call")
+check("a rule we cannot read is not applied", unread["understood"] is False)
+check("and says so in words", "not been applied" in unread["note"], unread["note"])
+check("and the ZIP list is left whole",
+      ta.apply_zip_rule("07001, 19103", unread)["kept"] == ["07001", "19103"])
+
+applied = ta.apply_zip_rule("07001, 07002, 19103, 46032, 08540", rule)
+check("only the ZIPs in that state run", applied["kept"] == ["07001", "07002", "08540"])
+check("and what was dropped is counted, not discarded",
+      applied["dropped"] == ["19103", "46032"], applied["dropped"])
+check("the note says how many", "2 of 5" in applied["note"], applied["note"])
+empty = ta.apply_zip_rule("46032, 46033", rule)
+check("a rule that leaves nothing says so rather than failing open",
+      empty["kept"] == [] and "Nothing is left" in empty["note"], empty)
+
+# Everything downstream has to read the running list, or the document a client
+# signed and the campaign that was trafficked disagree while both look right.
+area = {"name": "Philly", "origin": "Philadelphia, PA", "radius": 25,
+        "zips": "07001, 19103, 08540",
+        "zipException": "only New Jersey zip codes"}
+check("the IO's ZIP field is the running list",
+      ta.all_zips([area]) == ["07001", "08540"], ta.all_zips([area]))
+check("and the one geo string carries the exception",
+      "Exception: only New Jersey zip codes" in ta.to_legacy_geo([area]),
+      ta.to_legacy_geo([area]))
+check("an exception nobody could read is named on that string too",
+      "NOT applied" in ta.to_legacy_geo([dict(area, zipException="mumble")]))
+check("the exception survives a normalise",
+      ta.normalize_area(area)["zipException"] == "only New Jersey zip codes")
+check("and is re-parsed on read rather than trusted from the record",
+      ta.normalize_area(dict(area, zipRule={"mode": "exclude"}))["zipRule"]["mode"] == "only")
+check("an area carrying only an exception still reads as blank",
+      ta.is_empty(ta.normalize_area({"zipException": "only NJ"})) is True)
+check("the exception list names the ones that did not apply",
+      [r["applied"] for r in ta.zip_exceptions([area, dict(area, zipException="mumble")])]
+      == [True, False])
+
+# ---------------------------------------------------------------------------
+section("competitors are named, and who built the proposal is recorded")
+# ---------------------------------------------------------------------------
+# The audience step offered "Competitor conquesting" as a tick box and nothing
+# anywhere asked which competitors -- so the proposal promised to target a
+# client's rivals without naming one, and whoever builds the geo-fence went
+# back to the rep weeks later.
+targets = builder.targets_of_interest({"targetsOfInterest": [
+    {"name": "Riverside Dental", "address": "1200 Main St, Carmel IN",
+     "note": "their implant patients"},
+    {"name": "", "address": "ignored"},
+    {"name": "Lucas Oil Stadium", "kind": "venue"}]})
+check("a row nobody named is dropped", len(targets) == 2, targets)
+check("an address makes a row fenceable", targets[0]["fenceable"] is True)
+check("and one without an address is still kept",
+      targets[1]["fenceable"] is False and targets[1]["name"] == "Lucas Oil Stadium")
+
+with_targets = json.loads(json.dumps(quote_state))
+with_targets["targetsOfInterest"] = [
+    {"name": "Riverside Dental", "address": "1200 Main St", "note": "their implants"}]
+tq = api("post", "/sales/builder/api/quotes", json={"data": with_targets})["quote"]
+check("they reach the quote", tq["targets_of_interest"][0]["name"] == "Riverside Dental")
+check("and the proposal renders with them",
+      http.get(f"/sales/builder/api/quotes/{tq['id']}/pdf").status_code == 200)
+
+# `salesperson` is the sales contact typed onto the proposal for the client's
+# benefit -- blank on most drafts and sometimes somebody else's name. The list
+# was showing that, so "who wrote this?" had no answer on the one screen the
+# question is asked.
+check("who built it is its own field, not the sales contact",
+      "created_by" in tq and "salesperson" in tq)
+check("and it is whoever the Hub session says is signed in",
+      tq["created_by"] == "Harness", tq["created_by"])
+# It is recorded once, at creation. A later edit by somebody else does not
+# change who wrote it -- overwriting on every save would make the column read
+# "last touched by" while the heading says Created by.
+api("put", f"/sales/builder/api/quotes/{tq['id']}", json={"data": with_targets})
+check("and a later save does not rewrite it",
+      api("get", f"/sales/builder/api/quotes/{tq['id']}")["quote"]["created_by"]
+      == "Harness")
 
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
