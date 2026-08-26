@@ -717,6 +717,16 @@ check("a different product on the same invoice is not a domain renewal",
       not __import__("hub.quickbooks", fromlist=["x"]).line_item_matches(
           "Video Advertising:Video Ads YouTube TrueView", "98",
           item_name="Website Domain Renewal"))
+# Read at call time, not captured at import: a constant assigned from
+# os.environ when the module loads is set on Render and changes nothing, with
+# every screen still looking healthy on the default it kept.
+check("the product name defaults to what QuickBooks files it as",
+      domain_renewals.item_name() == "Website Domain Renewal")
+os.environ["QB_DOMAIN_RENEWAL_ITEM"] = "Domain Renewal (2027)"
+check("...and an override is picked up without reloading the module",
+      domain_renewals.item_name() == "Domain Renewal (2027)",
+      domain_renewals.item_name())
+del os.environ["QB_DOMAIN_RENEWAL_ITEM"]
 
 
 # ---------------------------------------------------------------------------

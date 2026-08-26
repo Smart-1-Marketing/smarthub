@@ -66,8 +66,22 @@ from hub import jsonstore
 
 # The product as QuickBooks files it. The leaf is what is matched, so either
 # spelling of the full path works.
-ITEM_NAME = os.environ.get("QB_DOMAIN_RENEWAL_ITEM", "Website Domain Renewal")
-ITEM_ID = os.environ.get("QB_DOMAIN_RENEWAL_ITEM_ID", "").strip()
+#
+# Read at **call time**, not at import. A module constant assigned from
+# `os.environ` at import is the Commercial Builder's trap: the variable is set
+# on Render, nothing changes, and every screen still looks healthy because the
+# value it captured is a plausible default. It also makes the override
+# untestable without reloading the module.
+ITEM_NAME_DEFAULT = "Website Domain Renewal"
+
+
+def item_name() -> str:
+    return (os.environ.get("QB_DOMAIN_RENEWAL_ITEM") or "").strip() \
+        or ITEM_NAME_DEFAULT
+
+
+def item_id() -> str:
+    return (os.environ.get("QB_DOMAIN_RENEWAL_ITEM_ID") or "").strip()
 
 CACHE_SECONDS = 6 * 3600
 
@@ -252,7 +266,7 @@ def charges(year: int | None = None, *, refresh: bool = False,
     try:
         lines = quickbooks.invoice_item_lines(
             f"{yr:04d}-01-01", f"{yr:04d}-12-31",
-            item_name=ITEM_NAME, item_id=ITEM_ID)
+            item_name=item_name(), item_id=item_id())
     except Exception as exc:                            # noqa: BLE001
         # The stale cache is still shown, labelled with its own age, because a
         # last-known list beats a blank page — but the error travels with it.
@@ -277,7 +291,7 @@ def _shape(payload: dict) -> dict:
                        .isoformat(timespec="seconds") if at else ""),
         "age_hours": round((time.time() - at) / 3600, 1) if at else None,
         "cached": False,
-        "item": ITEM_NAME,
+        "item": item_name(),
     }
 
 
