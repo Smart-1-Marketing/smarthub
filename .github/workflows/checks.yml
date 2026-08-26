@@ -404,6 +404,20 @@ jobs:
             echo "test_suite_embed.py not on this branch — nothing to run."
           fi
 
+      - name: Calculator embed tests
+        # The media calculators framed on smart1marketing.com. Two rules, and
+        # the second is the one to be afraid of: the public calculator pages
+        # are framable from any domain, and the staff index and the lead list
+        # sitting under the same /tools/calculators prefix are not. Guarded
+        # like the steps around it so this workflow stays mergeable on a
+        # branch that predates the file.
+        run: |
+          if [ -f test_calculator_embed.py ]; then
+            python test_calculator_embed.py
+          else
+            echo "test_calculator_embed.py not on this branch — nothing to run."
+          fi
+
       - name: Marketplace app scope tests
         # The scope set the GHL Marketplace app asks for, and the diff between
         # what was requested and what HighLevel actually granted. Adding a
