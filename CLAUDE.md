@@ -177,6 +177,36 @@ the next one to link that group would not be: every share link, landing URL and
 Insites scan callback would be built with `/tools/ads/oauth/callback` in the
 middle of it and 404 somewhere nobody is watching. A path in it is reported now.
 
+**A redirect URI is an exact string, and half of them carry a hostname
+nobody chose.** A custom domain was pointed at this service and Render kept
+the `onrender.com` subdomain live beside it, which is the default — so the Hub
+answers on two hostnames, and three of its six OAuth flows build their
+callback from *whichever one the browser used*: Google Finder and Hub sign-in
+through `url_for(_external=True)` and `request.url_root`, QuickBooks through
+`request.url_root` unless `QB_REDIRECT_URI` pins it. Google matches that
+string exactly, so the day the second hostname existed, half of every
+registration was missing and nothing anywhere said so. It fails at a consent
+screen, which on the Google Access flow is **in front of a customer**.
+
+The other three do not follow the browser at all — Google Access and the Suite
+app are `PUBLIC_BASE_URL + path`, Smart 1 Ads is `GOOGLE_ADS_REDIRECT_URI`,
+which is a whole URL and so does not follow `PUBLIC_BASE_URL` either. That
+split is the thing worth knowing: somebody who registers the three that broke,
+sees staff sign-in start working and stops has left the client-facing one
+pointing at the old host, and it will keep working until the day the old host
+is switched off. `hub/oauth_redirects.py` reports all six on `/diagnostics`
+with the family each belongs to, one line per hostname for the host-derived
+ones, and the console each is registered at. It **names the hosts it observed**
+rather than implying it surveyed them — an app cannot enumerate its own custom
+domains, so a third one added tomorrow is invisible here and the panel says as
+much rather than reading as a complete list. A flow whose provider has no
+credentials reads *not in use* rather than standing in amber for ever (Smart 1
+Ads is parked on a developer token Google has not approved), and no client id
+or secret is ever carried — this is pasted into chats, the
+`services/provider_check.py` rule. `test_oauth_redirects.py` asserts all of
+it, including that every one of the six paths is a route the composed app
+actually serves.
+
 **Cloudinary is published two ways and this account sets both.** One
 `CLOUDINARY_URL`, and the three parts `CLOUDINARY_CLOUD_NAME` /
 `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET`. Nine modules configure the SDK
@@ -2920,6 +2950,7 @@ python3 test_display_ads.py        # the display layouts, and the build screen's
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
+python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
 ```
 
 The test files need no pytest and no new dependencies; each runs against a

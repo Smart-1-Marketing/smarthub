@@ -55,6 +55,23 @@
     <div id="diag-env" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
   </section>
 
+  <!-- ---------------- oauth redirect URIs ---------------- -->
+  <section class="diag-card">
+    <h2>OAuth redirect URIs &mdash; what this Hub actually sends</h2>
+    <p class="diag-help">
+      Every provider matches a redirect URI as an <b>exact string, hostname
+      included</b>. Three of the six below are built from whichever hostname
+      the browser used, so a second domain answering for this service doubles
+      what has to be registered &mdash; and the other three are built from a
+      variable instead, so they do <em>not</em> follow the browser and change
+      only when that variable is edited. Registering the first three and
+      assuming the rest followed is how a client meets
+      <code>redirect_uri_mismatch</code> on a consent screen. No client id or
+      secret is shown.
+    </p>
+    <div id="diag-oauth" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
   <!-- ---------------- integrity ---------------- -->
   <section class="diag-card">
     <h2>Integration hygiene</h2>
@@ -492,6 +509,52 @@ function renderEnv(d){
   }).join("");
 }
 
+function renderOauth(d){
+  var el = document.getElementById("diag-oauth"); if(!el) return;
+  if(!d.measured){
+    // "We could not look" is not "there are no redirect URIs".
+    el.innerHTML = '<p class="diag-loading">Not measured &mdash; the redirect '+
+      'URIs could not be read.'+(d.error?" "+esc(d.error):"")+'</p>';
+    return;
+  }
+  var hosts = (d.hosts||[]).map(function(h){
+    return '<code>'+esc(h.origin)+'</code> ('+esc(h.how)+')';
+  }).join(", ");
+  var head = '<div class="diag-row"><span class="diag-pill p-'+
+    ((d.hosts||[]).length>1?"warn":"ok")+'">'+((d.hosts||[]).length||"?")+'</span>'+
+    '<span class="diag-name">Hostnames seen</span>'+
+    '<span class="diag-detail">'+(hosts||"None could be read.")+
+    '<em class="diag-fix">Observed, not surveyed &mdash; an app cannot list its '+
+    'own custom domains. Render also keeps the onrender.com subdomain live '+
+    'unless it is switched off, so there may be more than these.</em></span></div>';
+
+  var problems = (d.problems||[]).map(function(p){
+    return '<div class="diag-row"><span class="diag-pill p-warn">act</span>'+
+      '<span class="diag-name">'+esc(p.name)+'</span>'+
+      '<span class="diag-detail">'+esc(p.detail)+'</span></div>';
+  }).join("");
+
+  var rows = (d.redirects||[]).map(function(r){
+    var uris = r.uris.length
+      ? r.uris.map(function(u){return '<code>'+esc(u)+'</code>';}).join("<br>")
+      : '<i>nothing to register</i>';
+    var origin = r.follows_browser
+      ? '<b>Follows the browser</b> &mdash; one entry per hostname.'
+      : 'Built from <code>'+esc(r.source)+'</code>, so it does not follow the browser.';
+    return '<div class="diag-row">'+
+      '<span class="diag-pill p-'+esc(r.state)+'">'+
+        (r.state==="ok"?"ok":r.state==="warn"?"check":"off")+'</span>'+
+      '<span class="diag-name">'+esc(r.label)+
+        (r.client_facing?' <b>(a client sees this one)</b>':'')+'</span>'+
+      '<span class="diag-detail">'+uris+'<br>'+origin+' '+esc(r.note)+
+        '<em class="diag-fix">Register at: '+esc(r.console)+'. OAuth client from '+
+        (r.client_var?'<code>'+esc(r.client_var)+'</code>':'none of '+esc(r.client_names.join(" / ")))+
+        '. Built in '+esc(r.where)+'.</em>'+
+      '</span></div>';
+  }).join("");
+  el.innerHTML = head + problems + rows;
+}
+
 function renderIntegrity(d){
   document.getElementById("diag-integrity").innerHTML = d.groups.map(function(g){
     var state = g.count===0 ? "ok" : (g.severity==="high"?"error":g.severity==="medium"?"warn":"off");
@@ -697,6 +760,10 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderEnv)
     .catch(function(){document.getElementById("diag-env").innerHTML=
       '<p class="diag-loading">Could not read the environment report.</p>';});
+  fetch("/api/oauth-redirects",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderOauth)
+    .catch(function(){document.getElementById("diag-oauth").innerHTML=
+      '<p class="diag-loading">Could not read the redirect URIs.</p>';});
   fetch("/api/integrity",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderIntegrity)
     .catch(function(){document.getElementById("diag-integrity").innerHTML=
