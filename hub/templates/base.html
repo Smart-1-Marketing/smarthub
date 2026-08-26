@@ -86,6 +86,11 @@ function s1hubFeedback(){
   <script defer src="/hub-help.js"></script>
   <script defer src="/hub-demo.js"></script>
   <script src="/hub-dates.js"></script>
+  {# Birthdays and work anniversaries, once a day, on the first Hub page
+     somebody opens. Deliberately not in the chrome the HubBar injects into
+     mounted modules: this is an interruption, and one place that can raise it
+     is enough to be sure it is raised once. #}
+  <script defer src="/hub-cheers.js"></script>
   <script defer src="/hub-crumbs.js"></script>
   <script defer src="/hub-autofill.js"></script>
   <script defer src="/hub-accordion.js"></script>

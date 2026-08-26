@@ -13,6 +13,13 @@
 .t-down{color:var(--danger)}
 .t-flat{color:var(--muted)}
 .t-none{color:#b6c0cc;font-weight:500}
+/* A rebuilt comparison is marked on the card, not only in its tooltip: it is
+   measured a different way from the number above it and reading it as the
+   same kind of thing is the one mistake available here. */
+.t-rebuilt{border-bottom:1px dotted currentColor;cursor:help}
+.trend-legend{display:none;margin:-8px 0 20px;color:#64748b;
+  font:500 11.5px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;
+  border-left:3px solid #cbd5e1;padding-left:10px;max-width:70ch}
 
 /* Partner resources. These five are what a partner actually gets sent to, so
    they are one row of real buttons rather than links buried in a menu. */
@@ -30,7 +37,8 @@
 .pb-spec{background:linear-gradient(135deg,#0a6178,#0f92b0)}
 .pb-kit{background:linear-gradient(135deg,#166148,#1f9169)}
 .pb-learn{background:linear-gradient(135deg,#5c3286,#8a4fc4)}
-.pb-new{background:linear-gradient(135deg,#8a5a12,#c08018)}
+.pb-dict{background:linear-gradient(135deg,#8a5a12,#c08018)}
+.pb-new{background:linear-gradient(135deg,#4a5568,#718096)}
 .partner-btn.pb-soon{opacity:.62;cursor:default;box-shadow:none}
 .partner-btn.pb-soon:hover{transform:none;box-shadow:none}
 
@@ -43,24 +51,68 @@
 .rb-change{background:linear-gradient(135deg,#9a4a10,#d1761c)}
 .rb-support{background:linear-gradient(135deg,#1f4f66,#2f7fa3)}
 .req-row .partner-btn{cursor:pointer}
+
+/* Who is signed in. Sits above the checks in the same card, because "is the
+   Hub up" and "is anybody on it" are the two things that card is opened for. */
+.presence{padding:12px 14px;border-bottom:1px solid #eef2f6;
+  font:13px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+.presence-n{font-weight:800;color:#0f172a}
+.presence-who{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.presence-chip{display:inline-flex;align-items:center;gap:6px;
+  background:#eef5fb;color:#1a4971;border:1px solid #d6e6f4;border-radius:20px;
+  padding:3px 10px 3px 4px;font-size:12px;font-weight:600}
+.presence-chip .pav{width:19px;height:19px;border-radius:50%;background:#1769AA;color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800}
+.presence-chip.me{background:#fff7e0;border-color:#f6dfa0;color:#7a4d05}
+.presence-chip.me .pav{background:#c98a06}
+.presence-chip.shared{background:#f4f6f9;border-color:#e2e8f0;color:#64748b}
+.presence-chip.shared .pav{background:#94a3b8}
+.presence-note{color:#94a3b8;font-size:11.5px;margin-top:7px}
+
+/* Birthdays and anniversaries. Deliberately warm and deliberately above the
+   system checks: it is the one block on this page about the people rather
+   than the book, and under a table of green ticks nobody would ever see it. */
+.cheer-card{margin:0 0 18px;border-top:3px solid #f0b429}
+.cheer-h-ico{font-size:16px}
+.cheer-month{color:#94a3b8;font-weight:600;font-size:12.5px;margin-left:6px}
+.cheer-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.cheer-col h4{margin:0 0 8px;font:800 12px/1 system-ui,-apple-system,Segoe UI,sans-serif;
+  letter-spacing:.06em;text-transform:uppercase;color:#64748b}
+.cheer-list{list-style:none;margin:0;padding:0}
+.cheer-list li{display:flex;align-items:baseline;gap:9px;padding:5px 8px;border-radius:8px;
+  font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+.cheer-list li+li{margin-top:2px}
+.cheer-day{flex:none;width:52px;font-weight:800;color:#334155;font-size:12px}
+.cheer-who{font-weight:700;color:#0f172a}
+.cheer-note{color:#64748b;font-size:11.5px}
+/* Today is a different statement from "this month", so it looks different
+   rather than sitting third in a list of fourteen identical rows. */
+.cheer-list li.is-today{background:#fff7e0;box-shadow:inset 0 0 0 1px #f6dfa0}
+.cheer-list li.is-today .cheer-day{color:#a16207}
+.cheer-list li.is-past{opacity:.5}
+.cheer-today-tag{font-weight:800;color:#a16207;font-size:11px;letter-spacing:.04em}
+.cheer-gaps{margin-top:12px;color:#94a3b8;
+  font:500 11.5px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+.cheer-empty{color:#64748b;font-size:13px}
 </style>
 
 <div class="partner-row">
-  <a class="partner-btn pb-rate" href="/partner/rate-card-universal">
-    <span class="pb-ico">&#128181;</span><span class="pb-name">Rate Card</span>
-    <span class="pb-sub">Every product and its rate</span></a>
-  <a class="partner-btn pb-spec" href="/partner/creative-specs">
-    <span class="pb-ico">&#128208;</span><span class="pb-name">Design Specs</span>
-    <span class="pb-sub">Sizes, weights and file rules</span></a>
-  <a class="partner-btn pb-kit" href="/partner/sales-kit">
-    <span class="pb-ico">&#128188;</span><span class="pb-name">Product Sales Kit</span>
-    <span class="pb-sub">How to sell each product</span></a>
-  <a class="partner-btn pb-learn" href="/partner/learning-library">
-    <span class="pb-ico">&#127891;</span><span class="pb-name">Learning Library</span>
-    <span class="pb-sub">Lessons and the dictionary</span></a>
-  <span class="partner-btn pb-new pb-soon" title="Page not filed yet">
-    <span class="pb-ico">&#10133;</span><span class="pb-name">New Partner</span>
+  {# Drawn from hub/partner.py, never from a second list here: a page filed
+     in the repo has to appear without an edit in this template, and a page
+     not filed yet has to grey out under its own name. The old copy offered
+     four links and a "New Partner — page coming" placeholder while the
+     Digital Dictionary sat served and unlinked. #}
+  {% for t in (partner_tiles or []) %}
+    {% if t.available %}
+  <a class="partner-btn {{ t.css }}" href="{{ t.href }}">
+    <span class="pb-ico">{{ t.icon|safe }}</span><span class="pb-name">{{ t.title }}</span>
+    <span class="pb-sub">{{ t.blurb }}</span></a>
+    {% else %}
+  <span class="partner-btn {{ t.css }} pb-soon" title="This page is not in the Hub yet">
+    <span class="pb-ico">{{ t.icon|safe }}</span><span class="pb-name">{{ t.title }}</span>
     <span class="pb-sub">Page coming</span></span>
+    {% endif %}
+  {% endfor %}
 </div>
 
 <div class="req-row">
@@ -92,10 +144,31 @@
   <div class="kpi" style="cursor:pointer" onclick="location.href='/seo'"><div class="k-label">SEO Clients</div><div class="k-value" id="k-seo">—</div><div class="k-sub" id="k-seo-sub">live SEO products</div></div>
 </div>
 
+<div class="trend-legend" id="trend-legend"></div>
+
+<div class="card cheer-card">
+  <div class="card-h">
+    <h3><span class="cheer-h-ico">&#127874;</span> Birthdays &amp; work anniversaries
+      <span class="cheer-month" id="cheer-month"></span></h3>
+    <div class="right"><span class="muted" id="cheer-src"></span></div>
+  </div>
+  <div class="card-b">
+    <div id="cheer-body" class="cheer-body"><span class="muted">Loading&hellip; <span class="spin"></span></span></div>
+    <div id="cheer-gaps" class="cheer-gaps"></div>
+  </div>
+</div>
+
 <div class="grid-2">
   <div class="card">
-    <div class="card-h"><h3>System checks {{ help_dot('hub.dashboard.version') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
-    <div class="card-b flush"><table id="mini-status"><tbody><tr><td class="empty">Running checks… <span class="spin"></span></td></tr></tbody></table></div>
+    <div class="card-h"><h3>System status {{ help_dot('hub.dashboard.version') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
+    <div class="card-b flush">
+      {# Who is around, above the checks. There is no session table — the Hub
+         issues a signed cookie and is never told when somebody leaves — so
+         this is "seen lately", and the line says so in those words rather
+         than printing a number people would read as "at their desk". #}
+      <div class="presence" id="presence"><span class="muted">Counting who is around… <span class="spin"></span></span></div>
+      <table id="mini-status"><tbody><tr><td class="empty">Running checks… <span class="spin"></span></td></tr></tbody></table>
+    </div>
   </div>
   <div class="card">
     <div class="card-h"><h3>Recent activity {{ help_dot('hub.dashboard.activity') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/activity">View all →</a></div></div>
@@ -140,24 +213,52 @@ const fmt=n=>Number(n||0).toLocaleString();
    for renders as a dash, not a flat 0%: absent history is not no change. */
 function trendHtml(t,money){
   if(!t) return '';
+  const cash=v=>(money?'$':'')+fmt(v);
   const one=(d,label)=>{
-    // Every comparison names the month it is against. The label is short
-    // because the card is; the month is in the tooltip, and in the "not yet"
-    // text, so a dash says which month is missing rather than reading as a
-    // fault. A snapshot is taken the first time the dashboard is opened in a
-    // month, so the first month after a deploy has nothing to compare to.
+    // Every comparison names the month it is against, and now also how it was
+    // measured. The label is short because the card is; the month and the
+    // basis are in the tooltip, so a dash says which month is missing rather
+    // than reading as a fault.
     const when=(d&&d.period)?d.period:label.slice(3);
     if(!d||!d.available)
-      return '<span class="t-none" title="No snapshot for '+esc(when)+' — the first reading of a month is taken the first time this page is opened in it">– '+esc(label)+'</span>';
+      return '<span class="t-none" title="'+esc(d&&d.why?d.why:('No reading for '+when))+'">– '+esc(label)+'</span>';
     const arrow=d.dir==='up'?'&#9650;':d.dir==='down'?'&#9660;':'&#9644;';
     const cls=d.dir==='up'?'t-up':d.dir==='down'?'t-down':'t-flat';
-    const n=(money?'$':'')+fmt(Math.abs(d.diff));
-    const pct=(d.pct===null||d.pct===undefined)?'':' ('+Math.abs(d.pct)+'%)';
-    return '<span class="'+cls+'" title="'+esc(when)+': was '+(money?'$':'')+fmt(d.from)+'">'
-      +arrow+' '+n+pct+' '+esc(label)+'</span>';
+    const pct=(d.pct===null||d.pct===undefined)?'':Math.abs(d.pct)+'%';
+    if(d.basis==='io_terms'){
+      // Rebuilt from the insertion-order dates, so BOTH ends are on that
+      // basis — and neither is the headline above it, which counts every IO
+      // Knack still calls Live whatever its dates say. The percentage is
+      // shown and the absolute difference is not, deliberately: a dollar
+      // figure here invites subtracting it from the headline, which is the
+      // one arithmetic that does not work. The pair is in the tooltip.
+      return '<span class="'+cls+' t-rebuilt" title="Rebuilt from insertion-order dates — '
+        +esc(when)+': '+cash(d.from)+', this month: '+cash(d.now)
+        +'. The headline above counts every IO still marked Live whatever its dates say, so it reads higher.">'
+        +arrow+' '+pct+' '+esc(label)+' &#8776;</span>';
+    }
+    const n=cash(Math.abs(d.diff));
+    return '<span class="'+cls+'" title="Recorded reading — '+esc(when)+': was '+cash(d.from)+'">'
+      +arrow+' '+n+(pct?' ('+pct+')':'')+' '+esc(label)+'</span>';
   };
   return '<div class="k-trend">'+one(t.last_month,'vs last mo')
     +one(t.last_year,'vs last yr')+'</div>';
+}
+
+/* Say what the marker means, once, under the cards it appears on — rather
+   than in a tooltip nobody hovers. Only shown when something on the page is
+   actually rebuilt, so a Hub with a full year of readings never carries the
+   sentence. */
+function trendLegend(T){
+  const any=Object.keys(T||{}).some(k=>['last_month','last_year']
+    .some(w=>(T[k]||{})[w]&&T[k][w].basis==='io_terms'));
+  const host=$('trend-legend');
+  if(!host||!any) return;
+  host.innerHTML='&#8776; rebuilt from the insertion-order start and end dates in Smart 1 Team, '
+    +'because no monthly reading of that month was taken. Both ends of a rebuilt comparison '
+    +'are measured that way, so its percentage is against the rebuilt figure and not against '
+    +'the number above it. Recorded readings start with this month and fill in from here.';
+  host.style.display='block';
 }
 
 fetch('/api/summary').then(r=>r.json()).then(s=>{
@@ -175,6 +276,7 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
   $('k-webs-sub').textContent=fmt(s.websites_total)+' total';
   $('k-hm').textContent='$'+fmt(s.hm_monthly);
 
+  trendLegend(T);
   trend('k-clients-sub','clients_live');
   trend('k-live-sub','live_products');
   trend('k-budget-sub','live_budget_monthly',true);
@@ -214,7 +316,91 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
   }
 }).catch(()=>{$('k-clients').textContent='—'});
 
+/* Birthdays and work anniversaries, from the roster the Users panel already
+   holds. Three things this renders that a shorter version would not:
+   whose day it is *today* (a different statement from "this month"), a day
+   that has passed (dimmed, not dropped — the month is a calendar, not a
+   queue), and who has no date on file at all, because a list that quietly
+   shrinks reads as a quiet month. */
+fetch('/api/celebrations').then(r=>r.json()).then(d=>{
+  const body=$('cheer-body'), gaps=$('cheer-gaps');
+  if(!body) return;
+  if(d.error){
+    body.innerHTML='<span class="cheer-empty">Could not read the staff roster — '
+      +esc(d.error)+'</span>';
+    return;
+  }
+  $('cheer-month').textContent=esc(d.month||'')+' '+esc(d.year||'');
+  const row=e=>{
+    const cls=e.is_today?'is-today':(e.is_past?'is-past':'');
+    const note=e.kind==='anniversary'
+      ? esc(e.years_label||'')+(e.title?' &middot; '+esc(e.title):'')
+      : esc(e.title||'');
+    return '<li class="'+cls+'"><span class="cheer-day">'+esc(e.date_pretty)+'</span>'
+      +'<span><span class="cheer-who">'+esc(e.name)+'</span>'
+      +(e.is_today?' <span class="cheer-today-tag">TODAY</span>':'')
+      +(note?'<br><span class="cheer-note">'+note+'</span>':'')+'</span></li>';
+  };
+  const col=(title,ico,list,empty)=>'<div class="cheer-col"><h4>'+ico+' '+title+'</h4>'
+    +(list.length?('<ul class="cheer-list">'+list.map(row).join('')+'</ul>')
+                 :('<div class="cheer-empty">'+empty+'</div>'))+'</div>';
+  body.innerHTML=col('Birthdays','&#127880;',d.birthdays||[],
+                     'No birthdays on the roster this month.')
+    +col('Work anniversaries','&#127881;',d.anniversaries||[],
+         'No work anniversaries on the roster this month.');
+  // Named rather than skipped: without this the list is indistinguishable
+  // from a month in which nobody has a birthday.
+  const nr=d.not_recorded||{}, missing=[];
+  if((nr.birthday||[]).length) missing.push((nr.birthday||[]).length+' with no birthday on file');
+  if((nr.hired_at||[]).length) missing.push((nr.hired_at||[]).length+' with no start date on file');
+  if(missing.length&&gaps)
+    gaps.innerHTML='Of '+esc(d.people||0)+' people on the roster: '+esc(missing.join(', '))
+      +'. Fill them in under <a href="/diagnostics">Users</a> and they appear here.';
+  if(d.source==='roster')
+    $('cheer-src').textContent='from the census roster';
+});
+
+/* Who is on the Hub. Its own request rather than a key on /api/status,
+   because that path is admin-only — see hub/access.py — and the eleven
+   General accounts would have seen a zero they could not tell from an
+   answer. */
+fetch('/api/presence').then(r=>r.json()).then(d=>{
+  const host=$('presence');
+  if(!host) return;
+  if(d.error){
+    host.innerHTML='<span class="muted">Signed in now: not measured — '+esc(d.error)+'</span>';
+    return;
+  }
+  const people=d.people||[];
+  const ini=n=>{const p=String(n||'').trim().split(/\s+/);
+    return ((p[0]||'?')[0]+(p.length>1?p[p.length-1][0]:'')).toUpperCase()};
+  const chips=people.map(p=>{
+    const me=user_name&&p.name===user_name;
+    const cls='presence-chip'+(p.shared?' shared':(me?' me':''));
+    const when=p.minutes_ago<1?'just now':(p.minutes_ago+' min ago');
+    return '<span class="'+cls+'" title="'+esc(p.name)+' — last seen '+esc(when)+'">'
+      +'<span class="pav">'+esc(ini(p.name))+'</span>'+esc(me?'You':p.name)+'</span>';
+  }).join('');
+  host.innerHTML='<span class="presence-n">&#128100; '+fmt(d.count)+' signed in now</span>'
+    +(people.length?('<div class="presence-who">'+chips+'</div>'):'')
+    // The window is never left off the number: this Hub is never told when
+    // somebody leaves, so "signed in now" means exactly this and nothing more.
+    +'<div class="presence-note">'+esc(d.line||'')+'</div>';
+}).catch(()=>{
+  const host=$('presence');
+  if(host) host.innerHTML='<span class="muted">Signed in now: not measured.</span>';
+});
+
 fetch('/api/status').then(r=>r.json()).then(d=>{
+  // A General account is refused /api/status — it is a Utilities path — and
+  // `d.checks` is then absent. Rendered as an empty list that reads
+  // "0 checks OK · no issues", which is a green tick over a question nobody
+  // asked. Say what happened instead.
+  if(d.error&&!d.checks){
+    $('mini-status').innerHTML='<tbody><tr><td class="empty">'+esc(d.error)
+      +' The Hub&rsquo;s own checks run either way.</td></tr></tbody>';
+    return;
+  }
   const checks=d.checks||[];
   const ok=checks.filter(c=>c.status==='ok').length;
   const warn=checks.filter(c=>c.status==='warn').length;
