@@ -48,6 +48,39 @@ twice unless it takes the leader lock in `hub/scheduler.py`. Same reason
 `create_all()` is wrapped in a Postgres advisory lock — concurrent `CREATE
 TABLE` produces a `pg_type_typname_nsp_index` unique violation on every deploy.
 
+**A scheduled job has no request, so `flask.g` is not there — and the module
+whose database hangs off `g` reports an empty book instead of an error.**
+Google Finder reached its token table through `get_db()`, which caches on `g`
+and is closed by a teardown when the request ends: right for a route and
+unusable from anywhere else. The scheduler sweeps Google from a background
+thread, so every read raised `RuntimeError: Working outside of application
+context` *inside* `connected_accounts()`'s `except Exception: return []` — and
+the sweep concluded **"No Google accounts are connected"**, every three hours,
+while the accounts sat in the table and the Google Finder pages listed them
+happily. Nothing errored at either end. The same swallow hid the other half:
+`mark_account_reauth()` could not write either, so an account whose refresh
+token had died was never marked `REAUTH_REQUIRED` and went on reading as
+healthy. `/api/google/rebuild` calls the same sweep under the *hub* app's
+context, where `g` exists but google_finder's teardown never runs for it —
+one leaked sqlite handle per rebuild.
+
+`modules/google_finder/app.py` reaches that table through `_db()` now, a
+context manager that uses the `g` cache only when the context in play is that
+app's own and otherwise opens and closes its own connection. Every call site
+goes through it, so the next function added there does not have to know which
+of the two worlds it will be called from — the same reason the Commercial
+Builder's guard sits on the blueprint rather than on forty views. And
+`connected_accounts_result()` returns `(accounts, error)`, because **"nobody
+has connected one" and "we could not look" are different answers** and only
+the first means there is nothing to do; a stored row that will not decrypt is
+named too, or a rotated `TOKEN_ENCRYPTION_KEY` reads as an empty book. It also
+sorts what the scheduler writes into the activity log: nothing connected is a
+*state*, so `hub/google_index.py` logs `build_skipped` only when the reason
+**changes**, while a genuine `build_failed` is logged every run — an
+unconfigured Hub was writing eight failures a day for ever and the real ones
+were sitting in the middle of them. `test_google_index.py` asserts all of it,
+including a read from a background thread.
+
 **The hub app injects its chrome into every HTML response it returns.** The
 `after_request` in `hub/__init__.py` adds the sidebar, the help layer and the
 feedback tab to any 200 `text/html` reply whose path is not in `CHROMELESS`.
@@ -1824,6 +1857,7 @@ python3 test_sites_match.py        # live-only matching, and finding a client's 
 python3 test_domain_links.py       # attaching a domain everywhere, orphans, renewals
 python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
 python3 test_google_access.py      # the paused Ads flow, and who an invite is for
+python3 test_google_index.py       # the Google sweep: no request, and none vs cannot look
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives

@@ -349,6 +349,40 @@ def build(force: bool = True) -> dict:
             pass
         return {"ok": False, "error": reason}
 
+    def not_configured(reason: str) -> dict:
+        """Record a sweep that had nothing to sweep.
+
+        Nothing is connected is a *state*, not a fault, and the two were being
+        reported the same way: this job runs every three hours, so an
+        unconfigured Hub wrote a `build_failed` into the activity log eight
+        times a day for ever, and the genuine failures sat in the middle of
+        them. The reason is still stored where status() reads it — a page must
+        not go on presenting an empty index as current — but it is logged only
+        when it *changes*, so the log carries the day it started rather than
+        every three hours since.
+
+        A real failure is not de-duplicated the same way. A sweep that keeps
+        failing is the signal, and a log that says so once a fortnight ago is
+        the same as saying nothing.
+        """
+        was = ""
+        try:
+            prev = load()
+            was = str(prev.get("last_error") or "")
+            prev.pop("never_built", None)
+            prev["last_error"] = reason
+            prev["last_attempt"] = _now()
+            jsonstore.write_json(_path(), prev)
+        except Exception:                               # noqa: BLE001
+            pass
+        if was != reason:
+            try:
+                from hub import audit
+                audit.log("google_index", "build_skipped", detail=reason[:120])
+            except Exception:                           # noqa: BLE001
+                pass
+        return {"ok": False, "skipped": True, "error": reason}
+
     try:
         import sys
         gf = sys.modules.get("gf_app")
@@ -367,13 +401,29 @@ def build(force: bool = True) -> dict:
     # A sweep that reached Google and came back with nothing is worth saying
     # out loud rather than storing as an empty success.
     if not raw and not errors:
+        # "Nobody has connected an account" and "we could not read the list of
+        # connected accounts" are different answers, and only the first means
+        # there is nothing to do. Google Finder used to answer both with an
+        # empty list, so a background sweep with no Flask application context
+        # — which is every scheduled sweep — reported an unconfigured Hub
+        # while the accounts sat in the table. Ask the question that can say
+        # which, and treat an unreadable list as the failure it is.
+        connected, why = [], ""
         try:
-            connected = len(gf.connected_accounts() or [])
-        except Exception:                               # noqa: BLE001
-            connected = 0
+            fn = getattr(gf, "connected_accounts_result", None)
+            if fn is not None:
+                connected, why = fn()
+            else:                       # an older google_finder, still honest
+                connected = gf.connected_accounts() or []
+        except Exception as exc:                        # noqa: BLE001
+            connected, why = [], f"{type(exc).__name__}: {exc}"
+        if why:
+            return failed("The list of connected Google accounts could not be "
+                          f"read, so this sweep proves nothing: {why}"[:300])
         if not connected:
-            return failed("No Google accounts are connected, so there is "
-                          "nothing to index. Connect one at /google/login.")
+            return not_configured(
+                "No Google accounts are connected, so there is nothing to "
+                "index. Connect one at /google/login.")
 
     attachments = _attachment_map()
     by_domain = _client_by_domain()
