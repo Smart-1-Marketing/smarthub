@@ -393,7 +393,50 @@ def google_put(access_token, url, json_body=None):
     return r.text
 
 
-def fetch_ga_items(access_token, google_login):
+# ---------------------------------------------------------------------------
+# What each sweep actually managed
+# ---------------------------------------------------------------------------
+# Every fetcher below swallows its own exception and returns an empty list.
+# That is right — one platform failing must not cost the other three — and it
+# is also how "this login has no Tag Manager containers" and "Tag Manager
+# refused us" came to look identical on every screen that reads this index.
+# A login consented before a scope was added to SCOPES keeps the grant it was
+# given: Google does not widen an existing refresh token, so the call 403s for
+# ever and the page shows nothing, with nothing anywhere saying why.
+#
+# So each fetcher now files a note. `kind` is the answer to "why is this
+# empty", and the four are genuinely different situations:
+#
+#     ok        we asked and this is what there is (count may be 0)
+#     refused   Google said no — almost always a scope this token never got,
+#               or an API not enabled on the Cloud project. Reconnecting the
+#               login re-consents, because the connect URL forces prompt=consent.
+#     failed    we could not ask — a network error, a bad token
+#     disabled  we did not ask, because this deployment switched it off
+#
+# A note with count 0 and kind "ok" is a real answer. A note with kind
+# "refused" is not, and must never be rendered as a clean nothing.
+def _note(notes, email, platform, kind, count=0, error=""):
+    if notes is None:
+        return
+    notes.append({"email": email, "platform": platform, "kind": kind,
+                  "ok": kind == "ok", "count": count,
+                  "error": str(error)[:300]})
+
+
+def _refused(exc) -> bool:
+    """A 401/403 is a permission answer, not an outage.
+
+    Told apart because they need opposite things from a person: a refusal is
+    "reconnect this login" and an outage is "try again later", and calling
+    the first one a failure sends somebody to check their network.
+    """
+    text = str(exc)
+    return "401" in text or "403" in text or "insufficient" in text.lower() \
+        or "permission" in text.lower() or "forbidden" in text.lower()
+
+
+def fetch_ga_items(access_token, google_login, notes=None):
     items = []
     token = None
     try:
@@ -433,8 +476,11 @@ def fetch_ga_items(access_token, google_login):
             token = data.get("nextPageToken")
             if not token:
                 break
+        _note(notes, google_login, "Google Analytics", "ok", len(items))
     except Exception as exc:
         logger.warning("Failed fetching GA4 items for %s: %s", google_login, exc)
+        _note(notes, google_login, "Google Analytics",
+              "refused" if _refused(exc) else "failed", len(items), exc)
     return items
 
 
@@ -486,7 +532,7 @@ def gtm_get(access_token, url, params=None):
     return {}
 
 
-def fetch_gtm_items(access_token, google_login):
+def fetch_gtm_items(access_token, google_login, notes=None):
     items = []
     token = None
     accounts = []
@@ -503,6 +549,8 @@ def fetch_gtm_items(access_token, google_login):
                 break
     except Exception as exc:
         logger.warning("Failed fetching GTM accounts for %s: %s", google_login, exc)
+        _note(notes, google_login, "Google Tag Manager",
+              "refused" if _refused(exc) else "failed", 0, exc)
         return items
 
     skipped: list[str] = []
@@ -566,6 +614,16 @@ def fetch_gtm_items(access_token, google_login):
             "GTM: %d of %d accounts skipped for %s after retries. "
             "Raise GTM_MIN_INTERVAL_SECONDS if this persists.",
             len(skipped), len(accounts), google_login)
+        # A partial sweep is not a complete one. Without this the containers
+        # under the skipped accounts are simply absent, and the page reads as
+        # though this login owns fewer than it does.
+        _note(notes, google_login, "Google Tag Manager", "failed", len(items),
+              f"{len(skipped)} of {len(accounts)} Tag Manager account(s) were "
+              f"skipped after retries — their containers are missing from "
+              f"this list. Tag Manager rate-limits hard; raise "
+              f"GTM_MIN_INTERVAL_SECONDS if it keeps happening.")
+    else:
+        _note(notes, google_login, "Google Tag Manager", "ok", len(items))
     return items
 
 
@@ -577,8 +635,13 @@ GMB_ENABLED = (os.environ.get("GOOGLE_GMB_ENABLED", "").strip().lower()
                in {"1", "true", "yes", "on"})
 
 
-def fetch_gmb_items(access_token, google_login):
+def fetch_gmb_items(access_token, google_login, notes=None):
     if not GMB_ENABLED:
+        # Not a failure and not an empty book: nobody asked. The variable is
+        # named so the answer to "why is there no Business Profile here" is on
+        # the screen rather than in this file.
+        _note(notes, google_login, "Google Business Profile", "disabled", 0,
+              "GOOGLE_GMB_ENABLED is not set on this deployment.")
         return []
     items = []
     try:
@@ -633,14 +696,26 @@ def fetch_gmb_items(access_token, google_login):
                     })
             except Exception as loc_exc:
                 logger.warning("Failed fetching locations for GMB account %s (%s): %s", account_id, google_login, loc_exc)
-
+                _note(notes, google_login, "Google Business Profile",
+                      "refused" if _refused(loc_exc) else "failed", len(items),
+                      f"account {account_id}: {loc_exc}")
+        if not any(n.get("email") == google_login
+                   and n.get("platform") == "Google Business Profile"
+                   for n in (notes or [])):
+            _note(notes, google_login, "Google Business Profile", "ok", len(items))
     except Exception as exc:
         logger.warning("Failed fetching GMB accounts for %s: %s", google_login, exc)
+        # The usual answer here is a 403 that has nothing to do with the
+        # OAuth scope: the Business Profile APIs need per-project access
+        # granted by Google on top of it, so a login can be perfectly
+        # connected and still see none of its listings.
+        _note(notes, google_login, "Google Business Profile",
+              "refused" if _refused(exc) else "failed", len(items), exc)
 
     return items
 
 
-def fetch_gsc_items(access_token, google_login):
+def fetch_gsc_items(access_token, google_login, notes=None):
     items = []
     try:
         data = google_get(access_token, "https://www.googleapis.com/webmasters/v3/sites")
@@ -664,38 +739,62 @@ def fetch_gsc_items(access_token, google_login):
                 "google_login": google_login,
                 "open_url": f"https://search.google.com/search-console?resource_id={urlencode({'': site_url})[1:]}",
             })
+        _note(notes, google_login, "Search Console", "ok", len(items))
     except Exception as exc:
         logger.warning("Failed fetching Search Console sites for %s: %s", google_login, exc)
+        _note(notes, google_login, "Search Console",
+              "refused" if _refused(exc) else "failed", len(items), exc)
 
     return items
 
 
-def get_account_index(account, force=False):
+def get_account_index(account, force=False, notes=None):
     email = account["email"].lower()
-    cached = CACHE.get(email, {"expires": 0, "items": []})
+    cached = CACHE.get(email, {"expires": 0, "items": [], "notes": []})
     now = time.time()
     if not force and cached["expires"] > now:
+        # The notes are cached with the items, or a cached sweep would report
+        # nothing about itself and a refusal would vanish for an hour.
+        if notes is not None:
+            notes.extend(cached.get("notes") or [])
         return cached["items"]
 
+    mine: list = []
     access_token = refresh_access_token(email, account["refresh_token"])
-    items = (
-        fetch_ga_items(access_token, email)
-        + fetch_gtm_items(access_token, email)
-        + fetch_gmb_items(access_token, email)
-        + fetch_gsc_items(access_token, email)
-    )
-    CACHE[email] = {"expires": now + CACHE_SECONDS, "items": items}
+    # Four separate calls rather than one expression, so a platform that
+    # raises where its own handler cannot catch it costs its own list and not
+    # the other three's.
+    items = []
+    for fetch in (fetch_ga_items, fetch_gtm_items, fetch_gmb_items,
+                  fetch_gsc_items):
+        try:
+            items.extend(fetch(access_token, email, mine))
+        except Exception as exc:                        # noqa: BLE001
+            logger.warning("%s raised for %s: %s", fetch.__name__, email, exc)
+            _note(mine, email, fetch.__name__, "failed", 0, exc)
+    CACHE[email] = {"expires": now + CACHE_SECONDS, "items": items,
+                    "notes": mine}
+    if notes is not None:
+        notes.extend(mine)
     return items
 
 
-def get_index(force=False):
+def get_index(force=False, notes=None):
+    """Every resource across every connected login.
+
+    `notes` is filled with one row per login per platform when a list is
+    passed: what was asked, what came back, and why it is empty when it is.
+    Callers that do not care pass nothing and behave exactly as before.
+    """
     items = []
     errors = []
     for account in connected_accounts():
+        email = account.get("email", "unknown")
         try:
-            items.extend(get_account_index(account, force=force))
+            items.extend(get_account_index(account, force=force, notes=notes))
         except Exception as exc:
-            errors.append({"email": account.get("email", "unknown"), "error": str(exc)})
+            errors.append({"email": email, "error": str(exc)})
+            _note(notes, email, "all", "failed", 0, exc)
     return items, errors
 
 

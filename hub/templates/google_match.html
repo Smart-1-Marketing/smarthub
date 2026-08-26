@@ -11,26 +11,45 @@
     domain, then an exact name &mdash; and these are what is left. Each row
     carries whoever it might belong to and why: a GA or GTM id already
     recorded on a client's Knack website record is not a guess at all, a
-    domain is close to proof, and a near name is worth an eyeball.
+    domain is close to proof, a near name is worth an eyeball, and a shared
+    word is the loosest of the four and says which word it was.
     Attaching writes the client record, this index and the Knack website
     record, each reported separately.
   </p>
 
   <div class="gm-metrics" id="gmMetrics"></div>
   <div class="gm-bar">
-    <button class="gm-btn primary" onclick="load()">Load orphans</button>
+    <button class="gm-btn primary" onclick="reload()">Load orphans</button>
     <input id="gmQ" class="gm-search" placeholder="Search name, id, account, login, domain or suggested client"
-           oninput="render()" disabled>
-    <button class="gm-btn good" id="gmBulk" onclick="attachSelected()" disabled>Attach selected</button>
+           oninput="queueSearch()" disabled>
+    <button class="gm-btn" onclick="rebuild()" id="gmRebuild">Rebuild the index</button>
   </div>
   <div class="gm-bar" id="gmFilters" hidden>
     <span class="gm-only">Show:</span>
-    <label class="gm-only"><input type="checkbox" class="gmPlat" value="ga4" checked onchange="render()"> Analytics</label>
-    <label class="gm-only"><input type="checkbox" class="gmPlat" value="gtm" checked onchange="render()"> Tag Manager</label>
-    <label class="gm-only"><input type="checkbox" class="gmPlat" value="gsc" checked onchange="render()"> Search Console</label>
-    <label class="gm-only"><input type="checkbox" id="gmOther" onchange="load()"> Include Business Profile and anything else</label>
-    <button class="gm-btn" onclick="rebuild()" id="gmRebuild">Rebuild the index</button>
+    <label class="gm-only"><input type="checkbox" class="gmPlat" value="ga4" checked onchange="reload()"> Analytics</label>
+    <label class="gm-only"><input type="checkbox" class="gmPlat" value="gtm" checked onchange="reload()"> Tag Manager</label>
+    <label class="gm-only"><input type="checkbox" class="gmPlat" value="gsc" checked onchange="reload()"> Search Console</label>
+    <label class="gm-only"><input type="checkbox" id="gmOther" onchange="reload()"> Include Business Profile and anything else</label>
   </div>
+
+  {#
+    The bulk bar only exists once something is ticked. A row of disabled
+    buttons above an untouched table reads as a broken page, and the two
+    actions here mean genuinely different things — one accepts what the Hub
+    already worked out, the other overrides it with one name — so both say
+    which in as many words.
+  #}
+  <div class="gm-bulk" id="gmBulk" hidden>
+    <span id="gmSelCount"></span>
+    <button class="gm-btn good" onclick="bulkSuggested()" id="gmBulkSugg"></button>
+    <button class="gm-btn primary" onclick="bulkPickCustomer()">Attach to one customer&hellip;</button>
+    <button class="gm-btn" onclick="clearSel()">Clear</button>
+    <div class="gm-bulkpick" id="gmBulkPick" hidden>
+      <input id="gmBulkQ" placeholder="Search customers&hellip;" oninput="queueBulkFind()">
+      <div id="gmBulkHits"></div>
+    </div>
+  </div>
+
   <div id="gmOut"><p class="gm-muted">Nothing loaded yet.</p></div>
 </div>
 
@@ -54,6 +73,13 @@
 .gm-search{flex:1;min-width:240px;padding:8px 11px;border:1px solid #d7dfe8;
   border-radius:8px;font:13px system-ui}
 .gm-search:disabled{background:#f6f8fa}
+.gm-bulk{position:sticky;top:0;z-index:5;display:flex;gap:9px;align-items:center;
+  flex-wrap:wrap;background:#eef5fb;border:1px solid #cfe2f2;border-radius:10px;
+  padding:10px 13px;margin-bottom:12px;font-size:13px;color:#2b4a63}
+.gm-bulk b{color:#0d2340}
+.gm-bulkpick{flex-basis:100%;margin-top:6px}
+.gm-bulkpick input{width:100%;max-width:360px;padding:7px 10px;border:1px solid #cfe2f2;
+  border-radius:8px;font:13px system-ui}
 .gm-card{background:#fff;border:1px solid #e2e8f0;border-radius:11px;margin-bottom:14px;overflow:auto}
 .gm-card h3{margin:0;padding:12px 14px;border-bottom:1px solid #eef2f6;font-size:14px;color:#0d2340;background:#fbfcfe}
 table.gm-t{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
@@ -71,33 +97,93 @@ table.gm-t{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
 .pill.name{background:#eef5fb;color:#1769AA}
 .pill.possible{background:#fff4d7;color:#a06a00}
 .pill.plat{background:#f1f5f9;color:#475569}
+.pill.ok{background:#e7f6ef;color:#147d52}
+.pill.refused{background:#feeceb;color:#b42318}
+.pill.failed{background:#fff4d7;color:#a06a00}
+.pill.disabled{background:#f1f5f9;color:#64748b}
 .gm-pick{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px}
 .gm-pick input{padding:6px 9px;border:1px solid #d7dfe8;border-radius:7px;font:12.5px system-ui;min-width:170px}
 .gm-hit{display:inline-block;border:1px solid #d7dfe8;background:#fff;border-radius:20px;
   padding:3px 10px;font:600 11.5px system-ui;margin:0 5px 5px 0;cursor:pointer}
+.gm-hit:hover{background:#f1f5f9}
 .gm-report{background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;
   padding:9px 11px;margin-top:7px;font-size:12px;line-height:1.55}
 .gm-wrote{color:#147d52}
 .gm-skip{color:#a06a00}
 .gm-none{color:#a06a00;font-size:12px}
+.gm-more{display:block;width:100%;border:0;border-top:1px solid #eef2f6;background:#fbfcfe;
+  padding:12px;font:600 13px system-ui;color:#1769AA;cursor:pointer}
+.gm-more:disabled{color:#94a3b8;cursor:default}
 </style>
 
 <script>
-var DATA=null, REPORT={};
+/* ---------------------------------------------------------------------------
+   One page of orphans at a time.
+
+   The list used to arrive whole — every orphan, every suggestion, in one
+   response — and the browser filtered it. Two things were wrong with that.
+   The suggestions are the expensive half (a Knack read and a word index per
+   resource), so a long book paid for all of them before drawing a row; and
+   the search only ever searched what had been sent, which on a truncated list
+   is a search that quietly answers about part of the book.
+
+   So the server pages, filters and searches, and this holds the pages it has
+   been given. Every count on screen is of the whole filtered list — `count`
+   from the server — never of what happens to be loaded.
+--------------------------------------------------------------------------- */
+var PAGE = 25;
+var S = {rows: [], meta: null, offset: 0, loading: false, sel: {}, report: {}};
+var TIMER = null, BULKTIMER = null, BULKHITS = [];
+
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 
-function load(){
-  document.getElementById('gmOut').innerHTML='<p class="gm-muted">Reading the account index…</p>';
-  var other=document.getElementById('gmOther')&&document.getElementById('gmOther').checked;
-  fetch('/api/google/orphans?include_other='+(other?'1':'0'),{credentials:'same-origin'})
+function plats(){
+  var on=[];
+  document.querySelectorAll('.gmPlat').forEach(function(c){if(c.checked)on.push(c.value);});
+  return on;
+}
+
+function query(offset){
+  var q=(document.getElementById('gmQ').value||'').trim();
+  var other=document.getElementById('gmOther').checked;
+  return '/api/google/orphans?limit='+PAGE+'&offset='+offset+
+    '&include_other='+(other?'1':'0')+
+    '&platforms='+encodeURIComponent(plats().join(','))+
+    '&q='+encodeURIComponent(q);
+}
+
+/* A new filter or a new search is a different list, so it starts at the top.
+   Appending a page of a different query onto the last one is how a list ends
+   up holding rows that match neither. */
+function reload(){
+  S.rows=[]; S.offset=0; S.sel={};
+  document.getElementById('gmOut').innerHTML='<p class="gm-muted">Reading the account index&hellip;</p>';
+  fetchPage(true);
+}
+
+function queueSearch(){ clearTimeout(TIMER); TIMER=setTimeout(reload, 250); }
+
+function fetchPage(first){
+  if(S.loading) return;
+  S.loading=true;
+  fetch(query(S.offset),{credentials:'same-origin'})
     .then(function(r){return r.json();})
-    .then(function(d){DATA=d;
+    .then(function(d){
+      S.loading=false;
+      S.meta=d;
+      S.rows=S.rows.concat(d.rows||[]);
+      S.offset=d.next_offset!=null?d.next_offset:(S.offset+(d.rows||[]).length);
       document.getElementById('gmQ').disabled=false;
       document.getElementById('gmFilters').hidden=false;
-      render();})
-    .catch(function(){document.getElementById('gmOut').innerHTML=
-      '<p class="gm-muted">Could not read the account index.</p>';});
+      if(first) renderAll(); else appendRows(d.rows||[]);
+      paintMore();
+    })
+    .catch(function(){
+      S.loading=false;
+      document.getElementById('gmOut').innerHTML=
+        '<p class="gm-muted">Could not read the account index.</p>';
+    });
 }
 
 function rebuild(){
@@ -109,45 +195,93 @@ function rebuild(){
     .then(function(r){return r.json();}).then(function(d){
       b.disabled=false; b.textContent='Rebuild the index';
       if(!d.ok){alert(d.error||'The sweep did not complete.');return;}
-      load();
+      reload();
     }).catch(function(){b.disabled=false;b.textContent='Rebuild the index';
       alert('The sweep did not complete.');});
 }
 
-function wanted(){
-  var on=[];
-  document.querySelectorAll('.gmPlat').forEach(function(c){if(c.checked)on.push(c.value);});
-  return on;
-}
-
-function visibleRows(){
-  if(!DATA) return [];
-  var q=(document.getElementById('gmQ').value||'').trim().toLowerCase();
-  var plats=wanted(), other=document.getElementById('gmOther').checked;
-  return (DATA.rows||[]).filter(function(r){
-    if(!other&&plats.indexOf(r.key)<0) return false;
-    if(other&&['ga4','gtm','gsc'].indexOf(r.key)>=0&&plats.indexOf(r.key)<0) return false;
-    if(!q) return true;
-    var hay=[r.name,r.resource_id,r.account_name,r.google_login,
-             (r.domains||[]).join(' '),
-             (r.suggestions||[]).map(function(s){return s.client;}).join(' ')]
-      .join(' ').toLowerCase();
-    return hay.indexOf(q)>=0;
-  });
-}
-
-function render(){
-  if(!DATA) return;
-  var d=DATA, rows=visibleRows();
-  document.getElementById('gmMetrics').innerHTML=
-    [['Google logins connected',d.accounts||0],
+/* ---------------------------------------------------------- rendering */
+function metrics(d){
+  return [['Google logins connected',d.accounts||0],
      ['Resources indexed',d.resources||0],
      ['Attached to a client',d.mapped||0],
      ['Orphaned',d.orphans_total||0],
      ['We can suggest an owner',d.with_suggestion||0]]
-    .map(function(x){return '<div class="gm-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
+    .map(function(x){return '<div class="gm-metric"><b>'+x[1]+'</b><span>'+esc(x[0])+'</span></div>';}).join('');
+}
 
-  var warn=d.never_built||d.stale;
+function sweepCard(d){
+  /* The answer to "why can I not see any Tag Manager containers". A platform
+     that refused is not a platform with nothing in it, and until this table
+     existed the two were the same empty list. */
+  var rows=d.sweep||[];
+  if(!rows.length){
+    if(d.never_built) return '';
+    return '<div class="gm-card"><h3>What each login was swept for</h3>'+
+      '<p class="gm-muted" style="padding:12px 14px">Not measured — this index '+
+      'was built before the sweep reported per platform. Rebuild it to find '+
+      'out which logins can be read for Analytics, Tag Manager, Search Console '+
+      'and Business Profile.</p></div>';
+  }
+  /* Worst first — a refusal is the row somebody has to act on. Ranks start
+     at 1, not 0: `order[kind] || 9` turns a rank of 0 into 9, which sorted
+     the refusals to the bottom of the table they exist to head. */
+  var order={refused:1,failed:2,disabled:3,ok:4};
+  rows=rows.slice().sort(function(a,b){
+    return (order[a.kind]||9)-(order[b.kind]||9) ||
+           String(a.email).localeCompare(String(b.email));});
+  return '<div class="gm-card"><h3>What each login was swept for ('+rows.length+')</h3>'+
+    '<table class="gm-t"><thead><tr><th>Google login</th><th>Platform</th>'+
+    '<th>Result</th><th>Found</th><th>Why</th></tr></thead><tbody>'+
+    rows.map(function(n){
+      var why=n.kind==='refused'
+        ? 'Google refused this token. Almost always a scope it was never '+
+          'granted — a login connected before a scope was added keeps the '+
+          'grant it was given — or an API not enabled for this project. '+
+          'Reconnect this login to re-consent.'
+        : n.kind==='disabled' ? (n.error||'Not asked for on this deployment.')
+        : n.kind==='failed' ? (n.error||'The call did not complete.')
+        : 'Swept.';
+      return '<tr><td>'+esc(n.email)+'</td><td>'+esc(n.platform)+'</td>'+
+        '<td><span class="pill '+esc(n.kind)+'">'+esc(n.kind)+'</span></td>'+
+        '<td>'+(n.kind==='ok'?(n.count||0):'<span class="gm-muted">not measured</span>')+'</td>'+
+        '<td class="gm-muted" style="max-width:38ch">'+esc(why)+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
+
+function rowHtml(r){
+  var sugg=(r.suggestions||[]).map(function(s,si){
+    return '<div style="margin-bottom:6px"><button class="gm-btn" style="padding:3px 9px;font-size:12px" '+
+      'onclick="attachOne(\'' + esc(r.resource_id).replace(/'/g,'&#39;') + '\','+si+')">'+esc(s.client)+'</button> '+
+      '<span class="pill '+esc(s.confidence)+'">'+esc(s.confidence)+'</span>'+
+      '<span class="gm-sm">'+esc(s.why)+'</span></div>';}).join('');
+  var rid=esc(r.resource_id);
+  var rep=S.report[r.resource_id]?report(S.report[r.resource_id]):'';
+  return '<tr data-rid="'+rid+'">'+
+    '<td><input type="checkbox" class="gmChk" data-rid="'+rid+'"'+
+      (S.sel[r.resource_id]?' checked':'')+' onchange="toggle(this)"></td>'+
+    '<td><b>'+esc(r.name||r.resource_id)+'</b>'+
+      '<span class="gm-sm">'+esc(r.resource_id)+'</span>'+
+      '<span class="pill plat">'+esc(r.platform_label||r.platform)+'</span>'+
+      (r.open_url?' <a href="'+esc(r.open_url)+'" target="_blank" rel="noopener" '+
+        'style="font-size:11px">open &rarr;</a>':'')+'</td>'+
+    '<td class="gm-muted">'+esc(r.google_login||'')+
+      (r.account_name?'<span class="gm-sm">'+esc(r.account_name)+'</span>':'')+
+      ((r.domains||[]).length?'<span class="gm-sm">'+esc((r.domains||[]).join(', '))+'</span>':
+        '<span class="gm-sm">no URL on this resource</span>')+'</td>'+
+    '<td>'+(sugg||'<span class="gm-none">Nothing in any data set names an owner.</span>')+'</td>'+
+    '<td><div class="gm-pick"><input placeholder="Search clients…" data-rid="'+rid+'" '+
+      'class="gmSearch" onkeydown="key(event,this)"><button class="gm-btn" '+
+      'style="padding:5px 10px;font-size:12px" onclick="find(this)">Search</button></div>'+
+      '<div class="gmHits"></div>'+rep+'</td></tr>';
+}
+
+function renderAll(){
+  var d=S.meta;
+  if(!d) return;
+  document.getElementById('gmMetrics').innerHTML=metrics(d);
+
+  var warn=d.never_built||d.stale||(d.sweep_problems||[]).length;
   var html='<div class="gm-note'+(warn?' gm-warn':'')+'">'+esc(d.note)+
     (d.built_at?'<br><b>Index built:</b> '+esc(d.built_at):'')+'</div>';
 
@@ -161,37 +295,20 @@ function render(){
           '</td></tr>';}).join('')+'</tbody></table></div>';
   }
 
-  html+='<div class="gm-card"><h3>Orphaned accounts ('+rows.length+
-        (rows.length!==d.count?' of '+d.count:'')+')</h3>'+
-    (rows.length?'<table class="gm-t"><thead><tr><th></th><th>Resource</th>'+
-    '<th>Where it lives</th><th>Might belong to</th><th>Attach to a client</th>'+
-    '</tr></thead><tbody>'+rows.map(function(r,i){
-      var sugg=(r.suggestions||[]).map(function(s,si){
-        return '<div style="margin-bottom:6px"><button class="gm-btn" style="padding:3px 9px;font-size:12px" '+
-          'onclick="attachOne('+i+','+si+')">'+esc(s.client)+'</button> '+
-          '<span class="pill '+esc(s.confidence)+'">'+esc(s.confidence)+'</span>'+
-          '<span class="gm-sm">'+esc(s.why)+'</span></div>';}).join('');
-      var rep=REPORT[r.resource_id]?report(REPORT[r.resource_id]):'';
-      return '<tr><td><input type="checkbox" class="gmChk" data-i="'+i+'" onchange="count()"></td>'+
-        '<td><b>'+esc(r.name||r.resource_id)+'</b>'+
-          '<span class="gm-sm">'+esc(r.resource_id)+'</span>'+
-          '<span class="pill plat">'+esc(r.platform_label||r.platform)+'</span>'+
-          (r.open_url?' <a href="'+esc(r.open_url)+'" target="_blank" rel="noopener" '+
-            'style="font-size:11px">open &rarr;</a>':'')+'</td>'+
-        '<td class="gm-muted">'+esc(r.google_login||'')+
-          (r.account_name?'<span class="gm-sm">'+esc(r.account_name)+'</span>':'')+
-          ((r.domains||[]).length?'<span class="gm-sm">'+esc((r.domains||[]).join(', '))+'</span>':
-            '<span class="gm-sm">no URL on this resource</span>')+'</td>'+
-        '<td>'+(sugg||'<span class="gm-none">Nothing in any data set names an owner.</span>')+'</td>'+
-        '<td><div class="gm-pick"><input placeholder="Search clients…" data-i="'+i+'" '+
-          'class="gmSearch" onkeydown="key(event,'+i+')"><button class="gm-btn" '+
-          'style="padding:5px 10px;font-size:12px" onclick="find('+i+')">Search</button></div>'+
-          '<div id="gmHits'+i+'"></div>'+rep+'</td></tr>';
-    }).join('')+'</tbody></table>':'<p class="gm-muted" style="padding:12px 14px">'+
+  html+='<div class="gm-card" id="gmList"><h3 id="gmListHead"></h3>'+
+    (S.rows.length?'<table class="gm-t"><thead><tr>'+
+      '<th><input type="checkbox" id="gmAll" onchange="selectAll(this)" '+
+        'title="Select every row loaded"></th><th>Resource</th>'+
+      '<th>Where it lives</th><th>Might belong to</th><th>Attach to a client</th>'+
+      '</tr></thead><tbody id="gmBody">'+S.rows.map(rowHtml).join('')+'</tbody></table>'+
+      '<button class="gm-more" id="gmMore" onclick="fetchPage(false)"></button>'
+      :'<p class="gm-muted" style="padding:12px 14px">'+
       (d.never_built?'The index has never been built — there is nothing to show yet.':
        (d.orphans_total?'Nothing matches the current search or filters.':
         'Every Google resource we can reach is attached to a client.'))+
       '</p>')+'</div>';
+
+  html+=sweepCard(d);
 
   if(d.by_platform&&Object.keys(d.by_platform).length){
     html+='<div class="gm-card"><h3>Orphans by platform</h3><table class="gm-t"><tbody>'+
@@ -200,8 +317,51 @@ function render(){
       }).join('')+'</tbody></table></div>';
   }
   document.getElementById('gmOut').innerHTML=html;
+  paintMore();
   count();
 }
+
+/* Appending, never re-rendering. A page of rows added underneath must not
+   redraw the rows above it: one of them may hold a half-typed client name in
+   its search box, and a container that redraws itself while somebody is
+   typing into it eats what they typed. */
+function appendRows(rows){
+  var body=document.getElementById('gmBody');
+  if(!body){ renderAll(); return; }
+  body.insertAdjacentHTML('beforeend', rows.map(rowHtml).join(''));
+  paintMore();
+  count();
+}
+
+/* The header, the More button and the selection count all say the same thing
+   in different words: how much of the book is on screen. Written in one place
+   so they cannot disagree. */
+function paintMore(){
+  var d=S.meta; if(!d) return;
+  var head=document.getElementById('gmListHead');
+  if(head) head.textContent='Orphaned accounts — showing '+S.rows.length+
+    ' of '+(d.count||0)+(d.count!==d.orphans_total?
+      ' matching (of '+(d.orphans_total||0)+' orphaned)':'');
+  var more=document.getElementById('gmMore');
+  if(!more) return;
+  var left=(d.count||0)-S.rows.length;
+  if(left<=0){ more.disabled=true;
+    more.textContent=S.rows.length?'That is all '+S.rows.length+' of them.':'';
+    more.style.display=S.rows.length?'block':'none'; return; }
+  more.disabled=false; more.style.display='block';
+  more.textContent='Load '+Math.min(PAGE,left)+' more ('+left+' still to come)';
+}
+
+/* Auto-load as the list is scrolled to the bottom. The button stays: a person
+   who scrolls fast, or whose browser fires no scroll event because the list
+   fits, still has something to press. */
+window.addEventListener('scroll', function(){
+  if(!S.meta||S.loading) return;
+  var more=document.getElementById('gmMore');
+  if(!more||more.disabled||more.style.display==='none') return;
+  var box=more.getBoundingClientRect();
+  if(box.top < (window.innerHeight||0)+200) fetchPage(false);
+});
 
 function report(rep){
   var out='<div class="gm-report"><b>'+esc(rep.client||'')+'</b> — '+esc(rep.note||rep.error||'');
@@ -212,33 +372,104 @@ function report(rep){
   return out+'</div>';
 }
 
-function key(ev,i){ if(ev.key==='Enter'){ev.preventDefault();find(i);} }
+/* ------------------------------------------------------- selection */
+function rowFor(rid){
+  for(var i=0;i<S.rows.length;i++) if(S.rows[i].resource_id===rid) return S.rows[i];
+  return null;
+}
 
-function find(i){
-  var box=document.querySelector('.gmSearch[data-i="'+i+'"]');
-  var q=(box&&box.value||'').trim(), host=document.getElementById('gmHits'+i);
+function toggle(box){
+  if(box.checked) S.sel[box.dataset.rid]=true; else delete S.sel[box.dataset.rid];
+  count();
+}
+
+/* Select all means all LOADED rows, and says so rather than implying it
+   reached the rows still on the server. Ticking 25 and calling it "all 400"
+   is the kind of confident wrong answer this Hub keeps having to undo. */
+function selectAll(box){
+  document.querySelectorAll('.gmChk').forEach(function(c){
+    c.checked=box.checked;
+    if(box.checked) S.sel[c.dataset.rid]=true; else delete S.sel[c.dataset.rid];
+  });
+  count();
+}
+
+function clearSel(){
+  S.sel={};
+  document.querySelectorAll('.gmChk').forEach(function(c){c.checked=false;});
+  var all=document.getElementById('gmAll'); if(all) all.checked=false;
+  count();
+}
+
+function selected(){
+  var out=[];
+  Object.keys(S.sel).forEach(function(rid){var r=rowFor(rid); if(r) out.push(r);});
+  return out;
+}
+
+function count(){
+  var picked=selected(), n=picked.length;
+  var bar=document.getElementById('gmBulk');
+  bar.hidden=!n;
+  if(!n){ document.getElementById('gmBulkPick').hidden=true; return; }
+  var withSugg=picked.filter(function(r){return (r.suggestions||[]).length;}).length;
+  document.getElementById('gmSelCount').innerHTML=
+    '<b>'+n+'</b> selected'+(S.rows.length?' of '+S.rows.length+' loaded':'');
+  var b=document.getElementById('gmBulkSugg');
+  b.disabled=!withSugg;
+  /* Two different actions, and the difference is worth spelling out: this one
+     accepts what the Hub already worked out, per row, and the rows it cannot
+     propose an owner for are named rather than silently skipped. */
+  b.textContent=withSugg
+    ? 'Attach '+withSugg+' to their suggested owner'+(withSugg<n?' ('+(n-withSugg)+' have none)':'')
+    : 'None of these has a suggested owner';
+}
+
+/* --------------------------------------------------- attaching */
+function key(ev,el){ if(ev.key==='Enter'){ev.preventDefault();find(el);} }
+
+function find(el){
+  var cell=el.closest('td');
+  var box=cell.querySelector('.gmSearch'), host=cell.querySelector('.gmHits');
+  var q=(box&&box.value||'').trim();
   if(!q){host.innerHTML='<span class="gm-muted" style="font-size:12px">Type a client name.</span>';return;}
   host.innerHTML='<span class="gm-muted" style="font-size:12px">Searching…</span>';
   fetch('/api/clients/search?q='+encodeURIComponent(q),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(function(d){
       var items=d.clients||[];
       if(!items.length){host.innerHTML='<span class="gm-none">No client matches that.</span>';return;}
-      host.innerHTML=items.slice(0,6).map(function(c,ci){
-        return '<span class="gm-hit" onclick="attachTo('+i+','+ci+')">'+esc(c.name)+
-          (c.domain?' <span style="opacity:.6">'+esc(c.domain)+'</span>':'')+'</span>';
-      }).join('');
-      host.__items=items;
+      host.innerHTML='';
+      items.slice(0,6).forEach(function(c){
+        var el2=document.createElement('span');
+        el2.className='gm-hit';
+        el2.innerHTML=esc(c.name)+(c.domain?' <span style="opacity:.6">'+esc(c.domain)+'</span>':'');
+        el2.onclick=function(){
+          var rid=box.dataset.rid, r=rowFor(rid);
+          if(r) go(r,c.name);
+        };
+        host.appendChild(el2);
+      });
     }).catch(function(){host.innerHTML='<span class="gm-none">That search failed.</span>';});
 }
 
-function attachOne(i,si){
-  var r=visibleRows()[i], s=(r.suggestions||[])[si];
+function attachOne(rid,si){
+  var r=rowFor(rid), s=r&&(r.suggestions||[])[si];
   if(r&&s) go(r,s.client);
 }
-function attachTo(i,ci){
-  var r=visibleRows()[i], host=document.getElementById('gmHits'+i);
-  var c=(host.__items||[])[ci];
-  if(r&&c) go(r,c.name);
+
+function drop(rid){
+  var tr=document.querySelector('tr[data-rid="'+CSS.escape(rid)+'"]');
+  if(tr) tr.remove();
+  S.rows=S.rows.filter(function(x){return x.resource_id!==rid;});
+  delete S.sel[rid];
+  if(S.meta){
+    S.meta.count=Math.max(0,(S.meta.count||1)-1);
+    S.meta.orphans_total=Math.max(0,(S.meta.orphans_total||1)-1);
+    S.meta.mapped=(S.meta.mapped||0)+1;
+    S.offset=Math.max(0,S.offset-1);   /* the list shrank underneath the cursor */
+    document.getElementById('gmMetrics').innerHTML=metrics(S.meta);
+  }
+  paintMore(); count();
 }
 
 function go(r,client){
@@ -249,46 +480,89 @@ function go(r,client){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({resource_id:r.resource_id, client:client})})
    .then(function(res){return res.json();}).then(function(rep){
-     REPORT[r.resource_id]=rep;
-     if(rep.ok){DATA.rows=(DATA.rows||[]).filter(function(x){
-       return x.resource_id!==r.resource_id;});
-       DATA.count=Math.max(0,(DATA.count||1)-1);
-       DATA.orphans_total=Math.max(0,(DATA.orphans_total||1)-1);
-       DATA.mapped=(DATA.mapped||0)+1;}
-     render();
+     S.report[r.resource_id]=rep;
      var out=document.getElementById('gmOut');
      if(out) out.insertAdjacentHTML('afterbegin', report(rep));
+     if(rep.ok) drop(r.resource_id);
    }).catch(function(){alert('That did not go through.');});
 }
 
-function count(){
-  var n=document.querySelectorAll('.gmChk:checked').length;
-  var b=document.getElementById('gmBulk');
-  b.disabled=!n;
-  b.textContent=n?('Attach '+n+' account'+(n===1?'':'s')+' to one client'):'Attach selected';
+/* One client usually owns three of these — their Analytics property, their
+   container and their Search Console property — so attaching them one at a
+   time is three dialogs for one decision. */
+function bulkSuggested(){
+  var picked=selected().filter(function(r){return (r.suggestions||[]).length;});
+  if(!picked.length) return;
+  var lines=picked.map(function(r){
+    return (r.platform_label||'')+': '+(r.name||r.resource_id)+
+           '  →  '+r.suggestions[0].client+'  ('+r.suggestions[0].confidence+')';});
+  if(!confirm('Attach each of these to the owner suggested for it?\n\n'+
+              lines.join('\n')+'\n\nEach row goes to its own suggestion, not '+
+              'to one client. Check the confidence on any marked possible.')) return;
+  send(picked.map(function(r){
+    return {resource_id:r.resource_id, client:r.suggestions[0].client};}));
 }
 
-function attachSelected(){
-  /* One client usually owns three of these — their Analytics property, their
-     container and their Search Console property — so attaching them one at a
-     time is three dialogs for one decision. */
-  var rows=visibleRows(), picked=[];
-  document.querySelectorAll('.gmChk:checked').forEach(function(c){
-    var r=rows[+c.dataset.i]; if(r) picked.push(r);});
+/* The other bulk action: one customer for every ticked row. It is a search
+   against the real client list and never a typed name — this used to be a
+   prompt() box, and a name typed into it that matches nothing is filed under
+   a client nothing joins to while reading as a clean success. */
+function bulkPickCustomer(){
+  var box=document.getElementById('gmBulkPick');
+  box.hidden=!box.hidden;
+  if(!box.hidden){
+    document.getElementById('gmBulkHits').innerHTML=
+      '<span class="gm-muted" style="font-size:12px">Type at least two letters.</span>';
+    document.getElementById('gmBulkQ').focus();
+  }
+}
+
+function queueBulkFind(){ clearTimeout(BULKTIMER); BULKTIMER=setTimeout(bulkFind, 220); }
+
+function bulkFind(){
+  var q=(document.getElementById('gmBulkQ').value||'').trim();
+  var host=document.getElementById('gmBulkHits');
+  if(q.length<2){host.innerHTML='<span class="gm-muted" style="font-size:12px">Type at least two letters.</span>';return;}
+  host.innerHTML='<span class="gm-muted" style="font-size:12px">Searching…</span>';
+  fetch('/api/clients/search?limit=8&q='+encodeURIComponent(q),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      BULKHITS=d.clients||[];
+      if(!BULKHITS.length){host.innerHTML='<span class="gm-none">No customer matches that.</span>';return;}
+      host.innerHTML='';
+      BULKHITS.forEach(function(c){
+        var el=document.createElement('span');
+        el.className='gm-hit';
+        el.innerHTML=esc(c.name)+(c.domain?' <span style="opacity:.6">'+esc(c.domain)+'</span>':'');
+        el.onclick=function(){bulkTo(c.name);};
+        host.appendChild(el);
+      });
+    }).catch(function(){host.innerHTML='<span class="gm-none">That search failed.</span>';});
+}
+
+function bulkTo(name){
+  var picked=selected();
   if(!picked.length) return;
-  var name=prompt('Attach these '+picked.length+' Google account(s) to which client?\n\n'+
-    picked.map(function(r){return (r.platform_label||'')+': '+(r.name||r.resource_id);}).join('\n')+
-    '\n\nType the client name exactly as it is filed.');
-  if(!name) return;
+  if(!confirm('Attach these '+picked.length+' Google account(s) to "'+name+'"?\n\n'+
+    picked.map(function(r){return (r.platform_label||'')+': '+(r.name||r.resource_id);}).join('\n'))) return;
+  send(picked.map(function(r){return {resource_id:r.resource_id, client:name};}));
+}
+
+function send(links){
   fetch('/api/google/attach',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({links:picked.map(function(r){
-      return {resource_id:r.resource_id, client:name};})})})
+    body:JSON.stringify({links:links})})
    .then(function(res){return res.json();}).then(function(d){
+     var out=document.getElementById('gmOut');
+     /* Every one reported, not a count. A bulk attach where two of nine were
+        refused must not read as nine done. */
      (d.items||[]).concat(d.failed||[]).forEach(function(rep){
-       if(rep&&rep.resource_id) REPORT[rep.resource_id]=rep;});
-     alert(d.note||'Done.');
-     load();
+       if(!rep||!rep.resource_id) return;
+       S.report[rep.resource_id]=rep;
+       if(out) out.insertAdjacentHTML('afterbegin', report(rep));
+       if(rep.ok) drop(rep.resource_id);
+     });
+     document.getElementById('gmBulkPick').hidden=true;
+     document.getElementById('gmBulkQ').value='';
    }).catch(function(){alert('That did not go through.');});
 }
 </script>
