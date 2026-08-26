@@ -225,6 +225,18 @@ jobs:
             echo "test_landing_spec.py not on this branch — nothing to run."
           fi
 
+      - name: Scan widget tests
+        # The widget maker as a tool of its own: the Leads column, and the
+        # pause/edit/delete a list of placements is useless without. Guarded
+        # like the steps around it so this workflow stays mergeable on a branch
+        # that predates the file.
+        run: |
+          if [ -f test_scan_widgets.py ]; then
+            python test_scan_widgets.py
+          else
+            echo "test_scan_widgets.py not on this branch — nothing to run."
+          fi
+
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.

@@ -32,7 +32,8 @@ import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import (Column, DateTime, Integer, String, Text, func, or_)
+from sqlalchemy import (Column, DateTime, Integer, String, Text, and_, func,
+                        or_)
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -174,6 +175,91 @@ class ScanRun(Base):
                         self.scan_status == "complete" else ""),
         })
         return d
+
+
+# ==========================================================================
+# What a placement has produced
+# ==========================================================================
+
+def _iso_any(value) -> str | None:
+    """``_iso`` for a value that came back from an aggregate.
+
+    ``func.max()`` over a DateTime column is handed back as a datetime by both
+    backends we run on, but a string here would raise inside a page that is
+    only reporting a count, so it is passed through rather than crashed on.
+    """
+    if isinstance(value, str):
+        return value or None
+    return _iso(value)
+
+
+def placement_stats_result(session, placements) -> tuple[dict | None, str]:
+    """``(stats, error)`` — what each placement has produced, per slug.
+
+    A pair rather than a bare dict, for the reason ``connected_accounts_result``
+    gives in google_finder: **"this placement has produced nothing" and "we
+    could not count" are different answers**, and only the first says anything
+    about the placement. A count that falls back to zero on a failed read is a
+    confident wrong number on the page somebody uses to decide whether a
+    placement is worth keeping.
+
+    A **lead** is a run with ``unlocked_at`` set — the moment somebody handed
+    over a name, business, email and phone, which is the same moment the row is
+    written to ``hub.leads``. Counting runs would report every anonymous domain
+    check as a lead, and a public box on someone else's home page is typed into
+    by passers-by far more often than it is converted.
+
+    ``filed`` is the subset that reached ``hub.leads`` and came back with an id.
+    A lead that was captured and not filed is a real person sitting in this
+    table and in nobody's panel, so the difference is counted rather than
+    averaged away.
+
+    Runs count only from the placement's own ``created_at``. A slug deleted and
+    created again is a *different* placement at the same address — the embed
+    code is identical — so without that the old placement's leads would be
+    added to the new one's total, which is the single number this column
+    exists to state.
+
+    ``placements`` is any iterable of rows carrying ``slug`` and ``created_at``.
+    """
+    wanted = [(p.slug, getattr(p, "created_at", None)) for p in placements
+              if getattr(p, "slug", "")]
+    if not wanted:
+        return {}, ""
+
+    conds = []
+    for slug, since in wanted:
+        cond = ScanRun.widget_slug == slug
+        if since is not None:
+            cond = and_(cond, ScanRun.created_at >= since)
+        conds.append(cond)
+
+    try:
+        counted = (session.query(
+            ScanRun.widget_slug,
+            func.count(ScanRun.id),
+            func.count(ScanRun.unlocked_at),
+            # nullif, because _capture_lead writes "" when hub.leads answers
+            # without an id -- and "" is not null, so a plain count would file
+            # a lead nobody can find in the panel as filed.
+            func.count(func.nullif(ScanRun.lead_id, "")),
+            func.max(ScanRun.unlocked_at))
+            .filter(or_(*conds))
+            .group_by(ScanRun.widget_slug)
+            .all())
+    except Exception as exc:            # noqa: BLE001 - reported, never raised
+        return None, str(exc)[:300]
+
+    out = {slug: {"checks": 0, "leads": 0, "filed": 0, "unfiled": 0,
+                  "last_lead": None} for slug, _ in wanted}
+    for slug, checks, leads, filed, last in counted:
+        if slug not in out:
+            continue
+        leads, filed = int(leads or 0), int(filed or 0)
+        out[slug] = {"checks": int(checks or 0), "leads": leads,
+                     "filed": filed, "unfiled": max(0, leads - filed),
+                     "last_lead": _iso_any(last)}
+    return out, ""
 
 
 # ==========================================================================

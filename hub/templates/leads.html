@@ -175,6 +175,20 @@ function retryLeads(){
       loadLeads();
     }).catch(function(){ alert('Could not retry.'); });
 }
+// A link into this panel can say which page it means: the Scan Widgets tool
+// links its lead count here as ?page=<tag>. Without this the filter boxes
+// ignore the URL, the panel opens on all leads for 30 days, and the count on
+// the other screen looks wrong rather than unfiltered.
+(function(){
+  var q = new URLSearchParams(window.location.search);
+  var page = q.get('page');
+  if(page){ document.getElementById('lPage').value = page; }
+  var days = q.get('days');
+  var sel = document.getElementById('lDays');
+  if(days && Array.prototype.some.call(sel.options, function(o){ return o.value === days; })){
+    sel.value = days;
+  }
+})();
 loadLeads();
 </script>
 {% endblock %}

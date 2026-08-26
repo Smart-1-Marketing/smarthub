@@ -136,7 +136,8 @@
 <p class="qa-group-blurb">Public lead-capture pages, one per industry. Each is
   live on its own URL for embedding or linking, and every submission lands in
   the <a href="/sales/leads">Leads panel</a> with its report attached. The
-  first tile builds the HTML for a new one.</p>
+  first two tiles build new ones: a section of HTML for our own site, and an
+  embeddable scanner to drop on a client's.</p>
 <div class="tool-tiles">
   <a class="tool-tile" href="/tools/site-blocks/">
     <div class="t-ico">&#129513;</div>
@@ -144,6 +145,21 @@
     <p>Builds a landing-page section for smart1marketing.com in the same house style
       as the pages below — hero, channel cards, stat band, packages, CTA. Copy the
       HTML into the website, or download the whole page.</p>
+  </a>
+  {#
+    Lives inside the Scans module because the placements, their runs and the
+    pages they serve are all there -- but it is a lead-capture page you paste
+    on a client's site, so this is where somebody looks for it. It was
+    reachable only from inside Site Scans, which is not where anybody thinks
+    to go for a landing page.
+  #}
+  <a class="tool-tile" href="/scans/widgets">
+    <div class="t-ico">&#128269;</div>
+    <h3>Scan Widgets</h3>
+    <p>The embeddable AI-visibility scanner &mdash; a free five-second check a visitor
+      runs on their own website, with the rest of the findings behind a name, business,
+      email and phone. Build a placement per site, see how many leads each one has
+      produced, and pause, edit or delete it.</p>
   </a>
   <a class="tool-tile" href="/land/boat/" target="_blank">
     <div class="t-ico">&#128676;</div>

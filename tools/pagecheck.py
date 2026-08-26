@@ -91,6 +91,12 @@ HUB_PAGES = [
     # Same shape again, and it hands the browser its field ids in a JSON
     # script block — the thing this checker learned to tell apart from code.
     "/tools/campaign-assets",
+    # A page *inside* a mount rather than its root, so enumerating the mounts
+    # never reaches it. It is its own tool -- it has a tile on /tools under
+    # Landing Pages -- and it hands the browser its placements in a JSON
+    # script block beside a real one, which is the pair this checker exists to
+    # tell apart.
+    "/scans/widgets",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:

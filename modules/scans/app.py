@@ -1768,16 +1768,43 @@ def widget_report_pdf(token):
 # =====================================================================
 # Placement admin (Hub side, behind the login)
 # =====================================================================
+#
+# This is a tool in its own right — it has a tile on /tools under Landing
+# Pages, because a widget dropped on a client's site is a lead-capture page by
+# another name and nobody looking for one thinks to open Site Scans first. It
+# lives here rather than as a hub blueprint because the placements and their
+# runs are on the scans engine and the pages the placements serve are the
+# routes above; a second home for it would be a second description of what a
+# placement is.
+
+
+def _placement_rows(db):
+    """(rows, stats_error). Every placement with what it has produced.
+
+    The counts come back as a pair, so a database that would not answer is
+    reported as *not measured* rather than drawn as a column of zeroes —
+    "nobody has used this placement" is the finding somebody deletes a
+    placement over.
+    """
+    rows = (db.query(widget_state.ScanWidget)
+              .order_by(widget_state.ScanWidget.id.desc()).all())
+    stats, err = widget_state.placement_stats_result(db, rows)
+    out = []
+    for w in rows:
+        row = w.as_row(_base_url())
+        row["stats"] = None if stats is None else stats.get(w.slug)
+        out.append(row)
+    return out, err
+
 
 @app.route("/widgets")
 def widgets_page():
     db = SessionLocal()
     try:
-        rows = (db.query(widget_state.ScanWidget)
-                  .order_by(widget_state.ScanWidget.id.desc()).all())
+        widgets, stats_error = _placement_rows(db)
         return render_template(
             "widgets.html",
-            widgets=[w.as_row(_base_url()) for w in rows],
+            widgets=widgets, stats_error=stats_error,
             base_url=_base_url(), defaults=widget_state.DEFAULTS,
             reuse_days=REUSE_DAYS,
             # The Hub picks the route; the widget has none of its own. Ask what
@@ -1791,30 +1818,62 @@ def widgets_page():
 
 @app.route("/api/widgets", methods=["POST"])
 def api_widget_save():
-    """Create or update a placement."""
+    """Create a placement, or edit one named by ``slug``.
+
+    Two rules, both of which were a way to lose a live placement quietly:
+
+    **An edit names the placement it is editing.** Without that this route
+    upserted on whatever the name slugified to, so a second placement called
+    "Smart 1 home page" silently replaced the first — same address, new
+    headline, and the only sign was that the list did not get longer.
+
+    **The address never changes.** The slug is in the three lines of embed code
+    sitting on a client's site; renaming it takes the widget off that page and
+    reads here as a successful save. The internal name and the lead tag are
+    editable, the address is not.
+    """
     body = request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     if len(name) < 2:
         return jsonify({"error": "Give this placement a name."}), 400
-    slug = widget_state.slugify(body.get("slug") or name)
-    tag = widget_state.slugify(body.get("tag") or slug)
+
+    editing = widget_state.slugify(body.get("slug") or "") if body.get("slug") else ""
 
     db = SessionLocal()
     try:
-        w = _widget_or_none(db, slug)
-        if w is None:
+        if editing:
+            w = _widget_or_none(db, editing)
+            if w is None:
+                return jsonify({"error": "That placement no longer exists. "
+                                         "Reload the page."}), 404
+            slug = w.slug
+        else:
+            slug = widget_state.slugify(body.get("new_slug") or name)
+            existing = _widget_or_none(db, slug)
+            if existing is not None:
+                return jsonify({
+                    "error": f"\u201c{existing.name}\u201d already uses the "
+                             f"address /{slug}. Open it and press Edit, or "
+                             f"give this one a different name.",
+                    "slug": slug}), 409
             w = widget_state.ScanWidget(slug=slug, created_at=_now(),
                                         created_by=actor_name()[:120])
             db.add(w)
+
+        tag = widget_state.slugify(body.get("tag") or slug)
         w.name = name[:200]
         w.tag = tag[:64]
         w.headline = _text(body.get("headline"), 300)
         w.subhead = _text(body.get("subhead"), 500)
         w.button_label = _text(body.get("button_label"), 80)
         w.accent = _text(body.get("accent"), 16)
-        w.active = 0 if body.get("active") is False else 1
+        if not editing:
+            w.active = 0 if body.get("active") is False else 1
+        elif body.get("active") is not None:
+            w.active = 1 if body.get("active") else 0
         db.commit()
-        _log("widget_saved", detail=slug, tag=tag)
+        _log("widget_edited" if editing else "widget_saved",
+             detail=slug, tag=tag)
         return jsonify({"ok": True, "widget": w.as_row(_base_url())})
     finally:
         db.close()
@@ -1822,6 +1881,9 @@ def api_widget_save():
 
 @app.route("/api/widgets/<slug>/toggle", methods=["POST"])
 def api_widget_toggle(slug):
+    """Pause or resume. A paused placement still answers on its address —
+    ``_widget_config`` returns None for it, so the page says the scan is not
+    available rather than 404ing an embed a client can still see."""
     db = SessionLocal()
     try:
         w = _widget_or_none(db, slug)
@@ -1831,5 +1893,56 @@ def api_widget_toggle(slug):
         db.commit()
         _log("widget_toggled", detail=slug, active=bool(w.active))
         return jsonify({"ok": True, "widget": w.as_row(_base_url())})
+    finally:
+        db.close()
+
+
+@app.route("/api/widgets/<slug>", methods=["DELETE"])
+def api_widget_delete(slug):
+    """Delete a placement. The leads it produced are not deleted with it.
+
+    Three things this is careful about, because delete is the one action on
+    this page nothing undoes:
+
+    **A placement that has captured leads is refused once.** The reply names
+    the count and the caller has to say ``confirm`` — deleting is how somebody
+    tidies a list, and the row worth keeping looks exactly like the row worth
+    removing until you are told what came off it.
+
+    **Runs are kept.** They are the evidence of where a real person in the
+    Leads panel came from, and the lead itself lives in ``hub.leads``, which
+    this route has no business editing. The count simply stops being
+    reachable from this page.
+
+    **The embed stops working.** Whatever is pasted on the client's site
+    starts answering "this scan isn't available", so the confirmation says so
+    and Pause is offered as the reversible half of the same intent.
+    """
+    body = request.get_json(silent=True) or {}
+    db = SessionLocal()
+    try:
+        w = _widget_or_none(db, slug)
+        if w is None:
+            return jsonify({"error": "Unknown placement."}), 404
+
+        stats, err = widget_state.placement_stats_result(db, [w])
+        if err:
+            # Refusing is the safe half: a placement deleted while we could not
+            # tell whether anyone had used it is a decision made on no
+            # information at all.
+            return jsonify({"error": "We couldn't read this placement's leads, "
+                                     "so we haven't deleted it. Try again in a "
+                                     "moment.", "detail": err}), 503
+        leads = int((stats.get(slug) or {}).get("leads") or 0)
+        if leads and not body.get("confirm"):
+            return jsonify({
+                "error": f"This placement has captured {leads} "
+                         f"lead{'' if leads == 1 else 's'}.",
+                "leads": leads, "confirm_required": True}), 409
+
+        db.delete(w)
+        db.commit()
+        _log("widget_deleted", detail=slug, tag=w.tag or "", leads=leads)
+        return jsonify({"ok": True, "deleted": slug, "leads_kept": leads})
     finally:
         db.close()

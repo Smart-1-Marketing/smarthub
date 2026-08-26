@@ -9,7 +9,7 @@
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
     font:14.5px/1.55 'Segoe UI',system-ui,sans-serif; }
-  .wrap { max-width:1000px; margin:0 auto; padding:26px 22px 80px; }
+  .wrap { max-width:1060px; margin:0 auto; padding:26px 22px 80px; }
   a { color:var(--blue); }
   h1 { color:var(--navy); font-size:25px; margin:6px 0 4px; }
   .sub { color:var(--muted); margin:0 0 20px; }
@@ -26,7 +26,10 @@
   .field { margin-bottom:12px; }
   button { background:var(--navy); color:#fff; border:0; border-radius:8px;
     padding:10px 16px; font:600 14px inherit; cursor:pointer; }
-  button.sec { background:#fff; color:var(--navy); border:1px solid var(--line); }
+  button.sec { background:#fff; color:var(--navy); border:1px solid var(--line);
+    padding:7px 12px; font-size:13px; }
+  button.danger { background:#fff; color:var(--bad); border:1px solid #F3C9C9;
+    padding:7px 12px; font-size:13px; }
   table { width:100%; border-collapse:collapse; }
   th { text-align:left; font-size:11px; text-transform:uppercase; color:var(--muted);
     letter-spacing:.05em; border-bottom:1px solid var(--line); padding:8px 8px 8px 0; }
@@ -40,14 +43,27 @@
   .pill.on { background:#ECFDF3; color:#12794B; }
   .pill.off { background:#FDECEC; color:#B01919; }
   .muted { color:var(--muted); font-size:12.5px; }
+  .count { font-size:21px; font-weight:700; color:var(--navy); line-height:1.1; }
+  .count.zero { color:var(--muted); font-weight:600; }
+  .notmeasured { color:var(--muted); font-size:12.5px; font-style:italic; }
+  .bad { color:var(--bad); font-size:12.5px; }
+  .acts { display:flex; flex-direction:column; gap:6px; align-items:stretch; }
+  .editing { background:#FFFBEA; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <p class="muted"><a href="./">&larr; Site Scans</a> · <a href="/sales/leads">Leads panel</a></p>
+  {#
+    Three ways back, because this page is reached from three places now: it has
+    its own tile on /tools under Landing Pages, it is still linked from Site
+    Scans, and everything it produces ends up in the Leads panel.
+  #}
+  <p class="muted"><a href="/tools">&larr; Tools</a> · <a href="./">Site Scans</a> ·
+    <a href="/sales/leads">Leads panel</a></p>
   <h1>Scan Widgets</h1>
-  <p class="sub">The embeddable AI-visibility scanner. Drop one on any site; every
-    lead it captures is tagged with that placement.</p>
+  <p class="sub">The embeddable AI-visibility scanner &mdash; a lead-capture page you can
+    drop on any site. Every lead it captures is tagged with its placement and lands in the
+    <a href="/sales/leads">Leads panel</a> with everything else.</p>
 
   {% if not insites_ok %}
     <div class="warn"><b>Insites isn't configured.</b> The free pre-check still
@@ -60,10 +76,15 @@
       reaches Smart 1 Suite until <code>GHL_LEAD_LOCATION_ID</code> is set. The old
       <code>HUB_LEAD_WEBHOOK_URL</code> route is retired and is not a fallback.</div>
   {% endif %}
+  {% if stats_error %}
+    <div class="warn"><b>We couldn't count what these placements have produced.</b>
+      The Leads column reads <i>not measured</i> rather than nought, and deleting a
+      placement is refused until it can be counted. <span class="muted">{{ stats_error }}</span></div>
+  {% endif %}
   {% for w in warnings %}<div class="warn">{{ w }}</div>{% endfor %}
 
-  <div class="card">
-    <h2>Add a placement</h2>
+  <div class="card" id="formCard">
+    <h2 id="formTitle">Add a placement</h2>
     <div class="grid2">
       <div class="field"><label for="f_name">Name (internal)</label>
         <input id="f_name" placeholder="Smart 1 home page"></div>
@@ -81,7 +102,14 @@
       <div class="field"><label for="f_accent">Accent colour</label>
         <input id="f_accent" placeholder="{{ defaults.accent }}"></div>
     </div>
+    {#
+      Shown only while editing. The address is deliberately not a field: it is
+      in the embed code already pasted on a client's site, so changing it takes
+      the widget off that page while this screen reports a clean save.
+    #}
+    <div class="warn" id="editNote" style="display:none"></div>
     <button id="saveBtn">Save placement</button>
+    <button class="sec" id="cancelBtn" style="display:none;margin-left:8px">Cancel</button>
     <span class="muted" id="saveMsg" style="margin-left:10px"></span>
   </div>
 
@@ -91,15 +119,40 @@
       <p class="muted">None yet. Add one above and the embed code appears here.</p>
     {% else %}
     <table>
-      <thead><tr><th>Placement</th><th>Tag</th><th>Links</th><th></th></tr></thead>
+      <thead><tr><th>Placement</th><th>Tag</th><th style="width:130px">Leads</th>
+        <th>Links</th><th style="width:120px"></th></tr></thead>
       <tbody>
       {% for w in widgets %}
-        <tr>
+        <tr id="row-{{ w.slug }}">
           <td><b>{{ w.name }}</b>
             <div class="muted">{{ w.headline }}</div>
             <span class="pill {{ 'on' if w.active else 'off' }}">{{ 'live' if w.active else 'paused' }}</span>
           </td>
           <td><code>{{ w.tag }}</code></td>
+          {#
+            A lead is a visitor who handed over a name, business, email and
+            phone -- the same moment the row is written to hub/leads. The
+            checks underneath are everyone who typed a domain in and stopped
+            there; showing that number as the headline would call a public box
+            on a home page a lead machine.
+          #}
+          <td>
+            {% if w.stats is none %}
+              <span class="notmeasured">not measured</span>
+            {% else %}
+              <div class="count {{ 'zero' if not w.stats.leads }}">{{ w.stats.leads }}</div>
+              <div class="muted">from {{ w.stats.checks }} check{{ '' if w.stats.checks == 1 else 's' }}</div>
+              {% if w.stats.last_lead %}
+                <div class="muted">last {{ w.stats.last_lead[:10] }}</div>
+              {% endif %}
+              {% if w.stats.unfiled %}
+                <div class="bad">{{ w.stats.unfiled }} not filed in the Leads panel</div>
+              {% endif %}
+              {% if w.stats.leads %}
+                <a class="muted" href="/sales/leads?page={{ w.tag }}&amp;days=365">View leads &#8599;</a>
+              {% endif %}
+            {% endif %}
+          </td>
           <td style="width:280px">
             <a href="{{ w.page_url }}" target="_blank">Hosted page &#8599;</a><br>
             <a href="{{ w.embed_url }}" target="_blank">Embed preview &#8599;</a>
@@ -111,13 +164,24 @@
   title="{{ w.headline }}"&gt;&lt;/iframe&gt;</pre>
             </details>
           </td>
-          <td style="text-align:right">
-            <button class="sec" data-toggle="{{ w.slug }}">{{ 'Pause' if w.active else 'Resume' }}</button>
+          <td>
+            <div class="acts">
+              <button class="sec" data-edit="{{ w.slug }}">Edit</button>
+              <button class="sec" data-toggle="{{ w.slug }}"
+                title="{{ 'Stops the embed answering, and can be undone' if w.active else 'Puts the embed back on the client site' }}">{{ 'Pause' if w.active else 'Resume' }}</button>
+              <button class="danger" data-delete="{{ w.slug }}"
+                data-name="{{ w.name }}">Delete</button>
+            </div>
           </td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
+    <p class="muted" style="margin:12px 0 0"><b>Pause</b> leaves the placement and its
+      leads exactly where they are and can be undone &mdash; the embed on the client's
+      site says the scan isn't available until you resume it. <b>Delete</b> cannot:
+      the address stops answering for good. Neither one touches a lead already
+      captured; those live in the <a href="/sales/leads">Leads panel</a>.</p>
     {% endif %}
   </div>
 
@@ -130,7 +194,9 @@
     <p style="margin:0 0 8px">To see the rest they give a name, business, email
       and phone. The lead is written to the database, delivery to Suite starts, and
       <b>only then</b> does a paid Insites audit start &mdash; so no anonymous
-      visitor and no bot can ever spend a credit.</p>
+      visitor and no bot can ever spend a credit. That handover is what the Leads
+      column counts; everyone who ran the free check and stopped is the smaller
+      number underneath it.</p>
     <p style="margin:0 0 8px">A domain already scanned in the last {{ reuse_days }}
       days reuses that audit and spends nothing. The visitor only ever sees the
       SEO &amp; AEO report; the other seven audits stay in the Hub.</p>
@@ -140,31 +206,107 @@
   </div>
 </div>
 
+{#
+  The page's own data, handed over as JSON rather than interpolated into the
+  script below: tools/jscheck.py can pass a real script block to node --check
+  and cannot pass Jinja, so a block with {{ }} in it is skipped by every check
+  we have. Editing reads from here rather than re-fetching the row.
+#}
+<script type="application/json" id="widgetData">{{ widgets|tojson }}</script>
+
 <script>
 (function(){
   function $(id){ return document.getElementById(id); }
+
+  var WIDGETS = {};
+  try {
+    JSON.parse($('widgetData').textContent || '[]').forEach(function(w){
+      WIDGETS[w.slug] = w;
+    });
+  } catch (e) { WIDGETS = {}; }
+
+  var editing = '';   // slug being edited, '' while adding
+
+  function setMsg(text){ $('saveMsg').textContent = text; }
+
+  function startAdd(){
+    editing = '';
+    ['f_name','f_tag','f_headline','f_subhead','f_btn','f_accent'].forEach(
+      function(id){ $(id).value = ''; });
+    $('formTitle').textContent = 'Add a placement';
+    $('saveBtn').textContent = 'Save placement';
+    $('cancelBtn').style.display = 'none';
+    $('editNote').style.display = 'none';
+    $('formCard').className = 'card';
+    setMsg('');
+  }
+
+  function startEdit(slug){
+    var w = WIDGETS[slug];
+    if (!w) { return; }
+    editing = slug;
+    $('f_name').value = w.name || '';
+    $('f_tag').value = w.tag || '';
+    $('f_headline').value = w.headline || '';
+    $('f_subhead').value = w.subhead || '';
+    $('f_btn').value = w.button_label || '';
+    $('f_accent').value = w.accent || '';
+    $('formTitle').textContent = 'Edit “' + (w.name || slug) + '”';
+    $('saveBtn').textContent = 'Save changes';
+    $('cancelBtn').style.display = '';
+    $('formCard').className = 'card editing';
+    // Two consequences a rep cannot see from the form, said before they save
+    // rather than discovered afterwards on somebody else's website.
+    $('editNote').innerHTML =
+      'The address stays <b>/scans/w/' + esc(slug) + '</b>, so the embed code ' +
+      'already on the site keeps working. Changing the <b>lead tag</b> only ' +
+      'affects leads captured from now on &mdash; the ' +
+      ((w.stats && w.stats.leads) || 0) + ' already captured keep the tag they ' +
+      'came in with.';
+    $('editNote').style.display = '';
+    setMsg('');
+    $('formCard').scrollIntoView({block:'start'});
+  }
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  $('cancelBtn').onclick = startAdd;
+
   $('saveBtn').onclick = function(){
     var body = {
       name: $('f_name').value, tag: $('f_tag').value,
       headline: $('f_headline').value, subhead: $('f_subhead').value,
       button_label: $('f_btn').value, accent: $('f_accent').value
     };
+    // Editing names the placement it means. Without it the server would have
+    // to guess from the name, and a renamed placement would become a second
+    // one at a new address while the first stayed live.
+    if (editing) { body.slug = editing; }
     if (!body.name || body.name.trim().length < 2){
-      $('saveMsg').textContent = 'Give it a name first.'; return;
+      setMsg('Give it a name first.'); return;
     }
-    $('saveBtn').disabled = true; $('saveMsg').textContent = 'Saving…';
+    $('saveBtn').disabled = true; setMsg('Saving…');
     fetch('api/widgets', {method:'POST', headers:{'Content-Type':'application/json'},
                           body: JSON.stringify(body)})
       .then(function(r){ return r.json(); })
       .then(function(j){
         $('saveBtn').disabled = false;
-        if (j.error){ $('saveMsg').textContent = j.error; return; }
-        $('saveMsg').textContent = 'Saved ✓';
+        if (j.error){ setMsg(j.error); return; }
+        setMsg('Saved ✓');
         location.reload();
       })
       .catch(function(){ $('saveBtn').disabled = false;
-                         $('saveMsg').textContent = 'Save failed.'; });
+                         setMsg('Save failed.'); });
   };
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-edit]'), function(b){
+    b.onclick = function(){ startEdit(b.getAttribute('data-edit')); };
+  });
+
   Array.prototype.forEach.call(document.querySelectorAll('[data-toggle]'), function(b){
     b.onclick = function(){
       b.disabled = true;
@@ -174,6 +316,47 @@
         .catch(function(){ b.disabled = false; });
     };
   });
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-delete]'), function(b){
+    b.onclick = function(){
+      var slug = b.getAttribute('data-delete');
+      var name = b.getAttribute('data-name') || slug;
+      if (!window.confirm('Delete “' + name + '”?\n\nThe embed on the client\'s ' +
+                          'site will stop working and this cannot be undone. ' +
+                          'Leads it has already captured stay in the Leads panel.')){
+        return;
+      }
+      b.disabled = true;
+      del(slug, name, false, b);
+    };
+  });
+
+  function del(slug, name, confirmed, b){
+    fetch('api/widgets/' + encodeURIComponent(slug),
+          {method:'DELETE', headers:{'Content-Type':'application/json'},
+           body: JSON.stringify({confirm: confirmed})})
+      .then(function(r){ return r.json().then(function(j){ return [r.status, j]; }); })
+      .then(function(pair){
+        var status = pair[0], j = pair[1];
+        if (status === 200){ location.reload(); return; }
+        // The server refuses once for a placement that has produced leads and
+        // says how many. Asking again with the number in hand is the point --
+        // the row worth keeping looks exactly like the row worth removing.
+        if (j && j.confirm_required && !confirmed){
+          if (window.confirm(j.error + '\n\nDelete it anyway? The leads stay in ' +
+                             'the Leads panel; only the placement and its ' +
+                             'lead count go.')){
+            del(slug, name, true, b);
+            return;
+          }
+          b.disabled = false;
+          return;
+        }
+        b.disabled = false;
+        window.alert((j && j.error) || 'Delete failed.');
+      })
+      .catch(function(){ b.disabled = false; window.alert('Delete failed.'); });
+  }
 })();
 </script>
 </body>
