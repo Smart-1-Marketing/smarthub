@@ -92,12 +92,16 @@
   <section class="diag-card">
     <h2>Database structure</h2>
     <p class="diag-help">
-      Where client data actually lives. There is no single client table &mdash;
-      several modules build their own database engine and identify a client in
-      their own way, so the same client can exist more than once under slightly
-      different names. That is what makes name-matching audits report false
-      alarms. Read from source, so it stays accurate even when a module fails
-      to load.
+      Where client data actually lives. There is still no single client table:
+      modules identify a client in their own way &mdash; a typed name, a
+      domain, a row id &mdash; and changing those columns needs a migration
+      that <code>create_all()</code> does not do. What closed the gap was
+      joining them on read in <code>hub/client_key.py</code> rather than
+      copying them, so a client renamed in Knack is re-joined on the next
+      request. A row below in grey is that arrangement working; amber and red
+      are findings. <a href="/api/clients/crosswalk">The crosswalk</a> lists
+      what is joined and what has no URL on file and therefore cannot be.
+      Read from source, so it stays accurate even when a module fails to load.
     </p>
     <div id="diag-structure" class="diag-rows">
       <div id="diag-structure-main"><p class="diag-loading">Loading…</p></div>
@@ -450,14 +454,27 @@ function renderIntegrity(d){
 
 function renderStructure(d){
   var el=document.getElementById("diag-structure-main"); if(!el) return;
-  var head='<div class="diag-row"><span class="diag-pill p-'+(d.risks.length?"warn":"ok")+'">'+
+  // A "low" risk here is the *resolved* case: the columns still differ, and
+  // something joins them. Painting it amber put "this is handled, and here is
+  // what handles it" in the same colour as a real finding directly above it,
+  // which is how a panel teaches people to skim past the rows that matter.
+  // Grey is what this page already uses for a row that is not a verdict.
+  // Not the pillFor() above: that one maps a check *state*, this maps a risk
+  // *level*, and two functions of one name reading two vocabularies is how the
+  // wrong one gets called from the wrong place later.
+  function pillForLevel(level){
+    return level==="high" ? "error" : level==="low" ? "off" : "warn";
+  }
+  var open=d.risks.filter(function(r){ return r.level!=="low"; });
+  var head='<div class="diag-row"><span class="diag-pill p-'+(open.length?"warn":"ok")+'">'+
     (d.own_engines)+'</span><span class="diag-name">Own engines</span>'+
     '<span class="diag-detail">'+d.engines.length+' engines total, '+d.shared_engine_users+
-    ' sharing hub/extensions.py. '+d.json_stores+' JSON stores. Client keys in use: <b>'+
+    ' sharing hub/extensions.py. '+d.json_stores+' JSON store'+
+    (d.json_stores===1?'':'s')+' outside hub/jsonstore.py. Client keys in use: <b>'+
     d.client_keys.map(esc).join(", ")+'</b>.</span></div>';
   el.innerHTML = head + d.risks.map(function(r){
-    return '<div class="diag-row"><span class="diag-pill p-'+
-      (r.level==="high"?"error":"warn")+'">'+esc(r.level)+'</span>'+
+    return '<div class="diag-row"><span class="diag-pill p-'+pillForLevel(r.level)+'">'+
+      esc(r.level)+'</span>'+
       '<span class="diag-name">'+esc(r.title)+'</span>'+
       '<span class="diag-detail">'+esc(r.detail)+
       '<em class="diag-fix">'+esc((r.where||[]).join(", "))+'</em></span></div>';

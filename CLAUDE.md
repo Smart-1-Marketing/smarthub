@@ -626,6 +626,45 @@ Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one
 way the backup can bite you.
 
+**Two checks asking one question will answer it differently, and both
+answers are on screen.** `/api/db/structure` and `/api/integrity` both report
+who still writes JSON outside `hub/jsonstore.py`, on the same Diagnostics
+panel, and each kept its own copy of the test. Integrity exempted build
+scripts and repo tooling; the structure report did not — so the page read
+**"1 file writes JSON outside hub/jsonstore.py — ad_builder"** directly above
+an audit of the identical question that had found nothing. The file was
+`modules/ad_builder/scripts/fix_safezones.py`, a one-off script that rewrites
+layout JSON *committed to the repo*, where git is the backup; and `ad_builder`
+is the Node renderer, which keeps no Python state on the data disk at all. So
+the row named a module with nothing to move, and being contradicted on its own
+panel is what teaches somebody to stop reading the panel. The rule is
+`jsonstore.unmirrored_json_writers()` now and both callers read it, for the
+same reason `hub/storage.py` and `hub/images.py` exist.
+
+Two things that rule had to stop doing. It exempted each scanner **by
+accident** — the test was `"jsonstore" not in src`, and each one's own
+explanatory text contains the word, so rewording a string would have started
+it reporting itself. And its exemption list had outlived its files: it named
+`ui_check.py`, plus `hub/errors.py` and `hub/audit.py`, neither of which has
+matched `json.dump(` since they moved to append-only JSONL. An exemption that
+outlives what it exempted goes on covering whatever is written at that path
+next, while the audit stays green doing it, so
+`check_stale_json_exemptions()` names one — and it started green, which is the
+only way it was worth adding.
+
+**A resolved finding rendered in the same colour as an open one is not a
+resolved finding.** `renderStructure()` painted every level that was not
+`high` amber, so *"3 client key columns, joined on read"* — the row whose
+entire content is that `hub/client_key.py` handles this — sat in warning
+amber, and its presence turned the panel's header pill amber too. `low` is
+grey here now, and the header counts only what is actually open. The panel's
+standing help text had drifted the same way: it still said several modules
+build their own database engine and identify a client their own way, on a
+deployment where that reads 0 own engines and 13 sharing. A help paragraph
+that contradicts every row beneath it costs the rows their credibility.
+`test_jsonstore.py` asserts both halves, and that the two scanners return the
+same set.
+
 **`os.environ.get("HUB_DATA_DIR", "data")` is not the data directory.**
 `HUB_DATA_DIR` is unset on this service, so that spelling silently resolves to
 `./data` inside the container and is wiped on *every deploy* — not merely if
@@ -1961,7 +2000,7 @@ python tools/checktemplates.py     # the Jinja-carrying blocks jscheck skips
 python tools/linkcheck.py          # every internal URL resolves, every url_for has a route
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
-python3 test_jsonstore.py          # the database mirror really restores
+python3 test_jsonstore.py          # the mirror restores, and one answer on who is outside it
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
 python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
