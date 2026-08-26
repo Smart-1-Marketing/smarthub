@@ -81,7 +81,7 @@ def icon_svg(prefix: str, name: str, color: str = "", size: int = 256) -> str | 
 
 
 # ------------------------------------------------------------------- brands
-def brand_lookup(query: str) -> dict:
+def brand_lookup(query: str, client: str = "") -> dict:
     """Logos and brand colours for a company or domain, via Brandfetch.
 
     Accepts either a domain ("nike.com") or a plain company name ("Nike") —
@@ -125,6 +125,21 @@ def brand_lookup(query: str) -> dict:
                 pass
             if r.ok:
                 payload = r.json()
+                # Keep what the call paid for. This lookup used to be
+                # discarded on every search, so the plan's hundred calls a
+                # month bought nothing that outlived the tab -- and the Client
+                # 360 brand card, which reads STORED brand data and never
+                # fetches, sat empty for clients somebody had looked up here
+                # that morning. Saved against the domain and, when the caller
+                # named a client, against the client too: the two readers key
+                # on different things and a payload filed under one is
+                # invisible to the other.
+                try:
+                    from hub import seo as _hub_seo
+                    _hub_seo.save_brandfetch(payload.get("domain") or domain,
+                                             payload, client=client or "")
+                except Exception:                     # noqa: BLE001
+                    pass                              # best-effort, as elsewhere
         except Exception:                             # noqa: BLE001
             payload = None
 

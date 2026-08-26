@@ -68,12 +68,43 @@ def _hex(value: str) -> str:
     return v if re.fullmatch(r"#[0-9a-fA-F]{3,8}", v) else ""
 
 
+def _observed(domain: str) -> dict:
+    """What the last site scan saw, as a second source. Never merged in."""
+    try:
+        from hub import scan_facts
+        return scan_facts.brand_observed(domain)
+    except Exception:                                   # noqa: BLE001
+        return {"found": False}
+
+
 def brand_kit(client: str, domain: str = "") -> dict:
-    """Logos, colours and fonts for a client, from stored Brandfetch data.
+    """Logos, colours and fonts for a client, from stored brand data.
 
     Returns a `found: False` shell rather than raising when there's nothing,
     so the card can say "no brand data yet" and offer to fetch it instead of
     disappearing — an absent card looks like a broken page.
+
+    **Why this card was empty for almost every client.** Three things, and
+    each of them looked like nothing being wrong:
+
+    * Client 360 called this with a name and no domain, so the domain-keyed
+      half of the store — which is where every lookup anybody had actually
+      run ended up — was never consulted. The caller passes the client's
+      website now, and `hub/seo.brand_for` tries both.
+    * Nothing but the Suite Panel ever *saved* a lookup, and only when it was
+      handed a `?client=`. Image Creator paid for a live call on every search
+      and threw the answer away. `hub/brand_lookup.py` is the one path now,
+      and it keeps what it paid for.
+    * There was no way to ask for a lookup from here at all. There is a
+      button, because the call is billed and a page load must not spend one.
+
+    And where a lookup genuinely has nothing — which is the ordinary case for
+    a local business that has never registered a brand anywhere — the last
+    site scan usually saw the logo on the client's own home page. That is
+    carried separately as `observed`, labelled as observed, and never folded
+    into `logos`: a logo scraped off a page is a candidate, and the whole
+    point of this card is that a wrong logo on a client-facing document is
+    worse than none.
     """
     payload = None
     try:
@@ -81,10 +112,31 @@ def brand_kit(client: str, domain: str = "") -> dict:
     except Exception:                                   # noqa: BLE001
         payload = None
     if not payload:
+        observed = _observed(domain)
+        # "Nobody has looked yet", "we cannot look" and "we looked and there
+        # is nothing" are three different answers, and only the first is
+        # something to press a button about.
+        try:
+            from hub import brand_lookup
+            ready = brand_lookup.configured()
+            dom = brand_lookup.domain_of(domain)
+        except Exception:                               # noqa: BLE001
+            ready, dom = False, ""
+        if not dom:
+            note = ("No website on this client record, so there is nothing to "
+                    "look a brand up by. Attach one below and the lookup opens.")
+        elif not ready:
+            note = ("No brand data on file, and brand lookup is not switched "
+                    "on for this deployment — see the environment reference "
+                    "on Settings.")
+        else:
+            note = f"No brand data on file yet. Look it up from {dom}."
         return {"found": False, "client": client, "domain": domain,
                 "logos": [], "colors": [], "fonts": [],
-                "note": "No brand data on file yet. Running a lookup from "
-                        "Image Creator or Suite Panel will cache it here."}
+                "can_lookup": bool(dom and ready),
+                "lookup_domain": dom,
+                "observed": observed,
+                "note": note}
 
     logos = []
     for logo in (payload.get("logos") or []):
@@ -135,7 +187,27 @@ def brand_kit(client: str, domain: str = "") -> dict:
         # When the guide was last pushed, so the card can show the state
         # instead of a button that would overwrite it.
         "suite_brand_guide": _pushed_at(client),
+        # A refresh is still offered on a card that has data: brand details
+        # go stale, and the alternative is somebody with a new logo having
+        # nowhere to put it.
+        "can_lookup": bool(_lookup_domain(domain, payload)),
+        "lookup_domain": _lookup_domain(domain, payload),
+        # The scan's own sighting, beside the stored kit rather than in it —
+        # useful precisely when the stored kit has colours and no logo.
+        "observed": _observed(domain or payload.get("domain") or ""),
     }
+
+
+def _lookup_domain(domain: str, payload: dict | None = None) -> str:
+    """The domain a refresh would ask about, or '' when none is possible."""
+    try:
+        from hub import brand_lookup
+        if not brand_lookup.configured():
+            return ""
+        return (brand_lookup.domain_of(domain)
+                or brand_lookup.domain_of((payload or {}).get("domain") or ""))
+    except Exception:                                   # noqa: BLE001
+        return ""
 
 
 def _pushed_at(client: str) -> str:

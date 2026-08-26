@@ -13,6 +13,17 @@
  *
  * Deliberately not rendered on pages that already have their own crumb —
  * duplicating it is worse than not having one.
+ *
+ * Part 3 is the one that had to be built: **back to the client record**.
+ * A generic "where you came from" crumb says "Client 360", which is the page
+ * and not the record — and it is lost the moment you click once more inside
+ * the tool. So Client 360 stamps the client's name onto every link that
+ * leaves it, this script remembers it for the tab, and every page downstream
+ * carries "Back to <client>" until you actually go back. One script, loaded
+ * on hub pages by base.html and injected into all 20 mounted modules by
+ * HubBar, so a tool linked from Client 360 next month gets it without being
+ * edited — the alternative was a back link written into twenty templates,
+ * nineteen of which would have been forgotten.
  */
 (function () {
   "use strict";
@@ -144,11 +155,134 @@
       ".s1-crumbs a{color:#1769AA;text-decoration:none}" +
       ".s1-crumbs a:hover{text-decoration:underline}" +
       ".s1-crumbs .s1-crumb-back{font-weight:600}" +
-      ".s1-crumb-sep{color:#cbd5e1}";
+      ".s1-crumb-sep{color:#cbd5e1}" +
+      ".s1-c360-back{display:inline-flex;align-items:center;gap:8px;margin:0 0 14px;" +
+      "padding:6px 6px 6px 12px;border:1px solid #bfdbfe;background:#eff6ff;" +
+      "border-radius:999px;font:600 12.5px 'Segoe UI',system-ui,sans-serif}" +
+      ".s1-c360-back a{color:#1769AA;text-decoration:none}" +
+      ".s1-c360-back a:hover{text-decoration:underline}" +
+      ".s1-c360-x{border:0;background:transparent;color:#64748b;cursor:pointer;" +
+      "font-size:16px;line-height:1;padding:0 6px}" +
+      ".s1-c360-x:hover{color:#1e293b}";
     document.head.appendChild(st);
   }
 
-  function init() { remember(); css(); render(); }
+
+  // ------------------------------------------------------------------
+  // Back to the client record you came from
+  // ------------------------------------------------------------------
+  var C360_KEY = "s1c360:client";
+  var C360_PARAM = "c360";
+  var C360_PATH = "/client360";
+
+  function onClient360() {
+    return location.pathname.replace(/\/+$/, "") === C360_PATH;
+  }
+
+  function c360Client() {
+    // The URL wins over the tab's memory: a link stamped with one client must
+    // never be answered with a different one left over from an earlier visit.
+    var q;
+    try { q = new URLSearchParams(location.search).get(C360_PARAM); } catch (e) { q = null; }
+    if (q) {
+      try { sessionStorage.setItem(C360_KEY, q); } catch (e) {}
+      return q;
+    }
+    try { return sessionStorage.getItem(C360_KEY) || null; } catch (e) { return null; }
+  }
+
+  function forget() {
+    try { sessionStorage.removeItem(C360_KEY); } catch (e) {}
+  }
+
+  // Which links carry the client onwards. Skipped, each for its own reason:
+  // the chrome (following the sidebar to the Dashboard is not "still working
+  // on this client"), anything cross-origin (QuickBooks and Cloudinary are
+  // not ours to add parameters to), an API path (the parameter would reach a
+  // handler that never asked for one), and a download.
+  function stampable(a) {
+    var href = a.getAttribute("href") || "";
+    if (!href || href.charAt(0) === "#") return false;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^https?:/i.test(href)) return false;
+    if (/^https?:/i.test(href) && href.indexOf(location.origin) !== 0) return false;
+    if (href.indexOf(C360_PARAM + "=") >= 0) return false;
+    if (/(^|\/)api\//.test(href)) return false;
+    if (a.hasAttribute("download")) return false;
+    if (a.closest(".s1hub-sb, .s1-crumbs, .s1-c360-back, .topbar")) return false;
+    return true;
+  }
+
+  function stamp(name) {
+    var enc = encodeURIComponent(name);
+    var links = document.querySelectorAll("a[href]");
+    for (var i = 0; i < links.length; i++) {
+      var a = links[i];
+      if (!stampable(a)) continue;
+      var href = a.getAttribute("href");
+      a.setAttribute("href", href + (href.indexOf("?") >= 0 ? "&" : "?")
+                     + C360_PARAM + "=" + enc);
+    }
+  }
+
+  function backBar(name) {
+    var existing = document.querySelector(".s1-c360-back");
+    if (existing) {
+      if (existing.getAttribute("data-for") === name) return;
+      existing.parentNode.removeChild(existing);
+    }
+    var bar = document.createElement("div");
+    bar.className = "s1-c360-back";
+    bar.setAttribute("data-for", name);
+    var a = document.createElement("a");
+    a.href = C360_PATH + "?q=" + encodeURIComponent(name);
+    a.textContent = "\u2190 Back to " + name;
+    var x = document.createElement("button");
+    x.type = "button";
+    x.className = "s1-c360-x";
+    x.title = "Stop offering this";
+    x.setAttribute("aria-label", "Stop offering the way back to " + name);
+    x.innerHTML = "&times;";
+    x.onclick = function () { forget(); bar.parentNode.removeChild(bar); };
+    bar.appendChild(a);
+    bar.appendChild(x);
+    var host = document.querySelector(".page, main, .main") || document.body;
+    host.insertBefore(bar, host.firstChild);
+  }
+
+  function c360() {
+    if (onClient360()) {
+      // Arriving back at a record clears the trail — a bar still offering
+      // the way back to the page you are standing on is noise, and one left
+      // pointing at yesterday's client is worse than noise.
+      var here;
+      try { here = new URLSearchParams(location.search).get("q") || ""; } catch (e) { here = ""; }
+      if (here) { try { sessionStorage.setItem(C360_KEY, here); } catch (e) {} }
+      else forget();
+      var stale = document.querySelector(".s1-c360-back");
+      if (stale) stale.parentNode.removeChild(stale);
+      if (here) stamp(here);
+      return;
+    }
+    var name = c360Client();
+    if (!name) return;
+    backBar(name);
+    stamp(name);          // the trail survives a second hop, not just the first
+  }
+
+  // Client 360 draws most of itself from fetches, and so do several of the
+  // tools it opens, so a single pass at load would stamp the shell and miss
+  // every link the page has not drawn yet. Same debounced observer
+  // hub-help.js uses for bubbles, for the same reason.
+  function watch() {
+    if (!window.MutationObserver) return;
+    var timer = null;
+    new MutationObserver(function () {
+      clearTimeout(timer);
+      timer = setTimeout(c360, 180);
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+
+  function init() { remember(); css(); render(); c360(); watch(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();

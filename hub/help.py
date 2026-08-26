@@ -113,8 +113,19 @@ REGISTRY: list[Help] = [
        selector="[data-tour='proposals']"),
     _h("hub.client360.images", "Client image library",
        "Everything the SEO Image Pipeline has optimised for this client, plus "
-       "screenshots and logos pulled from their site audits.", step=4,
+       "any logo on their brand record. Each tile downloads or deletes on the "
+       "spot — deleting removes the file from the client gallery and from the "
+       "pipeline's archive, and cannot be undone. The count is this client's, "
+       "not the whole archive's.", step=4,
        selector="[data-tour='client-images']"),
+    _h("hub.client360.scanfacts", "What the last scan found",
+       "An Insites audit reads about 440 things and this record used to show "
+       "four of them. This is the rest of what is worth reading: the Google "
+       "Business Profile, review standing, social accounts, what they are "
+       "already spending on ads, whether a pixel is even on the site, and the "
+       "registrar. Nothing here starts a scan or costs anything — it is the "
+       "last completed scan, read again. A row that is absent was not "
+       "measured; it is never shown as a zero."),
 
     # ---------------- SEO Image Pipeline ----------------
     _h("seo_images.upload.details", "Fill these in first",

@@ -385,6 +385,89 @@ a comparison can come back without inventing anything.
 `test_dashboard_trends.py` holds both halves: the readings accumulate, and
 nothing on the page claims a comparison.
 
+**A filtered list that reports an unfiltered total is a wrong answer with
+two right ones either side of it.** `/tools/seo-images/api/gallery` filtered
+its rows by client and then returned `len(load_archive())` as the total, so
+Client 360 — which prints "Showing N of total" — said **"Showing 1 of 7 saved
+images"** about a client with exactly one, and the gallery that sentence
+linked to then showed the one. Neither screen was wrong; the sentence joining
+them was, which is harder to notice than either being wrong. `total` is now
+the total of what was *asked for* and the archive-wide figure is carried
+beside it under its own name.
+
+**A card that shows a wrong image and offers nothing to do about it sends
+somebody through two screens.** The Client 360 image tiles linked out to the
+file and to the gallery, and the gallery — the one screen a client record
+opens — had no delete and no alt edit either; both existed only on the
+pipeline's own archive table, which is not where anybody looking at a client
+was. Both screens post to the *same* `api/gallery/update`, so there is one
+description of what deleting an image means and one place that decides
+whether the Cloudinary copy goes with it. It is named in the confirmation and
+says it cannot be undone, because for an image a client sent us our copy is
+very often the only copy.
+
+**"Back" from a tool means the tool, and from a client record it means the
+client.** Every link out of Client 360 landed somewhere whose idea of back was
+its own parent, so a rep who opened the image gallery for Icon Solar got
+"← SEO Image Pipeline" and had to search for the client again. `hub-crumbs.js`
+stamps `c360=<client>` onto the links that leave the record and draws
+**Back to <client>** on every page downstream — one script, loaded on hub
+pages by `base.html` and injected into all twenty mounted modules by `HubBar`,
+so a tool linked from Client 360 next month gets it without being edited. Four
+things it does not stamp, each for its own reason: the chrome (following the
+sidebar to the Dashboard is not still working on this client), anything
+cross-origin (QuickBooks and Cloudinary are not ours to add parameters to), an
+API path, and a download. It stamps again on a debounced `MutationObserver`,
+because Client 360 and half the tools it opens draw themselves from fetches
+and a single pass at load would stamp the shell and miss every link not yet
+drawn. Landing back on `/client360` clears it: a bar offering the way back to
+the page you are standing on is noise, and one pointing at yesterday's client
+is worse than noise.
+
+**The brand card read stored data and nothing ever stored any.** Three modules
+ran live Brandfetch lookups — Image Creator, Smart 1 Ads and the Suite Panel —
+and only the Suite Panel ever saved the answer, and only when it was handed a
+`?client=`. So Image Creator spent one of the plan's hundred monthly calls on
+every search and threw the result away, while the Client 360 brand card, which
+*only* reads what is stored, said "No brand data on file yet" about clients
+somebody had looked up that morning. Nothing errored at either end. And the
+card asked by client **name** alone, so the domain-keyed half of the store —
+which is where every saved lookup actually lands, since a tool with a URL has
+no client name to file under — was never consulted at all. `hub/brand_lookup.py`
+is the one live path now and it keeps what it paid for, saving against the
+domain *and* the client (the two readers key on different things, and a
+payload filed under one is invisible to the other); Client 360 passes the
+website; and there is a **button**, because the call is billed and a page load
+must not spend one.
+
+**And an empty answer has to say which kind of empty it is.** "Nobody has
+looked yet", "there is no website to look up by", "the key is not set" and "we
+looked and they publish nothing" are four situations, one of them is a button
+press, and they read identically before this. A refused key (401) and an
+unreachable service are kept apart for the reason `services/provider_check.py`
+gives: calling the second one a bad key sends somebody to rotate a good one.
+
+**An Insites audit carries 440 fields and Client 360 read four of them.**
+The score, the broken-link count, the image count and the speed band — while
+the logo, the brand colours, the Google Business Profile and review standing,
+the social accounts with their follower counts, what the client is already
+spending on Google and Meta, whether a pixel or a tag is on the site at all,
+the organic estimate, the platform, and the registrar all sat in a JSON blob
+nobody opened, already paid for. `hub/scan_facts.py` reads them, grouped by
+the question each one answers, and it is where the **logo** comes from for the
+majority of local businesses that have no published brand anywhere: Brandfetch
+has nothing for them and the last scan photographed their home page. That
+sighting is carried as `observed`, with the date and a link to the scan, and
+is **never merged into `logos`** — a logo lifted off a page is a candidate,
+and a wrong logo on a client-facing document is worse than none, because
+nobody proof-reads the thing they recognise. Three more rules in it: it reads
+the scans table through the shared engine rather than importing the mounted
+module (the `flask.g` trap above), it answers *not measured* with the reason
+carried when the table will not answer, and a section the account's plan does
+not include is **left out** rather than printed — forty rows of "not measured"
+is a wall nobody reads, and a zero there would be a lie. A `False` boolean is
+an answer and is kept. `test_client_images.py` asserts all of it.
+
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
@@ -2809,6 +2892,8 @@ python3 test_dashboard_trends.py   # the monthly readings accumulate; no card cl
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
+python3 test_client_images.py      # deleting a client image, the count, the brand card,
+                                   #   and the way back to the record
 python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
 python3 test_stock_search.py       # four sources in one search; a missing folder is not an empty one
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts

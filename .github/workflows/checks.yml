@@ -488,6 +488,21 @@ jobs:
             echo "test_image_download.py not on this branch — nothing to run."
           fi
 
+      - name: Client 360 images, the brand card and the way back
+        # Deleting one image from the record it belongs to, the count that
+        # used to report the whole archive, the client carried on every link
+        # that leaves Client 360, and the brand card that read stored data
+        # nothing ever stored. Guarded like the steps above so this workflow
+        # stays mergeable on a branch that predates the file. Needs no
+        # network: the brand lookup's requests seam is stubbed and the scan
+        # reader is fed a fixture report.
+        run: |
+          if [ -f test_client_images.py ]; then
+            python test_client_images.py
+          else
+            echo "test_client_images.py not on this branch — nothing to run."
+          fi
+
       - name: Alt text and Claude-in-Chrome publish prompts
         # The alt-text scan, its clamps, and the prompts handed to a browser
         # agent -- including that no stored credential can reach one. Guarded

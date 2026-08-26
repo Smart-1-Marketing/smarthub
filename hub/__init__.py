@@ -399,6 +399,53 @@ def create_hub_app() -> Flask:
         return jsonify(brand_kit(request.args.get("name", ""),
                                  request.args.get("domain", "")))
 
+    @app.route("/api/client/brand/lookup", methods=["POST"])
+    def api_client_brand_lookup():
+        """Look a client's brand up live, and keep what the call paid for.
+
+        A POST behind a button, never a page load: the lookup is billed, and
+        a GET that spends money is one a reload or a prefetch fires without
+        anybody asking — the rule /tools/domains' refresh already works to.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import brand_lookup
+        from .client_brand import brand_kit
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("name") or "").strip()
+        domain = str(body.get("domain") or "").strip()
+        if not domain:
+            return jsonify({"error": "No website on this client to look a "
+                                     "brand up by."}), 400
+        # use_cache=False: this is the refresh button. Answering it out of the
+        # cache would make a press that changes nothing look like a press that
+        # did not work.
+        res = brand_lookup.lookup(domain, client=client, module="client360",
+                                  use_cache=False)
+        if not res.get("found"):
+            return jsonify({"found": False, "note": res.get("note", ""),
+                            "unconfigured": bool(res.get("unconfigured")),
+                            "refused": bool(res.get("refused"))}), 200
+        kit = brand_kit(client, domain)
+        kit["looked_up"] = True
+        kit["note"] = res.get("note", "")
+        return jsonify(kit)
+
+    @app.route("/api/client/scan-facts")
+    def api_client_scan_facts():
+        """What the last Insites scan knows about this client, grouped.
+
+        Client 360 read four fields out of a 440-field audit. This is the
+        rest of what is worth reading — read-only, no scan is started, and
+        nothing here is billed.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import scan_facts
+        return jsonify(scan_facts.facts(request.args.get("domain", "")))
+
     @app.route("/api/client/work")
     def api_client_work():
         """Everything the Hub has made for this client, newest first."""

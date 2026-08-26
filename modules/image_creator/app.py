@@ -213,7 +213,11 @@ def api_icon_svg():
 
 @app.route("/api/brands/search")
 def api_brands():
-    return jsonify(assets.brand_lookup(request.args.get("q", "")))
+    # The client, when the editor knows one, so the lookup is filed
+    # against the client record as well as the domain cache — Client
+    # 360 reads the first and this tool searches by the second.
+    return jsonify(assets.brand_lookup(request.args.get("q", ""),
+                                       request.args.get("client", "")))
 
 
 @app.route("/api/fonts")
