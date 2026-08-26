@@ -340,11 +340,17 @@ function estimateDetail(e){
     var apis = e.apis||[];
     if(!apis.length) return "";
     return '<table class="diag-tbl"><tr><th>API</th><th class="num">Calls this month</th>'+
+      '<th class="num">Refused</th>'+
       '<th class="num">Today</th><th class="num">Busiest day</th>'+
       '<th class="num">Daily quota</th><th>State</th></tr>'+
       apis.map(function(a){
+        /* A refusal spends the daily quota and returns nothing, so it is its
+           own column rather than a share of the total. Zero refusals is a
+           real answer and prints as a dash, not as a worrying 0%. */
         return '<tr><td>'+esc(a.label)+'</td>'+
           '<td class="num">'+num(a.calls)+'</td>'+
+          '<td class="num">'+(a.failed?num(a.failed)+
+            ' <small>'+a.failed_percent+'%</small>':'—')+'</td>'+
           '<td class="num">'+num(a.today)+'</td>'+
           '<td class="num">'+(a.busiest_day_calls?num(a.busiest_day_calls)+
             ' <small>'+esc(a.busiest_day||"")+'</small>':"—")+'</td>'+
@@ -352,7 +358,7 @@ function estimateDetail(e){
             '<small>none published</small>')+'</td>'+
           '<td><span class="diag-pill p-'+pillFor(a.state)+'">'+
             esc(stateWord(a.state))+'</span></td></tr>'+
-          '<tr class="diag-subrow"><td colspan="6">'+esc(a.note)+'</td></tr>';
+          '<tr class="diag-subrow"><td colspan="7">'+esc(a.note)+'</td></tr>';
       }).join("")+'</table>'+
       modTable(e.by_module, [["Calls",function(v){return num(v);}]]);
   }

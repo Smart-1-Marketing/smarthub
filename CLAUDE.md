@@ -1180,6 +1180,76 @@ on the stored index, so `/tools/google-match` can say why a platform is empty
 rather than drawing a clean nothing, and an index built before they existed
 reports *not measured*.
 
+**A rate limiter with no memory makes the retry path the normal path.** Tag
+Manager refuses far faster than Analytics, so `gtm_get` paced itself at a
+fixed 0.35s and retried on 429. The live service is what showed the fixed part
+was the half that does not work: one sweep of this login's **180** Tag Manager
+accounts logged a 429 on very nearly every *first* attempt, paid 1s + 2s + 4s
+of backoff to push most of them through, exhausted its four attempts on 13 of
+them — and then the next account started again at 0.35s and rediscovered the
+same refusal from scratch. Roughly two and a half requests spent per account,
+440 seconds of wall clock, and every wasted one counting against the 10,000-a-
+day project quota exactly as a useful one does. Nothing was broken and nothing
+read as broken: the containers were mostly there, just slowly and not all of
+them.
+
+So the interval **adapts**. A 429 widens it for everything that follows, a
+sustained clean run narrows it back, and Google's own `Retry-After` beats our
+guess whenever it sends one. Widening is fast and recovery is deliberately
+slow — the opposite ratio oscillates, spending a 429 to rediscover the ceiling
+every twenty calls. The interval lives behind the same lock that serialises
+the calls, which is what makes it *shared*: the limit Google applies is per
+user, so a refusal one of the eight threads meets is news the other seven
+need. `gtm_pace_state()` reports what it settled at, because an adaptive
+limiter nobody can inspect is a magic number that moves.
+
+**And a refused account keeps its last reading.** Some will be refused however
+politely we ask, and dropping their containers reports this login owning fewer
+than it does — a smaller number, in a complete-looking list, with nothing
+saying a reading is missing. `fetch_gtm_items` takes the previous sweep's
+containers and carries them for an account that was rate-limited, marked
+`carried_over` and counted apart: the rule `knack_products` and
+`domain_purchase` already work to, that a failed pull never empties a good
+snapshot. That makes a third answer necessary — **`partial`**, beside `ok`,
+`refused`, `failed` and `disabled` — because "everything is here, some of it
+second-hand" is neither a clean sweep nor a hole, and only the accounts with
+*no* earlier reading actually cost the index a container. The carry-forward
+map strips `client`, `match` and `match_detail` on the way out: those are
+derived against the client list as it stands now, and one carried forward is a
+six-hour-old guess promoted to a fact.
+
+**A sweep this expensive must not run because a process restarted.** Every
+scheduler job starts due (`due = {name: 0.0 ...}`), so a deploy re-ran the
+Google sweep however recently it had finished — the live service swept at
+19:19, deployed at 19:29, and swept the identical 180 accounts again at 19:33,
+into the same per-user limit the last sweep had just finished annoying, for no
+information the index did not already hold. `google_index.due_for_refresh()`
+decides now, at half the job's interval: a genuine three-hourly tick always
+clears it, a restart minutes after a good sweep never does, and the skip is
+reported *with the age* rather than passed off as a run. Same shape as
+`domain_purchase`, for the same reason. `/api/google/rebuild` still forces —
+the guard is the scheduler's, not the button's.
+
+**A count derived from the answer shrinks to fit the answer.** The index's
+`accounts` list was built from `{i["google_login"] for i in raw}`, so a login
+that came back with *nothing* — a dead refresh token, every platform refused —
+was simply not in the set. The activity log read `accounts: 1` on a sweep
+whose own `errors` array named a second login that had dropped out entirely,
+and the handler that recorded that error did not log it either. `accounts` is
+the connected list now, with `accounts_answered` and `accounts_silent` beside
+it, because **"connected" and "came back with something" are different numbers
+and only the gap between them is actionable**. `accounts_error` carries a
+rotated `TOKEN_ENCRYPTION_KEY` even when the sweep found plenty — it used to
+be reported only when the sweep came back completely empty, so one unreadable
+row behind two working logins was invisible.
+
+**A refusal is a call.** `google_estimate()` counted failures once, for the
+whole of Google, which cannot say that Tag Manager is refusing a quarter of
+its requests while Analytics is fine — and that rate is the entire early
+warning, since a 429 spends the daily quota and returns nothing for it. It is
+per API now, with the percentage, and zero refusals prints as a dash rather
+than as a worrying 0%.
+
 **The orphan list is paged on the server, 25 at a time.** The suggestions are
 the expensive half — a Knack read, the alias index and a word index per
 resource — so a long book paid for all of them before drawing a row. Searching

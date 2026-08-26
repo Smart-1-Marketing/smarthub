@@ -100,6 +100,7 @@ table.gm-t{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
 .pill.ok{background:#e7f6ef;color:#147d52}
 .pill.refused{background:#feeceb;color:#b42318}
 .pill.failed{background:#fff4d7;color:#a06a00}
+.pill.partial{background:#fff4d7;color:#a06a00}
 .pill.disabled{background:#f1f5f9;color:#64748b}
 .gm-pick{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px}
 .gm-pick input{padding:6px 9px;border:1px solid #d7dfe8;border-radius:7px;font:12.5px system-ui;min-width:170px}
@@ -226,7 +227,7 @@ function sweepCard(d){
   /* Worst first — a refusal is the row somebody has to act on. Ranks start
      at 1, not 0: `order[kind] || 9` turns a rank of 0 into 9, which sorted
      the refusals to the bottom of the table they exist to head. */
-  var order={refused:1,failed:2,disabled:3,ok:4};
+  var order={refused:1,failed:2,partial:3,disabled:4,ok:5};
   rows=rows.slice().sort(function(a,b){
     return (order[a.kind]||9)-(order[b.kind]||9) ||
            String(a.email).localeCompare(String(b.email));});
@@ -240,11 +241,12 @@ function sweepCard(d){
           'grant it was given — or an API not enabled for this project. '+
           'Reconnect this login to re-consent.'
         : n.kind==='disabled' ? (n.error||'Not asked for on this deployment.')
+        : n.kind==='partial' ? (n.error||'Swept, but not all of it first-hand.')
         : n.kind==='failed' ? (n.error||'The call did not complete.')
         : 'Swept.';
       return '<tr><td>'+esc(n.email)+'</td><td>'+esc(n.platform)+'</td>'+
         '<td><span class="pill '+esc(n.kind)+'">'+esc(n.kind)+'</span></td>'+
-        '<td>'+(n.kind==='ok'?(n.count||0):'<span class="gm-muted">not measured</span>')+'</td>'+
+        '<td>'+(n.kind==='ok'?(n.count||0): n.kind==='partial'?((n.count||0)+' <small>part carried</small>'):'<span class="gm-muted">not measured</span>')+'</td>'+
         '<td class="gm-muted" style="max-width:38ch">'+esc(why)+'</td></tr>';
     }).join('')+'</tbody></table></div>';
 }

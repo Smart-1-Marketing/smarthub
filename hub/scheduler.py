@@ -297,13 +297,34 @@ def job_refresh_google_index(app) -> dict:
 
     Three hours, offset from the Knack pull so the two are not competing for
     the same worker: a property created this morning is findable this
-    afternoon, and eight sweeps a day is nothing against the Tag Manager
-    daily quota.
+    afternoon. Eight sweeps a day is not free, and the figure is worth having
+    rather than assuming — this login carries 180 Tag Manager accounts, so a
+    clean sweep is a little over 180 requests and eight of them are ~1,500
+    against a daily project quota of 10,000. The margin is in the retries: at
+    two and a half requests per account, which is what a fixed pace was
+    costing, the same eight sweeps are ~3,600.
     """
     try:
         from hub import google_index
     except Exception as exc:                            # noqa: BLE001
         return {"skipped": f"google_index unavailable ({type(exc).__name__})"}
+
+    # Every job starts due, so a redeploy re-ran this one however recently it
+    # had finished — and this one is 180 rate-limited Tag Manager calls and
+    # seven minutes. On a day of three deploys that is three extra sweeps of
+    # the same accounts, each one hammering the per-user limit the last had
+    # just annoyed, for no information the index did not already hold. Half
+    # the interval: a genuine three-hourly tick always clears it, a restart
+    # minutes after a good sweep never does, and the skip is reported with
+    # the age rather than passed off as a run.
+    every, _fn, _desc = JOBS["google_index"]
+    min_age = every * 60 * 0.5
+    if not google_index.due_for_refresh(min_age):
+        age = google_index.age_seconds()
+        return {"skipped": (f"The index was rebuilt {round((age or 0) / 60)} "
+                            f"minutes ago; the sweep is expensive and nothing "
+                            f"is due yet."),
+                "age_seconds": round(age or 0)}
     try:
         return google_index.build(force=True)
     except Exception as exc:                            # noqa: BLE001
