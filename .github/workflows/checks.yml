@@ -237,6 +237,20 @@ jobs:
             echo "test_scan_widgets.py not on this branch — nothing to run."
           fi
 
+      - name: Stock photo search tests
+        # Four sources in one search — the three free libraries and our own
+        # Cloudinary folders. Asserts that a folder nobody has created reads as
+        # missing rather than as a search that found nothing, that a provider
+        # which refused is named, and that the client-facing picker did not
+        # quietly gain our internal folders. Guarded like the steps around it
+        # so this workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_stock_search.py ]; then
+            python test_stock_search.py
+          else
+            echo "test_stock_search.py not on this branch — nothing to run."
+          fi
+
       - name: Image picker tests
         # Where a client can upload from, deleting a gallery, and what a
         # General Business client is asked. Guarded like the steps around it so

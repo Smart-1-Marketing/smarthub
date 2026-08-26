@@ -94,6 +94,9 @@ _MOUNT_ACTIVE = {
     "/tools/image": "tools", "/tools/pdf": "tools", "/tools/seo-images": "tools",
     "/tools/image-creator": "tools", "/tools/bg-remover": "tools",
     "/tools/utm": "tools",
+    # Creative rather than Tools: it sources imagery for client work and its
+    # tile sits on /creative beside Image Creator.
+    "/tools/stock-photos": "creative",
     "/tools/site-blocks": "tools",
     # Creative, not Tools: it produces client-facing copy and pulls from the
     # image gallery, so it sits with Image Creator rather than with the
@@ -426,6 +429,15 @@ except Exception as _utm_exc:  # noqa: BLE001
     utm, utm_fb = None, _fallback_app("UTM Builder", str(_utm_exc))
 
 try:
+    import importlib as _il_stock
+    stockp = _il_stock.import_module("modules.stock_photos.app")
+    stockp_fb = None
+except Exception as _stock_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    stockp, stockp_fb = None, _fallback_app("Stock Photo Search", str(_stock_exc))
+
+try:
     import importlib as _il_siteblk
     siteblk = _il_siteblk.import_module("modules.site_blocks.app")
     siteblk_fb = None
@@ -647,6 +659,11 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/image-creator": _mount(imgcreator.app, "/tools/image-creator") if imgcreator else imgcreator_fb,
     "/tools/bg-remover": _mount(bgrem.app, "/tools/bg-remover") if bgrem else bgrem_fb,
     "/tools/utm": _mount(utm.app, "/tools/utm") if utm else utm_fb,
+    # Searches the three free stock libraries and our own Cloudinary folders in
+    # one pass. Every source degrades to "not configured" by name rather than
+    # to an empty grid, so a missing key reads as a setting rather than a fault.
+    "/tools/stock-photos": _mount(stockp.app, "/tools/stock-photos")
+                           if stockp else stockp_fb,
     "/tools/site-blocks": _mount(siteblk.app, "/tools/site-blocks")
                           if siteblk else siteblk_fb,
     "/tools/social": _mount(social.app, "/tools/social") if social else social_fb,
