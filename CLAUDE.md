@@ -220,6 +220,32 @@ against the document's directory) or a base derived from `location.pathname`.
 `apiUrl("/api/health")` is correct and a check that flags it teaches people to
 ignore the check.
 
+**Retiring a route is not done until nothing falls back to it.** `hub/leads.py`
+retired the inbound Suite webhook and said so at length — and six landing
+modules kept a POST to it one call level up, reached when
+`capture_and_deliver` raised, while four of them (boat, legal, ski, recruit)
+sent their abandoned-form partial lead *straight* there and through the panel
+never. So the lead panel's own warning could say the remaining risk was
+"outside the Hub" while the Hub was the risk. Both halves are invisible from
+either end. The fallback fires precisely when a fallback must not — a timeout,
+where the API write may well have landed — so it writes the **second contact**
+the single route exists to prevent; and the partial goes out on `pagehide` by
+`sendBeacon`, which returns a boolean nobody reads, so those leads were absent
+from the panel while the trigger was live and would have gone on being absent,
+behind a 200, once it was off. **Switching the trigger off in Suite is what
+converts a duplicate into a silent hole**, which is why the code had to be
+finished first and not after. Every landing lead and every partial goes
+through `hub/leads.py` now, the calculators' shared `CALCULATORS_LEAD_WEBHOOK_URL`
+fallback is gone with them (the per-calculator `CALC_WEBHOOK_…` override
+stays: it is an explicit opt-out the page names), and `test_lead_delivery.py`
+reads the module sources for both patterns — with an allowlist naming the
+files that may mention such a variable and why, so the check did not start
+life red. `GHL_WEBHOOK_URL` is on it: the IO Builder posts **insertion
+orders** down that one, which is a different workflow, and it refuses by name
+when unset instead of returning a quiet 200. Check the two do not hold the
+same URL before switching a trigger off, or the thing that stops is insertion
+orders.
+
 **The marketing site's form and the Hub's form were two different forms.**
 Nine industry tools live here (`/land/boat`, `/land/ski`, `/land/stadium`, …),
 each of which writes every lead through `hub/leads.py` into Smart 1 Suite.
@@ -253,6 +279,30 @@ would never come. `hub/knack_data._current_period()` reads the clock; the
 export's month now labels only the counts that genuinely come from the export,
 and `export_stale` says when those have gone out of date.
 `test_dashboard_trends.py` moves the clock rather than promising.
+
+**And a snapshot history cannot answer about a month before it existed.** That
+fix was correct and, on its own, still showed dashes on every card: the first
+reading is taken the month the Hub is opened, so last month had no bucket and
+the same month last year would not arrive for a year. "Check back next year"
+is the answer nobody can act on. But the export already carries the history —
+every insertion order has a start date, an end date and a monthly rate, so
+*which IOs were billing in a given month* is arithmetic, not a memory.
+`knack_data.period_totals()` does it, and `_compare()` prefers a recorded
+snapshot and falls back to that rebuild. Three rules hold it up. **It never
+mixes bases**: the headline count includes every IO Knack still calls Live
+whatever its dates say (`is_running` is deliberately a union), which is about
+140 products wider than a term rebuild — so when a comparison is rebuilt,
+*both* ends are rebuilt, the card marks it `≈`, and the tooltip prints the
+pair. The percentage is shown and the absolute difference is not, because a
+dollar figure there invites subtracting it from the headline, which is the one
+arithmetic that does not work. **It is not a new definition of "live"**:
+rebuilding the two months Knack flags itself (`thisM` / `lastM`) reproduces
+both exactly, and `test_dashboard_trends.py` asserts that equality — it is
+what makes the other months trustworthy. **A month with no rows is not a month
+with nothing in it**; it is outside the book, and comes back not measured
+rather than as a 100% collapse. Websites carry no dated history at all, so
+`websites_active`, `hm_monthly` and the total that contains them stay not
+measured and say which of the two reasons it is.
 
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
@@ -591,7 +641,7 @@ recognise.
 it.** Smart 1 Ads had no explanation on any of its screens — no bubbles, no
 tour — while `hub/help.py`, `hub/help_routes.py` and `hub/static/hub-help.js`
 sat there working: a bubble appears where a template places `help_dot('key')`,
-and a tour runs only where `<body data-screen="…">` names one. Nothing reports
+and a tour is offered only where `<body data-screen="…">` names one. Nothing reports
 a screen that placed neither, and every failure in between is silent by
 design. A bubble whose key is not in the registry is **removed** client-side
 rather than left as a dead "?", so a typo'd key reads as helped from the
@@ -610,6 +660,19 @@ selector is anchored **on its own screen's template**, and that none of it
 reaches `/tools/ads/estimate/<token>` — that document is chrome-free for a
 prospect, and a staff note in it is an internal note in front of a client.
 
+**A tour that opens itself is a dialog in front of somebody doing a job.**
+`data-screen` used to *start* the tour on a screen's first visit — modal, over
+the form, before anyone had asked for anything. It **offers** it now, in a
+corner card with the page fully usable behind it, and both answers are final:
+a prompt that comes back is the thing being fixed, and "How this works" in the
+header is how a tour is reached afterwards. The same screen showed why the
+modal was worse than it looked: the layer painted `rgba(9,22,38,.62)` **and**
+the ring painted the same value as a 9999px shadow, so everything outside the
+ring was dimmed twice — 86%, dark enough that the form behind could not be read
+— and the layer's own scrim also covered the one element the ring had punched
+out, which is the entire point of a spotlight. The dim belongs to the ring
+alone. `test_ads_explainer.py` asserts both halves.
+
 **The Render disk is not backed up. The database is.** Render backs up managed
 Postgres; the 5 GB disk at `/var/data` is outside that, and a plan change,
 region move or resize hands back an empty one. Anything whose only copy was a
@@ -625,6 +688,45 @@ actually mirrored.
 Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one
 way the backup can bite you.
+
+**Two checks asking one question will answer it differently, and both
+answers are on screen.** `/api/db/structure` and `/api/integrity` both report
+who still writes JSON outside `hub/jsonstore.py`, on the same Diagnostics
+panel, and each kept its own copy of the test. Integrity exempted build
+scripts and repo tooling; the structure report did not — so the page read
+**"1 file writes JSON outside hub/jsonstore.py — ad_builder"** directly above
+an audit of the identical question that had found nothing. The file was
+`modules/ad_builder/scripts/fix_safezones.py`, a one-off script that rewrites
+layout JSON *committed to the repo*, where git is the backup; and `ad_builder`
+is the Node renderer, which keeps no Python state on the data disk at all. So
+the row named a module with nothing to move, and being contradicted on its own
+panel is what teaches somebody to stop reading the panel. The rule is
+`jsonstore.unmirrored_json_writers()` now and both callers read it, for the
+same reason `hub/storage.py` and `hub/images.py` exist.
+
+Two things that rule had to stop doing. It exempted each scanner **by
+accident** — the test was `"jsonstore" not in src`, and each one's own
+explanatory text contains the word, so rewording a string would have started
+it reporting itself. And its exemption list had outlived its files: it named
+`ui_check.py`, plus `hub/errors.py` and `hub/audit.py`, neither of which has
+matched `json.dump(` since they moved to append-only JSONL. An exemption that
+outlives what it exempted goes on covering whatever is written at that path
+next, while the audit stays green doing it, so
+`check_stale_json_exemptions()` names one — and it started green, which is the
+only way it was worth adding.
+
+**A resolved finding rendered in the same colour as an open one is not a
+resolved finding.** `renderStructure()` painted every level that was not
+`high` amber, so *"3 client key columns, joined on read"* — the row whose
+entire content is that `hub/client_key.py` handles this — sat in warning
+amber, and its presence turned the panel's header pill amber too. `low` is
+grey here now, and the header counts only what is actually open. The panel's
+standing help text had drifted the same way: it still said several modules
+build their own database engine and identify a client their own way, on a
+deployment where that reads 0 own engines and 13 sharing. A help paragraph
+that contradicts every row beneath it costs the rows their credibility.
+`test_jsonstore.py` asserts both halves, and that the two scanners return the
+same set.
 
 **`os.environ.get("HUB_DATA_DIR", "data")` is not the data directory.**
 `HUB_DATA_DIR` is unset on this service, so that spelling silently resolves to
@@ -2045,6 +2147,122 @@ alphabet with no `O/0` or `I/l/1` in it, because these get dictated as often as
 they get pasted and a generated password nobody can read aloud gets replaced by
 a typed one that is worse.
 
+### Whose birthday it is, and how long they have been here
+
+`hub/celebrations.py`, the block above System checks on the dashboard, and
+`hub/static/hub-cheers.js`. The dates were already here: the census carried a
+birthday and a date of hire for all fourteen people and both sat in
+`hub_user_profiles`, readable one row at a time on the Users panel — which is
+behind Utilities, so most of the company could not have found a colleague's
+birthday if they had thought to look. A date nobody reads is the same as a
+date nobody recorded.
+
+The month block and the popup answer two different questions and are kept
+apart deliberately. `this_month()` is the calendar — past, today and still to
+come, each labelled, because a month is not a queue and a birthday does not
+stop having happened on the 8th. `today()` is the only thing allowed to
+interrupt anybody: a popup about a birthday four days out teaches people to
+close it unread, and then they close the one that mattered.
+
+- **A date nobody recorded is named.** Somebody with no birthday on file drops
+  out of the list, and a list that quietly shrinks reads as a quiet month —
+  so `not_recorded` carries the count and the block prints it with a link to
+  where it is fixed.
+- **The year of birth is never published.** The panel holds it, this module
+  reads it to work out the day, and it does not leave: a block that prints the
+  whole company's ages is a different feature from one that says whose
+  birthday it is. Years of service are the opposite — they are the point of an
+  anniversary, so those are carried.
+- **29 February is marked on the 28th in a common year.** Dropping it means
+  one person's birthday never appears, and nothing reports that absence.
+- **Somebody who started this month is welcomed, not given a 0th
+  anniversary** — and somebody whose start date is still ahead of them is not
+  congratulated for a job they have not begun.
+- **The popup greets the right Todd.** Two people on this roster share a first
+  name and two share a birthday, so `mine()` matches the signed-in
+  **account's email**, and falls back to an exact display name only for the
+  shared-password session, which has no account behind it at all.
+- **It fires once per person per day**, and the marker is written when the
+  popup is *shown* rather than when it is dismissed — a reload must not bring
+  it back, and somebody who pressed Escape has still seen it. It is
+  `localStorage`, so it is per browser: the failure mode is seeing it twice
+  on a second machine, never a page that breaks because storage is blocked.
+- **It never fires inside somebody else's iframe.** Hub pages are framed in
+  Smart 1 Suite (`hub/suite_embed.py`), and a confetti cannon going off in a
+  client-facing panel is not a feature.
+- **The confetti is skipped for `prefers-reduced-motion`.** A full-screen
+  particle system is exactly what that setting is for.
+
+`?cheers=demo` shows a sample popup, marked as a sample, on any hub page;
+`?cheers=preview` replays today's real one. The script is loaded from
+`base.html` alone and not from the chrome `HubBar` injects into mounted
+modules: one place that can raise an interruption is how you stay sure it is
+raised once. `test_celebrations.py` asserts all of it, including that the
+block sits above System checks and that the API refuses an anonymous request —
+these are staff dates of birth.
+
+**A page that exists is not a page anybody can reach.** The dashboard's
+partner row was five buttons written into `dashboard.html` — four links and a
+grey "New Partner · Page coming" placeholder — while `partner.available()` sat
+there written for exactly this job with no caller. The Digital Dictionary had
+been in the repo, served and reachable, since the day the other four arrived,
+and the dashboard went on offering four links and a promise. `partner.tiles()`
+draws the row from the files on disk now: a page filed here appears without a
+template edit, and one not yet filed greys out under its own name.
+
+### Who is signed in, and what that number is allowed to claim
+
+`hub/presence.py`, the top of the **System status** card on the dashboard, and
+the list behind it on `/status`. There is no session table: signing in issues a
+**signed cookie** and the server keeps nothing, which is what makes two workers
+and a restart survivable and also means nothing is ever told that somebody has
+left. Closing a laptop and reading a long page are indistinguishable from here.
+So "logged in now" is not a question this Hub can answer, and the number it
+does answer — **people seen in the last fifteen minutes** — is printed with
+those words beside it on every screen that shows it, from
+`presence.summary_line()` so none of them can word it differently or print the
+count without the window.
+
+- **It is recorded from both halves of the app.** The hub app's
+  `before_request` covers hub pages; `AuthGuard` covers the twenty mounted
+  modules, and it is WSGI middleware with **no application context** — the
+  `flask.g` trap that made the Google sweep report an empty book. It pushes
+  the hub app's context itself, and only once the throttle says a write is
+  due. Without that half, somebody working in Smart 1 Ads all morning drops
+  out of the count fifteen minutes in, which is a wrong number that looks
+  exactly like a right one.
+- **One write per person per minute per worker.** Both hooks run on every
+  request, so without the throttle this is a database write per request. The
+  window is fifteen minutes wide; a minute of staleness changes no answer.
+- **The page somebody is on is deliberately not recorded**, and the test
+  asserts the table's columns to keep it that way. A path column turns a
+  headcount into a minute-by-minute log of what each member of staff was
+  doing, and the moment it exists somebody reads it that way. The row is
+  overwritten rather than appended, so it cannot become a timesheet either.
+- **A new table, not a column on `hub_users`** — `create_all()` never adds a
+  column to an existing table, the same reason `hub_user_profiles` is its own.
+- **Identity resolves to exactly one account or to none.** The module cookie
+  carries a display name, so `identify()` is the only way back to a person:
+  one match is that person, no match is a `PANEL_PASSWORD` session (counted,
+  and **named** as shared rather than folded into a headcount people read as
+  "how many of us are here"), and two matches is a real person we cannot name
+  — never a guess between them, and never promoted to "shared".
+- **`/api/presence` is deliberately not a key on `/api/status`.** That path is
+  in `access.UTILITY_PREFIXES`, so for the eleven General accounts it answers
+  403 — the headcount would have been admin-only while sitting on everybody's
+  dashboard, reading as zero. The count is everybody's; the account-by-account
+  list on `/status` stays in Utilities.
+- **Nothing in it may raise.** A presence write failing costs a page nothing,
+  and `active()` reports that it could not look rather than returning an empty
+  list: "nobody is signed in" and "we could not read the table" are different
+  answers.
+
+That last trap was already live on the card this sits on. The dashboard's
+mini status panel fetches `/api/status`, a General account is refused it, and
+the panel rendered the missing `checks` array as **"✓ 0 checks OK · no
+issues"** — a green tick over a question that was never asked, for eleven of
+the fourteen people. It says what happened now.
+
 **Nothing here is a crawler's business.** `hub/no_crawl.py`: `robots.txt`,
 `/llms.txt`, and an `X-Robots-Tag` on every response — added as WSGI middleware
 in `wsgi.py` rather than as a Flask `after_request`, or it would have covered
@@ -2106,7 +2324,7 @@ python tools/checktemplates.py     # the Jinja-carrying blocks jscheck skips
 python tools/linkcheck.py          # every internal URL resolves, every url_for has a route
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
-python3 test_jsonstore.py          # the database mirror really restores
+python3 test_jsonstore.py          # the mirror restores, and one answer on who is outside it
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
 python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
@@ -2121,6 +2339,7 @@ python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
 python3 test_campaign_assets.py    # campaigns waiting on an asset, by media partner
 python3 test_dashboard_trends.py   # the KPI comparisons accumulate and name their months
+python3 test_celebrations.py       # birthdays and anniversaries: the month, and who is interrupted
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
 python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
@@ -2142,7 +2361,8 @@ python3 test_client_groups.py      # grouped clients: what merges, what must not
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
 python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the chrome, who may frame
 python3 test_display_ads.py        # the display layouts, and the build screen's contracts
-python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle
+python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
+                                   #   and the signed-in headcount on the dashboard
 ```
 
 The test files need no pytest and no new dependencies; each runs against a

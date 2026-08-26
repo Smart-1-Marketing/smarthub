@@ -5,7 +5,6 @@ import re
 import time
 from typing import Any
 
-import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
@@ -30,9 +29,6 @@ load_dotenv()
 app = Flask(__name__)
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-# Standardized on GHL_WEBHOOK_URL. SMART1_WEBHOOK_URL is still read as a fallback
-# so older deployments keep working until they switch the env var over.
-WEBHOOK_URL = (os.getenv("GHL_WEBHOOK_URL") or os.getenv("SMART1_WEBHOOK_URL") or "").strip()
 # Absolute base used to build the public report_pdf_url (e.g. https://smart1hvac.onrender.com).
 # If empty, the app derives it from the incoming request. Ignored when Cloudinary is configured.
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
@@ -686,9 +682,16 @@ def build_report_pdf(report: dict, company: str, base_url: str) -> str:
 def send_webhook(payload: dict, report: Any, status: str, pdf_url: str = "") -> None:
     """Deliver the lead through the Hub's lead panel.
 
-    Was a fire-and-forget POST that returned silently with no WEBHOOK_URL —
-    so a blank env var discarded every lead while the visitor saw success.
-    The panel stores first and forwards second.
+    Was a fire-and-forget POST that returned silently with an unset webhook
+    URL, so a blank env var discarded every lead while the visitor saw
+    success.
+
+    The panel is the only route. It stores the lead first and forwards second,
+    so a Suite outage delays delivery rather than destroying it, and anything
+    undelivered stays visible. There is deliberately nothing to fall back to:
+    the inbound Suite webhook this used to try next is retired, so a fallback
+    could only write the second contact the panel exists to prevent — or,
+    once the trigger behind it is off, nothing at all, silently.
     """
     _rep = report or {}
     try:
@@ -715,39 +718,10 @@ def send_webhook(payload: dict, report: Any, status: str, pdf_url: str = "") -> 
             pass
         return
     except Exception:  # noqa: BLE001
-        pass
-
-    if not WEBHOOK_URL:
-        return
-    report = report or {}
-    mp = report.get("market_profile", {}) or {}
-    rp = report.get("recommended_package", {}) or {}
-    monthly = _money_to_int(rp.get("monthly_investment", ""))
-    body = {
-        # --- Contact / lead fields ---
-        **payload,
-        "source": "Smart 1 HVAC Comfort & Command",
-        "report_status": status,
-        "lead_type": payload.get("lead_type", "qualified"),
-        # --- Opportunity fields ---
-        "opportunity_name": f"{payload.get('company_name', 'Lead')} — HVAC Comfort & Command",
-        "recommended_package": rp.get("package_name", ""),
-        "recommended_investment": rp.get("monthly_investment", ""),
-        "opportunity_value_monthly": monthly,
-        "opportunity_value_annual": monthly * 12 if monthly else None,
-        # --- Report custom fields ---
-        "market_type": report.get("market_type", ""),
-        "market_summary": report.get("market_summary", ""),
-        "est_homeowner_households": mp.get("estimated_homeowner_households_base"),
-        "est_replacement_opportunity": mp.get("estimated_replacement_opportunity_base"),
-        "weather_triggers": ", ".join(report.get("weather_triggers", []) or []),
-        "report_pdf_url": pdf_url,
-        "report_json": json.dumps(report, separators=(",", ":"))[:60000],
-    }
-    try:
-        requests.post(WEBHOOK_URL, json=body, timeout=12)
-    except requests.RequestException:
-        app.logger.exception("Webhook delivery failed")
+        # No second route. The inbound Suite webhook this used to fall back to
+        # is retired, so a fallback would post a lead the panel has already
+        # stored at a URL nothing answers.
+        app.logger.exception("HVAC lead capture failed")
 
 
 @app.get("/")
