@@ -6,6 +6,14 @@ twice**. Everything else in this file exists to hold that line:
 * there is exactly one route — the Suite API. The inbound webhook is retired,
   and a leftover HUB_LEAD_WEBHOOK_URL is not a second route and not a
   fallback;
+* **no module posts a lead at an inbound webhook URL.** Six landing pages used
+  to fall back to one when ``hub.leads`` raised, and four of them posted their
+  abandoned-form partial lead straight there and nowhere else — so the panel
+  never saw it, and ``sendBeacon`` on ``pagehide`` meant nobody was watching
+  when it failed. Both are the same bug from either end: a second contact
+  while the Suite trigger is live, and a silent hole once it is not. The
+  source check below is what stops one coming back, because neither failure
+  shows on any screen;
 * a row that already carries a contact id is not re-sent;
 * a timeout — where we genuinely cannot know whether the write landed — is
   retried through upsert, which matches the existing contact rather than
@@ -15,8 +23,10 @@ Run directly: ``python test_lead_delivery.py``. No pytest, no network — the
 requests seam is stubbed, so this is safe to run anywhere and does not need
 Suite credentials.
 """
+import ast
 import json
 import os
+import pathlib
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -63,6 +73,75 @@ def responds(code, body):
         CALLS["n"] += 1
         return Resp(code, body)
     requests.post = _post
+
+
+# --- Nothing posts a lead at an inbound webhook ----------------------------
+#
+# Env names that hold an inbound GoHighLevel webhook URL. Posting a lead to one
+# is the retired route: while the Suite trigger is live it writes the second
+# contact hub/leads.py exists to prevent, and once the trigger is off it writes
+# nothing at all, with a 200 and no log either side.
+LEAD_WEBHOOK_ENVS = ("GHL_WEBHOOK_URL", "SMART1_WEBHOOK_URL",
+                     "HUB_LEAD_WEBHOOK_URL", "CALCULATORS_LEAD_WEBHOOK_URL")
+
+# Reading one of those names is fine where the point is to *report* that a
+# value is still set so somebody clears it — that is the whole job of the
+# panel's warning. Each entry says why, so a new one has to be argued for
+# rather than appended. A file not on this list must not name them at all.
+READS_ALLOWED = {
+    "hub/leads.py":
+        "reads HUB_LEAD_WEBHOOK_URL only to say it is still set and should go",
+    "hub/config.py":
+        "names the retired variable in the settings report",
+    "modules/calculators/store.py":
+        "reports CALCULATORS_LEAD_WEBHOOK_URL as a value to clear; never posts to it",
+    "modules/calculators/__init__.py":
+        "an empty config default, so the report above has a key to read",
+    "modules/io_builder/app.py":
+        "insertion orders, not leads: a different Suite workflow, and it "
+        "refuses with a named error when the variable is unset rather than "
+        "returning a quiet 200",
+}
+
+# Posting to something *named* like a webhook. Same allowance, same reason.
+POSTS_ALLOWED = {"modules/io_builder/app.py"}
+
+
+def _sources():
+    for base in ("hub", "modules"):
+        for path in sorted(pathlib.Path(base).rglob("*.py")):
+            if "_attic" in path.parts:
+                continue
+            yield path
+
+
+def webhook_source_checks():
+    """Fail on any module that reads or posts to an inbound-webhook URL."""
+    stray_reads, stray_posts = [], []
+    for path in _sources():
+        rel = path.as_posix()
+        text = path.read_text(errors="ignore")
+        if any(name in text for name in LEAD_WEBHOOK_ENVS) and rel not in READS_ALLOWED:
+            stray_reads.append(rel)
+        if rel in POSTS_ALLOWED:
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:                             # not our problem here
+            continue
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "post" and node.args):
+                continue
+            target = ast.dump(node.args[0])
+            if "webhook" in target.lower() or "WEBHOOK" in target:
+                stray_posts.append(f"{rel}:{node.lineno}")
+
+    print("no module reads an inbound lead-webhook URL")
+    check("files naming one outside the reporting allowlist", stray_reads, [])
+    print("no module posts a lead to a webhook URL")
+    check("posts to a webhook-named target", stray_posts, [])
 
 
 def main():
@@ -141,6 +220,8 @@ def main():
     print("a lead with no email or phone cannot be matched, and says so")
     row5 = leads.deliver(leads.capture("x", "/y", {"name": "No Contact Details"}))
     check("retryable", row5["retryable"], False)
+
+    webhook_source_checks()
 
     print()
     if FAILURES:
