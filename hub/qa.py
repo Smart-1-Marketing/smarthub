@@ -1710,6 +1710,190 @@ def google_accounts() -> dict:
     }
 
 
+# --------------------------------------------------- Smart 1 Sites vs hosting
+def sites_billing() -> dict:
+    """Every Smart 1 Sites project against the three hosting products.
+
+    The join lives in `hub/sites_billing.py`; this is the rendering, and the
+    only decisions it makes are about what a reader is told:
+
+    * **Findings first, in the order somebody acts on them.** Money going out
+      for a dead site, then a charge naming nothing, then a live site nobody is
+      billing for. The sites that are billed and fine are last and are still
+      printed — the question "which sites are billed?" deserves an answer, not
+      only its complement.
+    * **An unmatched charge keeps its description.** The description is the
+      only evidence there is, and a row that says "no match" without showing
+      what it failed to match is a row nobody can settle.
+    * **"We could not look" is not "all clear."** `unavailable()` covers every
+      way this report cannot answer — QuickBooks unreadable, the site list
+      unreadable or empty, the catalogue unreadable, and the three products
+      missing from it — and the page renders that as *Not measured* rather than
+      as a green tick. A registry that could not be read costs one matching
+      rule rather than the report, so it is said in the note instead.
+    """
+    from . import sites_billing as sb
+
+    columns = ["Site / charge", "Domain", "Site status", "QuickBooks customer",
+               "Product", "Last billed", "Amount", "Matched on"]
+    _, err = _qb_state()
+    if err:
+        return {"columns": columns, "rows": [], "note": err, "needs_qb": True}
+
+    rep = sb.report()
+    blocked = sb.unavailable(rep)
+    if blocked:
+        return {"columns": columns, "rows": [],
+                "unavailable": {"message": blocked,
+                                "action_href": "/status",
+                                "action_label": "Open System Status"}}
+
+    c = rep["counts"]
+    rows, styles = [], []
+
+    def group(text, tone=None):
+        rows.append([{"text": text, "group": True, "tone": tone}]
+                    + [""] * (len(columns) - 1))
+        styles.append(None)
+
+    def site_cell(site):
+        return ({"text": site["name"] or site["project_id"], "href": site["href"]}
+                if site["href"] else (site["name"] or site["project_id"]))
+
+    def domain_cell(site):
+        if site["domain"]:
+            return site["domain"]
+        # A project parked on a Simvoly platform domain has no real domain, and
+        # printing the platform one would read as an address somebody could
+        # visit. Say which of the two blanks it is.
+        return {"text": ("platform domain only" if site["raw_domain"]
+                         else "no domain recorded"), "muted": True}
+
+    def charge_row(rec, status_cell):
+        site = rec["site"]
+        cust = rec["customer"] or ""
+        cust_cell = ({"text": cust, "href": rec["link"]} if cust and rec["link"]
+                     else (cust or {"text": "—", "muted": True}))
+        return [site_cell(site), domain_cell(site), status_cell, cust_cell,
+                rec["product"] or {"text": "—", "muted": True},
+                rec["last_date"] or {"text": "never", "muted": True},
+                _money(rec["last_amount"]) if rec["last_date"] else
+                {"text": "not measured", "muted": True},
+                rec["why"] or ""]
+
+    if rep["billed_inactive"]:
+        group(f"Billed and not active ({c['billed_inactive']}) — money going "
+              f"out for a site that is not serving", "now")
+        for rec in rep["billed_inactive"]:
+            rows.append(charge_row(rec, {"text": rec["site"]["reason"], "pill": "bad"}))
+            styles.append("red")
+
+    if rep["unmatched"]:
+        group(f"Hosting charged, no site matched ({c['unmatched']}) — either we "
+              f"host it somewhere else or the description names nothing we hold",
+              "now")
+        for ln in rep["unmatched"]:
+            m = ln.get("match") or {}
+            desc = (ln.get("description") or "").strip()
+            rows.append([
+                {"text": desc or "(no description on this line)",
+                 "muted": not desc,
+                 "title": (ln.get("invoice_text") or "")[:400]},
+                m.get("domain") or {"text": "—", "muted": True},
+                {"text": "no site", "pill": "warn"},
+                ({"text": ln.get("customer") or "", "href": ln.get("link")}
+                 if ln.get("customer") and ln.get("link") else (ln.get("customer") or "")),
+                ln.get("product") or "",
+                ln.get("date") or "",
+                _money(ln.get("amount") or 0),
+                m.get("why") or "",
+            ])
+            styles.append("red")
+
+    if rep["unbilled"]:
+        group(f"Live site, nothing billed ({c['unbilled']}) — no hosting charge "
+              f"in the last {rep['months']} months", "soon")
+        for rec in rep["unbilled"]:
+            rows.append(charge_row(rec, {"text": "Active", "pill": "ok"}))
+            styles.append("yellow")
+
+    if rep["lapsed"]:
+        group(f"Live site, billing lapsed ({c['lapsed']}) — billed once and not "
+              f"in the last {rep['recent_months']} months", "soon")
+        for rec in rep["lapsed"]:
+            rows.append(charge_row(rec, {"text": "Active", "pill": "ok"}))
+            styles.append("yellow")
+
+    if rep["short"]:
+        group(f"Fewer hosting charges than live sites ({c['short']}) — matched "
+              f"on the customer name, so which site each charge covers is not "
+              f"stated anywhere", "soon")
+        for s in rep["short"]:
+            rows.append([
+                s["customer"],
+                {"text": ", ".join(x["domain"] for x in s["sites"] if x["domain"]) or "—",
+                 "muted": True},
+                {"text": f"{len(s['sites'])} live sites", "pill": "warn"},
+                s["customer"], "—", "—", _money(s["amount"]),
+                f"{s['lines']} hosting charge(s) this period against "
+                f"{len(s['sites'])} live sites: "
+                + ", ".join(x["name"] for x in s["sites"][:4]),
+            ])
+            styles.append("yellow")
+
+    if rep["ok"]:
+        group(f"Billed and active ({c['ok']})")
+        for rec in rep["ok"]:
+            rows.append(charge_row(rec, {"text": "Active", "pill": "ok"}))
+            styles.append(None)
+
+    cat = rep.get("catalogue") or {}
+    missing, similar = cat.get("missing") or [], cat.get("similar") or []
+    miss_note = ""
+    if rep.get("registry_error"):
+        # One of the five matching rules did not run. Silence here would read
+        # as "the customer name matched nothing", which is a different and
+        # worse claim than "we could not check the client registry".
+        miss_note += (" The client registry could not be read ("
+                      + rep["registry_error"] + "), so charges were not matched "
+                      "through it \u2014 some of the unmatched rows below may have "
+                      "an owner this run could not look up.")
+    if missing:
+        miss_note += (" " + ", ".join(f"\u201c{p}\u201d" for p in missing)
+                      + (" is" if len(missing) == 1 else " are")
+                      + " not in the QuickBooks catalogue under that name, so "
+                        "nothing can be billed under it \u2014 that is a property of "
+                        "the filter, not of the book.")
+    if similar:
+        # Named rather than matched. A product called "Monthly Web Hosting -
+        # Annual" is probably hosting and is not one of the three, and folding
+        # it in on a substring is the rule hub/client_key.py refuses; leaving
+        # it out in silence loses a tier of revenue from a report that looks
+        # complete. So: say it exists and let somebody decide.
+        miss_note += (" QuickBooks also has "
+                      + ", ".join(f"\u201c{p}\u201d" for p in similar[:5])
+                      + (" and others" if len(similar) > 5 else "")
+                      + ", which resemble these three and are NOT counted here.")
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_styles": styles,
+        "note": (f"{c['sites']} Smart 1 Sites projects ({c['active']} active) "
+                 f"against {c['lines']} hosting charges on invoices since "
+                 f"{rep['since']}. {c['billed_inactive']} billed with the site "
+                 f"not active, {c['unmatched']} charges matching no site, "
+                 f"{c['unbilled']} live sites never billed, {c['lapsed']} "
+                 f"lapsed, {c['ok']} billed and fine. Charges are joined to a "
+                 f"site by a domain in the description first, then by the "
+                 f"customer name matched exactly \u2014 a resemblance is printed as "
+                 f"\u201cpossible\u201d and still counted as unmatched. Only invoices "
+                 f"are read: sales receipts and recurring templates are not, so "
+                 f"a site billed either of those ways appears here as unbilled."
+                 + miss_note),
+    }
+
+
 REPORTS = {
     "active-clients": {
         "title": "Active Clients",
@@ -1816,6 +2000,15 @@ REPORTS = {
         "desc": "Customers whose invoiced amount this month doesn't match their active-product monthly total.",
         "ico": "&#9878;",
         "fn": invoice_off,
+        "group": "Billing & Accounting",
+    },
+    "sites-billing": {
+        "title": "Sites Billing Report",
+        "desc": "Every Smart 1 Sites project against the three QuickBooks "
+                "hosting products \u2014 which live sites nobody is billing for, "
+                "and which dead ones are still being charged.",
+        "ico": "&#127760;",
+        "fn": sites_billing,
         "group": "Billing & Accounting",
     },
     "accounting-requests": {

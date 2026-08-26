@@ -16,6 +16,7 @@ Hub use within that window keeps the connection alive indefinitely.
 import base64
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -618,74 +619,120 @@ def lookup(q: str, customer_id=None) -> dict:
     return {"configured": True, "connected": True, "customers": customers}
 
 
-# ---------------------------------------------------------------------------
-# Invoice lines for one product/service
-# ---------------------------------------------------------------------------
-#
-# The domain renewal report needs the *lines*, not the invoice totals: one
-# invoice to a media partner carries a renewal for five different clients, and
-# the client is named only in the line description. QuickBooks' query language
-# cannot filter on a line, so the invoices for the period are pulled whole and
-# the lines are sifted here.
-#
-# The item is matched on the **leaf** of its fully-qualified name. This
-# company files the service as `Website Hosting:Website Domain Renewal`, and a
-# caller asking for "Website Domain Renewal" — which is what it is called on
-# the invoice and what anybody would type — must not come back empty because
-# of a parent it did not know about. An item id, where the caller has one, is
-# checked first and is exact.
+# ---------------------------------------------------------------- line items
+def normalise_item_name(name: str) -> str:
+    """A product name in a form two spellings of it agree on.
 
-def item_leaf(name: str) -> str:
-    """`Website Domain Renewal` from `Website Hosting:Website Domain Renewal`."""
-    return str(name or "").split(":")[-1].strip()
+    Lives here rather than in either report, because both of them ask the same
+    question of the same catalogue and a second copy is how they come to
+    disagree about whether "Services:Website Maintenance" is the product they
+    were asked about. "&" and "and" are the same word, case is not a
+    distinction, and a QuickBooks item name arrives with its category as a
+    prefix ("Website Hosting:Website Domain Renewal") when the item sits in
+    one — which is why a plain equality test found nothing on a book where
+    every item is categorised.
+    """
+    s = str(name or "").strip().lower()
+    s = s.rsplit(":", 1)[-1].strip()        # drop a QuickBooks category prefix
+    s = s.replace("&", " and ")
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
 
 
-def line_item_matches(ref_name: str, ref_id, *, item_name: str = "",
+def line_item_matches(ref_name, ref_id, *, item_name: str = "",
                       item_id: str = "") -> bool:
+    """Is this invoice line the product asked for? Exactly, or not at all.
+
+    An item id, where the caller has one, is checked first and is exact. The
+    name is compared normalised — never as a substring, for the reason
+    `hub/client_key.py` gives at length: "Monthly Web Hosting" inside
+    "Monthly Web Hosting - Annual" is a different product at a different price.
+    """
     if item_id:
         return str(ref_id or "") == str(item_id)
     if not item_name:
         return False
-    return item_leaf(ref_name).lower() == item_leaf(item_name).lower()
+    a, b = normalise_item_name(ref_name), normalise_item_name(item_name)
+    return bool(a) and a == b
 
 
-def invoice_item_lines(start_iso: str, end_iso: str, *, item_name: str = "",
-                       item_id: str = "") -> list[dict]:
-    """Every invoice line in a date range that carries one product/service.
+def items() -> list[dict]:
+    """Every product/service in the QuickBooks catalogue.
 
-    The link is the QuickBooks app URL rather than the public InvoiceLink:
-    this is an internal accounting report, and `public_link()` costs one API
-    call per invoice, so a year of invoices would be a year of round trips to
-    render a table nobody sends to a client.
+    Read for one reason: a report that filters invoice lines by product name
+    has to be able to say whether that product *exists*. A renamed item makes
+    every "is this billed?" question answer no, on every row at once, and an
+    empty table reads as a clean bill of health rather than as a filter that
+    matched nothing. `hub/sites_billing.py` checks its three names against
+    this list before it reports on anything.
     """
-    invoices = _query_all(
-        f"SELECT * FROM Invoice WHERE TxnDate >= '{_esc(start_iso)}' "
-        f"AND TxnDate <= '{_esc(end_iso)}' ORDERBY TxnDate"
-    )
+    rows = _query_all("SELECT Id, Name, Description, Active FROM Item")
+    return [{"id": r.get("Id"), "name": r.get("Name") or "",
+             "description": r.get("Description") or "",
+             "active": bool(r.get("Active", True))} for r in rows]
+
+
+def invoice_lines_since(date_iso: str, to_iso: str = "") -> list[dict]:
+    """Every invoice *line* in a date range, with its product and description.
+
+    `invoices_since()` answers "how much did this customer pay", which is the
+    wrong question for anything keyed on what was sold. The line is where the
+    product name and the description live, and the description is the only
+    place a hosting charge says *which website* it is for.
+
+    Two things carried alongside each line, because neither is reliably on it:
+
+    * ``invoice_text`` — every other description on the same invoice plus the
+      customer memo. QuickBooks users routinely put the domain on a
+      description-only line under the item rather than on the item line, and a
+      reader that only looks at ``description`` finds nothing and concludes the
+      charge names no site. It is kept in its own field rather than merged into
+      the description, so a match found there can be *labelled* as found on the
+      invoice rather than on the line — weaker evidence, and a reader has to be
+      able to tell.
+    * ``customer`` — the display name, which is the fallback join when no
+      description names anything.
+    """
+    # `to_iso` is optional and open-ended by default, so the caller reading a
+    # rolling window is unchanged; the renewal reconciliation asks for one
+    # calendar year and must not be handed the next one's invoices with it.
+    where = f"TxnDate >= '{_esc(date_iso)}'"
+    if to_iso:
+        where += f" AND TxnDate <= '{_esc(to_iso)}'"
+    rows = _query_all(f"SELECT * FROM Invoice WHERE {where} ORDERBY TxnDate")
     out = []
-    for inv in invoices:
+    for inv in rows:
         ref = inv.get("CustomerRef") or {}
-        iid = str(inv.get("Id") or "")
-        for line in inv.get("Line") or []:
-            detail = line.get("SalesItemLineDetail") or {}
-            item = detail.get("ItemRef") or {}
-            if not line_item_matches(item.get("name"), item.get("value"),
-                                     item_name=item_name, item_id=item_id):
+        lines = [ln for ln in (inv.get("Line") or []) if isinstance(ln, dict)]
+        memo = ((inv.get("CustomerMemo") or {}).get("value") or "")
+        all_text = [str(ln.get("Description") or "") for ln in lines]
+        all_text.append(memo)
+        for ln in lines:
+            detail = ln.get("SalesItemLineDetail")
+            if not isinstance(detail, dict):
+                # SubTotal, Discount and description-only lines carry no
+                # product. They are still read above, as invoice_text.
                 continue
+            item = detail.get("ItemRef") or {}
+            desc = str(ln.get("Description") or "")
+            others = [t for t in all_text if t and t != desc]
             out.append({
-                "invoice_id": iid,
-                "line_id": str(line.get("Id") or ""),
+                "invoice_id": inv.get("Id"),
+                # The line's own id. `invoice_id` alone does not identify a
+                # line — one invoice carries five domain renewals for five
+                # businesses — and the renewal report stores a person's
+                # confirmed match against exactly one of them.
+                "line_id": str(ln.get("Id") or ""),
                 "doc_number": inv.get("DocNumber") or "",
                 "date": inv.get("TxnDate") or "",
-                # Who the invoice was raised against. On a domain renewal this
-                # is almost always the media partner rather than the client —
-                # the client is named in the line description.
+                "customer_id": ref.get("value"),
                 "customer": ref.get("name") or "",
-                "customer_id": ref.get("value") or "",
-                "description": str(line.get("Description") or ""),
-                "amount": float(line.get("Amount") or 0),
-                "item_id": str(item.get("value") or ""),
-                "item_name": item.get("name") or "",
-                "link": f"https://app.qbo.intuit.com/app/invoice?txnId={iid}",
+                "item_id": item.get("value"),
+                "item": item.get("name") or "",
+                "description": desc,
+                "invoice_text": " \n".join(others),
+                "amount": float(ln.get("Amount") or 0),
+                "qty": detail.get("Qty"),
+                "link": invoice_link(inv.get("Id")),
             })
     return out

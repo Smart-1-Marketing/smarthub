@@ -702,21 +702,41 @@ check("a label with a year on it identifies nobody either",
 check("a file host is not a website, so it is not read as one",
       domain_renewals.parse_description(
           "Renewal - see drive.google.com/file/x")["domain"] == "")
+# Inherited from hub/client_urls.domains_in(), the reader the Sites Billing
+# report uses — neither of these was refused by the copy this replaced.
+check("an email address is not a website, however much it looks like one",
+      domain_renewals.parse_description(
+          "billing@acme.com - annual renewal")["domain"] == "",
+      domain_renewals.parse_description("billing@acme.com - annual renewal"))
+check("...and a file name is not a second domain",
+      domain_renewals.parse_description(
+          "acme.com/index.html renewal")["domain"] == "acme.com",
+      domain_renewals.parse_description("acme.com/index.html renewal"))
 check("a description naming only a business still yields the business",
       domain_renewals.parse_description("Acme Plumbing")["name"] == "Acme Plumbing")
 
-check("the item is matched on the leaf of its fully-qualified name",
-      __import__("hub.quickbooks", fromlist=["x"]).line_item_matches(
-          "Website Hosting:Website Domain Renewal", "143",
-          item_name="Website Domain Renewal"))
+from hub import quickbooks as _qb                                   # noqa: E402
+check("the item is matched past its QuickBooks category prefix",
+      _qb.line_item_matches("Website Hosting:Website Domain Renewal", "143",
+                            item_name="Website Domain Renewal"))
 check("...and an item id, where there is one, is exact and wins",
-      __import__("hub.quickbooks", fromlist=["x"]).line_item_matches(
-          "Something Else", "143", item_name="Website Domain Renewal",
-          item_id="143"))
+      _qb.line_item_matches("Something Else", "143",
+                            item_name="Website Domain Renewal",
+                            item_id="143"))
 check("a different product on the same invoice is not a domain renewal",
-      not __import__("hub.quickbooks", fromlist=["x"]).line_item_matches(
+      not _qb.line_item_matches(
           "Video Advertising:Video Ads YouTube TrueView", "98",
           item_name="Website Domain Renewal"))
+# The shared rule, so the substring refusal comes with it: a product whose
+# name merely *contains* the one asked for is a different product at a
+# different price, and matching it bills the wrong tier.
+check("a product that only contains the name is refused, not matched",
+      not _qb.line_item_matches("Website Domain Renewal - Annual", "144",
+                                item_name="Website Domain Renewal"))
+check("...and the Sites Billing report reads the same normaliser",
+      __import__("hub.sites_billing", fromlist=["x"])._norm_item(
+          "Website Hosting:Website Domain Renewal")
+      == _qb.normalise_item_name("website domain renewal"))
 # Read at call time, not captured at import: a constant assigned from
 # os.environ when the module loads is set on Render and changes nothing, with
 # every screen still looking healthy on the default it kept.

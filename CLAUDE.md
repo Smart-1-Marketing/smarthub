@@ -1388,6 +1388,85 @@ remains — no snapshot at all, on a fresh disk with no mirror — is behind a
 cooldown, or a Knack that is up and slow costs every visitor the full timeout
 in turn, which is the per-visit pull back in its worst form.
 
+### Which websites are billed for, and which are not
+
+`hub/sites_billing.py` and **QA → Billing & Accounting → Sites Billing
+Report**. Three QuickBooks products pay for a site we host — **Monthly Web
+Hosting**, **Monthly Website Hosting & Maintenance** and **Website
+Maintenance** — and nothing joined them to the sites they pay for, so neither
+half of the obvious question had an answer: which live sites nobody is
+invoicing, and which expired or cancelled ones are still being charged every
+month. QuickBooks knows the charge and not the site, Sites Admin knows the site
+and not the charge, and the only string connecting them is the **description a
+person typed on the invoice line**.
+
+`quickbooks.invoice_lines_since()` is what made it possible at all:
+`invoices_since()` answers "how much did this customer pay", which is the wrong
+question for anything keyed on what was sold — the product name and the
+description live on the **line**. Each line also carries `invoice_text`, every
+other description on the same invoice plus the customer memo, because
+QuickBooks users routinely put the domain on a description-only line under the
+item; it is kept in its own field so a match found there can be *labelled* as
+found on the invoice rather than on the line.
+
+Five rules match a charge to a site, strongest first, and each is a way to be
+confidently wrong:
+
+- **A domain is a join; a name is a comparison.** A domain in the description
+  identifies one project. A business name is matched exactly on the normalised
+  form through `hub/client_key.py` — never a substring, so "Riverside HVAC"
+  cannot collect "Riverside HVAC Supply".
+- **The client registry is the rule that finds what the other four cannot.**
+  A project titled "Legacy Build 2019" whose client field was never filled in
+  still carries the domain, and `client_key.resolve()` — `allow_fuzzy` off — is
+  what turns a QuickBooks customer name into that domain. A registry that could
+  not be read costs that one rule and is **named on the page**: "the customer
+  name matched nothing" and "we could not check the registry" are different
+  claims about the same empty cell.
+- **A resemblance is printed and still counted as unmatched.** `site_names`'
+  near pass runs and what it finds is shown as *possible* beside a row that
+  stays in the unmatched list. A fuzzy hit folded into the totals is a fact
+  nobody re-examines.
+- **A project title is indexed alongside the client it is filed under**, not
+  instead of it. Folding the two into one field made the ambiguity check
+  unreachable — and the ambiguity is real: two projects titled the same thing
+  filed under two different companies match neither, and both are named.
+- **An email address is not a website, and neither is a file name.**
+  `billing@acme.com` contains "acme.com", and `acme.com/index.html` yields a
+  second "domain" called `index.html` because every domain test in this
+  codebase accepts a four-letter last label. Emails are stripped before the
+  scan, the path is consumed by the regex, file extensions are refused by name,
+  and `client_urls.looks_like_a_website` rejects the Cloudinary and social URLs
+  as it does everywhere else.
+
+**A product name that matches no QuickBooks item is not a product with no
+charges**, and this is the silent zero the whole report could have become:
+rename "Website Maintenance" in QuickBooks and every site on the book reads as
+unbilled, in a clean complete table, with nothing saying why. The catalogue is
+read first — `quickbooks.items()` — and if none of the three names resolves the
+report says **not measured** instead. A product that merely *resembles* one
+("Monthly Web Hosting - Annual") is **named and not counted**: matching it is
+the substring rule `client_key` refuses, and dropping it silently loses a tier
+of revenue from a report that looks complete.
+
+**Lapsed is not unbilled, and stopped is not overbilled.** A live site last
+charged eight months ago and one never charged at all are separate rows saying
+which. An inactive site is a finding only while the billing is **current** — a
+cancelled project whose charges also stopped is the system working, and
+flagging it buries the ones still being paid for. A year of invoices is read
+because an annual plan invoiced last November is billing; three months counts
+as current, because these are invoiced monthly and quarterly depending on the
+client and a monthly invoice not yet raised this month is not a lapse.
+
+**One charge that names only a customer says nothing about which of their sites
+it covers.** A client with three live sites and one hosting line is its own
+finding — *fewer hosting charges than live sites* — rather than three sites
+reported as billed or three reported as unbilled. A charge that names a
+**domain** covers that one site and leaves the client's others where they were.
+Only invoices are read: sales receipts and recurring templates are not, and the
+note says so rather than letting a site billed either way read as unbilled.
+`test_sites_billing.py` asserts all of it.
+
 ## One company, several client records
 
 National Background Check and Fast Fingerprints are one business. Every
@@ -2556,6 +2635,7 @@ python3 test_video_library.py      # the footage index, its status row, the page
 python3 test_sites_match.py        # live-only matching, the name pass, a client's missing URL
 python3 test_domain_links.py       # attaching a domain everywhere, orphans, renewals,
                                    #   the QuickBooks match and do-not-renew
+python3 test_sites_billing.py      # hosting charges joined to sites: unbilled, and billed-but-dead
 python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
 python3 test_google_access.py      # the paused Ads flow, and who an invite is for
 python3 test_google_index.py       # the Google sweep: no request, and none vs cannot look

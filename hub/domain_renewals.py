@@ -42,12 +42,15 @@ label rather than a business — the same rule `hub/site_names.py` applies to
 "Main Site". A label-only remainder is dropped rather than matched loosely,
 because a fuzzy pass over "Annual renewal" eventually finds somebody.
 
-**The item is matched on the leaf of its name.** This company files the
-service as `Website Hosting:Website Domain Renewal`. A report asking for
-"Website Domain Renewal" — which is what it is called on the invoice and what
-anybody would type — must not come back empty because of a parent nobody knew
-about. `QB_DOMAIN_RENEWAL_ITEM` and `QB_DOMAIN_RENEWAL_ITEM_ID` override it,
-so a renamed product is one environment variable rather than a hunt.
+**The item is matched on its normalised name, never a substring.** This
+company files the service as `Website Hosting:Website Domain Renewal`. A
+report asking for "Website Domain Renewal" — which is what it is called on the
+invoice and what anybody would type — must not come back empty because of a
+parent nobody knew about, and must not match "Website Domain Renewal - Annual"
+either, which is a different product at a different price.
+`quickbooks.line_item_matches()` is the shared rule the Sites Billing report
+uses. `QB_DOMAIN_RENEWAL_ITEM` and `QB_DOMAIN_RENEWAL_ITEM_ID` override the
+name, so a renamed product is one environment variable rather than a hunt.
 
 **The cache is rebuildable and says so.** A year of invoices is a large read,
 so the extracted lines are cached — `durable=False`, and what rebuilds it is
@@ -102,13 +105,6 @@ _LABEL_ONLY = {
     "renewal fee", "domain fee", "fee", "na", "n a", "tbd",
 }
 
-_DOMAIN_RE = re.compile(
-    r"(?:https?://)?(?:www\.)?"
-    r"((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,24})"
-    r"(?:/\S*)?",
-    re.I,
-)
-
 _SEPARATORS = " \t\r\n-–—,:;/|·•"
 
 
@@ -118,33 +114,29 @@ _SEPARATORS = " \t\r\n-–—,:;/|·•"
 def parse_description(text: str) -> dict:
     """The domain and the business name out of one line description.
 
-    Returns both, either of which may be "". Nothing is invented: a
-    description with no domain in it reports no domain rather than guessing
-    one from the name, and a remainder that is only a label reports no name.
+    The domain comes from `hub/client_urls.domains_in()` — the shared reader
+    the Sites Billing report uses, which already refuses an email address, a
+    file extension read as a top-level domain, a file host and a platform
+    domain. A second copy here would be a second set of those judgements, and
+    the two reports would eventually disagree about the same string.
+
+    The name is what is left once every URL-shaped span is taken out. Nothing
+    is invented: a description with no domain reports no domain rather than
+    guessing one from the name, and a remainder that is only a label reports
+    no name.
     """
+    from hub.client_urls import domains_in, strip_domains
     raw = str(text or "")
-    flat = raw.replace(" ", " ")
-    domain, rest = "", flat
-    # Every URL-shaped span comes out of the remainder, not only the one that
-    # became the domain: a rejected one — a Drive link, a Facebook page — is
-    # still not part of anybody's name, and leaving it in makes the remainder
-    # look like a business name that matches nothing.
-    cut = []
-    for m in _DOMAIN_RE.finditer(flat):
-        cut.append(m.span())
-        if domain:
-            continue
-        cand = _canonical(m.group(1))
-        if cand and _is_website(cand):
-            domain = cand
-    for a, b in reversed(cut):
-        rest = rest[:a] + " \n " + rest[b:]
+    flat = raw.replace(" ", " ")
+    found = domains_in(flat)
+    domain = found[0] if found else ""
 
     name = ""
     # Split on a tab, a newline, a pipe — and on a *spaced* dash, which is how
     # half of these separate the business from the rest. Spaced on purpose:
     # "Syrons-Market" is one word and cutting it in half loses the business.
-    for chunk in re.split(r"[\t\r\n|]+|\s+[-\u2013\u2014]+\s+", rest):
+    for chunk in re.split(r"[\t\r\n|]+|\s+[-\u2013\u2014]+\s+",
+                          strip_domains(flat)):
         cleaned = re.sub(r"\s+", " ", chunk.strip(_SEPARATORS)).strip()
         cleaned = cleaned.strip(_SEPARATORS).strip()
         if not cleaned or _is_label(cleaned):
@@ -171,19 +163,30 @@ def _is_label(text: str) -> bool:
     return not s or s in _LABEL_ONLY
 
 
-def _canonical(value: str) -> str:
-    from hub.client_context import canonical_domain
-    return canonical_domain(value)
-
-
-def _is_website(domain: str) -> bool:
-    from hub.client_urls import looks_like_a_website
-    return looks_like_a_website(domain)
-
-
 def _norm(name: str) -> str:
     from hub.client_key import normalise_name
     return normalise_name(name)
+
+
+def _charge(ln: dict) -> dict:
+    """One line from the shared reader, in the shape this report reads.
+
+    `item` there is `item_name` here and the rest is passed through. A thin
+    rename rather than a second reader: what this report needs that the other
+    does not is the *line id*, which is now carried by the shared one because
+    a confirmed match has to point at one line of an invoice that holds five.
+    """
+    return {"invoice_id": str(ln.get("invoice_id") or ""),
+            "line_id": str(ln.get("line_id") or ""),
+            "doc_number": ln.get("doc_number") or "",
+            "date": ln.get("date") or "",
+            "customer": ln.get("customer") or "",
+            "customer_id": ln.get("customer_id") or "",
+            "description": str(ln.get("description") or ""),
+            "amount": float(ln.get("amount") or 0),
+            "item_id": str(ln.get("item_id") or ""),
+            "item_name": ln.get("item") or "",
+            "link": ln.get("link") or ""}
 
 
 def charge_key(line: dict) -> str:
@@ -264,9 +267,19 @@ def charges(year: int | None = None, *, refresh: bool = False,
                        "error": "QuickBooks is not connected. Connect it from "
                                 "System Status; nothing was read."})
     try:
-        lines = quickbooks.invoice_item_lines(
-            f"{yr:04d}-01-01", f"{yr:04d}-12-31",
-            item_name=item_name(), item_id=item_id())
+        # `invoice_lines_since()` is the Sites Billing report's reader, given
+        # an end date. QuickBooks' query language cannot filter on a line, so
+        # both reports pull the period whole and sift; two readers doing that
+        # is two descriptions of one operation, and the second one to be
+        # written is always the one that misses a field.
+        want = item_name()
+        wid = item_id()
+        lines = [
+            _charge(ln) for ln in quickbooks.invoice_lines_since(
+                f"{yr:04d}-01-01", f"{yr:04d}-12-31")
+            if quickbooks.line_item_matches(ln.get("item"), ln.get("item_id"),
+                                            item_name=want, item_id=wid)
+        ]
     except Exception as exc:                            # noqa: BLE001
         # The stale cache is still shown, labelled with its own age, because a
         # last-known list beats a blank page — but the error travels with it.

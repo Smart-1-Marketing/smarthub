@@ -345,6 +345,23 @@ jobs:
             echo "test_sites_match.py not on this branch — nothing to run."
           fi
 
+      - name: Sites billing tests
+        # The QA Sites Billing Report: the three QuickBooks hosting products
+        # joined to Smart 1 Sites projects by a typed invoice description. The
+        # check that matters most is the silent one -- rename a product in
+        # QuickBooks and every site on the book reads as unbilled, in a clean
+        # complete table, with nothing saying why; the catalogue is read first
+        # and that case says "not measured" instead. Guarded like the steps
+        # around it so this workflow stays mergeable on a branch that predates
+        # the file. QuickBooks and Sites Admin are both fixtures, so it needs
+        # no connected company and reaches no third party.
+        run: |
+          if [ -f test_sites_billing.py ]; then
+            python test_sites_billing.py
+          else
+            echo "test_sites_billing.py not on this branch — nothing to run."
+          fi
+
       - name: Domain attach, orphan URL and domain purchase tests
         # One domain attached to one client in four systems at once, the
         # orphan list that finds a URL nobody owns, and the purchased-domain
