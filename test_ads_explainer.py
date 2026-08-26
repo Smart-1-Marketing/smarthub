@@ -238,6 +238,23 @@ check("...belonging to this module",
 # cannot drive Settings or Live campaigns -- it highlighted nothing and "Do it
 # for me" did nothing. Both halves of the opt-out are asserted, because either
 # one alone silently restores the lying button.
+# A tour used to open itself on the first visit to a screen: modal, over the
+# form, in front of somebody who came to do a job. It is offered now, and both
+# answers are final -- a prompt that comes back is the thing being fixed.
+help_js = (ROOT / "hub" / "static" / "hub-help.js").read_text(encoding="utf-8")
+check("the first visit offers the tour rather than opening it",
+      "if (screen) offer(screen);" in help_js, True)
+check("...and declining it is remembered",
+      "markSeen(screen);" in help_js.split("function offer(")[1].split("function init(")[0], True)
+
+# The ring paints the dim, with the highlighted element punched out of it. A
+# scrim on the layer as well dimmed the page twice over and covered the one
+# element the ring had left bright.
+help_css = (ROOT / "hub" / "static" / "hub-help.css").read_text(encoding="utf-8")
+layer = help_css.split(".s1-tour-layer{")[1].split("}")[0]
+check("the tour layer paints no scrim of its own", "background:" in layer, False)
+check("...and the ring still does", "9999px" in help_css, True)
+
 demo_js = (ROOT / "hub" / "static" / "hub-demo.js").read_text(encoding="utf-8")
 check("the launcher honours an opt-out",
       'data-demo") !== "off"' in demo_js, True)

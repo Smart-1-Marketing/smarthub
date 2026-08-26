@@ -114,8 +114,9 @@
 {% block head %}{% endblock %}
 </head>
 {# data-screen is what starts this screen's explainer: hub-help.js reads it,
-   mounts every help bubble placed on the page and runs the tour once
-   per browser, replayable from the button in the header. data-demo="off" is
+   mounts every help bubble placed on the page and *offers* this screen's tour
+   once, in a corner card that leaves the page usable -- it does not open it.
+   The header button runs it on demand, whenever. data-demo="off" is
    set on the screens that have no walkthrough of their own -- without it
    hub-demo.js floats a "Walk me through this" button on every page carrying
    data-module, and on Settings or Live campaigns that offered the campaign

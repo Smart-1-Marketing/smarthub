@@ -24,10 +24,18 @@
 
 /* ---- tour ---- */
 body.s1-tour-open{overflow:hidden}
-.s1-tour-layer{position:fixed;inset:0;z-index:1000;background:rgba(9,22,38,.62);
-  display:flex;align-items:flex-end;justify-content:center;padding:1.25rem}
+/* No background of its own. The ring below paints the dim, as a 9999px shadow
+   with the highlighted element punched out of it -- so a scrim here dimmed the
+   page a second time (0.62 over 0.62 is 0.86, dark enough that the form behind
+   could not be read) AND covered the one element the ring had deliberately left
+   bright, which is the whole point of a spotlight. The layer stays for what it
+   is actually for: catching clicks meant for the page while the tour is open. */
+.s1-tour-layer{position:fixed;inset:0;z-index:1000;
+  display:flex;align-items:flex-end;justify-content:center;padding:1.25rem;
+  pointer-events:auto}
 .s1-tour-card{position:relative;z-index:1002;width:min(30rem,94vw);background:#fff;
-  border-radius:14px;padding:1.15rem 1.25rem;box-shadow:0 24px 60px rgba(6,18,32,.4);
+  border:1px solid #dfe6ee;border-radius:14px;padding:1.15rem 1.25rem;
+  box-shadow:0 24px 60px rgba(6,18,32,.4);
   font-family:system-ui,sans-serif;color:#1b2733}
 .s1-tour-count{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:#7b8a9c;margin-bottom:.4rem}
 .s1-tour-title{margin:0 0 .45rem;font-size:1.02rem;color:#0d2340}
@@ -39,6 +47,20 @@ body.s1-tour-open{overflow:hidden}
 .s1-tour-back{background:#fff;border-color:#d7dfe8;color:#41525f}
 .s1-tour-back:disabled{opacity:.4;cursor:default}
 .s1-tour-next{background:#1769AA;color:#fff}
+/* The first-visit offer. Deliberately not a dialog: no scrim, no focus trap,
+   nothing covering the form -- the page stays fully usable while it sits there,
+   and either button ends it for good. */
+.s1-tour-offer{position:fixed;right:1rem;bottom:1rem;z-index:1150;width:min(21rem,92vw);
+  background:#fff;border:1px solid #dfe6ee;border-radius:14px;padding:.9rem 1rem;
+  box-shadow:0 18px 44px rgba(6,18,32,.22);font-family:system-ui,sans-serif;color:#1b2733}
+.s1-tour-offer-title{margin:0 0 .3rem;font:700 .9rem system-ui,sans-serif;color:#0d2340}
+.s1-tour-offer-body{margin:0 0 .85rem;font-size:.82rem;line-height:1.5;color:#41525f}
+.s1-tour-offer-body strong{color:#1b2733}
+.s1-tour-offer-actions{display:flex;justify-content:flex-end;gap:.5rem}
+.s1-tour-offer-actions button{border-radius:8px;padding:.4rem .85rem;
+  font:600 .8rem system-ui,sans-serif;cursor:pointer;border:1px solid transparent}
+.s1-tour-offer-no{background:#fff;border-color:#d7dfe8;color:#41525f}
+.s1-tour-offer-yes{background:#1769AA;color:#fff}
 .s1-tour-ring{position:absolute;z-index:1001;border-radius:10px;pointer-events:none;
   box-shadow:0 0 0 3px #4aa3e8,0 0 0 9999px rgba(9,22,38,.62);transition:all .22s ease}
 

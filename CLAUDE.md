@@ -591,7 +591,7 @@ recognise.
 it.** Smart 1 Ads had no explanation on any of its screens — no bubbles, no
 tour — while `hub/help.py`, `hub/help_routes.py` and `hub/static/hub-help.js`
 sat there working: a bubble appears where a template places `help_dot('key')`,
-and a tour runs only where `<body data-screen="…">` names one. Nothing reports
+and a tour is offered only where `<body data-screen="…">` names one. Nothing reports
 a screen that placed neither, and every failure in between is silent by
 design. A bubble whose key is not in the registry is **removed** client-side
 rather than left as a dead "?", so a typo'd key reads as helped from the
@@ -609,6 +609,19 @@ in carry both. `test_ads_explainer.py` asserts every key resolves, every
 selector is anchored **on its own screen's template**, and that none of it
 reaches `/tools/ads/estimate/<token>` — that document is chrome-free for a
 prospect, and a staff note in it is an internal note in front of a client.
+
+**A tour that opens itself is a dialog in front of somebody doing a job.**
+`data-screen` used to *start* the tour on a screen's first visit — modal, over
+the form, before anyone had asked for anything. It **offers** it now, in a
+corner card with the page fully usable behind it, and both answers are final:
+a prompt that comes back is the thing being fixed, and "How this works" in the
+header is how a tour is reached afterwards. The same screen showed why the
+modal was worse than it looked: the layer painted `rgba(9,22,38,.62)` **and**
+the ring painted the same value as a 9999px shadow, so everything outside the
+ring was dimmed twice — 86%, dark enough that the form behind could not be read
+— and the layer's own scrim also covered the one element the ring had punched
+out, which is the entire point of a spotlight. The dim belongs to the ring
+alone. `test_ads_explainer.py` asserts both halves.
 
 **The Render disk is not backed up. The database is.** Render backs up managed
 Postgres; the 5 GB disk at `/var/data` is outside that, and a plan change,
