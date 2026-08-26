@@ -35,7 +35,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("google-account-finder")
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
+# Through hub.config, which accepts SECRET_KEY, FLASK_SECRET_KEY and
+# SESSION_SECRET. This read one of the three, so on a deployment setting either
+# of the others the module minted a fresh secret at every boot: the Google
+# Finder OAuth flow lost its state cookie mid-handshake on each deploy, and the
+# only symptom was a sign-in that had to be started again.
+try:
+    from hub.config import settings as _hub_cfg
+    _flask_secret = _hub_cfg.secret_key
+except Exception:                                     # noqa: BLE001
+    _flask_secret = (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
+                     or os.environ.get("SESSION_SECRET") or "")
+app.secret_key = _flask_secret or secrets.token_hex(32)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 app.config.update(

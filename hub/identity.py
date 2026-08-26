@@ -83,7 +83,17 @@ def admin_emails() -> set[str]:
 
 
 def _secret() -> str:
-    s = os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET") or ""
+    """The signing secret, under every name it answers to.
+
+    hub/auth.py signs the same cookie and must agree with this; both read
+    hub.config so neither can know a spelling the other does not.
+    """
+    try:
+        from hub.config import settings as _cfg
+        s = _cfg.secret_key
+    except Exception:                               # noqa: BLE001
+        s = (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
+             or os.environ.get("SESSION_SECRET") or "")
     return s or secrets.token_hex(32)
 
 

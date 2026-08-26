@@ -19,7 +19,18 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 COOKIE_NAME = "s1hub_auth"
 SESSION_TTL_SECONDS = 12 * 60 * 60  # 12 hours
 
-_SECRET = os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET") or ""
+# Through hub.config, which accepts SECRET_KEY, FLASK_SECRET_KEY and
+# SESSION_SECRET. This line read two of those three and hub/config.py read a
+# different two, so a deployment setting only FLASK_SECRET_KEY signed its
+# cookies with the ephemeral secret below while the status page reported the
+# secret configured — every session dying at every restart, for a reason no
+# screen named.
+try:
+    from hub.config import settings as _cfg
+    _SECRET = _cfg.secret_key
+except Exception:                                   # noqa: BLE001
+    _SECRET = (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
+               or os.environ.get("SESSION_SECRET") or "")
 if not _SECRET:
     # Ephemeral secret: everyone re-logs-in after a restart. Set SECRET_KEY!
     _SECRET = secrets.token_hex(32)

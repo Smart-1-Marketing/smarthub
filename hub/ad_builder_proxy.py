@@ -23,10 +23,14 @@ address. Nothing else in the Hub knows the difference.
 """
 from __future__ import annotations
 
+import logging
 import os
+import re
 
 import requests
 from flask import Response, request, stream_with_context
+
+logger = logging.getLogger(__name__)
 
 # Loopback by default: the renderer binds to 127.0.0.1 inside the container, so
 # it is reachable through this proxy and not from outside. Point this at a URL
@@ -75,6 +79,63 @@ def status() -> dict:
                 f"second process in this container; check the deploy log for "
                 f"lines beginning [adbuilder]."}
     return {"ok": True, "detail": f"Renderer answering at {AD_BUILDER_URL}."}
+
+
+# The renderer's write endpoints, and what each one is called in the activity
+# log. The Display Ad Builder is the one module in this Hub that is not Python,
+# so everything it does happens inside a TypeScript process that has never
+# heard of hub/audit.py — which is why /api/integrity reported it as a module
+# that never logs. The Hub-side joins (start, attach, save a logo) did log; the
+# work itself — rendering a size set, delivering a pack, approving a proof —
+# passed through this proxy and was recorded nowhere. Every one of those is
+# creative a client receives.
+#
+# The proxy is the single point all of it passes through, which is the reason
+# to put the log here rather than in the renderer: a route added in TypeScript
+# next month cannot be silent, because anything that changes state and is not
+# named below is still recorded, under its own path.
+_ACTIONS = (
+    (re.compile(r"^api/render/?$"), "ads_render_started", None),
+    (re.compile(r"^api/project/([\w.-]+)/deliver$"), "ads_delivered", 1),
+    (re.compile(r"^api/project/([\w.-]+)/approve-size$"), "ads_size_approved", 1),
+    (re.compile(r"^api/project/([\w.-]+)/override$"), "ads_override_saved", 1),
+    (re.compile(r"^api/project/([\w.-]+)/clone$"), "ads_project_cloned", 1),
+    (re.compile(r"^api/project/([\w.-]+)/note$"), "ads_note_added", 1),
+    (re.compile(r"^api/proof/([\w.-]+)/rebuild$"), "ads_proof_rebuilt", 1),
+    (re.compile(r"^api/proof/([\w.-]+)/(approve|revision)$"), "ads_proof_decision", 1),
+    (re.compile(r"^api/requests/([\w-]+)/choose-template$"), "ads_template_chosen", 1),
+)
+
+
+def _record(method: str, path: str, status: int, actor: str) -> None:
+    """File one proxied write in the Hub's activity log.
+
+    Reads only the status line, never the body: the response is streamed
+    straight to the browser and consuming it here to find out which client the
+    project belongs to would buffer a multi-megabyte ad pack in memory. So the
+    entry carries the project id and not the client name — hub/ad_builder_link
+    logs the client at the two points it actually knows one, when a build is
+    started for them and when the finished creative is filed onto their record.
+
+    Never raises. A proxy that fails because logging failed would take the
+    whole tool down for the sake of a line in a file.
+    """
+    if method in ("GET", "HEAD", "OPTIONS") or not (200 <= int(status) < 300):
+        return
+    clean = (path or "").split("?", 1)[0].strip("/")
+    action, ref = "ads_" + (clean.replace("/", "_") or "request"), ""
+    for pattern, name, group in _ACTIONS:
+        m = pattern.match(clean)
+        if m:
+            action = name
+            ref = m.group(group) if group else ""
+            break
+    try:
+        from hub import audit
+        audit.log("display_ads", action, actor=actor or None,
+                  ref=ref or None, path=clean)
+    except Exception:                                 # noqa: BLE001
+        logger.warning("display_ads: could not record %s %s", method, clean)
 
 
 def register(app, url_prefix: str = "/tools/display-ads") -> None:
@@ -162,6 +223,8 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
                 "this keeps happening the renderer may be short of memory — "
                 "see the note in hub/ad_builder_proxy.py about splitting it "
                 "into its own service."), 504
+
+        _record(request.method, path, upstream.status_code, who)
 
         out = Response(
             stream_with_context(upstream.iter_content(chunk_size=64 * 1024)),

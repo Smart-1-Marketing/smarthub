@@ -29,6 +29,25 @@ from xml.sax.saxutils import escape as xml_escape
 
 load_dotenv()
 
+
+def _hub_settings():
+    """Hub settings, read at call time so a key added on Render lands on the
+    next request rather than the next deploy.
+
+    Wrapped: this module is also runnable on its own, where hub is not
+    importable, and a diagnostics route must not 500 because of that.
+    """
+    try:
+        from hub.config import settings
+        return settings
+    except Exception:                                 # noqa: BLE001
+        class _Fallback:
+            cloudinary_url = (os.getenv("CLOUDINARY_URL") or "").strip()
+            brandfetch_key = (os.getenv("BRANDFETCH_API")
+                              or os.getenv("BRANDFETCH_API_KEY") or "").strip()
+            openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        return _Fallback()
+
 from functools import wraps
 from collections import defaultdict, deque
 
@@ -97,9 +116,9 @@ def health():
         'status': 'ok',
         'template_exists': template_path.exists(),
         'template_path': str(template_path),
-        'cloudinary_configured': bool(os.getenv('CLOUDINARY_URL')),
-        'brandfetch_configured': bool(os.getenv('BRANDFETCH_API_KEY')),
-        'openai_configured': bool(os.getenv('OPENAI_API_KEY')),
+        'cloudinary_configured': bool(_hub_settings().cloudinary_url),
+        'brandfetch_configured': bool(_hub_settings().brandfetch_key),
+        'openai_configured': bool(_hub_settings().openai_key),
         'order_counter_storage': 'cloudinary' if _cloudinary_is_configured() else 'temporary',
     })
 
@@ -191,7 +210,10 @@ def _extract_brandfetch(payload, requested_domain):
 
 @app.get('/api/brandfetch')
 def brandfetch_lookup():
-    api_key = os.getenv('BRANDFETCH_API_KEY', '').strip()
+    # Through hub.config, which accepts BRANDFETCH_API too — the spelling the
+    # rest of this deployment's provider keys use. Read one way here, the
+    # lookup answered "not configured" over a key Smart 1 Ads was using.
+    api_key = _hub_settings().brandfetch_key
     client_id = os.getenv('BRANDFETCH_CLIENT_ID', '').strip()
     if not api_key:
         return jsonify({'error': 'Brandfetch is not configured'}), 503
