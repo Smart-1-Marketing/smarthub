@@ -28,11 +28,15 @@ or fail to say that it could not decide.
   11. the QA rows              — unmapped first, and each carries its reason
   12. _live_google is fixed    — the bug that made every client read the same
   13. the round trip           — build → persist → load survives a new process
+  14. a sweep with no request  — the scheduler has no Flask context, and the
+                                account table has to be readable anyway
+  15. none vs cannot look      — an unreadable list is never an empty one
 """
 import json
 import os
 import shutil
 import sys
+import threading
 import tempfile
 from pathlib import Path
 
@@ -43,6 +47,8 @@ TMP = tempfile.mkdtemp(prefix="s1gindex_test_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
 os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(TMP, "db.sqlite3"))
+os.environ["TOKEN_DB_PATH"] = os.path.join(TMP, "google_tokens.db")
+os.environ["SESSION_FILE_DIR"] = os.path.join(TMP, "sessions")
 
 from hub import google_index as gi                       # noqa: E402
 
@@ -358,6 +364,148 @@ check("...which still reads as built", st["never_built"], False)
 rep = qa.google_accounts()
 check("so the report still lists them", len(rep["rows"]), 4)
 
+
+section("The scheduled sweep has no request, and must read the accounts anyway")
+
+# The bug this section exists for: google_finder reached its token database
+# through flask.g, which only exists inside an application context. The
+# scheduler sweeps from a background thread, so every read raised
+# RuntimeError inside connected_accounts()'s except and came back as [] —
+# and the index announced "No Google accounts are connected" every three
+# hours while the accounts sat in the table. Nothing errored, on either side.
+from cryptography.fernet import Fernet                   # noqa: E402
+
+os.environ["TOKEN_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+from modules.google_finder import app as gf              # noqa: E402
+
+with gf.app.app_context():
+    gf.save_account("rep@smart1marketing.com", "refresh-token-value")
+    check("an account connected in a request reads back inside it",
+          [a["email"] for a in gf.connected_accounts()],
+          ["rep@smart1marketing.com"])
+
+# The scheduler's world: no application context at all.
+check("...and reads back with no application context",
+      [a["email"] for a in gf.connected_accounts()],
+      ["rep@smart1marketing.com"])
+
+_thread_saw = []
+_t = threading.Thread(target=lambda: _thread_saw.extend(gf.connected_accounts()))
+_t.start()
+_t.join()
+check("...and from a background thread, which is how the sweep runs",
+      [a["email"] for a in _thread_saw], ["rep@smart1marketing.com"])
+
+# The hub app calls the same sweep from /api/google/rebuild. flask.g exists
+# there, but google_finder's teardown does not run for another app's context,
+# so the cached connection would leak one handle per rebuild.
+from flask import Flask as _Flask                        # noqa: E402
+with _Flask("not-google-finder").app_context() as _ctx:
+    check("...and under another app's context",
+          [a["email"] for a in gf.connected_accounts()],
+          ["rep@smart1marketing.com"])
+    from flask import g as _g                            # noqa: E402
+    check("...without parking a connection on that app's g",
+          "db" in _g, False)
+
+accounts, why = gf.connected_accounts_result()
+check("a readable list reports no reason", why, "")
+check("...and carries the accounts", len(accounts), 1)
+
+# A rotated TOKEN_ENCRYPTION_KEY leaves rows that will not decrypt. Skipping
+# them in silence turns a key rotation into "nobody has ever connected one".
+_real_key = os.environ["TOKEN_ENCRYPTION_KEY"]
+os.environ["TOKEN_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+gf.TOKEN_ENCRYPTION_KEY = os.environ["TOKEN_ENCRYPTION_KEY"]
+accounts, why = gf.connected_accounts_result()
+check("a row that will not decrypt is not silently dropped", bool(why), True)
+check("...and the reason names the key", "TOKEN_ENCRYPTION_KEY" in why, True)
+check("...and the list really is empty, so it must not read as 'none'",
+      accounts, [])
+os.environ["TOKEN_ENCRYPTION_KEY"] = _real_key
+gf.TOKEN_ENCRYPTION_KEY = _real_key
+
+# No key at all is the same shape of answer.
+gf.TOKEN_ENCRYPTION_KEY = ""
+_, why = gf.connected_accounts_result()
+check("an unreadable table is reported, not answered with none", bool(why), True)
+gf.TOKEN_ENCRYPTION_KEY = _real_key
+
+
+section("Nothing connected and could not look are different answers")
+
+from hub import audit as _audit                          # noqa: E402
+
+
+def _log_types():
+    return [e.get("type") for e in _audit.read(limit=500, module="google_index")]
+
+
+def _build_with(stub):
+    sys.modules["gf_app"] = stub
+    try:
+        return gi.build(force=True)
+    finally:
+        sys.modules.pop("gf_app", None)
+
+
+class _Unreadable:
+    """Reached Google, swept nothing, and cannot say whether that is right."""
+
+    @staticmethod
+    def get_index(force=False):
+        return [], []
+
+    @staticmethod
+    def connected_accounts_result():
+        return [], "RuntimeError: Working outside of application context."
+
+    @staticmethod
+    def connected_accounts():                # the silent zero, still available
+        return []
+
+
+class _NoAccounts:
+    @staticmethod
+    def get_index(force=False):
+        return [], []
+
+    @staticmethod
+    def connected_accounts_result():
+        return [], ""
+
+    @staticmethod
+    def connected_accounts():
+        return []
+
+
+_before = _log_types().count("build_failed")
+res = _build_with(_Unreadable)
+check("an unreadable account list is a failure", res["ok"], False)
+check("...and says so", "could not be read" in res["error"], True)
+check("...rather than reporting an unconfigured Hub",
+      "nothing to index" in res["error"], False)
+check("...and is not filed as a skip", res.get("skipped"), None)
+check("...and a failure is logged every time it happens",
+      _log_types().count("build_failed"), _before + 1)
+_build_with(_Unreadable)
+check("...including the second time", _log_types().count("build_failed"),
+      _before + 2)
+
+res = _build_with(_NoAccounts)
+check("genuinely nothing connected is a skip, not a failure",
+      res.get("skipped"), True)
+check("...and says what to do about it", "/google/login" in res["error"], True)
+check("...logged once, when the state starts",
+      _log_types().count("build_skipped"), 1)
+res = _build_with(_NoAccounts)
+check("...and not again on every three-hourly run, for ever",
+      _log_types().count("build_skipped"), 1)
+check("...while the reason still reaches a reader",
+      "No Google accounts" in gi.status()["last_error"], True)
+check("...and yesterday's index is not wiped by it",
+      gi.status()["resources"], 4)
+check("...which still reads as built", gi.status()["never_built"], False)
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

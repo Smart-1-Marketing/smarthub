@@ -7,12 +7,14 @@ import threading
 import time
 import re
 import logging
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, redirect, render_template, request, session, url_for, jsonify, g
+from flask import (Flask, redirect, render_template, request, session,
+                   url_for, jsonify, g, current_app, has_app_context)
 from flask_session import Session
 from cryptography.fernet import Fernet, InvalidToken
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -79,16 +81,61 @@ def _fernet():
         raise RuntimeError("TOKEN_ENCRYPTION_KEY must be a valid Fernet key.") from exc
 
 
+def _connect():
+    """Open a connection to the token database and make sure it has tables."""
+    db_dir = os.path.dirname(TOKEN_DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    conn = sqlite3.connect(TOKEN_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    init_db(conn)
+    return conn
+
+
 def get_db():
     if "db" not in g:
-        db_dir = os.path.dirname(TOKEN_DB_PATH)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-        g.db = sqlite3.connect(TOKEN_DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA journal_mode=WAL;")
-        init_db(g.db)
+        g.db = _connect()
     return g.db
+
+
+@contextmanager
+def _db():
+    """A connection to the token database, with or without a request.
+
+    ``get_db()`` caches on ``flask.g`` and is closed by ``close_db`` when the
+    request ends. That is right for a route and unusable anywhere else, and
+    the account table is read from two places that are not routes: the
+    scheduler's google_index sweep runs in a background thread with no
+    application context at all, and /api/google/rebuild calls the same sweep
+    under the *hub* app's context. Outside a context every read raised
+    RuntimeError inside connected_accounts()'s except and came back as an
+    empty list, so the sweep concluded "No Google accounts are connected"
+    every three hours while the accounts sat in the table untouched — a
+    confident wrong answer with a live tool behind it.
+
+    The ``g`` cache is used only when the context in play is *this* app's.
+    Under the hub app's context ``g`` would take the connection and this
+    app's teardown would never run to close it, which leaks one sqlite handle
+    per rebuild.
+
+    Anything reaching this table goes through here rather than through
+    get_db(), so the next function added to this module does not have to
+    know which of the two worlds it will be called from.
+    """
+    own = False
+    try:
+        own = has_app_context() and current_app._get_current_object() is app
+    except Exception:                                   # noqa: BLE001
+        own = False
+    if own:
+        yield get_db()
+        return
+    conn = _connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 @app.teardown_appcontext
@@ -153,53 +200,86 @@ def init_db(conn):
     conn.commit()
 
 
-def connected_accounts():
+def connected_accounts_result():
+    """The connected accounts, and what stopped us reading them.
+
+    Returns ``(accounts, error)``. A caller that cannot tell "there are none"
+    from "we could not look" reports an empty book as a clean answer — which
+    is exactly how the Google index came to announce, every three hours, that
+    no account was connected while one was.
+
+    Two ways this list comes back short without anything erroring, so both
+    are named rather than dropped:
+
+      * the table could not be read at all (no application context, no
+        TOKEN_ENCRYPTION_KEY, a database that is not there);
+      * a stored row would not decrypt, which means TOKEN_ENCRYPTION_KEY has
+        changed since it was written. Skipping those in silence turns a
+        rotated key into "nobody has ever connected an account".
+    """
     try:
-        conn = get_db()
-        rows = conn.execute(
-            "SELECT email, refresh_token_enc, status FROM google_accounts ORDER BY email"
-        ).fetchall()
+        with _db() as conn:
+            rows = conn.execute(
+                "SELECT email, refresh_token_enc, status FROM google_accounts ORDER BY email"
+            ).fetchall()
         f = _fernet()
-        accounts = []
-        for row in rows:
-            try:
-                token = f.decrypt(row["refresh_token_enc"].encode("utf-8")).decode("utf-8")
-            except InvalidToken:
-                continue
-            accounts.append({"email": row["email"], "refresh_token": token, "status": row["status"]})
-        return accounts
-    except Exception:
-        return []
+    except Exception as exc:                            # noqa: BLE001
+        return [], f"{type(exc).__name__}: {exc}"[:200]
+
+    accounts, undecryptable = [], 0
+    for row in rows:
+        try:
+            token = f.decrypt(row["refresh_token_enc"].encode("utf-8")).decode("utf-8")
+        except InvalidToken:
+            undecryptable += 1
+            continue
+        accounts.append({"email": row["email"], "refresh_token": token, "status": row["status"]})
+
+    error = ""
+    if undecryptable:
+        error = (f"{undecryptable} of {len(rows)} stored Google account(s) "
+                 f"could not be decrypted — TOKEN_ENCRYPTION_KEY has changed "
+                 f"since they were connected, and they need reconnecting.")
+    return accounts, error
+
+
+def connected_accounts():
+    """Just the list, for the twenty routes that render it.
+
+    Use connected_accounts_result() anywhere the difference between "none"
+    and "could not read" changes what you would report.
+    """
+    return connected_accounts_result()[0]
 
 
 def save_account(email, refresh_token):
     now = int(time.time())
     token_enc = _fernet().encrypt(refresh_token.encode("utf-8")).decode("utf-8")
-    conn = get_db()
-    conn.execute(
-        """
-        INSERT INTO google_accounts (email, refresh_token_enc, status, connected_at, updated_at)
-        VALUES (?, ?, 'ACTIVE', ?, ?)
-        ON CONFLICT(email) DO UPDATE SET
-            refresh_token_enc=excluded.refresh_token_enc,
-            status='ACTIVE',
-            updated_at=excluded.updated_at
-        """,
-        (email.lower(), token_enc, now, now),
-    )
-    conn.commit()
+    with _db() as conn:
+        conn.execute(
+            """
+            INSERT INTO google_accounts (email, refresh_token_enc, status, connected_at, updated_at)
+            VALUES (?, ?, 'ACTIVE', ?, ?)
+            ON CONFLICT(email) DO UPDATE SET
+                refresh_token_enc=excluded.refresh_token_enc,
+                status='ACTIVE',
+                updated_at=excluded.updated_at
+            """,
+            (email.lower(), token_enc, now, now),
+        )
+        conn.commit()
 
 
 def mark_account_reauth(email):
-    conn = get_db()
-    conn.execute("UPDATE google_accounts SET status='REAUTH_REQUIRED' WHERE email=?", (email.lower(),))
-    conn.commit()
+    with _db() as conn:
+        conn.execute("UPDATE google_accounts SET status='REAUTH_REQUIRED' WHERE email=?", (email.lower(),))
+        conn.commit()
 
 
 def delete_account(email):
-    conn = get_db()
-    conn.execute("DELETE FROM google_accounts WHERE email = ?", (email.lower(),))
-    conn.commit()
+    with _db() as conn:
+        conn.execute("DELETE FROM google_accounts WHERE email = ?", (email.lower(),))
+        conn.commit()
 
 
 def is_allowed(email):
@@ -986,30 +1066,30 @@ def gtm_deploy_event():
         created_tag = google_post(access_token, f"https://tagmanager.googleapis.com/tagmanager/v2/{ws_path}/tags", tag_body)
 
         now = int(time.time())
-        conn = get_db()
-        conn.execute(
-            """
-            INSERT INTO gtm_change_logs (google_login, account_id, container_id, action_type, tag_name, details, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                google_login,
-                account_id,
-                container_id,
-                "TAG_DEPLOYED",
-                event_payload.get("tag_name"),
-                json.dumps({
-                    "event_name": event_payload.get("event_name"),
-                    "trigger_type": event_payload.get("trigger_type"),
-                    "created_tag_id": created_tag.get("tagId"),
-                    "created_trigger_id": created_trigger.get("triggerId")
-                }),
-                now
+        with _db() as conn:
+            conn.execute(
+                """
+                INSERT INTO gtm_change_logs (google_login, account_id, container_id, action_type, tag_name, details, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    google_login,
+                    account_id,
+                    container_id,
+                    "TAG_DEPLOYED",
+                    event_payload.get("tag_name"),
+                    json.dumps({
+                        "event_name": event_payload.get("event_name"),
+                        "trigger_type": event_payload.get("trigger_type"),
+                        "created_tag_id": created_tag.get("tagId"),
+                        "created_trigger_id": created_trigger.get("triggerId")
+                    }),
+                    now
+                )
             )
-        )
-        conn.commit()
+            conn.commit()
 
-        return jsonify({"ok": True, "created_tag_id": created_tag["tagId"], "created_trigger_id": created_trigger["triggerId"]})
+            return jsonify({"ok": True, "created_tag_id": created_tag["tagId"], "created_trigger_id": created_trigger["triggerId"]})
     except Exception as exc:
         logger.warning("Failed deploying tag to GTM: %s", exc)
         return jsonify({"error": f"GTM Tag deployment failed: {exc}"}), 500
@@ -1057,24 +1137,24 @@ def gtm_deploy_pixel():
         created_tag = google_post(access_token, f"https://tagmanager.googleapis.com/tagmanager/v2/{ws_path}/tags", tag_body)
 
         now = int(time.time())
-        conn = get_db()
-        conn.execute(
-            """
-            INSERT INTO gtm_change_logs (google_login, account_id, container_id, action_type, tag_name, details, created_at)
-            VALUES (?, ?, ?, 'PIXEL_DEPLOYED', ?, ?, ?)
-            """,
-            (
-                google_login,
-                account_id,
-                container_id,
-                tag_name,
-                json.dumps({"created_tag_id": created_tag.get("tagId"), "code_length": len(pixel_code)}),
-                now
+        with _db() as conn:
+            conn.execute(
+                """
+                INSERT INTO gtm_change_logs (google_login, account_id, container_id, action_type, tag_name, details, created_at)
+                VALUES (?, ?, ?, 'PIXEL_DEPLOYED', ?, ?, ?)
+                """,
+                (
+                    google_login,
+                    account_id,
+                    container_id,
+                    tag_name,
+                    json.dumps({"created_tag_id": created_tag.get("tagId"), "code_length": len(pixel_code)}),
+                    now
+                )
             )
-        )
-        conn.commit()
+            conn.commit()
 
-        return jsonify({"ok": True, "created_tag_id": created_tag["tagId"], "message": f"Successfully deployed custom pixel '{tag_name}' to GTM container {container_id}."})
+            return jsonify({"ok": True, "created_tag_id": created_tag["tagId"], "message": f"Successfully deployed custom pixel '{tag_name}' to GTM container {container_id}."})
     except Exception as exc:
         logger.warning("Failed deploying custom pixel to GTM: %s", exc)
         return jsonify({"error": f"Pixel deployment failed: {exc}"}), 500
@@ -2031,41 +2111,41 @@ def save_report():
         return jsonify({"error": "Customer name, summary title, and report payload are required."}), 400
 
     now = int(time.time())
-    conn = get_db()
-    cursor = conn.execute(
-        """
-        INSERT INTO saved_reports (customer_name, summary_title, property_id, google_login, report_data, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (customer_name, summary_title, property_id, google_login, json.dumps(report_data), now)
-    )
-    report_id = cursor.lastrowid
-    conn.commit()
+    with _db() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO saved_reports (customer_name, summary_title, property_id, google_login, report_data, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (customer_name, summary_title, property_id, google_login, json.dumps(report_data), now)
+        )
+        report_id = cursor.lastrowid
+        conn.commit()
 
-    return jsonify({"ok": True, "report_id": report_id, "message": "Report successfully saved."})
+        return jsonify({"ok": True, "report_id": report_id, "message": "Report successfully saved."})
 
 
 @app.route("/api/reports/search", methods=["GET"])
 def search_reports():
     q = (request.args.get("q") or "").strip().lower()
-    conn = get_db()
-    if q:
-        rows = conn.execute(
-            """
-            SELECT id, customer_name, summary_title, property_id, google_login, created_at 
-            FROM saved_reports 
-            WHERE LOWER(customer_name) LIKE ? OR LOWER(summary_title) LIKE ? OR LOWER(property_id) LIKE ?
-            ORDER BY created_at DESC
-            """,
-            (f"%{q}%", f"%{q}%", f"%{q}%")
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT id, customer_name, summary_title, property_id, google_login, created_at FROM saved_reports ORDER BY created_at DESC LIMIT 50"
-        ).fetchall()
+    with _db() as conn:
+        if q:
+            rows = conn.execute(
+                """
+                SELECT id, customer_name, summary_title, property_id, google_login, created_at 
+                FROM saved_reports 
+                WHERE LOWER(customer_name) LIKE ? OR LOWER(summary_title) LIKE ? OR LOWER(property_id) LIKE ?
+                ORDER BY created_at DESC
+                """,
+                (f"%{q}%", f"%{q}%", f"%{q}%")
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, customer_name, summary_title, property_id, google_login, created_at FROM saved_reports ORDER BY created_at DESC LIMIT 50"
+            ).fetchall()
 
-    reports = [dict(row) for row in rows]
-    return jsonify({"reports": reports})
+        reports = [dict(row) for row in rows]
+        return jsonify({"reports": reports})
 
 
 @app.route("/api/gtm/logs/search", methods=["GET"])
@@ -2073,43 +2153,43 @@ def search_gtm_logs():
     q = (request.args.get("q") or "").strip().lower()
     container_id = (request.args.get("container_id") or "").strip()
 
-    conn = get_db()
-    if container_id and q:
-        rows = conn.execute(
-            """
-            SELECT * FROM gtm_change_logs 
-            WHERE container_id = ? AND (LOWER(tag_name) LIKE ? OR LOWER(google_login) LIKE ? OR LOWER(action_type) LIKE ?)
-            ORDER BY created_at DESC LIMIT 100
-            """,
-            (container_id, f"%{q}%", f"%{q}%", f"%{q}%")
-        ).fetchall()
-    elif container_id:
-        rows = conn.execute(
-            "SELECT * FROM gtm_change_logs WHERE container_id = ? ORDER BY created_at DESC LIMIT 100",
-            (container_id,)
-        ).fetchall()
-    elif q:
-        rows = conn.execute(
-            """
-            SELECT * FROM gtm_change_logs 
-            WHERE LOWER(tag_name) LIKE ? OR LOWER(google_login) LIKE ? OR LOWER(container_id) LIKE ? OR LOWER(action_type) LIKE ?
-            ORDER BY created_at DESC LIMIT 100
-            """,
-            (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
-        ).fetchall()
-    else:
-        rows = conn.execute("SELECT * FROM gtm_change_logs ORDER BY created_at DESC LIMIT 100").fetchall()
+    with _db() as conn:
+        if container_id and q:
+            rows = conn.execute(
+                """
+                SELECT * FROM gtm_change_logs 
+                WHERE container_id = ? AND (LOWER(tag_name) LIKE ? OR LOWER(google_login) LIKE ? OR LOWER(action_type) LIKE ?)
+                ORDER BY created_at DESC LIMIT 100
+                """,
+                (container_id, f"%{q}%", f"%{q}%", f"%{q}%")
+            ).fetchall()
+        elif container_id:
+            rows = conn.execute(
+                "SELECT * FROM gtm_change_logs WHERE container_id = ? ORDER BY created_at DESC LIMIT 100",
+                (container_id,)
+            ).fetchall()
+        elif q:
+            rows = conn.execute(
+                """
+                SELECT * FROM gtm_change_logs 
+                WHERE LOWER(tag_name) LIKE ? OR LOWER(google_login) LIKE ? OR LOWER(container_id) LIKE ? OR LOWER(action_type) LIKE ?
+                ORDER BY created_at DESC LIMIT 100
+                """,
+                (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM gtm_change_logs ORDER BY created_at DESC LIMIT 100").fetchall()
 
-    logs = []
-    for row in rows:
-        d = dict(row)
-        try:
-            d["details"] = json.loads(d["details"])
-        except Exception:
-            pass
-        logs.append(d)
+        logs = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["details"] = json.loads(d["details"])
+            except Exception:
+                pass
+            logs.append(d)
 
-    return jsonify({"logs": logs})
+        return jsonify({"logs": logs})
 
 
 @app.route("/api/refresh", methods=["POST"])
