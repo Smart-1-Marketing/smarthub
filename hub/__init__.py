@@ -345,6 +345,30 @@ def create_hub_app() -> Flask:
         out["restore_at_boot"] = app.config.get("HUB_JSONSTORE_RESTORE")
         return jsonify(out)
 
+    @app.route("/api/environment")
+    def api_environment():
+        """Which environment variable actually supplied each setting.
+
+        A setting here answers to several names — PEXELS_API and
+        PEXELS_API_KEY, GHL_PRIVATE_TOKEN and SMART1SUITE_PRIVATE_TOKEN,
+        SECRET_KEY and FLASK_SECRET_KEY and SESSION_SECRET — because this
+        deployment's environment is assembled from linked Render env groups
+        that each named things their own way. That resolves the key, and it
+        also means nobody can tell *which* name did it. On a second deployment
+        that matters twice: a variable set under a name nothing reads looks
+        exactly like one that took effect, and two names holding different
+        values silently resolve to whichever comes first.
+
+        No value is ever returned — this is read on a screen and pasted into
+        chats, the rule services/provider_check.py already works to.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .config import settings as _cfg
+        return jsonify({"settings": _cfg.env_report(),
+                        "problems": _cfg.placeholder_warnings()})
+
     @app.route("/api/integrity")
     def api_integrity():
         """Static audit for defect patterns that have each shipped before."""
@@ -4367,6 +4391,12 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
+        # Every credential below is read through hub.config rather than
+        # os.environ. A self-test is the one page where reading one spelling of
+        # a setting is worst: it reports a key as missing that the tool beside
+        # it is happily using, and somebody goes and sets a second copy of a
+        # variable that was never the problem.
+        from .config import settings as _cfg
         checks = []
 
         def add(name, status_, message):
@@ -4380,8 +4410,13 @@ def create_hub_app() -> Flask:
             add("Panel password", "warn", "Still set to a placeholder — change it.")
         else:
             add("Panel password", "ok", "Configured.")
-        add("Session secret", "ok" if os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET") else "warn",
-            "Configured — logins survive restarts." if os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET")
+        # Through hub.config, which knows all three spellings. Read directly
+        # this row said "not set" on a deployment carrying FLASK_SECRET_KEY and
+        # nothing else — a self-test reporting a fault that is not there is as
+        # expensive as one missing a fault that is.
+        _secret_set = bool(_cfg.secret_key)
+        add("Session secret", "ok" if _secret_set else "warn",
+            "Configured — logins survive restarts." if _secret_set
             else "Not set — everyone is logged out on every restart/redeploy.")
 
         # --- Knack data ---
@@ -4394,9 +4429,11 @@ def create_hub_app() -> Flask:
             add("Smart 1 Team data", "ok", f"Refreshed {age:.0f}h ago · {len(knack_data.products())} product rows · {len(knack_data.websites())} sites.")
 
         # --- GHL ---
-        token, company = os.environ.get("GHL_PRIVATE_TOKEN"), os.environ.get("GHL_COMPANY_ID")
+        token, company = _cfg.ghl_token, _cfg.ghl_company_id
         if not token or not company:
-            add("GoHighLevel API", "error", "GHL_PRIVATE_TOKEN and/or GHL_COMPANY_ID is not set.")
+            add("GoHighLevel API", "error",
+                f"{_cfg.spellings('ghl_token')} and/or "
+                f"{_cfg.spellings('ghl_company_id')} is not set.")
         else:
             try:
                 r = _rq.get(
@@ -4413,9 +4450,10 @@ def create_hub_app() -> Flask:
                 add("GoHighLevel API", "error", f"Could not reach GHL: {exc}")
 
         # --- Simvoly ---
-        skey = os.environ.get("SIMVOLY_API_KEY")
+        skey = _cfg.simvoly_key
         if not skey:
-            add("Smart 1 Sites Platform API", "warn", "SIMVOLY_API_KEY is not set — Smart 1 Sites module runs limited/mock.")
+            add("Smart 1 Sites Platform API", "warn",
+                f"{_cfg.spellings('simvoly_key')} is not set — Smart 1 Sites module runs limited/mock.")
         else:
             base = os.environ.get("SIMVOLY_API_BASE_URL", "https://api.smart1sites.com").rstrip("/")
             try:
@@ -4429,7 +4467,7 @@ def create_hub_app() -> Flask:
             else "DATABASE_URL not set — Sites inventory won't persist.")
 
         # --- Brandfetch ---
-        bkey = os.environ.get("BRANDFETCH_API_KEY")
+        bkey = _cfg.brandfetch_key
         if not bkey:
             add("Brandfetch API", "skipped", "Not configured — auto-fill from website is disabled (optional).")
         else:
@@ -4497,8 +4535,8 @@ def create_hub_app() -> Flask:
             add("QuickBooks", "ok", "Connected — client invoice lookup active on Client 360.")
 
         # --- Sales section (Proposal + Sales Builder) ---
-        add("OpenAI API", "ok" if os.environ.get("OPENAI_API_KEY") else "skipped",
-            "Configured — AI proposal generation enabled." if os.environ.get("OPENAI_API_KEY")
+        add("OpenAI API", "ok" if _cfg.openai_key else "skipped",
+            "Configured — AI proposal generation enabled." if _cfg.openai_key
             else "OPENAI_API_KEY not set — proposal generation falls back to templates (optional).")
         add("Cloudinary", "ok" if (os.environ.get("CLOUDINARY_URL") or "").startswith("cloudinary://") else "warn",
             "Configured — proposal PDFs and logs persist to Cloudinary."

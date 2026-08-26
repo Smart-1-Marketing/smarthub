@@ -29,6 +29,7 @@ Read-only and cheap: it reads source, never runs it, and touches no API.
 """
 from __future__ import annotations
 
+import ast
 import os
 import pathlib
 import re
@@ -164,10 +165,29 @@ def check_untracked_provider_usage() -> list[dict]:
 
 
 def check_silent_modules() -> list[dict]:
-    """A module that never writes to the activity log is unauditable."""
+    """A module that never writes to the activity log is unauditable.
+
+    The question is whether the module's work is attributable, not whether a
+    string appears inside its own folder — and those came apart on the one
+    module that is not Python. `modules/ad_builder` is a TypeScript renderer
+    whose Hub-side half lives in hub/ad_builder_link.py and
+    hub/ad_builder_proxy.py and files everything under "display_ads"; the check
+    looked in the directory, found one maintenance script, and reported a
+    module that logs as a module that does not. A finding nobody can act on
+    without renaming a log name is a finding people learn to scroll past.
+
+    So the name a module logs under comes from hub/audit.LOG_NAMES, and the
+    search covers hub/ as well as the module's own files.
+    """
+    try:
+        from .audit import LOG_NAMES
+    except Exception:                               # noqa: BLE001
+        LOG_NAMES = {}
+
     out = []
     seen: dict[str, bool] = {}
-    for rel, src in _sources():
+    everything = list(_sources())
+    for rel, src in everything:
         if not rel.startswith("modules/"):
             continue
         mod = _module_of(rel)
@@ -176,6 +196,18 @@ def check_silent_modules() -> list[dict]:
         logs = ("hub import audit" in src or "hub.audit" in src
                 or "audit.log(" in src or "for_module(" in src)
         seen[mod] = seen.get(mod, False) or logs
+
+    # A module whose logging is written elsewhere — declared, and then actually
+    # looked for, so a declaration alone cannot silence this.
+    for mod in [m for m, logs in seen.items() if not logs]:
+        name = LOG_NAMES.get(mod)
+        if not name:
+            continue
+        needles = (f'audit.log("{name}"', f"audit.log('{name}'",
+                   f'for_module("{name}")', f"for_module('{name}')")
+        seen[mod] = any(n in src for rel, src in everything
+                        if rel.startswith("hub/") for n in needles)
+
     for mod, logs in sorted(seen.items()):
         if not logs:
             out.append({
@@ -183,7 +215,9 @@ def check_silent_modules() -> list[dict]:
                 "detail": "Never writes to the activity log, so nothing this "
                           "module does is attributable.",
                 "fix": "log = audit.for_module(\"" + mod + "\") and call it on "
-                       "the actions that matter.",
+                       "the actions that matter. If it logs under another name "
+                       "or from outside its own directory, declare that in "
+                       "hub/audit.py's LOG_NAMES.",
             })
     return out
 
@@ -506,6 +540,50 @@ def check_creative_medium_drift() -> list[dict]:
     } for name in missing]
 
 
+def _env_names_read(src: str) -> set[str]:
+    """Environment variable names a file genuinely reads.
+
+    Parsed rather than matched, because the pattern is quoted in prose all over
+    this codebase: the comment above pexels_service's `_key()` explains that it
+    used to read ``os.environ["PEXELS_API_KEY"]``, and a regex reported the
+    explanation of the fix as the defect. A check that flags a file for
+    describing the bug it no longer has is a check people learn to skip.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return set()
+    out: set[str] = set()
+
+    def _is_environ(node) -> bool:
+        return (isinstance(node, ast.Attribute) and node.attr == "environ"
+                and isinstance(node.value, ast.Name) and node.value.id == "os")
+
+    for node in ast.walk(tree):
+        target = None
+        if isinstance(node, ast.Subscript) and _is_environ(node.value):
+            target = node.slice
+        elif (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"get", "setdefault", "pop"}
+                and _is_environ(node.func.value)
+                and node.args):
+            target = node.args[0]
+        elif (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "getenv"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "os"
+                and node.args):
+            # os.getenv is the same read spelled differently, and it is how
+            # modules/sites_admin reached SECRET_KEY past a check that only
+            # knew os.environ.
+            target = node.args[0]
+        if isinstance(target, ast.Constant) and isinstance(target.value, str):
+            out.add(target.value)
+    return out
+
+
 def check_provider_key_drift() -> list[dict]:
     """A module reading one spelling of a key that is set under another.
 
@@ -516,40 +594,52 @@ def check_provider_key_drift() -> list[dict]:
     real footage. hub/config.py already accepts both spellings — the module
     just never asked it.
 
-    The alias groups are read out of hub/config.py's own _first(...) calls
-    rather than restated here, so a provider added to config is covered by this
-    check the same day, and a check that has drifted from the settings it is
-    policing cannot happen.
-    """
-    import re as _re
+    The alias groups come from `hub.config.ALIASES` itself, so a provider added
+    to config is covered by this check the same day, and a check that has
+    drifted from the settings it is policing cannot happen. It used to
+    regex the `_first("A", "B")` calls out of config's source instead, which
+    held right up until those calls were replaced by a table — at which point
+    the check found no groups, reported nothing, and read as a clean bill of
+    health. Importing the table means the same edit cannot silence it twice.
 
+    Two things it deliberately does *not* flag:
+
+      * A read that lists **every** spelling in the group. That is what a
+        fallback beneath `from hub.config import settings` looks like, and it
+        resolves exactly what config would. Flagging it teaches people to
+        ignore the check.
+      * Anything outside hub/ and modules/ — the test files set these variables
+        rather than reading them.
+
+    A file that imports config and *still* reads one spelling is flagged, which
+    is the case the old file-level skip hid: modules/image_creator/assets.py
+    routed its font key through settings and its Brandfetch key through
+    os.environ on the next screen up, and the skip covered the second because
+    of the first.
+    """
     try:
-        cfg = (ROOT / "hub" / "config.py").read_text(errors="ignore")
+        from .config import ALIASES
     except Exception:                               # noqa: BLE001
         return []
-
-    # _first("PEXELS_API", "PEXELS_API_KEY", "PEXELS_KEY") -> one alias group
-    groups = []
-    for call in _re.findall(r"_first\(([^)]*)\)", cfg):
-        names = _re.findall(r'"([A-Z0-9_]+)"', call)
-        if len(names) > 1:
-            groups.append(names)
-    if not groups:
+    if not ALIASES:
         return []
-    alias_of = {name: names for names in groups for name in names}
+    alias_of = {name: names for names in ALIASES.values() for name in names}
 
     out, seen = [], set()
     for rel, src in _sources():
-        if not rel.startswith("modules/"):
+        if not (rel.startswith("modules/") or rel.startswith("hub/")):
             continue
-        if "from hub.config import" in src or "from hub import config" in src:
-            continue
-        for name in _re.findall(r'os\.environ(?:\.get)?[\(\[]\s*"([A-Z0-9_]+)"', src):
+        read_here = _env_names_read(src)
+        for name in sorted(read_here):
             names = alias_of.get(name)
             if not names or (rel, name) in seen:
                 continue
+            # The whole group present is a fallback, not a drift.
+            if set(names) <= read_here:
+                seen.update((rel, n) for n in names)
+                continue
             seen.add((rel, name))
-            others = [n for n in names if n != name]
+            others = [n for n in names if n != name and n not in read_here]
             out.append({
                 "file": rel, "module": _module_of(rel),
                 "detail": f"{rel} reads {name} directly. The same setting is "
@@ -558,7 +648,9 @@ def check_provider_key_drift() -> list[dict]:
                           f"the others, this module reports the key as missing "
                           f"and degrades silently.",
                 "fix": "Read it through hub.config.settings instead of "
-                       "os.environ, so every spelling in use resolves.",
+                       "os.environ, so every spelling in use resolves. If it "
+                       "genuinely cannot import config, read every name in the "
+                       "group rather than one.",
             })
     return out
 
@@ -581,15 +673,16 @@ CHECKS = [
      "medium", check_stale_json_exemptions),
     ("creative_medium_drift", "Creative gate lost a rate-card product", "high",
      check_creative_medium_drift),
-    # Severity is deliberately medium, not high, and the reason is the same one
-    # recorded for the two mediums above: this check went in green-adjacent,
-    # with seven pre-existing findings it did not cause. Failing the build on
-    # them would have meant either reverting the check or fixing seven
-    # unrelated modules in the same commit, and a check switched on red is a
-    # check somebody turns off. Each finding is a real silent-degradation bug
-    # and should be cleared as those modules are next touched; raise this to
-    # high once the list is empty.
-    ("provider_key_drift", "Provider key read under one spelling only", "medium",
+    # High, as the note that stood here asked for once the list was empty. It
+    # went in at medium with seven pre-existing findings it did not cause,
+    # because a check switched on red is a check somebody turns off; the list
+    # is now empty, hub/ is covered as well as modules/, and os.getenv is read
+    # the same as os.environ. Every finding it can produce is a key that IS
+    # configured being reported as missing, which is silent by construction —
+    # the tool degrades to mock data, the screen looks healthy, and nobody
+    # finds out until a client is waiting on the output. That is worth a red
+    # build, and the fix is one line at the call site.
+    ("provider_key_drift", "Provider key read under one spelling only", "high",
      check_provider_key_drift),
 ]
 
