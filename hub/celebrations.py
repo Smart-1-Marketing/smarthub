@@ -24,6 +24,21 @@ birthday on file drops out of the list entirely, and a list that shrinks
 without saying so reads as "nobody has a birthday this month". `not_recorded`
 carries the count and the names, and the block prints it.
 
+**A placeholder date is a missing date.** Seven people came off the census
+with a hire date of 1 August 2019, which is when the Hub's records begin
+rather than when any of them started — so it is in `PLACEHOLDER_HIRE_DATES`
+and read as *not recorded*, which puts those seven in the list of people
+whose start date needs filling in instead of congratulating all seven on the
+same day every year. Correct one in the Users panel and that person appears
+here by themselves. The alternative — printing it — is seven confident wrong
+answers a year, which is the failure this whole file is written against.
+
+**A day that has passed is dropped.** This block is what is still coming, so
+the 8th stops being shown on the 9th. Today stays until tomorrow. It is a
+deliberate reversal of what this did first: a month is a calendar, but the
+card is read to know who to say something to, and nobody can say happy
+birthday to a day that has gone.
+
 **The year of birth is never published.** The panel holds it, this module
 reads it to work out the day, and it is not returned: a dashboard block that
 prints the whole company's ages is a different feature from one that says whose
@@ -52,6 +67,15 @@ import datetime as _dt
 
 _MONTHS = ("", "January", "February", "March", "April", "May", "June", "July",
            "August", "September", "October", "November", "December")
+
+# Hire dates that are records of when the Hub's book starts, not of when
+# anybody started. Seven of the fourteen census rows carry 1 August 2019, so
+# left in place it congratulates half the company on one day a year on a date
+# none of them recognise. Read as "not recorded" instead, which is both true
+# and actionable: the seven names appear under the block as start dates to
+# fill in. Delete the entry once the real dates are in the Users panel — a
+# corrected row stops matching by itself, so nothing else has to change.
+PLACEHOLDER_HIRE_DATES = frozenset({"2019-08-01"})
 
 
 def _today() -> _dt.date:
@@ -142,6 +166,7 @@ def this_month(today: _dt.date | None = None) -> dict:
     anniversaries: list[dict] = []
     no_birthday: list[str] = []
     no_hire_date: list[str] = []
+    placeholder_hire: list[str] = []
 
     for p in people:
         bday = _iso(p["birthday"])
@@ -153,7 +178,13 @@ def this_month(today: _dt.date | None = None) -> dict:
                 birthdays.append(_entry(p, day, now, kind="birthday"))
 
         hired = _iso(p["hired_at"])
-        if hired is None:
+        if p["hired_at"] in PLACEHOLDER_HIRE_DATES:
+            # Named in its own list rather than folded in with the blanks:
+            # "we have no date" and "we have a date nobody believes" are
+            # answered differently, and only the second needs explaining to
+            # somebody who can see a date sitting on the Users panel.
+            placeholder_hire.append(p["name"])
+        elif hired is None:
             no_hire_date.append(p["name"])
         elif hired.year <= now.year:
             day = _day_this_month(hired, now.year, now.month)
@@ -167,6 +198,11 @@ def this_month(today: _dt.date | None = None) -> dict:
                     _entry(p, day, now, kind="anniversary", years=years,
                            started=hired.isoformat()))
 
+    # What is still to come, today included. A birthday that has passed is
+    # dropped rather than dimmed: this card is read to know who to say
+    # something to, and there is nothing to say about the 8th on the 9th.
+    birthdays = [e for e in birthdays if not e["is_past"]]
+    anniversaries = [e for e in anniversaries if not e["is_past"]]
     birthdays.sort(key=lambda e: e["day"])
     anniversaries.sort(key=lambda e: e["day"])
 
@@ -184,6 +220,9 @@ def this_month(today: _dt.date | None = None) -> dict:
         "not_recorded": {
             "birthday": sorted(no_birthday),
             "hired_at": sorted(no_hire_date),
+            # A date that is on file and means nothing. Kept apart from the
+            # blanks so the block can say which of the two it is.
+            "hired_placeholder": sorted(placeholder_hire),
         },
         "people": len(people),
         "source": source,

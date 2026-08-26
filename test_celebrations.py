@@ -16,7 +16,9 @@ on screen and confidently wrong:
   1.  a missing date is dropped
       in silence                  — a shorter list is indistinguishable from a
                                     quiet month, so the count of people with
-                                    no date on file is part of the answer
+                                    no date on file is part of the answer, and
+                                    so is the count carrying the census
+                                    placeholder start date
   2.  the year of birth is
       published                   — the panel holds it and the block has no
                                     business printing the whole company's ages
@@ -101,28 +103,39 @@ section("The month is read from the roster the Hub already holds")
 
 AUG = celebrations.this_month(dt.date(2026, 8, 26))
 
-check("August's birthdays, in date order", names(AUG["birthdays"]),
-      ["Michael Hawkins", "George Roberts", "Lauren Jordan", "James Hern"])
-check("and the days they fall on", [e["day"] for e in AUG["birthdays"]],
-      [7, 13, 18, 27])
-check("the seven people hired on 1 August 2019, seven years on",
-      sorted({e["years_label"] for e in AUG["anniversaries"]}),
-      ["7th anniversary"])
-check("all seven of them", len(AUG["anniversaries"]), 7)
+# On the 26th, three of August's four birthdays have already happened.
+check("only what is still to come", names(AUG["birthdays"]), ["James Hern"])
+check("and it knows how far off it is", AUG["birthdays"][0]["days_away"], 1)
 check("the month says which month it is", AUG["month"], "August")
 
-# The month is a calendar, not a queue: a birthday earlier in the month is
-# still shown, marked as past, rather than vanishing on the 8th.
-check("a birthday already passed is kept and labelled",
-      [e["is_past"] for e in AUG["birthdays"]], [True, True, True, False])
-check("and one still to come knows how far off it is",
-      AUG["birthdays"][-1]["days_away"], 1)
+# Every one of the seven 1-August anniversaries is the census placeholder,
+# and none of them is a date anybody recognises.
+check("no anniversary is drawn from the placeholder date",
+      AUG["anniversaries"], [])
+check("the seven are listed as start dates to fill in instead",
+      len(AUG["not_recorded"]["hired_placeholder"]), 7)
+check("2019-08-01 is the one placeholder, and it is named in one place",
+      sorted(celebrations.PLACEHOLDER_HIRE_DATES), ["2019-08-01"])
+
+# A day that has passed is gone, not dimmed. Read from the 1st, the whole
+# month is ahead.
+_first = celebrations.this_month(dt.date(2026, 8, 1))
+check("read from the 1st, all four birthdays are still to come",
+      names(_first["birthdays"]),
+      ["Michael Hawkins", "George Roberts", "Lauren Jordan", "James Hern"])
+check("read from the 28th, none are", names(
+    celebrations.this_month(dt.date(2026, 8, 28))["birthdays"]), [])
+check("and on the day itself it is still there",
+      [e["is_today"] for e in
+       celebrations.this_month(dt.date(2026, 8, 27))["birthdays"]], [True])
 
 section("A date nobody recorded is named, not skipped")
 
 _gaps = celebrations.this_month(dt.date(2026, 8, 26))["not_recorded"]
-check("every roster row has both dates today, so nothing is missing",
+check("every roster row has a birthday, and a start date of some kind",
       (_gaps["birthday"], _gaps["hired_at"]), ([], []))
+check("the placeholder ones are counted apart from the blanks",
+      len(_gaps["hired_placeholder"]), 7)
 
 _partial = celebrations._shape([
     {"name": "No Dates", "email": "nd@example.com", "title": "Tester",
@@ -133,7 +146,7 @@ _partial = celebrations._shape([
 _saved = celebrations._people
 celebrations._people = lambda: (_partial, "test", "")
 try:
-    _small = celebrations.this_month(dt.date(2026, 8, 26))
+    _small = celebrations.this_month(dt.date(2026, 8, 1))
     check("the person with no birthday is counted, by name",
           _small["not_recorded"]["birthday"], ["No Dates"])
     check("and with no start date too",
@@ -155,13 +168,19 @@ try:
     # Somebody who has just started, and somebody who has not started yet.
     celebrations._people = lambda: (celebrations._shape([
         {"name": "Just Started", "email": "js@example.com", "title": "New",
-         "birthday": "", "hired_at": "2026-08-03"},
+         "birthday": "", "hired_at": "2026-08-26"},
         {"name": "Starts Later", "email": "sl@example.com", "title": "New",
          "birthday": "", "hired_at": "2026-08-31"}]), "test", "")
+    # "Just Started" began today; "Starts Later" begins on the 31st and has
+    # not begun at all.
     _new = celebrations.this_month(dt.date(2026, 8, 26))
     check("somebody who started this month is welcomed, not given a 0th",
           [(e["name"], e["years_label"]) for e in _new["anniversaries"]],
           [("Just Started", "joined Smart 1 this month")])
+    check("and one whose start date is still ahead of them is not "
+          "congratulated for a job they have not begun",
+          [e["name"] for e in _new["anniversaries"] if e["name"] == "Starts Later"],
+          [])
 finally:
     celebrations._people = _saved
 
@@ -178,7 +197,8 @@ ok("the day and month are there, which is what the block needs",
 # A work anniversary is different: the years of service are the point of it,
 # and the start date is not personal in the way a date of birth is.
 ok("a work anniversary does carry its years",
-   all("years" in e for e in AUG["anniversaries"]))
+   all("years" in e for e in
+       celebrations.this_month(dt.date(2026, 4, 1))["anniversaries"]))
 
 section("Only today is allowed to interrupt anybody")
 
@@ -189,7 +209,7 @@ check("and nobody else's", _today["anniversaries"], [])
 check("a day with nothing on it says so",
       celebrations.today(dt.date(2026, 8, 26))["any"], False)
 check("even though that month has four birthdays in it",
-      len(AUG["birthdays"]), 4)
+      len(celebrations.this_month(dt.date(2026, 8, 1))["birthdays"]), 4)
 
 section("The popup greets the right person")
 
@@ -230,6 +250,12 @@ ok("and loads the popup", "/hub-cheers.js" in _page)
 # card it has to sit above.
 ok("the block sits above the System status card, which is where it was asked for",
    _page.index("cheer-card") < _page.index("<h3>System status"))
+# One column: birthdays, anniversaries and the system card under one another,
+# not spread across the page.
+ok("all three sit in one column",
+   _page.index("col-stack") < _page.index("cheer-card")
+   and _page.index("cheer-card") < _page.index("<h3>System status")
+   and _page.index("<h3>System status") < _page.index("Recent activity"))
 check("the popup script is served", _in.get("/hub-cheers.js").status_code, 200)
 
 # The fifth partner page has been in the repo, served and reachable, since the

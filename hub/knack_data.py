@@ -211,155 +211,36 @@ def _snapshot(period: str, values: dict) -> dict:
     return hist
 
 
-def _delta(now, before, period: str = "", basis: str = "snapshot",
-           why: str = ""):
-    """A movement, or an explicit "we don't have that yet".
-
-    `available: False` is the point of this shape. A month we have no snapshot
-    for is not a month where nothing changed, and rendering it as 0 would state
-    something we do not know — the same mistake as showing an empty rate card
-    as "no products". `why` says which of the two reasons it is, because
-    "nobody opened the Hub that month" and "this metric has no history to
-    reconstruct from" are answered differently.
-
-    `period` is the month `before` was taken in, carried through so the card
-    can name it. A comparison that will not say what it compared against is
-    one nobody can check. `basis` says *how* both ends were measured, for the
-    same reason: a snapshot and a reconstruction are two different readings
-    and a card that will not say which it used cannot be checked either.
-    """
-    label = _period_label(period)
-    if not isinstance(before, (int, float)) or not isinstance(now, (int, float)):
-        return {"available": False, "period": label, "basis": "", "why": why}
-    diff = now - before
-    pct = round(diff / before * 100, 1) if before else None
-    return {"available": True, "from": before, "now": now, "diff": diff,
-            "pct": pct, "period": label, "basis": basis, "why": "",
-            "dir": "up" if diff > 0 else "down" if diff < 0 else "flat"}
-
-
 # ---------------------------------------------------------------------------
-# Months that have already happened
+# Why there is no month-over-month comparison on the scorecard
 # ---------------------------------------------------------------------------
 #
-# The snapshot history above can only ever start on the day it was switched
-# on: it records what is true each month it is read, so on a Hub deployed this
-# month there is exactly one bucket, every comparison is a dash, and the same
-# month last year does not arrive until next year. That is honest and it is
-# also useless — "check back in twelve months" is the answer nobody can act on.
+# There was one, and it was removed rather than fixed, because the arithmetic
+# under it could not be made honest at this size.
 #
-# But the export already carries the history. Every insertion order in
-# object_135 has a start date, an end date and a monthly rate, so *which IOs
-# were billing in any given month* is arithmetic rather than a memory, and it
-# can be done for as far back as the book goes.
+# The snapshot history above can only start when it is switched on: the first
+# reading is taken the month the Hub is opened, so on a new deployment last
+# month has no bucket and the same month last year does not arrive for twelve.
+# The obvious way round that is to rebuild the missing months from the export
+# — every insertion order has a start date, an end date and a monthly rate, so
+# which IOs were billing in March is arithmetic. That was built, and it
+# reproduced Knack's own `thisM` / `lastM` flags exactly.
 #
-# It is not a guess. Knack publishes its own `thisM` / `lastM` flags on every
-# row, and reconstructing those two months from the dates reproduces both
-# exactly — same product count, same client count, same dollar total, on this
-# deployment's export. `test_dashboard_trends.py` asserts that equality, which
-# is what makes the whole thing checkable: the reconstruction is Knack's own
-# definition of a live month, applied to months Knack does not flag.
+# It still had to go. `is_running` — the definition behind every headline
+# number on that page — is deliberately a *union*: an IO counts if its term
+# covers today **or** Knack still calls it Live, which takes in about 140
+# month-to-month rows whose end date has passed and which nobody has closed
+# out. A term rebuild cannot see those, so the rebuilt month and the number
+# printed above it were measured differently, and no reader could reproduce
+# the percentage from the two figures on the card. A number nobody can check
+# is worse than no number, and a red 30% on the CEO's dashboard is the worst
+# place to learn that.
 #
-# Three things it is deliberately not allowed to do:
-#
-#   * **It never mixes bases.** The headline "Live Products" number counts
-#     every IO Knack still calls Live, dates lapsed or not (see is_running) —
-#     a wider count than a term reconstruction produces. Comparing today's
-#     headline against a reconstructed July would report a movement of about
-#     140 products that nobody could reproduce from the two numbers on the
-#     card. So when a comparison is reconstructed, *both* ends are
-#     reconstructed, and the card carries the pair and the word for it.
-#   * **A month with no rows at all is not a month with nothing in it.** It is
-#     a month outside what the export covers, and it comes back not measured
-#     rather than as a 100% collapse.
-#   * **It never writes into the snapshot history.** A reconstruction is a
-#     derivation, re-made on every read from whatever the export holds now; a
-#     snapshot is a measurement taken at a moment that cannot be re-taken.
-#     Storing the first as the second would let a rebuilt export silently
-#     rewrite what the Hub reported last month.
-_RECONSTRUCTED = ("clients_live", "live_products", "live_budget_monthly")
-
-
-def _month_bounds(period: str):
-    """(first day, last day) of a YYYYMM, or None if it is not one."""
-    try:
-        y, m = int(str(period)[:4]), int(str(period)[4:6])
-        first = _dt.date(y, m, 1)
-    except (TypeError, ValueError):
-        return None
-    nxt = _dt.date(y + (m == 12), (m % 12) + 1, 1)
-    return first, nxt - _dt.timedelta(days=1)
-
-
-def period_totals(period: str, prods: list[dict] | None = None) -> dict | None:
-    """What was billing in `period`, from the insertion-order terms.
-
-    None — never a dict of zeros — when the export holds no IO whose term
-    touches that month. The export reaches back years, so that answer means
-    "this month is outside the book", which is a different statement from
-    "nothing was running".
-    """
-    bounds = _month_bounds(period)
-    if not bounds:
-        return None
-    first, last = bounds
-    from hub import dates as _dates
-    rows = products() if prods is None else prods
-    live = []
-    for r in rows:
-        start = _dates.to_date(r.get("start"))
-        end = _dates.to_date(r.get("end"))
-        if not (start and end):
-            continue
-        if start <= last and end >= first:
-            live.append(r)
-    if not live:
-        return None
-    clients = {str(r.get("client", "")).strip() for r in live if r.get("client")}
-    return {
-        "clients_live": len(clients),
-        "live_products": len(live),
-        "live_budget_monthly": round(sum(_num(r.get("monthly")) for r in live)),
-    }
-
-
-def _compare(metric: str, current: dict, hist: dict, target: str,
-             period: str, prods: list[dict] | None = None) -> dict:
-    """One comparison: the snapshot if we took one, the reconstruction if we
-    can build one, and an explicit "not measured, and here is why" if neither.
-    """
-    stored = (hist.get(target) or {}).get(metric)
-    if isinstance(stored, (int, float)):
-        return _delta(current.get(metric), stored, target)
-
-    if metric in _RECONSTRUCTED:
-        then = period_totals(target, prods)
-        now = period_totals(period, prods)
-        if then and now:
-            return _delta(now.get(metric), then.get(metric), target,
-                          basis="io_terms")
-        return {"available": False, "period": _period_label(target),
-                "basis": "",
-                "why": ("no reading of %s was taken, and the export holds no "
-                        "insertion order running that month to rebuild one from"
-                        % _period_label(target))}
-
-    return {"available": False, "period": _period_label(target), "basis": "",
-            "why": ("no reading of %s was taken — a month is recorded the "
-                    "first time this page is opened in it, and the website "
-                    "export carries no dates to rebuild one from"
-                    % _period_label(target))}
-
-
-def _trends(period: str, current: dict, prods: list[dict] | None = None) -> dict:
-    """Each trended metric against last month and the same month last year."""
-    hist = _snapshot(period, {k: current.get(k) for k in TRENDED})
-    m_key, y_key = _period_minus(period, 1), _period_minus(period, 12)
-    out = {}
-    for k in TRENDED:
-        out[k] = {"last_month": _compare(k, current, hist, m_key, period, prods),
-                  "last_year": _compare(k, current, hist, y_key, period, prods)}
-    return out
+# So the cards carry the headline figures alone. `_snapshot()` still runs on
+# every load, because a reading taken this month is the only thing that can
+# ever produce a comparison measured the same way at both ends — and it costs
+# one small write. When there are two of them, a comparison can come back
+# without inventing anything.
 
 
 def _website_movement(period, websites_active) -> tuple:
@@ -441,6 +322,20 @@ def summary() -> dict:
     period = _current_period()
     export_period = str(raw.get("thisMonth") or "") if isinstance(raw, dict) else ""
     export_prev = str(raw.get("lastMonth") or "") if isinstance(raw, dict) else ""
+    # Recorded even though nothing renders a comparison today: a reading of
+    # this month is the only thing that can ever produce one measured the same
+    # way at both ends, and it cannot be taken retrospectively.
+    try:
+        _snapshot(period, {
+            "clients_live": len(live_clients),
+            "live_products": len(live),
+            "live_budget_monthly": round(live_budget),
+            "websites_active": len(active_sites),
+            "hm_monthly": round(hm_monthly),
+            "estimated_total_monthly": round(live_budget + hm_monthly),
+        })
+    except Exception:  # noqa: BLE001 — never break the dashboard on history I/O
+        pass
     mom = month_over_month(prods)
     try:
         movement, movement_from = _website_movement(period, len(active_sites))
@@ -462,17 +357,6 @@ def summary() -> dict:
         "decreased_customers": mom["decreased"],
         "website_movement": movement,
         "website_movement_from": movement_from,
-        # Which way each headline number moved, against last month and against
-        # the same month a year ago. Absent history is reported as absent
-        # rather than as no change.
-        "trends": _trends(period, {
-            "clients_live": len(live_clients),
-            "live_products": len(live),
-            "live_budget_monthly": round(live_budget),
-            "websites_active": len(active_sites),
-            "hm_monthly": round(hm_monthly),
-            "estimated_total_monthly": round(live_budget + hm_monthly),
-        }, prods),
         "this_period": _period_label(export_period),
         "last_period": _period_label(export_prev),
         # The month-over-month counts above come from the export's own flags,

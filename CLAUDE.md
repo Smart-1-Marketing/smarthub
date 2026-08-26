@@ -358,29 +358,32 @@ export's month now labels only the counts that genuinely come from the export,
 and `export_stale` says when those have gone out of date.
 `test_dashboard_trends.py` moves the clock rather than promising.
 
-**And a snapshot history cannot answer about a month before it existed.** That
-fix was correct and, on its own, still showed dashes on every card: the first
-reading is taken the month the Hub is opened, so last month had no bucket and
-the same month last year would not arrive for a year. "Check back next year"
-is the answer nobody can act on. But the export already carries the history —
-every insertion order has a start date, an end date and a monthly rate, so
-*which IOs were billing in a given month* is arithmetic, not a memory.
-`knack_data.period_totals()` does it, and `_compare()` prefers a recorded
-snapshot and falls back to that rebuild. Three rules hold it up. **It never
-mixes bases**: the headline count includes every IO Knack still calls Live
-whatever its dates say (`is_running` is deliberately a union), which is about
-140 products wider than a term rebuild — so when a comparison is rebuilt,
-*both* ends are rebuilt, the card marks it `≈`, and the tooltip prints the
-pair. The percentage is shown and the absolute difference is not, because a
-dollar figure there invites subtracting it from the headline, which is the one
-arithmetic that does not work. **It is not a new definition of "live"**:
-rebuilding the two months Knack flags itself (`thisM` / `lastM`) reproduces
-both exactly, and `test_dashboard_trends.py` asserts that equality — it is
-what makes the other months trustworthy. **A month with no rows is not a month
-with nothing in it**; it is outside the book, and comes back not measured
-rather than as a 100% collapse. Websites carry no dated history at all, so
-`websites_active`, `hm_monthly` and the total that contains them stay not
-measured and say which of the two reasons it is.
+**And a snapshot history cannot answer about a month before it existed** —
+which is why the scorecard now carries no comparison at all. The fix above is
+correct and, on its own, still shows a dash on every card: the first reading is
+taken the month the Hub is opened, so last month has no bucket and the same
+month last year does not arrive for twelve. The obvious way round it is to
+rebuild the missing months from the export — every insertion order has a start
+date, an end date and a monthly rate, so *what was billing in July* is
+arithmetic. That was built. It reproduced Knack's own `thisM` / `lastM` flags
+exactly, and it was still removed.
+
+**Because it was not measured the same way as the number it sat under.**
+`is_running` is deliberately a *union*: an IO counts if its term covers today
+**or** Knack still calls it Live, which takes in about 140 month-to-month rows
+nobody has closed out. A term rebuild cannot see those, so the card read
+"516 live products, ▼26.9% vs Jul" where the two figures behind that
+percentage were 510 and 373 — arithmetic no reader could reproduce from
+anything on screen, printed in red on the CEO's dashboard. Marking it `≈` and
+explaining it in a legend is not a fix: a number that needs a paragraph before
+it can be believed is a number nobody should be reading off a scorecard.
+
+`_snapshot()` still runs on every load, because a reading taken this month is
+the only thing that can ever produce a comparison measured the same way at
+both ends and it cannot be taken retrospectively. When there are two of them,
+a comparison can come back without inventing anything.
+`test_dashboard_trends.py` holds both halves: the readings accumulate, and
+nothing on the page claims a comparison.
 
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
@@ -2444,16 +2447,33 @@ birthday if they had thought to look. A date nobody reads is the same as a
 date nobody recorded.
 
 The month block and the popup answer two different questions and are kept
-apart deliberately. `this_month()` is the calendar — past, today and still to
-come, each labelled, because a month is not a queue and a birthday does not
-stop having happened on the 8th. `today()` is the only thing allowed to
-interrupt anybody: a popup about a birthday four days out teaches people to
-close it unread, and then they close the one that mattered.
+apart deliberately. `this_month()` is **what is still to come**, today
+included — a day that has passed is dropped rather than dimmed, because the
+card is read to know who to say something to and there is nothing to say about
+the 8th on the 9th. `today()` is the only thing allowed to interrupt anybody:
+a popup about a birthday four days out teaches people to close it unread, and
+then they close the one that mattered.
+
+The birthdays, the anniversaries and the System status card sit in **one
+column** on the dashboard, in that order. Two lists of three names side by
+side was mostly empty table, and what somebody opens the dashboard for is the
+same short question twice: who to say something to, and whether the Hub is
+up.
 
 - **A date nobody recorded is named.** Somebody with no birthday on file drops
   out of the list, and a list that quietly shrinks reads as a quiet month —
   so `not_recorded` carries the count and the block prints it with a link to
   where it is fixed.
+- **A placeholder date is a missing date.** Seven of the fourteen census rows
+  carry a hire date of 1 August 2019, which is when the Hub's book starts
+  rather than when any of them started. `PLACEHOLDER_HIRE_DATES` reads it as
+  *not recorded*, so those seven appear as start dates to fill in instead of
+  half the company being congratulated on one day a year on a date none of
+  them recognises — and they are counted **apart from the blanks**, because
+  "we have no date" and "we have a date nobody believes" are explained
+  differently to somebody who can see one sitting on the Users panel. Correct
+  a row in the panel and that person appears here by themselves; empty the
+  set once they all have real dates.
 - **The year of birth is never published.** The panel holds it, this module
   reads it to work out the day, and it does not leave: a block that prints the
   whole company's ages is a different feature from one that says whose
@@ -2624,8 +2644,8 @@ python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
 python3 test_campaign_assets.py    # campaigns waiting on an asset, by media partner
-python3 test_dashboard_trends.py   # the KPI comparisons accumulate and name their months
-python3 test_celebrations.py       # birthdays and anniversaries: the month, and who is interrupted
+python3 test_dashboard_trends.py   # the monthly readings accumulate; no card claims a comparison
+python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
 python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
