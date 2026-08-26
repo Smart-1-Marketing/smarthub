@@ -108,6 +108,17 @@ check("the second folder too, both ways",
 check("the two folders are an OR, not an AND",
       " OR " in clause and " AND " not in clause, True)
 
+# Cloudinary publishes the folder under asset_folder in dynamic folder mode and
+# folder in fixed. Asking only the wrong one returns zero while folder_state()
+# still reports the folder present -- so it reads as "exists and is empty",
+# which is the confident wrong answer rather than a visible failure.
+check("the folder is asked for under asset_folder too",
+      'asset_folder="General Stock Photos"' in clause, True)
+check("...and its subfolders under asset_folder",
+      'asset_folder:"Smart 1 Ads/*"' in clause, True)
+check("four terms per folder, no more",
+      clause.count(" OR "), 7)
+
 # A name with a space must survive quoting, or the expression is a parse error
 # and every library search comes back empty with nothing reading as broken.
 check("a folder name with spaces is quoted",

@@ -410,16 +410,28 @@ def _quoted(value: str) -> str:
 
 
 def _folder_clause(folders: list[str]) -> str:
-    """Match each folder AND everything beneath it.
+    """Match each folder, everything beneath it, under either folder field.
 
-    Two terms per folder on purpose: `folder:"X/*"` matches the subfolders and
-    NOT the folder itself, so a photo sitting directly in "General Stock Photos"
-    would be invisible -- which is where most of them will sit.
+    Four terms per folder, and each pair earns its place:
+
+    * `folder:"X/*"` matches what is *beneath* X and **not X itself**, so
+      without the `folder="X"` term a photo sitting directly in "General Stock
+      Photos" -- which is where most of them will sit -- is invisible.
+    * Cloudinary publishes an asset's folder under `asset_folder` in dynamic
+      folder mode and `folder` in fixed mode. This account is dynamic and
+      answers to both, but a deployment in the other mode asked only the wrong
+      one returns zero -- and `folder_state()` would still say the folder is
+      there, so it reads as "the folder exists and is empty", which is the
+      confident wrong answer rather than a visible failure. Asking both costs
+      one parse and removes the whole class. Verified against the live search
+      API: the four-term form returns the same set as the two-term one.
     """
     parts = []
     for f in folders:
         parts.append(f"folder={_quoted(f)}")
         parts.append(f"folder:{_quoted(f + '/*')}")
+        parts.append(f"asset_folder={_quoted(f)}")
+        parts.append(f"asset_folder:{_quoted(f + '/*')}")
     return "(" + " OR ".join(parts) + ")" if parts else ""
 
 
