@@ -7,6 +7,12 @@
  * Markup contract:
  *     <span data-help="utm.form.medium"></span>      -> renders a ? bubble
  *     <div  data-tour="utm-medium">                  -> a tour highlight target
+ *     <body data-screen="utm.form">                  -> OFFERS that tour once
+ *     <button data-tour-start="utm.form">            -> runs it on demand
+ *
+ * data-screen offers the tour in a corner card on the first visit; it does not
+ * open it. A modal that opens itself lands in front of somebody who came to do
+ * a job, and the page behind it is dimmed while they read.
  *
  * Content comes from GET /api/help (hub/help.py). One source of truth.
  */
@@ -181,6 +187,46 @@
     return true;
   }
 
+  /* ---------------- the offer ----------------
+     A tour used to open itself on a screen's first visit. It is modal, it dims
+     the page behind it, and somebody who came to do a job got a dialog in front
+     of the form instead -- so the first visit is now an *offer*: a small card in
+     the corner, the page fully usable behind it, and one press either way. Both
+     answers are final, because a prompt that returns is the thing being fixed
+     here; the header's "How this works" button is how a tour is reached
+     afterwards. */
+
+  function offer(screen) {
+    if (seen(screen) || !(TOURS[screen] || []).length) return;
+    var box = document.createElement("div");
+    box.className = "s1-tour-offer";
+    box.setAttribute("role", "region");
+    box.setAttribute("aria-label", "Take a tour of this screen");
+    box.innerHTML =
+      '<p class="s1-tour-offer-title">First time on this screen?</p>' +
+      '<p class="s1-tour-offer-body">A ' + TOURS[screen].length +
+        "-step tour explains what each part does. It takes under a minute, and " +
+        'you can reopen it any time from <strong>How this works</strong>.</p>' +
+      '<div class="s1-tour-offer-actions">' +
+        '<button type="button" class="s1-tour-offer-no">No thanks</button>' +
+        '<button type="button" class="s1-tour-offer-yes">Show me around</button>' +
+      "</div>";
+    document.body.appendChild(box);
+
+    function dismiss(action) {
+      markSeen(screen);
+      report(screen, 0, action);
+      box.remove();
+    }
+    box.querySelector(".s1-tour-offer-yes").addEventListener("click", function () {
+      box.remove();
+      start(screen, true);
+    });
+    box.querySelector(".s1-tour-offer-no").addEventListener("click", function () {
+      dismiss("offer-declined");
+    });
+  }
+
   /* ---------------- boot ---------------- */
 
   function init() {
@@ -208,7 +254,7 @@
           }, 120);
         }).observe(document.body, { childList: true, subtree: true });
         var screen = document.body.getAttribute("data-screen");
-        if (screen) start(screen, false);
+        if (screen) offer(screen);
         document.querySelectorAll("[data-tour-start]").forEach(function (b) {
           b.addEventListener("click", function () {
             start(b.getAttribute("data-tour-start") || screen, true);
