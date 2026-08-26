@@ -1181,6 +1181,34 @@ A domain renews every year; a tick that stayed green when next year's date
 arrived would be a confident wrong answer of exactly the kind this codebase
 keeps having to undo.
 
+**A page does not pull an object in full to render it.** Every open of
+`/tools/domains` pulled object_153 over the wire, paged, to answer a question
+whose answer changes when somebody buys a domain — a few times a month. The
+registry is **snapshotted** now: the scheduler re-pulls it once a night
+(`purchased_domains` ticks hourly and `due_for_refresh()` decides, so a leader
+that restarted through the window picks the pull up rather than skipping a day
+in silence) and the page renders a dictionary scan. **Refresh** is the one
+control on it that reaches Knack, and it is a POST, because a GET that rewrites
+a cache is one a reload or a prefetch fires without anybody asking.
+
+Four rules hold it up, each a way a cache lies. **The age travels with the
+rows and is printed** — a cached figure with no date on it is read as today's,
+and `cache_state()` also says when the pull has not run for longer than a
+night, which is the only sign the scheduler has stopped. **A failed pull never
+empties a good snapshot**: the `knack_products` rule, because a transient Knack
+failure would otherwise turn a year of renewals into "we have bought no
+domains"; the failed attempt is recorded *beside* the rows it could not
+replace and named on the page. **Only the Knack half is cached** — the billed
+ticks, the month window and the search run per request, so a tick reads back
+at once and the calendar rolls into a new month on the day rather than at the
+next pull. And **a write to object_153 drops it**: `knack_websites.forget()`
+calls `domain_purchase.invalidate()`, or ticking "did we buy the domain?" on
+Client 360 leaves this calendar showing yesterday's answer until tomorrow,
+which reads as a save that did not happen. The one page-load pull that
+remains — no snapshot at all, on a fresh disk with no mirror — is behind a
+cooldown, or a Knack that is up and slow costs every visitor the full timeout
+in turn, which is the per-visit pull back in its worst form.
+
 ## One company, several client records
 
 National Background Check and Fast Fingerprints are one business. Every

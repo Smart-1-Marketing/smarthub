@@ -37,13 +37,21 @@ the renewal billing date would stay green for a charge nobody has raised.
 
 **A registrar we recorded and a registrar WHOIS observed are different
 claims.** Both are useful; presenting the second as the first is not.
+
+**A page does not pull an object to render it.** /tools/domains used to pull
+object_153 in full on every visit for an answer that changes a few times a
+month. The pull is nightly now, so what is worth asserting is the three ways
+a cache lies: that a failed pull never empties a good snapshot, that the age
+travels with the rows and is printed, and that the half which is *not* cached
+— the billed tick and the month window — still answers per request.
 """
 import os
 import shutil
 import sys
 import tempfile
+import time
 import types
-from datetime import date
+from datetime import date, datetime, timezone
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
@@ -152,7 +160,18 @@ WEB_ROWS = [
      "domain_bought_on": "", "domain_renews": "", "domain_fee": 0,
      "renewal_billing_date": ""},
 ]
-knack_websites.rows = lambda limit=2000, refresh=False: list(WEB_ROWS)
+PULLS = {"n": 0}
+
+
+def _stub_rows(limit=2000, refresh=False):
+    """Counted, so a test can assert that opening the page pulls nothing."""
+    PULLS["n"] += 1
+    return list(WEB_ROWS)
+
+
+REGISTRY_ERROR = {"why": ""}
+knack_websites.rows = _stub_rows
+knack_websites.last_error = lambda: REGISTRY_ERROR["why"]
 
 hit = knack_websites.client_for_domain("https://WWW.BuckeyeLakeMarina.example/about")
 check("a domain resolves to the client the registry files it under",
@@ -484,6 +503,7 @@ check("...saying who ticked it", "Todd" in row.get("note", ""), row)
 
 # The renewal rolls to next year. The tick was for last year's charge.
 WEB_ROWS[0]["renewal_billing_date"] = "08/14/2027"
+domain_purchase.refresh()
 rep = domain_purchase.report(today=date(2027, 8, 1))
 row = next(r for g in rep["groups"] for r in g["rows"]
            if r["domain"] == "buckeyelakemarina.example")
@@ -492,10 +512,134 @@ check("when the renewal date rolls the tick does not come with it",
 check("...and it says what it was billed for rather than losing the history",
       "08/14/2026" in row.get("note", ""), row)
 WEB_ROWS[0]["renewal_billing_date"] = "08/14/2026"
+domain_purchase.refresh()
 check("unticking works too",
       domain_purchase.set_billed("rec1", False)["ok"]
       and not domain_purchase.billed_store().get("rec1"),
       domain_purchase.billed_store())
+
+
+# ---------------------------------------------------------------------------
+section("The registry is pulled nightly, not on every visit")
+# ---------------------------------------------------------------------------
+# Every open of /tools/domains used to pull object_153 in full — every website
+# record, paged, over the wire — to answer a question whose answer changes
+# when somebody buys a domain. The page reads a stored snapshot now, and the
+# only two things that reach Knack are the nightly job and the Refresh button.
+from hub import jsonstore, scheduler                                # noqa: E402
+
+domain_purchase.refresh()
+before = PULLS["n"]
+domain_purchase.report(today=date(2026, 8, 1))
+domain_purchase.report(today=date(2026, 8, 1))
+check("opening the page twice pulls the registry no times",
+      PULLS["n"] == before, PULLS["n"] - before)
+domain_purchase.refresh()
+check("...and Refresh is the one thing on the page that does",
+      PULLS["n"] == before + 1, PULLS["n"] - before)
+
+# Only the Knack half is cached. A tick is the Hub's own and the month window
+# comes off the clock, so neither may wait for tomorrow's pull.
+domain_purchase.set_billed("rec1", True, for_date="08/14/2026", actor="Todd")
+at = PULLS["n"]
+snap_rep = domain_purchase.report(today=date(2026, 8, 1))
+snap_row = next(r for g in snap_rep["groups"] for r in g["rows"]
+                if r["domain"] == "buckeyelakemarina.example")
+check("a tick reads back straight away, and still without a pull",
+      snap_row["billed"] is True and PULLS["n"] == at, snap_row)
+domain_purchase.set_billed("rec1", False)
+check("...and the calendar rolls with the clock, not with the pull",
+      domain_purchase.report(today=date(2026, 11, 1))["groups"][0]["label"]
+      == "November 2026")
+
+check("the report says how old the snapshot is",
+      domain_purchase.report(today=date(2026, 8, 1))["cache"]["measured"] is True)
+check("...in words, on the page, so a cached figure is not read as today's",
+      "pulled" in domain_purchase.cache_state()["line"].lower(),
+      domain_purchase.cache_state()["line"])
+
+# A failed pull must never empty a good snapshot: "we could not look" and "we
+# have bought no domains" are different answers and only one is actionable.
+REGISTRY_ERROR["why"] = "Knack returned HTTP 502."
+_live_rows = knack_websites.rows
+knack_websites.rows = lambda limit=2000, refresh=False: []
+out = domain_purchase.refresh()
+check("a failed pull says it failed", out["ok"] is False and "502" in out["error"],
+      out)
+check("...and keeps the rows it could not replace", out["kept"] >= 1, out)
+stale_rep = domain_purchase.report(today=date(2026, 8, 1))
+check("so the page still lists them rather than reading as an empty registry",
+      stale_rep["total"] >= 2, stale_rep["total"])
+check("...and the note says the last refresh failed",
+      "502" in stale_rep["note"], stale_rep["note"])
+knack_websites.rows = _live_rows
+REGISTRY_ERROR["why"] = ""
+domain_purchase.refresh()
+check("a good pull afterwards clears the failure",
+      domain_purchase.cache_state()["attempt_error"] == "")
+
+# Nightly means a window on the clock, not an interval since boot.
+noon = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+check("the window is an hour of the night",
+      domain_purchase._last_window(noon).hour == domain_purchase.refresh_hour(),
+      domain_purchase._last_window(noon))
+check("a snapshot taken since that window is not due again",
+      not domain_purchase.due_for_refresh())
+aged = domain_purchase.snapshot()
+aged["fetched"] = time.time() - 86400 * 2
+jsonstore.write_json(domain_purchase._snapshot_path(), aged, indent=1)
+check("one two days old is", domain_purchase.due_for_refresh())
+check("...and is presented as stale rather than as current",
+      domain_purchase.cache_state()["stale"] is True,
+      domain_purchase.cache_state())
+check("...saying how old it is and what to press",
+      "days ago" in domain_purchase.cache_state()["line"]
+      and "Refresh" in domain_purchase.cache_state()["line"],
+      domain_purchase.cache_state()["line"])
+
+check("the scheduler owns the nightly pull",
+      "purchased_domains" in scheduler.JOBS, list(scheduler.JOBS))
+check("...ticking hourly, so a leader that restarted through the window "
+      "picks it up rather than skipping a day",
+      scheduler.JOBS["purchased_domains"][0] == 60)
+before = PULLS["n"]
+check("a due tick pulls",
+      scheduler.job_refresh_purchased_domains(None).get("ok") is True
+      and PULLS["n"] == before + 1)
+before = PULLS["n"]
+skipped = scheduler.job_refresh_purchased_domains(None)
+check("...and the next tick that night does not",
+      PULLS["n"] == before and bool(skipped.get("skipped")), skipped)
+
+# With no snapshot at all the report builds one — once. Without a cooldown a
+# Knack that is up and slow costs every visitor the full timeout in turn,
+# which is the per-visit pull back in its worst form.
+domain_purchase.invalidate()
+REGISTRY_ERROR["why"] = "Knack timed out."
+knack_websites.rows = lambda limit=2000, refresh=False: []
+domain_purchase.report(today=date(2026, 8, 1))
+before = PULLS["n"]
+empty = domain_purchase.report(today=date(2026, 8, 1))
+check("a failed build is not retried on the next page load",
+      PULLS["n"] == before)
+check("...and the page still says why it is empty rather than showing zero",
+      "timed out" in empty["note"] and empty["total"] == 0, empty["note"])
+knack_websites.rows = _stub_rows
+REGISTRY_ERROR["why"] = ""
+check("Refresh works straight away rather than waiting out the cooldown",
+      domain_purchase.refresh()["ok"] is True)
+check("...and the page has its rows back",
+      domain_purchase.report(today=date(2026, 8, 1))["total"] >= 2)
+
+# A write to object_153 has to drop it, or ticking "did we buy the domain?"
+# on Client 360 leaves this calendar showing yesterday's answer until
+# tomorrow, which reads as a save that did not happen.
+knack_websites.forget()
+check("a write to the registry drops the snapshot",
+      domain_purchase.snapshot() == {}, domain_purchase.snapshot())
+rebuilt = domain_purchase.report(today=date(2026, 8, 1))
+check("...and the next read rebuilds it rather than showing nothing",
+      rebuilt["total"] >= 2 and domain_purchase.snapshot() != {}, rebuilt["total"])
 
 
 # ---------------------------------------------------------------------------
@@ -521,8 +665,24 @@ try:
           composed.post("/api/client/website-record/save",
                         json={"record_id": "", "values": {"live_date": "x"}}
                         ).get_json()["ok"] is False)
+    ref = composed.post("/api/domains/refresh").get_json()
+    check("Refresh pulls now and hands back the rebuilt table in one trip",
+          ref["refresh"]["ok"] is True and "groups" in ref,
+          ref.get("refresh"))
+    check("...and it is a POST, so no reload or prefetch can pull for you",
+          composed.get("/api/domains/refresh").status_code == 405)
 except Exception as exc:                                        # noqa: BLE001
     check("the composed app boots with these routes", False, exc)
+
+TPL = open(os.path.join(ROOT, "hub", "templates", "domain_purchase.html"),
+           encoding="utf-8").read()
+check("the page loads itself now that the read is a dictionary scan",
+      "\nload();" in TPL and "Load renewals" not in TPL)
+check("...with Refresh as the one control on it that reaches Knack",
+      TPL.count("fetch('/api/domains/refresh'") == 1
+      and TPL.count("fetch('/api/domains/purchased'") == 1)
+check("and the age of the snapshot printed beside the table",
+      "dpAge" in TPL and "paintAge(" in TPL)
 
 
 # ---------------------------------------------------------------------------
