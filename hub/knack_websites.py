@@ -167,11 +167,16 @@ def _money(v) -> float:
 
 
 def _norm_name(s: str) -> str:
-    """Drop the suffixes that differ between systems for the same company."""
-    n = str(s or "").lower()
-    n = re.sub(r"\b(llc|l\.l\.c\.|inc|inc\.|ltd|ltd\.|co|co\.|corp|"
-               r"corporation|company|the|dba)\b", " ", n)
-    return re.sub(r"[^a-z0-9]+", "", n)
+    """Drop the suffixes that differ between systems for the same company.
+
+    The shared one in `hub/client_key.py`, not a second copy. The local
+    version ran the words together — "ab cd" and "abcd" normalised alike, so
+    two different businesses read as one — and dropped a different set of
+    suffixes than the billing audit's copy did, which is how two reports came
+    to disagree about whether two names were the same company.
+    """
+    from hub.client_key import normalise_name
+    return normalise_name(s)
 
 
 def _domain(v) -> str:
@@ -600,8 +605,21 @@ def _similar(a: str, b: str) -> float:
         return 0.0
     if x == y:
         return 1.0
-    if x in y or y in x:
-        return 0.92
+    # There was a `if x in y or y in x: return 0.92` here, and it was the
+    # substring rule `hub/client_key.py` exists to refuse — scored, on top of
+    # that, above almost every real resemblance. It cost exactly what that
+    # docstring says it costs: a Simvoly project is named "<media partner> -
+    # <business>", so every one of FabLocal's thirty-seven SERVPRO franchises
+    # contained the string "FabLocal" and was offered, top of the list at
+    # 0.92, as the website of **FabLocal**. On this deployment's own portfolio
+    # export the top suggestion was the media partner rather than the client
+    # on 39 of 242 suggested rows. Accepting one files a client's website
+    # under their agency.
+    #
+    # A genuine containment still scores on its own merits and still clears
+    # the threshold — "Smitty's Fireplace" against "Smitty's Fireplace Shop"
+    # is 0.88 — while "Acme" against "Acme Plumbing" is 0.47 and is now
+    # refused, which is the whole point.
     return SequenceMatcher(None, x, y).ratio()
 
 
