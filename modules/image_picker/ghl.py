@@ -48,7 +48,19 @@ class GHLError(RuntimeError):
 
 
 def agency_token() -> str:
-    return (os.environ.get("GHL_PRIVATE_TOKEN") or "").strip()
+    """The agency token, under whichever name it is set.
+
+    This deployment sets both GHL_PRIVATE_TOKEN and SMART1SUITE_PRIVATE_TOKEN,
+    and hub/ghl_contacts.py — the one write path for the whole Hub — reads
+    either. Reading one of them here meant a Hub whose Suite integration worked
+    everywhere else reported the picker's media library as unconfigured.
+    """
+    try:
+        from hub.config import settings
+        return (settings.ghl_token or "").strip()
+    except Exception:                                 # noqa: BLE001
+        return (os.environ.get("GHL_PRIVATE_TOKEN")
+                or os.environ.get("SMART1SUITE_PRIVATE_TOKEN") or "").strip()
 
 
 def configured() -> bool:

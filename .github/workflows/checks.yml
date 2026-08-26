@@ -531,6 +531,28 @@ jobs:
             echo "test_user_accounts.py not on this branch — nothing to run."
           fi
 
+      - name: Environment resolution and per-module attribution tests
+        # One setting, several variable names. This deployment's environment is
+        # assembled from linked Render env groups that each named things their
+        # own way, so a key set as PEXELS_API has to resolve in code written
+        # against PEXELS_API_KEY — and every failure is silent: the module
+        # reports the key missing, degrades to mock data, and the screen still
+        # looks healthy. Asserts every spelling resolves, that the alias table
+        # is the only list (the drift check used to regex it out of config's
+        # source, so replacing those calls with a table left it finding nothing
+        # and reading as clean), that a docstring describing the fix is not a
+        # finding, that a three-part Cloudinary credential reaches the SDK, that
+        # no value ever leaves env_report, and that the Display Ad Builder's
+        # work is attributable even though the module is TypeScript. Guarded
+        # like the steps around it so this workflow stays mergeable on a branch
+        # that predates the file.
+        run: |
+          if [ -f test_env_config.py ]; then
+            python test_env_config.py
+          else
+            echo "test_env_config.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a

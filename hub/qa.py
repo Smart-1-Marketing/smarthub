@@ -767,11 +767,24 @@ _ghl_cache: dict = {}
 
 def _ghl(path: str, params=None, method: str = "GET", body=None):
     import requests as _rq
-    # Smart 1 Marketing lookups use their own sub-account token when provided.
+    # Smart 1 Marketing lookups use their own sub-account token when provided,
+    # so the precedence here is deliberately the reverse of hub/config.py's:
+    # SMART1SUITE_PRIVATE_TOKEN first, then the agency token as the fallback.
+    # config treats the two as one setting and prefers GHL_PRIVATE_TOKEN, which
+    # is right for the Hub's one write path and wrong here — these accounting
+    # reads are scoped to the sub-account, and an agency token silently returns
+    # the agency's own empty list rather than refusing.
+    #
+    # Both names are read rather than one, which is what /api/integrity's
+    # drift check asks of anything not going through config: a reader that
+    # knows fewer spellings than config does is the defect. Order is the only
+    # difference.
+    from hub.config import settings as _cfg
     token = (os.environ.get("SMART1SUITE_PRIVATE_TOKEN", "").strip()
-             or os.environ.get("GHL_PRIVATE_TOKEN", ""))
+             or os.environ.get("GHL_PRIVATE_TOKEN", "").strip()
+             or _cfg.ghl_token)
     if not token:
-        raise RuntimeError("SMART1SUITE_PRIVATE_TOKEN / GHL_PRIVATE_TOKEN is not configured.")
+        raise RuntimeError(f"{_cfg.spellings('ghl_token')} is not configured.")
     headers = {"Authorization": f"Bearer {token}",
                "Version": os.environ.get("GHL_API_VERSION", "2021-07-28"),
                "Accept": "application/json", "Content-Type": "application/json"}
@@ -796,10 +809,22 @@ def _accounting_location() -> tuple[str, str]:
     comes back empty as though there were no pipelines. A company id is
     therefore refused here rather than used.
     """
-    company = (os.environ.get("GHL_COMPANY_ID", "").strip()
-               or os.environ.get("SUITE_COMPANY_ID", "").strip())
+    # GHL_ACCOUNTING_LOCATION_ID, GHL_LEAD_LOCATION_ID and
+    # SMART1_MARKETING_LOCATION_ID are one setting, and a reader that knows two
+    # of the three pins the location on one deployment and falls through to the
+    # search on the next for no reason anybody can see. So config supplies the
+    # names — but the *order* is this file's, and deliberately not config's:
+    # the accounting spelling wins here, because this figure is what an invoice
+    # is reconciled against and a deployment that has pinned an accounting
+    # location has said which sub-account that is. Config prefers the lead
+    # location, which is right where a lead is being written and wrong here.
+    # Every name in the group is read either way, which is what the drift check
+    # in /api/integrity asks of anything not resolved through config outright.
+    from hub.config import settings as _cfg
+    company = _cfg.ghl_company_id.strip()
     override = (os.environ.get("GHL_ACCOUNTING_LOCATION_ID", "").strip()
-                or os.environ.get("GHL_LEAD_LOCATION_ID", "").strip())
+                or os.environ.get("GHL_LEAD_LOCATION_ID", "").strip()
+                or os.environ.get("SMART1_MARKETING_LOCATION_ID", "").strip())
     if override and company and override == company:
         raise RuntimeError(
             "The configured accounting location id is the same value as the "
@@ -811,7 +836,7 @@ def _accounting_location() -> tuple[str, str]:
     if "acct_loc" in _ghl_cache:
         return _ghl_cache["acct_loc"]
     data = _ghl("/locations/search", {
-        "companyId": os.environ.get("GHL_COMPANY_ID", ""), "limit": "500"})
+        "companyId": _cfg.ghl_company_id, "limit": "500"})
     locs = data.get("locations") or []
     hit = next((l for l in locs
                 if "smart 1 marketing" in str(l.get("name", "")).lower()), None)
@@ -977,9 +1002,10 @@ GHL_SAAS_VERSION = "v3"
 
 def _ghl_saas(path: str, params=None):
     import requests as _rq
-    token = os.environ.get("GHL_PRIVATE_TOKEN", "")
+    from hub.config import settings as _cfg
+    token = _cfg.ghl_token
     if not token:
-        raise RuntimeError("GHL_PRIVATE_TOKEN is not configured.")
+        raise RuntimeError(f"{_cfg.spellings('ghl_token')} is not configured.")
     headers = {"Authorization": f"Bearer {token}", "Version": GHL_SAAS_VERSION,
                "Accept": "application/json"}
     r = _rq.get(GHL_BASE + path, params=params, headers=headers, timeout=20)
@@ -995,9 +1021,10 @@ def _ghl_saas(path: str, params=None):
 def _ghl_saas_locations() -> list:
     """Every sub-account GHL has ever put into Smart 1 Suite's SaaS mode,
     each with its subscriptionInfo (status, plan, Stripe ids), paginated."""
-    company = os.environ.get("GHL_COMPANY_ID", "")
+    from hub.config import settings as _cfg
+    company = _cfg.ghl_company_id
     if not company:
-        raise RuntimeError("GHL_COMPANY_ID is not configured.")
+        raise RuntimeError(f"{_cfg.spellings('ghl_company_id')} is not configured.")
     out, page = [], 1
     while True:
         data = _ghl_saas(f"/saas/saas-locations/{company}", {"page": page})
@@ -1016,7 +1043,8 @@ def _ghl_saas_locations() -> list:
 def _ghl_agency_plans() -> dict:
     """{saasPlanId: plan dict} — turns a location's saasPlanId into a plan
     title and its active monthly price."""
-    company = os.environ.get("GHL_COMPANY_ID", "")
+    from hub.config import settings as _cfg
+    company = _cfg.ghl_company_id
     data = _ghl_saas(f"/saas/agency-plans/{company}")
     plans = data if isinstance(data, list) else (data.get("plans") or [])
     return {p.get("planId"): p for p in plans if isinstance(p, dict) and p.get("planId")}

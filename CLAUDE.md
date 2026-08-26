@@ -132,6 +132,84 @@ has ever set, so it reported "env vars not fully set" into a response nobody
 reads and never once created an opportunity. `hub/suite_opportunity.py` reads
 the real names and discovers the pipeline through the API.
 
+**The spellings are a table now, and three things read it.** `hub/config.py`'s
+`ALIASES` is the list, and `_first("A", "B")` argument lists are gone. That is
+because the drift check used to *regex those calls out of config's source* —
+so the day they became a table it found no groups, reported nothing, and read
+as a clean bill of health with every module still drifting. It imports the
+table now, `env_report()` renders it, and `test_env_config.py` feeds the check
+a file that plainly drifts and requires it to say so, because a check that can
+be silenced by an edit somewhere else is worse than no check.
+
+Three rules in it. **Only spellings actually in use** go in: a speculative name
+costs nothing to resolve and a great deal to police — adding `OPENAI_KEY`
+beside `OPENAI_API_KEY` turned thirteen correct modules into findings about a
+variable nobody has ever set, which is how a check gets switched off.
+**Prose is not a call site**: three modules explain the drift they no longer
+have by quoting `os.environ["PEXELS_API_KEY"]` in a docstring, and the check
+reads the **AST** rather than matching text, or it reports the explanation of
+the fix as the defect. And **`os.getenv` is the same read** — that spelling is
+how `modules/sites_admin` reached `SECRET_KEY` past a check that only knew
+`os.environ`, and ran the whole Sites module on `"dev-only-change-me"`.
+
+The check covers `hub/` as well as `modules/` and is **high** severity now, so
+CI fails on it. What it cannot see is a *setting* nobody declared, which is why
+`env_report()` exists beside it.
+
+**Which name answered is a question nobody could ask.** Accepting every
+spelling resolves the key and then makes it impossible to tell which variable
+did it — and on a second deployment that matters twice: a variable set under a
+name this Hub reads *second* looks exactly like one that took effect, and two
+names holding **different** values silently resolve to whichever comes first in
+the table, with nothing anywhere reporting that the other is dead. `/diagnostics`
+has an **Environment** panel and `/api/environment` the JSON: one row per
+setting, every name accepted, the one that answered, and any that were set and
+ignored. **No value is ever carried** — it is rendered into a page and pasted
+into chats, the rule `services/provider_check.py` already works to. A conflict
+also reaches `placeholder_warnings()`, so it shows on the status page beside
+the quoted-value and placeholder warnings rather than only where somebody
+thought to look.
+
+**`PUBLIC_BASE_URL` is an origin, and one env group here holds a callback URL
+in it** — the same string as `GOOGLE_ADS_REDIRECT_URI`, path and all. A
+service-level value overrides a linked group's, so this deployment is fine and
+the next one to link that group would not be: every share link, landing URL and
+Insites scan callback would be built with `/tools/ads/oauth/callback` in the
+middle of it and 404 somewhere nobody is watching. A path in it is reported now.
+
+**Cloudinary is published two ways and this account sets both.** One
+`CLOUDINARY_URL`, and the three parts `CLOUDINARY_CLOUD_NAME` /
+`CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET`. Nine modules configure the SDK
+with the three parts and every shared path reads the URL, so a deployment given
+only the three-part group had a working Image Creator and a `cloudinary_ready`
+of False — `hub/storage.py` silently on the local disk that is wiped on every
+redeploy. Config composes the URL when it is absent, and
+`export_cloudinary_url()` puts it back into `os.environ`, because
+`cloudinary.config()` with no arguments reads it from there and that is how
+hub/storage and nine modules configure themselves. It never overwrites an
+explicit `CLOUDINARY_URL`.
+
+**A module that is not Python still has to be attributable.** `/api/integrity`
+reported `ad_builder` as a module that never logs, and the module logs — under
+`display_ads`, from `hub/ad_builder_link.py`, because `modules/ad_builder` is a
+TypeScript renderer whose Hub-side half lives in `hub/`. The check looked in
+the directory, found one maintenance script, and was half right in the way that
+matters least: the Hub-side *joins* logged, and the work itself — rendering a
+size set, delivering a pack, approving a proof — passed through
+`hub/ad_builder_proxy.py` and was recorded nowhere, which is creative a client
+receives with nobody's name on it. The proxy logs every write that returns 2xx
+now, so a route added in TypeScript next month cannot be silent: anything not
+in `_ACTIONS` is still recorded under its own path. It reads only the status
+line, never the body — the response is streamed to the browser and buffering a
+multi-megabyte ad pack to learn the client name would cost more than the entry
+is worth, so the client stays on the two link-side events that know one. The
+log name is declared in `hub/audit.LOG_NAMES` rather than renamed: renaming it
+would orphan every entry already written and every Client 360 card reading
+them, to make a static check happy about a string. Declaring it is not enough
+on its own — the check then looks for that name across `hub/`, and
+`test_env_config.py` points it at a name nothing writes and requires the
+finding back.
+
 **A URL built by concatenation is a URL nothing checks.** `tools/linkcheck.py`
 only sees a path literal that sits directly inside `fetch("…")`. Written as
 `fetch(BASE + "/api/thing")` it is invisible, which is how three of the
@@ -1997,6 +2075,7 @@ python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-
 python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the chrome, who may frame
 python3 test_display_ads.py        # the display layouts, and the build screen's contracts
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle
+python3 test_env_config.py        # one setting, every name it answers to, and who logs
 ```
 
 The test files need no pytest and no new dependencies; each runs against a
@@ -2051,11 +2130,11 @@ left. Neither is redundant — jscheck is stricter on what it can read, and
 checktemplates is the only thing that reads the rest.
 
 `tools/integritycheck.py` runs `/api/integrity` from the command line and
-fails on `high` findings. Six `medium`/`low` ones stand today — `ad_builder`
-never writes to the activity log (`msa` since does), one unclamped `?limit=`,
-and four modules reading a provider key under one spelling only; it prints them
-every run rather than failing on them, so switching it on did not start life
-red.
+fails on `high` findings. It is at **zero** — the six `medium`/`low` findings
+that used to stand every run are cleared, and `provider_key_drift` is `high`
+now rather than `medium`, as the note that sat beside it asked for once its
+list was empty. A check that starts life red is a check somebody switches off;
+one that has been green is one a new finding actually interrupts.
 
 Then boot through `wsgi.application` (not just the hub app — that's how mount
 shadowing hides) and request the pages you touched. `/api/integrity` reports

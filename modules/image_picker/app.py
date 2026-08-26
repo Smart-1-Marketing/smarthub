@@ -85,10 +85,27 @@ ALLOWED_IMAGE_HOSTS = {
 # Signing
 # --------------------------------------------------------------------------- #
 
+def _hub_secret() -> str:
+    """The Hub's signing secret, under every name it answers to.
+
+    This read SECRET_KEY alone. hub/config.py accepts SECRET_KEY,
+    FLASK_SECRET_KEY and SESSION_SECRET, and this deployment sets more than
+    one of them — so on a deployment carrying only one of the others, signing
+    fell through to current_app's key or raised, and the picker refused every
+    build for a reason that named the wrong variable.
+    """
+    try:
+        from hub.config import settings
+        return settings.secret_key
+    except Exception:                                 # noqa: BLE001
+        return (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
+                or os.environ.get("SESSION_SECRET") or "")
+
+
 def _secret() -> bytes:
     key = (
         os.environ.get("IMAGE_PICKER_SIGNING_KEY")
-        or os.environ.get("SECRET_KEY")
+        or _hub_secret()
         or current_app.config.get("SECRET_KEY")
         or ""
     )
