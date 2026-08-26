@@ -616,3 +616,76 @@ def lookup(q: str, customer_id=None) -> dict:
             c["invoices"] = []
             c["error"] = str(exc)
     return {"configured": True, "connected": True, "customers": customers}
+
+
+# ---------------------------------------------------------------- line items
+def items() -> list[dict]:
+    """Every product/service in the QuickBooks catalogue.
+
+    Read for one reason: a report that filters invoice lines by product name
+    has to be able to say whether that product *exists*. A renamed item makes
+    every "is this billed?" question answer no, on every row at once, and an
+    empty table reads as a clean bill of health rather than as a filter that
+    matched nothing. `hub/sites_billing.py` checks its three names against
+    this list before it reports on anything.
+    """
+    rows = _query_all("SELECT Id, Name, Description, Active FROM Item")
+    return [{"id": r.get("Id"), "name": r.get("Name") or "",
+             "description": r.get("Description") or "",
+             "active": bool(r.get("Active", True))} for r in rows]
+
+
+def invoice_lines_since(date_iso: str) -> list[dict]:
+    """Every invoice *line* on/after date_iso, with its product and description.
+
+    `invoices_since()` answers "how much did this customer pay", which is the
+    wrong question for anything keyed on what was sold. The line is where the
+    product name and the description live, and the description is the only
+    place a hosting charge says *which website* it is for.
+
+    Two things carried alongside each line, because neither is reliably on it:
+
+    * ``invoice_text`` — every other description on the same invoice plus the
+      customer memo. QuickBooks users routinely put the domain on a
+      description-only line under the item rather than on the item line, and a
+      reader that only looks at ``description`` finds nothing and concludes the
+      charge names no site. It is kept in its own field rather than merged into
+      the description, so a match found there can be *labelled* as found on the
+      invoice rather than on the line — weaker evidence, and a reader has to be
+      able to tell.
+    * ``customer`` — the display name, which is the fallback join when no
+      description names anything.
+    """
+    rows = _query_all(
+        f"SELECT * FROM Invoice WHERE TxnDate >= '{_esc(date_iso)}' ORDERBY TxnDate")
+    out = []
+    for inv in rows:
+        ref = inv.get("CustomerRef") or {}
+        lines = [ln for ln in (inv.get("Line") or []) if isinstance(ln, dict)]
+        memo = ((inv.get("CustomerMemo") or {}).get("value") or "")
+        all_text = [str(ln.get("Description") or "") for ln in lines]
+        all_text.append(memo)
+        for ln in lines:
+            detail = ln.get("SalesItemLineDetail")
+            if not isinstance(detail, dict):
+                # SubTotal, Discount and description-only lines carry no
+                # product. They are still read above, as invoice_text.
+                continue
+            item = detail.get("ItemRef") or {}
+            desc = str(ln.get("Description") or "")
+            others = [t for t in all_text if t and t != desc]
+            out.append({
+                "invoice_id": inv.get("Id"),
+                "doc_number": inv.get("DocNumber") or "",
+                "date": inv.get("TxnDate") or "",
+                "customer_id": ref.get("value"),
+                "customer": ref.get("name") or "",
+                "item_id": item.get("value"),
+                "item": item.get("name") or "",
+                "description": desc,
+                "invoice_text": " \n".join(others),
+                "amount": float(ln.get("Amount") or 0),
+                "qty": detail.get("Qty"),
+                "link": invoice_link(inv.get("Id")),
+            })
+    return out
