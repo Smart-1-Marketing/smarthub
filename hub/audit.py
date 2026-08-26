@@ -103,6 +103,25 @@ def for_module(name: str, actor_fn=None):
     return _log
 
 
+# A module whose activity is filed under a name that is not its directory's,
+# and whose logging therefore lives outside that directory.
+#
+# The Display Ad Builder is the only one, and it is the only one because it is
+# the only module here that is not Python: `modules/ad_builder` is a TypeScript
+# renderer, and its Hub-side half — the client join, the proxy, the audit
+# entries — is hub/ad_builder_link.py and hub/ad_builder_proxy.py. Everything
+# it writes is filed under "display_ads", the name on the tile, on the
+# blueprint, on every help key and on every lead it has ever captured.
+#
+# It is declared rather than renamed. Renaming the log name to match the
+# directory would orphan every entry already written and every Client 360 card
+# reading them, to make a static check happy about a string.
+#
+# hub/integrity.py's silent-module check reads this, so a module listed here is
+# looked for by the name it actually logs under, anywhere in the tree.
+LOG_NAMES: dict[str, str] = {"ad_builder": "display_ads"}
+
+
 def registered_modules() -> list[str]:
     return sorted(_REGISTERED)
 

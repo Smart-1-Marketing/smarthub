@@ -29,6 +29,7 @@ import requests
 from flask import (Blueprint, jsonify, redirect, render_template, request)
 
 from hub import ad_builder_proxy
+from hub.webargs import clamp_int
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +214,7 @@ def client_gallery(client_name: str, limit: int = 48) -> dict:
             "kind": row.collection_kind or "",
             "saved_at": row.created_at.isoformat() if row.created_at else "",
         })
-        if len(images) >= max(1, int(limit)):
+        if len(images) >= clamp_int(limit, 48, 1, 200):
             break
 
     note = ""
@@ -746,8 +747,12 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         "/_hub/gallery" resolves under the mount and 404s standalone, which is
         the honest answer there.
         """
+        # clamp_int, not int(): ?limit=-1 reached `images[:limit]`-shaped code
+        # below as a negative bound, and ?limit=abc was a 500 on a page that
+        # only ever wanted a page size. One implementation, both ends clamped.
         return jsonify(client_gallery(request.args.get("client", ""),
-                                      limit=int(request.args.get("limit") or 48)))
+                                      limit=clamp_int(request.args.get("limit"),
+                                                      48, 1, 200)))
 
     @bp.route("/gallery", methods=["POST"])
     def gallery_save_route():

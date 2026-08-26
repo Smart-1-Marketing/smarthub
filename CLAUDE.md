@@ -132,6 +132,84 @@ has ever set, so it reported "env vars not fully set" into a response nobody
 reads and never once created an opportunity. `hub/suite_opportunity.py` reads
 the real names and discovers the pipeline through the API.
 
+**The spellings are a table now, and three things read it.** `hub/config.py`'s
+`ALIASES` is the list, and `_first("A", "B")` argument lists are gone. That is
+because the drift check used to *regex those calls out of config's source* —
+so the day they became a table it found no groups, reported nothing, and read
+as a clean bill of health with every module still drifting. It imports the
+table now, `env_report()` renders it, and `test_env_config.py` feeds the check
+a file that plainly drifts and requires it to say so, because a check that can
+be silenced by an edit somewhere else is worse than no check.
+
+Three rules in it. **Only spellings actually in use** go in: a speculative name
+costs nothing to resolve and a great deal to police — adding `OPENAI_KEY`
+beside `OPENAI_API_KEY` turned thirteen correct modules into findings about a
+variable nobody has ever set, which is how a check gets switched off.
+**Prose is not a call site**: three modules explain the drift they no longer
+have by quoting `os.environ["PEXELS_API_KEY"]` in a docstring, and the check
+reads the **AST** rather than matching text, or it reports the explanation of
+the fix as the defect. And **`os.getenv` is the same read** — that spelling is
+how `modules/sites_admin` reached `SECRET_KEY` past a check that only knew
+`os.environ`, and ran the whole Sites module on `"dev-only-change-me"`.
+
+The check covers `hub/` as well as `modules/` and is **high** severity now, so
+CI fails on it. What it cannot see is a *setting* nobody declared, which is why
+`env_report()` exists beside it.
+
+**Which name answered is a question nobody could ask.** Accepting every
+spelling resolves the key and then makes it impossible to tell which variable
+did it — and on a second deployment that matters twice: a variable set under a
+name this Hub reads *second* looks exactly like one that took effect, and two
+names holding **different** values silently resolve to whichever comes first in
+the table, with nothing anywhere reporting that the other is dead. `/diagnostics`
+has an **Environment** panel and `/api/environment` the JSON: one row per
+setting, every name accepted, the one that answered, and any that were set and
+ignored. **No value is ever carried** — it is rendered into a page and pasted
+into chats, the rule `services/provider_check.py` already works to. A conflict
+also reaches `placeholder_warnings()`, so it shows on the status page beside
+the quoted-value and placeholder warnings rather than only where somebody
+thought to look.
+
+**`PUBLIC_BASE_URL` is an origin, and one env group here holds a callback URL
+in it** — the same string as `GOOGLE_ADS_REDIRECT_URI`, path and all. A
+service-level value overrides a linked group's, so this deployment is fine and
+the next one to link that group would not be: every share link, landing URL and
+Insites scan callback would be built with `/tools/ads/oauth/callback` in the
+middle of it and 404 somewhere nobody is watching. A path in it is reported now.
+
+**Cloudinary is published two ways and this account sets both.** One
+`CLOUDINARY_URL`, and the three parts `CLOUDINARY_CLOUD_NAME` /
+`CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET`. Nine modules configure the SDK
+with the three parts and every shared path reads the URL, so a deployment given
+only the three-part group had a working Image Creator and a `cloudinary_ready`
+of False — `hub/storage.py` silently on the local disk that is wiped on every
+redeploy. Config composes the URL when it is absent, and
+`export_cloudinary_url()` puts it back into `os.environ`, because
+`cloudinary.config()` with no arguments reads it from there and that is how
+hub/storage and nine modules configure themselves. It never overwrites an
+explicit `CLOUDINARY_URL`.
+
+**A module that is not Python still has to be attributable.** `/api/integrity`
+reported `ad_builder` as a module that never logs, and the module logs — under
+`display_ads`, from `hub/ad_builder_link.py`, because `modules/ad_builder` is a
+TypeScript renderer whose Hub-side half lives in `hub/`. The check looked in
+the directory, found one maintenance script, and was half right in the way that
+matters least: the Hub-side *joins* logged, and the work itself — rendering a
+size set, delivering a pack, approving a proof — passed through
+`hub/ad_builder_proxy.py` and was recorded nowhere, which is creative a client
+receives with nobody's name on it. The proxy logs every write that returns 2xx
+now, so a route added in TypeScript next month cannot be silent: anything not
+in `_ACTIONS` is still recorded under its own path. It reads only the status
+line, never the body — the response is streamed to the browser and buffering a
+multi-megabyte ad pack to learn the client name would cost more than the entry
+is worth, so the client stays on the two link-side events that know one. The
+log name is declared in `hub/audit.LOG_NAMES` rather than renamed: renaming it
+would orphan every entry already written and every Client 360 card reading
+them, to make a static check happy about a string. Declaring it is not enough
+on its own — the check then looks for that name across `hub/`, and
+`test_env_config.py` points it at a name nothing writes and requires the
+finding back.
+
 **A URL built by concatenation is a URL nothing checks.** `tools/linkcheck.py`
 only sees a path literal that sits directly inside `fetch("…")`. Written as
 `fetch(BASE + "/api/thing")` it is invisible, which is how three of the
@@ -1181,6 +1259,34 @@ A domain renews every year; a tick that stayed green when next year's date
 arrived would be a confident wrong answer of exactly the kind this codebase
 keeps having to undo.
 
+**A page does not pull an object in full to render it.** Every open of
+`/tools/domains` pulled object_153 over the wire, paged, to answer a question
+whose answer changes when somebody buys a domain — a few times a month. The
+registry is **snapshotted** now: the scheduler re-pulls it once a night
+(`purchased_domains` ticks hourly and `due_for_refresh()` decides, so a leader
+that restarted through the window picks the pull up rather than skipping a day
+in silence) and the page renders a dictionary scan. **Refresh** is the one
+control on it that reaches Knack, and it is a POST, because a GET that rewrites
+a cache is one a reload or a prefetch fires without anybody asking.
+
+Four rules hold it up, each a way a cache lies. **The age travels with the
+rows and is printed** — a cached figure with no date on it is read as today's,
+and `cache_state()` also says when the pull has not run for longer than a
+night, which is the only sign the scheduler has stopped. **A failed pull never
+empties a good snapshot**: the `knack_products` rule, because a transient Knack
+failure would otherwise turn a year of renewals into "we have bought no
+domains"; the failed attempt is recorded *beside* the rows it could not
+replace and named on the page. **Only the Knack half is cached** — the billed
+ticks, the month window and the search run per request, so a tick reads back
+at once and the calendar rolls into a new month on the day rather than at the
+next pull. And **a write to object_153 drops it**: `knack_websites.forget()`
+calls `domain_purchase.invalidate()`, or ticking "did we buy the domain?" on
+Client 360 leaves this calendar showing yesterday's answer until tomorrow,
+which reads as a save that did not happen. The one page-load pull that
+remains — no snapshot at all, on a fresh disk with no mirror — is behind a
+cooldown, or a Knack that is up and slow costs every visitor the full timeout
+in turn, which is the per-visit pull back in its worst form.
+
 ### Which websites are billed for, and which are not
 
 `hub/sites_billing.py` and **QA → Billing & Accounting → Sites Billing
@@ -2004,6 +2110,90 @@ must not have it re-guessed under them. `test_web_tickets.py` asserts the two
 name sets translate, so a pinned id that moves cannot leave a report column
 reading a field that no longer means what its heading says.
 
+## A client's photos are already somewhere, and it is not their laptop
+
+`modules/image_picker/upload_sources.py`. The client-facing picker
+(`/tools/image-picker/pick/<token>`) has always been able to take uploads
+through Cloudinary's own widget, which speaks Google Drive, Google Photos,
+Dropbox, Facebook, Instagram and a web image search out of the box. It offered
+three: a file dialog, the camera, and a URL box — because `PICKER_UPLOAD_SOURCES`
+defaulted to `local,camera,url` and nobody had ever set it. So a client asked
+for "your photos" got a file dialog while the photos sat in their own Instagram
+feed and the agency's Dropbox, and what actually happens then is that they do
+not send them.
+
+The sources are a catalogue with what each one is for, rather than a comma list
+in an environment variable, and four rules follow from that:
+
+- **A source is offered from the catalogue or not at all.** A name the widget
+  does not know draws a broken tab or no tab, and both read as our page being
+  broken. An unrecognised entry is dropped and **named on the admin page**
+  rather than forwarded — the same answer `hub/knack_websites.py` gives a value
+  Knack would refuse.
+- **A billed add-on is off until somebody turns it on.** Shutterstock, Getty,
+  iStock and Unsplash are Cloudinary add-on subscriptions; listed without one,
+  the client gets a tab that consents and then fails for a reason that is
+  nothing to do with them, which is exactly why Google Ads came off the Google
+  Access list. `PICKER_STOCK_SOURCES` names the ones the account actually has.
+- **A per-source key is an override, not a gate.** Drive, Dropbox and Instagram
+  work on Cloudinary's own registered apps; our own client id only changes
+  whose name is on the consent screen. So a missing key reads as *not measured*
+  on the admin page, never as a cross, and never hides the tab — and an **empty**
+  key is never sent, because the widget takes `dropboxAppKey: ""` at its word
+  and fails the tab against it.
+- **Recording an upload asks whether the source is one of ours, not whether it
+  is switched on now.** A source turned off between the widget opening and the
+  file landing must not file a real Instagram upload as `local`, which is the
+  one thing the gallery's source column exists to say.
+
+The paragraph the client reads is **built from the live list**, because a
+sentence naming Dropbox on a deployment where Dropbox is off is a promise the
+panel cannot keep.
+
+**The staff pick page 500'd on every visit.** `/tools/image-picker/c/<id>`
+includes the upload panel and never passed it the panel's variables, and
+`{{ sources|tojson }}` over an Undefined raises while Flask is *rendering* — so
+it was never a broken widget, it was the whole page, exactly like
+`url_for('website_check_limits')` in Sites Admin. `tools/pagecheck.py` covers
+the module root now and `test_image_picker.py` covers the page that needs a
+gallery id.
+
+**Deleting a gallery deletes files nobody can get back**, so the name is typed
+rather than an OK button pressed: the button sits in a row of four safe ones,
+and for anything the client uploaded our copy is very often the only copy. What
+Cloudinary removed and what it refused are **counted apart** — `hub/domain_links.py`
+says at length why one tick for both is how somebody learns not to trust the
+tick — and the Suite copies are named as staying, because a file already in the
+client's media library may be in a funnel. `cloudinary_sink.destroy()` takes the
+resource type now: Cloudinary keeps images and raw files in separate namespaces,
+so a brochure PDF asked for as an `image` comes back "not found", which the old
+signature reported as a **clean success** with the row gone and the file still
+in the account.
+
+**"General Business" is the busiest entry in the industry dropdown**, because
+"none of the above" always is — and it handed out four generic chips: a team, a
+counter, a storefront, a handshake. `modules/image_picker/profile.py` asks that
+client two questions instead (what kind of business, and what do you sell or
+show on your website) and the answers do three things, because **an answer that
+was captured must be used** — the Proposal Builder shipped four discovery
+questions that were read by nothing and produced an identical document whatever
+was typed. They become the client's **own** topic and service chips, they are
+blended into every free-text search from then on, and they are kept on the row
+so the next visit and the next rep picking on their behalf start from the same
+answers.
+
+Three rules in it. The model writes **search terms and nothing else is
+trusted**: `clamp()` caps the collections, the queries per collection and the
+lengths, and strips everything a stock query is not — these strings reach three
+provider APIs with three quoting rules and a page. **"We could not ask the
+model" is not "this business has no topics"**: the chips are still built, from
+the client's own words folded into the General Business queries, and the row
+records `source: "typed"` so a staff screen can tell that apart from copy
+written for this client. And **only General Business is overridden** — a staff
+member switching the industry selector to a real trade is asking for that
+trade's curated chips, not for a client's description to quietly replace them.
+`test_image_picker.py` asserts all of it.
+
 ## The one module that is not Python
 
 The **Display Ad Builder** (`modules/ad_builder`) is a Node service, not a
@@ -2337,6 +2527,7 @@ python3 test_dashboard_trends.py   # the KPI comparisons accumulate and name the
 python3 test_celebrations.py       # birthdays and anniversaries: the month, and who is interrupted
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
+python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
 python3 test_video_library.py      # the footage index, its status row, the page's palette
@@ -2358,6 +2549,7 @@ python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the 
 python3 test_display_ads.py        # the display layouts, and the build screen's contracts
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
+python3 test_env_config.py         # one setting, every name it answers to, and who logs
 ```
 
 The test files need no pytest and no new dependencies; each runs against a
@@ -2412,11 +2604,11 @@ left. Neither is redundant — jscheck is stricter on what it can read, and
 checktemplates is the only thing that reads the rest.
 
 `tools/integritycheck.py` runs `/api/integrity` from the command line and
-fails on `high` findings. Six `medium`/`low` ones stand today — `ad_builder`
-never writes to the activity log (`msa` since does), one unclamped `?limit=`,
-and four modules reading a provider key under one spelling only; it prints them
-every run rather than failing on them, so switching it on did not start life
-red.
+fails on `high` findings. It is at **zero** — the six `medium`/`low` findings
+that used to stand every run are cleared, and `provider_key_drift` is `high`
+now rather than `medium`, as the note that sat beside it asked for once its
+list was empty. A check that starts life red is a check somebody switches off;
+one that has been green is one a new finding actually interrupts.
 
 Then boot through `wsgi.application` (not just the hub app — that's how mount
 shadowing hides) and request the pages you touched. `/api/integrity` reports

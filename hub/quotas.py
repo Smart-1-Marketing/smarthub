@@ -511,7 +511,11 @@ def elevenlabs_account() -> dict:
         from hub.config import settings
         key = settings.elevenlabs_key
     except Exception:                                   # noqa: BLE001
-        key = (os.environ.get("ELEVENLABS_API_KEY") or "").strip()
+        # Every spelling, not one: a fallback that knows fewer names than
+        # config does turns an unimportable config into a missing key.
+        key = (os.environ.get("ELEVENLABS_API")
+               or os.environ.get("ELEVENLABS_API_KEY")
+               or os.environ.get("ELEVENLABS_KEY") or "").strip()
     if not key:
         return {"available": False,
                 "reason": "ELEVENLABS_API / ELEVENLABS_API_KEY is not set on "

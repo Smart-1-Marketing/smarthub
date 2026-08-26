@@ -26,7 +26,15 @@ SESSION_DAYS = 14
 def _serializer():
     import os
     from itsdangerous import URLSafeTimedSerializer
-    secret = os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET") or ""
+    # Through hub.config: this signs the same kind of token hub/auth.py does,
+    # and a route that knows two of the three spellings signs with a different
+    # secret than the guard that has to verify it.
+    try:
+        from hub.config import settings as _cfg
+        secret = _cfg.secret_key
+    except Exception:                               # noqa: BLE001
+        secret = (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
+                  or os.environ.get("SESSION_SECRET") or "")
     return URLSafeTimedSerializer(secret or "dev-only", salt="s1hub-user")
 
 

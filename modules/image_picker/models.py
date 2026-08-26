@@ -58,6 +58,9 @@ _LATE_COLUMNS = [
     ("image_picker_images", "spec_result", "VARCHAR(10)"),
     ("image_picker_images", "spec_summary", "TEXT"),
     ("image_picker_images", "spec_unit", "VARCHAR(60)"),
+    ("image_picker_clients", "business_category", "VARCHAR(120)"),
+    ("image_picker_clients", "business_profile", "TEXT"),
+    ("image_picker_clients", "ai_collections", "TEXT"),
 ]
 
 
@@ -158,6 +161,19 @@ class PickerClient(Base):
     slug = Column(String(200), nullable=False, unique=True, index=True)
     industry_key = Column(String(60), nullable=False, default="general")
 
+    # What a General Business client told us they do. The industry dropdown's
+    # last entry is its busiest, and it hands out four generic chips; these two
+    # answers are what turns that into a picker about their business. Kept on
+    # the row so the next visit — and the next person from Smart 1 picking on
+    # their behalf — starts from the same answers.
+    business_category = Column(String(120), nullable=True)
+    business_profile = Column(Text, nullable=True)
+    # The topics and services built from those answers, as JSON. Deliberately a
+    # blob rather than a table: they are a derivation of the two fields above,
+    # re-made whenever somebody presses the button, and a table would invite
+    # editing one row of a set that is only ever written whole.
+    ai_collections = Column(Text, nullable=True)
+
     cloudinary_folder = Column(String(300), nullable=True)
 
     ghl_location_id = Column(String(120), nullable=True)
@@ -206,6 +222,8 @@ class PickerClient(Base):
             "ghl_location_id": self.ghl_location_id or "",
             "ghl_enabled": bool(self.ghl_enabled),
             "ghl_configured": bool(self.ghl_location_id),
+            "business_category": self.business_category or "",
+            "business_profile": self.business_profile or "",
             "share_enabled": bool(self.share_enabled),
             "share_note": self.share_note or "",
             "created_at": iso(self.created_at),

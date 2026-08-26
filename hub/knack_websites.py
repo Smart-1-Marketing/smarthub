@@ -194,6 +194,16 @@ def forget() -> None:
     """Drop the read cache. Called after a write, so a page reads its own change."""
     _CACHE["at"] = 0.0
     _CACHE["rows"] = []
+    # /tools/domains renders a nightly snapshot of this object rather than
+    # pulling it per visit, so a write here has to drop that too — otherwise
+    # ticking "did we buy the domain?" on Client 360 leaves the renewal
+    # calendar showing yesterday's answer until tomorrow, which reads as a
+    # save that did not happen.
+    try:
+        from hub import domain_purchase
+        domain_purchase.invalidate()
+    except Exception:                                   # noqa: BLE001
+        pass
 
 
 def last_error() -> str:

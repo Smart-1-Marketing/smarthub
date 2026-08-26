@@ -313,6 +313,28 @@ def job_refresh_google_index(app) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+def job_refresh_purchased_domains(app) -> dict:
+    """Re-pull the website registry behind /tools/domains, once a night.
+
+    The page used to pull object_153 in full on every visit to answer a
+    question whose answer changes when somebody buys a domain. This ticks
+    hourly and the module decides: `refresh(force=False)` returns without
+    touching Knack unless the nightly window has passed, so a leader that
+    restarted through that window picks the pull up on its next tick rather
+    than skipping a day in silence.
+    """
+    try:
+        from hub import domain_purchase
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    try:
+        return domain_purchase.refresh(force=False)
+    except Exception as exc:                            # noqa: BLE001
+        # A Knack outage must not take the scheduler down with it. The stored
+        # snapshot simply ages, and the page says how old it is.
+        return {"ok": False, "error": type(exc).__name__}
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -328,6 +350,8 @@ JOBS = {
                           "Refresh public QuickBooks invoice links (3x daily)."),
     "google_index":      (180, job_refresh_google_index,
                           "Re-sweep Google and re-join every account to a client."),
+    "purchased_domains": (60, job_refresh_purchased_domains,
+                          "Re-pull the purchased-domain registry once a night."),
 }
 
 

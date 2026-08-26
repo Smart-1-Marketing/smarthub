@@ -95,7 +95,16 @@ def brand_lookup(query: str) -> dict:
     if not query:
         return {"error": "Enter a company name or domain."}
 
-    key = (os.environ.get("BRANDFETCH_API_KEY") or "").strip()
+    # Through hub.config, like the font key forty lines down. This one read
+    # BRANDFETCH_API_KEY alone, so on a deployment naming it BRANDFETCH_API the
+    # brand lookup answered "not configured" while the same key drew logos in
+    # Smart 1 Ads — one setting, two answers, neither of them an error.
+    try:
+        from hub.config import settings as _cfg
+        key = (_cfg.brandfetch_key or "").strip()
+    except Exception:                                 # noqa: BLE001
+        key = (os.environ.get("BRANDFETCH_API")
+               or os.environ.get("BRANDFETCH_API_KEY") or "").strip()
     domain = re.sub(r"^https?://", "", query.lower()).removeprefix("www.").split("/")[0]
     if "." not in domain:                             # a name, not a domain
         domain = _resolve_domain_by_name(query, key)

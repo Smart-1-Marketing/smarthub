@@ -10,15 +10,18 @@
     are listed &mdash; everything else in the website registry is somebody
     else's domain. This month and the next three are laid out below because
     that is what the question usually is; anything further out is a search.
+    The registry behind it is pulled once a night rather than on every visit
+    &mdash; <b>Refresh</b> pulls it now.
   </p>
 
   <div class="dp-metrics" id="dpMetrics"></div>
   <div class="dp-bar">
-    <button class="dp-btn primary" onclick="load()">Load renewals</button>
+    <button class="dp-btn primary" id="dpRefresh" onclick="refresh()">Refresh</button>
     <input id="dpQ" class="dp-search" placeholder="Search every purchased domain — domain, client or registrar"
            oninput="renderSearch()" disabled>
   </div>
-  <div id="dpOut"><p class="dp-muted">Nothing loaded yet.</p></div>
+  <p class="dp-age" id="dpAge">&nbsp;</p>
+  <div id="dpOut"><p class="dp-muted">Reading the stored registry…</p></div>
 </div>
 
 <style>
@@ -57,6 +60,8 @@ table.dp-t{width:100%;border-collapse:collapse;font-size:13px;min-width:760px}
 .dp-tick{display:flex;gap:6px;align-items:center;font-size:12px;color:#64748b}
 .dp-none{color:#a06a00;font-size:12px}
 .dp-sm{color:#94a3b8;font-size:11.5px;display:block;margin-top:2px}
+.dp-age{color:#94a3b8;font-size:12px;margin:-6px 0 14px}
+.dp-age.stale{color:#a06a00}
 </style>
 
 <script>
@@ -70,12 +75,47 @@ function money(n){
 }
 
 function load(){
-  document.getElementById('dpOut').innerHTML='<p class="dp-muted">Reading the website registry…</p>';
+  /* The stored snapshot, not Knack. This is a dictionary scan, so the page
+     loads itself rather than waiting behind a button. */
+  document.getElementById('dpOut').innerHTML='<p class="dp-muted">Reading the stored registry…</p>';
   fetch('/api/domains/purchased',{credentials:'same-origin'})
     .then(function(r){return r.json();})
     .then(function(d){DATA=d;document.getElementById('dpQ').disabled=false;render();})
     .catch(function(){document.getElementById('dpOut').innerHTML=
       '<p class="dp-muted">Could not read the registry.</p>';});
+}
+
+function refresh(){
+  /* The only thing on this page that reaches Knack. The button says what it
+     is doing and comes back with the rebuilt report in the same response, so
+     the page cannot end up showing a fresh timestamp over old rows. */
+  var b=document.getElementById('dpRefresh');
+  b.disabled=true; b.textContent='Pulling from Knack…';
+  fetch('/api/domains/refresh',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      b.disabled=false; b.textContent='Refresh';
+      DATA=d; document.getElementById('dpQ').disabled=false; render();
+      var out=d.refresh||{};
+      if(out.ok===false){
+        alert('The pull failed: '+(out.error||'Knack could not be read.')+
+              (out.kept?'\n\nThe list below is the last successful pull — '+
+                out.kept+' domains — not an empty registry.':''));
+      }
+    })
+    .catch(function(){b.disabled=false;b.textContent='Refresh';
+      alert('That did not run.');});
+}
+
+function paintAge(){
+  var el=document.getElementById('dpAge');
+  var c=(DATA&&DATA.cache)||null;
+  if(!c){el.innerHTML='&nbsp;';el.className='dp-age';return;}
+  el.className='dp-age'+((c.stale||c.attempt_error)?' stale':'');
+  el.textContent=c.measured
+    ? c.line+' It refreshes on its own overnight; '+
+      (c.scanned?c.scanned+' website records were read.':'')
+    : 'Nothing has been pulled yet — press Refresh.';
 }
 
 function row(r){
@@ -109,6 +149,7 @@ function table(rows){
 function render(){
   if(!DATA) return;
   var d=DATA;
+  paintAge();
   document.getElementById('dpMetrics').innerHTML=
     [['Domains we bought',d.total],
      ['Billed',d.billed_count],
@@ -173,5 +214,7 @@ function setBilled(box, id, forDate){
      if(pill){pill.className='pill '+(on?'ok':'due');pill.textContent=on?'billed':'not billed';}
    }).catch(function(){box.disabled=false;box.checked=!on;alert('That did not save.');});
 }
+
+load();
 </script>
 {% endblock %}

@@ -542,6 +542,23 @@ def api_location_form_submissions(loc_id):
         return send_error(err)
 
 
+def _session_secret() -> str:
+    """The Hub's signing secret, under every name it answers to.
+
+    Two reads in this file knew SECRET_KEY and SESSION_SECRET; hub/config.py
+    also accepts FLASK_SECRET_KEY, which this deployment sets. The OAuth state
+    signature has to survive both gunicorn workers, so a secret that resolves
+    on one screen and not the next is a callback that fails about half the
+    time with nothing in the log but a bad signature.
+    """
+    try:
+        from hub.config import settings
+        return settings.secret_key
+    except Exception:                                 # noqa: BLE001
+        return (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
+                or os.environ.get("SESSION_SECRET") or "")
+
+
 # ---------------- Marketplace app (OAuth) ----------------
 def _state_serializer():
     """Signed, expiring OAuth state — not a server-side session.
@@ -552,7 +569,7 @@ def _state_serializer():
     checkable by whichever worker answers.
     """
     from itsdangerous import URLSafeTimedSerializer
-    key = (_env("SECRET_KEY") or _env("PANEL_PASSWORD") or "s1hub-suite-oauth")
+    key = (_session_secret() or _env("PANEL_PASSWORD") or "s1hub-suite-oauth")
     return URLSafeTimedSerializer(key, salt="ghl-oauth-state")
 
 
@@ -659,7 +676,7 @@ def api_diagnostics():
 
     checks.append(
         {"name": "Session secret", "status": "ok", "message": "Configured — logins survive restarts."}
-        if os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET")
+        if _session_secret()
         else {"name": "Session secret", "status": "warn",
               "message": "Not set — everyone is logged out on every restart or redeploy."}
     )

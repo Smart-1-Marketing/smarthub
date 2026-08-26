@@ -169,10 +169,13 @@ def summary(client: str, location_id: str = "", period: str = "this_month") -> d
     # GHL_COMPANY_ID / SUITE_COMPANY_ID, which are agency ids — so with no
     # explicit location it asked for the agency's forms and got an empty list
     # back, indistinguishable from a client who simply has no submissions.
-    loc = (location_id or os.environ.get("GHL_LEAD_LOCATION_ID")
-           or os.environ.get("GHL_ACCOUNTING_LOCATION_ID") or "").strip()
-    company = (os.environ.get("GHL_COMPANY_ID")
-               or os.environ.get("SUITE_COMPANY_ID") or "").strip()
+    # Both ids come from hub.config, which knows every spelling each answers
+    # to. Read here directly they knew two of three, and a Hub that had set
+    # SMART1_MARKETING_LOCATION_ID reported "no location for this client"
+    # against a location that was configured.
+    from hub.config import settings as _cfg
+    loc = (location_id or _cfg.ghl_lead_location_id).strip()
+    company = _cfg.ghl_company_id.strip()
     if loc and company and loc == company:
         return {"error": "The configured location id is the agency company id, "
                          "not a sub-account. Set GHL_LEAD_LOCATION_ID to the "
