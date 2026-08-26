@@ -16,6 +16,7 @@ Hub use within that window keeps the connection alive indefinitely.
 import base64
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -619,6 +620,42 @@ def lookup(q: str, customer_id=None) -> dict:
 
 
 # ---------------------------------------------------------------- line items
+def normalise_item_name(name: str) -> str:
+    """A product name in a form two spellings of it agree on.
+
+    Lives here rather than in either report, because both of them ask the same
+    question of the same catalogue and a second copy is how they come to
+    disagree about whether "Services:Website Maintenance" is the product they
+    were asked about. "&" and "and" are the same word, case is not a
+    distinction, and a QuickBooks item name arrives with its category as a
+    prefix ("Website Hosting:Website Domain Renewal") when the item sits in
+    one — which is why a plain equality test found nothing on a book where
+    every item is categorised.
+    """
+    s = str(name or "").strip().lower()
+    s = s.rsplit(":", 1)[-1].strip()        # drop a QuickBooks category prefix
+    s = s.replace("&", " and ")
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def line_item_matches(ref_name, ref_id, *, item_name: str = "",
+                      item_id: str = "") -> bool:
+    """Is this invoice line the product asked for? Exactly, or not at all.
+
+    An item id, where the caller has one, is checked first and is exact. The
+    name is compared normalised — never as a substring, for the reason
+    `hub/client_key.py` gives at length: "Monthly Web Hosting" inside
+    "Monthly Web Hosting - Annual" is a different product at a different price.
+    """
+    if item_id:
+        return str(ref_id or "") == str(item_id)
+    if not item_name:
+        return False
+    a, b = normalise_item_name(ref_name), normalise_item_name(item_name)
+    return bool(a) and a == b
+
+
 def items() -> list[dict]:
     """Every product/service in the QuickBooks catalogue.
 
@@ -635,8 +672,8 @@ def items() -> list[dict]:
              "active": bool(r.get("Active", True))} for r in rows]
 
 
-def invoice_lines_since(date_iso: str) -> list[dict]:
-    """Every invoice *line* on/after date_iso, with its product and description.
+def invoice_lines_since(date_iso: str, to_iso: str = "") -> list[dict]:
+    """Every invoice *line* in a date range, with its product and description.
 
     `invoices_since()` answers "how much did this customer pay", which is the
     wrong question for anything keyed on what was sold. The line is where the
@@ -656,8 +693,13 @@ def invoice_lines_since(date_iso: str) -> list[dict]:
     * ``customer`` — the display name, which is the fallback join when no
       description names anything.
     """
-    rows = _query_all(
-        f"SELECT * FROM Invoice WHERE TxnDate >= '{_esc(date_iso)}' ORDERBY TxnDate")
+    # `to_iso` is optional and open-ended by default, so the caller reading a
+    # rolling window is unchanged; the renewal reconciliation asks for one
+    # calendar year and must not be handed the next one's invoices with it.
+    where = f"TxnDate >= '{_esc(date_iso)}'"
+    if to_iso:
+        where += f" AND TxnDate <= '{_esc(to_iso)}'"
+    rows = _query_all(f"SELECT * FROM Invoice WHERE {where} ORDERBY TxnDate")
     out = []
     for inv in rows:
         ref = inv.get("CustomerRef") or {}
@@ -676,6 +718,11 @@ def invoice_lines_since(date_iso: str) -> list[dict]:
             others = [t for t in all_text if t and t != desc]
             out.append({
                 "invoice_id": inv.get("Id"),
+                # The line's own id. `invoice_id` alone does not identify a
+                # line — one invoice carries five domain renewals for five
+                # businesses — and the renewal report stores a person's
+                # confirmed match against exactly one of them.
+                "line_id": str(ln.get("Id") or ""),
                 "doc_number": inv.get("DocNumber") or "",
                 "date": inv.get("TxnDate") or "",
                 "customer_id": ref.get("value"),

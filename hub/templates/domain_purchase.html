@@ -1,35 +1,64 @@
 {% extends "base.html" %}
-{% block title %}Domain Purchase — Smart 1 Hub{% endblock %}
+{% block title %}Domain Renewals — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="dp">
-  <p class="dp-crumb"><a href="/tools">Tools</a> / Domain Purchase</p>
-  <h1>Domain Purchase</h1>
+  <p class="dp-crumb"><a href="/tools">Tools</a> / Domain Renewals</p>
+  <h1>Domain Renewals</h1>
   <p class="dp-sub">
     Every domain Smart 1 bought on a client's behalf, by the month its renewal
-    is billed. Only records where <b>S1M Purchase Domain for Client?</b> is yes
-    are listed &mdash; everything else in the website registry is somebody
-    else's domain. This month and the next three are laid out below because
-    that is what the question usually is; anything further out is a search.
-    The registry behind it is pulled once a night rather than on every visit
-    &mdash; <b>Refresh</b> pulls it now.
+    is billed &mdash; matched against what QuickBooks actually invoiced. Only
+    records where <b>S1M Purchase Domain for Client?</b> is yes are listed;
+    everything else in the website registry is somebody else's domain.
+    <b>This month</b> asks whether each renewal was billed. <b>Later months</b>
+    ask the question worth asking that far ahead instead: should this domain
+    renew at all. Both sources behind it are pulled on a schedule rather than
+    on every visit &mdash; <b>Refresh</b> pulls them now.
   </p>
 
-  <div class="dp-metrics" id="dpMetrics"></div>
-  <div class="dp-bar">
-    <button class="dp-btn primary" id="dpRefresh" onclick="refresh()">Refresh</button>
-    <input id="dpQ" class="dp-search" placeholder="Search every purchased domain — domain, client or registrar"
-           oninput="renderSearch()" disabled>
+  <div class="dp-tabs">
+    <button class="dp-tab on" data-tab="cal" onclick="showTab('cal')">Renewal calendar</button>
+    <button class="dp-tab" data-tab="dnr" onclick="showTab('dnr')">Do not renew</button>
+    <button class="dp-tab" data-tab="ytd" onclick="showTab('ytd')">Year to date</button>
   </div>
-  <p class="dp-age" id="dpAge">&nbsp;</p>
-  <div id="dpOut"><p class="dp-muted">Reading the stored registry…</p></div>
+
+  <div id="tab-cal">
+    <div class="dp-metrics" id="dpMetrics"></div>
+    <div class="dp-bar">
+      <button class="dp-btn primary" id="dpRefresh" onclick="refresh()">Refresh</button>
+      <input id="dpQ" class="dp-search" placeholder="Search every purchased domain — domain, client, partner or registrar"
+             oninput="renderSearch()" disabled>
+    </div>
+    <p class="dp-age" id="dpAge">&nbsp;</p>
+    <div id="dpOut"><p class="dp-muted">Reading the stored registry…</p></div>
+  </div>
+
+  <div id="tab-dnr" hidden>
+    <div class="dp-bar"><button class="dp-btn primary" onclick="loadDnr()">Load do-not-renew list</button></div>
+    <div id="dnrOut"><p class="dp-muted">Nothing loaded yet.</p></div>
+  </div>
+
+  <div id="tab-ytd" hidden>
+    <div class="dp-metrics" id="ytdMetrics"></div>
+    <div class="dp-bar">
+      <button class="dp-btn primary" onclick="loadYtd()">Load year to date</button>
+      <span class="dp-muted">Reads the same two stored pulls the calendar
+        does. Refresh, on the calendar tab, is the one control that reaches
+        Knack and QuickBooks.</span>
+    </div>
+    <div id="ytdOut"><p class="dp-muted">Nothing loaded yet.</p></div>
+  </div>
 </div>
 
 <style>
-.dp{max-width:1100px;margin:0 auto;font-family:system-ui,sans-serif;color:#1b2733}
+.dp{max-width:1180px;margin:0 auto;font-family:system-ui,sans-serif;color:#1b2733}
 .dp-crumb{color:#94a3b8;font-size:12.5px;margin:0 0 8px}
 .dp-crumb a{color:#1769AA;text-decoration:none}
 .dp h1{margin:0 0 6px;font-size:25px;color:#0d2340}
-.dp-sub{color:#64748b;font-size:13.5px;line-height:1.6;margin:0 0 16px;max-width:72ch}
+.dp-sub{color:#64748b;font-size:13.5px;line-height:1.6;margin:0 0 16px;max-width:78ch}
+.dp-tabs{display:flex;gap:6px;border-bottom:1px solid #e2e8f0;margin-bottom:16px;flex-wrap:wrap}
+.dp-tab{border:0;background:none;padding:9px 14px;font:600 13px system-ui;color:#64748b;
+  cursor:pointer;border-bottom:2px solid transparent}
+.dp-tab.on{color:#1769AA;border-bottom-color:#1769AA}
 .dp-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:11px;margin-bottom:14px}
 .dp-metric{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:13px}
 .dp-metric b{display:block;font-size:22px}
@@ -38,6 +67,7 @@
 .dp-btn{border:1px solid #d7dfe8;background:#fff;border-radius:8px;padding:8px 14px;
   font:600 13px system-ui;cursor:pointer}
 .dp-btn.primary{background:#1769AA;border-color:#1769AA;color:#fff}
+.dp-btn.small{padding:4px 9px;font-size:11.5px}
 .dp-search{flex:1;min-width:240px;padding:8px 11px;border:1px solid #d7dfe8;
   border-radius:8px;font:13px system-ui}
 .dp-search:disabled{background:#f6f8fa}
@@ -46,26 +76,38 @@
   color:#0d2340;background:#fbfcfe;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .dp-card h3 span{font-weight:500;color:#64748b;font-size:12.5px}
 .dp-card.now h3{background:#eef5fb}
-table.dp-t{width:100%;border-collapse:collapse;font-size:13px;min-width:760px}
+.dp-card.bad h3{background:#fff4f2}
+table.dp-t{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
 .dp-t th{text-align:left;padding:9px 12px;border-bottom:1px solid #eef2f6;font-size:11px;
   text-transform:uppercase;letter-spacing:.04em;color:#94a3b8}
 .dp-t td{padding:9px 12px;border-bottom:1px solid #f4f7fa;vertical-align:top}
 .dp-muted{color:#94a3b8;font-size:13px}
+.dp-age{color:#94a3b8;font-size:12px;margin:-6px 0 14px}
+.dp-age.stale{color:#a06a00}
 .dp-note{background:#eef5fb;border-left:3px solid #1769AA;border-radius:0 9px 9px 0;
   padding:11px 14px;font-size:12.8px;line-height:1.6;color:#2b4a63;margin-bottom:14px}
 .dp-warn{background:#fff8e8;border-left-color:#a06a00;color:#6b4a00}
 .pill{display:inline-block;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700}
 .pill.ok{background:#e7f6ef;color:#147d52}
 .pill.due{background:#fff4d7;color:#a06a00}
+.pill.bad{background:#fdeceb;color:#a3352a}
+.pill.grey{background:#eef2f6;color:#64748b}
 .dp-tick{display:flex;gap:6px;align-items:center;font-size:12px;color:#64748b}
 .dp-none{color:#a06a00;font-size:12px}
 .dp-sm{color:#94a3b8;font-size:11.5px;display:block;margin-top:2px}
-.dp-age{color:#94a3b8;font-size:12px;margin:-6px 0 14px}
-.dp-age.stale{color:#a06a00}
+.dp-sm a{color:#1769AA}
+.dp-pick{margin-top:5px}
+.dp-pick input{width:100%;max-width:280px;padding:5px 8px;border:1px solid #d7dfe8;
+  border-radius:7px;font:12px system-ui}
+.dp-hits{margin-top:4px;max-height:150px;overflow:auto}
+.dp-hits button{display:block;width:100%;text-align:left;border:0;background:none;
+  padding:4px 6px;font:12px system-ui;color:#1b2733;cursor:pointer;border-radius:6px}
+.dp-hits button:hover{background:#eef5fb}
 </style>
 
 <script>
-var DATA=null;
+var DATA=null, YTD=null, DNR=null;
+
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function money(n){
@@ -73,10 +115,24 @@ function money(n){
   var v=Number(n); if(!isFinite(v)||v===0) return '<span class="dp-muted">not recorded</span>';
   return '$'+v.toFixed(2);
 }
+function dollars(n){return '$'+Number(n||0).toFixed(2);}
+function cell(v){return v?esc(v):'<span class="dp-muted">not recorded</span>';}
 
+function showTab(which){
+  ['cal','dnr','ytd'].forEach(function(t){
+    document.getElementById('tab-'+t).hidden=(t!==which);
+  });
+  document.querySelectorAll('.dp-tab').forEach(function(b){
+    b.className='dp-tab'+(b.dataset.tab===which?' on':'');
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * The renewal calendar
+ * ------------------------------------------------------------------ */
 function load(){
-  /* The stored snapshot, not Knack. This is a dictionary scan, so the page
-     loads itself rather than waiting behind a button. */
+  /* The two stored pulls, not Knack and not QuickBooks. This is a dictionary
+     scan, so the page loads itself rather than waiting behind a button. */
   document.getElementById('dpOut').innerHTML='<p class="dp-muted">Reading the stored registry…</p>';
   fetch('/api/domains/purchased',{credentials:'same-origin'})
     .then(function(r){return r.json();})
@@ -86,21 +142,30 @@ function load(){
 }
 
 function refresh(){
-  /* The only thing on this page that reaches Knack. The button says what it
-     is doing and comes back with the rebuilt report in the same response, so
-     the page cannot end up showing a fresh timestamp over old rows. */
+  /* The only thing on this page that reaches a provider, and it reaches both:
+     billed is read from QuickBooks and cached exactly as the registry is, so
+     a Refresh that pulled one of the two would put a fresh timestamp over a
+     stale answer. It comes back with the rebuilt report in the same response,
+     so the page cannot end up showing one over the other. */
   var b=document.getElementById('dpRefresh');
-  b.disabled=true; b.textContent='Pulling from Knack…';
+  b.disabled=true; b.textContent='Pulling from Knack and QuickBooks…';
   fetch('/api/domains/refresh',{method:'POST',credentials:'same-origin'})
     .then(function(r){return r.json();})
     .then(function(d){
       b.disabled=false; b.textContent='Refresh';
       DATA=d; document.getElementById('dpQ').disabled=false; render();
+      YTD=null;   /* the reconciliation is built from the same two pulls */
       var out=d.refresh||{};
       if(out.ok===false){
-        alert('The pull failed: '+(out.error||'Knack could not be read.')+
+        alert('The Knack pull failed: '+(out.error||'Knack could not be read.')+
               (out.kept?'\n\nThe list below is the last successful pull — '+
                 out.kept+' domains — not an empty registry.':''));
+      }
+      var qb=d.quickbooks_refresh||{};
+      if(qb.error){
+        alert('The QuickBooks pull failed: '+qb.error+
+              '\n\nBilled below is whatever has been ticked here, not a '+
+              'statement about what was invoiced.');
       }
     })
     .catch(function(){b.disabled=false;b.textContent='Refresh';
@@ -111,71 +176,118 @@ function paintAge(){
   var el=document.getElementById('dpAge');
   var c=(DATA&&DATA.cache)||null;
   if(!c){el.innerHTML='&nbsp;';el.className='dp-age';return;}
-  el.className='dp-age'+((c.stale||c.attempt_error)?' stale':'');
-  el.textContent=c.measured
+  var qb=(DATA&&DATA.quickbooks)||{};
+  el.className='dp-age'+((c.stale||c.attempt_error||qb.error)?' stale':'');
+  /* Two pulls, two ages. One line reporting only the registry's would read as
+     a statement about the billed column, which comes from the other one. */
+  var txt=c.measured
     ? c.line+' It refreshes on its own overnight; '+
       (c.scanned?c.scanned+' website records were read.':'')
     : 'Nothing has been pulled yet — press Refresh.';
+  if(qb.error) txt+=' QuickBooks: '+qb.error;
+  else if(qb.fetched_at) txt+=' QuickBooks read '+
+    qb.fetched_at.slice(0,16).replace('T',' ')+'.';
+  el.textContent=txt;
 }
 
-function row(r){
-  /* The billed tick is the Hub's, not Knack's, and it is kept against the
-     renewal billing date it was ticked for — so when the date rolls the row
-     reads as unbilled again rather than staying green for a charge nobody
-     has raised. */
+/* Billed is an observation with an invoice behind it where QuickBooks could
+   be matched, and the Hub's own tick otherwise — and the cell says which,
+   because "somebody ticked this" and "invoice 30657 says so" are different
+   claims and only one of them can be checked. */
+function billedCell(r){
+  var pill;
+  if(r.billed&&r.billed_source==='quickbooks') pill='<span class="pill ok">billed</span>';
+  else if(r.billed) pill='<span class="pill ok">billed</span>';
+  else pill='<span class="pill due">not billed</span>';
+  var src='';
+  if(r.billed_source==='quickbooks') src=' <span class="pill grey">QuickBooks</span>';
+  else if(r.billed_source==='hub') src=' <span class="pill grey">ticked here</span>';
+  var inv=(r.charges||[]).map(function(c){
+    return '<span class="dp-sm">'+(c.link?'<a href="'+esc(c.link)+'" target="_blank" rel="noopener">':'')+
+      'Invoice '+esc(c.doc_number||c.invoice_id)+(c.link?'</a>':'')+
+      ' · '+esc(c.date)+' · '+dollars(c.amount)+
+      (c.customer?' · billed to '+esc(c.customer):'')+'</span>';}).join('');
+  return '<td><label class="dp-tick"><input type="checkbox" '+(r.billed?'checked':'')+
+    ' onchange="setBilled(this,\''+esc(r.record_id)+'\',\''+
+    esc(r.renewal_billing_date||'')+'\')"> '+pill+src+'</label>'+inv+
+    (r.note?'<span class="dp-sm">'+esc(r.note)+'</span>':'')+'</td>';
+}
+
+/* A month that has not happened cannot be asked whether it was billed. What
+   it can be asked is whether it should renew at all. */
+function dnrCell(r){
+  var pill=r.do_not_renew?'<span class="pill bad">do not renew</span>'
+                         :'<span class="pill grey">renewing</span>';
+  if(r.renewed_anyway) pill='<span class="pill bad">renewed anyway</span>';
+  return '<td><label class="dp-tick"><input type="checkbox" '+(r.do_not_renew?'checked':'')+
+    ' onchange="setDnr(this,\''+esc(r.record_id)+'\',\''+
+    esc(r.renewal_billing_date||'')+'\')"> '+pill+'</label>'+
+    (r.dnr_note?'<span class="dp-sm">'+esc(r.dnr_note)+'</span>':'')+'</td>';
+}
+
+function row(r,column){
   return '<tr><td><b>'+esc(r.domain||'—')+'</b>'+
     (r.client?'<span class="dp-sm">'+esc(r.client)+'</span>':
       '<span class="dp-sm dp-none">no client on the record</span>')+'</td>'+
-    '<td>'+(r.registrar?esc(r.registrar):'<span class="dp-muted">not recorded</span>')+'</td>'+
-    '<td>'+(r.client_status?esc(r.client_status):'<span class="dp-muted">not recorded</span>')+'</td>'+
+    '<td>'+cell(r.partner)+'</td>'+
+    '<td>'+cell(r.registrar)+'</td>'+
+    '<td>'+cell(r.client_status)+'</td>'+
     '<td>'+money(r.fee)+'</td>'+
     '<td>'+(r.renewal_billing_date?esc(r.renewal_billing_date):
             '<span class="dp-none">not recorded</span>')+
       (r.renews&&r.renews!==r.renewal_billing_date?
         '<span class="dp-sm">domain renews '+esc(r.renews)+'</span>':'')+'</td>'+
-    '<td><label class="dp-tick"><input type="checkbox" '+(r.billed?'checked':'')+
-      ' onchange="setBilled(this,\''+esc(r.record_id)+'\',\''+
-      esc(r.renewal_billing_date||'')+'\')"> '+
-      (r.billed?'<span class="pill ok">billed</span>':'<span class="pill due">not billed</span>')+
-      '</label>'+(r.note?'<span class="dp-sm">'+esc(r.note)+'</span>':'')+'</td></tr>';
+    (column==='billed'?billedCell(r):dnrCell(r))+'</tr>';
 }
 
-function table(rows){
-  return '<table class="dp-t"><thead><tr><th>URL domain</th><th>Registrar</th>'+
-    '<th>Client status</th><th>Domain fee</th><th>Renewal billing date</th>'+
-    '<th>Billed?</th></tr></thead><tbody>'+rows.map(row).join('')+'</tbody></table>';
+function table(rows,column){
+  var last=column==='billed'?'Billed?':'Do not renew?';
+  return '<table class="dp-t"><thead><tr><th>URL domain</th><th>Partner</th>'+
+    '<th>Registrar</th><th>Client status</th><th>Domain fee</th>'+
+    '<th>Renewal billing date</th><th>'+last+'</th></tr></thead><tbody>'+
+    rows.map(function(r){return row(r,column);}).join('')+'</tbody></table>';
 }
 
 function render(){
   if(!DATA) return;
   var d=DATA;
-  paintAge();
   document.getElementById('dpMetrics').innerHTML=
     [['Domains we bought',d.total],
      ['Billed',d.billed_count],
      ['Due in the next 4 months',(d.groups||[]).reduce(function(a,g){return a+g.count;},0)],
-     ['Still to bill',(d.groups||[]).reduce(function(a,g){return a+g.unbilled;},0)],
-     ['Fees on file','$'+Number(d.fee_total||0).toFixed(2)]]
+     ['Still to bill this month',(d.groups||[]).filter(function(g){return g.current;})
+        .reduce(function(a,g){return a+g.unbilled;},0)],
+     ['Marked do not renew',d.dnr_total],
+     ['Fees on file',dollars(d.fee_total)]]
     .map(function(x){return '<div class="dp-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
 
+  paintAge();
   var html='<div class="dp-note'+(d.read_error?' dp-warn':'')+'">'+esc(d.note)+'</div>';
+  var qb=d.quickbooks||{};
+  html+='<div class="dp-note'+(qb.error?' dp-warn':'')+'">'+esc(d.quickbooks_note||'')+
+    (qb.error?'':' <b>'+d.quickbooks_charges+'</b> renewal charge'+
+      (d.quickbooks_charges===1?'':'s')+' read for this year.')+'</div>';
+
   (d.groups||[]).forEach(function(g){
+    var tail=g.column==='billed'
+      ? g.unbilled+' still to bill'
+      : g.dnr_count+' marked do not renew';
     html+='<div class="dp-card'+(g.current?' now':'')+'"><h3>'+esc(g.label)+
       (g.current?' — this month':'')+
-      '<span>'+g.count+' domain'+(g.count===1?'':'s')+' · $'+
-      Number(g.fee_total||0).toFixed(2)+' · '+g.unbilled+' still to bill</span></h3>'+
-      (g.count?table(g.rows):'<p class="dp-muted" style="padding:12px 14px">'+
+      '<span>'+g.count+' domain'+(g.count===1?'':'s')+' · '+dollars(g.fee_total)+
+      ' · '+tail+'</span></h3>'+
+      (g.count?table(g.rows,g.column):'<p class="dp-muted" style="padding:12px 14px">'+
         'Nothing renews in '+esc(g.label)+'.</p>')+'</div>';
   });
 
   if(d.undated_count){
     html+='<div class="dp-card"><h3>No renewal billing date ('+d.undated_count+')'+
       '<span>These cannot be placed in a month — they are not overdue, they are unrecorded.</span></h3>'+
-      table(d.undated)+'</div>';
+      table(d.undated,'do_not_renew')+'</div>';
   }
   html+='<div class="dp-card"><h3>Later than that ('+d.later_count+')'+
     '<span>Use the search above rather than scrolling a year of renewals.</span></h3>'+
-    (d.later_count?table(d.later.slice(0,40))+
+    (d.later_count?table(d.later.slice(0,40),'do_not_renew')+
       (d.later_count>40?'<p class="dp-muted" style="padding:10px 14px">Showing 40 of '+
         d.later_count+'. Search for the rest.</p>':'')
      :'<p class="dp-muted" style="padding:12px 14px">Nothing further out.</p>')+'</div>';
@@ -192,16 +304,19 @@ function renderSearch(){
   var hits=all.filter(function(r){
     return (r.domain||'').toLowerCase().indexOf(q)>=0
         || (r.client||'').toLowerCase().indexOf(q)>=0
+        || (r.partner||'').toLowerCase().indexOf(q)>=0
         || (r.registrar||'').toLowerCase().indexOf(q)>=0;});
+  /* Search spans every month, so it shows the billing answer — the column a
+     month-by-month view only offers for the current one. */
   document.getElementById('dpOut').innerHTML=
     '<div class="dp-note">Searching every purchased domain, not only the next '+
     'four months. Clear the box to go back to the calendar.</div>'+
     '<div class="dp-card"><h3>Matches ('+hits.length+')</h3>'+
-    (hits.length?table(hits):'<p class="dp-muted" style="padding:12px 14px">'+
+    (hits.length?table(hits,'billed'):'<p class="dp-muted" style="padding:12px 14px">'+
       'Nothing matches that.</p>')+'</div>';
 }
 
-function setBilled(box, id, forDate){
+function setBilled(box,id,forDate){
   var on=box.checked;
   box.disabled=true;
   fetch('/api/domains/billed',{method:'POST',credentials:'same-origin',
@@ -215,6 +330,251 @@ function setBilled(box, id, forDate){
    }).catch(function(){box.disabled=false;box.checked=!on;alert('That did not save.');});
 }
 
+function setDnr(box,id,forDate){
+  var on=box.checked;
+  var reason='';
+  if(on){
+    reason=window.prompt('Why should this domain not renew? (optional — it is '+
+      'kept with the mark so the next person does not have to ask)','')||'';
+  }
+  box.disabled=true;
+  fetch('/api/domains/do-not-renew',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({record_id:id, do_not_renew:on, for_date:forDate, reason:reason})})
+   .then(function(r){return r.json();}).then(function(d){
+     box.disabled=false;
+     if(!d.ok){box.checked=!on;alert(d.error||'That did not save.');return;}
+     var pill=box.parentElement.querySelector('.pill');
+     if(pill){pill.className='pill '+(on?'bad':'grey');
+              pill.textContent=on?'do not renew':'renewing';}
+     if(DNR)loadDnr();
+   }).catch(function(){box.disabled=false;box.checked=!on;alert('That did not save.');});
+}
+
+/* ------------------------------------------------------------------ *
+ * Do not renew
+ * ------------------------------------------------------------------ */
+function loadDnr(){
+  document.getElementById('dnrOut').innerHTML='<p class="dp-muted">Reading…</p>';
+  fetch('/api/domains/do-not-renew',{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){DNR=d;renderDnr();})
+    .catch(function(){document.getElementById('dnrOut').innerHTML=
+      '<p class="dp-muted">Could not read the list.</p>';});
+}
+
+function dnrRow(r){
+  return '<tr><td><b>'+esc(r.domain||'—')+'</b>'+
+    (r.client?'<span class="dp-sm">'+esc(r.client)+'</span>':
+      '<span class="dp-sm dp-none">no client on the record</span>')+'</td>'+
+    '<td>'+cell(r.partner)+'</td>'+
+    '<td>'+cell(r.registrar)+'</td>'+
+    '<td>'+money(r.fee)+'</td>'+
+    '<td>'+cell(r.renewal_billing_date)+'</td>'+
+    '<td>'+cell(r.dnr_for_date)+'</td>'+
+    '<td>'+cell(r.dnr_reason)+
+      '<span class="dp-sm">'+esc(r.dnr_note||'')+'</span>'+
+      '<button class="dp-btn small" style="margin-top:5px" onclick="clearDnr(this,\''+
+      esc(r.record_id)+'\')">Clear the mark</button></td></tr>';
+}
+
+function dnrTable(rows){
+  return '<table class="dp-t"><thead><tr><th>URL domain</th><th>Partner</th>'+
+    '<th>Registrar</th><th>Domain fee</th><th>Renewal billing date</th>'+
+    '<th>Marked against</th><th>Reason</th></tr></thead><tbody>'+
+    rows.map(dnrRow).join('')+'</tbody></table>';
+}
+
+function renderDnr(){
+  var d=DNR; if(!d) return;
+  var html='<div class="dp-note'+(d.read_error?' dp-warn':'')+'">'+esc(d.note)+'</div>';
+  html+='<div class="dp-card"><h3>Still to cancel ('+d.standing_count+')'+
+    '<span>Marked do not renew and not yet renewed — these are the ones to cancel at the registrar.</span></h3>'+
+    (d.standing_count?dnrTable(d.standing):
+      '<p class="dp-muted" style="padding:12px 14px">Nothing is marked do not renew.</p>')+'</div>';
+  /* The exception report, kept apart because it calls for the opposite
+     action: these renewed after somebody said they should not, so they are a
+     charge to chase rather than a queue item. */
+  html+='<div class="dp-card'+(d.renewed_count?' bad':'')+'"><h3>Renewed anyway ('+
+    d.renewed_count+')<span>Marked against one renewal billing date and the '+
+    'record now carries a later one.</span></h3>'+
+    (d.renewed_count?dnrTable(d.renewed_anyway):
+      '<p class="dp-muted" style="padding:12px 14px">None — every mark still stands against the date it was made for.</p>')+'</div>';
+  if(d.orphaned_count){
+    html+='<div class="dp-card"><h3>Marked, but the record is gone ('+d.orphaned_count+')'+
+      '<span>Named rather than dropped — this is the one way the list quietly shrinks.</span></h3>'+
+      '<table class="dp-t"><thead><tr><th>Record id</th><th>Marked against</th>'+
+      '<th>By</th><th>Reason</th><th></th></tr></thead><tbody>'+
+      d.orphaned.map(function(r){return '<tr><td>'+esc(r.record_id)+'</td><td>'+
+        cell(r.for_date)+'</td><td>'+cell(r.by)+'</td><td>'+cell(r.reason)+
+        '</td><td><button class="dp-btn small" onclick="clearDnr(this,\''+
+        esc(r.record_id)+'\')">Clear</button></td></tr>';}).join('')+
+      '</tbody></table></div>';
+  }
+  document.getElementById('dnrOut').innerHTML=html;
+}
+
+function clearDnr(btn,id){
+  btn.disabled=true;
+  fetch('/api/domains/do-not-renew',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({record_id:id, do_not_renew:false})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){btn.disabled=false;alert(d.error||'That did not save.');return;}
+     loadDnr();
+   }).catch(function(){btn.disabled=false;alert('That did not save.');});
+}
+
+/* ------------------------------------------------------------------ *
+ * Year to date — both directions of the same question
+ * ------------------------------------------------------------------ */
+function loadYtd(){
+  document.getElementById('ytdOut').innerHTML='<p class="dp-muted">Reading the stored registry and charges…</p>';
+  fetch('/api/domains/ytd',{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){YTD=d;renderYtd();})
+    .catch(function(){document.getElementById('ytdOut').innerHTML=
+      '<p class="dp-muted">Could not build the reconciliation.</p>';});
+}
+
+function unbilledTable(rows){
+  return '<table class="dp-t"><thead><tr><th>URL domain</th><th>Partner</th>'+
+    '<th>Registrar</th><th>Client status</th><th>Domain fee</th>'+
+    '<th>Renewal billing date</th><th>What we know</th></tr></thead><tbody>'+
+    rows.map(function(r){
+      return '<tr><td><b>'+esc(r.domain||'—')+'</b>'+
+        (r.client?'<span class="dp-sm">'+esc(r.client)+'</span>':
+          '<span class="dp-sm dp-none">no client on the record</span>')+'</td>'+
+        '<td>'+cell(r.partner)+'</td><td>'+cell(r.registrar)+'</td>'+
+        '<td>'+cell(r.client_status)+'</td><td>'+money(r.fee)+'</td>'+
+        '<td>'+cell(r.renewal_billing_date)+'</td>'+
+        '<td>'+(r.note?esc(r.note):'<span class="dp-muted">No charge in QuickBooks '+
+          'matches this renewal, and nobody has ticked it here.</span>')+'</td></tr>';
+    }).join('')+'</tbody></table>';
+}
+
+/* An unmatched charge is not a row to read and forget — it is a row to close.
+   The picker is a searchable list of real website records and never a text
+   box: a typed name that matches nothing files the charge against a domain
+   nothing joins to and still reads as a clean save. */
+function chargeRow(c,i){
+  var what=[];
+  if(c.parsed_domain) what.push('domain <b>'+esc(c.parsed_domain)+'</b>');
+  if(c.parsed_name) what.push('name “'+esc(c.parsed_name)+'”');
+  return '<tr><td>'+(c.link?'<a href="'+esc(c.link)+'" target="_blank" rel="noopener">':'')+
+    esc(c.doc_number||c.invoice_id)+(c.link?'</a>':'')+
+    '<span class="dp-sm">'+esc(c.date)+'</span></td>'+
+    '<td>'+cell(c.customer)+'</td>'+
+    '<td>'+dollars(c.amount)+'</td>'+
+    '<td>'+esc(c.description||'')+
+      '<span class="dp-sm">read as '+(what.length?what.join(' · '):
+        'nothing that identifies a business')+'</span></td>'+
+    '<td>'+(c.confidence==='probable'?'<span class="pill due">suggested</span>':
+            '<span class="pill bad">no record</span>')+
+      '<span class="dp-sm">'+esc(c.why||'')+'</span>'+
+      (c.candidates&&c.candidates.length?'<span class="dp-sm">Could be: '+
+        c.candidates.map(esc).join('; ')+'</span>':'')+'</td>'+
+    '<td><div class="dp-pick"><input placeholder="Search purchased domains" '+
+      'oninput="pick(this,'+i+')"><div class="dp-hits" id="hits-'+i+'"></div>'+
+      '<span class="dp-sm" id="said-'+i+'"></span></div></td></tr>';
+}
+
+/* Rows are never re-rendered while somebody is typing into one: the hits go
+   into their own reserved container and the input is left alone. A container
+   that redraws itself mid-word eats what was typed — the same trap the Smart
+   1 Ads target-area rows had. */
+function pick(input,i){
+  var q=(input.value||'').trim().toLowerCase();
+  var box=document.getElementById('hits-'+i);
+  if(!box) return;
+  if(q.length<2){box.innerHTML='';return;}
+  var hits=(YTD.records||[]).filter(function(r){
+    return (r.domain||'').toLowerCase().indexOf(q)>=0
+        || (r.client||'').toLowerCase().indexOf(q)>=0;}).slice(0,12);
+  box.innerHTML=hits.length?hits.map(function(r){
+    return '<button onclick="attach('+i+',\''+esc(r.record_id)+'\',\''+
+      esc(r.domain)+'\')">'+esc(r.domain||'(no domain)')+
+      (r.client?' — '+esc(r.client):'')+'</button>';}).join('')
+    :'<span class="dp-sm">No purchased domain matches that.</span>';
+}
+
+function attach(i,recordId,domain){
+  var charge=(YTD.unrecorded||[])[i];
+  if(!charge) return;
+  var said=document.getElementById('said-'+i);
+  if(said)said.textContent='Attaching…';
+  fetch('/api/domains/charges/link',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key:charge.key, record_id:recordId, domain:domain})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(said)said.textContent=d.ok?('attached to '+domain+' ✓ — reload to see it '+
+       'move out of this list'):(d.error||'That did not save.');
+   }).catch(function(){if(said)said.textContent='That did not save.';});
+}
+
+function renderYtd(){
+  var d=YTD; if(!d) return;
+  document.getElementById('ytdMetrics').innerHTML=
+    [['Renewals reconciled',d.reconciled_count],
+     ['Renewed, never billed',d.not_billed_count],
+     ['Fees at risk',dollars(d.not_billed_fees)],
+     ['Billed, no record here',d.unrecorded_count],
+     ['Value of those',dollars(d.unrecorded_total)],
+     ['Charges read',d.charges_total]]
+    .map(function(x){return '<div class="dp-metric"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>';}).join('');
+
+  var html='<div class="dp-note">'+esc(d.note)+'</div>';
+  (d.problems||[]).forEach(function(p){
+    html+='<div class="dp-note dp-warn">'+esc(p)+'</div>';});
+
+  html+='<div class="dp-card'+(d.not_billed_count?' bad':'')+
+    '"><h3>Renewed this year and never billed ('+d.not_billed_count+')'+
+    '<span>'+dollars(d.not_billed_fees)+' in domain fees we paid a registrar '+
+    'for and did not invoice.</span></h3>'+
+    (d.not_billed_count?unbilledTable(d.not_billed):
+      '<p class="dp-muted" style="padding:12px 14px">Every renewal due so far this year has a charge behind it.</p>')+
+    '</div>';
+
+  html+='<div class="dp-card'+(d.unrecorded_count?' bad':'')+
+    '"><h3>Billed, and no record of it here ('+d.unrecorded_count+')'+
+    '<span>'+(d.suggested_count?d.suggested_count+' of these have a suggested '+
+      'owner — confirm one and it leaves this list. ':'')+
+    'The rest name a business nothing in the website registry carries.</span></h3>'+
+    (d.unrecorded_count?
+      '<table class="dp-t"><thead><tr><th>Invoice</th><th>Billed to</th>'+
+      '<th>Amount</th><th>Line description</th><th>Match</th>'+
+      '<th>Attach to a purchased domain</th></tr></thead><tbody>'+
+      d.unrecorded.map(chargeRow).join('')+'</tbody></table>'
+      :'<p class="dp-muted" style="padding:12px 14px">Every renewal charge this year matches a record here.</p>')+
+    '</div>';
+
+  if(d.not_bought_count){
+    html+='<div class="dp-card"><h3>Billed against a domain the registry says we did not buy ('+
+      d.not_bought_count+')<span>Either the charge is wrong or '+
+      '“S1M Purchase Domain for Client?” is. The disagreement is the finding — '+
+      'it is not resolved here.</span></h3>'+
+      '<table class="dp-t"><thead><tr><th>Invoice</th><th>Billed to</th><th>Amount</th>'+
+      '<th>Line description</th><th>Matched to</th></tr></thead><tbody>'+
+      d.not_bought.map(function(c){
+        return '<tr><td>'+(c.link?'<a href="'+esc(c.link)+'" target="_blank" rel="noopener">':'')+
+          esc(c.doc_number||c.invoice_id)+(c.link?'</a>':'')+
+          '<span class="dp-sm">'+esc(c.date)+'</span></td>'+
+          '<td>'+cell(c.customer)+'</td><td>'+dollars(c.amount)+'</td>'+
+          '<td>'+esc(c.description||'')+'</td>'+
+          '<td><b>'+esc(c.record_domain||'—')+'</b>'+
+          (c.client?'<span class="dp-sm">'+esc(c.client)+'</span>':'')+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  }
+
+  if(d.not_renewing_count){
+    html+='<div class="dp-card"><h3>Not billed on purpose ('+d.not_renewing_count+')'+
+      '<span>Marked do not renew, so not billing these is correct — they are '+
+      'kept out of the list above rather than counted as a problem.</span></h3>'+
+      unbilledTable(d.not_renewing)+'</div>';
+  }
+  document.getElementById('ytdOut').innerHTML=html;
+}
+
+/* The calendar is a scan of two stored pulls, so it loads itself rather than
+   waiting behind a button. The other two tabs are loaded on demand. */
 load();
 </script>
 {% endblock %}

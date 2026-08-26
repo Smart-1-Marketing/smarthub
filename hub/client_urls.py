@@ -60,6 +60,7 @@ record — is `hub/domain_links.attach()`, which calls this as its first step.
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 
 from hub import jsonstore
@@ -157,6 +158,95 @@ def looks_like_a_website(domain: str) -> bool:
         if d == bad or d.endswith("." + bad):
             return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# Reading a domain out of free text
+# ---------------------------------------------------------------------------
+#
+# Two reports need this and neither owns it: the Sites Billing report reads a
+# hosting charge's line description for the website it pays for, and the
+# domain renewal reconciliation reads a renewal charge's for the domain it
+# renews. It lives here because this is the file that already decides what
+# counts as a client's website at all — `looks_like_a_website` and the list
+# behind it — and a second copy of the judgement is how the two reports come
+# to disagree about the same string.
+_EMAIL = re.compile(r"\S+@\S+")
+
+# The path is matched and thrown away rather than left for the next pass:
+# "acme.com/index.html" otherwise yields acme.com AND index.html, because
+# "html" is a four-letter last label and every domain test in this codebase
+# accepts one. A file name read as a domain joins a charge to nothing and
+# reports it as naming a site we do not hold.
+_DOMAINISH = re.compile(
+    r"(?:https?://)?(?:www\.)?([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+)(?:/\S*)?", re.I)
+
+# Last labels that are file types rather than top-level domains. A short list
+# on purpose: the alternative is a TLD table this repo would have to keep in
+# step with IANA, and being wrong in that direction only costs a suggestion,
+# while being wrong in this one costs a wrong join.
+_NOT_A_TLD = {
+    "html", "htm", "php", "asp", "aspx", "jsp", "js", "css", "json", "xml",
+    "txt", "csv", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "zip",
+    "jpg", "jpeg", "png", "gif", "webp", "svg", "ico", "mp3", "mp4", "mov",
+}
+
+
+def domains_in(text: str, *, spans: bool = False) -> list:
+    """Every domain in a line of free text that could be a client's website.
+
+    Emails are stripped **before** the scan rather than filtered after it:
+    "billing@acme.com" contains the string "acme.com", and a reader that finds
+    it there has joined a charge to a website on the strength of somebody's
+    email address.
+
+    A file host, a social profile and a website platform's own domain are all
+    rejected — the first two by `looks_like_a_website` and the list above it,
+    which this codebase learned the hard way, and the third because an
+    unlaunched project's domain identifies the platform rather than the
+    business.
+
+    `spans=True` returns `(domain, start, end)` against the *email-stripped*
+    text, for a caller that has to take the domains back out of the string to
+    read what is left — the renewal report does, because the rest of the line
+    is the client's name.
+    """
+    from hub.sites_match import PLATFORM_DOMAINS
+    raw = _EMAIL.sub(" ", str(text or ""))
+    out, seen = [], set()
+    for m in _DOMAINISH.finditer(raw):
+        d = canonical_domain(m.group(1))
+        if not d:
+            continue
+        if d.rsplit(".", 1)[-1] in _NOT_A_TLD:
+            continue
+        if any(d == pd or d.endswith("." + pd) for pd in PLATFORM_DOMAINS):
+            continue
+        if not looks_like_a_website(d):
+            continue
+        if spans:
+            out.append((d, m.start(), m.end()))
+        elif d not in seen:
+            seen.add(d)
+            out.append(d)
+    return out
+
+
+def strip_domains(text: str) -> str:
+    """The same text with every URL-shaped span taken out.
+
+    Every one of them, not only the domains that were accepted: a Drive link
+    or a Facebook page is still not part of anybody's name, and leaving it in
+    makes the remainder look like a business name that matches nothing.
+    """
+    raw = _EMAIL.sub(" ", str(text or ""))
+    out, last = [], 0
+    for m in _DOMAINISH.finditer(raw):
+        out.append(raw[last:m.start()])
+        out.append(" \n ")
+        last = m.end()
+    out.append(raw[last:])
+    return "".join(out)
 
 
 # ---------------------------------------------------------------------------

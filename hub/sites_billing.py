@@ -126,16 +126,13 @@ def lookback_months() -> int:
 def _norm_item(name: str) -> str:
     """A product name in a form two spellings of it agree on.
 
-    "&" and "and" are the same word here, case is not a distinction, and
-    QuickBooks item names arrive with a parent prefix ("Services:Monthly Web
-    Hosting") when the item sits in a category — that last one is why a plain
-    equality test found nothing on a book where every item is categorised.
+    The shared one in `hub/quickbooks.py`, not a second copy: the domain
+    renewal report asks the same question of the same catalogue, and two
+    normalisers is how they come to disagree about whether
+    "Services:Website Maintenance" is the product they were asked about.
     """
-    s = str(name or "").strip().lower()
-    s = s.rsplit(":", 1)[-1].strip()        # drop a QuickBooks category prefix
-    s = s.replace("&", " and ")
-    s = re.sub(r"[^a-z0-9]+", " ", s)
-    return re.sub(r"\s+", " ", s).strip()
+    from hub.quickbooks import normalise_item_name
+    return normalise_item_name(name)
 
 
 _HOSTING_KEYS = {_norm_item(p): p for p in HOSTING_PRODUCTS}
@@ -181,58 +178,25 @@ def catalogue_check(items) -> dict:
 # ---------------------------------------------------------------------------
 # Reading a domain out of free text
 # ---------------------------------------------------------------------------
-_EMAIL = re.compile(r"\S+@\S+")
-# The path is matched and thrown away rather than left for the next pass:
-# "acme.com/index.html" otherwise yields acme.com AND index.html, because
-# "html" is a four-letter last label and every domain test in this codebase
-# accepts one. A file name read as a domain joins a hosting charge to nothing
-# and reports the charge as naming a site we do not hold.
-_DOMAINISH = re.compile(
-    r"(?:https?://)?(?:www\.)?([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+)(?:/\S*)?", re.I)
-
-# Last labels that are file types rather than top-level domains. A short list
-# on purpose: the alternative is a TLD table this repo would have to keep in
-# step with IANA, and being wrong in that direction only costs a suggestion,
-# while being wrong in this one costs a wrong join.
-_NOT_A_TLD = {
-    "html", "htm", "php", "asp", "aspx", "jsp", "js", "css", "json", "xml",
-    "txt", "csv", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "zip",
-    "jpg", "jpeg", "png", "gif", "webp", "svg", "ico", "mp3", "mp4", "mov",
-}
+#
+# The shared one in `hub/client_urls.py`, not a local copy. That file already
+# decides what counts as a client's website at all, the domain renewal
+# reconciliation asks the same question of the same kind of string, and two
+# descriptions of it is how the two reports come to disagree about the same
+# line. Every rule that was here moved with it: emails stripped before the
+# scan, file extensions refused as top-level domains, file hosts, social
+# profiles and platform domains rejected.
+from hub.client_urls import domains_in                          # noqa: E402,F401
 
 
 def _is_platform(domain: str) -> bool:
+    """A website platform's own domain, not a business's.
+
+    Still local: this one is asked about a *site row's* domain rather than
+    about free text, which `domains_in` already filters for itself.
+    """
     d = (domain or "").lower()
     return any(d == p or d.endswith("." + p) for p in PLATFORM_DOMAINS)
-
-
-def domains_in(text: str) -> list[str]:
-    """Every domain in a line of free text that could be a client's website.
-
-    Emails are stripped **before** the scan rather than filtered after it:
-    "billing@acme.com" contains the string "acme.com", and a reader that finds
-    it there has joined a hosting charge to a website on the strength of
-    somebody's email address.
-
-    A file host, a social profile and a Simvoly platform domain are all
-    rejected — the first two by `hub/client_urls.looks_like_a_website`, which
-    already carries the list this codebase learned the hard way, and the third
-    because an unlaunched project's domain identifies the platform rather than
-    the business.
-    """
-    raw = _EMAIL.sub(" ", str(text or ""))
-    out, seen = [], set()
-    for m in _DOMAINISH.finditer(raw):
-        d = canonical_domain(m.group(1))
-        if not d or d in seen:
-            continue
-        seen.add(d)
-        if d.rsplit(".", 1)[-1] in _NOT_A_TLD:
-            continue
-        if _is_platform(d) or not looks_like_a_website(d):
-            continue
-        out.append(d)
-    return out
 
 
 # ---------------------------------------------------------------------------
