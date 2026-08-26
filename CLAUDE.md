@@ -2362,11 +2362,12 @@ in an environment variable, and four rules follow from that:
   nothing to do with them, which is exactly why Google Ads came off the Google
   Access list. `PICKER_STOCK_SOURCES` names the ones the account actually has.
 - **A per-source key is an override, not a gate.** Drive, Dropbox and Instagram
-  work on Cloudinary's own registered apps; our own client id only changes
-  whose name is on the consent screen. So a missing key reads as *not measured*
-  on the admin page, never as a cross, and never hides the tab — and an **empty**
-  key is never sent, because the widget takes `dropboxAppKey: ""` at its word
-  and fails the tab against it.
+  work on Cloudinary's own registered apps, and the **client signs in to their
+  own account either way** — the Hub never sees that password. Our own client id
+  only changes the name on the consent screen, so a missing key never hides a
+  tab and is not something a staff screen reports; an **empty** key is never
+  sent at all, because the widget takes `dropboxAppKey: ""` at its word and
+  fails the tab against it.
 - **Recording an upload asks whether the source is one of ours, not whether it
   is switched on now.** A source turned off between the widget opening and the
   file landing must not file a real Instagram upload as `local`, which is the
@@ -2374,7 +2375,14 @@ in an environment variable, and four rules follow from that:
 
 The paragraph the client reads is **built from the live list**, because a
 sentence naming Dropbox on a deployment where Dropbox is off is a promise the
-panel cannot keep.
+panel cannot keep. The **staff** page says none of this. It carried a Services
+tick-row and a thirteen-row source table, and neither answered a question
+anybody was asking: a service that is working is not a finding, and a roster of
+green ticks is read once and skipped for ever while pushing the client list —
+the reason the page is open — below the fold. What is left is a note when
+Cloudinary is unset, a note when no stock provider is, and a note naming a
+source string the widget does not recognise, which is the one that draws a
+broken tab and needs somebody to correct a variable.
 
 **The staff pick page 500'd on every visit.** `/tools/image-picker/c/<id>`
 includes the upload panel and never passed it the panel's variables, and

@@ -303,11 +303,14 @@ def admin():
         counts=counts,
         industries=taxonomy.public_industries(),
         industry_labels={i["key"]: f"{i['icon']} {i['label']}" for i in taxonomy.INDUSTRIES},
+        # Three things the page reports, and only when each is wrong. There is
+        # no roster of green ticks: a service that is working is not a finding,
+        # and a page that reports one anyway buries the client list under it.
+        # Suite reachability is deliberately absent — it is per client, and it
+        # is already a column on the row somebody can act from.
         providers_on=providers.configured_providers(),
         cloudinary_on=cloudinary_sink.configured(),
-        ghl_on=ghl.configured(),
-        upload_source_rows=upload_sources.report(),
-        upload_source_unknown=upload_sources.configured()[1],
+        upload_source_unknown=upload_sources.unknown(),
         version=os.environ.get("HUB_VERSION", ""),
     )
 

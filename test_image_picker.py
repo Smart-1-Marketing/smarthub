@@ -25,7 +25,10 @@ healthy:
      client is exactly why Google Ads came off the Google Access list.
 
   3. **A source name we do not recognise must not be forwarded.** It draws a
-     broken tab or no tab, and both read as our page being broken.
+     broken tab or no tab, and both read as our page being broken — so it is
+     the one thing about the source list the admin page reports. A source that
+     is working is not a finding: a roster of green ticks is read once and
+     skipped for ever, and it pushed the client list below the fold.
 
   4. **The staff picker 500'd on every visit.** `/tools/image-picker/c/<id>`
      includes the upload panel, and the route never passed the panel its
@@ -160,7 +163,7 @@ env(PICKER_UPLOAD_SOURCES=None)
 
 
 # =====================================================================
-section("A per-source key is an override, not a gate")
+section("A per-source key is an override, and the client signs in either way")
 # =====================================================================
 
 env(PICKER_DROPBOX_APP_KEY=None, PICKER_GOOGLE_DRIVE_CLIENT_ID=None,
@@ -174,15 +177,14 @@ env(PICKER_DROPBOX_APP_KEY="dbx-123")
 check("a key that is set reaches the widget",
       upload_sources.widget_options(), {"dropboxAppKey": "dbx-123"})
 
-rows = {r["key"]: r for r in upload_sources.report()}
-check("the page says whose consent screen the client sees",
-      rows["dropbox"]["signs_in_as"], "our own app")
-check("and says it is Cloudinary's where we have no key of our own",
-      rows["google_drive"]["signs_in_as"], "Cloudinary's app")
-check("a switched-off add-on names what turns it on",
-      "PICKER_STOCK_SOURCES" in rows["getty"]["why"], True)
-check("not measured, never a cross: a missing key does not turn the source off",
-      rows["google_drive"]["on"], True)
+# Whose app is on the consent screen is not a question a staff screen has to
+# answer — the client signs in to their own account either way, and the Hub
+# never sees the password. What matters is that a key we do not have never
+# hides a tab.
+env(PICKER_GOOGLE_DRIVE_CLIENT_ID=None)
+check("a source with no key of ours is still offered",
+      "google_drive" in upload_sources.enabled(), True)
+check("and sends no option for it", "googleDriveClientId" in upload_sources.widget_options(), False)
 env(PICKER_DROPBOX_APP_KEY=None)
 
 
@@ -213,7 +215,6 @@ env(PICKER_UPLOAD_SOURCES="local,camera,url")
 check("instagram is off", "instagram" in upload_sources.enabled(), False)
 check("and still a name we recognise", upload_sources.known("instagram"), True)
 check("a name we have never heard of is not", upload_sources.known("myspace"), False)
-check("the label is what a person reads", upload_sources.label("google_drive"), "Google Drive")
 env(PICKER_UPLOAD_SOURCES=None)
 
 
@@ -449,17 +450,30 @@ check("deleting a gallery that is not there is a 404",
 
 
 # =====================================================================
-section("The delete button, and the sources table, are on the page")
+section("The delete button is on the page, and nothing else shouts")
 # =====================================================================
 
 admin = http.get("/tools/image-picker/").data.decode()
 # A control nobody can see is a control that does not exist.
 check("every gallery row carries a delete", 'class="btn quiet small danger delete"' in admin, True)
 check("it says what will go", "cannot be undone" in admin, True)
-check("the upload sources are reported on the page",
-      "Where clients can upload from" in admin, True)
-check("with the variable somebody can act on",
-      "PICKER_STOCK_SOURCES" in admin, True)
+
+# Nothing is reported when nothing needs acting on. A roster of green ticks
+# restating that the keys we have always had are still set is read once and
+# skipped for ever, and it pushes the client list below the fold.
+env(PICKER_UPLOAD_SOURCES=None)
+quiet = http.get("/tools/image-picker/").data.decode()
+check("no source roster on a healthy page", "Where clients can upload from" in quiet, False)
+check("and no services tick-list", "<h2>Services</h2>" in quiet, False)
+
+# A name the widget does not know draws a broken tab. That one is a finding,
+# and it names the variable somebody has to correct.
+env(PICKER_UPLOAD_SOURCES="local,onedrive")
+loud = http.get("/tools/image-picker/").data.decode()
+check("an unrecognised source is reported", "Unrecognised upload source" in loud, True)
+check("naming the source", "onedrive" in loud, True)
+check("and the variable to fix it", "PICKER_UPLOAD_SOURCES" in loud, True)
+env(PICKER_UPLOAD_SOURCES=None)
 
 
 print(f"\n{_passed} passed, {_failed} failed")
