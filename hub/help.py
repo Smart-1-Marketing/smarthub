@@ -326,6 +326,223 @@ REGISTRY: list[Help] = [
        "link the renderer is holding working.",
        step=1, selector="[data-tour='ads-attach']"),
 
+    # ---------------- Smart 1 Ads ----------------
+    # The module had no help at all: no bubbles, no tour, and a walkthrough
+    # pointing at fields three of which no longer existed. What follows is the
+    # explainer for each staff screen. The client-facing estimate at
+    # /tools/ads/estimate/<token> deliberately has none of it — it is chrome-free
+    # for a prospect, and staff notes have no business in a document a client
+    # reads.
+    _h("ads_builder.generator.client", "Look the client up first",
+       "Matched on domain, then on an exact name — never a substring, so "
+       "\u201cRiverside HVAC\u201d will not collect \u201cRiverside HVAC Supply\u201d. "
+       "Picking the client is what files the finished proposal onto their 360 "
+       "record; a name typed free-hand builds the same campaign and leaves the "
+       "client\u2019s record showing nothing was ever quoted. A business that is "
+       "genuinely new goes to Smart 1 Suite as a lead instead — nothing is "
+       "written to Knack.", step=1, selector="[data-tour='ads-client']"),
+    _h("ads_builder.generator.newclient", "A lead needs a way to reach them",
+       "An email or a phone number, one of the two. A contact with neither "
+       "reads as a live prospect on every count that follows and can be chased "
+       "by nobody, so the lead is refused by name rather than created. The "
+       "campaign is still built and still filed under the business name and "
+       "website, so it joins the client record the day that record exists."),
+    _h("ads_builder.generator.landing", "The landing page is read, not described",
+       "This page is fetched and its conversion points counted off the markup — "
+       "phone links, forms and their field counts, booking tools and chat "
+       "widgets by their own script signatures, CTA buttons. Every finding "
+       "carries the evidence, so the estimate can say \u201cthe number on the page "
+       "is (317) 555-0142\u201d rather than \u201cthis page has a phone number\u201d. "
+       "Point it at the page the click actually lands on: a page that could not "
+       "be fetched is reported as not measured, and the model is then told not "
+       "to describe the page at all.",
+       step=2, selector="[data-tour='ads-landing']"),
+    _h("ads_builder.generator.sector", "Sector sets the benchmark and the negatives",
+       "It picks the average CPC band every click estimate on the estimate is "
+       "computed from — an industry benchmark for the sector, not a measured "
+       "cost for this account — and it seeds the negative keyword themes. For a "
+       "local service business the negative list is what stops you paying for "
+       "\u201chvac jobs\u201d and \u201chvac school\u201d, and it matters more than the "
+       "positive one."),
+    _h("ads_builder.generator.audience", "B2B and B2C search differently",
+       "The answer is handed to the model as an instruction, not a label. B2B "
+       "keeps consumer and DIY intent out of the keyword set; B2C keeps "
+       "wholesale and trade-account intent out. \u201cBoth\u201d builds them as "
+       "separate ad groups — one blended group serves consumer copy to a "
+       "purchasing manager and commercial copy to a homeowner, and neither "
+       "converts."),
+    _h("ads_builder.generator.goals", "Each goal changes the campaign",
+       "These are structural, not a wish list. Calls bring call assets and ad "
+       "scheduling matched to when somebody answers; appointment bookings need "
+       "a live booking tool on the page; chat needs a widget staffed in the "
+       "hours the ads run. The landing-page read is checked against what you "
+       "tick, and a goal the page cannot do is reported — bidding for bookings "
+       "against a page with no booking tool spends the budget and books nobody.",
+       step=3, selector="[data-tour='ads-goals']"),
+    _h("ads_builder.generator.areas", "One campaign, several areas",
+       "A dealer group with four rooftops is one campaign in four places. Typed "
+       "into a single box the reach estimate sizes them as one, so each area is "
+       "its own row and the sizing is done on the server — the same helper the "
+       "Proposal Builder uses, so a campaign and its proposal cannot disagree "
+       "about how big the audience is. The label and the reach under each row "
+       "are redrawn without touching what you are typing.",
+       step=4, selector="[data-tour='ads-areas']"),
+    _h("ads_builder.generator.donottarget", "This is an instruction, not a preference",
+       "Whatever goes here is written into the negative keywords and kept out "
+       "of the positive ones — a service they are dropping, a town they do not "
+       "cover, commercial work they do not want. Removing one of those "
+       "negatives later counts as a material edit however small it looks, "
+       "because it reopens spend this list existed to stop."),
+    _h("ads_builder.generator.seasonal", "\u201cNot asked\u201d is not \u201cno\u201d",
+       "Every yes/no here is tri-state and starts at not asked. An unanswered "
+       "question is left off the client\u2019s estimate entirely rather than "
+       "printed as a confident No — which would be us telling a client "
+       "something they never said."),
+    _h("ads_builder.generator.budget", "A budget is optional, and the tiers are sized either way",
+       "Most first conversations have no number in them, so leave it unset and "
+       "the model sizes Good / Better / Best and costs the campaign at the tier "
+       "it recommends — the estimate then says in as many words that no budget "
+       "was given. With a number, you get the same three tiers, which is how "
+       "you show a client what the next step up buys. Each tier\u2019s click "
+       "estimate is recomputed here from the sector CPC rather than taken from "
+       "the model, because that is the number a client checks the tier against.",
+       step=5, selector="[data-tour='ads-budget']"),
+    _h("ads_builder.generator.build", "What Generate actually does",
+       "Thirty to sixty seconds, and four distinct jobs: read the landing page, "
+       "plan the campaign, write the keywords and size the budget — the stages "
+       "tick off as they happen so a slow one is visible. Nothing is sent to "
+       "Google here and nothing spends: this produces a draft proposal and an "
+       "estimate for you to read, edit and approve.",
+       step=6, selector="[data-tour='ads-generate']"),
+
+    _h("ads_builder.proposal.details", "Editing clears the approval",
+       "Approving is a statement about one specific document, so any edit marks "
+       "the approval superseded. A material change — the budget, the audience, "
+       "the do-not-target list, a removed keyword, a removed negative — sends "
+       "the estimate back through the AI review before it can be approved "
+       "again. That is two presses on purpose: the first press returns the "
+       "re-check, so a budget quartered by a typo shows you what it did to the "
+       "plan before the document a client reads is signed off.",
+       step=1, selector="[data-tour='ads-details']"),
+    _h("ads_builder.proposal.budget", "Changing the budget re-runs the review",
+       "The tiers, the click estimates and the viability verdict are all read "
+       "off this number, and the estimate a client reads quotes it. Changing it "
+       "is material by definition, so the approval goes with it."),
+    _h("ads_builder.proposal.logo", "Where the logo came from, not who supplied it",
+       "The brand data already stored against the client is tried first, then a "
+       "lookup behind a button because that one is billed, then your own "
+       "upload. Each answer says which of the three it was. Nothing is guessed "
+       "at — no favicon scraped off the landing page, no invented "
+       "/logo.png — because a wrong logo on a client-facing estimate is worse "
+       "than none: nobody proof-reads the thing they recognise."),
+    _h("ads_builder.proposal.landing", "Measured facts, and judgment, kept apart",
+       "The left of this panel is what was read off the page with the evidence "
+       "beside it; the model is given those facts and asked only for judgment. "
+       "A page that could not be fetched says not measured — never zero, which "
+       "would read as a page with nothing on it. The finding worth acting on is "
+       "a conversion action the client asked for that the page cannot do.",
+       step=2, selector="[data-tour='ads-page']"),
+    _h("ads_builder.proposal.competitors", "A researched name is a suggestion until you tick it",
+       "These arrive unaccepted and only ticked names reach the client\u2019s "
+       "estimate. Printing the lot is us telling a client who their competitors "
+       "are on the model\u2019s say-so, and it is the paragraph a client checks "
+       "hardest.", step=3, selector="[data-tour='ads-competitors']"),
+    _h("ads_builder.proposal.keywords", "Nothing is removed until you apply it",
+       "Click keywords to mark them, then Remove selected. Cutting a keyword is "
+       "material, so it clears the approval and re-runs the review — read the "
+       "match types while you are here: exact, phrase and broad are three "
+       "different spend profiles on the same words.",
+       step=4, selector="[data-tour='ads-keywords']"),
+    _h("ads_builder.proposal.negatives", "Removing a negative is always material",
+       "However small it looks. Every term in this vault is spend that will not "
+       "happen; taking one out reopens it, so it goes back through the review "
+       "like a budget change. Adding is cheap — type them in as the client "
+       "names things they do not want."),
+    _h("ads_builder.proposal.approve", "Approve before you send anything",
+       "The client link route refuses an unapproved estimate outright, so this "
+       "press is the gate on the whole client-facing half of the tool. It "
+       "records who approved what and when, and the version approved is the "
+       "version the link shows.", step=5, selector="[data-tour='ads-approve']"),
+    _h("ads_builder.proposal.share", "The link, and the three answers to it",
+       "A client can say yes, yes with my changes, or let\u2019s talk — the middle "
+       "one is the most common real answer and an approve/reject pair forces it "
+       "into whichever end is nearest. No answer yet stays grey rather than "
+       "reading as a no. A change request carries the name and email of whoever "
+       "asked, because three people at one company will disagree with each "
+       "other. Revoked, deleted and never-existed all answer the same 404, so "
+       "somebody probing tokens learns nothing.",
+       step=6, selector="[data-tour='ads-share']"),
+    _h("ads_builder.proposal.client_record", "Filed, or filed in one of two places",
+       "Generating writes the proposal onto the client record as a live link "
+       "rather than a PDF snapshot — it gains comments and changes status, and "
+       "a copy sitting on the record would end up contradicting it — and logs "
+       "the work. Each write is reported separately here, because \u201cattached\u201d "
+       "and \u201cattached in one of two places\u201d are different outcomes and one "
+       "tick for both is how people learn not to trust the tick."),
+    _h("ads_builder.proposal.launch", "Two routes, and one of them works today",
+       "The Ads Editor CSV imports under the account owner\u2019s own sign-in and "
+       "needs no API access at all, so an approved campaign can reach the client "
+       "account this afternoon; the build sheet beside it lists the assets "
+       "Editor cannot carry and anything the proposal is still missing. The API "
+       "route needs a developer token Google approves on its own timetable, and "
+       "deploys the identical proposal unchanged once it lands. Either way "
+       "every campaign is created paused — nothing spends until a human enables "
+       "it.", step=7, selector="[data-tour='ads-launch']"),
+
+    _h("ads_builder.approvals.blocking", "The press everything else waits on",
+       "An estimate that has not been approved cannot be sent to a client at "
+       "all. That was visible only inside each proposal, so this queue read as "
+       "\u201cnothing to do\u201d while every row in it waited on the same one press. "
+       "Archived proposals are left out of this band: nobody is going to "
+       "approve those.", step=1, selector="[data-tour='ads-blocking']"),
+    _h("ads_builder.approvals.colours", "Four states, not two",
+       "Green is approved as presented, yellow is approved with changes "
+       "attached, red is wants a conversation. Grey is no answer yet — which is "
+       "not a fourth kind of bad: not sent, sent and ignored, and they said no "
+       "are three different situations and only one of them is finished.",
+       step=2, selector="[data-tour='ads-colours']"),
+
+    _h("ads_builder.campaigns.token", "The one screen that needs Google",
+       "Live campaigns reads the Google Ads API, which needs a developer token "
+       "Google approves on its own timetable. Everything before it — "
+       "generating, reviewing, approving, sending the estimate and the Ads "
+       "Editor export — is the Hub\u2019s own and works without it, which is why "
+       "the tool no longer opens on this screen.",
+       step=1, selector="[data-tour='ads-live']"),
+    _h("ads_builder.campaigns.paused", "Everything arrives paused",
+       "A deploy is one atomic mutate: if any single operation fails Google "
+       "rolls the whole batch back, so a half-built campaign cannot happen. "
+       "What lands is paused, and stays paused until a person enables it here "
+       "or in Google Ads.", step=2, selector="[data-tour='ads-paused']"),
+
+    _h("ads_builder.activity.mirror", "This log, and the Hub\u2019s",
+       "Every generation, status change, deployment and API error is written "
+       "here and mirrored into the Hub\u2019s own activity log, which is what "
+       "puts it on the client\u2019s 360 record. The mirror used to raise on "
+       "every call and be swallowed by the except beside it, so this page "
+       "looked complete while nothing Smart 1 Ads did ever reached the client "
+       "record. If a campaign is missing from a client\u2019s history and is "
+       "listed here, that is the half that has broken.",
+       step=1, selector="[data-tour='ads-log']"),
+    _h("ads_builder.activity.errors", "An API error is logged, not raised at you",
+       "A refused deploy or a Google error lands here in red with the response "
+       "beside it, rather than only in the toast that has since scrolled away. "
+       "It is the first place to look when a deploy \u201cdid nothing\u201d.",
+       step=2, selector="[data-tour='ads-log-filter']"),
+
+    _h("ads_builder.settings.status", "What is unavailable, not what is down",
+       "Each missing variable is named with what it actually costs, because "
+       "three of the four steps in this tool need none of them. A tool "
+       "described as down when only its last step is unavailable is how a "
+       "working generator went unused for months.",
+       step=1, selector="[data-tour='ads-status']"),
+    _h("ads_builder.settings.openai", "The key is the deployment\u2019s, not yours",
+       "The generator reads OPENAI_API_KEY from this service at call time — the "
+       "same key the SEO, FAQ and proposal tools use. This page will never ask "
+       "you to paste one: a form asking for a key reads as \u201cthis page needs a "
+       "key from me\u201d on a Hub that has had one set all along.",
+       step=2, selector="[data-tour='ads-openai']"),
+
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

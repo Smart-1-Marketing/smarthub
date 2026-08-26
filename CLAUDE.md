@@ -554,6 +554,29 @@ and no favicon scraped off the landing page: a wrong logo on a client-facing
 estimate is worse than none, because nobody proof-reads the thing they
 recognise.
 
+**A help layer three tools deep is not installed until a screen opts into
+it.** Smart 1 Ads had no explanation on any of its screens — no bubbles, no
+tour — while `hub/help.py`, `hub/help_routes.py` and `hub/static/hub-help.js`
+sat there working: a bubble appears where a template places `help_dot('key')`,
+and a tour runs only where `<body data-screen="…">` names one. Nothing reports
+a screen that placed neither, and every failure in between is silent by
+design. A bubble whose key is not in the registry is **removed** client-side
+rather than left as a dead "?", so a typo'd key reads as helped from the
+template and shows nothing on the page. A tour step whose selector matches no
+element keeps its narration and **hides the ring**, so a renamed card costs the
+step its anchor and says so nowhere. And the guided walkthrough was worse than
+absent: `hub-demo.js` floats "Walk me through this" onto every page carrying
+`data-module`, so the module's one scenario — written against a generator that
+has since been rebuilt — was offered on Settings and Live campaigns, where
+`#geography`, a `#budget` text field and four `data-demo` hooks that exist in
+no template all resolved to nothing and "Do it for me" returned in silence.
+The walkthrough is per **screen** now (`data-demo="off"` opts a screen out of
+the floating button), the tour is per screen, and the two screens a rep works
+in carry both. `test_ads_explainer.py` asserts every key resolves, every
+selector is anchored **on its own screen's template**, and that none of it
+reaches `/tools/ads/estimate/<token>` — that document is chrome-free for a
+prospect, and a staff note in it is an internal note in front of a client.
+
 **The Render disk is not backed up. The database is.** Render backs up managed
 Postgres; the 5 GB disk at `/var/data` is outside that, and a plan change,
 region move or resize hands back an empty one. Anything whose only copy was a
@@ -1805,6 +1828,7 @@ python tools/integritycheck.py     # known defect patterns
 python3 test_jsonstore.py          # the database mirror really restores
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
+python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math

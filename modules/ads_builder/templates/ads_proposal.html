@@ -1,4 +1,6 @@
 {% extends "ads_base.html" %}
+{% set screen = 'ads_builder.proposal' %}
+{% set walkthrough = 'ads_builder.review_and_launch' %}
 {% set active = 'approvals' %}
 {% set c = p.campaign %}
 {% set est = c.costEstimation or {} %}
@@ -109,9 +111,9 @@
 {% endif %}
 
 {# ---------------------------------------------------------------- details #}
-<div class="card">
+<div class="card" data-tour="ads-details">
   <div class="row" style="margin-bottom:10px">
-    <h3 style="margin:0">Campaign details</h3>
+    <h3 style="margin:0">Campaign details {{ help_dot('ads_builder.proposal.details') if help_dot is defined else '' }}</h3>
     <span class="sub" style="color:#64748b;font-size:12.5px">what this was built from</span>
     <div class="spacer"></div>
     <button class="b-sm" onclick="toggleEdit()" id="editToggle">Edit</button>
@@ -189,7 +191,7 @@
 {# ------------------------------------------------------------------ budget #}
 <div class="card">
   <div class="row" style="margin-bottom:10px">
-    <h3 style="margin:0">Budget</h3>
+    <h3 style="margin:0">Budget {{ help_dot('ads_builder.proposal.budget') if help_dot is defined else '' }}</h3>
     <span style="color:#64748b;font-size:12.5px">changing it re-runs the AI review</span>
     <div class="spacer"></div>
   </div>
@@ -208,14 +210,14 @@
 
 {# -------------------------------------------------------------------- logo #}
 <div class="card">
-  <h3>Logo <span class="sub">shown on the estimate the client reads</span></h3>
+  <h3>Logo {{ help_dot('ads_builder.proposal.logo') if help_dot is defined else '' }} <span class="sub">shown on the estimate the client reads</span></h3>
   <div class="logobox" id="logoBox"><span class="spin"></span> Looking…</div>
 </div>
 
 {# ------------------------------------------------------------ landing page #}
-<div class="card">
+<div class="card" data-tour="ads-page">
   <div class="row" style="margin-bottom:10px">
-    <h3 style="margin:0">Landing page</h3>
+    <h3 style="margin:0">Landing page {{ help_dot('ads_builder.proposal.landing') if help_dot is defined else '' }}</h3>
     <div class="spacer"></div>
     <button class="b-sm" onclick="analysePage(true)" id="pageBtn">Re-read the page</button>
   </div>
@@ -223,9 +225,9 @@
 </div>
 
 {# -------------------------------------------------------------- competitors #}
-<div class="card">
+<div class="card" data-tour="ads-competitors">
   <div class="row" style="margin-bottom:10px">
-    <h3 style="margin:0">Competitors</h3>
+    <h3 style="margin:0">Competitors {{ help_dot('ads_builder.proposal.competitors') if help_dot is defined else '' }}</h3>
     <div class="spacer"></div>
     <button class="b-sm" onclick="analyseCompetitors(true)" id="compBtn">Re-run research</button>
   </div>
@@ -233,9 +235,9 @@
 </div>
 
 {# ---------------------------------------------------------------- ad groups #}
-<div class="card">
+<div class="card" data-tour="ads-keywords">
   <div class="row" style="margin-bottom:6px">
-    <h3 style="margin:0">Keywords</h3>
+    <h3 style="margin:0">Keywords {{ help_dot('ads_builder.proposal.keywords') if help_dot is defined else '' }}</h3>
     <span style="color:#64748b;font-size:12.5px">click a keyword to mark it for removal, or
       type your own into any group below — nothing is removed until you apply</span>
     <div class="spacer"></div>
@@ -316,7 +318,7 @@
 
 {# --------------------------------------------------------------- negatives #}
 <div class="card">
-  <h3>Negative keyword vault <span class="sub">{{ p.negative_count }} terms · click to mark for removal</span></h3>
+  <h3>Negative keyword vault {{ help_dot('ads_builder.proposal.negatives') if help_dot is defined else '' }} <span class="sub">{{ p.negative_count }} terms · click to mark for removal</span></h3>
   <div class="row" style="margin-bottom:12px;align-items:flex-end">
     <div style="flex:1;min-width:240px">
       <label>Add negative keywords</label>
@@ -398,8 +400,8 @@
 </div>
 
 {# ---------------------------------------------------- approve and send it #}
-<div class="card" id="approve">
-  <h3>Approve the estimate <span class="sub">then send it to the client</span></h3>
+<div class="card" id="approve" data-tour="ads-approve">
+  <h3>Approve the estimate {{ help_dot('ads_builder.proposal.approve') if help_dot is defined else '' }} <span class="sub">then send it to the client</span></h3>
 
   {% if estimate.approved_at %}
     <div class="note n-good">
@@ -421,7 +423,7 @@
       {{ 'Re-approve the estimate' if estimate.approved_at else 'Approve estimate' }}</button>
     <div class="spacer"></div>
     <a class="btn" href="{{ mount }}/proposal/{{ p.id }}/client">Preview / print</a>
-    <button id="shareBtn" onclick="createShare()" {{ '' if estimate.approved_at else 'disabled' }}>
+    <button id="shareBtn" data-demo="ads-share" onclick="createShare()" {{ '' if estimate.approved_at else 'disabled' }}>
       Create a client link</button>
   </div>
   {% if not estimate.approved_at %}
@@ -429,7 +431,7 @@
       reading a version nobody signed off is the one thing it must not do.</div>
   {% endif %}
 
-  <div id="shares" style="margin-top:14px">
+  <div id="shares" style="margin-top:14px" data-tour="ads-share">
     {% for sh in shares %}
       <div class="comment">
         <div class="meta">
@@ -468,7 +470,7 @@
 {% set link = (c.clientLink or {}).get('result') %}
 {% if link %}
 <div class="card">
-  <h3>Client record <span class="sub">{{ p.client_name }}</span></h3>
+  <h3>Client record {{ help_dot('ads_builder.proposal.client_record') if help_dot is defined else '' }} <span class="sub">{{ p.client_name }}</span></h3>
   <table>
     <tbody>
       <tr><td style="width:150px">Proposal</td>
@@ -501,8 +503,8 @@
    pushes it anywhere. It also used to be the first thing on the screen and the
    only thing that needed a developer token, so the page opened on a warning
    about a credential nobody had. #}
-<div class="card">
-  <h3>Launch <span class="sub">everything is created paused, whichever route you take</span></h3>
+<div class="card" data-tour="ads-launch">
+  <h3>Launch {{ help_dot('ads_builder.proposal.launch') if help_dot is defined else '' }} <span class="sub">everything is created paused, whichever route you take</span></h3>
 
   {% if p.status == 'DEPLOYED' and p.deployment %}
     <div class="note n-good">
@@ -528,7 +530,8 @@
         by hand, and anything the proposal is still missing.
       </p>
       <div class="row">
-        <a class="btn b-primary" href="{{ mount }}/proposal/{{ p.id }}/export/campaign.csv">Ads Editor CSV</a>
+        <a class="btn b-primary" data-demo="ads-export-csv"
+           href="{{ mount }}/proposal/{{ p.id }}/export/campaign.csv">Ads Editor CSV</a>
         <a class="btn" href="{{ mount }}/proposal/{{ p.id }}/export/build-sheet.txt">Build sheet</a>
       </div>
       <div id="exportSummary" class="hint"></div>
@@ -572,8 +575,8 @@
           <select id="acct"><option value="">Loading accounts…</option></select>
         </div>
         <div class="row">
-          <button id="dry" onclick="deploy(true)">Dry run</button>
-          <button class="b-primary" id="go" onclick="deploy(false)"
+          <button id="dry" data-demo="ads-dry-run" onclick="deploy(true)">Dry run</button>
+          <button class="b-primary" id="go" data-demo="ads-deploy" onclick="deploy(false)"
                   {{ 'disabled' if p.status != 'APPROVED' }}>Deploy</button>
         </div>
         {% if p.status != 'APPROVED' %}

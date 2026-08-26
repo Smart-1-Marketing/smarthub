@@ -144,7 +144,10 @@ def api_coverage():
                 "seo_images.review", "seo_images.results", "image_creator.canvas",
                 "image_creator.photos", "image_creator.logos", "image_creator.layers",
                 "image_creator.export", "bg_remover.upload", "utm.form",
-                "scans.new", "scans.table", "seo.schema", "seo.faq", "qa.reports"]
+                "scans.new", "scans.table", "seo.schema", "seo.faq", "qa.reports",
+                "ads_builder.generator", "ads_builder.proposal",
+                "ads_builder.approvals", "ads_builder.campaigns",
+                "ads_builder.settings", "ads_builder.activity"]
     return jsonify({"covered": help_registry.screens(),
                     "missing": help_registry.missing_for(expected)})
 
