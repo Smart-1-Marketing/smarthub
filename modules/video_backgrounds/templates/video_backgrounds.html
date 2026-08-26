@@ -51,6 +51,26 @@
           <td>{% if status.indexed_count is none %}<span class="vb-unknown">could not be counted</span>
               {% else %}{{ status.indexed_count }}{% endif %}</td>
         </tr>
+        {# "3,900 clips, 40 indexed" cannot say whether the sweep is working
+           through the library or has stopped, so the two numbers that answer
+           that sit beside it. #}
+        <tr>
+          <th>Still to describe</th>
+          <td>{% if status.waiting_count is none %}<span class="vb-unknown">could not be counted</span>
+              {% elif status.waiting_count == 0 %}none — the library is fully described
+              {% else %}{{ status.waiting_count }}
+                <span class="vb-note" style="margin:0">at roughly 20 an hour on the
+                  scheduler</span>{% endif %}</td>
+        </tr>
+        {% if status.undescribed_count %}
+          <tr>
+            <th>Could not be described</th>
+            <td><span class="vb-bad">{{ status.undescribed_count }}</span>
+              <span class="vb-note" style="margin:0">tried three times and given
+                up on, so they are not searchable and are no longer being paid
+                for. The reason is on each clip in Cloudinary.</span></td>
+          </tr>
+        {% endif %}
         <tr>
           <th>Indexing started</th>
           <td>{% if status.cutoff %}{{ status.cutoff }}
@@ -58,10 +78,11 @@
         </tr>
       </table>
       <p class="vb-note">
-        Indexing is <strong>forward-only by design</strong>, and scoped to the
-        folders above. Footage already in the account is deliberately left
-        alone; only clips uploaded to those folders after indexing starts get
-        described and tagged. Nothing here modifies an
+        Indexing covers <strong>everything in the folders above</strong>, back
+        catalogue included, and the scheduler works through it about twenty
+        clips an hour rather than in one go — each one costs a vision call.
+        Footage elsewhere in the account is never touched. The button below
+        runs a batch now if you would rather not wait. Nothing here modifies an
         original — the URLs below are Cloudinary transformations of it.
       </p>
       {# Asked out loud because the page cannot otherwise answer it: a search

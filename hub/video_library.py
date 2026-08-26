@@ -32,14 +32,26 @@ files, counted and offered as background footage. A folder named here and
 absent there is *reported* rather than returning a confident zero, because a
 renamed folder and an empty one are different answers.
 
-**Indexing is forward-only, and the cutoff is recorded rather than assumed.**
-The existing library is deliberately out of scope: `cutoff()` is stamped the
-first time an index runs and nothing created at or before it is ever touched.
-That is a product decision, not a technical limit — which is why it is one
-stored timestamp and one comparison, so "actually, do the back catalogue too"
-is a change to `INDEX_BACKLOG`, not a rewrite. Assets skipped for this reason
-are reported as `skipped_predates_cutoff`, never as failures, because a silent
-skip and a silent error look identical in a counter.
+**The back catalogue is the library, and a sweep works through it.** Indexing
+was forward-only — `cutoff()` stamped on the first run, nothing older ever
+touched — which was right when the in-scope library was thirty nameless
+supplier clips and became exactly wrong the moment the scope became the two
+folders that already hold the real footage: every clip in them would have been
+permanently unsearchable while the page reported a healthy count beside a zero.
+`INDEX_BACKLOG` is on, and `index_backlog()` runs on `hub/scheduler.py` at
+twenty clips an hour under a wall-clock budget, because scheduler jobs share
+one thread and a vision call has no useful ceiling on how long it takes. The
+cutoff still exists and still records when indexing began; it no longer gates
+anything.
+
+**A clip that fails is given up on, in writing.** The sweep returns whatever
+carries no marker, so a clip that cannot be described comes back on the very
+next run — a vision call an hour, for ever, with every individual run looking
+like a normal batch that had one failure in it. Three attempts, counted in the
+state file, and then `SEEN_TAG` goes on the asset with the reason in context.
+The give-up is a write rather than a note in memory because one kept in memory
+forgets itself on the next deploy. `undescribed_count` puts the total on the
+page, since a number that should never grow quietly is the one worth showing.
 
 **The tag vocabulary is closed.** A vision model asked for free-form keywords
 returns `car`, `cars`, `automobile` and `vehicle` across four clips, and then
@@ -58,6 +70,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -114,16 +127,61 @@ FLAGS: tuple[str, ...] = (
 INDEX_TAG = "s1-indexed"
 SCHEMA_TAG = "s1-index-v1"
 
+# "We have finished deciding about this clip", written whether the decision was
+# a description or a give-up. It exists because of a hard limit in Cloudinary's
+# expression language rather than for its own sake: the sweep needs to skip
+# both the clips it has described *and* the ones it has repeatedly failed on,
+# and there is no way to write that as two exclusions. Run against this
+# account:
+#
+#   ... AND -tags:s1-indexed AND -tags:s1-index-failed   -> Query Error
+#   ... AND -(tags:s1-indexed OR tags:s1-index-failed)   -> parses, returns 0
+#   ... AND (scope) NOT tags:s1-indexed                  -> parses, returns 266
+#
+# The second is the dangerous one -- it looks like a working query and quietly
+# excludes everything -- and the third is worse: `NOT` discarded the folder
+# scope with it and answered about the whole account. Exactly one trailing
+# `-tags:x` is the only negation that behaves, so the two states are folded
+# into one tag and the *search* filter stays INDEX_TAG. A given-up clip
+# therefore carries SEEN_TAG alone: skipped by the sweep, invisible to search,
+# and countable on the page.
+SEEN_TAG = "s1-seen"
+
 # Context keys. Cloudinary exposes these to the Search API as
 # `context.<key>`, which is what makes the free-text half of search work.
 CTX_DESC = "s1_desc"
 CTX_INDEXED_AT = "s1_indexed_at"
+# Why a clip carries SEEN_TAG without a description. Absent from search either
+# way; the difference is whether anyone can find out why.
+CTX_SKIPPED = "s1_skipped"
 
-# Flip to True to let the back catalogue be indexed too. Deliberately a
-# constant and not an env var: turning it on re-reads and re-tags a hundred-odd
-# assets and costs a vision call each, which is a decision someone should make
-# in a diff rather than in a dashboard field at 2am.
-INDEX_BACKLOG = False
+# On. The back catalogue *is* the library here -- the whole point of scoping to
+# Smart 1 Ads and Video Backgrounds is that those folders already hold the
+# footage worth searching, and forward-only would have left every clip in them
+# permanently unsearchable while the page reported a healthy count beside a
+# zero. Forward-only was right when the in-scope library was thirty nameless
+# supplier clips; it is the opposite of right now.
+#
+# Still a constant and not an env var: this costs a vision call per clip, and
+# widening what a tool spends is a decision that belongs in a diff somebody
+# reviewed rather than in a dashboard field at 2am.
+INDEX_BACKLOG = True
+
+# The sweep's shape. It runs on hub/scheduler.py, so it is bounded twice: by
+# clip count, and by wall clock. The second bound is the one that matters --
+# scheduler jobs run in sequence on one thread, so a batch that takes twenty
+# minutes delays every other job behind it, and a vision call has no useful
+# upper bound on how long it can take.
+BACKLOG_BATCH = 20
+BACKLOG_SECONDS = 240
+
+# How many times one clip is described before the sweep gives up on it. A clip
+# that fails is returned by the very next sweep, so without this a single
+# unreadable file costs a vision call an hour for ever -- the cost leak is
+# silent, because every individual run looks like a normal batch with one
+# failure in it. Three, because a failure is usually the provider having a bad
+# minute rather than the clip being bad.
+MAX_ATTEMPTS = 3
 
 # ---------------------------------------------------------------------------
 # Scope — the folders this tool is allowed to see
@@ -333,6 +391,72 @@ def begin(actor: str = "") -> str:
     state["began_by"] = (actor or "")[:60]
     jsonstore.write_json(_state_path(), state)
     return stamp
+
+
+def attempts() -> dict:
+    """public_id -> how many times describing it has failed.
+
+    Kept in the state file rather than on the asset, because it is *in-flight*
+    bookkeeping: the moment a clip is given up on, SEEN_TAG goes on the asset
+    and its entry here is dropped. So this dict holds only clips currently
+    failing, which is a handful, not a copy of the library.
+    """
+    got = _read_state().get("attempts")
+    return got if isinstance(got, dict) else {}
+
+
+def _bump_attempt(public_id: str, reason: str) -> int:
+    """Record a failure and return the new count. Never raises."""
+    try:
+        state = _read_state()
+        book = state.get("attempts")
+        if not isinstance(book, dict):
+            book = {}
+        row = book.get(public_id)
+        count = int((row or {}).get("count") or 0) + 1
+        book[public_id] = {"count": count, "reason": str(reason)[:200],
+                           "last": _iso_z(datetime.now(timezone.utc))}
+        state["attempts"] = book
+        jsonstore.write_json(_state_path(), state)
+        return count
+    except Exception:                       # noqa: BLE001
+        # Losing the count costs a retry, which is the cheap direction to fail.
+        return 1
+
+
+def _forget_attempts(public_id: str) -> None:
+    """Drop a clip's failure history — it succeeded, or we gave up on it."""
+    try:
+        state = _read_state()
+        book = state.get("attempts")
+        if isinstance(book, dict) and public_id in book:
+            book.pop(public_id, None)
+            state["attempts"] = book
+            jsonstore.write_json(_state_path(), state)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
+def _mark_seen(public_id: str, reason: str) -> bool:
+    """Put SEEN_TAG on a clip we are not going to describe.
+
+    This is the give-up write, and it is what stops the sweep returning the
+    same broken clip every hour for ever. The reason rides along in context so
+    the clip is not merely absent from search with nothing saying why.
+    """
+    try:
+        info = cloudinary.api.resource(public_id, resource_type="video",
+                                       tags=True)
+        tags = sorted(set(info.get("tags") or []) | {SEEN_TAG})
+        cloudinary.api.update(public_id, resource_type="video",
+                              tags=",".join(tags),
+                              context={CTX_SKIPPED: str(reason)[:200]})
+        return True
+    except Exception:                       # noqa: BLE001
+        # A give-up we could not write means the clip comes back next sweep,
+        # which is the safe direction: a retry costs one call, a lost clip is
+        # invisible for ever.
+        return False
 
 
 def _iso_z(when: datetime) -> str:
@@ -629,6 +753,13 @@ def index_asset(public_id: str, *, force: bool = False) -> dict:
     if INDEX_TAG in (info.get("tags") or []) and not force:
         result["status"] = "skipped_already_indexed"
         result["reason"] = "Already indexed. Pass force to re-describe it."
+        # A clip indexed before SEEN_TAG existed carries INDEX_TAG alone, so
+        # the sweep would hand it back every hour for ever -- costing a
+        # Cloudinary read each time and never a vision call, which is cheap
+        # enough to be invisible and wrong enough to fix. Backfilling here
+        # settles each one permanently on its first sweep.
+        if SEEN_TAG not in (info.get("tags") or []):
+            _mark_seen(public_id, "Indexed before the seen marker existed.")
         return result
 
     try:
@@ -642,7 +773,7 @@ def index_asset(public_id: str, *, force: bool = False) -> dict:
         result["reason"] = "The vision model returned nothing usable."
         return result
 
-    all_tags = sorted(set(tags) | {INDEX_TAG, SCHEMA_TAG})
+    all_tags = sorted(set(tags) | {INDEX_TAG, SCHEMA_TAG, SEEN_TAG})
     context = {
         CTX_DESC: desc,
         CTX_INDEXED_AT: _iso_z(datetime.now(timezone.utc)),
@@ -682,7 +813,11 @@ def pending_expression(mark: str) -> str:
         expr += f" AND {scope}"
     if mark and not INDEX_BACKLOG:
         expr += f' AND created_at>"{mark}"'
-    expr += f" AND -tags:{INDEX_TAG}"
+    # SEEN_TAG rather than INDEX_TAG, so a clip we have already given up on is
+    # not handed back every sweep. See SEEN_TAG's own note: two exclusions
+    # cannot be written here, and the two forms that look like they can either
+    # return nothing or silently drop the folder scope.
+    expr += f" AND -tags:{SEEN_TAG}"
     return expr
 
 
@@ -703,24 +838,71 @@ def pending(limit: int = MAX_INDEX_BATCH) -> list[dict]:
     return [_shape(r) for r in (res.get("resources") or [])]
 
 
-def index_new(limit: int = MAX_INDEX_BATCH, actor: str = "") -> dict:
-    """Index everything waiting. Stamps the cutoff on the first ever run."""
+def index_new(limit: int = MAX_INDEX_BATCH, actor: str = "",
+              max_seconds: float | int | None = None) -> dict:
+    """Index everything waiting. Stamps the cutoff on the first ever run.
+
+    `max_seconds` is a wall-clock budget, for the scheduler. Scheduler jobs run
+    in sequence on one thread, and a vision call has no useful upper bound on
+    how long it can take -- so without it a slow provider turns a twenty-clip
+    batch into a job that holds up every other job behind it. Stopping early is
+    free here: whatever was not reached is still un-tagged and comes back on
+    the next sweep.
+    """
     started = begin(actor)
     out = {"cutoff": started, "indexed": 0, "skipped": 0, "failed": 0,
-           "results": []}
+           "gave_up": 0, "stopped": "", "results": []}
     if not can_index():
         out["error"] = ("Indexing needs both CLOUDINARY_URL and "
                         "OPENAI_API_KEY; one of them is not set.")
         return out
+
+    deadline = (time.monotonic() + float(max_seconds)) if max_seconds else None
+    book = attempts()
     for item in pending(limit):
-        res = index_asset(item["public_id"])
+        if deadline is not None and time.monotonic() >= deadline:
+            out["stopped"] = (f"Ran out of its {int(max_seconds)}s budget. The "
+                              f"rest comes back on the next sweep.")
+            break
+        pid = item["public_id"]
+        res = index_asset(pid)
         out["results"].append(res)
         if res["status"] == "indexed":
             out["indexed"] += 1
+            _forget_attempts(pid)
         elif res["status"].startswith("skipped"):
             out["skipped"] += 1
         else:
             out["failed"] += 1
+            # Count the failure, and stop paying for this clip once it has had
+            # its three goes. Giving up is a *write* -- SEEN_TAG on the asset --
+            # because a give-up recorded only in memory is a give-up that
+            # forgets itself on the next deploy.
+            count = _bump_attempt(pid, res.get("reason") or "")
+            prior = int((book.get(pid) or {}).get("count") or 0)
+            if count >= MAX_ATTEMPTS or prior >= MAX_ATTEMPTS:
+                if _mark_seen(pid, f"Gave up after {count} attempts: "
+                                   f"{res.get('reason') or 'unknown'}"):
+                    _forget_attempts(pid)
+                    out["gave_up"] += 1
+                    res["status"] = "gave_up"
+    return out
+
+
+def index_backlog(actor: str = "scheduler") -> dict:
+    """One bounded pass for the scheduler, over whatever is still unseen.
+
+    The library this points at is a back catalogue, so there is no meaningful
+    difference between "new clips" and "the backlog" -- both are simply clips
+    carrying no SEEN_TAG, oldest first. This is `index_new` with the sweep's
+    two bounds applied, kept as its own name so the job reads as what it is.
+    """
+    out = index_new(limit=BACKLOG_BATCH, actor=actor,
+                    max_seconds=BACKLOG_SECONDS)
+    # The per-clip results are the expensive half of the payload and the
+    # scheduler stores every result in its state dict, so the summary goes back
+    # and the detail does not.
+    out.pop("results", None)
     return out
 
 
@@ -801,10 +983,10 @@ def search(query: str = "", *, tags: list[str] | None = None,
         return out
     if indexed_only and not cutoff():
         out["ok"] = True
-        out["note"] = ("Indexing has not started yet, so nothing is "
-                       "searchable. Existing footage is deliberately out of "
-                       "scope — only clips uploaded after indexing begins are "
-                       "indexed.")
+        out["note"] = ("Indexing has not run yet, so nothing is searchable. "
+                       + scope_note()
+                       + " The scheduler describes a batch an hour once it "
+                         "starts; the button on this page runs one now.")
         return out
 
     _configure()
@@ -865,7 +1047,7 @@ def _shape(resource: dict) -> dict:
     if isinstance(ctx, dict) and isinstance(ctx.get("custom"), dict):
         ctx = ctx["custom"]
     tags = [t for t in (resource.get("tags") or [])
-            if t not in (INDEX_TAG, SCHEMA_TAG)]
+            if t not in (INDEX_TAG, SCHEMA_TAG, SEEN_TAG)]
     return {
         "id": f"cloudinary_{resource.get('asset_id') or pid}",
         "provider": "cloudinary",
@@ -904,6 +1086,9 @@ def status() -> dict:
         "indexing_started": bool(mark),
         "indexed_count": None,
         "library_count": None,
+        "waiting_count": None,
+        "undescribed_count": None,
+        "failing": len(attempts()),
         "folders": list(FOLDERS),
         "folder_rows": [],
         "missing_folders": [],
@@ -937,8 +1122,16 @@ def status() -> dict:
     # hold" -- which is what it used to answer while claiming the first.
     scope = folder_clause()
     prefix = f"resource_type:video AND {scope}" if scope else "resource_type:video"
+    # Four numbers rather than two, because "3,900 clips, 40 indexed" on its
+    # own cannot say whether the sweep is working through the library or has
+    # stopped. waiting_count is what is left to do; undescribed_count is what
+    # was tried and given up on, which is the number that should never grow
+    # quietly. Each negation is a single trailing `-tags:` -- see SEEN_TAG.
     for key, expr in (("indexed_count", f"{prefix} AND tags:{INDEX_TAG}"),
-                      ("library_count", prefix)):
+                      ("library_count", prefix),
+                      ("waiting_count", f"{prefix} AND -tags:{SEEN_TAG}"),
+                      ("undescribed_count",
+                       f"{prefix} AND tags:{SEEN_TAG} AND -tags:{INDEX_TAG}")):
         try:
             out[key] = int((Search().expression(expr).max_results(0)
                             .execute()).get("total_count") or 0)

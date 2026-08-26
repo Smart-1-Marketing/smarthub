@@ -492,6 +492,32 @@ yet all render as `0` and only two of them are something to act on. An empty
 allowlist refuses rather than widening back to the account: a scope that fails
 open the moment somebody deletes a line is worse than no scope.
 
+**And scoping it made the indexing gate the bug.** Indexing was forward-only —
+right when the in-scope library was thirty nameless supplier clips, and exactly
+wrong once the scope became the two folders that already hold the real footage:
+every clip in them would have been permanently unsearchable while the page
+reported a healthy count beside a zero. `INDEX_BACKLOG` is on and
+`index_backlog()` runs on `hub/scheduler.py`, twenty clips an hour under a
+**wall-clock budget** — scheduler jobs share one thread and a vision call has no
+useful ceiling, so a count limit alone lets one slow batch hold up every job
+behind it.
+
+Two things fall out of that. **A clip that fails comes straight back**, so
+without a ceiling one unreadable file costs a vision call an hour for ever, and
+every individual run looks like a normal batch that happened to have one
+failure in it; three attempts are counted in the state file and then the clip
+is given up on **in writing**, because a give-up held in memory forgets itself
+on the next deploy. And the give-up marker cannot be a second tag: Cloudinary's
+expression language takes exactly one trailing `-tags:x` here, and both
+alternatives are worse than a parse error — `-(tags:a OR tags:b)` parses and
+returns **nothing**, while `... (scope) NOT tags:a` parses and returns the
+**whole account**, folder scope silently discarded. So "described" and "given
+up on" are one `SEEN_TAG`, the sweep negates that, and *search* still filters on
+`INDEX_TAG` so a given-up clip is skipped by the sweep and invisible to search
+rather than surfacing undescribed. `waiting_count` and `undescribed_count` are
+on the page beside the other two, because "3,900 clips, 40 indexed" cannot say
+whether the sweep is moving or has stopped.
+
 **A provider's asset URL is signed and expires.** A HeyGen clip linked
 directly plays today and 404s next week. Finished clips are mirrored into
 Cloudinary through `cloudinary_service.upload_asset`, the way rendered

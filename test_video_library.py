@@ -78,7 +78,7 @@ def check_not_in(label, needle, haystack):
 
 
 # ---------------------------------------------------------------------------
-print("\nThe cutoff is forward-only and does not move")
+print("\nThe cutoff records when indexing began, and does not move")
 # ---------------------------------------------------------------------------
 check("no cutoff before anything indexes", vl.cutoff(), "")
 
@@ -88,23 +88,51 @@ check("cutoff now reads back", vl.cutoff(), first)
 check("begin() is idempotent — a second caller must not move it",
       vl.begin("someone else"), first)
 
-# The whole point of the feature: existing footage is out of scope.
-check("a clip from before the cutoff is not indexable",
-      vl._after_cutoff("2026-06-03T21:05:26+00:00", first), False)
-check("a clip from after the cutoff is indexable",
-      vl._after_cutoff("2027-01-01T00:00:00+00:00", first), True)
-check("an unreadable date stays out rather than being guessed in",
-      vl._after_cutoff("not-a-date", first), False)
-check("a missing date stays out", vl._after_cutoff("", first), False)
-check("nothing is indexable before indexing has started",
-      vl._after_cutoff("2027-01-01T00:00:00+00:00", ""), False)
+# With the backlog on, the cutoff gates nothing: every clip in the allowlisted
+# folders is in scope whenever it was uploaded. Asserted directly, because the
+# alternative -- a stale gate quietly still excluding the back catalogue -- is
+# a library that reads as healthy and finds nothing.
+check("a clip from long before the cutoff is still indexable",
+      vl._after_cutoff("2024-01-01T00:00:00+00:00", first), True)
+check("...even with no cutoff stamped at all",
+      vl._after_cutoff("2024-01-01T00:00:00+00:00", ""), True)
 
-# Cloudinary returns +00:00; the cutoff is stored as Z. Comparing them as
-# strings works only by accident, so this asserts the parse is real.
-check("the two timestamp formats compare as instants, not as strings",
-      vl._after_cutoff("2026-08-24T10:00:01+00:00", "2026-08-24T10:00:00Z"), True)
-check("...and in the other direction",
-      vl._after_cutoff("2026-08-24T09:59:59+00:00", "2026-08-24T10:00:00Z"), False)
+# The comparison itself is still in the code and still correct, and it is one
+# flip of INDEX_BACKLOG from being load-bearing again -- so it stays asserted
+# rather than being left untested until the day somebody turns it back on.
+vl.INDEX_BACKLOG = False
+try:
+    check("forward-only: a clip from before the cutoff is not indexable",
+          vl._after_cutoff("2026-06-03T21:05:26+00:00", first), False)
+    check("forward-only: a clip from after it is",
+          vl._after_cutoff("2027-01-01T00:00:00+00:00", first), True)
+    check("an unreadable date stays out rather than being guessed in",
+          vl._after_cutoff("not-a-date", first), False)
+    check("a missing date stays out", vl._after_cutoff("", first), False)
+    check("nothing is indexable before indexing has started",
+          vl._after_cutoff("2027-01-01T00:00:00+00:00", ""), False)
+
+    # Cloudinary returns +00:00; the cutoff is stored as Z. Comparing them as
+    # strings works only by accident, so this asserts the parse is real.
+    check("the two timestamp formats compare as instants, not as strings",
+          vl._after_cutoff("2026-08-24T10:00:01+00:00", "2026-08-24T10:00:00Z"),
+          True)
+    check("...and in the other direction",
+          vl._after_cutoff("2026-08-24T09:59:59+00:00", "2026-08-24T10:00:00Z"),
+          False)
+
+    # The clause order pending() emits when there *is* a date clause, asserted
+    # directly. Verified against the live account: swapping these two produces
+    # "Query Error (at position 45)" while this order returns results.
+    _fwd = vl.pending_expression("2026-08-24T10:09:05Z")
+    check_true("the expression opens on resource_type, never on a bare NOT",
+               _fwd.startswith("resource_type:video"))
+    check_true("the date clause precedes the negation — the other way is a "
+               "parse error", _fwd.index('created_at>"') < _fwd.index("-tags:"))
+    check_in("the cutoff is quoted", 'created_at>"2026-08-24T10:09:05Z"', _fwd)
+    check_not_in("...in Z form, because +00:00 is a parse error", "+00:00", _fwd)
+finally:
+    vl.INDEX_BACKLOG = True
 
 
 # ---------------------------------------------------------------------------
@@ -143,18 +171,14 @@ for char in (":", "[", "]", "{", "}", "^", '"', "(", ")"):
                             .replace("context.s1_desc:", "").replace("tags:", "")
                             .replace("filename:", "").replace("resource_type:", ""))
 
-# The clause order pending() emits, asserted directly. Verified against the
-# live account: swapping these two produces "Query Error (at position 45)"
-# while the documented-looking order returns results.
+# The sweep's own clause order. With the backlog on there is no date clause at
+# all -- that ordering is asserted above, under the flag that produces it.
 pend = vl.pending_expression("2026-08-24T10:09:05Z")
 check_true("the expression opens on resource_type, never on a bare NOT",
            pend.startswith("resource_type:video"))
-check_true("the date clause precedes the negation — the other way is a parse error",
-           pend.index('created_at>"') < pend.index("-tags:"))
-check_in("the cutoff is quoted", 'created_at>"2026-08-24T10:09:05Z"', pend)
-check_not_in("...in Z form, because +00:00 is a parse error", "+00:00", pend)
-check_in("un-indexed clips only", "-tags:s1-indexed", pend)
-check_not_in("with no cutoff there is no date clause",
+check_in("unseen clips only", "-tags:s1-seen", pend)
+check_not_in("the backlog sweep asks for no date at all", "created_at", pend)
+check_not_in("...with or without a cutoff",
              "created_at", vl.pending_expression(""))
 
 
@@ -188,9 +212,18 @@ check_true("...directly after resource_type, before any negation or comparison",
            _search_expr.index(_clause) < _search_expr.index("tags:s1-indexed"))
 _pend_expr = vl.pending_expression("2026-08-24T10:09:05Z")
 check_in("so does the pending sweep", _clause, _pend_expr)
-check_true("...still ahead of the date clause and the negation",
-           _pend_expr.index(_clause) < _pend_expr.index('created_at>"')
-           < _pend_expr.index("-tags:"))
+check_true("...still ahead of the negation",
+           _pend_expr.index(_clause) < _pend_expr.index("-tags:"))
+# And ahead of the date clause too, on the forward-only path that still emits
+# one -- the ordering rule is about that path, so it is asserted there.
+vl.INDEX_BACKLOG = False
+try:
+    _fwd_expr = vl.pending_expression("2026-08-24T10:09:05Z")
+    check_true("...and ahead of the date clause when there is one",
+               _fwd_expr.index(_clause) < _fwd_expr.index('created_at>"')
+               < _fwd_expr.index("-tags:"))
+finally:
+    vl.INDEX_BACKLOG = True
 
 # Whole path segments, for the reason hub/access.py refuses to read /statuses
 # as /status.
@@ -267,6 +300,116 @@ check_true("...before spending a vision call on it",
            _idx.index("in_scope(") < _idx.index("_describe("))
 check_true("out of scope counts as skipped, not failed",
            'startswith("skipped")' in _src)
+
+
+# ---------------------------------------------------------------------------
+print("\nThe back catalogue is swept, and one negation is all there is")
+# ---------------------------------------------------------------------------
+# Forward-only was right when the in-scope library was thirty nameless supplier
+# clips; once the scope became the two folders holding the real footage it
+# would have left every one of them permanently unsearchable behind a healthy
+# looking count.
+check("the backlog is indexed", vl.INDEX_BACKLOG, True)
+check_true("...so the sweep carries no date clause",
+           'created_at>"' not in vl.pending_expression("2026-08-24T10:09:05Z"))
+
+# Exactly one trailing `-tags:` is the only negation Cloudinary's expression
+# language handles here, and the two forms that look like alternatives are both
+# worse than a parse error. Run against the live account:
+#   -tags:s1-indexed AND -tags:s1-index-failed  -> Query Error
+#   -(tags:s1-indexed OR tags:s1-index-failed)  -> parses, returns 0
+#   (scope) NOT tags:s1-indexed                 -> parses, returns the whole
+#                                                  account, folder scope gone
+# So "described" and "given up on" are folded into one marker.
+_sweep = vl.pending_expression("")
+check("the sweep excludes exactly one tag", _sweep.count("-tags:"), 1)
+check_in("...the seen marker, not the index marker", f"-tags:{vl.SEEN_TAG}", _sweep)
+check_true("the index marker is not negated in the sweep",
+           f"-tags:{vl.INDEX_TAG}" not in _sweep)
+check_true("the negation is last", _sweep.rstrip().endswith(f"-tags:{vl.SEEN_TAG}"))
+check_true("no parenthesised negation anywhere", "-(" not in _sweep)
+check_true("no bare NOT — it discards the folder scope with it",
+           " NOT " not in _sweep and " NOT " not in vl.build_expression("x"))
+
+# Search still filters on the index marker, so a clip given up on is skipped by
+# the sweep and invisible to search rather than appearing undescribed.
+check_in("search still asks for described clips only",
+         f"tags:{vl.INDEX_TAG}", vl.build_expression("x"))
+check_true("...and never for the seen marker",
+           f"tags:{vl.SEEN_TAG}" not in vl.build_expression("x"))
+check_not_in("the marker is not shown to a user",
+             vl.SEEN_TAG, vl._shape({"public_id": "a", "tags": [vl.SEEN_TAG, "aerial"]})["tags"])
+
+_src = _read("hub", "video_library.py")
+_ia = _src.split("def index_asset(", 1)[1].split("\ndef ", 1)[0]
+check_in("a described clip carries the seen marker too", "SEEN_TAG", _ia)
+check_in("...and one indexed before the marker existed is backfilled",
+         "_mark_seen(", _ia)
+
+
+# ---------------------------------------------------------------------------
+print("\nA clip that cannot be described stops costing money")
+# ---------------------------------------------------------------------------
+# The sweep returns whatever carries no marker, so without this one unreadable
+# clip is a vision call an hour for ever -- and every individual run looks like
+# a normal batch that happened to have one failure in it.
+check_true("there is an attempt ceiling", 0 < vl.MAX_ATTEMPTS <= 5)
+check("no attempts recorded to start with", vl.attempts(), {})
+check("a failure is counted", vl._bump_attempt("clip-a", "boom"), 1)
+check("...and counts up", vl._bump_attempt("clip-a", "boom again"), 2)
+check_in("...naming the clip", "clip-a", vl.attempts())
+check_in("...with the reason kept", "boom again", vl.attempts()["clip-a"]["reason"])
+vl._forget_attempts("clip-a")
+check("a clip that succeeds loses its history", vl.attempts(), {})
+
+_in = _src.split("def index_new(", 1)[1].split("\ndef ", 1)[0]
+check_in("the runner counts failures per clip", "_bump_attempt(", _in)
+check_in("...gives up at the ceiling", "MAX_ATTEMPTS", _in)
+check_in("...by writing the marker onto the asset", "_mark_seen(", _in)
+check_in("...and forgets the attempt book once it has", "_forget_attempts(", _in)
+check_in("a success clears the clip's failures", "_forget_attempts(pid)", _in)
+# A give-up kept only in memory forgets itself on the next deploy, and the clip
+# starts costing a call an hour again with nothing saying so.
+_ms = _src.split("def _mark_seen(", 1)[1].split("\ndef ", 1)[0]
+check_in("the give-up records why, on the clip", "CTX_SKIPPED", _ms)
+check_true("...and a give-up we could not write is retried, not lost",
+           "return False" in _ms)
+
+
+# ---------------------------------------------------------------------------
+print("\nThe sweep is bounded by clips and by the clock")
+# ---------------------------------------------------------------------------
+# Scheduler jobs run in sequence on one thread and a vision call has no useful
+# ceiling, so a batch with only a count limit holds up every job behind it.
+check_true("the batch is bounded", 0 < vl.BACKLOG_BATCH <= vl.MAX_INDEX_BATCH)
+check_true("the wall clock is bounded", 0 < vl.BACKLOG_SECONDS <= 600)
+check_in("the runner takes a time budget", "max_seconds", _in)
+check_in("...and says why it stopped rather than looking finished",
+         'out["stopped"]', _in)
+
+_sched = _read("hub", "scheduler.py")
+check_in("the sweep is a registered job", '"video_backlog"', _sched)
+check_in("...calling the bounded entry point", "index_backlog(", _sched)
+check_true("...hourly", '"video_backlog":     (60,' in _sched)
+_job = _sched.split("def job_index_video_backlog(", 1)[1].split("\n\nJOBS", 1)[0]
+check_in("an unconfigured Hub is skipped, not failed every hour",
+         '"skipped"', _job)
+check_in("...and a provider outage cannot take the scheduler down",
+         "except Exception", _job)
+
+
+# ---------------------------------------------------------------------------
+print("\nProgress is four numbers, because two cannot say if it is moving")
+# ---------------------------------------------------------------------------
+_st = vl.status()
+for _k in ("library_count", "indexed_count", "waiting_count", "undescribed_count"):
+    check(f"{_k} is None when it could not be counted", _st[_k], None)
+_page_src = _read("modules", "video_backgrounds", "templates",
+                  "video_backgrounds.html")
+check_in("the page shows what is left to do", "Still to describe", _page_src)
+check_in("...and what was given up on", "Could not be described", _page_src)
+check_true("the page no longer claims indexing is forward-only",
+           "forward-only" not in _page_src)
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +529,8 @@ vl.jsonstore.write_json(vl._state_path(), {})
 blank = vl.search("anything")
 check("a search before indexing starts is not an error", blank["ok"], True)
 check("...and returns nothing", blank["results"], [])
-check_in("...but says why", "Indexing has not started", blank["note"])
+check_in("...but says why", "Indexing has not run yet", blank["note"])
+check_in("...and what it would have searched", "Smart 1 Ads/", blank["note"])
 vl.jsonstore.write_json(vl._state_path(), _saved)
 
 
@@ -480,8 +624,10 @@ print("\nLimits are clamped")
 # ---------------------------------------------------------------------------
 check_true("MAX_RESULTS is bounded", 0 < vl.MAX_RESULTS <= 500)
 check_true("the index batch is bounded", 0 < vl.MAX_INDEX_BATCH <= 100)
-check("the backlog stays off — existing footage is out of scope by default",
-      vl.INDEX_BACKLOG, False)
+# Asserted in the backlog section above, where the reason for it lives. Left
+# here only as the clamp it belongs beside: a batch bounded by count and clock.
+check_true("the sweep's batch is no larger than a manual one",
+           vl.BACKLOG_BATCH <= vl.MAX_INDEX_BATCH)
 
 
 # ---------------------------------------------------------------------------
