@@ -325,7 +325,7 @@ def client_for_domain(domain: str) -> dict:
         return {}
     return {"client": r["client"], "record_id": r["id"], "domain": r["domain"],
             "field": "Client organization" if r["organization"] else "Client",
-            "why": "The Knack website registry (object_153) records this "
+            "why": "The Knack website registry records this "
                    f"domain against “{r['client']}”."}
 
 
@@ -548,7 +548,7 @@ def domain_record(client: str = "", domain: str = "") -> dict:
         "registrar": reg,
         "writable": configured(),
         "schema_read": bool(meta),
-        "note": ("Written straight to the Knack website record (object_153)."
+        "note": ("Written straight to the website record."
                  if configured() else
                  "Read-only: KNACK_APP_ID / KNACK_API_KEY are not set on this "
                  "deployment, so nothing here can be saved."),
@@ -568,7 +568,7 @@ def registrar_for(domain: str, record: dict | None = None) -> dict:
     rec = record if record is not None else (record_for_domain(d) if d else {})
     if rec.get("registrar"):
         return {"value": rec["registrar"], "source": "knack",
-                "label": "Recorded on the website record (object_153)."}
+                "label": "Recorded on the website record."}
     if not d:
         return {"value": "", "source": "", "label": "No domain to look up."}
     try:
@@ -690,7 +690,7 @@ def enrich(client: str, domain: str = "") -> dict:
         "domain_bought_on": r["domain_bought_on"],
         "domain_renews": r["domain_renews"],
         "registrar": registrar_for(r["domain"], record=r),
-        "note": "From the Knack website registry (object_153). GA and GTM ids "
+        "note": "From the Knack website registry. GA and GTM ids "
                 "here are recorded regardless of whether anyone has connected "
                 "that Google account, so they show even when the live lookup "
                 "finds nothing.",

@@ -268,7 +268,7 @@ function render(g,q){
         PLATFORMS.map(p=>`<option value="${esc(p)}"${p.toLowerCase()===String(curPlat).toLowerCase()?' selected':''}>${esc(p.replace(/Smart1Sites/i,'Smart 1 Sites'))}</option>`));
       if(curPlat&&!PLATFORMS.some(p=>p.toLowerCase()===String(curPlat).toLowerCase()))
         platOpts.push(`<option value="${esc(curPlat)}" selected>${esc(curPlat)}</option>`);
-      html+=`<div style="flex:1;min-width:280px"><dl class="kv">
+      html+=`<div class="web-site"><div><dl class="kv">
         <dt>Site</dt><dd>${esc(w.name||'—')}${w.attached?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</dd>
         <dt>Domain</dt><dd>${w.domain?`<a href="https://${esc(w.domain)}" target="_blank" rel="noopener">${esc(w.domain)}</a>`:'—'}${w.domainPurchased?' <span class="pill info">we purchased</span>':''}</dd>
         <dt>Platform</dt><dd><select class="web-plat" data-domain="${esc(w.domain||'')}" style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit">${platOpts.join('')}</select> <span class="web-plat-msg muted" style="font-size:11px">${w.platform_overridden?'corrected':''}</span></dd>
@@ -289,12 +289,14 @@ function render(g,q){
       if(gtmId)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(gtmId)]);
       if(links.length)html+=gbtns(links);
       html+=`<div style="margin-top:6px"><a class="gbtn web-ticket" data-site="${esc(w.name||'')}" data-domain="${esc(w.domain||'')}" style="cursor:pointer;color:#b45309">&#127915; + Web ticket</a></div>`;
-      // The domain record itself, straight off Knack object_153: when the site
-      // went live, what status the client is in, whether we bought the domain
-      // and when it renews. Loaded per domain after the card is drawn, because
-      // it is one API call per site and the card must not wait on Knack.
+      html+='</div>';                      // end of the site's own column
+      // The domain record itself, straight off the Knack website registry:
+      // when the site went live, what status the client is in, whether we
+      // bought the domain and when it renews. It is the second column of this
+      // block. Loaded per domain after the card is drawn, because it is one
+      // API call per site and the card must not wait on Knack.
       html+=`<div class="web-knack" data-domain="${esc(w.domain||'')}" data-client="${esc(name||'')}"></div>`;
-      html+='</div>';
+      html+='</div>';                      // end of the two-column block
     });
   } else html+='<div class="empty" style="flex:1">No website record matched — use <b>+ Attach website record</b> above to link one.</div>';
   html+='</div></div></div>';
@@ -946,7 +948,7 @@ function render(g,q){
         .then(r=>r.json()).then(res=>{if(msg)msg.textContent=res.error||'corrected ✓';});
     };
   });
-  // ---------- The Knack domain record (object_153), per website ----------
+  // ---------- The domain record from the website registry, per website ----------
   document.querySelectorAll('.web-knack').forEach(host=>{
     const dom=host.dataset.domain||'', cli=host.dataset.client||'';
     if(!dom&&!cli)return;
@@ -960,7 +962,7 @@ function render(g,q){
 
   function drawDomainRecord(host,d,cli){
     if(!d||!d.found){
-      // Nothing is invented here. A domain with no object_153 record has no
+      // Nothing is invented here. A domain with no registry record has no
       // live date and no renewal date, and drawing empty boxes that cannot
       // save would read as "not filled in yet" rather than "not on file".
       // And a registry we could not READ is not a registry with nothing in
@@ -968,10 +970,9 @@ function render(g,q){
       const why=(d&&d.read_error)
         ? esc(d.read_error)+' The domain record could not be looked up — this '+
           'is not the same as there being none.'
-        : 'No record in the Knack website registry (object_153) carries this '+
-          'domain, so there is nothing to record the live date or the domain '+
-          'purchase against. Attach it on <a href="/tools/sites-match">Match '+
-          'clients</a>.';
+        : 'No record in the website registry carries this domain, so there is '+
+          'nothing to record the live date or the domain purchase against. '+
+          'Attach it on <a href="/tools/sites-match">Match clients</a>.';
       host.innerHTML='<div class="muted" style="font-size:11.5px;margin-top:8px">'+why+'</div>';
       return;
     }
@@ -1005,20 +1006,29 @@ function render(g,q){
       }
       if(f.known===false){
         extra+='<div class="muted" style="font-size:11px;color:#b45309;margin-top:3px">'+
-          'This field id is not on object_153 any more — it is drawn, but it '+
-          'will not save until the pinned id is corrected.</div>';
+          'This field is no longer on the website registry — it is drawn, but '+
+          'it will not save until somebody re-points it.</div>';
       }
-      return `<dt>${esc(f.label)}</dt><dd>${ctl}${extra}</dd>`;
+      // The key rides on the pair, so the "we did not buy it" rule below can
+      // find a row from either half without walking siblings.
+      return `<dt class="wk-row" data-key="${esc(f.key)}">${esc(f.label)}</dt>`+
+             `<dd class="wk-row" data-key="${esc(f.key)}">${ctl}${extra}</dd>`;
     }).join('');
-    host.innerHTML=`<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-        <b style="font-size:12.5px">Domain record</b>
-        <span class="muted" style="font-size:11px">Knack object_153</span></div>
+    host.innerHTML=`<div>
+      <b style="font-size:12.5px">Domain record</b>
       <dl class="kv wk-kv">${fields}</dl>
+      <div class="wk-hidden-note muted" style="font-size:11px;margin:2px 0 6px"></div>
       ${renewalBlock(d.renewal)}
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-        <a class="gbtn wk-save" style="cursor:pointer"${d.writable?'':' hidden'}>Save to Knack</a>
+        <a class="gbtn wk-save" style="cursor:pointer"${d.writable?'':' hidden'}>Save</a>
         <span class="wk-msg muted" style="font-size:11.5px">${d.writable?'':esc(d.note||'')}</span></div></div>`;
+    // "Did we buy the domain?" is the question the rest of this panel hangs
+    // off. When the answer is no, the purchase date, the renewal date and the
+    // registrar are not blanks somebody forgot — they are questions that do
+    // not apply, and asking them is how a panel looks unfinished for ever.
+    applyBoughtRule(host);
+    const bought=host.querySelector('.wk-in[data-key="domain_bought"]');
+    if(bought)bought.addEventListener('change',()=>applyBoughtRule(host));
     host.querySelectorAll('.wk-use').forEach(a=>{
       a.onclick=()=>{const t=document.getElementById(a.dataset.for);if(t)t.value=a.dataset.val;};
     });
@@ -1037,6 +1047,44 @@ function render(g,q){
           msg.textContent='saved ✓'+((res.rejected||[]).length?
             ' — refused: '+res.rejected.join('; '):'');
         }).catch(()=>{msg.textContent='could not save';});
+    };
+  }
+
+  // ---------- "We did not buy this domain", and what that hides ----------
+  //
+  // Only the *empty* ones, and never in silence. A field somebody recorded
+  // stays on screen whatever the answer to the purchase question is — hiding
+  // a registrar we hold because the tickbox says no would be this panel
+  // deciding the record is wrong. And a panel that quietly gets shorter is
+  // one nobody can tell from a panel that failed to load, so what was left
+  // out is counted and one click brings it back.
+  function applyBoughtRule(host){
+    const sel=host.querySelector('.wk-in[data-key="domain_bought"]');
+    const note=host.querySelector('.wk-hidden-note');
+    if(!sel||!note)return;
+    const v=String(sel.value||'').trim().toLowerCase();
+    const notOurs=(v==='no'||v==='false');
+    let hidden=0;
+    host.querySelectorAll('.wk-in').forEach(el=>{
+      const key=el.dataset.key;
+      if(key==='domain_bought')return;
+      const hide=notOurs&&!String(el.value||'').trim()&&!host.dataset.showAll;
+      if(hide)hidden++;
+      host.querySelectorAll('.wk-row[data-key="'+key+'"]').forEach(row=>{
+        row.style.display=hide?'none':'';
+      });
+    });
+    if(!notOurs||(!hidden&&!host.dataset.showAll)){note.innerHTML='';return;}
+    note.innerHTML=host.dataset.showAll
+      ? 'We did not buy this domain. <a class="wk-toggle" style="cursor:pointer">'+
+        'Hide the empty fields</a>'
+      : 'We did not buy this domain, so '+hidden+' empty field'+(hidden===1?' is':'s are')+
+        ' hidden. <a class="wk-toggle" style="cursor:pointer">Show them</a>';
+    const t=note.querySelector('.wk-toggle');
+    if(t)t.onclick=()=>{
+      if(host.dataset.showAll)delete host.dataset.showAll;
+      else host.dataset.showAll='1';
+      applyBoughtRule(host);
     };
   }
 
@@ -2101,5 +2149,23 @@ else runFromUrl();
 .health-cols{display:grid;grid-template-columns:1fr;gap:0 28px}
 @media(min-width:640px){.health-cols{grid-template-columns:1fr 1fr}}
 .health-cols dl{margin:0}
+
+/* One website is two columns: what we hold about the site on the left, the
+   domain record on the right. They were stacked, which put the domain record
+   — the live date, the purchase, the renewal — below the fold of a card that
+   already had ten rows in it, so nobody scrolled to it. Beside the site it is
+   read at the same glance.
+
+   `flex:1 1 520px` rather than a fixed width: a client with two websites gets
+   a row each rather than four half-width columns squeezed together, and the
+   pair stacks under 900px where two columns of definition lists stop being
+   readable. The divider follows the layout — a rule down the middle when they
+   are side by side, across the top when they are stacked. */
+.web-site{flex:1 1 520px;min-width:280px;display:grid;grid-template-columns:1fr;gap:14px}
+.web-knack{border-top:1px solid var(--line);padding-top:12px}
+@media(min-width:900px){
+  .web-site{grid-template-columns:minmax(230px,1fr) minmax(230px,1fr);gap:26px}
+  .web-knack{border-top:0;border-left:1px solid var(--line);padding-top:0;padding-left:24px}
+}
 </style>
 {% endblock %}

@@ -7,8 +7,8 @@
   <p class="dp-sub">
     Every domain Smart 1 bought on a client's behalf, by the month its renewal
     is billed &mdash; matched against what QuickBooks actually invoiced. Only
-    records where <b>S1M Purchase Domain for Client?</b> is yes are listed;
-    everything else in the website registry is somebody else's domain.
+    records where the website registry says we bought the domain are listed;
+    everything else in it is somebody else's domain.
     <b>This month</b> asks whether each renewal was billed. <b>Later months</b>
     ask the question worth asking that far ahead instead: should this domain
     renew at all. Both sources behind it are pulled on a schedule rather than
@@ -548,9 +548,9 @@ function renderYtd(){
 
   if(d.not_bought_count){
     html+='<div class="dp-card"><h3>Billed against a domain the registry says we did not buy ('+
-      d.not_bought_count+')<span>Either the charge is wrong or '+
-      '“S1M Purchase Domain for Client?” is. The disagreement is the finding — '+
-      'it is not resolved here.</span></h3>'+
+      d.not_bought_count+')<span>Either the charge is wrong or the website '+
+      'record is. The disagreement is the finding — it is not resolved '+
+      'here.</span></h3>'+
       '<table class="dp-t"><thead><tr><th>Invoice</th><th>Billed to</th><th>Amount</th>'+
       '<th>Line description</th><th>Matched to</th></tr></thead><tbody>'+
       d.not_bought.map(function(c){

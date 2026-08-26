@@ -776,8 +776,8 @@ def report(q: str = "", today: date | None = None, *,
                    or needle in (x["registrar"] or "").lower()]
 
     note = ("Every domain Smart 1 bought for a client, by the renewal billing "
-            "date Knack holds (field_3298). Only records where “S1M Purchase "
-            "Domain for Client?” is yes are listed.")
+            "date on its website record. Only records where we are recorded "
+            "as having bought the domain are listed.")
     if state["measured"]:
         note += " " + state["line"]
     if build_error:
