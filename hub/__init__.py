@@ -2131,7 +2131,10 @@ def create_hub_app() -> Flask:
         gate = _require_page()
         if gate:
             return gate
-        return render_template("dashboard.html", user=current_user(), modules=MODULES, active="dashboard")
+        from . import partner as partner_pages
+        return render_template("dashboard.html", user=current_user(),
+                               modules=MODULES, active="dashboard",
+                               partner_tiles=partner_pages.tiles())
 
     @app.route("/client360")
     def client360():
@@ -4177,6 +4180,43 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001 — SEO totals are additive, never break the dashboard
             data.setdefault("seo_clients", None)
             data.setdefault("seo_billing_monthly", None)
+        return jsonify(data)
+
+    @app.route("/api/celebrations")
+    def api_celebrations():
+        """Whose birthday and whose work anniversary, this month and today.
+
+        One request, two answers: the dashboard block reads the month and the
+        popup reads `today`. Splitting them into two routes would mean two
+        reads of the profile table on every page load for the same rows.
+
+        `me` is what the popup greets by name. It is resolved from the signed-
+        in *account* where there is one, and only falls back to the cookie's
+        display name — two people on this roster are called Todd, and the
+        shared PANEL_PASSWORD session carries a name with no account behind
+        it at all.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import celebrations
+        try:
+            data = celebrations.this_month()
+            data["today_list"] = celebrations.today()
+        except Exception as exc:  # noqa: BLE001 — never break the dashboard
+            return jsonify({"error": str(exc), "birthdays": [],
+                            "anniversaries": []})
+        email, name = "", current_user() or ""
+        try:
+            from .users_routes import current_account
+            account = current_account()
+            if account is not None:
+                email, name = (account.email or ""), (account.name or name)
+        except Exception:  # noqa: BLE001 — a session with no account row
+            pass
+        data["me"] = celebrations.mine(data["today_list"], email=email,
+                                       name=name)
+        data["me_name"] = name
         return jsonify(data)
 
     @app.route("/api/c360")

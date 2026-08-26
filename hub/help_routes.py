@@ -99,6 +99,18 @@ def static_web_ticket_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/hub-cheers.js")
+def static_cheers_js():
+    """The birthday / work-anniversary popup.
+
+    Root-level for the same reason as the scripts above, though today only
+    base.html loads it: the popup belongs on the page somebody lands on after
+    signing in, and that is a hub page. Serving it from the root means a
+    mounted module can opt in later without a second copy."""
+    return send_from_directory(_STATIC, "hub-cheers.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-crumbs.js")
 def static_crumbs_js():
     return send_from_directory(_STATIC, "hub-crumbs.js",
