@@ -329,6 +329,18 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: Proposal targeting tests — the map, the pastes, the research
+        # Guarded like the steps around it so this workflow stays mergeable on
+        # a branch that predates the file. Nothing in it reaches a third party:
+        # the tile server and the geocoder are stubbed, so a green run here
+        # means the same thing it means on somebody's laptop.
+        run: |
+          if [ -f test_proposal_targeting.py ]; then
+            python test_proposal_targeting.py
+          else
+            echo "test_proposal_targeting.py not on this branch — nothing to run."
+          fi
+
       - name: Social content planner tests
         # Guarded like the steps above so this workflow stays mergeable on a
         # branch that predates the file. Safe to run after the others despite

@@ -189,6 +189,30 @@ class Settings:
     ghl_lead_location_id: str = field(default_factory=lambda: _alias("ghl_lead_location_id"))
     simvoly_key: str = field(default_factory=lambda: _alias("simvoly_key"))
 
+    # ---- the proposal's target-area map ----
+    # Map tiles, and deliberately no key. Every other provider here bills for
+    # something; a base map does not have to, and asking a deployment for a
+    # Google Maps key it has never had is the failure `modules/ads_builder`
+    # already fixed once -- a page inviting a credential nobody has set reads
+    # as broken while the feature it gates works perfectly well without one.
+    #
+    # So the default is OpenStreetMap's own tiles, whose licence asks for the
+    # attribution that `hub/target_map.py` prints onto every image it makes.
+    # Both are variables rather than constants for the deployment that wants
+    # its own tile server or a keyed one: the URL carries the key if there is
+    # a key, which is one setting rather than a second code path nobody here
+    # would ever exercise.
+    map_tile_url: str = field(default_factory=lambda: _s(
+        "MAP_TILE_URL", "https://tile.openstreetmap.org/{z}/{x}/{y}.png"))
+    map_tile_attribution: str = field(default_factory=lambda: _s(
+        "MAP_TILE_ATTRIBUTION", "© OpenStreetMap contributors"))
+    # A tile server identifies callers by User-Agent and OSM's policy requires
+    # a real one; an unset PUBLIC_BASE_URL must not make this blank.
+    map_user_agent: str = field(default_factory=lambda: _s(
+        "MAP_USER_AGENT",
+        "Smart1Hub/1.0 (+https://smart1.agency; proposal target maps)"))
+    map_enabled: bool = field(default_factory=lambda: _b("PROPOSAL_MAP", True))
+
     # ---- behaviour ----
     ai_usage_log: bool = field(default_factory=lambda: _b("HUB_AI_USAGE_LOG", True))
 

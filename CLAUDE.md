@@ -2332,6 +2332,141 @@ stray asterisk is not that. Bold survives, normalised to `<b>`, which
 reportlab reads natively, `rich_runs()` turns into a bold run for Word, and
 the preview un-escapes deliberately and alone.
 
+### A bullet inside a sentence is not a list
+
+`clean_ai_text` normalised the markup and left the *shape* alone, and the
+directive it works to actually asked for the wrong thing: "write the items as
+sentences or separate them with the bullet character •". So a model obliged
+with `We will reach three areas: • Carmel • Fishers • Noblesville` — one
+paragraph, which all three renderers duly set as one paragraph, and a client
+read a sentence with dots in it on the page listing where their money goes.
+Nothing errored; the copy was even correct.
+
+The shape is enforced now rather than requested, the Smart 1 Labs rule one
+step on: `_one_bullet_per_line()` puts every bullet at the start of its own
+line and keeps the lead-in above it, and the directive asks for one item per
+line so the model mostly gets there on its own. What the renderers read is
+`proposal_spec.blocks()` — paragraphs and lists, decided **once** — so the
+preview builds a `<ul>`, the PDF gives each item its own bullet-indented
+Paragraph and Word writes a List Bullet paragraph, and a fourth renderer
+added later cannot go back to printing the bullet inside a sentence. The
+browser carries the same split in `cleanCopy()`, because a rep pastes into
+the section editor and must see it normalise there rather than in the PDF.
+
+One thing it deliberately does not do: a sentence written *after* the last
+bullet stays attached to that item. Where a list ends is not knowable from
+the text, and cutting at the first full stop would split "Carmel, IN. 10
+miles" into two items.
+
+### The map is the part of the proposal the client can check
+
+Geography was a table of sentences — "Carmel, IN + 10-mile radius" three
+times — and it is the one section a client cannot read against what they
+know, because the person reading it lives there. A map answers in a glance
+what three sentences do not: that the rings overlap, that the whole buy sits
+on one side of the city, that the suburb they care about is inside it.
+
+`hub/target_map.py` draws it: OpenStreetMap tiles composed with Pillow, rings
+computed from each radius, numbered pins and a key, and the tile attribution
+printed **onto the image** — three renderers show this picture and a credit
+written into one of them travels with none of the others. One PNG serves the
+preview, the PDF and the Word export, so the three cannot disagree about
+where the campaign runs. There is **no JavaScript map**: target areas and the
+creative classifier each carry a mirror already and each needs a test proving
+the halves agree, and a fourth renderer of the same fact is the cost this
+codebase has already paid twice.
+
+Every rule in it is a way to be confidently wrong:
+
+- **A named state must match.** A geocoder handed "Carmel" answers
+  Carmel-by-the-Sea, California — so an origin naming a state and finding
+  nothing in it comes back *not found*, never the same name somewhere else.
+  A map of the wrong Carmel is a wrong answer that looks exactly like a right
+  one, and it is on a document a client recognises.
+- **A DMA, a state and a national buy are not drawn.** There is no boundary
+  data here and inventing a blob is a claim about coverage nobody can check.
+  Those are *named under the map* as covered and not drawn, so the picture is
+  never mistaken for the whole buy.
+- **Four kinds of missing are four answers.** Covered-but-not-drawable, a
+  spelling nothing could find, an area with no origin at all, and a tile
+  server that did not answer. Only two are somebody's to fix, so only those
+  two are offered as something to fix — and they are shown on the areas
+  screen, where the fix is, never on the client's document.
+- **A failure costs the picture and nothing else.** No blank grey box, no
+  "map unavailable" graphic: the client document simply omits it, and
+  `render()` returns `(None, reason)` so the builder can say why. A map made
+  mostly of missing tiles is refused for the same reason.
+- **The URL carries a signature of the areas.** A stale map is the worst
+  failure available here — plausible, dated, and about somewhere else — so
+  changing a radius changes the URL rather than letting the browser serve
+  yesterday's picture.
+
+`MAP_TILE_URL` and `MAP_TILE_ATTRIBUTION` are settings, so a deployment with
+its own tile server (or a keyed one — the key rides in the URL) needs no
+second code path. No provider key is asked for: this deployment has never had
+a maps key, and a page inviting a credential nobody has set reads as broken
+while the feature works perfectly well without one.
+
+The route's first version caught **every** exception around reading the
+quote and answered "quote could not be read", which turned an
+`AttributeError` on a wrong column name into a 404 that looks exactly like a
+proposal with no target areas — the whole feature silently absent, with
+nothing anywhere saying why. Only a malformed blob is caught now.
+
+### Eleven rooftops is not eleven trips through the area editor
+
+The list already exists — in the email, the spreadsheet, the client's own
+store locator — and typing it back in one box at a time is where a
+multi-location campaign loses its third location. `target_areas.parse_paste()`
+reads a pasted block, and `parse_places()` does the same for the competitors
+and venues inside it. Deliberately two readers: a competitor line is a
+business and an address, an area line is a geography and a radius, and one
+parser trying to be both reads "Riverside Dental, 1200 Main St" as a city
+called Riverside Dental.
+
+Three rules, each about the way a paste goes wrong quietly:
+
+- **Nothing is added by the reading.** The rows come back with a sentence per
+  line saying how each was read and a rep presses Add. A paste that silently
+  assumed ten miles on eight of twelve lines is eight decisions nobody made.
+- **A line nobody could read comes back by name.** Twelve lines producing
+  nine areas is a campaign missing three locations nobody can see are
+  missing. The rule `knack_websites.py` applies to a value Knack would refuse.
+- **A place is short.** A comma is not evidence — prose has commas — which is
+  how "not a place at all, just a sentence somebody typed into the wrong box"
+  became a target area with a ten-mile radius drawn on it. Over six words
+  with no ZIP Code in them reads as a note.
+
+A location already on the campaign is reported as a duplicate rather than
+added twice, because pasting the whole list after adding one by hand is the
+ordinary case.
+
+### Who to go after is researched, and stays a suggestion until somebody ticks it
+
+The client is the only person who knows who they lose business to, and they
+are not in the room when the proposal is built — so the competitor list was
+whatever the rep could remember. `/api/find-targets` researches it over the
+web, scoped to the target areas already on the campaign, and refuses to run
+at all with no area on it: a search with nowhere to look comes back with
+national brands.
+
+Everything it returns arrives `accepted: False`. Printing a researched list
+on a proposal is us telling a client who their competitors are on a model's
+say-so, and that is the paragraph a client checks hardest — the same rule
+`modules/ads_builder` applies to its own competitor research. An address is
+carried only where the model gave one, is labelled **unverified** on the
+screen, and is never derived from the name: a geo-fence built on a wrong
+address spends the budget outside somebody else's front door, the rule
+`modules/ads_builder/logo.py` works to. A row with no address is a real
+answer rather than a gap — conquesting by brand and behaviour needs no
+location — and the screen says so in those words.
+
+And the two empty answers are kept apart, for the reason
+`connected_accounts_result()` gives in Google Finder: **"we could not look"**
+is a 502 that says the campaign is unchanged, **"there is nobody worth
+naming"** is a 200 that says so in as many words. Only the second one means
+stop looking.
+
 ### Who built it is not who is on it
 
 The proposals list showed `salesperson`, which is the sales contact *typed
@@ -3491,6 +3626,9 @@ python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkt
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
+python3 test_proposal_targeting.py # the coverage map, the pasted location list,
+                                   #   the competitor research, and a bulleted
+                                   #   list that reaches the client as a list
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math,
                                    #   the 2x quoted rate, the product a goal leads
                                    #   with, ZIP exceptions and what the Suite covers
