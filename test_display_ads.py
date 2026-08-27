@@ -268,9 +268,13 @@ def test_the_things_that_had_no_control_have_one():
     types = (MODULE / "src" / "types.ts").read_text()
 
     check("a concept can say where its background sits", "backgroundPosition" in types)
-    check("the composer honours it", "resolveBgPosition" in svg)
+    check("the composer still honours the nine legacy alignments", "resolveBgPosition" in svg)
     check("and refuses an alignment SVG would not accept", "BG_POSITIONS" in svg)
-    check("the build screen offers the nine-way crop grid", "data-bgpos" in screen)
+    # The nine-way grid was replaced by nudge arrows in the round after this
+    # one: it could answer "top or bottom" and not "a bit further down", which
+    # is the note people actually write. Asserted in
+    # test_the_picture_can_be_moved_and_zoomed_rather_than_snapped.
+    check("the build screen offers a way to move the picture", "data-nudge" in screen)
 
     check("a concept can say what colour its overlay is", "backgroundOverlayColor" in types)
     check("a chosen colour is painted flat, not graded", "fill-opacity" in svg)
@@ -357,6 +361,172 @@ def test_no_platform_picker_and_a_render_button_that_explains_itself():
     check("the campaign's own platforms drive the render", "state.platforms" in screen)
     check("the render button says what it produces", "title=\"Build the finished file" in screen)
     check("and follows the job it queued", "followRender" in screen)
+
+
+def test_the_picture_can_be_moved_and_zoomed_rather_than_snapped():
+    """Nine alignments answer "top or bottom" and not "a bit further down".
+
+    That is the note an operator writes, and the grid could not express it —
+    nor zoom at all. The picture is placed by arithmetic now, and the sign of
+    the offset is the load-bearing part: it names the part of the PICTURE that
+    shows, so -1 slides the picture DOWN until its top edge meets the canvas.
+    Backwards, every arrow moves the opposite way from the one pressed, and on
+    a symmetrical photograph that survives a glance.
+    """
+    svg = (MODULE / "src" / "svg.ts").read_text()
+    types = (MODULE / "src" / "types.ts").read_text()
+    screen = BUILD_HTML.read_text()
+    check("a concept carries an offset and a zoom",
+          "backgroundOffset" in types and "backgroundZoom" in types)
+    check("the composer computes the cover rectangle", "export function coverRect" in svg)
+    check("zoom cannot drop below covering the canvas", "MIN_BG_ZOOM" in svg)
+    check("a source with no intrinsic size still falls back",
+          "preserveAspectRatio=\"${bgPos} slice\"" in svg)
+    check("the old nine alignments still mean what they meant",
+          "LEGACY_OFFSET" in svg)
+    check("the screen offers arrows, not a grid of nine",
+          "data-nudge" in screen and "data-bgpos" not in screen)
+
+
+def test_the_button_and_the_logo_can_be_moved():
+    screen = BUILD_HTML.read_text()
+    style = (MODULE / "src" / "block-style.ts").read_text()
+    check("the button has a pad", 'nudgePad(\'cta\'' in screen)
+    check("the logo has a pad", 'nudgePad(\'logo\'' in screen)
+    check("the background has a pad", 'nudgePad(\'background\'' in screen)
+    # Align meant the label's alignment inside a button the template already
+    # centres, so Left, Center and Right all rendered identically.
+    check("aligning the button moves the button", "alignedX(box.w, region, style.align)" in style)
+    check("and only the button may be moved",
+          "// ...and only the CTA may be moved" in style)
+
+
+def test_one_slider_beats_two_number_fields():
+    screen = BUILD_HTML.read_text()
+    style = (MODULE / "src" / "block-style.ts").read_text()
+    check("the logo is sized proportionally", "MIN_LOGO_SCALE" in style)
+    check("the screen offers it as a slider", "logoScale" in screen)
+    check("the background zoom is a slider", "bgZoom" in screen)
+    check("the numbers are still there, behind Advanced", 'class="advanced"' in screen)
+    # Fractions have to survive being stored, or the slider moves and the ad
+    # does not.
+    check("a fraction is not rounded to an integer on the way in",
+          "prop === 'scale' || prop === 'opacity'" in screen)
+
+
+def test_the_card_behind_the_copy_has_a_colour():
+    """It was a template constant, and it is the single thing deciding
+    whether the copy on "Full background with copy panel" can be read."""
+    style = (MODULE / "src" / "block-style.ts").read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+    screen = BUILD_HTML.read_text()
+    check("a concept can restyle the panel", "export interface PanelStyle" in style)
+    check("the options route says which sizes draw one", "'panel'" in server)
+    check("the screen offers it only where there is one",
+          "function panelControls()" in screen and "willDraw('panel')" in screen)
+
+
+def test_two_blocks_printed_over_each_other_is_caught():
+    """Newly reachable, because blocks can now be moved.
+
+    Every other check measures a box on its own: contrast samples what is
+    behind the ink and finds the other block's fill, the fit pass finds copy
+    that fits its own box, and the safe-area pass finds both boxes inside the
+    margin. The ad has a headline printed through a button.
+    """
+    qa = (MODULE / "src" / "qa.ts").read_text()
+    check("QA checks for collisions", "'collision'" in qa)
+    check("and the hero is exempt, being deliberately full-bleed",
+          "role !== 'hero'" in qa)
+
+
+def test_a_dark_logo_moves_the_palette_and_not_the_logo():
+    palette = (MODULE / "src" / "palette.ts").read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+    screen = BUILD_HTML.read_text()
+    check("there is a palette proposer", "export function paletteVariants" in palette)
+    check("with a route behind the login", "POST /api/palette/variants" in server)
+    check("and a button on the logo panel", "logoLegibility" in screen)
+    # The three rules that keep the proposals coherent.
+    check("a palette that already works gets no proposals",
+          "if (verdict === 'fine') return" in palette)
+    check("the light and dark roles are never inverted",
+          "roles whose NAME asserts something" in palette)
+    check("the whole palette is applied, never part of one",
+          "state.doc.campaign.brand.colors = v.colors" in screen)
+
+
+def test_the_render_asks_which_sizes_and_the_proof_is_reachable():
+    """Two separate complaints, one flow.
+
+    A package of eight takes minutes and an operator who changed one headline
+    was waiting on seven renders they did not ask for. And the finished job
+    said "open the proof" with nothing to click, because only the rebuild
+    route ever filed a batch — the render started from the build screen wrote
+    a proof to disk that nothing linked to.
+    """
+    server = (MODULE / "src" / "server.ts").read_text()
+    jobs = (MODULE / "src" / "jobs.ts").read_text()
+    screen = BUILD_HTML.read_text()
+    check("a job can render a subset", "sizes?: SizeKey[]" in jobs)
+    check("counted over the same set it will render", "const wanted =" in jobs)
+    check("the render route accepts a size list", "sizes: Array.isArray(body.sizes)" in server)
+    check("the screen asks which", "'Render which sizes?'" in screen)
+    check("one place files a finished job onto its project",
+          "function fileJobOntoProject" in server)
+    check("and the render route uses it too", "if (forProject) fileJobOntoProject" in server)
+    check("the finished render links the proof", "data-proofnow" in screen)
+
+
+def test_a_generated_picture_can_be_revised():
+    """The server has taken a revise instruction and the previous image as a
+    reference since the intake screen was built. The build screen never
+    offered the box, so every change was a fresh roll."""
+    screen = BUILD_HTML.read_text()
+    check("there is a box to ask for a change", "aiRevise" in screen)
+    check("and it redraws from the last picture rather than from nothing",
+          "previousUrl: last && last.url" in screen)
+
+
+def test_the_column_collapses_and_explains_itself_in_bubbles():
+    screen = BUILD_HTML.read_text()
+    check("the style panels are an accordion", "function wireAccordion" in screen)
+    check("one open at a time", "other.open = false" in screen)
+    check("a collapsed panel still says it is carrying an override",
+          "bsdot" in screen)
+    check("the explanations are help bubbles", "function help(text, side)" in screen)
+    check("and the paragraphs between the controls are gone",
+          screen.count('style="font-size:11.5px;color:var(--ink-2);margin-top:4px"') == 0)
+
+
+def test_the_nav_starts_collapsed_on_the_builder():
+    """It is a three-column bench and the nav takes a fifth of it."""
+    sidebar = (ROOT / "hub" / "sidebar.py").read_text()
+    hub = (ROOT / "hub" / "__init__.py").read_text()
+    check("the sidebar accepts a page default", "collapsed_default" in sidebar)
+    check("a stored preference still wins",
+          "sv==='1'||(sv===null&&window.__s1hubCollapseDefault)" in sidebar)
+    check("and the builder asks for it",
+          'collapsed_default=path.startswith("/tools/display-ads")' in hub)
+
+
+def test_the_site_scan_is_read_for_what_it_knows():
+    """An Insites scan reports the palette the client's live site actually
+    paints, the logo it detected and a screenshot. Observed beats declared —
+    Brandfetch routinely returns a palette without saying which entry is the
+    brand colour."""
+    link = (ROOT / "hub" / "ad_builder_link.py").read_text()
+    screen = BUILD_HTML.read_text()
+    check("there is a route for it", '"/site-brand"' in link)
+    check("it reads the scan's own colour scheme", '_sec("colour_scheme")' in link)
+    check("and the detected logo", '"has_detected_logo"' in link)
+    check("joined by domain, never by name", "The URL is the join key" in link)
+    check("a client with no scan is not an error", '"found": False' in link)
+    check("the screen offers the colours", "drawSiteBrand" in screen)
+    # Copied rather than applied: which of the five roles a site colour should
+    # become is a judgement, and guessing it moves four other things.
+    check("clicking one copies it rather than applying it",
+          "Copied, not applied" in screen)
 
 
 def test_british_spellings_are_gone_from_what_a_person_reads():

@@ -78,6 +78,8 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     backgroundOverlay: concept.backgroundOverlay,
     backgroundOverlayColor: concept.backgroundOverlayColor,
     backgroundPosition: concept.backgroundPosition,
+    backgroundOffset: concept.backgroundOffset,
+    backgroundZoom: concept.backgroundZoom,
     assetRoot,
   });
 
@@ -95,6 +97,8 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     backgroundOverlay: concept.backgroundOverlay,
     backgroundOverlayColor: concept.backgroundOverlayColor,
     backgroundPosition: concept.backgroundPosition,
+    backgroundOffset: concept.backgroundOffset,
+    backgroundZoom: concept.backgroundZoom,
     assetRoot,
   });
   const backgroundPng = await sharp(Buffer.from(bgPass.svg)).png().toBuffer();
@@ -173,6 +177,8 @@ export async function renderPreview(opts: {
     backgroundImage: concept.backgroundImage, backgroundOverlay: concept.backgroundOverlay,
     backgroundOverlayColor: concept.backgroundOverlayColor,
     backgroundPosition: concept.backgroundPosition,
+    backgroundOffset: concept.backgroundOffset,
+    backgroundZoom: concept.backgroundZoom,
   });
   const bgPass = await compose({
     layout, brand, copy, hero: concept.hero, scale,
@@ -180,6 +186,8 @@ export async function renderPreview(opts: {
     backgroundImage: concept.backgroundImage, backgroundOverlay: concept.backgroundOverlay,
     backgroundOverlayColor: concept.backgroundOverlayColor,
     backgroundPosition: concept.backgroundPosition,
+    backgroundOffset: concept.backgroundOffset,
+    backgroundZoom: concept.backgroundZoom,
   });
   const backgroundPng = await sharp(Buffer.from(bgPass.svg)).png().toBuffer();
 

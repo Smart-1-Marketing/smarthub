@@ -27,8 +27,12 @@ export interface ComposeInput {
   backgroundOverlay?: number;
   /** Flat overlay colour. Absent keeps the graded dark scrim. */
   backgroundOverlayColor?: string;
-  /** preserveAspectRatio alignment for the background crop. */
+  /** preserveAspectRatio alignment for the background crop (legacy). */
   backgroundPosition?: string;
+  /** Where the picture sits, as a fraction of its overflow. -1..1 each way. */
+  backgroundOffset?: { x: number; y: number };
+  /** Zoom, 1 = just covering the canvas. */
+  backgroundZoom?: number;
   assetRoot?: string;
 }
 
@@ -116,6 +120,77 @@ export function normaliseHex(value: string | undefined): string | null {
   return null;
 }
 
+/** Zoom is bounded: below 1 the picture stops covering and the ad shows the
+ *  brand colour through its own edges, and past 3 a background photo is a
+ *  texture rather than a picture. */
+export const MIN_BG_ZOOM = 1;
+export const MAX_BG_ZOOM = 3;
+
+/** The nine legacy alignments, as the offsets they always meant. */
+const LEGACY_OFFSET: Record<string, { x: number; y: number }> = {
+  xMinYMin: { x: -1, y: -1 }, xMidYMin: { x: 0, y: -1 }, xMaxYMin: { x: 1, y: -1 },
+  xMinYMid: { x: -1, y: 0 },  xMidYMid: { x: 0, y: 0 },  xMaxYMid: { x: 1, y: 0 },
+  xMinYMax: { x: -1, y: 1 },  xMidYMax: { x: 0, y: 1 },  xMaxYMax: { x: 1, y: 1 },
+};
+
+const clamp01 = (n: number) => Math.max(-1, Math.min(1, n));
+
+/**
+ * Where to draw a background picture so it covers the canvas.
+ *
+ * Returns null when the source has no intrinsic size — an SVG, which sharp
+ * reports as 0x0 — because every number below would be NaN and the picture
+ * would be placed nowhere. The caller falls back to preserveAspectRatio,
+ * which handles that case correctly and has done all along.
+ *
+ * The offset is a fraction of the picture's own overflow, not a pixel count:
+ * -1 pins its left/top edge, +1 its right/bottom, 0 centres it. That is what
+ * makes one setting mean the same thing on a 300x250 and a 970x250 — the same
+ * part of the photograph is showing on both, which is the whole promise of
+ * "the same ad in eight sizes".
+ */
+export function coverRect(
+  iw: number,
+  ih: number,
+  W: number,
+  H: number,
+  opts: { offset?: { x: number; y: number }; zoom?: number; legacy?: string } = {},
+): { x: number; y: number; w: number; h: number } | null {
+  if (!(iw > 0) || !(ih > 0) || !(W > 0) || !(H > 0)) return null;
+
+  const zoom = Math.max(MIN_BG_ZOOM, Math.min(MAX_BG_ZOOM, Number(opts.zoom) || 1));
+  const scale = Math.max(W / iw, H / ih) * zoom;
+  const w = iw * scale;
+  const h = ih * scale;
+
+  // An explicit offset wins; otherwise the legacy alignment, which is the
+  // same thing expressed in nine steps; otherwise centred.
+  const off = opts.offset
+    ? { x: clamp01(Number(opts.offset.x) || 0), y: clamp01(Number(opts.offset.y) || 0) }
+    : (LEGACY_OFFSET[String(opts.legacy ?? '')] ?? { x: 0, y: 0 });
+
+  /* Slack is what hangs off each side once centred; the offset spends it.
+     
+     Note the sign. The offset names the part of the PICTURE that shows, so
+     -1 ("show me the top") slides the picture DOWN until its top edge meets
+     the canvas — which is y = 0, not y = -2*slack. Getting this backwards
+     puts every nudge in the opposite direction from the arrow that was
+     pressed, and it looks plausible enough on a symmetrical photograph to
+     survive a glance. */
+  const slackX = (w - W) / 2;
+  const slackY = (h - H) / 2;
+  // `+ 0` normalises negative zero, which this arithmetic produces whenever an
+  // offset lands exactly on an edge. It is the same number, and it renders
+  // into the attribute as "-0.00", which reads as a bug to whoever next opens
+  // the SVG.
+  return {
+    x: -slackX * (1 + off.x) + 0,
+    y: -slackY * (1 + off.y) + 0,
+    w,
+    h,
+  };
+}
+
 /**
  * Which brand ink survives whatever is painted over the photo.
  *
@@ -199,10 +274,38 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
     // person looking at it is concerned. The concept's own choice wins; the
     // intake's per-size hint is the fallback; centred is what everything built
     // before either existed did.
-    const bgPos = resolveBgPosition(input.backgroundPosition ?? (copy as any).__bgPos);
-    body.push(
-      `<image x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="${bgPos} slice" href="${bgImg.uri}"/>`,
-    );
+    /* The picture is placed by hand rather than by preserveAspectRatio.
+       
+       Nine alignments answer "top or bottom" and cannot answer "a bit further
+       down", which is the note an operator actually writes on a proof — and
+       they cannot express zoom at all. So the cover rectangle is computed
+       here: scale the picture until it covers, multiply by the zoom, then
+       slide it within its own overflow.
+       
+       preserveAspectRatio is still the fallback, and it has to be: an SVG
+       source has no intrinsic pixel size, sharp reports 0x0 for it, and
+       arithmetic on that would place the picture nowhere. */
+    const place = coverRect(bgImg.w, bgImg.h, W, H, {
+      offset: input.backgroundOffset,
+      zoom: input.backgroundZoom,
+      legacy: input.backgroundPosition ?? (copy as any).__bgPos,
+    });
+    if (place) {
+      // Clipped explicitly. The root viewport clips too, but a rasteriser
+      // handed an image hanging off the canvas is not a thing to leave to
+      // anybody's default.
+      defs.push(`<clipPath id="bgClip"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath>`);
+      body.push(
+        `<g clip-path="url(#bgClip)"><image x="${place.x.toFixed(2)}" y="${place.y.toFixed(2)}"` +
+        ` width="${place.w.toFixed(2)}" height="${place.h.toFixed(2)}"` +
+        ` preserveAspectRatio="none" href="${bgImg.uri}"/></g>`,
+      );
+    } else {
+      const bgPos = resolveBgPosition(input.backgroundPosition ?? (copy as any).__bgPos);
+      body.push(
+        `<image x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="${bgPos} slice" href="${bgImg.uri}"/>`,
+      );
+    }
     const strength = Math.max(0, Math.min(1, input.backgroundOverlay ?? 0.42));
     const wash = normaliseHex(input.backgroundOverlayColor);
     if (wash) {

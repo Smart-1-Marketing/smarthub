@@ -246,7 +246,8 @@ def visible_items(is_admin: bool = True) -> list[tuple]:
     return out
 
 
-def render_sidebar(active: str = "", is_admin: bool = True) -> bytes:
+def render_sidebar(active: str = "", is_admin: bool = True,
+                   collapsed_default: bool = False) -> bytes:
     """The nav. ``is_admin=False`` drops the Utilities section.
 
     Defaults to True because every existing caller renders for a signed-in
@@ -254,6 +255,13 @@ def render_sidebar(active: str = "", is_admin: bool = True) -> bytes:
     out the role gets the full nav and the server-side gate still refuses the
     click. The reverse default would hide Diagnostics from an admin whenever
     the role lookup hiccuped, which is a bug nobody would report as one.
+
+    ``collapsed_default`` starts the nav as an icon rail on tools that are
+    themselves a full-width workbench -- the Display Ad Builder is a
+    three-column bench and the nav takes a fifth of it. It is a *default*,
+    not a lock: a stored preference always wins, so somebody who opens the
+    menu there keeps it open, and the toggle still works either way. Without
+    that distinction it would be a page fighting the person using it.
     """
     rows = []
     rows.append('<div class="s1hub-logo"><div class="s1hub-mark">S1</div><span class="s1hub-name">Smart 1 Hub</span></div>')
@@ -295,13 +303,18 @@ def render_sidebar(active: str = "", is_admin: bool = True) -> bytes:
         "t.title=on?'Show menu':'Hide menu';"
         "t.setAttribute('aria-label',t.title);}"
         "try{localStorage.setItem('s1hub:collapsed',on?'1':'0');}catch(e){}}"
-        "try{if(localStorage.getItem('s1hub:collapsed')==='1')coll(true);}catch(e){}"
+        # A stored preference wins over the page default in both directions,
+        # so a tool that starts collapsed can still be opened for good.
+        "try{var sv=localStorage.getItem('s1hub:collapsed');"
+        "if(sv==='1'||(sv===null&&window.__s1hubCollapseDefault))coll(true);}catch(e){}"
         "if(t)t.addEventListener('click',function(){"
         "coll(!document.body.classList.contains('s1hub-collapsed'));});"
         "})();</script>"
     )
     html = (
-        _CSS
+        (f"<script>window.__s1hubCollapseDefault="
+         f"{'true' if collapsed_default else 'false'};</script>")
+        + _CSS
         + '<button class="s1hub-burger" aria-label="Open menu" '
           'aria-expanded="false" aria-controls="s1hub-nav">&#9776;</button>'
         + '<div class="s1hub-scrim"></div>'

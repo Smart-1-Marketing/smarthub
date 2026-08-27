@@ -2834,6 +2834,75 @@ being a dialog nobody can revisit. "Every size" writes the default **and**
 clears that field's per-size overrides, or the override keeps winning and the
 edit reads as having failed.
 
+**Nine positions cannot express "a bit further down".** A background photo is
+drawn to cover the canvas and the overflow is cut off, and the crop anchor was
+one of SVG's nine `preserveAspectRatio` alignments — which answers "top or
+bottom" and nothing between, and cannot express zoom at all. `svg.coverRect()`
+computes the rectangle instead, from an offset and a zoom, so the control is a
+pad of arrows and a slider. The offset is a **fraction of the picture's own
+overflow, not pixels**, so one setting shows the same part of the photograph on
+a 300x250 and a 970x250 — which is what "the same ad in eight sizes" has to
+mean. Its sign names *the part of the picture that shows*: -1 is "show me the
+top", which slides the picture **down** until its top edge meets the canvas.
+Backwards, every arrow moves the opposite way from the one pressed, and on a
+symmetrical photograph that survives a glance. The nine old alignments are kept
+and converted, because concepts saved before this carry one; a source with no
+intrinsic size (an SVG, which sharp reports as 0x0) still falls back to
+`preserveAspectRatio`, or every number would be NaN.
+
+**Two blocks printed on top of each other is invisible to every other check.**
+Contrast samples what is behind the ink and finds the other block's fill; the
+fit pass finds copy that fits its own box perfectly; the safe-area pass finds
+both boxes inside the margin. The ad has a headline printed through a button.
+It was unreachable while every box came from a hand-authored template — the
+diagnostics page checks those for overlaps at boot — and became reachable the
+moment the button and the logo gained nudge arrows. `qa.ts` has a `collision`
+check now, and it is a **fail**.
+
+**"Align" means two different things, and the button had the wrong one.** For
+type it is where the line sits inside its box. For a button, the label is
+already centred by every template — so setting the CTA's `align` moved
+nothing, and Left, Center and Right rendered identically. On the button it
+moves the *button*, within the safe region.
+
+**A control for something the layout does not draw is the proof-point mistake
+again.** "Full background with copy panel" puts the copy on a filled card, and
+that fill decides whether it can be read — it was a template constant, so a
+client whose primary is a mid-grey got copy nobody could read. It is a control
+now, offered only on the sizes whose layout actually draws a panel;
+`/api/build/options` reports that alongside which copy blocks each size draws.
+
+**A logo is the one asset nobody may edit, so the palette is what moves.**
+`modules/ad_builder/src/palette.ts` proposes whole palettes that make the
+existing mark read, each with the contrast it achieves,
+and a person picks one. It is **arithmetic, not a model**: asking AI for "a
+colour that contrasts" is a slow, non-deterministic way to do a subtraction
+whose right answer is defined by a published formula, and the result has to be
+checkable because the entire point is that it provably reads. Three rules keep
+the proposals coherent — a palette that already works gets none at all, a
+"change" to the colour it already is is not a proposal, and `light`/`dark` are
+never inverted, because those two roles' *names* are what every template
+resolves ink against. A dark mark on the `dark` role therefore gets no
+recolour: that one needs the reverse logo, and the screen says so.
+
+**The Insites scan already knows the client's real palette.** A scan reports
+`colour_scheme` (primary/secondary background, text and accent — observed off
+the live pages, not declared), `logo.logo_url` with `has_detected_logo`, and
+desktop/mobile screenshots. That is better evidence than Brandfetch, which
+routinely returns a palette without labelling which entry is the brand colour.
+`/tools/display-ads/_hub/site-brand` reads it through
+`modules.scans.app.latest_payload_for_domain`, joined **by domain, never by
+name**, and a client with no scan is the ordinary case rather than an error.
+The colours are offered beside the swatches and **copied, not applied**: which
+of the five roles a site colour should become is a judgement, and guessing it
+moves four other things.
+
+**Only the rebuild route filed a finished render onto its project.** The batch
+is what carries the proof URL, so a render started from the build screen wrote
+a proof to disk that nothing linked to — and the screen told the operator to go
+and look at a proof with no way to reach it. `fileJobOntoProject()` is the one
+place that does it, and both routes call it.
+
 ## Everyone has their own login, and there are two levels of it
 
 Fourteen people, uploaded from the company census. `hub/user_directory.py`
