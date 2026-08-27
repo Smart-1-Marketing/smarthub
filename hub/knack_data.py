@@ -762,6 +762,45 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
             "domainPurchased": w.get("domainPurchased"),
         })
 
+    # Clients whose only trace is an insertion order.
+    #
+    # Client 360 reads Knack's products and website records, and a client
+    # written up on their first IO has neither until the campaign is set up in
+    # Knack — so the day their record is most worth opening it comes back
+    # empty, which reads exactly like a name typed wrong. hub/io_clients.py
+    # registers them at submit, and only when they resolve to nobody, so this
+    # can never shadow a real client: a group is added here ONLY when nothing
+    # above produced one under that name.
+    try:
+        from hub import io_clients as _ioc
+        from hub.client_key import normalise_name as _nn
+        for row in _ioc.overlay().values():
+            nm = str(row.get("name") or "").strip()
+            if not nm or ql not in nm.lower():
+                continue
+            if any(_nn(g["client"]) == _nn(nm) for g in groups.values()):
+                continue        # Knack has them; its record is the real one
+            g = groups.setdefault(nm.lower(), {"client": nm, "products": [],
+                                               "websites": []})
+            # Said on the record, not merely stored: "no products yet" and
+            # "we have never confirmed this client exists" are different
+            # answers, and only one of them is a new business to set up.
+            g["io_only"] = True
+            g["io_orders"] = list(row.get("orders") or [])
+            g["io_first_seen"] = row.get("first_seen") or ""
+            g["io_contact"] = row.get("contact") or {}
+            if row.get("domain") and not g["websites"]:
+                g["websites"].append({
+                    "name": nm, "domain": row.get("domain"),
+                    "liveUrl": row.get("url") or "",
+                    "platform": "", "status": "", "hmMonthly": None,
+                    "partner": "", "manager": "", "ga": "", "gtm": "",
+                    "registrar": "", "domainPurchased": None,
+                    "from_io": True,
+                })
+    except Exception:  # noqa: BLE001 — a client with a Knack record is
+        pass           # unaffected, and this must never break search
+
     # Grouped clients: fold the other members of the group in. A no-op unless
     # somebody has pressed Group on Client 360 for one of these clients.
     for g in groups.values():

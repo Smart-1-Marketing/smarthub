@@ -355,6 +355,15 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
 
   <div class="section">
    <div class="section-title">Creative Checklist</div>
+   <!-- The link the client sends their own assets through. It sits at the top
+        of the checklist because this is the screen a rep is on when they
+        realise they need something from the client; sending them to another
+        tool to find it is how the assets end up arriving by email instead. -->
+   <div id="uploadLinkBox" class="tiny" style="border:1px solid var(--line);
+        border-bottom:0;padding:11px 12px;background:#f4f8fd">
+    <a href="#" id="uploadLinkBtn">&#128279; Get this client&rsquo;s upload link</a>
+    <span class="muted"> &mdash; everything they upload lands in their own gallery.</span>
+   </div>
    <div class="creative-checklist" id="creativeChecklist"><div class="empty">Select products to build the creative checklist.</div></div>
   </div>
 
@@ -654,7 +663,7 @@ const state={
  targetAreas:[],targetAreaName:"",
  geoType:"",geoOrigin:"",geoRadius:"",geoDMA:"",geoState:"",geoOther:"",geoZipcodes:"",geo:"",industry:"",descriptionMode:"",description:"",
  sameDates:null,start:"",end:"",dayparting:"",objectives:[],kpis:[],creativeSource:"",gender:"",ages:[],income:[],audiences:[],audienceNotes:"",
- selectedCategories:[],currentCategory:"",selected:[],items:[],creativeAssets:[],creativeChecklist:{},internalWarnings:[],generatedDocuments:{},aiDescription:"",exclusions:"",strategy:{},recommendations:[],managementFee:"",creativeFee:"",campaignOwner:"",specialInstructions:"",frequencyCap:"",trackingPlan:{primaryConversion:"",secondaryConversions:[],ga4:"",gtm:"",callTracking:"",thankYouPage:"",offlineImport:"",verifier:""},guardrailWarnings:[],mediaMixRecommendation:{},mediaMixDecision:"",naming:{},
+ selectedCategories:[],currentCategory:"",selected:[],items:[],creativeAssets:[],creativeChecklist:{},clientUploadUrl:"",internalWarnings:[],generatedDocuments:{},aiDescription:"",exclusions:"",strategy:{},recommendations:[],managementFee:"",creativeFee:"",campaignOwner:"",specialInstructions:"",frequencyCap:"",trackingPlan:{primaryConversion:"",secondaryConversions:[],ga4:"",gtm:"",callTracking:"",thankYouPage:"",offlineImport:"",verifier:""},guardrailWarnings:[],mediaMixRecommendation:{},mediaMixDecision:"",naming:{},
  /* What the proposal left for a person to settle. All of it lives on state
     rather than on PROPOSAL so that Back restores it and so that it reaches
     the submitted order -- a decision a rep made about the document is part
@@ -2352,6 +2361,66 @@ function creativeChecklistItems(productKey){
  if(!items.length)items.push("Confirm the creative files, copy, destination URL and approval contact needed for this product.");
  return [...new Set(items)];
 }
+/* The client's own upload link, fetched on demand and remembered on the
+   order so both PDFs and the Suite payload carry the same address. Two
+   presses: the first says whether a gallery exists, the second creates one —
+   creating a gallery is something somebody chose to do, and a page that does
+   it on load would make one for every half-finished order. */
+function renderUploadLink(d){
+ const box=document.getElementById("uploadLinkBox");if(!box)return;
+ if(!d||!d.ok){
+  box.innerHTML='<span style="color:#b45309">'+esc((d&&d.error)||"The upload link could not be made.")+'</span>'
+   +' <a href="/tools/image-picker/" target="_blank" rel="noopener">Open Client Image Uploads</a>';
+  return;
+ }
+ if(!d.share_url){
+  box.innerHTML='<b>'+esc(state.client||"This client")+'</b> has no upload gallery yet. '
+   +'<a href="#" id="uploadLinkMake">Create one</a> to get a link they can send photos, logos and PDFs through.';
+  document.getElementById("uploadLinkMake").onclick=function(e){e.preventDefault();askUploadLink(true)};
+  return;
+ }
+ state.clientUploadUrl=d.share_url;
+ box.innerHTML='<b>Send us your creative:</b> '
+  +'<input readonly id="uploadLinkUrl" value="'+esc(d.share_url)+'" style="width:min(420px,100%);'
+  +'padding:5px 7px;border:1px solid var(--line);border-radius:5px;font:11px ui-monospace,Consolas,monospace">'
+  +' <button type="button" id="uploadLinkCopy" style="border:1px solid #aebed0;background:#fff;color:var(--navy);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:11px">Copy</button>'
+  +' <a href="'+esc(d.share_url)+'" target="_blank" rel="noopener">Open</a>'
+  +'<div class="muted" style="margin-top:5px">This link is on the customer PDF and the internal PDF too, '
+  +'and goes to Smart 1 Suite when the IO is submitted.</div>'
+  +(d.share_enabled===false?'<div style="color:#b45309;margin-top:4px">'+esc(d.note||"")+'</div>':'');
+ document.getElementById("uploadLinkCopy").onclick=function(){
+  const f=document.getElementById("uploadLinkUrl"),btn=this;
+  function ok(){const was=btn.textContent;btn.textContent="Copied \u2713";setTimeout(()=>btn.textContent=was,1400)}
+  /* navigator.clipboard is absent on http and is allowed to refuse; a button
+     that reports a copy it never made is worse than one that asks. */
+  function manual(){f.focus();f.select();btn.textContent="Press Ctrl-C"}
+  function fallback(){try{f.focus();f.select();if(document.execCommand("copy")){ok();return}}catch(e){}manual()}
+  try{
+   if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(f.value).then(ok,fallback);return;
+   }
+  }catch(e){}
+  fallback();
+ };
+}
+function askUploadLink(create){
+ const box=document.getElementById("uploadLinkBox");if(!box)return;
+ if(!state.client){
+  box.innerHTML='<span class="muted">Name the client first \u2014 an upload link has to belong to somebody.</span>';
+  return;
+ }
+ box.innerHTML='<span class="muted">'+(create?"Creating\u2026":"Checking\u2026")+'</span>';
+ fetch("api/client-upload-link",{method:"POST",headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({client:state.client,url:state.url||"",create:!!create})})
+  .then(r=>r.json()).then(renderUploadLink)
+  .catch(()=>{box.innerHTML='<span class="muted">Client Image Uploads could not be reached, '
+   +'so we cannot say whether this client has a link \u2014 <b>not measured</b> rather than none.</span>'});
+}
+document.addEventListener("DOMContentLoaded",function(){
+ const b=document.getElementById("uploadLinkBtn");
+ if(b)b.onclick=function(e){e.preventDefault();askUploadLink(false)};
+});
+
 function checklistKey(product,item){return `${product}::${item}`}
 function toggleCreativeChecklist(key,checked){state.creativeChecklist[key]=checked;renderCreativeChecklist()}
 function renderCreativeChecklist(){

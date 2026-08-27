@@ -553,6 +553,21 @@ jobs:
             echo "test_client_images.py not on this branch — nothing to run."
           fi
 
+      - name: The client upload link, and the client an IO brings into being
+        # One gallery or none (never a substring), the link on Client 360, in
+        # the IO wizard, on both PDFs and in the Suite payload, and the
+        # registration of a client whose only trace is an insertion order --
+        # including that the overlay is not read as proof somebody else
+        # already knew them. Guarded like the steps above so this workflow
+        # stays mergeable on a branch that predates the file. Needs no
+        # network.
+        run: |
+          if [ -f test_client_uploads.py ]; then
+            python test_client_uploads.py
+          else
+            echo "test_client_uploads.py not on this branch — nothing to run."
+          fi
+
       - name: Alt text and Claude-in-Chrome publish prompts
         # The alt-text scan, its clamps, and the prompts handed to a browser
         # agent -- including that no stored credential can reach one. Guarded

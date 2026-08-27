@@ -574,6 +574,61 @@ inventing who answers it. First non-empty wins across the sources, and the
 order is the point — the business describing itself on its own site beats the
 Google listing address, which is the one most often out of date.
 
+**A link that exists and nobody can reach is a link nobody uses.** Client
+Image Uploads has always been able to hand a client a page they upload their
+own photographs through (`/tools/image-picker/pick/<token>`). Getting one meant
+opening that tool, finding or adding the client, and copying the link out of a
+row — so the two screens that actually need it offered nothing, and the assets
+arrived by email. `modules/image_picker/provisioning.py` is that step done
+once, from anywhere: it is on the Client 360 images card, in the IO Builder's
+creative checklist, on both requirement PDFs and in the Suite payload, all
+reading `_upload_link_for()` rather than each building an address of its own.
+
+Four rules in it, and the first is the expensive one. **A gallery matches on
+the derived client key or an exactly normalised name and on nothing else** —
+a link that collects one client's photographs into *another client's* gallery
+is worse than no link, so "Icon Solar Supply" is offered its own rather than
+Icon Solar's. **Two candidates propose neither** and name both. **Creating is
+asked for, not assumed**: `create=False` answers "is there one?" so a page can
+show the state, and the PDF builders only ever read — a document is generated
+repeatedly, often twice in a row for the client and internal versions, and a
+gallery created on each of those is a side effect nobody asked for. And **the
+base is trimmed to an origin**: a dispatcher-mounted module's
+`request.url_root` carries its own mount, so pasting the picker's path onto
+the IO Builder's root builds `/tools/io/tools/image-picker/…` — a 404 the
+client meets and nobody else does. `request.host_url` is what that route
+passes, and `_origin()` trims anyway, because `PUBLIC_BASE_URL` has held a
+path before now.
+
+**A client whose only trace is an insertion order was invisible on their own
+record.** Client 360 is a view, not a table: it reads Knack's products and
+website records and joins the Hub's overlays onto them. A business written up
+on their first IO has neither until the campaign is set up in Knack — so the
+day the record is most worth opening it came back empty, which reads exactly
+like a name typed wrong. `hub/io_clients.py` registers them at submit and
+`knack_data.search_client()` merges them, with a banner saying the cards are
+empty because there is nothing to read.
+
+**Only when they are genuinely new**: a client who resolves through
+`hub/client_key.py` or the registry writes nothing at all, because a second row
+under a name that already exists is how one company becomes two on every report
+keyed on a client. It is an overlay and never a write to Knack — the day the
+real record appears it wins — and the row is marked `source: "io"` /
+`is_io_only`, never touching `source` or `is_house` on a Knack client, the
+mistake the discovered-URL merge made once already.
+
+**And "elsewhere" excludes this overlay, which is the whole subtlety.** These
+rows are merged into `clients_registry.all_clients()`, so a naive check reads
+*its own output* as proof somebody else already knew the client: the second
+order for them would be silently dropped, and only once the registry's
+two-minute per-process cache had refreshed — so it would pass in a test, work
+on one gunicorn worker and fail on the other. A row we wrote is ours to update;
+only a client nobody has registered is put to the "is this new?" test, and that
+test is therefore asked exactly once per client. A registry that could not be
+read counts as **known**, because refusing to register beats inventing a
+duplicate of a client Knack holds and was briefly unable to answer for.
+`test_client_uploads.py` asserts all of it.
+
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
@@ -4202,6 +4257,7 @@ python3 test_image_download.py     # image downloads, the shared zip builder
 python3 test_client_images.py      # deleting a client image, the count, the one brand
                                    #   card, the contact details offered into the strip,
                                    #   the display-ads work log, and the way back
+python3 test_client_uploads.py     # the client upload link, and the client an IO creates
 python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
 python3 test_stock_search.py       # four sources in one search; a missing folder is not an empty one
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts

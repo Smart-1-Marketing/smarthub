@@ -106,6 +106,22 @@ function render(g,q){
   if(liveCount) head+=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px">${liveCount} live product${liveCount>1?'s':''}</span>`;
   if(g.dash_url) head+=`<a class="btn-primary" style="padding:8px 16px;font-size:13px;text-decoration:none" href="${esc(g.dash_url)}" target="_blank" rel="noopener">Smart 1 Dashboard →</a>`;
   head+='</div></div>';
+  /* A client whose only trace is an insertion order. Said out loud, because
+     every card below is going to be empty and "no products yet" and "Knack
+     has never heard of this client" are different answers — only one of them
+     is a new business somebody still has to set up. */
+  if(g.io_only){
+    var orders=(g.io_orders||[]).filter(Boolean);
+    head+='<div style="margin:0 0 14px;padding:11px 14px;border:1px solid #fcd34d;'
+      +'background:#fffbeb;border-radius:9px;font-size:12.5px">'
+      +'<b>New business — registered from an insertion order'
+      +(orders.length?' ('+esc(orders.join(', '))+')':'')+'.</b> '
+      +'Knack has no products or website record for them yet, so the cards below '
+      +'are empty because there is nothing to read, not because the search failed. '
+      +'This record is the Hub\u2019s own and is never written to Knack — when the '
+      +'real record appears it takes over.'
+      +'</div>';
+  }
   head+='<div id="c-group"></div>';
   head+='<div id="c-profile" style="margin:-6px 0 14px"></div>';
 
@@ -626,8 +642,21 @@ function render(g,q){
     + (web0&&web0.domain ? '&url='+encodeURIComponent('https://'+web0.domain) : '');
   const actsHost = document.getElementById('c-img-acts');
   if(actsHost) actsHost.innerHTML =
-      '<a class="open-link" href="'+galleryHref+'">See client image gallery →</a>'
+      '<a class="open-link" id="c-img-uplink" style="cursor:pointer">&#128279; Client upload link</a>'
+    + '<a class="open-link" href="'+galleryHref+'">See client image gallery →</a>'
     + '<a class="open-link" href="'+optimizeHref+'">Optimize client images →</a>';
+
+  /* The link a client uploads their own photographs through.
+     Client Image Uploads has always been able to hand one out, and getting it
+     meant opening that tool, finding or adding the client and copying the link
+     out of a row — so the record that needs it offered nothing and the link
+     got made by whoever remembered the tool existed. This makes it here, for
+     the client whose record is on screen, and the matching rules are the
+     picker's own: exactly one gallery or none, never a substring, because a
+     link that collects a client's photos into another client's gallery is
+     worse than no link. */
+  var uplink = document.getElementById('c-img-uplink');
+  if(uplink) uplink.onclick = function(){ clientUploadLink(name, web0); };
 
   /* Named, because deleting one image has to redraw this card. It used to be
      an anonymous fetch, which is why the brand logos were spliced into
@@ -1812,6 +1841,110 @@ function c360Traffic(propertyId,googleLogin){
 }
 
 {% if q %}run();{% endif %}
+
+// ------------------------------------------------- client upload link
+/* Hand a client the link they upload their own photographs through.
+   Two presses on purpose: the first asks whether a gallery already exists and
+   the second creates one, because creating a gallery is a thing somebody
+   chose to do, not something a page load does. */
+function clientUploadLink(name, web0){
+  var host = document.getElementById('c-images');
+  if(!host) return;
+  var box = document.getElementById('c-uplink-box');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'c-uplink-box';
+    box.style.cssText = 'margin:0 0 12px;padding:11px 13px;border:1px solid #bfdbfe;'
+      + 'background:#eff6ff;border-radius:9px;font-size:12.5px';
+    host.insertBefore(box, host.firstChild);
+  }
+  box.innerHTML = '<span class="muted">Looking for this client\u2019s upload gallery\u2026</span>';
+  var url = (web0 && web0.domain) ? String(web0.domain) : '';
+  ask(false);
+
+  function ask(create){
+    fetch('/tools/image-picker/api/clients/for-hub-client',{method:'POST',
+      credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name, url:url, create:!!create})})
+      .then(function(r){ return r.json(); }).then(draw)
+      .catch(function(){
+        box.innerHTML = '<span class="muted">Client Image Uploads could not be '
+          + 'reached, so we cannot say whether this client has a link \u2014 '
+          + '<b>not measured</b> rather than none.</span>';
+      });
+  }
+
+  function draw(d){
+    if(!d || !d.ok){
+      /* Two galleries that could both be this client refuses rather than
+         guessing: the wrong pick sends a client's photographs into another
+         client's gallery, which is the one mistake here that cannot be undone
+         by editing a row. */
+      box.innerHTML = '<div style="color:#b45309">'+esc((d&&d.error)||'The upload link could not be made.')+'</div>'
+        + '<div style="margin-top:7px"><a class="gbtn" href="/tools/image-picker/">Open Client Image Uploads →</a></div>';
+      return;
+    }
+    if(!d.share_url){
+      box.innerHTML = '<div><b>No upload gallery for this client yet.</b> '
+        + 'Creating one gives you a link they can send photos, logos and PDFs through; '
+        + 'everything they upload lands in this client\u2019s gallery.</div>'
+        + '<div style="margin-top:8px"><a class="gbtn" id="c-uplink-make" href="#">Create the upload link</a> '
+        + '<a class="open-link" id="c-uplink-close" style="cursor:pointer;margin-left:8px">Not now</a></div>';
+      document.getElementById('c-uplink-make').onclick = function(e){
+        e.preventDefault();
+        box.innerHTML = '<span class="muted">Creating\u2026</span>';
+        ask(true);
+      };
+      document.getElementById('c-uplink-close').onclick = function(){ box.remove(); };
+      return;
+    }
+    box.innerHTML =
+      '<div style="font-weight:600;color:var(--navy);margin-bottom:5px">'
+      + (d.created ? 'Upload link created' : 'Client upload link')
+      + (d.matched_on ? ' <span class="muted" style="font-weight:400">\u00b7 matched on '+esc(d.matched_on)+'</span>' : '')
+      + '</div>'
+      + '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">'
+      + '<input readonly id="c-uplink-url" value="'+esc(d.share_url)+'" '
+      + 'style="flex:1;min-width:260px;padding:7px 9px;border:1px solid var(--line);'
+      + 'border-radius:7px;font:12px ui-monospace,Consolas,monospace">'
+      + '<button class="gbtn" id="c-uplink-copy" type="button">Copy</button>'
+      + '<a class="gbtn" href="'+esc(d.share_url)+'" target="_blank" rel="noopener">Open</a>'
+      + '</div>'
+      + (d.share_enabled === false
+          ? '<div style="margin-top:6px;color:#b45309">'+esc(d.note||'')+'</div>'
+          : '<div class="muted" style="margin-top:6px">Anything they upload here lands in '
+            + esc(name)+'\u2019s gallery. Send it to them \u2014 they need no login.</div>');
+    document.getElementById('c-uplink-copy').onclick = function(){
+      copyToClipboard(d.share_url, this);
+    };
+  }
+}
+
+/* navigator.clipboard is not available on http and is allowed to refuse, and
+   a button that reports a copy it never made is worse than one that asks. */
+function copyToClipboard(text, btn){
+  function done(){ var was = btn.textContent; btn.textContent = 'Copied \u2713';
+                   setTimeout(function(){ btn.textContent = was; }, 1400); }
+  function manual(){
+    var f = document.getElementById('c-uplink-url');
+    if(f){ f.focus(); f.select(); }
+    btn.textContent = 'Press Ctrl-C';
+  }
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done, fallback);
+      return;
+    }
+  }catch(e){}
+  fallback();
+  function fallback(){
+    try{
+      var f = document.getElementById('c-uplink-url');
+      if(f){ f.focus(); f.select(); if(document.execCommand('copy')){ done(); return; } }
+    }catch(e){}
+    manual();
+  }
+}
 
 // ---------------------------------------------------------------- brand card
 function addLogosToImages(){
