@@ -577,6 +577,19 @@ jobs:
             echo "test_web_tickets.py not on this branch — nothing to run."
           fi
 
+      - name: Campaign support request tests
+        # The pinned object_121 ids, the form built from them — every option
+        # off the live object, never a guessed choice — and what a write may
+        # and may not contain. Guarded like the steps above so this workflow
+        # stays mergeable on a branch that predates the file. Needs no Knack
+        # credentials — the requests seam is stubbed.
+        run: |
+          if [ -f test_campaign_support.py ]; then
+            python test_campaign_support.py
+          else
+            echo "test_campaign_support.py not on this branch — nothing to run."
+          fi
+
       - name: Campaign asset queue tests
         # The two object_135 fields behind /tools/campaign-assets: the tickbox
         # that gates the asset text, the partner-then-sales ordering, and that
