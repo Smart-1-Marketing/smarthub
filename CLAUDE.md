@@ -2858,6 +2858,56 @@ is gated on that tick. Each id is overridable by environment variable
 and the page's own script reads the ids handed to it by the server rather than
 carrying a second copy. `test_campaign_assets.py` asserts all of it.
 
+## A stale list that can only be read is a list nobody works
+
+`hub/stale_creative.py` says how long it has been since we last made creative
+for each client running a product today, and every row was a fact with nothing
+to do about it: a rep read the number, went and found the client somewhere else,
+and the row aged another week. The end of the row is three actions now —
+**Evergreen**, **New** and **Create** — each opening the thing that already
+exists rather than a fourth copy of it. *New* is `/campaign-request.js`, the
+same Campaign Change Request form Client 360 and the dashboard open, handed the
+client's real insertion orders from `/api/c360` so the campaign/IO dropdown is
+populated rather than a free-text box. *Create* is
+`/tools/display-ads/_hub/start?client=…`, which fills the client in and files
+the build against that record.
+
+**The Source column went with it.** Which of our tools filed the last creative
+is not a decision the person reading the row makes — the note
+`modules/ads_builder/logo.py` already makes about naming Brandfetch to somebody
+who cannot rotate its key. Each creative in the expanded panel still says where
+it came from, which is where opening it is the point.
+
+**Evergreen is the answer to a row that is not a gap.** An always-on brand
+spot, a sponsorship board, a rebate banner that runs unchanged until the offer
+ends: the creative is fixed for the campaign, so the elapsed time is not
+something anybody is going to close, and left in the list those rows are
+permanent red on a report whose whole job is to say what to act on this week.
+`hub/creative_evergreen.py` is that overlay, and four rules hold it up.
+
+**It is applied on every read of the cache, not baked into it.** The audit is
+cached for five minutes and there are two gunicorn workers, so a mark taken in
+one of them would go on being ignored by the other until its own cache expired —
+a button that appears to do nothing, which is exactly the failure
+`hub/client_urls.missing()` had to undo. **The mark is stored against the
+client's name, never the derived match key**, for the reason `hub/client_key.py`
+gives at length; the key is re-derived on read with whatever matcher the report
+is using. **Nothing disappears in silence**: the row moves to an Evergreen
+section with the group it came from, who marked it and when, and one press puts
+it back — a list that quietly gets shorter cannot be told from a list that
+failed to load, and the tile row carries the count beside the other five.
+And **a mark says who and when**, because "this is evergreen" is somebody's
+decision about a campaign and one nobody can attribute is one nobody can
+revisit.
+
+**The blueprint had no guard at all.** `/qa/stale-creative` and its APIs
+answered 200 to anyone with the URL — every active client and how far behind we
+are on each — because `wsgi.py` wraps only *dispatcher-mounted* modules in
+`AuthGuard` and the hub app guards its own views one at a time. The gate sits on
+the blueprint now rather than on each route, the arrangement
+`modules/commercial_builder/__init__.py` arrived at for the same reason: the
+write route added here must not have to remember, and neither must the next one.
+
 ## A web ticket is eight fields, and the form asks for all eight
 
 `hub/knack_api.py` pins object_107's field ids in `TICKET_FIELDS` — they were
@@ -3500,6 +3550,7 @@ python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
 python3 test_campaign_assets.py    # campaigns waiting on an asset, by media partner
+python3 test_stale_creative.py     # the row actions, the evergreen overlay, the login gate
 python3 test_dashboard_trends.py   # the monthly readings accumulate; no card claims a comparison
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
