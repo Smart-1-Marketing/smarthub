@@ -76,6 +76,10 @@ TILE = 256
 MAX_TILES = 40              # one map, not a tile scrape
 MAX_ZOOM = 14
 MIN_ZOOM = 3
+# The shape the picture comes back in. A document's text column is landscape,
+# and a renderer handed a portrait map either fills a page with it or cannot
+# place it at all -- so the crop is widened to this before anything sees it.
+MIN_ASPECT = 1.35
 TILE_TIMEOUT = 6
 # A wall-clock budget for the whole map, not a timeout per tile.
 #
@@ -547,7 +551,12 @@ def _compose(points, width, height, meta) -> bytes | None:
             draw.text((px - (box[2] - box[0]) / 2, py - (box[3] - box[1]) / 2 - 1),
                       mark, font=label_font, fill=NAVY + (255,))
     canvas = Image.alpha_composite(base, pins).convert("RGB")
-    canvas = _crop_to_campaign(canvas, points, zoom, left, top)
+    # The crop is told how tall the key underneath it will be, because
+    # MIN_ASPECT is about the finished picture. Widening the map alone left
+    # a 681x504 crop that the key then turned into 681x606 -- landscape by
+    # the time it was measured and square by the time it was placed.
+    canvas = _crop_to_campaign(canvas, points, zoom, left, top,
+                               _legend_height(points))
 
     canvas = _legend(canvas, points, meta)
     out = io.BytesIO()
@@ -555,7 +564,13 @@ def _compose(points, width, height, meta) -> bytes | None:
     return out.getvalue()
 
 
-def _crop_to_campaign(canvas, points, zoom, left, top):
+def _legend_height(points) -> int:
+    """How tall the key under the map will be, before it is drawn."""
+    rows = min(len(points), 12) + (1 if len(points) > 12 else 0)
+    return 14 + 22 * rows + 22
+
+
+def _crop_to_campaign(canvas, points, zoom, left, top, extra_height: int = 0):
     """Trim the tiles down to what the campaign actually covers.
 
     Zoom is a whole number, so the closest one that fits every ring inside the
@@ -575,6 +590,12 @@ def _crop_to_campaign(canvas, points, zoom, left, top):
         ys += [py - pad, py + pad]
     margin = max(46, 0.1 * max(max(xs) - min(xs), max(ys) - min(ys)))
     box = [min(xs) - margin, min(ys) - margin, max(xs) + margin, max(ys) + margin]
+    # A map is drawn into a document's text column, which is wider than it is
+    # tall, so the crop must not come back portrait. Three rooftops running
+    # north-south cropped to 511x606 -- and at the PDF's column width that is
+    # a picture 8.8 inches high, which is most of a page and one slightly
+    # taller campaign away from being refused by the page frame altogether.
+    # Widening is free: it is the tiles already fetched.
     # Never crop below something that still reads as a map, and never outside
     # the tiles actually fetched -- past the edge is white, which reads as the
     # world ending rather than as a crop.
@@ -584,9 +605,37 @@ def _crop_to_campaign(canvas, points, zoom, left, top):
         box = [cx - half_w, cy - half_h, cx + half_w, cy + half_h]
     box = [max(0, int(box[0])), max(0, int(box[1])),
            min(canvas.width, int(box[2])), min(canvas.height, int(box[3]))]
+    # Widen *after* clamping, or the growth is spent outside the tiles that
+    # were actually fetched and the clamp takes it straight back off.
+    box = _widen(box, MIN_ASPECT, canvas.width, extra_height)
     if box[2] - box[0] < 200 or box[3] - box[1] < 140:
         return canvas
     return canvas.crop(tuple(box))
+
+
+def _widen(box, aspect: float, limit: int, extra_height: int = 0):
+    """Grow a crop box sideways until it is at least this wide for its height.
+
+    Only ever grows, and only horizontally: trimming the height instead would
+    cut a ring off the picture, which is the one thing the map exists to show.
+    Growth is bounded by the tiles that exist, and slides along the edge
+    rather than stopping at it -- a box that hits the left of the canvas can
+    still take the room on its right.
+    """
+    left, top, right, bottom = box
+    width = right - left
+    height = (bottom - top) + max(0, extra_height)
+    if height <= 0 or width <= 0 or width / height >= aspect:
+        return box
+    want = min(height * aspect, limit)
+    grow = want - width
+    left -= grow / 2
+    right += grow / 2
+    if left < 0:
+        right, left = min(limit, right - left), 0
+    if right > limit:
+        left, right = max(0, left - (right - limit)), limit
+    return [left, top, right, bottom]
 
 
 def _legend(canvas, points, meta):
