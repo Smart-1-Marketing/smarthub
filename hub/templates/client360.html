@@ -1918,12 +1918,44 @@ function renderBrand(d){
      overwrites what's there. Show the state instead. The push carries the
      brand on file and never a sighting, so it is offered only where there is
      one — see brand_guide_payload(). */
+  /* Filing costs nothing at any provider — it reads the brand record already
+     stored and the last site scan — so it is offered wherever there is a logo
+     on the card, including the majority of local businesses who publish no
+     brand record and whose only logo came off their own home page. Pressing
+     it twice files nothing twice; see hub/client_logos.py. */
+  const saveBtn = (d.logo_tiles||[]).length
+    ? '<a class="gbtn" href="#" onclick="saveLogosToGallery();return false"'
+      + ' title="Store these in this client&rsquo;s image gallery under Logo">'
+      + 'Save logo to gallery</a>' : '';
+
   if(acts) acts.innerHTML = (d.found
     ? (d.suite_brand_guide
         ? '<span class="pill ok" title="Pushed '+esc(d.suite_brand_guide)+'">Brand Guide setup in Suite</span>'
         : '<a class="gbtn" href="#" onclick="pushBrand();return false">Send to Suite Brand Guide</a>')
     : '')
-    + ' ' + lookBtn;
+    + ' ' + saveBtn + ' ' + lookBtn;
+}
+
+/* The logo the Hub already has, into the gallery a rep actually opens.
+   Announced rather than done silently: a file that lands in a gallery with
+   nothing saying so is one nobody knows to look for. The answer distinguishes
+   filed, already there, and could-not-be-fetched, because a dead logo URL and
+   a client with no logo are different things to do next. */
+function saveLogosToGallery(){
+  var acts = document.getElementById('c-brand-acts');
+  if(acts) acts.innerHTML = '<span class="muted" style="font-size:12px">Saving…</span>';
+  fetch('/api/client/logos',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:window.CURRENT_CLIENT||'', domain:window.__c360domain||''})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d && d.error){ alert(d.error); }
+      else if(d && d.summary){ alert(d.summary); }
+      loadBrand(window.CURRENT_CLIENT||'');
+      if(window.loadClientImages) window.loadClientImages();
+    }).catch(function(){
+      alert('The logo could not be saved to the gallery.');
+      loadBrand(window.CURRENT_CLIENT||'');
+    });
 }
 
 function pushBrand(){
@@ -2380,6 +2412,10 @@ function lookupBrand(){
          reason matters: a refused key and a business nobody has published
          are different things to do next. */
       if(d && !d.found && d.note) alert(d.note);
+      /* A lookup we paid for files the logo into the gallery on the way past
+         — hub/brand_lookup.lookup(). Said out loud for the same reason the
+         button above says it. */
+      else if(d && d.logos_filed) console.info('Logos: ' + d.logos_filed);
       /* The logo IS a client image, so the images card redraws with it. */
       if(window.loadClientImages) window.loadClientImages();
     }).catch(function(){

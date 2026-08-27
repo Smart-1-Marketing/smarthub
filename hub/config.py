@@ -283,6 +283,9 @@ class Settings:
             "cutouts": "smart1-cutouts",
             "commercials": "smart1-commercials",
             "ads_logos": "smart1-ads-logos",
+            # Logos filed into a client's own gallery from their brand record
+            # or their last site scan -- hub/client_logos.py.
+            "client_logos": "smart1-client-logos",
             "backups": "smart1-backups",
         }
         return defaults.get(kind, f"smart1-{kind}")

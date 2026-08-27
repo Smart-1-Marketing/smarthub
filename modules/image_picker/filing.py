@@ -38,6 +38,11 @@ KIND_LABELS = {
     "blog": "Blog images",
     "seo_image": "SEO images",
     "display_ad": "Display ads",
+    # Filed by hub/client_logos.py from the client's brand record or their
+    # last site scan. Declared here so the gallery groups them under a name
+    # rather than under a bare key -- the same reason hub/audit.LOG_NAMES
+    # declares a log name the directory cannot guess.
+    "logo": "Logo",
 }
 
 

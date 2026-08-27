@@ -507,7 +507,41 @@ def create_hub_app() -> Flask:
         kit = brand_kit(client, domain)
         kit["looked_up"] = True
         kit["note"] = res.get("note", "")
+        # What the call we just paid for put into the client's gallery. Said
+        # on the card rather than done silently: a file that appears in a
+        # gallery with nothing announcing it is one nobody knows to look for.
+        try:
+            from . import client_logos
+            kit["logos_filed"] = client_logos.summary(res.get("logos") or {})
+        except Exception:  # noqa: BLE001
+            pass
         return jsonify(kit)
+
+    @app.route("/api/client/logos", methods=["POST"])
+    def api_client_logos():
+        """File every logo we already hold for this client into their gallery.
+
+        A POST behind a button, and deliberately **not** a lookup: this reads
+        the brand record already stored and the last site scan, so it costs
+        nothing at Brandfetch. That matters because the scan is where the logo
+        comes from for most local businesses, and there was no way to get one
+        into the gallery without spending a lookup that would find nothing.
+
+        Filing the same logo twice is impossible — see hub/client_logos.py —
+        so pressing it again is safe and says what was already there.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_logos
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("name") or "").strip()
+        if not client:
+            return jsonify({"error": "No client named."}), 400
+        res = client_logos.file_logos(
+            client, str(body.get("domain") or "").strip(),
+            actor=current_user() or "system")
+        return jsonify({**res, "summary": client_logos.summary(res)})
 
     @app.route("/api/client/scan-facts")
     def api_client_scan_facts():

@@ -4109,6 +4109,8 @@ python3 test_spelling.py           # the spelling check still bites, and its
 python3 test_client_prefill.py     # one client reader: what a form is offered,
                                    #   what it is never offered, and what a
                                    #   model is told about the client
+python3 test_client_logos.py       # a logo we found reaches the client's gallery,
+                                   #   once, labeled with where it came from
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
 ```
 

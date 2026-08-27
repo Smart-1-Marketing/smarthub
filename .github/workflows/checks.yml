@@ -871,3 +871,14 @@ jobs:
       # every AI feature hands a model.
       - name: Client prefill and the block a model is handed
         run: python3 test_client_prefill.py
+
+      # A logo we found is a logo the client's gallery holds. Brandfetch is
+      # billed and its answer was stored as JSON; the Insites scan reads the
+      # logo off the client's own home page, which is where it comes from for
+      # most local businesses. Neither reached the gallery a rep opens to put
+      # a mark into an ad. This holds the four ways filing it goes quietly
+      # wrong: the same mark filed twice, two different marks collapsed into
+      # one, a dead URL drawn as a broken tile, and a billed provider called
+      # on a page load.
+      - name: Logos reach the client gallery
+        run: python3 test_client_logos.py

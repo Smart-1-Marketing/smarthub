@@ -172,5 +172,19 @@ def lookup(domain: str, client: str = "", module: str = "hub",
 
     payload.setdefault("domain", domain)
     _save(domain, payload, client)
+    # A logo we just paid for belongs where a rep will look for it. Filing it
+    # here rather than on a page load is the whole point: this branch is the
+    # one that spent a call, so the gallery write costs nothing extra and
+    # cannot be triggered by somebody opening a screen. It reads what was just
+    # stored rather than the response, so the scan's logo is considered
+    # alongside it and the two are deduped on the bytes.
+    filed = {}
+    if client:
+        try:
+            from hub import client_logos
+            filed = client_logos.file_logos(client, domain, actor=module)
+        except Exception:                               # noqa: BLE001
+            filed = {}
     return {"found": True, "payload": payload, "source": "lookup",
+            "logos": filed,
             "note": f"Looked up from {domain} and saved against this client."}

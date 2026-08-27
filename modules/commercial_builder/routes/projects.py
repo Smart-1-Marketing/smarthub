@@ -222,6 +222,36 @@ def save_brief(project_id):
     return jsonify({"ok": True, "project": project.to_dict()})
 
 
+
+def _with_hub_facts(client) -> dict:
+    """The adopted brand profile, plus what the rest of the Hub holds.
+
+    The profile is a copy taken at adoption -- fonts, pronunciation, preferred
+    voice -- and it is deliberately one-way, so it does not move when the
+    client record does. What it never had is the client's live products, the
+    industry on their Knack record and what their last site scan read off
+    their own pages, and a model writing a :30 for a client of eleven years
+    was working from a name, a color and a tagline.
+
+    `hub/client_context.for_prompt()` is the one reader every AI feature in
+    the Hub appends, so a fact added there reaches the commercial, the
+    campaign generator and the blog writer alike. It carries what is *not* on
+    file with it: a gap a model cannot see is a gap it fills in.
+
+    Never raises, and never writes back to the profile -- adopting is a copy,
+    and the copy is the one a person edited.
+    """
+    profile = client.to_dict()
+    try:
+        from hub.client_context import for_prompt
+        known = for_prompt(client.name or "", client.website or "")
+        if known:
+            profile["hub_record"] = known
+    except Exception:  # noqa: BLE001
+        pass
+    return profile
+
+
 @bp.post("/<int:project_id>/concepts")
 def generate_concepts(project_id):
     """Generate three materially different concepts from the brief."""
@@ -230,7 +260,8 @@ def generate_concepts(project_id):
     if not project.brief or not project.brief.get("what_advertising"):
         return jsonify({"ok": False, "error": "Save a commercial brief before generating concepts."}), 400
 
-    concepts = openai_service.generate_concepts(project.brief, client.to_dict(), project.commercial_type)
+    concepts = openai_service.generate_concepts(
+        project.brief, _with_hub_facts(client), project.commercial_type)
     project.concepts = concepts
     project.selected_concept_id = None
     project.status = "concepts"
