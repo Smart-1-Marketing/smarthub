@@ -395,6 +395,25 @@ check("and asking for it then answers 404 rather than a placeholder image",
       http.get(f"/sales/builder/api/quotes/{off_quote['id']}/target-map.png").status_code
       == 404)
 
+# Taking it off has to be findable, not merely possible. The 🗺 in the
+# section tools row is drawn at 45% opacity among five icons -- the same
+# shape as the Smart 1 Ads estimate's per-section pencils, which nobody
+# found until the page said so above them. The one question a map provokes
+# is "that doesn't look right, how do I get rid of it?", so the answer is in
+# words under the picture. Asserted against the template because a control
+# that quietly reverts to icon-only reads on screen as no control at all.
+_builder_page = (ROOT and open(os.path.join(
+    ROOT, "modules", "sales_builder", "templates", "index.html"),
+    encoding="utf-8").read())
+check("the map carries a remove control in words, not only an icon",
+      "Remove this map" in _builder_page, "")
+check("and it is the same one flag the three renderers read",
+      _builder_page.count("toggleSecMap(") >= 3, _builder_page.count("toggleSecMap("))
+check("a removed map offers its own way back",
+      "Put the map back" in _builder_page, "")
+check("and the areas screen says where the map is removed",
+      "it can be removed there without changing any of these areas" in _builder_page, "")
+
 pdf = http.get(f"/sales/builder/api/quotes/{quote['id']}/pdf")
 check("the PDF builds", pdf.status_code == 200 and pdf.data[:4] == b"%PDF",
       pdf.status_code)
