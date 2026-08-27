@@ -1,46 +1,99 @@
 {% extends "_layout.html" %}
 {% block title %}Start a Commercial{% endblock %}
+{% set screen = "commercial_builder.start" %}
 {% block content %}
 
-<div class="cb-page-head"><div><h1>Start a Commercial</h1><p>Pick a client, the format, and the type of spot — you'll write the brief next.</p></div></div>
+{% include "_stepper.html" %}
 
-<div class="cb-card" style="max-width:720px;">
+<div class="cb-page-head"><div><h1>Start a Commercial</h1>
+<p>Pick the client, where it is running, and how long. You'll write the brief next.</p></div></div>
+
+<div class="cb-card" style="max-width:760px;">
+
   <div class="cb-field">
-    <label class="cb-label">Client</label>
-    <select id="client-select">
-      <option value="">— Select existing client —</option>
-      {% for c in clients %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-      <option value="__new__">+ Create new client…</option>
-    </select>
-  </div>
+    <label class="cb-label">Client
+      {{ help_dot('commercial_builder.start.client') if help_dot is defined else '' }}
+    </label>
 
-  <div id="new-client-fields" style="display:none;border:1px dashed var(--cb-border);border-radius:8px;padding:14px;margin-bottom:16px;">
-    <div class="cb-grid cb-grid-2">
-      <div class="cb-field"><label class="cb-label">Business name</label><input type="text" id="nc-name" placeholder="ABC Heating &amp; Cooling"></div>
-      <div class="cb-field"><label class="cb-label">Website</label><input type="url" id="nc-website" placeholder="abcheating.com"></div>
+    {# Three ways in, and the first is the one that was missing. The old page
+       offered a <select> of this module's own table — empty on a fresh
+       install, and only ever containing businesses somebody had typed into
+       it — so a client of eleven years' standing had to be retyped as new,
+       and the finished commercial was filed under a name that joins to
+       nothing. #}
+    <div class="cb-choice-grid" id="client-mode" style="margin-bottom:12px;">
+      <div class="cb-choice selected" data-value="hub"><div class="cb-choice-title">An existing client</div>
+        <div class="cb-choice-sub">Search the agency's client list</div></div>
+      <div class="cb-choice" data-value="profile"><div class="cb-choice-title">A brand profile here</div>
+        <div class="cb-choice-sub">Already set up in this tool</div></div>
+      <div class="cb-choice" data-value="new"><div class="cb-choice-title">New business</div>
+        <div class="cb-choice-sub">Someone we're pitching</div></div>
     </div>
-    <button type="button" class="cb-btn cb-btn-sm" id="analyze-btn">Analyze website with AI to pre-fill brand profile</button>
-    <p class="cb-hint" id="analyze-status"></p>
+
+    <div id="mode-hub">
+      <input type="search" id="hub-q" placeholder="Start typing a client name or domain…" autocomplete="off">
+      <div class="cb-results" id="hub-results"></div>
+      <p class="cb-hint" id="hub-note"></p>
+    </div>
+
+    <div id="mode-profile" style="display:none;">
+      <select id="client-select">
+        <option value="">— Select a brand profile —</option>
+        {% for c in clients %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+      </select>
+      <p class="cb-hint">Brand profiles are created the first time you build a commercial for
+        someone. They carry the fonts, pronunciation and preferred voice — things the client
+        record doesn't hold.</p>
+    </div>
+
+    <div id="mode-new" style="display:none;border:1px dashed var(--cb-border);border-radius:8px;padding:14px;">
+      <div class="cb-grid cb-grid-2">
+        <div class="cb-field"><label class="cb-label">Business name</label><input type="text" id="nc-name" placeholder="ABC Heating &amp; Cooling"></div>
+        <div class="cb-field"><label class="cb-label">Website</label><input type="url" id="nc-website" placeholder="abcheating.com"></div>
+      </div>
+      <button type="button" class="cb-btn cb-btn-sm" id="analyze-btn">Analyze website with AI to pre-fill brand profile</button>
+      <p class="cb-hint" id="analyze-status"></p>
+    </div>
+
+    <div id="chosen-client" class="cb-chosen" style="display:none;margin-top:10px;">
+      <div><strong id="chosen-name"></strong><div class="cb-result-sub" id="chosen-sub"></div></div>
+      <button type="button" class="cb-btn cb-btn-sm" id="chosen-clear">Change</button>
+    </div>
   </div>
 
   <div class="cb-field">
-    <label class="cb-label">Platform</label>
+    <label class="cb-label">Where is it running?
+      {{ help_dot('commercial_builder.start.platform') if help_dot is defined else '' }}
+    </label>
     <div class="cb-choice-grid" id="platform-choices">
       {% for p in platforms %}
-        <div class="cb-choice {{ 'selected' if p.id == 'both' else '' }}" data-value="{{ p.id }}"><div class="cb-choice-title">{{ p.label }}</div></div>
+        <div class="cb-choice {{ 'selected' if p.id == 'both' else '' }}" data-value="{{ p.id }}">
+          <div class="cb-choice-title">{{ p.label }}</div>
+          <div class="cb-choice-sub">{{ p.sub }}</div>
+        </div>
       {% endfor %}
     </div>
-    <p class="cb-hint">CTV requires a QR code (no clicks on a remote) and bigger, bolder end-card text for 8-10ft "living room" viewing. YouTube gets a skippable-ad hook check on the first 5 seconds. This only affects QC guidance — you can still render both.</p>
+    <p class="cb-hint">This changes the script's beats and what the checks look for — it isn't
+      just a crop. A social cut opens on its hook in the first two seconds and carries its
+      claims as on-screen text, because a feed plays muted; a CTV spot leans on a QR code
+      because a remote can't click.</p>
   </div>
 
   <div class="cb-field">
-    <label class="cb-label">Commercial length</label>
+    <label class="cb-label">Length — pick one or several
+      {{ help_dot('commercial_builder.start.lengths') if help_dot is defined else '' }}
+    </label>
     <div class="cb-choice-grid" id="length-choices">
       {% for l in lengths %}
-        <div class="cb-choice" data-value="{{ l }}"><div class="cb-choice-title">:{{ '%02d'|format(l) }}</div></div>
+        <div class="cb-choice" data-value="{{ l }}">
+          <div class="cb-choice-title">:{{ '%02d'|format(l) }}</div>
+          <div class="cb-choice-sub">{{ length_notes.get(l, {}).get('label', '') }}</div>
+        </div>
       {% endfor %}
     </div>
-    <p class="cb-hint" id="length-hint"></p>
+    <p class="cb-hint">Each length is its own commercial — its own script, scenes and render —
+      built from one shared concept so they say the same thing. Ticking three starts three.</p>
+    <div id="length-notes"></div>
   </div>
 
   <div class="cb-field">

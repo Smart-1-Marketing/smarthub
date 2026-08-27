@@ -184,7 +184,11 @@ def generate_script(concept, length_seconds, brief, client_profile, platform="bo
       }
     """
     lo, hi = VO_WORD_TARGETS.get(length_seconds, (65, 75))
-    beats = get_structure(length_seconds)
+    # The beats a social spot runs to are not the beats a CTV one runs to —
+    # its hook is one beat and it is at zero, because a feed has no pre-roll
+    # slot holding the viewer in place. get_structure() decides; passing the
+    # platform is what makes it able to.
+    beats = get_structure(length_seconds, platform)
     if qr_enabled is None:
         qr_enabled = length_seconds in (15, 30, 60)
     include_audio_cue = qr_enabled and length_seconds >= 15
@@ -357,6 +361,115 @@ def regenerate_scene_content(concept, duration_seconds, brief, client_profile):
 
 
 # ---------------------------------------------------------------------------
+# Writing more narration.
+#
+# The script writer sizes the whole read to VO_WORD_TARGETS and stops. That is
+# right for a :15, where the budget is 35 words and every one of them is
+# fought over — and it is why a :60 came back thin. A :60 has room for 150
+# words and the beat structure gives it four beats to spend them across, but
+# nothing in the tool would ever write the extra hundred: a rep who wanted
+# more had to type it, and then the word count on the storyboard went red
+# because nothing had re-measured.
+#
+# So expansion is its own call, and it is **budget-aware in code rather than
+# in the prompt**. The model is told how many words the spot is currently
+# using, what the target is, and how many are left — computed here — because
+# a model asked to "write a bit more" writes a bit more regardless of whether
+# there were four words of room or forty.
+# ---------------------------------------------------------------------------
+def narration_budget(scenes, length_seconds):
+    """Where this spot stands against its word target.
+
+    `room` is what a longer read may still spend. It floors at zero rather
+    than going negative: a spot already over target has no room, and a
+    negative number invites a caller to subtract its way into nonsense.
+    """
+    lo, hi = VO_WORD_TARGETS.get(length_seconds, (65, 75))
+    used = sum(len((s.get("narration") or s.get("voiceover") or "").split())
+               for s in scenes or [])
+    return {"used": used, "target_low": lo, "target_high": hi,
+            "room": max(0, hi - used), "under": used < lo, "over": used > hi}
+
+
+def expand_narration(scenes, length_seconds, brief, client_profile, concept=None,
+                     scene_index=None):
+    """Write more narration — for one scene, or across the whole spot.
+
+    Returns `{"scenes": [{"order_index", "narration"}], "note": str}`. Every
+    line comes back **whole**, not as an addition to append: a fragment handed
+    back to be joined onto what is there produces a sentence nobody wrote, and
+    the seam is exactly where a voice actor stumbles.
+
+    Refuses, in words, rather than returning the input unchanged when there is
+    no room. A button that appears to work and changes nothing is the thing
+    being fixed here.
+    """
+    scenes = list(scenes or [])
+    if not scenes:
+        return {"scenes": [], "note": "There are no scenes to write narration for yet."}
+
+    budget = narration_budget(scenes, length_seconds)
+    if budget["room"] < 5:
+        return {"scenes": [], "note": (
+            f"This spot is already at {budget['used']} words against a target of "
+            f"{budget['target_low']}-{budget['target_high']} for a "
+            f":{length_seconds:02d}. There is no room for more narration without "
+            f"the read running long — shorten a line first, or build a longer cut.")}
+
+    targets = ([scenes[scene_index]] if scene_index is not None
+               and 0 <= scene_index < len(scenes) else scenes)
+
+    if not is_live():
+        return {"scenes": [], "note": (
+            "Mock mode — no OPENAI_API_KEY is set, so no narration was written. "
+            f"There is room for about {budget['room']} more words.")}
+
+    payload = [{"order_index": i,
+                "beat": (s.get("asset_meta") or {}).get("beat") or s.get("beat") or "",
+                "seconds": round(float(s.get("end") or 0) - float(s.get("start") or 0), 1),
+                "visual": s.get("visual_description") or s.get("visual") or "",
+                "narration": s.get("narration") or s.get("voiceover") or "",
+                "is_cta": bool(s.get("is_cta"))}
+               for i, s in enumerate(scenes)
+               if scene_index is None or s in targets]
+
+    try:
+        result = _chat_json(
+            system=(
+                "You are extending the voiceover of a video commercial that is already "
+                f"written. The spot is {length_seconds} seconds. Its narration currently "
+                f"runs {budget['used']} words against a target of {budget['target_low']}-"
+                f"{budget['target_high']}, so you have room for roughly {budget['room']} "
+                "more words IN TOTAL across every scene you return — do not exceed it. "
+                "Rewrite each scene's narration in full, keeping what is already there "
+                "intact in meaning and adding to it. A scene has about 2.3 words per "
+                "second of comfortable read, so never write more than its own seconds "
+                "allow. Do not add a price, a percentage, a phone number or a deadline "
+                "that is not already in the brief. Respond as JSON: "
+                '{"scenes":[{"order_index":0,"narration":"the full new line"}]}'
+            ),
+            user=json.dumps({"scenes": payload, "brief": brief,
+                             "client": client_profile, "concept": concept or {}}),
+            max_tokens=900,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"scenes": [], "note": f"The narration could not be written: {exc}"}
+
+    out = []
+    for row in result.get("scenes") or []:
+        try:
+            index = int(row.get("order_index"))
+        except (TypeError, ValueError):
+            continue
+        line = (row.get("narration") or "").strip()
+        if line and 0 <= index < len(scenes):
+            out.append({"order_index": index, "narration": line})
+    if not out:
+        return {"scenes": [], "note": "The model returned no usable narration."}
+    return {"scenes": out, "note": ""}
+
+
+# ---------------------------------------------------------------------------
 # 6. Universal Stock Video Search — query expansion
 # ---------------------------------------------------------------------------
 def expand_stock_queries(visual_description):
@@ -404,15 +517,42 @@ def write_runway_prompt(visual_description, client_profile):
 # ---------------------------------------------------------------------------
 # 7. AI Generate button — interim still-frame generation until Runway (V1.5)
 # ---------------------------------------------------------------------------
-def generate_ai_stills(visual_description, client_profile, option_count=2):
+def _image_result_url(item):
+    """The usable URL for one generated image, whichever way it came back.
+
+    This is the line that made "Generate AI" fail. `gpt-image-1` — the default
+    image model, and the one this deployment runs — **always** returns
+    `b64_json` and never a `url`; only the older `dall-e-*` models return a
+    hosted URL, and that URL expires within the hour anyway. The old code read
+    `resp.data[0].url` unconditionally, so on this deployment both options came
+    back with `url: None`: the picker drew Option A and Option B exactly as it
+    would for a success, and clicking either one said "This option failed to
+    generate" with nothing anywhere saying why. Two options, and both dead.
+
+    A data URL is the right answer for both shapes. It cannot expire, it needs
+    no second round trip, and `choose-ai-option` already mirrors whatever it is
+    given into Cloudinary — so the picture that survives is the stored one
+    rather than a signed link that 404s next week, which is the trap
+    `hub/storage.py` and the HeyGen mirror both exist for.
     """
-    V1 does not include Runway (that's V1.5 per the API roster), so 'Generate
-    AI Footage' produces still frames via OpenAI Images as an interim option
-    — still useful for CTA cards, static b-roll-style compositions, or as a
-    placeholder while Runway access is being set up. Swap this out for
-    services/runway_service.py (true video generation) in V1.5 without
-    changing the route contract: it already returns a list of {url, prompt}
-    options for the user to pick from, same as Runway will.
+    b64 = getattr(item, "b64_json", None)
+    if b64:
+        return f"data:image/png;base64,{b64}"
+    return getattr(item, "url", None)
+
+
+def generate_ai_stills(visual_description, client_profile, option_count=2):
+    """Still frames for a scene, as options to choose between.
+
+    "Generate AI" makes a **picture**; "Generate Video" animates the picture it
+    made. They are two steps of one job and the storyboard now says so — see
+    `write_runway_prompt` below, which is the second half.
+
+    A failed generation is returned as an option carrying its own `error`
+    rather than as one collapsed error for the batch: asking for two and
+    getting one is a normal outcome (a content refusal on one prompt, a
+    timeout on the other), and reporting the whole thing as failed throws away
+    the option that worked.
     """
     prompt = (f"Cinematic {visual_description}, realistic commercial advertising photography, "
               f"natural lighting, no text, no watermark, no logos")
@@ -423,13 +563,30 @@ def generate_ai_stills(visual_description, client_profile, option_count=2):
 
     try:
         client = _client()
-        options = []
-        for _ in range(option_count):
-            resp = client.images.generate(model=_IMAGE_MODEL, prompt=prompt, size="1536x1024", n=1)
-            options.append({"url": resp.data[0].url, "prompt": prompt})
-        return options
-    except Exception as e:
-        return [{"url": None, "prompt": prompt, "error": str(e)}]
+    except Exception as exc:  # noqa: BLE001 — the SDK is missing or the key is unusable
+        return [{"url": None, "prompt": prompt, "error": str(exc)}
+                for _ in range(option_count)]
+
+    options = []
+    for index in range(option_count):
+        try:
+            resp = client.images.generate(model=_IMAGE_MODEL, prompt=prompt,
+                                          size="1536x1024", n=1)
+            url = _image_result_url(resp.data[0]) if resp.data else None
+            if url:
+                options.append({"url": url, "prompt": prompt})
+            else:
+                # A response with no image in it is a different failure from a
+                # refused request, and saying "failed to generate" for both
+                # sends somebody to check a key that was fine.
+                options.append({"url": None, "prompt": prompt,
+                                "error": (f"{_IMAGE_MODEL} returned no image data. If this "
+                                          f"model is not enabled on the account, set "
+                                          f"OPENAI_IMAGE_MODEL to one that is.")})
+        except Exception as exc:  # noqa: BLE001
+            options.append({"url": None, "prompt": prompt,
+                            "error": f"Option {chr(65 + index)}: {exc}"})
+    return options
 
 
 # ---------------------------------------------------------------------------

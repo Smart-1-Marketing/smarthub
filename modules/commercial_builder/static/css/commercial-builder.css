@@ -38,6 +38,17 @@ p{margin:0 0 .8em;color:var(--cb-text-muted);}
 .cb-brand-sub{color:var(--cb-text-muted);font-weight:500;margin-left:4px;}
 .cb-topnav{display:flex;align-items:center;gap:16px;}
 .cb-topnav a{color:var(--cb-text-muted);font-weight:500;}
+/* A button in the nav is a button, not a nav link. `.cb-topnav a` is (0,1,1)
+   and `.cb-btn-primary` is (0,1,0), so the muted grey above was winning on
+   specificity and painting the "+ New Commercial" label a dull grey-brown on
+   solid blue -- unreadable, and it looked like a broken theme rather than a
+   cascade order. Scoped rather than !important so the rule is still
+   overridable, and written for every button class the bar can carry. */
+.cb-topnav a.cb-btn{color:var(--cb-text);}
+.cb-topnav a.cb-btn-primary,
+a.cb-btn-primary,
+a.cb-btn-primary:hover{color:#fff;}
+.cb-topnav a.cb-btn-ghost{color:var(--cb-primary);}
 
 .cb-main{max-width:1200px;margin:0 auto;padding:28px 20px 80px;}
 .cb-footer{text-align:center;color:var(--cb-text-muted);font-size:12px;padding:24px;}
@@ -147,3 +158,120 @@ input:focus, textarea:focus, select:focus{outline:none;border-color:var(--cb-pri
 .cb-spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(0,0,0,.15);border-top-color:var(--cb-primary);border-radius:50%;animation:cb-spin .7s linear infinite;}
 @keyframes cb-spin{to{transform:rotate(360deg);}}
 .cb-color-swatch{width:22px;height:22px;border-radius:5px;border:1px solid var(--cb-border);display:inline-block;vertical-align:middle;}
+
+/* ---------------------------------------------------------------------------
+   Wizard steps you can go back to.
+
+   The stepper was seven pills of text. On a seven-step wizard the pill for a
+   step you have already finished is the fastest way back to it, and it was
+   not a link -- so "change the voice" meant Back, Back, Back. Finished steps
+   are links now; the one you are on and the ones ahead are not.
+   --------------------------------------------------------------------------- */
+a.cb-step{text-decoration:none;}
+a.cb-step:hover{background:#e2e6ee;text-decoration:none;}
+a.cb-step.done:hover{background:#d5f0e0;}
+.cb-step.active{cursor:default;}
+
+/* ---------------------------------------------------------------------------
+   Waiting for a model.
+
+   Concept generation and video generation both take long enough that a
+   14-pixel spinner reads as a page that has stopped. These draw what is
+   actually happening -- scenes being laid down, frames being animated -- and
+   they are inline SVG rather than a GIF or a Lottie file because this module
+   ships no external assets and the deploy environment blocks CDNs.
+   --------------------------------------------------------------------------- */
+.cb-working{display:flex;flex-direction:column;align-items:center;gap:12px;padding:26px 16px;text-align:center;}
+.cb-working svg{width:132px;height:82px;overflow:visible;}
+.cb-working-title{font-weight:650;font-size:14px;color:var(--cb-text);}
+.cb-working-note{font-size:12.5px;color:var(--cb-text-muted);max-width:340px;margin:0;}
+
+/* Every animation is inside a reduced-motion guard. A full-screen particle
+   system is what that setting exists for, and so is this. */
+@media (prefers-reduced-motion: no-preference){
+  .cb-anim-card{animation:cb-card-in 2.4s ease-in-out infinite;}
+  .cb-anim-card:nth-of-type(2){animation-delay:.35s;}
+  .cb-anim-card:nth-of-type(3){animation-delay:.7s;}
+  .cb-anim-spark{animation:cb-spark 1.8s ease-in-out infinite;transform-origin:center;}
+  .cb-anim-spark:nth-of-type(2){animation-delay:.5s;}
+  .cb-anim-spark:nth-of-type(3){animation-delay:1s;}
+  .cb-anim-sweep{animation:cb-sweep 2.2s linear infinite;}
+  .cb-anim-pulse{animation:cb-pulse 1.6s ease-in-out infinite;transform-origin:center;}
+  .cb-anim-reel{animation:cb-reel 3s linear infinite;transform-origin:center;}
+}
+@keyframes cb-card-in{
+  0%,100%{opacity:.25;transform:translateY(4px);}
+  30%,70%{opacity:1;transform:translateY(0);}
+}
+@keyframes cb-spark{
+  0%,100%{opacity:0;transform:scale(.5);}
+  50%{opacity:1;transform:scale(1);}
+}
+@keyframes cb-sweep{
+  0%{transform:translateX(-38px);}
+  100%{transform:translateX(38px);}
+}
+@keyframes cb-pulse{
+  0%,100%{opacity:.35;}
+  50%{opacity:1;}
+}
+@keyframes cb-reel{
+  0%{transform:rotate(0deg);}
+  100%{transform:rotate(360deg);}
+}
+
+/* ---------------------------------------------------------------------------
+   Findings, and the three things one can be.
+
+   The QC list drew pass green and everything else red. A recommendation and a
+   refusal are not the same finding, and painting both red is how somebody
+   learns to scroll past the red -- hub/templates/diagnostics.html has the
+   same note about a resolved finding rendered in an open finding's colour.
+   --------------------------------------------------------------------------- */
+.cb-qc-icon.warn{background:var(--cb-warn);}
+.cb-qc-icon.info{background:#8a93a3;}
+.cb-note{border:1px solid var(--cb-border);border-left:3px solid var(--cb-warn);background:#fffbf0;
+  border-radius:var(--cb-radius-sm);padding:11px 13px;font-size:12.5px;margin:10px 0;}
+.cb-note strong{display:block;margin-bottom:2px;}
+.cb-note.info{border-left-color:var(--cb-primary);background:var(--cb-primary-light);}
+.cb-note.bad{border-left-color:var(--cb-danger);background:#fef4f3;}
+.cb-note.good{border-left-color:var(--cb-accent);background:#f0faf5;}
+.cb-note p{margin:0;color:inherit;}
+
+/* Client search, on the Start page and anywhere else a client is chosen.
+   Never a text box: a typed name that matches nothing files the work under a
+   client nothing joins to and still reads as success. */
+.cb-results{border:1px solid var(--cb-border);border-radius:var(--cb-radius-sm);max-height:230px;
+  overflow-y:auto;margin-top:6px;}
+.cb-results:empty{display:none;}
+.cb-result{padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--cb-line,#eef1f4);font-size:13px;}
+.cb-result:last-child{border-bottom:none;}
+.cb-result:hover,.cb-result.on{background:var(--cb-primary-light);}
+.cb-result-sub{font-size:11.5px;color:var(--cb-text-muted);}
+.cb-chosen{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  border:1.5px solid var(--cb-primary);background:var(--cb-primary-light);
+  border-radius:var(--cb-radius-sm);padding:11px 13px;}
+
+/* The two AI buttons on a scene, as one ordered pair rather than two peers.
+   They read as alternatives and are not: the second one animates what the
+   first one made. */
+.cb-step-pair{display:flex;align-items:stretch;gap:0;width:100%;}
+.cb-step-pair .cb-btn{border-radius:0;flex:1;justify-content:center;}
+.cb-step-pair .cb-btn:first-child{border-radius:var(--cb-radius-sm) 0 0 var(--cb-radius-sm);}
+.cb-step-pair .cb-btn:last-child{border-radius:0 var(--cb-radius-sm) var(--cb-radius-sm) 0;border-left:none;}
+.cb-step-pair-arrow{display:flex;align-items:center;padding:0 5px;color:var(--cb-text-muted);
+  font-size:11px;background:var(--cb-surface);border-top:1px solid var(--cb-border);
+  border-bottom:1px solid var(--cb-border);}
+
+.cb-badge-owned{background:#e8f0ff;color:#1a56db;}
+.cb-badge-premium{background:#fdf0e2;color:#b8860b;}
+
+/* Two lists of voices side by side would be two columns of mostly nothing;
+   a cast voice is a row with a player on it. */
+.cb-voice-row{display:flex;align-items:center;gap:12px;border:1.5px solid var(--cb-border);
+  border-radius:var(--cb-radius-sm);padding:11px 13px;margin-bottom:8px;cursor:pointer;background:#fff;}
+.cb-voice-row:hover{border-color:#b7c4e0;}
+.cb-voice-row.selected{border-color:var(--cb-primary);background:var(--cb-primary-light);}
+.cb-voice-row audio{height:30px;max-width:180px;}
+.cb-voice-name{font-weight:650;font-size:13.5px;}
+.cb-voice-why{font-size:11.5px;color:var(--cb-text-muted);}

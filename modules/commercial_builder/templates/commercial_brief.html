@@ -2,13 +2,7 @@
 {% block title %}Brief — {{ project.title }}{% endblock %}
 {% block content %}
 
-<div class="cb-stepper">
-  <div class="cb-step done">1. Start</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step active">2. Brief</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step">3. Concepts</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step">4. Storyboard</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step">5. Preview &amp; Render</div>
-</div>
+{% include "_stepper.html" %}
 
 <div class="cb-page-head">
   <div><h1>{{ client.name }} — :{{ '%02d'|format(project.length_seconds) }} commercial</h1>
@@ -17,12 +11,14 @@
 
 <div class="cb-card" style="max-width:720px;" id="brief-form" data-project-id="{{ project.id }}">
   <div class="cb-field">
-    <label class="cb-label">What are we advertising?</label>
+    <label class="cb-label">What are we advertising?
+      {{ help_dot('commercial_builder.brief.what') if help_dot is defined else '' }}
+    </label>
     <textarea id="f-what" placeholder="e.g. $79 air conditioning tune-up before August 31">{{ project.brief.what_advertising if project.brief else '' }}</textarea>
   </div>
   <div class="cb-grid cb-grid-2">
     <div class="cb-field"><label class="cb-label">Primary CTA</label><input type="text" id="f-cta" placeholder="Schedule your tune-up" value="{{ project.brief.primary_cta if project.brief else '' }}"></div>
-    <div class="cb-field"><label class="cb-label">Landing page</label><input type="url" id="f-landing" placeholder="client.com/ac-special" value="{{ project.brief.landing_page if project.brief else '' }}"></div>
+    <div class="cb-field"><label class="cb-label">Landing page {{ help_dot('commercial_builder.brief.landing') if help_dot is defined else '' }}</label><input type="url" id="f-landing" placeholder="client.com/ac-special" value="{{ project.brief.landing_page if project.brief else '' }}"></div>
   </div>
   <div class="cb-grid cb-grid-2">
     <div class="cb-field"><label class="cb-label">Phone</label><input type="tel" id="f-phone" placeholder="614-555-1234" value="{{ project.brief.phone if project.brief else (client.phone or '') }}"></div>

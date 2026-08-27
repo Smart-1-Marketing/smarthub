@@ -52,6 +52,7 @@ UTILITY_PREFIXES = (
     "/api/oauth-redirects",
     "/api/backup",
     "/api/quotas",
+    "/api/housekeeping",    # what needs filling in, and on which page
     "/api/activity",
     "/api/users",
     "/api/status",

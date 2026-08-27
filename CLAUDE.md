@@ -240,6 +240,20 @@ on its own — the check then looks for that name across `hub/`, and
 `test_env_config.py` points it at a name nothing writes and requires the
 finding back.
 
+**And a log name nothing else knows is a log nobody reads.** Declaring
+`display_ads` closed the integrity check and left the other half open: every
+build started and every finished pack filed against a client was written to
+the activity log, kept, and then dropped on the way to the record it was
+written for, because `hub/client_brand.WORK_KINDS` was keyed on neither
+`ad_builder` nor `display_ads` and `work_log()` skips a module it cannot name.
+So a client who had just had a set of display ads built read as a client
+nobody had done any work for — the tool's own screens complete, the log row
+present, the client record confidently empty, and nothing erroring at any of
+the three. `test_client_images.py` now asserts that **every name
+`audit.LOG_NAMES` declares is one the work log can name**: the declaration
+exists precisely because the directory and the log disagree, which makes it
+exactly the case where a second table gets keyed on the wrong one.
+
 **A URL built by concatenation is a URL nothing checks.** `tools/linkcheck.py`
 only sees a path literal that sits directly inside `fetch("…")`. Written as
 `fetch(BASE + "/api/thing")` it is invisible, which is how three of the
@@ -498,6 +512,47 @@ not include is **left out** rather than printed — forty rows of "not measured"
 is a wall nobody reads, and a zero there would be a lie. A `False` boolean is
 an answer and is kept. `test_client_images.py` asserts all of it.
 
+**Two brand cards is the reader deciding which of our services to believe.**
+The record drew the brand kit and, underneath it, a second block for what had
+been read off the client's own website — so the same company's colours
+appeared twice, in two sizes, under two headings, one of them tagged with the
+name of the provider that answered. And for a local business the lookup
+publishes nothing at all, which made the *upper* block the empty one: the card
+led with **"No brand data on file yet"** directly above the logo it plainly
+had. It is one card. `hub/client_brand._merge()` builds one set of tiles and
+one palette from both sources, deduped on the hex, and the card asks
+`has_brand` — is there anything to draw — rather than `found`, which is the
+answer to *has a lookup ever run* and is what the button reads.
+
+What does **not** merge is the claim. Each tile says where it came from — *on
+file* or *seen on their website* — and `logos` is left exactly as it was,
+because that is what `brand_guide_payload()` pushes to Suite and what
+`io_prefill`, `landing_maker` and `client_context` read: merging is a thing
+the card does for a reader, never a thing done to the data. Nor does the
+wording carry the plumbing. Which of our tools did the reading is not a fact a
+rep can act on — the note `modules/ads_builder/logo.py` already makes about
+naming Brandfetch to somebody who cannot rotate its key — so the sources are
+named as *their website* and *on file*, the date still travels with the
+sighting, and the reference card underneath is titled by the question it
+answers rather than by the audit that answered it. The audit itself keeps its
+name, on the Site Health card, where opening it is the point.
+
+**A contact strip that says "none on file" about a record holding the
+address.** The name, the address and the phone number were read off the
+client's own site and sat three cards down under a heading about our tooling,
+while the strip at the top of the same record offered a blank form. Nobody
+types a client's address in twice, so it stayed blank. `contact_observed()`
+reads them and `contact_suggestions()` offers them **into the empty fields
+only** — a value somebody typed is the better source and is never offered
+over, the overlay rule `hub/client_urls.py` works to. They are drawn dotted so
+an offer reads as an offer, one press keeps them, and nothing is written until
+that press. Contact fields are gated on the record having *no* contact at all
+rather than field by field: a contact row is a person, and dropping a phone
+number read off a home page into the row holding the owner's name is us
+inventing who answers it. First non-empty wins across the sources, and the
+order is the point — the business describing itself on its own site beats the
+Google listing address, which is the one most often out of date.
+
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
@@ -633,6 +688,155 @@ up on" are one `SEEN_TAG`, the sweep negates that, and *search* still filters on
 rather than surfacing undescribed. `waiting_count` and `undescribed_count` are
 on the page beside the other two, because "3,900 clips, 40 indexed" cannot say
 whether the sweep is moving or has stopped.
+
+**A picker that lists only what somebody typed into it cannot pick a
+client.** The Commercial Builder's Start page offered a `<select>` of
+`cb_clients` — its own table — which is empty on a fresh install and only ever
+holds businesses somebody has retyped. On a Hub whose client book is several
+hundred businesses in Knack, "pick an existing client" was a thing the page
+appeared to offer and could not do, so a client of eleven years' standing got
+entered as new and the finished commercial was filed under a name that joins
+to nothing: no products, no scans, no Client 360 card, no logo or phone number
+that were on file all along. `modules/commercial_builder/client_link.py` is
+the join, and it inherits `modules/ads_builder/client_link.py`'s rules rather
+than restating them — look the client up, never match on a substring, never
+store the derived key, and name a source that could not be read, because
+"no such client" and "we could not reach the client list" send somebody to two
+different places and only the first means *create them as new*. Adopting is a
+copy and deliberately a one-way one: the brand profile fields on top of it —
+fonts, pronunciation, preferred voice — exist nowhere else, and nothing is
+ever written back to Knack.
+
+**A tool that produces creative for a buy, and never asks the specification
+that buy is sold under.** The Commercial Builder rendered finished video for
+CTV, YouTube and social and never once consulted `hub/creative_specs.py` —
+which was answering that identical question for the IO Builder's upload
+manager and the client galleries the whole time. The kit sells Connected TV at
+**15–30 seconds**, so a `:05` or a `:60` CTV cut is outside the buy, and both
+are lengths the Start page offers: the only way to discover it was to build
+one and have a platform refuse the delivery. `qc_service` asks the kit now, at
+QC *and* at the moment a length is picked (`spec_preview`), because length and
+aspect ratio are what creative gets refused over and both are decided before a
+frame exists. Three rules in the mapping. **A "both" buy must satisfy every
+channel** — one file runs on CTV *and* YouTube, so a cut half the buy refuses
+is not a pass — while a **social buy is bought per network**, so one that takes
+it is a real pass and the networks that would refuse are *named* rather than
+dropped ("runs on Meta and TikTok, but not Snapchat — 60s is outside the 3-30s
+the kit allows"). And a **format the kit maps no unit for is "not measured"**,
+never judged against the nearest channel: a 1:1 cut of a CTV buy is not a
+placement anybody sells, and it is said so even when it rides alongside a
+format that passed. `SPEC_KIT_URL` is in `hub/creative_specs.py` beside the
+numbers, printed on every verdict, because the source of a refusal should be
+one click away rather than folklore. It is a URL and **not a fetch**: a spec
+table pulled live changes what a check says with no diff to point at, so the
+numbers stay transcribed.
+
+**HighLevel publishes no QR endpoint, and the question that actually matters
+is whose scan it is.** `hub/qr_codes.py` settles both so nobody has to ask
+again. HighLevel renders QR codes as a funnel/website page element and exposes
+no v2 API returning one, so there is nothing to call — and a code that lives
+inside a funnel page stops working the day that page is unpublished, on a spot
+that runs for a quarter. The image stays local (`qrcode`, no key, no expiry).
+What was genuinely missing is the half HighLevel *does* decide: a client with
+a Suite sub-account owns their scans, and a business we are pitching does not,
+so theirs are filed to Smart 1 Marketing — which is where `hub/leads.py` puts
+their contact already. Getting that wrong breaks nothing and makes the campaign
+report quietly wrong for the whole flight. Three rules. **A destination is
+never invented** — no `https://<clientname>.com`, no favicon-scraped guess; with
+nothing on file the code is refused and the field that would fix it is named,
+the rule `modules/ads_builder/logo.py` works to, because nobody proof-reads the
+thing that scans. **Tracking rides on the URL, not in a shortener** — a
+shortener is a second service that has to still be running in a year — and a
+parameter already on the destination *wins*, because a landing page handed over
+tagged was built that way and overwriting it re-attributes traffic somebody is
+reporting on. And **`attribution()` is tri-state**: filed to their own
+sub-account, filed to the agency, or *not measured* because the Suite is not
+configured at all — a tick over the third tells somebody scans are being
+counted when nothing is counting them.
+
+**`gpt-image-1` returns `b64_json` and never a `url`.** "Generate AI" read
+`resp.data[0].url` unconditionally, so on this deployment both options came
+back empty — and the picker drew Option A and Option B exactly as it would for
+a success, with clicking either reporting "This option failed to generate" and
+nothing anywhere saying why. Only the older `dall-e-*` models return a hosted
+URL, and that one expires within the hour regardless. Both shapes resolve to a
+data URL now, and a failed option carries **its own** error rather than the
+batch collapsing into one: asking for two and getting one is ordinary (a
+content refusal on one prompt, a timeout on the other), and reporting the whole
+thing as failed throws away the option that worked.
+
+**Two buttons that read as alternatives, and are two halves of one job.**
+"Generate AI" makes a still; "Generate Video" animates the still it made.
+Runway has no usable text-only path, so the second cannot run before the first
+— and they sat side by side as peers with nothing saying so. They are one
+numbered pair now (`1 · Make a frame → 2 · Animate it`) and the second is
+*disabled* until the scene has a frame, because a button that explains itself
+only after being pressed has already wasted the press.
+
+**A wizard step that is four jobs is three jobs nobody finds.** The Commercial
+Builder's Storyboard step carried the scenes, the Voice Studio, Music and the
+CTA Builder on one page — so the QR toggle, the switch deciding whether a CTV
+spot has any response mechanism at all, sat below everything else on the
+longest screen in the tool. It is **Blueprint → Voice & music → CTA** now, in
+the order the work is done: a voice is cast against a script, and a CTA card is
+built to hold whatever the last scene turned out to be. `routes/pages.STEPS` is
+the one description of the sequence and `_stepper.html` draws from it — five
+templates each carried their own hand-typed copy, and the one that got missed
+said "4. Storyboard" on step five of seven. A finished step is a **link**, or
+"change the voice" is three presses of Back. `/storyboard` still redirects:
+that URL is in browser history, and a wizard step that 404s reads as the whole
+tool being broken.
+
+**The checks belonged where the work is.** Every QC check is about something on
+the Blueprint screen — a scene with no footage, a clip shorter than the scene
+it sits in, narration outside the word budget — and all of them lived on
+Preview, two steps later. Pressing Render then re-ran the identical set, so the
+tool answered a question it had just been asked. They run on Blueprint now, and
+a **recommendation is drawn amber rather than red**: a page of red is a page
+people scroll past, which is the note `hub/templates/diagnostics.html` already
+carries about a resolved finding in an open finding's colour. `scene_assets`
+was also missing from the Preview panel's label map entirely — and a key absent
+from that map is skipped **silently** by the render loop, so the one check that
+catches an unfinished scene never appeared on the panel it was written for.
+`test_commercial_wizard.py` asserts both maps are complete against what
+`run_qc` actually returns.
+
+**A script writer that sizes the read once is why a :60 came back thin.** A
+:60 has room for about 150 words; nothing would ever write the extra hundred,
+and typing them by hand turned the word count red because nothing re-measured.
+Expansion is its own call and **budget-aware in code, not in the prompt** —
+`narration_budget()` computes the room and the model is told the number,
+because one asked to "write a bit more" writes a bit more whether there were
+four words of room or forty. With no room it **refuses in words** rather than
+appearing to work and changing nothing, and a locked scene is never rewritten
+under somebody.
+
+**One casting question, asked by two tools.** The Commercial Builder's Voice
+Studio was a flat `<select>` of every voice on the ElevenLabs account, in
+whatever order the API returned it, with nothing to listen to — so the answer
+was always whichever name came first. The Radio Promo builder, against the
+*same account*, asks what the read should sound like and offers three ranked
+voices with a sample on each. `hub/voice_casting.py` is that question now and
+both read it; `modules/radio_promo/voices.py` re-exports the old names so its
+callers are unchanged. `elevenlabs_service.list_voices()` had been discarding
+`labels` and `preview_url` — enough to fill a dropdown, not enough to rank
+anything or play a sample, which is the whole reason one tool could do this and
+the other could not. The scoring is a **ranking, never a filter**: an account of
+cloned voices carries no labels, and coming back empty from a question that was
+answered perfectly well is wrong — so `match_quality()` says which of "no
+voices at all", "these carry nothing to match on" and "a real ranking" happened,
+and the screen prints it.
+
+**A platform choice that only changes the crop is not a platform choice.**
+Social is its own platform in the Commercial Builder, not a third aspect ratio,
+because a 9:16 render of a CTV spot is still a CTV spot: it opens on a slow
+establishing shot, carries a QR code nobody can scan on the phone they are
+holding, and argues its case aloud on a feed that plays muted. So the platform
+drives the **beat structure** (`SOCIAL_STRUCTURE_TEMPLATES` — the hook is one
+beat and it is at zero) and two checks that are code rather than prompt text,
+for the reason `hub/blog_spec.py` gives about a client's "never mention" list.
+QR is *required* only where nothing can be clicked, which is CTV: reporting its
+absence on every social spot is how a warning stops being read.
 
 **A provider's asset URL is signed and expires.** A HeyGen clip linked
 directly plays today and 404s next week. Finished clips are mirrored into
@@ -2850,6 +3054,63 @@ raised once. `test_celebrations.py` asserts all of it, including that the
 block sits above System checks and that the API refuses an anonymous request —
 these are staff dates of birth.
 
+### A warning nobody reading it can act on
+
+`hub/housekeeping.py`, the **Housekeeping** card at the top of `/diagnostics`,
+and `/api/housekeeping`. The birthday block ended with a sentence naming the
+seven placeholder start dates and telling the reader to fill them in under
+Users. Every word of it was true and it was on the wrong screen: eleven of the
+fourteen accounts are General Access, and `/diagnostics/users` answers those
+eleven **403** — a to-do addressed to people who cannot do it, printed under a
+card somebody opened to find out whose birthday it is. And because that
+sentence was the only record of the gap anywhere in the Hub, the three people
+who *could* fix it learned about it by looking over somebody's shoulder. A
+warning with no reader who can act on it is not a warning; it is furniture.
+
+So a warning of that shape is collected here and listed where the person who
+can act is already looking. Each finding names **the page a reader meets it
+on** — the whole point of moving it is that the person who can fix it never
+saw that page, so "7 placeholder start dates" without "on the dashboard, under
+birthdays" has lost the half that makes it actionable — and names where it is
+fixed. The panel sits above API health because its rows are somebody's to-do
+rather than a machine's report.
+
+What is *not* in it matters as much: a defect (`/api/integrity`), a provider
+that is down (`hub/diagnostics.py`) and a setting that resolved oddly
+(`/api/environment`) each already have a panel on that page, and two checks
+asking one question and answering it differently on one screen is the trap
+`jsonstore.unmirrored_json_writers()` exists to close. Housekeeping is data
+somebody has to type in, and nothing else.
+
+Four rules hold it up. **A source that could not be read is a finding, not an
+absence** — `roster_gaps()` carries an error *beside* a perfectly good
+fallback answer, so the error alone is not the test, and a report reading it
+that way would call a working roster unmeasurable; the row says which store
+answered when it was not the first-choice one, because the profile table is
+where a corrected date lands and a census-roster answer may name somebody
+already fixed. **A source that fails costs only itself**, named by the
+exception it raised. **Nothing here reaches a provider**: each source reads
+what the page it describes already reads, since a triage panel that costs
+eight outbound calls is one people stop opening. And **a clean source is still
+named**, in `clean`, or a panel with one row on it cannot be told from a panel
+that only ran one check.
+
+**The block still says it is not the whole roster.** That sentence existed for
+a good reason — a list that quietly shrinks reads as a quiet month — so what
+was withheld is only the half a General account cannot act on: the counts, the
+names and the link. `housekeeping.withheld()` is the one place that decides,
+because a template deciding it would be a second description of what a General
+user sees, drifting the day a fourth kind of gap is added; the API applies it,
+so the page cannot render a count that was never sent. `test_housekeeping.py`
+asserts all of it, including that `/api/housekeeping` is refused to General —
+it names staff and what is missing about them.
+
+`celebrations._gaps()` is now the single classifier both screens read, and
+`knack_data.export_state()` is the single answer to whether the committed
+products export is behind the calendar — two copies of either would let the
+dashboard and this panel disagree, with nothing on either screen saying which
+to believe.
+
 **A page that exists is not a page anybody can reach.** The dashboard's
 partner row was five buttons written into `dashboard.html` — four links and a
 grey "New Partner · Page coming" placeholder — while `partner.available()` sat
@@ -2989,10 +3250,12 @@ python3 test_web_tickets.py        # the object_107 ids, the form, what a write 
 python3 test_campaign_assets.py    # campaigns waiting on an asset, by media partner
 python3 test_dashboard_trends.py   # the monthly readings accumulate; no card claims a comparison
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
+python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
-python3 test_client_images.py      # deleting a client image, the count, the brand card,
-                                   #   and the way back to the record
+python3 test_client_images.py      # deleting a client image, the count, the one brand
+                                   #   card, the contact details offered into the strip,
+                                   #   the display-ads work log, and the way back
 python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
 python3 test_stock_search.py       # four sources in one search; a missing folder is not an empty one
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
@@ -3009,6 +3272,8 @@ python3 test_msa_embed.py          # the signing page: public, chrome-free, ours
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
+python3 test_commercial_wizard.py  # the seven steps, the client join, the spec check,
+                                   #   the QR destination and who owns the scan
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 python3 test_landing_spec.py       # what a landing page is for, and what it sells
 python3 test_client_groups.py      # grouped clients: what merges, what must not double

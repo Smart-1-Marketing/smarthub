@@ -173,6 +173,16 @@ jobs:
             echo "test_commercial_providers.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder wizard tests
+        # Same skip-rather-than-fail shape as the tests below: a branch cut
+        # before this file exists should not fail on its absence.
+        run: |
+          if [ -f test_commercial_wizard.py ]; then
+            python test_commercial_wizard.py
+          else
+            echo "test_commercial_wizard.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -657,6 +667,23 @@ jobs:
             python test_celebrations.py
           else
             echo "test_celebrations.py not on this branch — nothing to run."
+          fi
+
+      - name: Housekeeping tests
+        # Warnings that show on a page the whole company reads and that only
+        # an admin can act on: that each one is listed with the page it shows
+        # on and where it is fixed, that a source which could not be read
+        # reports "not measured" rather than nothing outstanding, that one
+        # broken source does not empty the panel, and that a General account
+        # is told the roster is incomplete without being handed a to-do it is
+        # answered 403 for. Guarded like the steps above so this workflow
+        # stays mergeable on a branch that predates the file. It sets its own
+        # DATABASE_URL, HUB_DATA_DIR and AUDIT_LOG_PATH.
+        run: |
+          if [ -f test_housekeeping.py ]; then
+            python test_housekeeping.py
+          else
+            echo "test_housekeeping.py not on this branch — nothing to run."
           fi
 
       - name: Boot the composed app

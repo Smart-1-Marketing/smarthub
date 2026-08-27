@@ -2,17 +2,11 @@
 {% block title %}Preview &amp; Render — {{ project.title }}{% endblock %}
 {% block content %}
 
-<div class="cb-stepper">
-  <div class="cb-step done">1. Start</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step done">2. Brief</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step done">3. Concepts</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step done">4. Storyboard</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step active">5. Preview &amp; Render</div>
-</div>
+{% include "_stepper.html" %}
 
 <div class="cb-page-head">
-  <div><h1>Preview &amp; Render — {{ client.name }}</h1><p>Run the automatic quality checks, then render each output format.</p></div>
-  <a class="cb-btn" href="{{ url_for('commercial_builder.cb_pages.storyboard', project_id=project.id) }}">← Back to Storyboard</a>
+  <div><h1>Preview &amp; Render — {{ client.name }}</h1><p>The checks from the Blueprint step, one last time, then render each output format.</p></div>
+  <a class="cb-btn" href="{{ url_for('commercial_builder.cb_pages.blueprint', project_id=project.id) }}">← Back to Blueprint</a>
 </div>
 
 <div class="cb-grid cb-grid-2" style="align-items:start;" id="preview-root" data-project-id="{{ project.id }}">
