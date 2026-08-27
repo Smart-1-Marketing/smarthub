@@ -36,7 +36,8 @@ import re
 import threading
 from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, current_app, jsonify, render_template, request
+from flask import (Blueprint, current_app, jsonify, redirect, render_template,
+                   request)
 
 bp = Blueprint("stale_creative", __name__)
 
@@ -58,8 +59,16 @@ def _bucket_edges():
 DEFAULT_ITEMS_PER_CLIENT = 12
 MAX_ITEMS_PER_CLIENT = 100
 
-# Cache the whole audit briefly so the dashboard tile and the report page don't
-# each re-scan Cloudinary on every page load.
+# The audit is held for the day by `hub/report_cache.py`, like every other QA
+# report, so a Cloudinary scan of the whole account happens once rather than on
+# every open of the page and every draw of the dashboard tile.
+#
+# The five-minute in-process memo below stays *underneath* it, and the two do
+# different jobs. The day cache is a file, so both gunicorn workers read the
+# same one and it survives a deploy; the memo saves a JSON read when the page
+# and its tile ask within seconds of each other. What the memo could never do
+# is the thing that mattered: it is per process, so each worker paid for its
+# own scan, and a restart threw both away.
 CACHE_TTL_SECONDS = int(os.getenv("STALE_CREATIVE_CACHE_TTL", "300"))
 
 _CACHE = {"at": None, "data": None}
@@ -649,6 +658,13 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
 
     return {
         "generated_at": _iso(now),
+        # Did anything answer at all? Every source in this audit degrades to an
+        # empty list rather than raising, so a morning where Cloudinary, the
+        # galleries and Knack all refused produces a complete-looking page
+        # saying every client is overdue for creative. That is not an answer,
+        # and `hub/report_cache.py` must not store it as the day's — it would
+        # stand until tomorrow with nothing on the page saying why.
+        "measured": bool(sources_live) or used_fallback,
         "edges": edges,
         "groups": groups,
         "totals": {
@@ -672,6 +688,10 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
 
 
 def _cached(refresh=False, items_per_client=DEFAULT_ITEMS_PER_CLIENT):
+    """Today's audit. Built on the first ask, read by every ask after it.
+
+    `refresh=True` is the Refresh button and re-runs the scan.
+    """
     now = datetime.now(timezone.utc)
     with _CACHE_LOCK:
         fresh_enough = (
@@ -682,7 +702,22 @@ def _cached(refresh=False, items_per_client=DEFAULT_ITEMS_PER_CLIENT):
         )
         if fresh_enough and not refresh:
             return _CACHE["data"]
-        data = build_audit(items_per_client=items_per_client, now=now)
+
+        def build():
+            return build_audit(items_per_client=items_per_client, now=now)
+
+        # The import is guarded and the call is not: a scan that fails must
+        # fail once and reach the caller, not be quietly run a second time by
+        # a bare `except` that cannot tell "report_cache is missing" from
+        # "Cloudinary refused".
+        try:
+            from hub import report_cache
+        except Exception:                               # noqa: BLE001
+            report_cache = None
+        data = (build() if report_cache is None else
+                report_cache.serve("qa:stale-creative", build,
+                                   params=f"items={int(items_per_client)}",
+                                   force=bool(refresh)))
         _CACHE.update({"at": now, "data": data, "items": items_per_client})
         return data
 
@@ -736,18 +771,32 @@ def _items_param():
     return max(1, min(n, MAX_ITEMS_PER_CLIENT))  # clamp both ends
 
 
+# Re-running is a POST and nothing else. `?refresh=1` on a GET used to do it,
+# which is a URL a reload, a bookmark or a link preview fires without anybody
+# asking — and re-running here is a walk of the whole Cloudinary account. The
+# page's Refresh button posts to /qa/stale-creative/refresh below.
 @bp.route("/qa/stale-creative")
 def page():
-    data = _cached(refresh=request.args.get("refresh") == "1",
-                   items_per_client=_items_param())
+    data = _cached(items_per_client=_items_param())
     _audit_log("report_viewed", clients=data["totals"]["clients"])
     return render_template("stale_creative.html", data=data)
 
 
 @bp.route("/api/qa/stale-creative")
 def api():
-    return jsonify(_cached(refresh=request.args.get("refresh") == "1",
-                           items_per_client=_items_param()))
+    return jsonify(_cached(items_per_client=_items_param()))
+
+
+@bp.route("/qa/stale-creative/refresh", methods=["POST"])
+def refresh():
+    """Re-run the audit now, then show it.
+
+    A redirect rather than JSON: the button that posts here is on a
+    server-rendered page, and answering it with a payload would replace the
+    report with a wall of it.
+    """
+    _cached(refresh=True, items_per_client=_items_param())
+    return redirect("/qa/stale-creative")
 
 
 @bp.route("/api/qa/stale-creative/scorecard")
@@ -759,7 +808,7 @@ def api_scorecard():
 def api_csv():
     import csv
     import io
-    data = _cached(refresh=request.args.get("refresh") == "1")
+    data = _cached()
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Group", "Client", "Days since last creative", "Last upload",

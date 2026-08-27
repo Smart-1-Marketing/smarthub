@@ -156,6 +156,21 @@ jobs:
       - name: JSON store tests
         run: python test_jsonstore.py
 
+      - name: Report day-cache tests
+        # One run per report per day: that the build is called once however
+        # many times a report is opened, that a failed or unmeasurable run
+        # never becomes the day's answer, that re-running is a POST, and that
+        # every write which takes a row off a report drops the cached copy.
+        # Every report is a stub, so this reaches no provider. Guarded like
+        # the steps around it so this workflow stays mergeable on a branch
+        # that predates the file.
+        run: |
+          if [ -f test_report_cache.py ]; then
+            python test_report_cache.py
+          else
+            echo "test_report_cache.py not on this branch — nothing to run."
+          fi
+
       - name: Landing page maker tests
         run: python test_landing_maker.py
 

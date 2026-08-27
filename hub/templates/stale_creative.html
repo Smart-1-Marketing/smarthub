@@ -17,6 +17,8 @@
   h1{font-size:24px;margin:0 0 4px}
   .sub{color:var(--muted);margin:0 0 20px}
   .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:20px}
+  .sc-age{font-size:12px;color:#94a3b8;margin:0 0 10px;line-height:1.5}
+  .sc-age-old{color:#a06a00}
   .btn{display:inline-block;padding:7px 13px;border:1px solid var(--line);
        border-radius:7px;background:var(--card);color:var(--ink-2);
        text-decoration:none;font-size:14px;cursor:pointer}
@@ -115,8 +117,18 @@
       <div class="l">No creative on file</div></div>
   </div>
 
+  {# When the scan last ran. A cached figure with no date on it is read as
+     today's, which is the whole way a cache comes to mislead. #}
+  {% if data.cache and data.cache.line %}
+  <p class="sc-age{% if data.cache.error %} sc-age-old{% endif %}">{{ data.cache.line }}</p>
+  {% endif %}
+
   <div class="bar">
-    <a class="btn" href="?refresh=1">Refresh</a>
+    {# A POST, not ?refresh=1: re-running walks the whole Cloudinary account,
+       and a GET that does that is one a reload or a link preview fires
+       without anybody asking. #}
+    <form method="post" action="/qa/stale-creative/refresh" style="display:inline">
+      <button class="btn" type="submit">Refresh</button></form>
     <a class="btn" href="/api/qa/stale-creative.csv">Download CSV</a>
     <a class="btn" href="/tools/seo-images">Upload client images</a>
     <a class="btn" href="/tools/image-creator">Open Image Creator</a>

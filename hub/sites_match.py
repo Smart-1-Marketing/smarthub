@@ -124,11 +124,28 @@ def _hub_clients() -> list[dict]:
         return []
 
 
+# Why the last read of the project list came back short, if it did. The read
+# swallows its own exceptions and returns what it has, which is right for a
+# page that can still show the rest and wrong for anything that stores the
+# answer: an empty list from a Sites module that will not start reads exactly
+# like an account with no projects in it. `hub/sites_billing.py` already
+# carries a note about this swallow. Kept per process, set on every read.
+_SITES = {"error": ""}
+
+
+def sites_error() -> str:
+    """The reason the last `_site_rows()` came back short, or ""."""
+    return _SITES["error"]
+
+
 def _site_rows() -> list[dict]:
     """Every Simvoly project with its domain and current client link."""
     try:
         from modules.sites_admin import db as sdb
-    except Exception:                                   # noqa: BLE001
+    except Exception as exc:                            # noqa: BLE001
+        _SITES["error"] = (f"The Sites module could not be loaded "
+                           f"({type(exc).__name__}), so no Simvoly project "
+                           f"was read.")
         return []
     # query_projects is paginated and returns (rows, total). Page through it
     # rather than asking for one huge page — the count is over a thousand.
@@ -140,12 +157,16 @@ def _site_rows() -> list[dict]:
             if len(out) >= total or not rows or page > 30:
                 break
             page += 1
-    except Exception:                                   # noqa: BLE001
+    except Exception as exc:                            # noqa: BLE001
+        _SITES["error"] = (f"{type(exc).__name__} while paging the Simvoly "
+                           f"projects, so this is a floor, not a total.")
         return out
+    _SITES["error"] = ""
     return out
 
 
-def suggest(limit: int = 2000, active_only: bool = True) -> dict:
+def suggest(limit: int = 2000, active_only: bool = True, *,
+            cached: bool = True) -> dict:
     """Propose a client for every unmatched *live* site. Changes nothing.
 
     `active_only` defaults to True: an expired or cancelled project is not a
@@ -153,7 +174,17 @@ def suggest(limit: int = 2000, active_only: bool = True) -> dict:
     domain that may now belong to someone else. Pass False to see everything —
     the count of what that adds is in `skipped_inactive` either way, so the
     page can offer it rather than hiding it.
+
+    The whole pass — the Simvoly portfolio, object_153, the name index and a
+    ratio per unmatched project — is held for the day and re-run on Refresh.
+    `apply()` and `domain_links.attach()` drop it, so a project somebody has
+    just matched is gone from the list rather than being proposed again.
     """
+    if cached:
+        from hub import report_cache
+        return report_cache.serve(
+            "sites-match", lambda: suggest(limit, active_only, cached=False),
+            params=f"live={int(bool(active_only))}")
     clients = _hub_clients()
     by_domain, name_pairs = {}, []
     for c in clients:
@@ -370,6 +401,12 @@ def suggest(limit: int = 2000, active_only: bool = True) -> dict:
         # Named rather than counted as zero: "Knack is down" and "Knack knows
         # none of these domains" must never look alike.
         "registry_error": knack_error,
+        # The same distinction for the other side of the match. A Sites module
+        # that will not start returns no projects, which is a complete-looking
+        # "nothing to match" — and held for the day it would stand until
+        # tomorrow. `measured: False` keeps it out of the cache entirely.
+        "sites_error": sites_error(),
+        "measured": not sites_error(),
         "note": "Nothing has been changed. A wrong internal_client_name is "
                 "worse than a blank one — it attributes revenue to the wrong "
                 "client and makes the billing audits disagree. Review these, "
@@ -434,6 +471,15 @@ def apply(matches: list[dict], actor: str = "", force: bool = False) -> dict:
         except Exception as exc:                        # noqa: BLE001
             failed.append({"project_id": pid, "error": type(exc).__name__})
 
+    if saved:
+        # A matched project has left this list. `attach()` drops these too,
+        # but the no-domain branch above never reaches it — and that is
+        # exactly the row a person came here to close.
+        try:
+            from hub import report_cache
+            report_cache.invalidate("sites-match", "orphan-urls", "client-urls")
+        except Exception:                               # noqa: BLE001
+            pass
     try:
         from hub import audit
         audit.log("sites_admin", "clients_matched", actor=actor or None,

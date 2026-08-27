@@ -59,6 +59,12 @@ sys.path.insert(0, ROOT)
 _TMP = tempfile.mkdtemp(prefix="s1-domainlinks-")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
 os.environ["HUB_DATA_DIR"] = _TMP
+# These tests swap a source out from under the report between assertions —
+# a Knack that answers, then one that times out — which is the one thing a
+# report held for the day cannot see. The cache is off here so each call
+# measures what this file has just set up; `test_report_cache.py` is where the
+# holding itself is asserted.
+os.environ["REPORT_CACHE"] = "off"
 os.environ.setdefault("SECRET_KEY", "domain-links-test")
 os.environ.setdefault("PANEL_PASSWORD", "test")
 

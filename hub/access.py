@@ -56,6 +56,11 @@ UTILITY_PREFIXES = (
     "/api/activity",
     "/api/users",
     "/api/status",
+    # What the day cache is holding, and the button that empties it. Names of
+    # reports and when each last ran — no rows, so no client names — but
+    # emptying it makes every report on the Hub run again, which is not
+    # everybody's button to press.
+    "/api/report-cache",
 )
 
 # Utilities paths that stay open to everyone, because being locked out of them

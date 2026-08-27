@@ -372,6 +372,26 @@ def due_for_refresh(min_age: float) -> bool:
     return age is None or age < 0 or age >= min_age
 
 
+def _forget_reports() -> None:
+    """Drop the day-cached reports this index feeds.
+
+    Google Accounts & Mapping, Clients Without Analytics, Clients Without GTM
+    and the orphan book are all derived from the stored index, and all four
+    are cached for the day. A sweep, an attachment or a domain re-match that
+    left them cached would report yesterday's mapping beside a row somebody
+    had just fixed — and on the attach path, the row would still say
+    "not mapped" on the report whose own button had just mapped it. Never
+    raises: failing to drop a cache must not fail the write.
+    """
+    try:
+        from hub import report_cache
+        report_cache.invalidate("qa:google-accounts", "qa:no-analytics",
+                                "qa:no-gtm", "qa:analytics-ids",
+                                "google-orphans")
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
 def build(force: bool = True) -> dict:
     """Sweep Google, join to clients, and persist.
 
@@ -550,6 +570,7 @@ def build(force: bool = True) -> dict:
         "sweep": sweep,
     }
     jsonstore.write_json(_path(), payload)
+    _forget_reports()
     try:
         from hub import audit
         audit.log("google_index", "build", resources=len(items),
@@ -677,6 +698,7 @@ def set_client(resource_id: str, client: str, detail: str = "") -> dict:
                 "error": "That resource is not in the stored Google index."}
     data.pop("never_built", None)
     jsonstore.write_json(_path(), data)
+    _forget_reports()
     return {"ok": True, "updated": hit}
 
 
@@ -758,6 +780,7 @@ def apply_domain_matches() -> dict:
 
     data.pop("never_built", None)
     jsonstore.write_json(_path(), data)
+    _forget_reports()
     try:
         from hub import audit
         audit.log("google_index", "domain_auto_map", mapped=len(done),
