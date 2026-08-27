@@ -3,7 +3,7 @@
 Internal tool suite for Smart 1 Marketing. Flask, deployed on Render via
 Docker, ~22 modules mounted under one login.
 
-**Live:** https://smart1-hub.onrender.com · **Repo:** `Smart-1-Marketing/smarthub`
+**Live:** https://smart1.agency · **Repo:** `Smart-1-Marketing/smarthub`
 
 ---
 
