@@ -401,10 +401,26 @@ def clear(name: str, domain: str = "") -> dict:
 
 
 def _forget_registry_cache() -> None:
-    """The registry caches for a minute; an accepted URL must show at once."""
+    """The registry caches for a minute; an accepted URL must show at once.
+
+    And the day-cached reports built on top of it go with it. This module
+    already carries the note about why: accepting a domain used to be followed
+    by the same client being proposed the same domain again, as if the click
+    had done nothing, because the scan after the accept ran in the worker that
+    had not seen it. A report held for a day is that failure with a longer
+    fuse — the row would come back for the rest of the day rather than for the
+    next two minutes. The overlay is the durable record and it decides; these
+    are derivations of it and are simply dropped.
+    """
     try:
         from hub import clients_registry
         clients_registry._cache["at"] = 0          # noqa: SLF001 - same package
+    except Exception:                                       # noqa: BLE001
+        pass
+    try:
+        from hub import report_cache
+        report_cache.invalidate("client-urls", "orphan-urls", "sites-match",
+                                "crosswalk")
     except Exception:                                       # noqa: BLE001
         pass
 
@@ -469,7 +485,8 @@ def _from_simvoly(found: dict) -> dict:
     project's domain is often repointed, and proposing it here would hand a
     client somebody else's website.
     """
-    from hub.sites_match import _is_platform, _site_rows, is_active
+    from hub.sites_match import (_is_platform, _site_rows, is_active,
+                                 sites_error)
     rows = [r for r in _site_rows() if is_active(r)]
     used = 0
     for row in rows:
@@ -482,7 +499,14 @@ def _from_simvoly(found: dict) -> dict:
         used += 1
         _add(found, name, domain, "simvoly",
              f"project {row.get('project_id', '')}".strip())
-    return {"rows": len(rows), "used": used, "note": "live projects only"}
+    # A Sites module that will not start returns no projects, which reads on
+    # the page as an account with none. Named rather than counted as zero, the
+    # way the other four sources here already are.
+    err = sites_error()
+    out = {"rows": len(rows), "used": used, "note": "live projects only"}
+    if err:
+        out["error"] = err
+    return out
 
 
 def _from_table(found: dict, store_name: str, source: str) -> dict:
@@ -558,17 +582,35 @@ def _rank(candidates: list[dict]) -> list[dict]:
     return sorted(candidates, key=score, reverse=True)
 
 
-def missing(limit: int = 2000, include_found: bool = False) -> dict:
+def missing(limit: int = 2000, include_found: bool = False, *,
+            cached: bool = True) -> dict:
     """Every client with no URL, and what the rest of the Hub knows about them.
 
     `include_found` returns the clients we already have a URL for as well, so
     the page can say how much of the registry this covers rather than only
     showing the gap.
+
+    Five sources are read to answer this — live product click-thrus, the Knack
+    website registry, our Simvoly projects, site scans and Google access
+    requests — so the answer is held for the day and re-read on Refresh.
+    `cached=False` is the way past it for a caller that has just written.
+    `accept()` drops the entry itself, so a URL somebody has just confirmed
+    does not come back on the next scan looking like the click did nothing —
+    which is the failure this module already carries a note about, one cache
+    layer down.
     """
+    if cached:
+        from hub import report_cache
+        return report_cache.serve(
+            "client-urls", lambda: missing(limit, include_found, cached=False),
+            params=f"found={int(bool(include_found))}")
     try:
         from hub import clients_registry
         clients = clients_registry.all_clients()
     except Exception as exc:                                # noqa: BLE001
+        # `error` is what stops report_cache storing this as the day's answer:
+        # a registry that would not answer looks exactly like a registry where
+        # every client has a URL already.
         return {"error": f"The client registry is unreadable ({type(exc).__name__}).",
                 "clients": [], "sources": []}
 

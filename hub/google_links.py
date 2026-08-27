@@ -362,6 +362,51 @@ def _word_matches(item: dict, ctx: dict) -> dict:
 # ---------------------------------------------------------------------------
 # The orphan list
 # ---------------------------------------------------------------------------
+def _orphan_book() -> dict:
+    """Every unmapped resource with its suggested owner — today's copy.
+
+    The suggestions are the expensive half, and this module already says so:
+    a Knack read, the client alias index and a word index per resource. What
+    it did not say is that the cost was paid *per page* — `suggest_for()` runs
+    over the whole book before the sort, because the rows a person can act on
+    have to come first, so walking a book of two thousand orphans 25 at a time
+    ran two thousand suggestions eighty times over.
+
+    So the annotated book is built once a day. Everything that depends on what
+    somebody typed or ticked — the platform filter, the search box, the page
+    cut — runs over it per request, because `q=acme` and `q=acm` are two cache
+    files and a search box types one per keystroke.
+
+    It is dropped by `google_index._forget_reports()`, which runs on the
+    sweep, on an attachment and on a domain re-match: those are the three
+    things that take a resource off this list.
+    """
+    def build() -> dict:
+        from hub import google_index
+        ctx = _context()
+        rows = []
+        for r in google_index.rows():
+            if r.get("client"):
+                continue
+            key = google_index.PLATFORM_KEYS.get(r.get("platform"), "other")
+            rows.append({**r, "key": key,
+                         "platform_label": PLATFORM_LABELS.get(
+                             key, r.get("platform")),
+                         "suggestions": suggest_for(r, ctx)})
+        # An index that has never been built has no orphans and no resources
+        # either, and storing that as "nothing to do" would keep the page
+        # saying so for the rest of the day — with the Build button on it
+        # doing nothing visible. Not an answer.
+        return {"rows": rows, "sources": ctx["sources"],
+                "measured": not google_index.status().get("never_built")}
+
+    try:
+        from hub import report_cache
+    except Exception:                                   # noqa: BLE001
+        return build()
+    return report_cache.serve("google-orphans", build)
+
+
 def orphans(q: str = "", platform: str = "", include_other: bool = False,
             limit: int = 25, offset: int = 0, platforms=None) -> dict:
     """Every Google resource the index could not join to a client, one page.
@@ -383,13 +428,15 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
     # A client that gained a URL since the last sweep makes its resources
     # joinable now; leaving them here until the next sweep lists them as
     # orphans nobody can explain beside the client whose domain they carry.
-    # Idempotent and writes nothing when nothing changed.
+    # Idempotent and writes nothing when nothing changed — and when it does
+    # change something it drops the book below, so the row it just joined is
+    # gone from this page rather than sitting on it until tomorrow.
     rejoined = google_index.apply_domain_matches()
 
     data = google_index.load()
     status = google_index.status()
-    rows_all = google_index.rows()
-    unmapped = [r for r in rows_all if not r.get("client")]
+    book = _orphan_book()
+    unmapped = book["rows"]
 
     # `platforms` is the page's three tickboxes; `platform` is the older
     # single-value parameter, kept because /api/google/orphans?platform=ga4 is
@@ -404,17 +451,14 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
     by_key: dict[str, int] = {}
     kept, skipped_other = [], 0
     for r in unmapped:
-        key = google_index.PLATFORM_KEYS.get(r.get("platform"), "other")
+        key = r["key"]
         by_key[key] = by_key.get(key, 0) + 1
         if key not in wanted:
             skipped_other += 1
             continue
-        kept.append({**r, "key": key,
-                     "platform_label": PLATFORM_LABELS.get(key, r.get("platform"))})
+        kept.append(r)
 
-    ctx = _context()
-    for r in kept:
-        r["suggestions"] = suggest_for(r, ctx)
+    ctx = {"sources": book["sources"]}
 
     needle = str(q or "").strip().lower()
     if needle:
@@ -499,6 +543,12 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
         # Manager refused this token" are the same empty list otherwise.
         "sweep": status.get("sweep") or [],
         "sweep_problems": status.get("sweep_problems") or [],
+        # When the suggestions were worked out. The index carries its own
+        # `built_at` for when Google was last swept, and these are two
+        # different ages: the sweep is what we can see, this is what we have
+        # made of it. A page that printed one and meant the other would be
+        # exactly the kind of confident wrong date this module avoids.
+        "cache": book.get("cache") or {},
         "note": note,
     }
 

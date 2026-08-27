@@ -313,12 +313,17 @@ def create_hub_app() -> Flask:
         links = body.get("links")
         if links:
             from .google_links import attach_many
-            return jsonify(attach_many(links, actor=actor,
-                                       force=bool(body.get("force"))))
-        from .google_links import attach
-        return jsonify(attach(str(body.get("resource_id") or ""),
-                              str(body.get("client") or ""), actor=actor,
-                              force=bool(body.get("force"))))
+            out = attach_many(links, actor=actor, force=bool(body.get("force")))
+        else:
+            from .google_links import attach
+            out = attach(str(body.get("resource_id") or ""),
+                         str(body.get("client") or ""), actor=actor,
+                         force=bool(body.get("force")))
+        # The reports these rows come off are dropped by
+        # `google_index._forget_reports()`, which runs inside `set_client()` —
+        # one description of what an attachment invalidates, next to the write
+        # that causes it, rather than a second copy here that drifts.
+        return jsonify(out)
 
     @app.route("/api/google/rebuild", methods=["POST"])
     def api_google_rebuild():
@@ -389,6 +394,40 @@ def create_hub_app() -> Flask:
             return gate
         from . import oauth_redirects
         return jsonify(oauth_redirects.report(request.url_root))
+
+    @app.route("/api/report-cache")
+    def api_report_cache():
+        """What the day cache is holding, and how old each entry is.
+
+        Names, days and sizes only. No payloads: this is read into a page,
+        and a report's rows carry client names — the rule
+        `services/provider_check.py` works to about what a diagnostic may
+        carry.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import report_cache
+        return jsonify(report_cache.state())
+
+    @app.route("/api/report-cache/clear", methods=["POST"])
+    def api_report_cache_clear():
+        """Empty the day cache, so the next open of each report re-runs it.
+
+        A POST, and behind Utilities: pressing it means every QA report and
+        every report-shaped tool page runs its whole build again on the next
+        visit. Each report also has its own Refresh button, which is the one
+        to use for a single report.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import report_cache
+        name = (request.args.get("name") or "").strip()
+        dropped = report_cache.invalidate(name) if name else report_cache.invalidate()
+        audit.log("hub", "report_cache_cleared", actor=current_user(),
+                  detail=name or "all", dropped=dropped)
+        return jsonify({"ok": True, "dropped": dropped})
 
     @app.route("/api/integrity")
     def api_integrity():
@@ -922,7 +961,10 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .client_key import crosswalk
-        return jsonify(crosswalk())
+        from . import report_cache
+        # Every module's client table, read and joined. Held for the day; the
+        # accept/attach paths that change what joins to what drop it.
+        return jsonify(report_cache.serve("crosswalk", crosswalk))
 
     @app.route("/api/client/records")
     def api_client_records():
@@ -1147,7 +1189,11 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .analytics_ids import audit_all
-        return jsonify(audit_all())
+        from . import report_cache
+        # One Knack website record and one Google index lookup per client.
+        # Dropped by `google_index._forget_reports()` when a property is
+        # attached, which is the write that changes what this compares.
+        return jsonify(report_cache.serve("qa:analytics-ids", audit_all))
 
     @app.route("/api/scans/stuck")
     def api_scans_stuck():
@@ -1753,11 +1799,17 @@ def create_hub_app() -> Flask:
         if not client:
             return jsonify({"error": "client is required."}), 400
         actor = current_user() or ""
+        # Each of these three takes a client off the No Dashboards list — or,
+        # for unskip, puts one back — so each drops the day's stored copy of
+        # that report and of Active Clients, which carries the same dashboard
+        # column. Skip and unskip do it inside `qa`, beside the write; adding
+        # a URL writes through `knack_api`, which has no business knowing what
+        # a QA report is, so that one is dropped here.
         if action == "skip":
             audit.log("qa", "dashboard_skipped", actor=actor, client=client,
                       reason=str(body.get("reason") or ""))
-            return jsonify(qa.skip_dashboard(client, actor,
-                                             str(body.get("reason") or "")))
+            return jsonify(qa.skip_dashboard(
+                client, actor, str(body.get("reason") or "")))
         if action == "unskip":
             audit.log("qa", "dashboard_unskipped", actor=actor, client=client)
             return jsonify(qa.unskip_dashboard(client))
@@ -1767,6 +1819,8 @@ def create_hub_app() -> Flask:
             out = knack_api.set_dashboard_url(client, url)
             audit.log("qa", "dashboard_added", actor=actor, client=client,
                       ok=out.get("ok"), updated=out.get("updated"))
+            if out.get("ok"):
+                qa.forget("no-dashboards", "active-clients")
             return jsonify(out)
         return jsonify({"error": "Unknown action."}), 400
 
@@ -4127,6 +4181,15 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/qa/<key>")
     def api_qa(key):
+        """Today's answer for one report — the stored run, or the first one.
+
+        A GET never re-runs a report that has already answered today. That is
+        the whole point: these builds walk a year of QuickBooks invoices, the
+        GoHighLevel pipeline and the Google index, and they were doing it on
+        every open, every Back button and every refresh of the tab. Re-running
+        is the POST below, because a GET that rebuilds is one a prefetch or a
+        link preview fires without anybody asking.
+        """
         gate = _require_api()
         if gate:
             return gate
@@ -4134,11 +4197,34 @@ def create_hub_app() -> Flask:
         if key not in qa.REPORTS:
             return jsonify({"error": f"Unknown report: {key}"}), 404
         try:
-            out = qa.run(key, month=(request.args.get("month") or "").strip())
+            out = qa.run_cached(key,
+                                month=(request.args.get("month") or "").strip())
         except Exception as exc:  # noqa: BLE001 — reports must degrade gracefully
-            out = {"key": key, "title": qa.REPORTS[key]["title"],
-                   "columns": [], "rows": [], "error": str(exc)}
-        audit.log("hub", "qa_report", actor=current_user(), detail=key)
+            out = {"columns": [], "rows": [], "error": str(exc)}
+        out.setdefault("key", key)
+        out.setdefault("title", qa.REPORTS[key]["title"])
+        audit.log("hub", "qa_report", actor=current_user(), detail=key,
+                  cached=bool((out.get("cache") or {}).get("from_cache")))
+        return jsonify(out)
+
+    @app.route("/api/qa/<key>/refresh", methods=["POST"])
+    def api_qa_refresh(key):
+        """Run this report again now, and keep what it returns for the day."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import qa
+        if key not in qa.REPORTS:
+            return jsonify({"error": f"Unknown report: {key}"}), 404
+        try:
+            out = qa.run_cached(key,
+                                month=(request.args.get("month") or "").strip(),
+                                force=True)
+        except Exception as exc:  # noqa: BLE001 — reports must degrade gracefully
+            out = {"columns": [], "rows": [], "error": str(exc)}
+        out.setdefault("key", key)
+        out.setdefault("title", qa.REPORTS[key]["title"])
+        audit.log("hub", "qa_report_refreshed", actor=current_user(), detail=key)
         return jsonify(out)
 
     @app.route("/api/qa/accounting/status", methods=["POST"])

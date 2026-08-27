@@ -174,6 +174,11 @@ def skip_dashboard(client: str, actor: str = "", reason: str = "") -> dict:
         "reason": reason,
     }
     jsonstore.write_json(_skip_path(), data)
+    # The skip list is what No Dashboards filters on, so the day's stored copy
+    # of it is now wrong. Dropped here rather than at the route: any caller
+    # that skips a client has changed that report, and a second description of
+    # when to invalidate is one that drifts.
+    forget("no-dashboards", "active-clients")
     return {"ok": True, "skipped": len(data)}
 
 
@@ -181,6 +186,7 @@ def unskip_dashboard(client: str) -> dict:
     data = _load_skips()
     data.pop(_norm_client(client), None)
     jsonstore.write_json(_skip_path(), data)
+    forget("no-dashboards", "active-clients")
     return {"ok": True, "skipped": len(data)}
 
 
@@ -983,6 +989,10 @@ def set_accounting_stage(opp_id: str, stage_id: str = "", status: str = "") -> N
         _ghl(f"/opportunities/{opp_id}/status", method="PUT", body=body)
     except RuntimeError:
         _ghl(f"/opportunities/{opp_id}", method="PUT", body=body)
+    # The row has just moved stage. Dropped here rather than at the route, for
+    # the reason `skip_dashboard()` gives: one description of what a write
+    # invalidates, beside the write.
+    forget("accounting-requests")
 
 
 # ------------------------------------------- GHL: Smart 1 Suite SaaS billing
@@ -1225,6 +1235,10 @@ def assign_invoice_partner(customer: str, partner: str):
     data = invoice_assignments()
     data[str(customer)] = str(partner)
     jsonstore.write_json(_assign_path(), data, indent=1)
+    # The assignment is what takes the row off Invoice Off — "remembered, never
+    # shown again" is what the button says. It has to be true on the next open
+    # as well as on the row the person is looking at.
+    forget("invoice-off")
 
 
 def partner_list() -> list[str]:
@@ -2021,14 +2035,71 @@ REPORTS = {
 }
 
 
+# The two reports that take a parameter. Everything else answers one
+# question, so its cache entry is one file — see `cache_key()`.
+MONTHLY = ("sales-scorecard", "partner-scorecard")
+
+
 def run(key: str, month: str = "") -> dict:
     meta = REPORTS.get(key)
     if not meta:
         raise KeyError(key)
-    if key in ("sales-scorecard", "partner-scorecard"):
+    if key in MONTHLY:
         out = meta["fn"](month)
     else:
         out = meta["fn"]()
     out["key"] = key
     out["title"] = meta["title"]
     return out
+
+
+def cache_key(key: str, month: str = "") -> tuple[str, str]:
+    """The name and parameters one report is cached under.
+
+    The month is part of the key only for the two reports that read it. Every
+    other report is handed whatever `?month=` happened to be on the URL and
+    ignores it, so keying on it would write a second identical file the first
+    time somebody arrived from a scorecard link.
+    """
+    return f"qa:{key}", (str(month or "").strip() if key in MONTHLY else "")
+
+
+def run_cached(key: str, month: str = "", *, force: bool = False) -> dict:
+    """Today's answer for one report — run once, then read.
+
+    `hub/report_cache.py` holds the rules. What matters at this call site is
+    that a report which could not measure — QuickBooks not connected, the GHL
+    pipeline unreachable, Knack refusing — is never stored as the day's
+    number, so connecting the provider an hour later does not leave the page
+    reporting "not configured" until tomorrow.
+    """
+    from . import report_cache
+    name, params = cache_key(key, month)
+    return report_cache.serve(name, lambda: run(key, month),
+                              params=params, force=force)
+
+
+def forget(*keys: str) -> int:
+    """Drop the cached copy of these reports. Call after a write.
+
+    Every action on a QA report removes a row from it — marking an accounting
+    request, assigning an invoice to a partner, skipping a client that needs
+    no dashboard, attaching a Google property to its owner. Without this the
+    row is still there on the next open and the button reads as having done
+    nothing, which is how it comes to be pressed twice.
+
+    With no arguments, every QA report is dropped. That is the right answer
+    for a write nobody can attribute to one report: running them again costs
+    one build each, and a stale row costs somebody's trust in the page.
+
+    Never raises. These are called from inside the write itself, and a cache
+    that could not be dropped must not turn a successful write into a failed
+    one — the worst case is a stale row, which the next Refresh clears.
+    """
+    try:
+        from . import report_cache
+        if not keys:
+            return report_cache.invalidate("qa:")
+        return report_cache.invalidate(*[f"qa:{k}" for k in keys])
+    except Exception:                                       # noqa: BLE001
+        return 0

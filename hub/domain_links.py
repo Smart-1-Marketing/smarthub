@@ -147,6 +147,17 @@ def attach(domain: str, client: str, *, actor: str = "", url: str = "",
 
     report["ok"] = bool(report["written"])
     report["note"] = _note(report)
+    if report["ok"]:
+        # This domain has an owner now, so it is off the orphan list, off the
+        # "clients with no website" list and matched on the Sites page. All
+        # three are held for the day; left cached, the row somebody has just
+        # closed is still there on the next open and the button reads as
+        # having done nothing.
+        try:
+            from hub import report_cache
+            report_cache.invalidate("orphan-urls", "client-urls", "sites-match")
+        except Exception:                               # noqa: BLE001
+            pass
     try:
         from hub import audit
         audit.log("hub", "domain_attached", actor=actor or None, client=client,
@@ -342,7 +353,34 @@ def orphans(q: str = "", limit: int = 400) -> dict:
     Grouped by canonical domain, so one domain seen in three systems is one row
     with three pieces of evidence rather than three rows a person has to
     reconcile by eye.
+
+    The reading of the four systems is cached for the day (`orphan-urls`); the
+    search box and the page cut run over that on every request. Splitting it
+    that way is the point — `q=acme` and `q=acm` are two cache files and a
+    search box types one per keystroke, so what is stored is the answer to the
+    question the page asks on open, and typing filters it.
     """
+    book = _orphan_book()
+    rows = list(book["domains"])
+    needle = str(q or "").strip().lower()
+    if needle:
+        rows = [r for r in rows if needle in r["domain"].lower()
+                or any(needle in s["detail"].lower() for s in r["sightings"])]
+    total = len(rows)
+    return {**book, "q": q, "count": total, "shown": min(total, limit),
+            "domains": rows[:limit]}
+
+
+def _orphan_book() -> dict:
+    """The four systems read, deduped and sorted — today's copy or a new one."""
+    try:
+        from hub import report_cache
+    except Exception:                                   # noqa: BLE001
+        return _read_orphans()
+    return report_cache.serve("orphan-urls", _read_orphans)
+
+
+def _read_orphans() -> dict:
     found: dict[str, dict] = {}
     rejected: dict[str, int] = {}
     known = _known_domains()
@@ -375,14 +413,10 @@ def orphans(q: str = "", limit: int = 400) -> dict:
                            "error": f"{type(exc).__name__}: {exc}"[:200]})
 
     rows = list(found.values())
-    needle = str(q or "").strip().lower()
-    if needle:
-        rows = [r for r in rows if needle in r["domain"].lower()
-                or any(needle in s["detail"].lower() for s in r["sightings"])]
     # Most-corroborated first: a domain three systems know about is the one
-    # most worth someone's attention.
+    # most worth someone's attention. Sorted here rather than after the
+    # search, so the order is the same whatever is typed into the box.
     rows.sort(key=lambda r: (-len(r["sources"]), r["domain"]))
-    total = len(rows)
 
     unreadable = [s for s in status if not s.get("ok")]
     note = ("Every URL the Hub holds that no client is attached to. Attaching "
@@ -398,8 +432,11 @@ def orphans(q: str = "", limit: int = 400) -> dict:
                  "and were left out.")
 
     return {
-        "q": q, "count": total, "shown": min(total, limit),
-        "domains": rows[:limit],
+        "domains": rows,
+        # A read where every one of the four systems refused is not "no
+        # orphans" — it is no reading at all, and report_cache must not store
+        # it as the day's answer.
+        "measured": bool(status) and len(unreadable) < len(status),
         "sources": status, "sources_unreadable": len(unreadable),
         "rejected_domains": [{"domain": d, "count": n}
                              for d, n in sorted(rejected.items(),
