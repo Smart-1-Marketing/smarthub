@@ -2977,9 +2977,21 @@ def create_hub_app() -> Flask:
         if not knack_api.configured():
             return jsonify({"configured": False, "fields": []})
         try:
+            fields = knack_api.ticket_form_fields(scope)
+            # A ticket raised from a client record should not ask for the
+            # website that record has held since their last site scan. One
+            # reader, shared with the campaign request and the ad copy form:
+            # three copies of this mapping is how two of them come to offer a
+            # different answer for one client. Offered into empty fields only,
+            # and nothing is written until the ticket is created.
+            from .client_context import offer_into
+            values, notes = offer_into(fields, {},
+                                       request.args.get("client", ""),
+                                       request.args.get("url", ""))
             return jsonify({"configured": True, "scope": scope,
                             "object": knack_api.TICKETS_OBJECT,
-                            "fields": knack_api.ticket_form_fields(scope)})
+                            "fields": fields,
+                            "values": values, "notes": notes})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
@@ -3070,8 +3082,15 @@ def create_hub_app() -> Flask:
             return jsonify({"configured": False, "fields": []})
         try:
             info = knack_api.campaign_field_map(kind)
+            fields = knack_api.campaign_form_fields(kind)
+            # Same one reader as the web ticket above.
+            from .client_context import offer_into
+            values, notes = offer_into(fields, {},
+                                       request.args.get("client", ""),
+                                       request.args.get("url", ""))
             return jsonify({"configured": True, "kind": kind, **info,
-                            "fields": knack_api.campaign_form_fields(kind)})
+                            "fields": fields,
+                            "values": values, "notes": notes})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-campaign", exc, path=request.path,
                                  actor=current_user() or "")

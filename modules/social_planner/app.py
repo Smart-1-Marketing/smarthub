@@ -183,107 +183,22 @@ def _str(value, limit: int = 4000) -> str:
 
 # ------------------------------------------------------------------ context
 def _client_context(client: str, url: str = "") -> dict:
-    """What the Hub already knows about this client, assembled once.
+    """What the Hub already knows about this client — one shared reader.
 
-    Every lookup is optional and every one is wrapped: a client with no
-    Brandfetch record, no products and no gallery must still be plannable. An
-    absent source reports itself as absent rather than as an empty result —
-    "no photos on file" and "the gallery is unreachable" are different answers
-    and the strategist needs to know which one they got.
+    `hub/client_context.tool_context()`. This module and the GPT Ads Builder
+    carried the same forty lines character for character, plus the same
+    `_gallery_images` under them, which is the second copy CLAUDE.md names as
+    a failure twice: the image-resize rule and the Pexels key each had to be
+    found and fixed in more than one place, and the second one was missed.
+
+    Moving it also gained the half neither copy had — the client's own site
+    scan. Most of the local businesses this tool is used for publish no brand
+    record anywhere, and their last Insites audit knows the logo, the palette
+    their pages actually paint, the business name their site uses and their
+    phone number.
     """
-    out = {"client": client, "url": url, "domain": "", "industry": "",
-           "description": "", "products": [], "colors": [], "logo": "",
-           "gallery": [], "gallery_note": "", "brand_note": ""}
-    try:
-        from hub.client_context import canonical_domain
-        out["domain"] = canonical_domain(url or client) or ""
-    except Exception:                                 # noqa: BLE001
-        pass
-
-    try:
-        from hub import clients_registry
-        row = clients_registry.find_client(client)
-        if row:
-            out["url"] = out["url"] or row.get("url") or ""
-            out["domain"] = out["domain"] or row.get("domain") or ""
-            products = sorted(row.get("running") or row.get("products") or [])
-            out["products"] = [str(p) for p in products][:12]
-    except Exception:                                 # noqa: BLE001
-        pass
-
-    try:
-        from hub import client_brand
-        kit = client_brand.brand_kit(client, out["domain"])
-        if kit.get("found"):
-            out["description"] = kit.get("description") or ""
-            out["colors"] = [c["hex"] for c in (kit.get("colors") or [])][:6]
-            logos = kit.get("logos") or []
-            out["logo"] = logos[0]["url"] if logos else ""
-        else:
-            out["brand_note"] = kit.get("note") or ""
-    except Exception:                                 # noqa: BLE001
-        out["brand_note"] = "Brand lookup unavailable."
-
-    images, note = _gallery_images(client)
-    out["gallery"] = images
-    out["gallery_note"] = note
-    return out
-
-
-def _gallery_images(client: str, limit: int = 60) -> tuple[list[dict], str]:
-    """The client's existing images, newest first.
-
-    Reads the Image Picker gallery directly rather than over HTTP — it is the
-    same process, and a background draft should not need a session cookie to
-    talk to it. Name matching is the narrow kind ``filing.gallery_for_name``
-    does: an exact slug or nothing, because filing one client's photos onto
-    another client's Facebook page is the worst thing this tool could do.
-    """
-    try:
-        from sqlalchemy import select
-
-        from modules.image_picker import filing
-        from modules.image_picker.models import SavedImage, session
-    except Exception:                                 # noqa: BLE001
-        return [], "Image gallery unavailable in this environment."
-
-    try:
-        db = session()
-    except Exception:                                 # noqa: BLE001
-        return [], "Image gallery database unreachable."
-    try:
-        gallery = filing.gallery_for_name(db, client)
-        if gallery is None:
-            return [], f"No image gallery on file for {client}."
-        rows = db.execute(
-            select(SavedImage)
-            .where(SavedImage.client_id == gallery.id)
-            .where(SavedImage.resource_type == "image")
-            .order_by(SavedImage.created_at.desc())
-            .limit(limit)
-        ).scalars().all()
-        out = []
-        for row in rows:
-            url = row.cloudinary_url or row.source_url or ""
-            if not url.startswith("https://"):
-                continue
-            out.append({
-                "url": url,
-                "public_id": row.cloudinary_public_id or "",
-                "alt": (row.alt_text or "")[:300],
-                "label": (row.collection_label or row.filename or "")[:120],
-            })
-        if not out:
-            return [], f"{client}'s gallery is empty — add images in Client " \
-                       "Image Uploads or make one in Image Creator."
-        return out, ""
-    except Exception as exc:                          # noqa: BLE001
-        return [], f"Image gallery read failed ({type(exc).__name__})."
-    finally:
-        try:
-            db.close()
-        except Exception:                             # noqa: BLE001
-            pass
+    from hub.client_context import tool_context
+    return tool_context(client, url)
 
 
 # =====================================================================
@@ -588,7 +503,8 @@ def api_assign_images(batch_id: str):
     batch = load_batch(batch_id)
     if not batch:
         return _fail("That plan no longer exists.", 404)
-    images, note = _gallery_images(batch.get("client", ""))
+    from hub.client_context import gallery_images
+    images, note = gallery_images(batch.get("client", ""))
     if not images:
         return jsonify({"ok": True, "assigned": 0, "remaining": sum(
             1 for s in batch["slots"] if not s.get("image_url")), "note": note})

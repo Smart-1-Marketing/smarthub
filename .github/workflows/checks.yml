@@ -861,3 +861,13 @@ jobs:
       # real words. The failure hub/config.py's ALIASES table describes.
       - name: The spelling check still bites
         run: python3 test_spelling.py
+
+      # One client reader. `context()` asked the site scan for `detected_phone`
+      # at the top level of a payload that publishes `meta.detected_phone`, so
+      # a client with a complete audit prefilled a form with a name and a URL
+      # and left the phone, the address and the industry blank -- on a record
+      # that had held all three since the scan ran. This holds the merge, the
+      # rule that an offer never overwrites what somebody typed, and the block
+      # every AI feature hands a model.
+      - name: Client prefill and the block a model is handed
+        run: python3 test_client_prefill.py

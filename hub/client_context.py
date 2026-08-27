@@ -129,6 +129,44 @@ def context(client: str, domain: str = "") -> dict:
     except Exception as exc:                              # noqa: BLE001
         tried["scan"] = f"error: {type(exc).__name__}"
 
+    # ---- 2a. The scan, read by the module that knows where things are ----
+    #
+    # The block above asked the report for `detected_phone`, `detected_address`
+    # and five more like them, at the top level. Insites publishes none of them
+    # there -- they are `meta.detected_phone`, `meta.detected_address`,
+    # `local_presence.business_phone` and so on, which is why
+    # `hub/scan_facts.py` exists and carries the paths as data. So every one of
+    # those seven `take()` calls has always resolved to None: a client with a
+    # complete site audit prefilled a form with a name and a URL and left the
+    # phone number, the address and the industry blank, on a record that had
+    # been holding all three since the scan ran. Nothing errored, and a blank
+    # field reads exactly like a client we know nothing about.
+    #
+    # Read through scan_facts rather than by fixing the seven keys here: those
+    # paths move when Insites moves them, and two descriptions of where a phone
+    # number lives is one that goes stale. It also brings the ordering with it
+    # -- the business describing itself on its own site beats the Google
+    # listing, which is the address most often out of date.
+    try:
+        from hub import scan_facts
+        dom = domain or out.get("website") or client
+        seen = scan_facts.contact_observed(dom)
+        if seen.get("error"):
+            tried["scan_facts"] = f"error: {seen['error']}"
+        elif seen.get("found"):
+            tried["scan_facts"] = "ok"
+            fields = seen.get("fields") or {}
+            take("business_name", fields.get("name"), "scan")
+            take("phone", fields.get("phone"), "scan")
+            take("address", fields.get("address"), "scan")
+            take("email", fields.get("email"), "scan")
+            take("industry", fields.get("category"), "scan")
+            out.setdefault("observed_at", seen.get("observed_at") or "")
+        else:
+            tried["scan_facts"] = "nothing read from this website"
+    except Exception as exc:                              # noqa: BLE001
+        tried["scan_facts"] = f"error: {type(exc).__name__}"
+
     # ---- 2b. Knack website registry (object_153) ----
     # Carries GA/GTM ids, platform, go-live and the H&M fee. Placed after the
     # scan because a scan observes the site as it is now, but before brand and
@@ -197,6 +235,439 @@ def context(client: str, domain: str = "") -> dict:
         "note": "Prefill only. Nothing here is saved — the form still owns "
                 "whatever the person submits.",
     }
+
+
+# ---------------------------------------------------------------------------
+# Prefill: what a form may offer, and what it may never overwrite
+# ---------------------------------------------------------------------------
+
+# Where a value came from, said the way a rep can act on it. Deliberately not
+# the provider that answered: "Brandfetch" and "Insites" name which of our
+# tools did the reading, which is not a fact anybody on this end can do
+# anything about -- the note `modules/ads_builder/logo.py` makes about naming
+# a provider to somebody who cannot rotate its key, and the same reason
+# `hub/client_brand.py` labels a tile "on file" or "seen on their website".
+SOURCE_LABELS = {
+    "knack": "the client record",
+    "scan": "their website",
+    "registry": "the website record",
+    "brand": "their brand kit",
+    "store": "this client's profile",
+}
+
+# Read, never offered. `products` is a list rather than a value, and the scan
+# and logo pointers are provenance for the panel rather than something a text
+# field can hold.
+NOT_PREFILLABLE = frozenset({
+    "products", "scan_id", "last_scan", "observed_at", "hm_fee",
+})
+
+
+def prefill(client: str, domain: str = "", have: dict | None = None) -> dict:
+    """What a form can fill in for this client, into its empty fields only.
+
+    Every form in the Hub asks a client for the same six things -- name,
+    website, phone, address, city, industry -- and the Hub already holds all
+    six for most clients, across the Knack record, the last site scan and the
+    brand kit. Asking again is how one client comes to be typed in five times
+    with three of the spellings disagreeing, which is the failure the whole of
+    `hub/client_key.py` exists downstream of.
+
+    Four rules, each one this codebase has already paid for:
+
+    * **Offered into the empty fields only.** A value somebody typed is the
+      better source and is never offered over -- the overlay rule
+      `hub/client_urls.py` works to, and the reason
+      `scan_facts.contact_suggestions()` gates on what the record already
+      holds. Pass what the form already has as ``have``.
+    * **Nothing is written.** This is a read. The form still owns whatever the
+      person submits, and a value only becomes the client's when they save it.
+    * **A source that could not be read is named, not absent.** "This client
+      has no phone number on file" and "we could not reach the client list"
+      are different answers and only the first means type one in. `providers`
+      carries every source that was tried and what it said.
+    * **The source is named in words, not in plumbing.** See `SOURCE_LABELS`.
+
+    Never raises: a form that cannot prefill must still open.
+    """
+    try:
+        ctx = context(client, domain)
+    except Exception as exc:                              # noqa: BLE001
+        return {"client": client, "values": {}, "offers": {}, "providers": {},
+                "unreadable": [f"{type(exc).__name__}: {exc}"],
+                "note": "Nothing could be read for this client, so nothing is "
+                        "offered. The form is unchanged."}
+
+    held = {k: _clean(v) for k, v in (have or {}).items()}
+    fields = ctx.get("fields") or {}
+    sources = ctx.get("sources") or {}
+
+    offers: dict[str, dict] = {}
+    for field, value in fields.items():
+        if field in NOT_PREFILLABLE or not _clean(value):
+            continue
+        if held.get(field):                  # what somebody typed wins
+            continue
+        src = sources.get(field, "")
+        offers[field] = {
+            "value": _clean(value),
+            "source": src,
+            "from": SOURCE_LABELS.get(src, src or "the client record"),
+        }
+
+    providers = ctx.get("providers") or {}
+    unreadable = [f"{name}: {state.split('error: ', 1)[-1]}"
+                  for name, state in providers.items()
+                  if str(state).startswith("error")]
+
+    return {
+        "client": ctx.get("client", client),
+        "domain": fields.get("domain", ""),
+        # The flat shape a form actually assigns from.
+        "values": {f: o["value"] for f, o in offers.items()},
+        # ...and the same values with where each came from, for a panel that
+        # draws an offer as an offer rather than as a saved value.
+        "offers": offers,
+        "products": fields.get("products") or [],
+        "providers": providers,
+        "unreadable": unreadable,
+        "note": ("Offered from what the Hub already holds. Nothing is saved "
+                 "until you submit, and anything you have already typed is "
+                 "left alone."),
+    }
+
+
+# Which form field each context field may answer. Keyed by the *form's* own
+# field key, because the three Knack objects the Hub draws forms from name the
+# same thing three ways. Deliberately narrow: `new_website_url` on a web
+# ticket is the site being built, not the one they have, and filling it with
+# their current site is a wrong answer that reads exactly like a right one.
+FORM_ALIASES = {
+    "website":       ("website", "client_url", "site_url", "web_url",
+                      "client_website"),
+    "phone":         ("phone", "client_phone"),
+    "email":         ("email", "client_email"),
+    "address":       ("address", "client_address"),
+    "city":          ("city",),
+    "state":         ("state",),
+    "zip":           ("zip", "postcode"),
+    "industry":      ("industry", "vertical", "category"),
+    "media_partner": ("media_partner",),
+}
+
+# Controls this may fill. A **connection is never offered**: it is written by
+# record id, and putting the display text into one creates nothing and clears
+# the link -- the rule `hub/knack_api.py` gives at length, and the reason
+# create_ticket used to skip those fields entirely. A form that resolves a
+# connection does it itself, exactly or not at all.
+FILLABLE_CONTROLS = frozenset({"text", "textarea", "paragraph", "url", "email",
+                               "phone", "short_text", "number", ""})
+
+
+def offer_into(fields: list[dict], values: dict, client: str,
+               url: str = "") -> tuple[dict, list[str]]:
+    """Fill a drawn form's empty fields from what the Hub already holds.
+
+    One place, read by every form the Hub draws from a Knack object -- the web
+    ticket, the campaign support request and the ad copy request all ask a
+    client for a website and a phone number the Hub has held since their last
+    site scan. Three copies of this mapping is how two of the three come to
+    offer a different answer for one client.
+
+    Returns `(values, notes)`: `values` is the caller's own dict with the
+    empty fields filled in, and `notes` says what was offered and where each
+    came from, in the same list the form already prints. It never overwrites,
+    never touches a connection, and never writes anything anywhere.
+
+    Never raises. A prefill that fails must cost the form nothing.
+    """
+    values = dict(values or {})
+    notes: list[str] = []
+    try:
+        got = prefill(client, url, have=values)
+    except Exception:                                     # noqa: BLE001
+        return values, notes
+
+    offers = got.get("offers") or {}
+    by_key = {f.get("key"): f for f in (fields or [])}
+    filled: list[str] = []
+    for ctx_field, form_keys in FORM_ALIASES.items():
+        offer = offers.get(ctx_field)
+        if not offer:
+            continue
+        for key in form_keys:
+            f = by_key.get(key)
+            if not f or values.get(key) or not f.get("writable", True):
+                continue
+            if str(f.get("control") or "") not in FILLABLE_CONTROLS:
+                continue
+            values[key] = offer["value"]
+            filled.append(f"{f.get('label') or key} from {offer['from']}")
+            break
+
+    if filled:
+        notes.append("Filled in from what we already hold — "
+                     + "; ".join(filled) + ". Change anything that is wrong.")
+    for line in got.get("unreadable") or []:
+        notes.append("Could not be read, so nothing was offered from it: "
+                     + line + ". A blank here is not an answer.")
+    return values, notes
+
+
+# ---------------------------------------------------------------------------
+# The shape a creative tool asks for
+# ---------------------------------------------------------------------------
+
+def gallery_images(client: str, limit: int = 60) -> tuple[list[dict], str]:
+    """The client's existing images, newest first, and why there are none.
+
+    Read directly rather than over HTTP -- it is the same process, and a
+    background draft should not need a session cookie to talk to it. Name
+    matching is the narrow kind `filing.gallery_for_name` does: an exact slug
+    or nothing, because putting one client's photography into another
+    client's ad is the worst thing any of these tools could do.
+
+    `(images, note)`, never a bare list: "this client's gallery is empty" and
+    "the gallery is unreachable" are different answers and only the first
+    means go and add some.
+    """
+    try:
+        from sqlalchemy import select
+
+        from modules.image_picker import filing
+        from modules.image_picker.models import SavedImage, session
+    except Exception:                                     # noqa: BLE001
+        return [], "Image gallery unavailable in this environment."
+    try:
+        db = session()
+    except Exception:                                     # noqa: BLE001
+        return [], "Image gallery database unreachable."
+    try:
+        gallery = filing.gallery_for_name(db, client)
+        if gallery is None:
+            return [], f"No image gallery on file for {client}."
+        rows = db.execute(
+            select(SavedImage)
+            .where(SavedImage.client_id == gallery.id)
+            .where(SavedImage.resource_type == "image")
+            .order_by(SavedImage.created_at.desc())
+            .limit(limit)
+        ).scalars().all()
+        out = []
+        for row in rows:
+            url = row.cloudinary_url or row.source_url or ""
+            if not url.startswith("https://"):
+                continue
+            out.append({
+                "url": url,
+                "public_id": row.cloudinary_public_id or "",
+                "alt": (row.alt_text or "")[:300],
+                "label": (row.collection_label or row.filename or "")[:120],
+            })
+        if not out:
+            return [], (f"{client}'s gallery is empty — add images in Client "
+                        "Image Uploads or make one in Image Creator.")
+        return out, ""
+    except Exception as exc:                              # noqa: BLE001
+        return [], f"Image gallery read failed ({type(exc).__name__})."
+    finally:
+        try:
+            db.close()
+        except Exception:                                 # noqa: BLE001
+            pass
+
+
+def tool_context(client: str, url: str = "", *, gallery: bool = True) -> dict:
+    """What a creative tool needs to know about a client, assembled once.
+
+    The Social Content Planner and the GPT Ads Builder each carried this
+    function and `gallery_images` above, character for character bar a
+    docstring -- the second copy this codebase names as a failure twice over,
+    once for the image-resize rule and once for the Pexels key, where the fix
+    went in and the tool was still broken because it was fixed in one place.
+
+    It also adds what neither copy ever read: **the client's own site scan**.
+    A completed Insites audit knows the business name their site uses, their
+    phone number, their address and the color scheme their pages actually
+    paint, and both tools were writing a month of posts and a set of ads from
+    a business name and a Brandfetch record that, for most local businesses,
+    does not exist. `brand_observed()` is where the logo comes from for that
+    majority, which is exactly the client these tools are used for.
+
+    Every lookup is optional and every one is wrapped: a client with no brand
+    record, no products, no scan and no gallery must still be plannable. An
+    absent source reports itself as absent rather than as an empty result --
+    "no photos on file" and "the gallery is unreachable" are different
+    answers, and the strategist needs to know which one they got.
+    """
+    out = {"client": client, "url": url, "domain": "", "industry": "",
+           "description": "", "products": [], "colors": [], "logo": "",
+           "logo_from": "", "observed": {}, "gallery": [],
+           "gallery_note": "", "brand_note": "", "scan_note": ""}
+    try:
+        out["domain"] = canonical_domain(url or client) or ""
+    except Exception:                                     # noqa: BLE001
+        pass
+
+    try:
+        from hub import clients_registry
+        row = clients_registry.find_client(client)
+        if row:
+            out["url"] = out["url"] or row.get("url") or ""
+            out["domain"] = out["domain"] or row.get("domain") or ""
+            out["industry"] = out["industry"] or str(
+                row.get("industry") or row.get("vertical") or "")
+            products = sorted(row.get("running") or row.get("products") or [])
+            out["products"] = [str(p) for p in products][:12]
+    except Exception:                                     # noqa: BLE001
+        pass
+
+    try:
+        from hub import client_brand
+        kit = client_brand.brand_kit(client, out["domain"])
+        if kit.get("found"):
+            out["description"] = kit.get("description") or ""
+            out["colors"] = [c["hex"] for c in (kit.get("colors") or [])][:6]
+            logos = kit.get("logos") or []
+            if logos:
+                out["logo"] = logos[0]["url"]
+                out["logo_from"] = "their brand kit"
+        else:
+            out["brand_note"] = kit.get("note") or ""
+    except Exception:                                     # noqa: BLE001
+        out["brand_note"] = "Brand lookup unavailable."
+
+    # The scan, and only where the brand kit had nothing. A logo lifted off a
+    # home page is a *candidate* -- `hub/scan_facts.py` is explicit that it is
+    # never merged into the stored logos -- so it fills a gap here and says
+    # where it came from rather than standing in as an approved asset.
+    try:
+        from hub import scan_facts
+        if out["domain"]:
+            seen = scan_facts.brand_observed(out["domain"])
+            if seen.get("error"):
+                out["scan_note"] = ("We could not read this client's last site "
+                                    "scan, so nothing was taken from it.")
+            elif seen.get("found"):
+                if not out["logo"] and seen.get("logo_url"):
+                    out["logo"] = seen["logo_url"]
+                    out["logo_from"] = "seen on their website"
+                have = {c.lower() for c in out["colors"]}
+                for c in (seen.get("colors") or []):
+                    if c["hex"].lower() not in have and len(out["colors"]) < 6:
+                        out["colors"].append(c["hex"])
+                        have.add(c["hex"].lower())
+            else:
+                out["scan_note"] = seen.get("note") or ""
+            contact = scan_facts.contact_observed(out["domain"])
+            if contact.get("found"):
+                out["observed"] = contact.get("fields") or {}
+                out["industry"] = out["industry"] or str(
+                    out["observed"].get("category") or "")
+    except Exception:                                     # noqa: BLE001
+        out["scan_note"] = "Site scan unavailable in this environment."
+
+    if gallery:
+        images, note = gallery_images(client)
+        out["gallery"] = images
+        out["gallery_note"] = note
+    return out
+
+
+# ---------------------------------------------------------------------------
+# The same facts, for a model
+# ---------------------------------------------------------------------------
+
+# Ordered the way a writer needs them: who the business is, how to reach them,
+# what they look like, what they are already running.
+_PROMPT_ROWS = [
+    ("client", "Business name"),
+    ("business_name", "Name as it appears on their own site"),
+    ("website", "Website"),
+    ("industry", "Industry"),
+    ("city", "City"),
+    ("state", "State"),
+    ("address", "Address"),
+    ("phone", "Phone"),
+    ("email", "Email"),
+    ("brand_primary_color", "Primary brand color"),
+    ("brand_font", "Brand font"),
+    ("platform", "Website platform"),
+]
+
+
+def for_prompt(client: str, domain: str = "", *, heading: str = "") -> str:
+    """The client's facts as a block to hand a model, or "" when there are none.
+
+    Every AI feature in the Hub writes better copy when it knows who it is
+    writing about, and most of them were given a business name and nothing
+    else -- so a model wrote a Connected TV script for a company whose
+    industry, city, brand colors and live products were all on file, from the
+    name alone. What it produces then is plausible and generic, which is the
+    hardest kind of wrong to spot on a page of finished copy.
+
+    Three rules on what goes in it:
+
+    * **Facts, each attributed, and nothing else.** A model handed a phone
+      number puts it in the ad. So the block carries only values the Hub
+      actually holds, and says where each came from, because "seen on their
+      website in March" and "on the client record" are different degrees of
+      confidence about a number that is going in front of a customer.
+    * **What is not known is said, not left out.** A gap the model cannot see
+      is a gap it fills in. The block names the fields nobody has recorded and
+      tells the model to write around them rather than inventing them -- the
+      `hub/social_plan.py` rule that a fact not in what a human supplied is a
+      blocking flag, one step earlier.
+    * **No credential ever travels.** The rule
+      `services/provider_check.py` works to: this text is pasted into prompts,
+      logged, and shown on screens.
+
+    Returns "" rather than a heading with nothing under it: a caller appends
+    this straight onto a prompt, and an empty section reads to a model as a
+    client we know nothing about, which is not the same as a client we did not
+    look up.
+    """
+    try:
+        ctx = context(client, domain)
+    except Exception:                                     # noqa: BLE001
+        return ""
+
+    fields = ctx.get("fields") or {}
+    sources = ctx.get("sources") or {}
+    lines: list[str] = []
+    looked_up = 0
+    for key, label in _PROMPT_ROWS:
+        value = _clean(fields.get(key))
+        if not value:
+            continue
+        src = SOURCE_LABELS.get(sources.get(key, ""), "")
+        looked_up += 1 if src else 0
+        lines.append(f"- {label}: {value}" + (f" (from {src})" if src else ""))
+
+    products = [str(p) for p in (fields.get("products") or [])][:12]
+    if products:
+        looked_up += 1
+        lines.append("- Currently running with us: " + ", ".join(products))
+
+    # The business name alone is not a lookup: `context()` falls back to the
+    # name the caller handed in, so a client nothing could be found for still
+    # produces one line. Returning a "what we know" block whose only content is
+    # the caller's own input, followed by eleven things we do not know, tells a
+    # model this is a business with no facts -- which is a different claim from
+    # not having looked one up, and it is the one that changes the copy.
+    if not looked_up:
+        return ""
+
+    unknown = [label for key, label in _PROMPT_ROWS
+               if not _clean(fields.get(key))]
+    out = [heading or f"What we know about {ctx.get('client', client)}:"]
+    out += lines
+    if unknown:
+        out.append("Not on file, and not to be invented: "
+                   + ", ".join(unknown).lower() + ".")
+    out.append("Use these facts where they are relevant. Do not state any "
+               "fact about this business that is not listed above.")
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------------------

@@ -248,6 +248,8 @@ def generate_campaign(payload: dict, model: str = None, *,
 
     page_block = _page_block(observed_page)
     intake_block = spec.for_prompt({"intake": intake})
+    client_block = _client_block(payload.get("businessName", ""),
+                                 payload.get("websiteUrl", ""))
 
     user_prompt = f"""Build a Google Ads search campaign for:
 
@@ -262,7 +264,7 @@ Target areas: {geography}{area_rule}
 
 WHAT THE REP ASKED THE CLIENT — build around these, do not restate them back:
 {intake_block or '- Nothing further was captured.'}
-{page_block}
+{client_block}{page_block}
 Independent budget check already run (use it, do not contradict it):
 {viability['status']} — {viability['advice']}
 Typical CPC range for this sector: ${viability['cpc_low']} to ${viability['cpc_high']}.
@@ -276,6 +278,31 @@ Remember: 20 to 50 keywords in EVERY ad group, with match types tagged."""
     campaign["intake"] = intake
     campaign["targetAreas"] = areas
     return campaign
+
+
+def _client_block(business: str, url: str) -> str:
+    """What the Hub already holds about this client, as facts for the model.
+
+    The form asks a rep for a business name, a URL and a sector. Everything
+    else about a client we have had for years — the industry on their Knack
+    record, the city they trade in, the palette their own site paints, the
+    products already running with us — was on file and reached the model
+    never. What comes back then is plausible and generic, which on a keyword
+    set is the hardest kind of wrong to notice: every term is a real term, and
+    none of them is about this business.
+
+    `hub/client_context.for_prompt()` is the one reader, so a fact added to it
+    reaches every AI feature rather than this one. It carries what is *not* on
+    file too, and says not to invent it — a gap a model cannot see is a gap it
+    fills in, which is the rule `hub/social_plan.py` enforces one step later
+    by flagging any claim a human did not supply.
+    """
+    try:
+        from hub.client_context import for_prompt
+        block = for_prompt(business, url)
+    except Exception:                                   # noqa: BLE001
+        return ""
+    return f"\nWHAT WE ALREADY HOLD ON THIS CLIENT:\n{block}\n" if block else ""
 
 
 def _page_block(observed: dict) -> str:
