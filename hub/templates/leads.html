@@ -9,33 +9,115 @@
 </div>
 
 <div id="leadWarn"></div>
+<div id="leadMsg"></div>
 
-<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 14px">
-  <select id="lDays" onchange="loadLeads()"
-    style="padding:6px 10px;border:1px solid #cfd7df;border-radius:8px;font:13px inherit">
-    <option value="7">Last 7 days</option>
-    <option value="30" selected>Last 30 days</option>
-    <option value="90">Last 90 days</option>
-    <option value="365">Last year</option>
-  </select>
-  <input id="lPage" placeholder="Filter by page…" oninput="debounceLeads()"
-    style="padding:6px 10px;border:1px solid #cfd7df;border-radius:8px;font:13px inherit;min-width:200px">
-  <label style="font-size:13px;display:flex;align-items:center;gap:5px">
-    <input type="checkbox" id="lUndel" onchange="loadLeads()"> Not yet in Suite
-  </label>
-  <button class="um-btn" onclick="retryLeads()" style="margin-left:auto">Retry undelivered</button>
-  <a class="um-btn" href="/api/leads?days=365" target="_blank">Raw JSON</a>
+<div class="kpi-row" id="leadKpis">
+  <div class="kpi"><div class="k-label">Leads</div>
+    <div class="k-value"><span class="spin"></span></div><div class="k-sub">Loading&hellip;</div></div>
 </div>
 
-<div id="leadStats" class="diag-rows" style="margin-bottom:14px"></div>
-<div id="leadTable" class="tscroll"><p class="muted">Loading…</p></div>
+<div class="card">
+  <div class="card-h">
+    <h3>Delivery to Smart 1 Suite</h3>
+    <span id="routePill" class="pill neutral">checking&hellip;</span>
+    <div class="right">
+      <a class="open-link" href="/api/leads/ghl/preflight?find=1"
+         target="_blank" rel="noopener">Run preflight &rarr;</a>
+    </div>
+  </div>
+  <div class="card-b"><div class="lead-prose" id="routeBody"><span class="muted">Loading&hellip;</span></div></div>
+</div>
 
+<div class="card">
+  <div class="card-h">
+    <h3>Captured leads <span class="lead-count muted" id="leadCount"></span></h3>
+    <select id="lDays" class="lead-input" onchange="loadLeads()" aria-label="Period">
+      <option value="7">Last 7 days</option>
+      <option value="30" selected>Last 30 days</option>
+      <option value="90">Last 90 days</option>
+      <option value="365">Last year</option>
+    </select>
+    <input id="lPage" class="lead-input lead-search" placeholder="Filter by page&hellip;"
+           oninput="debounceLeads()" aria-label="Filter by page">
+    <label class="lead-check"><input type="checkbox" id="lUndel" onchange="loadLeads()">
+      Not yet in Suite</label>
+    <div class="right">
+      <button class="btn-ghost" onclick="retryLeads()">&#8635; Retry undelivered</button>
+      <a class="btn-ghost" href="/api/leads?days=365" target="_blank" rel="noopener">Raw JSON</a>
+    </div>
+  </div>
+  <div class="lead-pages" id="leadPages" hidden></div>
+  <div class="card-b flush" id="leadTable">
+    <p class="empty">Loading&hellip; <span class="spin"></span></p>
+  </div>
+</div>
+
+<style>
+/* Everything this page needs beyond hub.css. It previously borrowed .um-btn
+   and the .diag-row family, which are defined inside users_admin.html and
+   diagnostics.html's own <style> blocks and therefore resolve to nothing
+   here — the buttons rendered as bare native controls and the summary as a
+   run-on line of unstyled divs. Use the shared classes, and define only what
+   is genuinely local. */
+.lead-note{border-radius:0 9px 9px 0;border-left:3px solid var(--warn);
+  background:var(--warn-bg);color:#6b4a00;padding:11px 14px;margin-bottom:14px;
+  font-size:12.8px;line-height:1.6}
+.lead-note.info{border-left-color:var(--brand);background:#eff6ff;color:#23516f}
+.lead-note.ok{border-left-color:var(--ok);background:var(--ok-bg);color:#14532d}
+.lead-note b{display:block;margin-bottom:2px}
+.lead-prose{font-size:13px;line-height:1.65;color:var(--ink);max-width:80ch}
+.lead-prose p{margin:0 0 7px}
+.lead-prose p:last-child{margin-bottom:0}
+.lead-input{padding:7px 11px;border:1px solid var(--line);border-radius:8px;
+  font:13px inherit;color:var(--ink);background:#fff}
+.lead-input:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:transparent}
+.lead-search{min-width:210px}
+.lead-check{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.lead-count{font-weight:400;font-size:12.5px}
+/* The page breakdown, as filters rather than as a sentence. */
+.lead-pages{display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+  padding:10px 18px;border-bottom:1px solid var(--line-soft)}
+.lead-pages .lp-label{font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.4px;color:var(--muted);margin-right:2px}
+.lp-chip{border:1px solid var(--line);background:#fff;border-radius:14px;
+  padding:3px 10px;font-size:11.5px;color:var(--ink);text-decoration:none;
+  display:inline-flex;gap:5px;align-items:center}
+.lp-chip b{font-variant-numeric:tabular-nums;color:var(--muted)}
+button.lp-chip:hover{border-color:var(--brand);color:var(--brand)}
+.lp-chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.lp-chip.on b{color:#c9d4ea}
+.lp-chip.flat{color:var(--muted)}
+/* A wide table scrolls inside its own card rather than being crushed. */
+.lead-t{min-width:940px}
+.lead-when{white-space:nowrap}
+.lead-name{font-weight:700}
+.lead-sub{color:var(--muted);font-size:11.5px;margin-top:2px}
+.k-value.warnv{color:var(--warn)}
+.k-value.badv{color:var(--danger)}
+</style>
+{% endblock %}
+
+{% block scripts %}
 <script>
 var lTimer=null;
 function debounceLeads(){ clearTimeout(lTimer); lTimer=setTimeout(loadLeads,300); }
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+/* One date format for the whole Hub — hub-dates.js. This table used to print
+   a raw ISO slice, which is the exact case that script's own header names. */
+function fmtWhen(v){
+  var date = (window.S1Date ? S1Date.fmt(v) : String(v||'').slice(0,10));
+  var t = /[T ](\d{2}:\d{2})/.exec(String(v||''));
+  return '<div class="lead-when">'+esc(date)+'</div>'+
+         (t ? '<div class="lead-sub">'+t[1]+' UTC</div>' : '');
+}
+
+function say(html, kind){
+  document.getElementById('leadMsg').innerHTML =
+    html ? '<div class="lead-note '+(kind||'info')+'">'+html+'</div>' : '';
+}
 
 function loadLeads(){
   var q = new URLSearchParams({
@@ -47,100 +129,165 @@ function loadLeads(){
     .then(function(r){return r.json();}).then(renderLeads)
     .catch(function(){
       document.getElementById('leadTable').innerHTML =
-        '<p class="muted">Could not load leads.</p>';
+        '<p class="empty">Could not load leads &mdash; that is a failure to '+
+        'read the panel, not an empty one.</p>';
     });
 }
 
 var HELP_DELIVERY = {{ (help_dot('hub.leads.delivery') if help_dot is defined else '')|tojson }};
 var HELP_CONVERT  = {{ (help_dot('hub.leads.convert')  if help_dot is defined else '')|tojson }};
 
-function renderLeads(d){
+function kpi(label, value, sub, tone){
+  return '<div class="kpi"><div class="k-label">'+esc(label)+'</div>'+
+    '<div class="k-value'+(tone?' '+tone:'')+'">'+esc(String(value))+'</div>'+
+    '<div class="k-sub">'+(sub||'')+'</div></div>';
+}
+
+function renderWarnings(d){
   document.getElementById('leadWarn').innerHTML =
     (d.route_warning
-      ? '<div style="background:#fff4d7;color:#8a5a00;padding:10px 14px;border-radius:9px;'+
-        'font-size:13px;margin-bottom:14px"><b>'+
-        esc(d.route_warning_title||'Check the delivery route')+'.</b> '+
+      ? '<div class="lead-note"><b>'+
+        esc(d.route_warning_title||'Check the delivery route')+'</b>'+
         esc(d.route_warning)+'</div>' : '')+
-    (d.note
-      ? '<div style="background:#fff4d7;color:#8a5a00;padding:10px 14px;border-radius:9px;'+
-        'font-size:13px;margin-bottom:14px">'+esc(d.note)+'</div>' : '');
+    (d.note ? '<div class="lead-note">'+esc(d.note)+'</div>' : '');
+}
 
-  document.getElementById('leadStats').innerHTML =
-    '<div class="diag-row"><span class="diag-pill p-ok">'+d.count+'</span>'+
-    '<span class="diag-name">Leads</span><span class="diag-detail">'+
-    'in the last '+d.days+' days · '+d.with_pdf+' with a report attached'+
-    (d.undelivered ? ' · <b>'+d.undelivered+' not yet in Suite</b>' : ' · all delivered')+
-    (d.needs_attention ? ' · <b>'+d.needs_attention+' need attention</b>' : '')+
-    (d.converted ? ' · '+d.converted+' converted to clients' : '')+
-    '</span></div>'+
-    '<div class="diag-row"><span class="diag-pill p-'+
-      (d.route==='api'?'ok':'error')+'">'+
-      esc(d.route||'none')+'</span><span class="diag-name">Delivery route</span>'+
-      '<span class="diag-detail">Leads are written to Smart 1 Suite via the <b>'+
-      esc(d.route_label||'')+'</b> — the only route there is, since the inbound '+
-      'webhook was retired.'+
-      (d.route==='api'
-        ? ' '+d.confirmed+' of '+d.count+' carry a Suite contact id, which is what '+
-          'confirms the contact exists rather than just that the request was accepted.'+
-          (d.webhook_era
-            ? ' '+d.webhook_era+' older '+(d.webhook_era===1?'lead was':'leads were')+
-              ' sent over the retired webhook and have no contact id to check.'
-            : '')
-        : '')+
-      ' <a href="/api/leads/ghl/preflight?find=1" target="_blank" rel="noopener">Run preflight</a>'+
-      '</span></div>'+
-    (d.by_page.length
-      ? '<div class="diag-row"><span class="diag-pill p-off">'+d.by_page.length+
-        '</span><span class="diag-name">Pages</span><span class="diag-detail">'+
-        d.by_page.slice(0,6).map(function(p){
-          return esc(p[0])+' <b>'+p[1]+'</b>';}).join(' · ')+'</span></div>'
-      : '');
+function renderKpis(d){
+  var attention = d.needs_attention || 0;
+  document.getElementById('leadKpis').innerHTML =
+    kpi('Leads', d.count,
+        'captured in the last '+d.days+' days'+
+        (d.with_pdf ? ' · '+d.with_pdf+' with a report' : '')) +
+    kpi('Confirmed in Suite', d.confirmed,
+        d.count ? 'of '+d.count+' carry a Suite contact id'
+                : 'nothing captured in this period') +
+    kpi('Not yet in Suite', d.undelivered,
+        d.undelivered ? 'stored here, waiting to be sent' : 'all delivered',
+        d.undelivered ? 'warnv' : '') +
+    kpi('Need attention', attention,
+        attention ? 'a retry will not fix these on its own'
+                  : 'nothing has failed unrecoverably',
+        attention ? 'badv' : '') +
+    kpi('Linked to a client', d.converted,
+        d.converted ? 'matched to an account that exists in Knack'
+                    : 'none linked to an account yet');
+
+  document.getElementById('leadCount').textContent =
+    d.count ? '· '+d.count+' in this view' : '';
+}
+
+function renderRoute(d){
+  var pill = document.getElementById('routePill');
+  pill.className = 'pill ' + (d.route === 'api' ? 'ok' : 'err');
+  pill.textContent = d.route_label || d.route || 'none';
+
+  var html = d.route === 'api'
+    ? '<p>Leads are written to Smart 1 Suite via the <b>'+esc(d.route_label||'')+
+      '</b> &mdash; the only route there is, since the inbound webhook was '+
+      'retired.</p>'
+    : '<p>Nothing is being written to Smart 1 Suite: the API route is <b>'+
+      esc(d.route_label||'not configured')+'</b>, and it is the only route '+
+      'there is since the inbound webhook was retired. Leads are still being '+
+      'stored here and can be retried once it is configured.</p>';
+  if(d.route === 'api'){
+    html += '<p>'+d.confirmed+' of '+d.count+' carry a Suite contact id, which '+
+      'is what confirms the contact exists rather than just that the request '+
+      'was accepted.</p>';
+    if(d.webhook_era){
+      html += '<p class="muted">'+d.webhook_era+' older '+
+        (d.webhook_era===1?'lead was':'leads were')+' sent over the retired '+
+        'webhook and '+(d.webhook_era===1?'has':'have')+
+        ' no contact id to check.</p>';
+    }
+  }
+  document.getElementById('routeBody').innerHTML = html;
+}
+
+function renderPages(d){
+  var box = document.getElementById('leadPages');
+  var active = document.getElementById('lPage').value.trim();
+  if(!d.by_page.length && !active){ box.hidden = true; box.innerHTML=''; return; }
+  box.hidden = false;
+  box.innerHTML = '<span class="lp-label">Pages</span>' +
+    d.by_page.slice(0,12).map(function(p){
+      var name = p[0];
+      // "(no page)" is the label for an empty tag, not a value the filter can
+      // match, so it is shown and not offered as a filter.
+      if(name === '(no page)'){
+        return '<span class="lp-chip flat">'+esc(name)+' <b>'+p[1]+'</b></span>';
+      }
+      var on = active && name.toLowerCase() === active.toLowerCase();
+      return '<button type="button" class="lp-chip'+(on?' on':'')+'" '+
+        'onclick="filterPage('+esc(JSON.stringify(name))+')">'+
+        esc(name)+' <b>'+p[1]+'</b></button>';
+    }).join('') +
+    (active ? '<button type="button" class="lp-chip" onclick="filterPage(\'\')">'+
+      'Clear filter &times;</button>' : '');
+}
+
+function filterPage(name){
+  var box = document.getElementById('lPage');
+  box.value = (box.value.trim().toLowerCase() === String(name).toLowerCase()) ? '' : name;
+  loadLeads();
+}
+
+function suiteCell(l){
+  if(l.delivered){
+    return l.contact_id
+      ? '<span class="pill ok" title="Suite contact '+esc(l.contact_id)+'">in Suite</span>'
+      : '<span class="pill neutral" title="Accepted by the retired webhook. No '+
+        'contact id — delivery was never confirmed beyond the request being '+
+        'accepted.">sent</span>';
+  }
+  return l.retryable === false
+    ? '<span class="pill err" title="'+esc(l.last_error||'')+'">needs attention</span>'
+    : '<span class="pill warn" title="'+esc(l.last_error||'')+'">queued</span>';
+}
+
+function renderLeads(d){
+  renderWarnings(d);
+  renderKpis(d);
+  renderRoute(d);
+  renderPages(d);
 
   if(!d.leads.length){
     document.getElementById('leadTable').innerHTML =
-      '<p class="muted">No leads in this period.</p>';
+      '<p class="empty">No leads in this period.</p>';
     return;
   }
   document.getElementById('leadTable').innerHTML =
-    '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
-    '<thead><tr>'+
+    '<table class="lead-t"><thead><tr>'+
     ['Captured','Name','Contact','Page','Report','Suite','Client'].map(function(h){
       // The table is drawn from a fetch, so these bubbles arrive after load.
       // hub-help.js watches for that; a dot added here behaves like any other.
       var dot = h === 'Suite' ? HELP_DELIVERY : (h === 'Client' ? HELP_CONVERT : '');
-      return '<th style="text-align:left;padding:6px;font-size:11px;color:#94a3b8;'+
-             'text-transform:uppercase;letter-spacing:.5px">'+h+dot+'</th>';}).join('')+
+      // The tour steps for those two keys name these selectors. Without the
+      // anchor the step keeps its narration and silently loses its ring.
+      var tour = h === 'Suite' ? ' data-tour="leads-delivery"'
+               : (h === 'Client' ? ' data-tour="leads-convert"' : '');
+      return '<th'+tour+'>'+h+dot+'</th>';}).join('')+
     '</tr></thead><tbody>'+
     d.leads.map(function(l){
       return '<tr>'+
-        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;white-space:nowrap">'+
-          esc((l.created||'').replace('T',' ').slice(0,16))+'</td>'+
-        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa"><b>'+
-          esc(l.name||'—')+'</b>'+(l.company?'<div class="muted" style="font-size:11.5px">'+
-          esc(l.company)+'</div>':'')+'</td>'+
-        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
-          (l.email?'<a href="mailto:'+esc(l.email)+'">'+esc(l.email)+'</a>':'')+
-          (l.phone?'<div class="muted" style="font-size:11.5px">'+esc(l.phone)+'</div>':'')+'</td>'+
-        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
-          '<span class="pill neutral">'+esc(l.source||'')+'</span> '+esc(l.page||'')+'</td>'+
-        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
-          (l.pdf_url?'<a class="um-btn" href="'+esc(l.pdf_url)+'" target="_blank" '+
+        '<td>'+fmtWhen(l.created)+'</td>'+
+        '<td><div class="lead-name">'+esc(l.name||'—')+'</div>'+
+          (l.company?'<div class="lead-sub">'+esc(l.company)+'</div>':'')+'</td>'+
+        '<td>'+
+          (l.email?'<a href="mailto:'+esc(l.email)+'">'+esc(l.email)+'</a>':
+                   '<span class="muted">—</span>')+
+          (l.phone?'<div class="lead-sub">'+esc(l.phone)+'</div>':'')+'</td>'+
+        '<td><span class="pill neutral">'+esc(l.source||'—')+'</span>'+
+          (l.page?'<div class="lead-sub">'+esc(l.page)+'</div>':'')+'</td>'+
+        '<td>'+
+          (l.pdf_url?'<a class="gbtn" href="'+esc(l.pdf_url)+'" target="_blank" '+
             'rel="noopener">Open PDF</a>':'<span class="muted">—</span>')+'</td>'+
-        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
-          (l.delivered
-            ? (l.contact_id
-                ? '<span class="pill ok" title="Suite contact '+esc(l.contact_id)+'">in Suite</span>'
-                : '<span class="pill ok" title="Accepted by the retired webhook. No contact '+
-                  'id — delivery was never confirmed beyond the request being accepted.">sent</span>')
-            : (l.retryable===false
-                ? '<span class="pill err" title="'+esc(l.last_error||'')+'">needs attention</span>'
-                : '<span class="pill err" title="'+esc(l.last_error||'')+'">queued</span>'))+
-          '</td>'+
-        '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
+        '<td>'+suiteCell(l)+'</td>'+
+        '<td>'+
           (l.converted_at
-            ? '<span class="pill ok" title="Linked '+esc((l.converted_at||"").slice(0,10))+
-              '">'+esc(l.client||'client')+'</span>'
-            : '<button class="um-btn" onclick="convertLead(\''+esc(l.id||'')+'\')">'+
+            ? '<span class="pill ok" title="Linked '+
+              esc((l.converted_at||'').slice(0,10))+'">'+
+              esc(l.client||'client')+'</span>'
+            : '<button class="gbtn" onclick="convertLead(\''+esc(l.id||'')+'\')">'+
               'Link to client</button>')+
           '</td></tr>';
     }).join('')+'</tbody></table>';
@@ -163,17 +310,21 @@ function convertLead(id){
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({id:id, client:name})
   }).then(function(r){return r.json();}).then(function(d){
-    if(d.ok){ loadLeads(); } else { alert(d.error || 'That could not be linked.'); }
-  }).catch(function(){ alert('That could not be linked.'); });
+    if(d.ok){ say('Linked to <b>'+esc(name)+'</b>.','ok'); loadLeads(); }
+    else { say(esc(d.error || 'That could not be linked.'),''); }
+  }).catch(function(){ say('That could not be linked.',''); });
 }
 
 function retryLeads(){
+  say('Retrying every queued lead&hellip;','info');
   fetch('/api/leads/retry',{method:'POST',credentials:'same-origin'})
     .then(function(r){return r.json();}).then(function(d){
-      alert(d.note || (d.delivered+' delivered, '+d.still_failing+' still queued'+
-                       (d.needs_attention? ', '+d.needs_attention+' need attention':'')+'.'));
+      say(esc(d.note || (d.delivered+' delivered, '+d.still_failing+
+            ' still queued'+
+            (d.needs_attention? ', '+d.needs_attention+' need attention':'')+'.')),
+          (d.still_failing || d.needs_attention) ? '' : 'ok');
       loadLeads();
-    }).catch(function(){ alert('Could not retry.'); });
+    }).catch(function(){ say('Could not retry.',''); });
 }
 // A link into this panel can say which page it means: the Scan Widgets tool
 // links its lead count here as ?page=<tag>. Without this the filter boxes
