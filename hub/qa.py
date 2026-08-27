@@ -1908,6 +1908,68 @@ def sites_billing() -> dict:
     }
 
 
+# Whole tools rather than table-returning functions, and every one of them
+# answers "what is wrong / what do we owe" -- which is the question the QA page
+# exists for. They were on the Tools page under a group called "Client Work",
+# which named where the work came from rather than what the screen is for, and
+# a report nobody thinks to look for is a report nobody works. Each keeps its
+# own URL, so every existing link and every Client 360 crumb still resolves.
+#
+# Module-level rather than inline in the route that draws them, because two
+# things read this now: the QA page, and hub/search_index.py. A list only the
+# route could see is a list the search box could not, so "Domain Renewals"
+# and "Match Sites to Clients" answered nothing typed into it -- which is the
+# same invisibility the tile rule exists to stop, one screen further on.
+EXTRAS = [
+        ("Data Quality", "stale-creative", {
+            "title": "Stale Creative",
+            "desc": "How long since we last produced creative for each "
+                    "active client — and who has never had any.",
+            "ico": "&#9203;", "href": "/qa/stale-creative"}),
+        ("Data Quality", "web-tickets", {
+            "title": "Web Tickets",
+            "desc": "Website change requests from Knack: what's open, "
+                    "what's gone stale, and per-client history.",
+            "ico": "&#127915;", "href": "/tools/tickets/"}),
+        ("Data Quality", "scan-all-clients", {
+            "title": "Scan All Clients",
+            "desc": "Audit every client with a website on file. Previews "
+                    "the credit cost, skips anything scanned recently, and "
+                    "caps each run before anything is spent.",
+            "ico": "&#9776;", "href": "/scans/bulk"}),
+        ("Data Quality", "match-sites", {
+            "title": "Match Sites to Clients",
+            "desc": "Every website we hold that nobody is attached to. "
+                    "Accepting a match writes the client registry, their "
+                    "Client 360 record, the Simvoly project and the Knack "
+                    "website record at once — and reports each separately.",
+            "ico": "&#128279;", "href": "/tools/sites-match"}),
+        ("Data Quality", "match-google", {
+            "title": "Match Google Accounts",
+            "desc": "Every Analytics property, Tag Manager container and "
+                    "Search Console property we can reach that maps to no "
+                    "client — searchable, with whoever it might belong to "
+                    "and why.",
+            "ico": "&#128202;", "href": "/tools/google-match"}),
+        ("Data Quality", "campaign-assets", {
+            "title": "Campaign Assets Needed",
+            "desc": "Every campaign on an insertion order still waiting on "
+                    "a clarification or on additional assets, grouped by "
+                    "media partner then internal sales — so the chase is "
+                    "one list per partner.",
+            "ico": "&#128230;", "href": "/tools/campaign-assets"}),
+        # Billing rather than Data Quality: the question this one answers
+        # is whether QuickBooks invoiced a renewal, which is the same
+        # question as the three reports it now sits beside.
+        ("Billing & Accounting", "domain-renewals", {
+            "title": "Domain Renewals",
+            "desc": "Every domain Smart 1 bought for a client, by the "
+                    "month its renewal is billed. This month says whether "
+                    "QuickBooks actually invoiced it; later months ask "
+                    "whether it should renew at all.",
+            "ico": "&#128197;", "href": "/tools/domains"}),]
+
+
 REPORTS = {
     "active-clients": {
         "title": "Active Clients",

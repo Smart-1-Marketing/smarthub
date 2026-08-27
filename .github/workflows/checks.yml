@@ -882,3 +882,14 @@ jobs:
       # on a page load.
       - name: Logos reach the client gallery
         run: python3 test_client_logos.py
+
+      # The top search box. A client the query *names* comes first -- but
+      # `search_clients()` matches a substring of the domain too, so promoting
+      # every row it returns put a bridal shop above Image Creator on the query
+      # "image". This holds that split, holds that every screen in the Hub is
+      # findable (the seven tools filed under QA Reports were inline in the
+      # route that drew them, so nothing else could read them), and holds that
+      # a client book which could not be read is named rather than silently
+      # answered with only the pages.
+      - name: The search box finds clients first, and finds the Hub
+        run: python3 test_search.py

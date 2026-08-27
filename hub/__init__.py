@@ -603,6 +603,23 @@ def create_hub_app() -> Flask:
                   client=client, ok=ok)
         return jsonify({"ok": ok, "delivered": ok, "payload": payload})
 
+    @app.route("/api/search")
+    def api_search():
+        """The top search box: clients first, then the Hub's own pages.
+
+        Read-only and reaches no provider, so it is a GET a keystroke can
+        fire. The client half is matched live through `clients_registry`
+        rather than from a stored index, because a search that cannot find a
+        client we signed last week is one people stop using.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import search_index
+        return jsonify(search_index.search(
+            request.args.get("q", ""),
+            limit=clamp_int(request.args.get("limit"), 12, 1, 30)))
+
     @app.route("/api/client/context")
     def api_client_context():
         """Merged client record for prefilling any form in the Hub."""
@@ -4299,55 +4316,7 @@ def create_hub_app() -> Flask:
         # screen is for, and a report nobody thinks to look for is a report
         # nobody works. Each keeps its own URL, so every existing link and
         # every Client 360 crumb still resolves.
-        extras = [
-            ("Data Quality", "stale-creative", {
-                "title": "Stale Creative",
-                "desc": "How long since we last produced creative for each "
-                        "active client — and who has never had any.",
-                "ico": "&#9203;", "href": "/qa/stale-creative"}),
-            ("Data Quality", "web-tickets", {
-                "title": "Web Tickets",
-                "desc": "Website change requests from Knack: what's open, "
-                        "what's gone stale, and per-client history.",
-                "ico": "&#127915;", "href": "/tools/tickets/"}),
-            ("Data Quality", "scan-all-clients", {
-                "title": "Scan All Clients",
-                "desc": "Audit every client with a website on file. Previews "
-                        "the credit cost, skips anything scanned recently, and "
-                        "caps each run before anything is spent.",
-                "ico": "&#9776;", "href": "/scans/bulk"}),
-            ("Data Quality", "match-sites", {
-                "title": "Match Sites to Clients",
-                "desc": "Every website we hold that nobody is attached to. "
-                        "Accepting a match writes the client registry, their "
-                        "Client 360 record, the Simvoly project and the Knack "
-                        "website record at once — and reports each separately.",
-                "ico": "&#128279;", "href": "/tools/sites-match"}),
-            ("Data Quality", "match-google", {
-                "title": "Match Google Accounts",
-                "desc": "Every Analytics property, Tag Manager container and "
-                        "Search Console property we can reach that maps to no "
-                        "client — searchable, with whoever it might belong to "
-                        "and why.",
-                "ico": "&#128202;", "href": "/tools/google-match"}),
-            ("Data Quality", "campaign-assets", {
-                "title": "Campaign Assets Needed",
-                "desc": "Every campaign on an insertion order still waiting on "
-                        "a clarification or on additional assets, grouped by "
-                        "media partner then internal sales — so the chase is "
-                        "one list per partner.",
-                "ico": "&#128230;", "href": "/tools/campaign-assets"}),
-            # Billing rather than Data Quality: the question this one answers
-            # is whether QuickBooks invoiced a renewal, which is the same
-            # question as the three reports it now sits beside.
-            ("Billing & Accounting", "domain-renewals", {
-                "title": "Domain Renewals",
-                "desc": "Every domain Smart 1 bought for a client, by the "
-                        "month its renewal is billed. This month says whether "
-                        "QuickBooks actually invoiced it; later months ask "
-                        "whether it should renew at all.",
-                "ico": "&#128197;", "href": "/tools/domains"}),
-        ]
+        extras = qa.EXTRAS
         for g, key, meta in extras:
             if g not in groups:
                 groups[g] = []

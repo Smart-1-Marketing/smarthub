@@ -4111,6 +4111,8 @@ python3 test_client_prefill.py     # one client reader: what a form is offered,
                                    #   model is told about the client
 python3 test_client_logos.py       # a logo we found reaches the client's gallery,
                                    #   once, labeled with where it came from
+python3 test_search.py             # the top box: a client the query names comes
+                                   #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
 ```
 
