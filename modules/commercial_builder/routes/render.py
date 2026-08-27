@@ -2,8 +2,10 @@
 
 from flask import Blueprint, jsonify, request
 
+from ..config import OUTPUT_FORMATS, build_sort_key
 from ..db import db
-from ..models import Client, CommercialProject, RenderJob, Scene
+from ..models import (Client, CommercialProject, RenderApproval, RenderJob,
+                       Scene)
 from ..services import qc_service, creatomate_service, cloudinary_service
 
 bp = Blueprint("cb_render", __name__, url_prefix="/api/projects/<int:project_id>")
@@ -38,10 +40,29 @@ def submit_render(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     client = Client.query.get_or_404(project.client_id)
     data = request.get_json(force=True) or {}
-    _cb_log("render_submitted", client=client.name,
-            detail=f"{project.name or 'Commercial'} · {project.length or ''}s",
-            project=project.id)
-    formats = data.get("formats") or project.formats or ["16:9"]
+    # One size at a time, on purpose.
+    #
+    # This used to loop every ticked format and fire them all at once. Three
+    # renders in flight is three ways to be wrong before anybody has looked at
+    # one: the second and third are built from the same storyboard, so if the
+    # first comes back with a scene that reads badly at 9:16 or a CTA that
+    # crops, the other two have already been paid for and carry it too. Render
+    # one, watch it, approve it or change something — then the next.
+    requested = data.get("formats")
+    if requested is None:
+        one = data.get("format")
+        requested = [one] if one else (project.formats or ["16:9"])[:1]
+    requested = [f for f in requested if f]
+    if len(requested) != 1:
+        return jsonify({"ok": False, "error": (
+            "Render one size at a time. Pick a single format — once it comes "
+            "back and you've approved it, the others render from the same "
+            "storyboard.")}), 400
+
+    fmt = requested[0]
+    if fmt not in {f["id"] for f in OUTPUT_FORMATS}:
+        return jsonify({"ok": False, "error": f"{fmt} is not an output format."}), 400
+    formats = [fmt]
     force = data.get("force_despite_qc_failures", False)
 
     scenes = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
@@ -69,13 +90,69 @@ def submit_render(project_id):
 
     project.status = "rendering"
     db.session.commit()
-    return jsonify({"ok": True, "render_jobs": [j.to_dict() for j in jobs], "live": creatomate_service.is_live()})
+
+    _log_render(project, client, formats)
+    return jsonify({"ok": True, "render_jobs": [j.to_dict() for j in jobs],
+                    "live": creatomate_service.is_live(),
+                    # Mock mode returns a job id and no file. Saying so here is
+                    # what stops the panel reporting "succeeded" over nothing.
+                    "note": ("" if creatomate_service.is_live() else
+                             "No CREATOMATE_API_KEY is set, so these jobs are mock: "
+                             "they will report success and no file will exist.")})
+
+
+def _log_render(project, client, formats):
+    """Record the render on the client's 360 record. Never raises.
+
+    This call is why no commercial has ever rendered. It read `project.name`
+    and `project.length` — attributes `CommercialProject` does not have; it has
+    `title` and `length_seconds` — so it raised AttributeError at the very top
+    of the route, before the QC gate, before Creatomate, before anything. The
+    500 came back as HTML, `CB.api` failed to parse it as JSON and toasted
+    "Bad response from server" for three seconds, and the render panel stayed
+    empty. Press Render, nothing happens, no trace anywhere.
+
+    Two things follow, and the second is the reason this is a function.
+    `hub/audit.py` swallows what it is given — but the f-string was evaluated
+    by the caller *before* the logger could swallow anything, so the guard that
+    was supposed to make logging safe never saw it. Building the detail inside
+    the try is what actually makes it safe. And it runs after the render is
+    committed rather than before the QC gate, so a spot refused by QC is no
+    longer logged as submitted work.
+    """
+    try:
+        _cb_log("render_submitted", client=client.name,
+                detail=f"{project.title or 'Commercial'} · "
+                       f":{project.length_seconds:02d} · {', '.join(formats)}",
+                project=project.id)
+    except Exception:  # noqa: BLE001 — a log must never cost a render
+        pass
 
 
 @bp.get("/render-jobs")
 def list_render_jobs(project_id):
+    """Every render for this project, with its approval alongside it.
+
+    The approval travels with the job rather than in a second call: the panel
+    draws "rendered" and "approved" as different states, and two fetches is two
+    chances for it to draw one while the other is still in flight.
+    """
     project = CommercialProject.query.get_or_404(project_id)
-    return jsonify({"ok": True, "render_jobs": [j.to_dict() for j in project.render_jobs.all()]})
+    jobs = project.render_jobs.all()
+    approvals = {a.render_job_id: a.to_dict() for a in
+                 RenderApproval.query.filter_by(project_id=project.id).all()}
+    rows = []
+    for job in jobs:
+        row = job.to_dict()
+        row["approval"] = approvals.get(job.id)
+        rows.append(row)
+    approved_formats = sorted({j.format for j in jobs if j.id in approvals})
+    return jsonify({"ok": True, "render_jobs": rows,
+                    "approved_formats": approved_formats,
+                    "requested_formats": project.formats or [],
+                    "remaining_formats": [f for f in (project.formats or [])
+                                          if f not in approved_formats],
+                    "live": creatomate_service.is_live()})
 
 
 @bp.get("/render-jobs/<int:job_id>/status")
@@ -88,12 +165,132 @@ def check_render_job(project_id, job_id):
         job.error = status.get("error")
         db.session.commit()
 
-        if job.status == "succeeded" and job.output_url:
-            project = CommercialProject.query.get(project_id)
-            client = Client.query.get(project.client_id)
-            cloudinary_service.upload_asset(job.output_url, client.slug, "commercial",
-                                             public_id=f"project-{project_id}-{job.format.replace(':', 'x')}")
-            if all(j.status == "succeeded" for j in project.render_jobs.all()):
-                project.status = "complete"
-                db.session.commit()
-    return jsonify({"ok": True, "render_job": job.to_dict()})
+        # Deliberately no filing here any more. This used to copy the finished
+        # video into the client's library the moment Creatomate said
+        # "succeeded" — before anybody had watched it. A cut nobody has looked
+        # at is not a deliverable, and one already sitting in the client's
+        # gallery is one somebody can send. Filing is what Approve does now.
+    return jsonify({"ok": True, "render_job": job.to_dict(),
+                    "approval": _approval_of(job),
+                    "live": creatomate_service.is_live()})
+
+
+def _approval_of(job):
+    approval = RenderApproval.query.filter_by(render_job_id=job.id).first()
+    return approval.to_dict() if approval else None
+
+
+@bp.post("/render-jobs/<int:job_id>/approve")
+def approve_render(project_id, job_id):
+    """A human says this cut is good — and only then is it filed.
+
+    Two writes, reported separately, for the reason `hub/domain_links.py`
+    gives at length: "filed" and "filed in one of two places" are different
+    outcomes, and one tick over both is how somebody learns not to trust the
+    tick. The video goes into the client's Cloudinary library, and the
+    approval goes into the Hub activity log, which is what puts it on the
+    client's 360 record.
+    """
+    job = RenderJob.query.filter_by(id=job_id, project_id=project_id).first_or_404()
+    project = CommercialProject.query.get_or_404(project_id)
+    client = Client.query.get_or_404(project.client_id)
+    data = request.get_json(silent=True) or {}
+
+    if job.status != "succeeded":
+        return jsonify({"ok": False, "error": (
+            f"This render is {job.status}, so there is nothing to approve yet.")}), 400
+    if not job.output_url:
+        # Mock mode reports "succeeded" and produces no file. Approving that
+        # would file nothing into the client's library and log it as a
+        # delivered commercial — a clean tick over an empty gallery.
+        return jsonify({"ok": False, "error": (
+            "This render reported success but produced no file, so there is "
+            "nothing to file. That is what happens with no CREATOMATE_API_KEY "
+            "set — the job is a mock.")}), 400
+
+    existing = RenderApproval.query.filter_by(render_job_id=job.id).first()
+    if existing:
+        return jsonify({"ok": True, "approval": existing.to_dict(),
+                        "already": True, "next": _next_in_campaign(project)})
+
+    approval = RenderApproval(render_job_id=job.id, project_id=project.id,
+                              approved_by=_actor())
+
+    stored = cloudinary_service.upload_asset(
+        job.output_url, client.slug, "commercial",
+        public_id=f"project-{project_id}-{job.format.replace(':', 'x')}")
+    approval.stored_url = stored.get("secure_url") or ""
+    approval.stored_public_id = stored.get("public_id") or ""
+    if not approval.stored_url:
+        # Named, not swallowed. A commercial approved and not stored is one
+        # whose only copy is a Creatomate URL that expires.
+        approval.filing_error = (stored.get("error")
+                                 or "The video could not be copied into the client's library.")
+
+    try:
+        _cb_log("commercial_approved", client=client.name,
+                detail=f"{project.title or 'Commercial'} · "
+                       f":{project.length_seconds:02d} · {job.format}",
+                project=project.id, url=approval.stored_url or job.output_url)
+        approval.filed_to_client = True
+    except Exception as exc:  # noqa: BLE001
+        approval.filed_to_client = False
+        approval.filing_error = ((approval.filing_error or "") + " " + str(exc)).strip()
+
+    db.session.add(approval)
+
+    # The project is complete when every size somebody asked for has been
+    # approved — not when Creatomate stopped working.
+    approved = {a.render_job_id for a in
+                RenderApproval.query.filter_by(project_id=project.id).all()} | {job.id}
+    done = {j.format for j in project.render_jobs.all() if j.id in approved}
+    if done >= set(project.formats or []):
+        project.status = "complete"
+    db.session.commit()
+
+    return jsonify({"ok": True, "approval": approval.to_dict(),
+                    "project": project.to_dict(include_scenes=False),
+                    "remaining_formats": [f for f in (project.formats or [])
+                                          if f not in done],
+                    "next": _next_in_campaign(project)})
+
+
+def _actor():
+    try:
+        from hub import auth as _hub_auth
+        user = _hub_auth.user_from_environ(request.environ)
+        return (getattr(user, "name", None) or getattr(user, "email", None)
+                or str(user) or "")[:200]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _next_in_campaign(project):
+    """The next spot to work on once this one is approved, or None.
+
+    Several lengths started together share a campaign, and they are built in
+    config.BUILD_ORDER — the :30 first, because the others are cut down from
+    its storyboard. Approving one should hand somebody the next one's
+    Blueprint rather than leaving them on a finished Preview screen wondering
+    what happens now.
+
+    Returns the URL as well as the length: the caller is a browser, and
+    working out a wizard URL from a project id is not its job.
+    """
+    if not project.campaign_id:
+        return None
+    siblings = (CommercialProject.query
+                .filter_by(campaign_id=project.campaign_id)
+                .filter(CommercialProject.id != project.id).all())
+    unfinished = [p for p in siblings if p.status != "complete"]
+    if not unfinished:
+        return None
+    unfinished.sort(key=lambda p: build_sort_key(p.length_seconds))
+    nxt = unfinished[0]
+    try:
+        from flask import url_for
+        url = url_for("commercial_builder.cb_pages.blueprint", project_id=nxt.id)
+    except Exception:  # noqa: BLE001 — standalone, no such endpoint
+        url = f"/tools/commercial-builder/project/{nxt.id}/blueprint"
+    return {"project_id": nxt.id, "length_seconds": nxt.length_seconds,
+            "title": nxt.title or "", "url": url}

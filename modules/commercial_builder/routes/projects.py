@@ -6,7 +6,8 @@ from flask import Blueprint, jsonify, request
 from .. import client_link
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
                       PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
-                      qr_eligible, qr_required, get_structure, length_warning)
+                      qr_eligible, qr_required, get_structure, length_warning,
+                      in_build_order)
 from ..db import db
 from ..models import Client, CommercialProject, Scene, Campaign, Variation
 from ..services import openai_service, qrcode_service, cloudinary_service, qc_service
@@ -73,7 +74,10 @@ def start_commercial():
     if len(lengths) > MAX_LENGTHS_PER_BUILD:
         return jsonify({"ok": False,
                         "error": f"At most {MAX_LENGTHS_PER_BUILD} lengths in one build."}), 400
-    lengths.sort()
+    # 30, then 15, then the :05, then the :60 — not shortest first. The :30 is
+    # the length the others are cut down from, so it is the one to get approved
+    # before anything else is built. config.BUILD_ORDER says why.
+    lengths = in_build_order(lengths)
 
     formats = data.get("formats") or ["16:9"]
     valid_ids = {f["id"] for f in OUTPUT_FORMATS}
@@ -307,7 +311,18 @@ def generate_script(project_id):
 def set_music(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     data = request.get_json(force=True) or {}
-    project.music = {"mood": data.get("mood"), "level": data.get("level", "Medium")}
+    # Merged, not replaced.
+    #
+    # This used to assign a fresh two-key dict, which quietly wiped
+    # `voice_track_url` and `music_track_url` — the two keys
+    # routes/render.py reads to put audio on the render. So saving the music
+    # selection after generating a voiceover threw the voiceover away, and
+    # the finished commercial came back silent with nothing reading as an
+    # error anywhere.
+    music = dict(project.music or {})
+    music["mood"] = data.get("mood")
+    music["level"] = data.get("level", "Medium")
+    project.music = music
     db.session.commit()
     return jsonify({"ok": True, "music": project.music})
 

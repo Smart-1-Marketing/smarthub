@@ -66,6 +66,38 @@ def length_warning(length_seconds):
 # allowing the same one twice.
 MAX_LENGTHS_PER_BUILD = len(COMMERCIAL_LENGTHS)
 
+# The order several lengths are built in, which is not shortest-first.
+#
+# The :30 goes first because it is the workhorse — the length most CTV
+# inventory is sold in, and the one whose storyboard the others are cut down
+# from. Getting it approved first means every later cut starts from creative
+# somebody has already signed off, rather than three spots being built in
+# parallel and a note on the first one applying to all three after they have
+# been paid for.
+#
+# Then :15, then the :05 bumper, which are trims of that same storyboard. The
+# :60 is last: it is the most expensive to generate (roughly twice a :30 in
+# credits, characters and render time) and the one most likely to be dropped
+# when the budget lands, so it is the one to build when the rest are done.
+BUILD_ORDER = [30, 15, 5, 60]
+
+
+def build_sort_key(length_seconds):
+    """Where a length sits in the build queue.
+
+    A length not in BUILD_ORDER sorts after everything in it, by its own
+    duration, rather than raising or silently going first — a length added to
+    COMMERCIAL_LENGTHS and forgotten here must not jump the queue.
+    """
+    try:
+        return (0, BUILD_ORDER.index(int(length_seconds)))
+    except (ValueError, TypeError):
+        return (1, int(length_seconds or 0))
+
+
+def in_build_order(lengths):
+    return sorted(lengths, key=build_sort_key)
+
 VO_WORD_TARGETS = {
     5: (8, 12),
     # Tightened from 30-38 to 25-35 per the CTV/YouTube best-practices brief:

@@ -23,20 +23,28 @@
   <p style="margin-top:0;">Say what the read should sound like and we'll rank the account's
     voices against it. Every one has a sample — play them before you cast.</p>
 
-  <div class="cb-grid cb-grid-3" id="voice-wants"></div>
+  {# The five questions, drawn as tiles rather than dropdowns: every option
+     visible at once, and each one carrying what it will actually match on.
+     "Announcer" is not a mood here -- it is a search for announcer /
+     commercial / broadcast / promo in the words ElevenLabs publishes against
+     each voice, and a screen that says so lets somebody pick differently when
+     none of those words fit their client. #}
+  <div id="voice-wants"></div>
 
   <div class="cb-flex-between" style="margin:6px 0 12px;">
-    <button type="button" class="cb-btn" id="cast-btn">Find voices</button>
+    <button type="button" class="cb-btn cb-btn-primary" id="cast-btn">Find voices</button>
     <span class="cb-hint" id="cast-note"></span>
   </div>
 
   <div id="cast-results"></div>
 
-  <div class="cb-field" style="border-top:1px solid var(--cb-border);padding-top:14px;margin-top:14px;">
-    <label class="cb-label">Every voice on the account</label>
-    <select id="voice-select"><option value="">Loading voices…</option></select>
-    <p class="cb-hint">The whole list, for when you already know the voice you want.</p>
-  </div>
+  <details style="margin-top:14px;border-top:1px solid var(--cb-border);padding-top:12px;">
+    <summary style="cursor:pointer;font-weight:640;font-size:13px;">Every voice on the account</summary>
+    <div class="cb-field" style="margin-top:10px;">
+      <select id="voice-select"><option value="">Loading voices…</option></select>
+      <p class="cb-hint">The whole list, for when you already know the voice you want.</p>
+    </div>
+  </details>
 </div>
 
 <div class="cb-card">
@@ -59,26 +67,49 @@
   <span id="voice-status" class="cb-hint"></span>
 </div>
 
-<div class="cb-card">
+<div class="cb-card" id="music-root">
   <h3>Music
     {{ help_dot('commercial_builder.voice.music') if help_dot is defined else '' }}
   </h3>
-  <div class="cb-grid cb-grid-2">
-    <div class="cb-field">
-      <label class="cb-label">Mood</label>
-      <select id="music-mood">
-        <option value="">— Select mood —</option>
-        {% for m in music_moods %}<option value="{{ m }}" {{ 'selected' if project.music and project.music.mood == m else '' }}>{{ m }}</option>{% endfor %}
-      </select>
+
+  <div class="cb-field">
+    <label class="cb-label">Mood</label>
+    {# The waveforms are an illustration of the mood, not a preview of a track:
+       nothing has been chosen at this point, so a picture that looked like a
+       waveform reading would be claiming something. The note below says so. #}
+    <div class="cb-mood-grid" id="music-mood-choices">
+      {% for m in music_moods %}
+        <button type="button" class="cb-mood {{ 'selected' if project.music and project.music.mood == m else '' }}" data-value="{{ m }}">
+          <span class="mood-art"></span>
+          <div class="cb-mood-name">{{ m }}</div>
+        </button>
+      {% endfor %}
     </div>
-    <div class="cb-field">
-      <label class="cb-label">Music level (auto-ducks under voiceover)</label>
-      <select id="music-level">
-        {% for l in music_levels %}<option value="{{ l }}" {{ 'selected' if project.music and project.music.level == l else '' }}>{{ l }}</option>{% endfor %}
-      </select>
+    <p class="cb-hint" id="music-mood-note"></p>
+  </div>
+
+  <div class="cb-field">
+    <label class="cb-label">Level under the voiceover</label>
+    {# Drawn rather than named, because "Medium" tells nobody anything. Each
+       tile shows the bed level and the ducked level from config.MUSIC_LEVELS —
+       the same two numbers creatomate_service turns into the automation
+       keyframes, so what is on screen is what gets rendered. #}
+    <div class="cb-level-grid" id="music-level-choices">
+      {% for label, pair in music_levels.items() %}
+        <button type="button" class="cb-level {{ 'selected' if (project.music and project.music.level == label) or (not project.music and label == 'Medium') else '' }}"
+                data-value="{{ label }}" data-bed="{{ pair[0] }}" data-ducked="{{ pair[1] }}">
+          <div class="cb-level-name">{{ label }}</div>
+          <div class="cb-level-db">{{ pair[0] }} dB, ducking to {{ pair[1] }} dB</div>
+          <span class="level-art"></span>
+        </button>
+      {% endfor %}
     </div>
   </div>
-  <button type="button" class="cb-btn" id="save-music-btn">Save music selection</button>
+
+  <div class="cb-flex-between">
+    <button type="button" class="cb-btn" id="save-music-btn">Save music selection</button>
+    <span class="cb-hint" id="music-status"></span>
+  </div>
 </div>
 
 {% endblock %}

@@ -859,6 +859,77 @@ for the reason `hub/blog_spec.py` gives about a client's "never mention" list.
 QR is *required* only where nothing can be clicked, which is CTV: reporting its
 absence on every social spot is how a warning stops being read.
 
+**The audit line that stopped every render there has ever been.**
+`submit_render` opened with `audit.log`-style detail built from `project.name`
+and `project.length` — attributes `CommercialProject` does not have; it has
+`title` and `length_seconds`. So the f-string raised `AttributeError` at the
+top of the route, **before** the QC gate and before Creatomate, and every
+render this tool has ever been asked for returned a 500. The browser got HTML,
+`CB.api` could not parse it as JSON, and a three-second toast said "Bad
+response from server" over an empty panel: press Render, nothing happens,
+nothing in any log. This is `audit.log()`'s first-positional trap one step
+further on — `hub/audit.py` swallows what it is *given*, and the caller
+evaluated the arguments before the swallow could apply, so the guard that was
+supposed to make logging safe never saw them. The detail is built **inside**
+the try now, and the call moved after the commit so a spot refused by QC is no
+longer logged as submitted work.
+
+**One size at a time, and approving is what files it.** Rendering every ticked
+format at once means the second and third are built from a storyboard nobody
+has watched — so a note on the first applies to two cuts already paid for. The
+render route takes one format and refuses more by name. And `check_render`
+used to copy the finished video into the client's Cloudinary library the
+moment Creatomate said "succeeded", before any human had seen it: a cut nobody
+has watched is not a deliverable, and one already sitting in the client's
+gallery is one somebody can send. Filing is `POST …/approve` now, it reports
+the Cloudinary write and the activity-log write **separately** for the reason
+`hub/domain_links.py` gives, and a mock render — which reports success and
+produces no file — is refused rather than filed as a delivered commercial.
+Approval state is `cb_render_approvals`, its own **table**: `create_all()`
+creates missing tables and never adds a column to an existing one, so an
+`approved_by` on `cb_render_jobs` would be silently absent on the live
+Postgres with every local test green.
+
+**Several lengths are built :30 first, not shortest first.**
+`config.BUILD_ORDER` is `[30, 15, 5, 60]`. The :30 is the length the others are
+cut down from, so getting it approved first means every later cut starts from
+creative somebody has signed off; the :60 is last because it is the most
+expensive and the first to be dropped when the budget lands. Approving one
+hands back the **next spot's Blueprint** rather than leaving somebody on a
+finished Preview screen — `_next_in_campaign()` — because a campaign of three
+lengths where two never get built is the ordinary outcome otherwise.
+
+**A voiceover generated and thrown away is a silent commercial.**
+`routes/render.py` reads `project.music["voice_track_url"]` to put narration on
+the timeline, and nothing in the module had ever written that key: the full
+voiceover was generated, ElevenLabs was billed for every character of it, the
+estimated duration was reported and the audio was discarded. Worse,
+`set_music` **assigned** a fresh `{mood, level}` dict, so even a key written by
+something else was wiped by the next save on the Music panel. Both are fixed —
+the MP3 is stored to the client's library and the URL merged onto the project,
+and every write to `project.music` merges. `test_commercial_wizard.py` asserts
+the voice track survives a music save, because the failure is invisible from
+both ends: the panel says "generated", the render says "succeeded", and the
+file is silent.
+
+**A picture may encode something, or it may assert something.** The Voice and
+Music steps are tiles rather than dropdowns now, and the rule they follow is
+worth keeping: **draw a graphic where it carries real information, and use a
+plain labelled tile where it would not.** Energy draws an amplitude because
+`STYLE_BY_ENERGY` is literally the `style` value sent on the render, so the
+choice changes the read and not just the shortlist; the level picker draws the
+two dB figures in `MUSIC_LEVELS`, which are the same numbers
+`creatomate_service` turns into the ducking keyframes, so what is on screen is
+what renders. Nothing is drawn for gender, age or accent — a face or a flag
+there would assert something the tool does not know. The mood waveforms are the
+one illustration, and they are **labelled as one**: no music library is
+connected, so a picture that reads as a waveform of a chosen track would be
+claiming a track exists. Each casting tile also prints the words it will
+actually match on (`characteristics_detail()`), because "Announcer" is not a
+mood — it is a search for *announcer, commercial, broadcast, promo* in the text
+ElevenLabs publishes, and a screen that says so lets somebody pick differently
+before listening to three wrong voices.
+
 **A provider's asset URL is signed and expires.** A HeyGen clip linked
 directly plays today and 404s next week. Finished clips are mirrored into
 Cloudinary through `cloudinary_service.upload_asset`, the way rendered

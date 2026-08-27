@@ -677,7 +677,7 @@ REGISTRY: list[Help] = [
        "under the voiceover on its own. High is for a spot carried by energy "
        "rather than by what is said \u2014 on a feed, where most people watch "
        "muted, it is doing very little.",
-       step=4, selector="#music-mood"),
+       step=4, selector="#music-mood-choices"),
 
     _h("commercial_builder.cta.style", "The end card is the only part that asks for anything",
        "Style decides what dominates the frame: the logo, the offer, the "
@@ -702,6 +702,18 @@ REGISTRY: list[Help] = [
        "often heard rather than watched. It is a recommendation, not a "
        "requirement \u2014 the check will mark it amber, not block the render.",
        step=3, selector="#cta-logo-persistent"),
+
+    _h("commercial_builder.preview.render", "One size, then the next",
+       "Rendering all three sizes at once means the second and third come off "
+       "a storyboard nobody has watched yet \u2014 so a note on the first applies "
+       "to two cuts that have already been paid for. Render one, watch it, "
+       "then approve it. Approving is what files it: the video is copied into "
+       "the client\u2019s library and recorded on their record, and the panel "
+       "says which of those two actually happened rather than showing one tick "
+       "for both. Nothing is filed before you approve it. Where several "
+       "lengths were started together they are built :30 first \u2014 the others "
+       "are cut down from its storyboard \u2014 then :15, the :05, and the :60 "
+       "last, and approving one hands you the next one\u2019s Blueprint."),
 
 ]
 
