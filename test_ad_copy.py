@@ -388,6 +388,23 @@ ok("a choice Knack would refuse is refused here",
 ok("and the rest of the record still went", len(rec["written"]) >= 8,
    str(rec["written"]))
 
+print("\n=== The shared-login marker never reaches Seller Name ===")
+reset()
+use_orders(_orders([]))
+rec = ad_copy.create("Riverside HVAC", {"client": "c" * 24},
+                     author="Shared login")
+sent = (SENT["post"] or {}).get("json") or {}
+ok("a request from a shared-password session carries no seller",
+   "field_1804" not in sent,
+   "the prefill refuses that marker; a rule the form keeps and the write "
+   "breaks is not a rule")
+reset()
+rec = ad_copy.create("Riverside HVAC", {"client": "c" * 24}, author="Todd Smart")
+sent = (SENT["post"] or {}).get("json") or {}
+check("but a real name is still written without being asked for",
+      sent.get("field_1804"), "Todd Smart")
+
+
 print("\n=== A request filed against nobody is refused ===")
 reset()
 try:
@@ -434,16 +451,40 @@ ok("the form has no second copy of the prefill rules",
    "classifier each carry a mirror already, and each needs a test proving "
    "the halves agree")
 ok("the drawer is read at call time, not captured at load",
-   "function kf()" in js,
+   "var KF = function () { return window.KnackForm; }" in js,
    "a page that loads the two scripts in the other order would capture "
    "undefined and fail with no clue why")
+ok("picking a campaign writes into the box rather than redrawing the row",
+   "addEventListener('change'" in js and "drawAreas" not in js,
+   "a container that re-renders while somebody is typing into it eats what "
+   "they typed — the Smart 1 Ads target-area trap")
 
-for path in ("hub/static/web-ticket.js", "hub/static/ad-copy.js"):
+for path in ("hub/static/web-ticket.js", "hub/static/campaign-request.js",
+             "hub/static/ad-copy.js"):
     src = open(path, encoding="utf-8").read()
     ok(f"{os.path.basename(path)} draws through KnackForm",
        "KnackForm" in src,
        "two copies of what control a Knack dropdown needs is two copies to "
        "keep in step")
+
+print("\n=== This client's own answers are offered on the fields ===")
+reset()
+use_orders(TWO_ORDERS)
+d = ad_copy.form("Riverside HVAC", user_name="Todd Smart",
+                 user_email="todd@smart1marketing.com")
+by_key = {f["key"]: f for f in d["fields"]}
+check("the campaign box offers this client's campaigns",
+      by_key["campaign"].get("suggest"), ["Fall Furnace", "Spring Tune-Up"])
+check("the order number box offers their IO numbers",
+      by_key["order_number"].get("suggest"), ["5013", "4821"])
+check("the media partner box offers their partners",
+      by_key["media_partner"].get("suggest"), ["iHeart", "Cumulus Media"])
+ok("the due date says it is blank on purpose",
+   "on purpose" in (by_key["due_date"].get("hint") or ""),
+   by_key["due_date"].get("hint") or "")
+ok("and the file field says where files actually go",
+   "Knack" in (by_key["files"].get("hint") or ""),
+   by_key["files"].get("hint") or "")
 
 print("\n" + ("-" * 60))
 if FAILURES:

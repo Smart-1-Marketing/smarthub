@@ -1,14 +1,5 @@
 /* New Web Ticket / Manage Ticket — the object_107 form.
  *
- * The controls themselves come from hub/static/knack-form.js, which is the
- * one reading of "what control does a Knack field type need" — the Ad Copy
- * Request form draws the same list of {key, label, control, choices} and a
- * second copy of that reading is a second copy to keep in step, the reason
- * `coerce_field` in hub/knack_api.py is object-agnostic. What stays here is
- * only what a *web ticket* means: the ready-to-submit toggle Knack's own
- * workflow reads, the billable radios, and the website box that opens on the
- * record the ticket was raised from.
- *
  * The four-box modal this replaces sent a title, a website, a description and
  * a name. The type of ticket, whether the revision is billable, the media
  * partner and their contact, and the ready-to-submit answer Knack's workflow
@@ -34,65 +25,64 @@
 window.WebTicket = (function () {
   'use strict';
 
-  // Read at call time, not at load: the drawer is a separate script and a
-  // page that loads them in the other order would otherwise capture undefined
-  // here and fail with no clue why.
-  function kf() { return window.KnackForm; }
+  // The controls, the reading back and the refusal notice all live in
+  // /knack-form.js, shared with the Campaign Support form: the two ask the
+  // same question of two Knack objects, and a second copy of this renderer is
+  // the failure CLAUDE.md names twice over (the image-resize rule and the
+  // PEXELS_API key each had to be fixed in several places).
+  //
+  // What stays here is the three fields this form draws its own way, and the
+  // wording on the submit toggle.
+  var KF = function () { return window.KnackForm; };
+  var INPUT = 'padding:9px 12px;border:1px solid var(--line,#e2e8f0);border-radius:8px;font:13px inherit;width:100%;box-sizing:border-box';
 
-  var PREFIX = 'wt-';                 // the ids this form has always used
+  function esc(s) { return KF().esc(s); }
+  function same(a, b) { return KF().same(a, b); }
+  function read(f) { return KF().read(f, CTX); }
+  function wire() { KF().wire(); }
+  function refusedHtml(r) { return KF().refusedHtml(r); }
 
-  function esc(s) { return kf().esc(s); }
-
-  // ---------------------------------------------------- what a ticket means
-  // The three fields whose control is not decided by their Knack type, handed
-  // to the shared drawer through its `custom` hook. Everything else on the
-  // object is drawn from the schema.
-  function custom(ctx) {
-    return function (f, v) {
-      var K = kf();
-      if (f.key === 'ready_to_submit') {
-        // Sending the form is the act of submitting, so this opens on yes and
-        // one click turns it off for a ticket someone is filing to finish
-        // later. Knack's workflow reads this field, and a ticket that arrives
-        // with it blank sits in nobody's queue.
-        return K.toggle(PREFIX, f, v,
-          '\u2713  Yes — submit this ticket', 'No — not ready to submit');
-      }
-      if (f.key === 'billable') return K.radios(PREFIX, f, v);
-      if (f.key === 'website') {
-        // The URL of the page this was raised from, with the client's other
-        // sites offered beside it — and still a text box, because the site
-        // that needs the work is not always one we hold a record for.
-        return K.suggest(PREFIX, f, v, (ctx && ctx.sites) || [],
-          'From the record on screen — or type another.', 'Which website?');
-      }
-      return null;
-    };
+  function toggleText(on) {
+    return on ? '\u2713  Yes — submit this ticket' : 'No — not ready to submit';
   }
 
-  function withCustom(ctx) {
-    ctx = ctx || {};
-    ctx.custom = custom(ctx);
-    return ctx;
+  // Ready to submit is a button, not a question: sending the form is the act
+  // of submitting, so it opens on yes and one click turns it off for a ticket
+  // someone is filing to finish later. Knack's workflow reads this field, and
+  // a ticket that arrives with it blank sits in nobody's queue.
+  //
+  // Revision Requires Billing is two radios, because a field with two answers
+  // should not hide one of them behind a click.
+  function override(f, v) {
+    if (f.key === 'ready_to_submit') {
+      return KF().toggle(f, v, CTX, toggleText(true), toggleText(false));
+    }
+    if (f.key === 'billable') return KF().radios(f, v, CTX);
+    return null;
   }
 
-  function form(fields, values, skip, ctx) {
-    return kf().form(PREFIX, fields, values, skip, withCustom(ctx));
+  var CTX = { prefix: 'wt-', override: override };
+
+  // The website field is a text box with the client's own sites offered
+  // beside it — the site that needs the work is not always one we hold a
+  // record for, so the list suggests and never restricts.
+  function withSites(fields, sites) {
+    (fields || []).forEach(function (f) {
+      if (f.key !== 'website') return;
+      f.suggest = (sites || []).filter(function (x) { return x; });
+      f.placeholder = 'Which website?';
+      if (f.suggest.length) f.hint = 'From the record on screen — or type another.';
+    });
+    return fields;
   }
 
-  function read(f) { return kf().read(PREFIX, f); }
-
-  function wire() { kf().wire(); }
-
-  function same(a, b) { return kf().same(a, b); }
-
-  function refusedHtml(rejected) { return kf().refusedHtml(rejected); }
+  function form(fields, values, skip) {
+    return KF().form(fields, values, skip, CTX);
+  }
 
   function shell(id, titleHtml, bodyHtml, width) {
-    return kf().shell(id, titleHtml, bodyHtml, width);
+    return KF().modal(id, titleHtml, bodyHtml, width || 640, true);
   }
-
-  var INPUT = 'padding:9px 12px;border:1px solid var(--line,#e2e8f0);border-radius:8px;font:13px inherit;width:100%;box-sizing:border-box';
 
   function loadFields(scope) {
     var url = scope === 'manage'
@@ -109,10 +99,6 @@ window.WebTicket = (function () {
   // ------------------------------------------------------------ raise one
   function open(opts) {
     opts = opts || {};
-    if (!kf()) {
-      alert('The ticket form failed to load. Reload the page and try again.');
-      return;
-    }
     var name = String(opts.client || '');
     var user = String(opts.user || '');
     var m = shell('tickModal', 'New Web Ticket — ' + esc(opts.site || name),
@@ -168,7 +154,7 @@ window.WebTicket = (function () {
         '<div style="margin-bottom:16px">' +
           '<label for="wtReq" style="display:block;font-size:12px;color:#475569;margin-bottom:3px">Requested by</label>' +
           '<select id="wtReq" style="' + INPUT + '">' + reqOpts.join('') + '</select></div>' +
-        form(fields, prefill, null, { sites: sites });
+        form(withSites(fields, sites), prefill);
       wire();
 
       foot.innerHTML = '<span id="wtMsg" class="muted" style="font-size:12px"></span>' +
@@ -222,10 +208,6 @@ window.WebTicket = (function () {
   // ------------------------------------------------------------- edit one
   function manage(opts) {
     opts = opts || {};
-    if (!kf()) {
-      alert('The ticket form failed to load. Reload the page and try again.');
-      return;
-    }
     var t = opts.ticket || {};
     var m = shell('tickManageModal', 'Manage Ticket — ' + esc(t.title || ''),
       '<div class="empty">Reading the ticket fields from Knack… <span class="spin"></span></div>');
@@ -244,7 +226,7 @@ window.WebTicket = (function () {
       body.innerHTML =
         '<div class="muted" style="font-size:12px;margin-bottom:12px">' +
         'Ticket Title is not editable — renaming a ticket breaks the thread for whoever raised it.</div>' +
-        form(fields, opened, null, { sites: opts.sites || [] });
+        form(withSites(fields, opts.sites || []), opened);
       wire();
 
       foot.innerHTML = '<span id="wtMsg" class="muted" style="font-size:12px"></span>' +

@@ -1,21 +1,36 @@
-/* Drawing a Knack object as a form — one copy, for every object that needs one.
+/* One renderer for a form built from a live Knack object.
  *
- * The web ticket form (object_107) and the Ad Copy Request form each draw a
- * list of {key, label, control, choices, required, known} into controls, read
- * them back, and show what Knack refused. That is the same job twice, and this
- * codebase has already paid twice for a rule that had to be found and fixed in
- * several places at once — the image-resize and PEXELS_API notes in CLAUDE.md.
- * So the type-to-control reading lives here, exactly as `coerce_field` in
- * hub/knack_api.py is object-agnostic rather than restated per object.
+ * The New Web Ticket form (object_107) and the Campaign Support form
+ * (object_121) ask the same question of two objects: draw whatever
+ * /api/…/fields returns, with the richest control each field publishes —
+ * a connection as a picker of the records it may point at, a multiple choice
+ * as its own choices, a boolean as yes/no — and read the answers back in the
+ * shape a write wants.
  *
- * What is NOT here is anything a particular object means. A field that needs
- * its own control — the ticket's ready-to-submit toggle, the ad copy form's
- * campaign picker — comes through `ctx.custom(f, value, ctx)`, which returns
- * HTML or null. A branch per object in here would be this file learning what a
- * web ticket is.
+ * The second copy is what this file exists to stop. web-ticket.js carried
+ * this renderer, campaign-request.js was about to carry a near-identical one,
+ * and CLAUDE.md names that failure twice already: the image-resize rule and
+ * the PEXELS_API key each had to be found and fixed in several places.
  *
- * Ids are prefixed per form so two forms can be open without colliding, and so
- * the ids a form has always used do not change under it.
+ * Two rules it never breaks:
+ *
+ *   It never invents a choice. A field with nothing published becomes a text
+ *   box, because Knack refuses the WHOLE record over one bad dropdown value —
+ *   an empty picker is a field nobody can fill, and a guessed one is a lost
+ *   request.
+ *
+ *   It never draws a control for something that cannot be written. A Knack
+ *   file field is written by its own upload call, so a text box here would
+ *   take a filename and drop it; it draws a note instead.
+ *
+ * A field is {key, field, group, label, control, choices, required, known,
+ * writable} — plus two optional extras a caller may add before drawing:
+ * `suggest` (a list offered as a datalist on a text box) and `hint` (a line
+ * of help under the control).
+ *
+ * `ctx.prefix` namespaces the element ids, so two of these can sit on one
+ * page without colliding. `ctx.override(field, value, ctx)` returns HTML for
+ * a field the caller draws itself, or null to take the standard control.
  */
 window.KnackForm = (function () {
   'use strict';
@@ -28,7 +43,20 @@ window.KnackForm = (function () {
     });
   }
 
-  function shell(id, titleHtml, bodyHtml, width) {
+  function same(a, b) {
+    if (Array.isArray(a) || Array.isArray(b)) {
+      return JSON.stringify(a || []) === JSON.stringify(b || []);
+    }
+    return String(a == null ? '' : a) === String(b == null ? '' : b);
+  }
+
+  function pfx(ctx) { return (ctx && ctx.prefix) || 'kf-'; }
+
+  // The dialog both forms open in. It was written out twice, identically bar
+  // a footer, which is the same second copy this file exists to stop.
+  // `withFoot` adds the sticky action row a long scrolling form needs; a
+  // short one puts its own button in the body and passes nothing.
+  function modal(id, titleHtml, bodyHtml, width, withFoot) {
     var old = document.getElementById(id);
     if (old) old.remove();
     var m = document.createElement('div');
@@ -42,19 +70,14 @@ window.KnackForm = (function () {
       '<b style="color:var(--navy,#0f2545)">' + titleHtml + '</b>' +
       '<button data-close="1" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>' +
       '<div data-body="1" style="padding:16px 18px;overflow-y:auto">' + bodyHtml + '</div>' +
-      '<div data-foot="1" style="display:flex;justify-content:flex-end;gap:10px;align-items:center;' +
-      'padding:12px 18px;border-top:1px solid var(--line,#e2e8f0)"></div></div>';
+      (withFoot === false ? '' :
+        '<div data-foot="1" style="display:flex;justify-content:flex-end;gap:10px;align-items:center;' +
+        'padding:12px 18px;border-top:1px solid var(--line,#e2e8f0)"></div>') +
+      '</div>';
     document.body.appendChild(m);
     m.onclick = function (e) { if (e.target === m) m.remove(); };
     m.querySelector('[data-close]').onclick = function () { m.remove(); };
     return m;
-  }
-
-  function same(a, b) {
-    if (Array.isArray(a) || Array.isArray(b)) {
-      return JSON.stringify(a || []) === JSON.stringify(b || []);
-    }
-    return String(a == null ? '' : a) === String(b == null ? '' : b);
   }
 
   // The yes and no a field actually holds. A boolean takes yes/no; a
@@ -71,15 +94,15 @@ window.KnackForm = (function () {
 
   // Two answers, two radios. A dropdown for a yes/no hides one of the two
   // answers behind a click and reads as though there might be more.
-  function radios(prefix, f, v) {
+  function radios(f, v, ctx) {
     var yn = yesNo(f);
     var picked = String(v == null ? '' : v).toLowerCase();
     return '<div style="display:flex;gap:16px;align-items:center;padding-top:3px">' +
       [yn.yes, yn.no].filter(Boolean).map(function (c, i) {
-        var id = prefix + f.key + '-' + i;
+        var id = pfx(ctx) + f.key + '-' + i;
         var on = picked === String(c).toLowerCase();
         return '<label for="' + id + '" style="display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer">' +
-          '<input type="radio" id="' + id + '" name="' + prefix + f.key + '" value="' + esc(c) + '"' +
+          '<input type="radio" id="' + id + '" name="' + pfx(ctx) + f.key + '" value="' + esc(c) + '"' +
           (on ? ' checked' : '') + '>' + esc(c) + '</label>';
       }).join('') + '</div>';
   }
@@ -90,75 +113,61 @@ window.KnackForm = (function () {
       'background:' + (on ? '#dcfce7' : '#fff') + ';color:' + (on ? '#15803d' : '#64748b') + ';';
   }
 
-  // A yes/no that opens on yes and is turned off by one click, for the answer
-  // that IS the act of sending the form. The two captions ride on the element
-  // so wire() can flip it without knowing what the field means.
-  function toggle(prefix, f, v, onText, offText) {
+  // A yes/no that opens on yes and is turned off in one click. Used where the
+  // ordinary act of sending the form IS the yes — a question there would be a
+  // question with one sensible answer.
+  function toggle(f, v, ctx, on_text, off_text) {
     var yn = yesNo(f);
     var on = (v === '' || v == null) ? true
       : String(v).toLowerCase() === String(yn.yes).toLowerCase();
-    return '<button type="button" id="' + prefix + f.key + '" data-toggle="1" ' +
+    return '<button type="button" id="' + pfx(ctx) + f.key + '" data-toggle="1" ' +
       'data-yes="' + esc(yn.yes) + '" data-no="' + esc(yn.no) + '" data-on="' + (on ? '1' : '0') + '" ' +
-      'data-on-text="' + esc(onText) + '" data-off-text="' + esc(offText) + '" ' +
-      'style="' + toggleStyle(on) + '">' + esc(on ? onText : offText) + '</button>';
-  }
-
-  // A datalist-backed text box: the values we know offered, and still typable,
-  // for a field whose right answer is usually — but not always — one of ours.
-  function suggest(prefix, f, v, list, note, placeholder) {
-    var id = prefix + f.key;
-    var listId = id + '-list';
-    var items = (list || []).filter(function (x) { return x; });
-    return '<input id="' + id + '" value="' + esc(v) + '"' +
-      (items.length ? ' list="' + listId + '"' : '') +
-      ' placeholder="' + esc(placeholder || '') + '" style="' + INPUT + '">' +
-      (items.length ? '<datalist id="' + listId + '">' + items.map(function (u) {
-        return '<option value="' + esc(u) + '"></option>';
-      }).join('') + '</datalist>' : '') +
-      (items.length && note ? '<div class="muted" style="font-size:11.5px;margin-top:3px">' +
-        esc(note) + '</div>' : '');
+      'data-on-text="' + esc(on_text) + '" data-off-text="' + esc(off_text) + '" ' +
+      'style="' + toggleStyle(on) + '">' + esc(on ? on_text : off_text) + '</button>';
   }
 
   // -------------------------------------------------------------- controls
   // One control per Knack field type. `value` is what the record already
   // holds — a record id for a connection, because writing a connection's
   // label back is what clears the link.
-  function control(prefix, f, value, ctx) {
-    var id = prefix + f.key;
-    var v = value == null ? '' : value;
-    var blank = '<option value="">—</option>';
-
-    if (ctx && typeof ctx.custom === 'function') {
-      var own = ctx.custom(f, v, ctx);
+  function control(f, value, ctx) {
+    ctx = ctx || {};
+    if (ctx.override) {
+      var own = ctx.override(f, value, ctx);
       if (own != null) return own;
     }
+    var id = pfx(ctx) + f.key;
+    var v = value == null ? '' : value;
+    var blank = '<option value="">—</option>';
+    var hint = f.hint
+      ? '<div class="muted" style="font-size:11.5px;margin-top:3px">' + esc(f.hint) + '</div>'
+      : '';
 
-    if (f.control === 'textarea') {
-      return '<textarea id="' + id + '" rows="5" style="' + INPUT + '">' + esc(v) + '</textarea>';
+    if (f.control === 'file' || f.writable === false) {
+      // Drawn, and not a box. A Knack file field is written by its own upload
+      // call, so a text box here would take a filename and drop it.
+      return '<div style="font-size:12px;color:#64748b;background:#f8fafc;border:1px dashed var(--line,#e2e8f0);' +
+        'border-radius:8px;padding:9px 12px">' +
+        esc(f.hint || 'Attached in Knack after the request is created — files cannot be sent with it.') +
+        '</div>';
     }
-    if (f.control === 'file') {
-      // Not a text box, and not silently absent either. A Knack file field
-      // takes an upload to Knack's own asset endpoint, so the Hub cannot
-      // write it — and a request sent believing the artwork went with it is
-      // worse than one that says where to put it.
-      return '<input id="' + id + '" disabled value="" placeholder="Attach on the Knack record" ' +
-        'style="' + INPUT + ';background:#f8fafc;color:#94a3b8">' +
-        '<div class="muted" style="font-size:11.5px;margin-top:3px">' +
-        'Files are attached on the record in Knack — the Hub cannot upload them, ' +
-        'so nothing is sent from here.</div>';
+    if (f.control === 'textarea') {
+      return '<textarea id="' + id + '" rows="5"' +
+        (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
+        ' style="' + INPUT + '">' + esc(v) + '</textarea>' + hint;
     }
     if (f.control === 'boolean') {
       var yes = v === true || String(v).toLowerCase() === 'yes' || String(v) === 'true';
       var no = v === false || String(v).toLowerCase() === 'no' || String(v) === 'false';
       return '<select id="' + id + '" style="' + INPUT + '">' + blank +
         '<option value="yes"' + (yes ? ' selected' : '') + '>Yes</option>' +
-        '<option value="no"' + (no ? ' selected' : '') + '>No</option></select>';
+        '<option value="no"' + (no ? ' selected' : '') + '>No</option></select>' + hint;
     }
     if (f.control === 'select' || f.control === 'multi') {
       if (!f.choices || !f.choices.length) {
         // Knack published no choices for it — a text box is honest, a select
         // with nothing in it is a field nobody can fill.
-        return '<input id="' + id + '" value="' + esc(v) + '" style="' + INPUT + '">';
+        return text(id, v, f, ctx) + hint;
       }
       var chosen = Array.isArray(v) ? v.map(String) : (v === '' ? [] : [String(v)]);
       var opts = f.choices.map(function (c) {
@@ -167,9 +176,11 @@ window.KnackForm = (function () {
       }).join('');
       if (f.control === 'multi') {
         return '<select id="' + id + '" multiple size="' + Math.min(5, f.choices.length) +
-          '" style="' + INPUT + '">' + opts + '</select>';
+          '" style="' + INPUT + '">' + opts + '</select>' +
+          '<div class="muted" style="font-size:11.5px;margin-top:3px">' +
+          (f.hint ? esc(f.hint) + ' ' : '') + 'Pick as many as apply.</div>';
       }
-      return '<select id="' + id + '" style="' + INPUT + '">' + blank + opts + '</select>';
+      return '<select id="' + id + '" style="' + INPUT + '">' + blank + opts + '</select>' + hint;
     }
     if (f.control === 'connection') {
       if (!f.choices || !f.choices.length) {
@@ -182,23 +193,41 @@ window.KnackForm = (function () {
         f.choices.map(function (c) {
           return '<option value="' + esc(c.id) + '"' + (c.id === picked ? ' selected' : '') +
             '>' + esc(c.label) + '</option>';
-        }).join('') + '</select>';
+        }).join('') + '</select>' + hint;
     }
     if (f.control === 'date') {
       // Left as text on purpose: Knack shows dates as MM/DD/YYYY and a date
       // input would hand back YYYY-MM-DD, so the value that came out of the
       // record would not be the value that goes back in.
-      return '<input id="' + id + '" value="' + esc(v) + '" placeholder="MM/DD/YYYY" style="' + INPUT + '">';
+      return '<input id="' + id + '" value="' + esc(v) + '" placeholder="MM/DD/YYYY" style="' + INPUT + '">' + hint;
     }
-    return '<input id="' + id + '" value="' + esc(v) + '" style="' + INPUT + '">';
+    return text(id, v, f, ctx) + hint;
   }
 
-  function read(prefix, f) {
-    var picked = document.querySelector('input[name="' + prefix + f.key + '"]:checked');
+  // A text box, with the caller's suggestions offered beside it where there
+  // are any. A datalist suggests and never restricts — which is the right
+  // shape for a value the Hub happens to know (a client's own IO numbers) on
+  // a field Knack publishes no choices for.
+  function text(id, v, f, ctx) {
+    var list = (f.suggest || []).filter(function (x) { return x; });
+    var ph = f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '';
+    if (!list.length) {
+      return '<input id="' + id + '" value="' + esc(v) + '"' + ph + ' style="' + INPUT + '">';
+    }
+    var listId = id + '-list';
+    return '<input id="' + id + '" value="' + esc(v) + '" list="' + listId + '"' + ph +
+      ' style="' + INPUT + '">' +
+      '<datalist id="' + listId + '">' + list.map(function (x) {
+        return '<option value="' + esc(x) + '"></option>';
+      }).join('') + '</datalist>';
+  }
+
+  function read(f, ctx) {
+    if (f.control === 'file' || f.writable === false) return '';
+    var picked = document.querySelector('input[name="' + pfx(ctx) + f.key + '"]:checked');
     if (picked) return picked.value;
-    var el = document.getElementById(prefix + f.key);
+    var el = document.getElementById(pfx(ctx) + f.key);
     if (!el) return '';
-    if (el.disabled) return '';
     if (el.dataset && el.dataset.toggle) {
       return el.dataset.on === '1' ? el.dataset.yes : el.dataset.no;
     }
@@ -209,7 +238,7 @@ window.KnackForm = (function () {
     return String(el.value == null ? '' : el.value).trim();
   }
 
-  function form(prefix, fields, values, skip, ctx) {
+  function form(fields, values, skip, ctx) {
     var groups = [], byGroup = {};
     fields.forEach(function (f) {
       if (skip && skip.indexOf(f.key) !== -1) return;
@@ -222,20 +251,18 @@ window.KnackForm = (function () {
         'color:#64748b;margin-bottom:8px">' + esc(g) + '</div>' +
         byGroup[g].map(function (f) {
           return '<div style="margin-bottom:10px">' +
-            '<label for="' + esc(prefix + f.key) + '" style="display:block;font-size:12px;color:#475569;margin-bottom:3px">' +
+            '<label for="' + esc(pfx(ctx) + f.key) + '" style="display:block;font-size:12px;color:#475569;margin-bottom:3px">' +
             esc(f.label) + (f.required ? ' <span style="color:#b45309">*</span>' : '') +
-            (f.known ? '' : ' <span style="color:#b45309;font-size:11px">(not on the object — check Knack)</span>') +
-            '</label>' + control(prefix, f, (values || {})[f.key], ctx) +
-            '<div data-meta="' + esc(prefix + f.key) + '"></div></div>';
+            (f.known === false ? ' <span style="color:#b45309;font-size:11px">(not on the object — check Knack)</span>' : '') +
+            '</label>' + control(f, (values || {})[f.key], ctx) + '</div>';
         }).join('') + '</div>';
     }).join('');
   }
 
   // The toggle is the one control that carries its own state, so it is wired
   // once the form is on the page.
-  function wire(root) {
-    var scope = root || document;
-    Array.prototype.forEach.call(scope.querySelectorAll('[data-toggle]'), function (b) {
+  function wire() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-toggle]'), function (b) {
       b.onclick = function () {
         var on = b.dataset.on !== '1';
         b.dataset.on = on ? '1' : '0';
@@ -254,21 +281,9 @@ window.KnackForm = (function () {
       rejected.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul></div>';
   }
 
-  // What the form could not fill in, and why. Deliberately its own colour and
-  // not an error: "we could not look" and "there is nothing to look at" are
-  // both worth saying, and neither one stops the form being sent.
-  function notesHtml(notes) {
-    if (!notes || !notes.length) return '';
-    return '<div style="background:#f8fafc;border:1px solid var(--line,#e2e8f0);border-radius:8px;' +
-      'padding:10px 12px;margin-bottom:14px;font-size:12px;color:#475569">' +
-      '<b style="color:#334155">What we could not fill in</b><ul style="margin:6px 0 0 16px;padding:0">' +
-      notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul></div>';
-  }
-
   return {
-    INPUT: INPUT, esc: esc, shell: shell, same: same,
-    yesNo: yesNo, radios: radios, toggle: toggle, suggest: suggest,
-    control: control, read: read, form: form, wire: wire,
-    refusedHtml: refusedHtml, notesHtml: notesHtml
+    INPUT: INPUT, esc: esc, same: same, modal: modal, yesNo: yesNo, radios: radios,
+    toggle: toggle, control: control, read: read, form: form, wire: wire,
+    refusedHtml: refusedHtml
   };
 })();

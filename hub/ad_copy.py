@@ -104,6 +104,12 @@ AD_COPY_GROUPS = (
     ("Dates",           ("due_date", "submitted", "status")),
 )
 
+# What `current_user()` can answer that is not somebody's name. A shared
+# password grants a session with no account behind it — `hub/presence.py`
+# counts those apart for the same reason — and the campaign team reads Seller
+# Name as a person.
+NOT_A_PERSON = frozenset({"shared login", "shared password", "panel"})
+
 # The anchor the object is discovered from: whichever object carries this
 # field is the Ad Copy Request object.
 ANCHOR = "seller"
@@ -449,6 +455,48 @@ def prefill(client: str, *, user_name: str = "", user_email: str = "",
     return values, notes
 
 
+def _decorate(fields: list[dict], opts: dict) -> list[dict]:
+    """Hang this client's own answers on the fields that can offer them.
+
+    `hub/static/knack-form.js` draws a text box with `suggest` as a datalist —
+    which suggests and never restricts, the right shape for a value the Hub
+    happens to know on a field Knack publishes no choices for. Deciding it
+    here rather than in the browser is the same rule the prefill follows:
+    target areas and the creative classifier each carry a JavaScript mirror
+    already, and each needs a test proving the halves still agree.
+    """
+    suggest = {
+        "seller": (opts.get("sellers") or [],
+                   "Named on this client's insertion orders."),
+        "campaign": (opts.get("campaigns") or [],
+                     "From this client's insertion orders — or type another, "
+                     "for a campaign being set up now."),
+        "order_number": (opts.get("order_numbers") or [],
+                         "Fills itself in from the campaign above where the "
+                         "insertion order says which."),
+        "media_partner": (opts.get("partners") or [],
+                          "From this client's insertion orders."),
+        "url_changing": (opts.get("urls") or [],
+                         "This client's websites, from their record."),
+    }
+    # Said on the field rather than left as a blank somebody reads as an
+    # oversight: there is no source here for either, so neither is filled in.
+    hints = {
+        "due_date": "Blank on purpose — the Hub has no source for this date.",
+        "when": "Blank on purpose — only you know when it has to change.",
+        "files": "Attached on the record in Knack after this is created — "
+                 "the Hub cannot upload them, so nothing is sent from here.",
+    }
+    for f in fields:
+        items, note = suggest.get(f["key"], ([], ""))
+        if items:
+            f["suggest"] = items
+            f["hint"] = note
+        if f["key"] in hints:
+            f["hint"] = hints[f["key"]]
+    return fields
+
+
 def form(client: str, *, user_name: str = "", user_email: str = "") -> dict:
     """Everything a caller needs to draw the form, in one read.
 
@@ -464,8 +512,8 @@ def form(client: str, *, user_name: str = "", user_email: str = "") -> dict:
     if not obj:
         return {"configured": True, "error": why, "fields": [], "values": {},
                 "options": {}, "notes": []}
-    fields = form_fields(obj)
     opts = client_options(client)
+    fields = _decorate(form_fields(obj), opts)
     values, notes = prefill(client, user_name=user_name, user_email=user_email,
                             fields=fields, options=opts)
     return {"configured": True, "object": obj, "fields": fields,
@@ -516,8 +564,14 @@ def create(client: str, values: dict, *, author: str = "") -> dict:
             + (f" Refused: {'; '.join(rejected)}" if rejected else ""))
 
     # Written but never asked for: whoever pressed the button. A request the
-    # campaign team cannot put a name to is one they have to come asking about.
-    if author and not payload.get(ids["seller"]):
+    # campaign team cannot put a name to is one they have to come asking
+    # about — but only where the author names a person. `current_user()`
+    # answers "Shared login" for a PANEL_PASSWORD session, which is a true
+    # statement about the session and a wrong one in the Seller Name box, and
+    # the prefill already refuses it: a rule the form keeps and the write
+    # breaks is not a rule.
+    if author and author.strip().lower() not in NOT_A_PERSON \
+            and not payload.get(ids["seller"]):
         if meta.get(ids["seller"], {}).get("type") not in ("connection",):
             payload[ids["seller"]] = author
 

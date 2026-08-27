@@ -3042,7 +3042,14 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/knack/campaign-fields")
     def api_knack_campaign_fields():
-        """Live field mapping shown in the modal BEFORE anything is written."""
+        """The controls a campaign request form should draw, from the live
+        object — plus the field mapping shown before anything is written.
+
+        The form asks for this rather than carrying its own copy: the support
+        ids are ours, but the dropdown choices, the connection records and the
+        field types are Knack's, and a form that guesses one writes a value
+        Knack refuses — which loses the whole request, not the one field.
+        """
         gate = _require_api()
         if gate:
             return gate
@@ -3051,14 +3058,15 @@ def create_hub_app() -> Flask:
         if kind not in ("change", "support"):
             return jsonify({"error": "kind must be change or support."}), 400
         if not knack_api.configured():
-            return jsonify({"configured": False})
+            return jsonify({"configured": False, "fields": []})
         try:
             info = knack_api.campaign_field_map(kind)
-            return jsonify({"configured": True, **info})
+            return jsonify({"configured": True, "kind": kind, **info,
+                            "fields": knack_api.campaign_form_fields(kind)})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-campaign", exc, path=request.path,
                                  actor=current_user() or "")
-            return jsonify({"configured": True, "error": str(exc)})
+            return jsonify({"configured": True, "fields": [], "error": str(exc)})
 
     @app.route("/api/knack/people")
     def api_knack_people():
@@ -3091,20 +3099,28 @@ def create_hub_app() -> Flask:
         if not knack_api.configured():
             return jsonify({"error": "Knack isn't configured — set KNACK_APP_ID and "
                                      "KNACK_API_KEY, then redeploy."}), 400
+        values = body.get("values")
+        if values is not None and not isinstance(values, dict):
+            return jsonify({"error": "values must be an object."}), 400
         try:
             rec = knack_api.create_campaign_request(
                 kind, client, (body.get("campaign") or "").strip(),
                 (body.get("io") or "").strip(), subject,
                 (body.get("description") or "").strip(),
                 author=current_user() or "",
-                requested_by=(body.get("requested_by") or "").strip())
+                requested_by=(body.get("requested_by") or "").strip(),
+                values=values or {})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-campaign", exc, path=request.path,
                                  actor=current_user() or "")
             return jsonify({"error": str(exc)})
         audit.log("hub", f"campaign_{kind}_request", actor=current_user(),
                   detail=f"{client}: {subject[:60]}")
-        return jsonify({"ok": True, "id": rec.get("id")})
+        # What reached Knack and what did not. A request created with half its
+        # fields missing must not read as a clean success.
+        return jsonify({"ok": True, "id": rec.get("id"),
+                        "written": rec.get("written") or [],
+                        "rejected": rec.get("rejected") or []})
 
     # ------------------------------------------------- Ad Copy Request
     # Ad Copy used to be a Campaign Change Request with its subject already
