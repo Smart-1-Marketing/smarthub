@@ -97,6 +97,19 @@
   .pill.revision { background: rgba(224,167,43,.16); color: var(--warn); }
   .pill.approved { background: rgba(53,192,137,.16); color: var(--pass); }
   .saved.on { opacity: 1; }
+  /* Why the render button is not there yet. It goes away the moment it stops
+     being true rather than standing as permanent instructions. */
+  #saveHint { color: var(--ink-2); font-size: 12px; max-width: 30rem; }
+
+  /* The link a client is sent. A field rather than a line of text, because
+     what somebody does with it is select it and copy it. */
+  .proofurl { display: flex; gap: 6px; align-items: center; margin: 8px 0 2px; }
+  .proofurl input {
+    flex: 1; min-width: 12rem; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 9px;
+  }
+  .proofurl button { white-space: nowrap; }
 
   /* ---------- bench ---------- */
   .bench { flex: 1; display: grid; grid-template-columns: 320px 1fr 300px; min-height: 0; }
@@ -495,19 +508,35 @@
   <span class="pill" id="statusPill" style="display:none"></span>
   <span class="grow"></span>
   <span class="saved" id="saved">Saved</span>
-  <button class="btn" id="save">Save</button>
+  <!--
+    The order of this toolbar is the order of the work, and until now it was
+    not: filing ads onto a client and rendering a set both stood next to Save
+    from the moment the page opened, on a build that had never been written
+    down. Both then acted on what was on the SERVER, which on an unsaved build
+    is the previous version -- so "attach to client" filed the ads somebody had
+    just finished replacing, and reported success for doing it.
+
+    So Save is the only thing offered on arrival. Render appears once there is
+    a saved build to render, and Attach once there are rendered files to
+    attach. Each control appears at the point where it can do the thing its
+    label says.
+  -->
+  <button class="btn primary" id="save">Save</button>
+  <span class="hint" id="saveHint">Save first — everything after this works from the saved build, not from what is on screen.</span>
   <a class="btn" id="proofLink" href="#" target="_blank" style="display:none">Open proof</a>
   <button class="btn" id="deliver" style="display:none;border-color:var(--pass);color:var(--pass)">Deliver final files</button>
-  <!-- Only when this is running inside the Smart 1 Hub. Standalone there is no
-       client registry to attach anything to, so the button would lead nowhere. -->
-  <a class="btn" id="attachClient" href="#" style="display:none">Attach to client</a>
+  <!-- Only when this is running inside the Smart 1 Hub, and only once there
+       are finished files. Standalone there is no client registry to attach
+       anything to; before a render there is nothing to put in it. -->
+  <a class="btn" id="attachClient" href="#" style="display:none">Attach to client…</a>
   <div id="deliveries" style="display:none;margin-top:10px;font-size:13px"></div>
   <!-- "Render all sizes" said what it did and not what it was for, so nobody
        knew whether they needed it. The title says the rest: the preview is one
        size and lives in the browser, and this is what writes the actual files
-       every other step reads. -->
-  <button class="btn primary" id="renderAll"
-    title="Build the finished file for every size in this layout, not just the one on screen. The preview is a live sketch; this is what the proof, the delivery ZIP and the client gallery all read.">Render all sizes</button>
+       every other step reads. It now asks what to do rather than assuming, so
+       the label is the question rather than one of its answers. -->
+  <button class="btn primary" id="renderAll" style="display:none"
+    title="Build the finished files for this set. The preview is a live sketch; these are what the proof, the delivery ZIP and the client gallery all read.">Render…</button>
 </div>
 
 <div class="nextstep" id="nextStep" hidden>
@@ -549,6 +578,22 @@
     /** platform id -> the sizes it buys, from /api/build/options. */
     platformSizes: null,
     dirty: false,
+    /* Has this build been written down since the page opened?
+       Deliberately per-session rather than "are there unsaved edits": an
+       operator who has just arrived has not confirmed that what is on the
+       server is what they mean to render, and every step after this acts on
+       the server's copy. One press settles it. */
+    saved: false,
+    /** The campaign's landing page, and what was read off it. */
+    landingPage: '',
+    landing: null,
+    /* Are there finished files? Set from the project's own record at load --
+       a build rendered last week is still rendered -- and again whenever a
+       render completes. Nothing that reads a rendered file is offered until
+       this is true, because "there are no files yet" and "the files are the
+       wrong ones" are the two ways this tool has silently handed over the
+       wrong creative. */
+    rendered: false,
     sizeStatus: {},   // size -> { status }
     /** field -> 'size' | 'all'. Asked once per field per campaign; see
      *  setCopy for why an unasked edit is not just defaulted. */
@@ -695,7 +740,27 @@
         help('Each field asks, the first time you change it, whether the edit ' +
              'is for this size or for every size in the set. The answer stays ' +
              'under the field as a toggle, so it can be changed after.') +
-        '</h3>' + fields + '</div>' +
+        '</h3>' +
+        /* The five fields, drafted from the client's own page.
+
+           The tool has read that page since the day intake was built -- the
+           analysis sits on the project record -- and nothing on this screen
+           had ever asked for it, so an operator opened a set of empty boxes
+           and wrote the ad from what they could remember about the business.
+           One press fills all five from what the page actually says.
+
+           It fills, it does not overwrite: a line somebody has typed is the
+           better source and is left alone. Emptying a field is how you ask
+           for it to be redrafted. */
+        '<div class="field" style="margin-bottom:12px">' +
+          '<button type="button" class="bsclear" id="draftCopy" style="width:100%">' +
+            'Draft the copy from their website</button>' +
+          help('Fetches ' + esc(state.landingPage || 'the campaign\u2019s landing page') +
+               ' and writes the headline, supporting line, offer, call to ' +
+               'action and proof point from what is on it. Fields you have ' +
+               'already filled in are left exactly as they are.', 'left') +
+          '<div id="draftNote" style="font-size:11.5px;color:var(--ink-2);margin-top:5px"></div>' +
+        '</div>' + fields + '</div>' +
       '<div class="group"><h3>Background</h3>' +
         '<div class="bgmodes">' +
           '<button type="button" class="bgmode' + (concept().backgroundImage ? '' : ' on') + '" data-bgmode="none">Solid brand color</button>' +
@@ -751,6 +816,8 @@
       headline: 'Headline', support: 'Supporting line', offer: 'Offer',
       cta: 'Call to action', trust: 'Proof point',
     };
+
+    wireDraftCopy();
 
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-copy]'), function (el) {
       el.addEventListener('input', function () {
@@ -1873,11 +1940,18 @@
 
     if (mode === 'ai') {
       bgBusy('Drawing something \u2014 this takes a few seconds\u2026');
+      /* The client's own page is part of the brief. Without it the model is
+         drawing from a headline and a business name, which is how a roofing
+         company gets a stock-looking house it has never worked on -- the
+         analysis was sitting on the project record the whole time and this
+         call never asked for it. */
+      ensureLanding().then(function (landing) {
       post('/api/images/generate', {
         business: state.doc.campaign.client || '',
         promoting: effective('headline') || '',
         benefit: effective('support') || '',
         offer: effective('offer') || '',
+        landingAnalysis: landing || undefined,
         palette: state.doc.campaign.brand.colors || undefined
       })
         .then(function (d) {
@@ -1897,6 +1971,7 @@
           aiGrid(cands, null);
         })
         .catch(function () { bgSay('<span class="bgmsg">Image generation is unavailable.</span>'); });
+      });
     }
   }
 
@@ -1919,6 +1994,60 @@
         '</label>' +
         '<button type="button" class="bsclear" id="aiReviseGo">Redraw</button>' +
       '</div>');
+    /* Keeping the one you liked.
+
+       A generated picture is a file on the render disk that the retention
+       sweep will remove, so a picture worth reusing has to be moved somewhere
+       permanent before it is filed -- otherwise the client's gallery gains a
+       row that opens today and 404s next month. The renderer moves it to
+       Cloudinary; the Hub files it. Offered only inside the Hub, because
+       standalone there is no client record to file into. */
+    if (window.S1_BASE && last && last.url) {
+      bgResults().insertAdjacentHTML('beforeend',
+        '<div class="bsrow" style="margin-top:6px">' +
+          '<button type="button" class="bsclear" id="aiKeep">' +
+            'Save this picture to ' + esc(clientLabel()) + '\u2019s gallery</button>' +
+          '<span id="aiKeepNote" style="font-size:11.5px;color:var(--ink-2)"></span>' +
+        '</div>');
+      var keep = $('aiKeep'), keepNote = $('aiKeepNote');
+      if (keep) keep.addEventListener('click', function () {
+        keep.disabled = true;
+        keepNote.textContent = 'Storing it\u2026';
+        post('/api/imagery/keep', {
+          url: last.url,
+          client: clientName() || 'Smart 1 Marketing',
+          campaign: state.doc.campaign.campaignName || 'display ads',
+          label: (effective('headline') || 'ai background')
+        })
+          .then(function (kept) {
+            if (!kept || !kept.url) {
+              throw new Error((kept && kept.error) || 'That picture could not be stored.');
+            }
+            return fetch(window.S1_BASE + '/_hub/gallery', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                client: clientName(), url: kept.url, public_id: kept.public_id,
+                filename: kept.filename, width: kept.width, height: kept.height
+              })
+            }).then(function (r) { return r.json(); });
+          })
+          .then(function (g) {
+            keep.disabled = false;
+            if (g && g.ok) {
+              keepNote.textContent = g.duplicate
+                ? 'Already in their gallery.'
+                : 'Saved to their gallery.';
+            } else {
+              keepNote.textContent = (g && g.error) || 'The Hub did not file it.';
+            }
+          })
+          .catch(function (e) {
+            keep.disabled = false;
+            keepNote.textContent = (e && e.message) || 'That could not be saved.';
+          });
+      });
+    }
+
     var go = $('aiReviseGo'), box = $('aiRevise');
     if (!go || !box) return;
     var run = function () {
@@ -1931,6 +2060,9 @@
         benefit: effective('support') || '',
         offer: effective('offer') || '',
         palette: state.doc.campaign.brand.colors || undefined,
+        // Carried into the redraw as well. Dropping it here would make every
+        // change after the first one drift away from the client's own page.
+        landingAnalysis: state.landing || undefined,
         // Both, or the model starts from nothing and the "change" is a
         // different picture that happens to share a description.
         reviseInstruction: instruction,
@@ -2018,6 +2150,138 @@
     var c = state.doc && state.doc.campaign;
     if (!c) return '';
     return (c.client || (c.brand && c.brand.name) || '').trim();
+  }
+
+  /* The same name, for a sentence rather than for a filing key. Never blank,
+     because "file them onto \u2019s record" is how a missing value looks when
+     it reaches prose -- and never used as an identifier, because "the client"
+     is not one. */
+  function clientLabel() { return clientName() || 'the client'; }
+
+  /* ------------------------------------------- the copy, from their page */
+  /* Writes the five fields from the client's own landing page.
+
+     Three rules, and each is a way this goes quietly wrong.
+
+     **It fills empty fields only.** A draft that overwrites is a draft
+     nobody dares press twice, and the one thing an operator has certainly
+     done by the time they press it is fix a headline by hand.
+
+     **It writes to every size, not to the one on screen.** A drafted line is
+     the set's copy; landing it as a per-size override would leave the other
+     seven sizes empty and the panel insisting the field was filled.
+
+     **An empty offer or proof point is kept empty.** The server is
+     instructed twice not to invent either, because a made-up discount or a
+     made-up review count is the sentence that costs an account -- so an
+     empty answer here is an answer, and it is reported rather than hidden. */
+  function wireDraftCopy() {
+    var btn = $('draftCopy');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var note = $('draftNote');
+      btn.disabled = true;
+      note.textContent = state.landing
+        ? 'Writing from what their page says\u2026'
+        : 'Reading ' + (state.landingPage || 'their page') + '\u2026';
+
+      ensureLanding()
+        .then(function (landing) {
+          return post('/api/copy/suggest', {
+            business: clientName() || state.doc.campaign.brand.name,
+            // The route requires something to promote. The campaign name is
+            // what a rep typed for exactly that, and the page summary backs
+            // it up when there is one.
+            promoting: state.doc.campaign.promoting ||
+                       state.doc.campaign.campaignName ||
+                       (landing && landing.summary) || 'their services',
+            objective: state.doc.campaign.objective,
+            cta: effective('cta') || undefined,
+            landingAnalysis: landing || undefined,
+          }).then(function (r) { return { r: r, landing: landing }; });
+        })
+        .then(function (out) {
+          btn.disabled = false;
+          var r = out.r || {};
+          if (r.error) { note.textContent = r.error; return; }
+          var map = { headline: r.headline, support: r.support, offer: r.offer,
+                      cta: r.cta, trust: r.trust };
+          var filled = [], kept = [], blank = [];
+          Object.keys(map).forEach(function (k) {
+            var value = String(map[k] || '').trim();
+            if (effective(k)) { kept.push(k); return; }
+            if (!value) { blank.push(k); return; }
+            // Every drafted line belongs to the whole set.
+            state.copyScope[k] = 'all';
+            setCopy(k, value);
+            filled.push(k);
+          });
+          drawControls(); preview();
+          /* drawControls() replaces the whole left column, so the element
+             this function captured before the fetch is now detached: writing
+             to it succeeds, changes nothing on screen, and reads as a button
+             that did nothing. Re-read it after the redraw. */
+          note = $('draftNote');
+          if (!note) return;
+
+          var LABEL = { headline: 'headline', support: 'supporting line',
+                        offer: 'offer', cta: 'call to action', trust: 'proof point' };
+          var bits = [];
+          /* "Nothing was filled in" has two causes and they need different
+             answers from the reader: every field was already written, or the
+             page had nothing to say. Collapsing them into one sentence made
+             the note contradict itself two clauses later. */
+          if (filled.length) {
+            bits.push('Wrote the ' + filled.map(function (k) { return LABEL[k]; }).join(', ') + '.');
+          } else if (!blank.length) {
+            bits.push('Nothing to fill in \u2014 every field already had something in it.');
+          } else {
+            bits.push('Nothing was written.');
+          }
+          if (kept.length) {
+            bits.push('Left your ' + kept.map(function (k) { return LABEL[k]; }).join(', ') +
+                      ' alone. Empty a field and draft again to have it rewritten.');
+          }
+          if (blank.length) {
+            bits.push('Their page says nothing about the ' +
+                      blank.map(function (k) { return LABEL[k]; }).join(' or the ') +
+                      ', so ' + (blank.length === 1 ? 'that was' : 'those were') +
+                      ' left blank rather than invented.');
+          }
+          if (out.landing && out.landing.url) bits.push('Read from ' + out.landing.url + '.');
+          if (r.source === 'fallback') {
+            bits.push('Assembled from the campaign\u2019s own answers \u2014 ' +
+                      'the writing model is not configured, so this is not a draft ' +
+                      'from the page.');
+          }
+          note.textContent = bits.join(' ');
+        })
+        .catch(function (e) {
+          btn.disabled = false;
+          note.textContent = (e && e.message) || 'That draft could not be written.';
+        });
+    });
+  }
+
+  /* The page analysis, fetched once and kept.
+
+     A campaign started before the Hub sent a landing page has none stored, and
+     one whose page was unreachable at intake has none either -- so this asks
+     for it rather than treating "no analysis" as "no page". A page that still
+     cannot be read comes back null, and every caller is written to work
+     without it rather than to fail: an ad drafted from the campaign's own
+     answers is worse than one drafted from the page and much better than a
+     button that does nothing. */
+  function ensureLanding() {
+    if (state.landing) return Promise.resolve(state.landing);
+    var url = state.landingPage;
+    if (!url) return Promise.resolve(null);
+    return post('/api/landing/analyze', { url: url })
+      .then(function (a) {
+        if (a && !a.error) { state.landing = a; return a; }
+        return null;
+      })
+      .catch(function () { return null; });
   }
 
   /* A file the browser holds is not something the renderer can fetch, so it
@@ -2535,8 +2799,27 @@
         } else {
           pill.style.display = 'none';
         }
+        /* A batch on the project record is the only durable evidence that
+           anything has ever been built for this request. Opening a campaign
+           is not saving it, so `saved` starts false however finished the
+           build is. */
+        state.rendered = !!doc.reportUrl;
+        state.saved = false;
+        /* The page this campaign points at, and the analysis of it if one has
+           been taken. Both live on the project record and neither used to
+           reach this screen, so every "write this for me" and "draw me a
+           picture" on it was working from a business name alone. */
+        state.landingPage = doc.landingPage || '';
+        state.landing = doc.landing || null;
         var proofBtn = $('proofLink');
-        if (doc.reportUrl) { proofBtn.href = doc.reportUrl; proofBtn.style.display = ''; }
+        /* The live proof route, never the static proof_<id>.html the batch
+           records. That file is a snapshot rendered with no action endpoint
+           behind it, so its Approve button rewrites the page to say
+           "Approved" and posts nowhere -- a client could sign a set off on it
+           and no screen here would ever know. It also sits under /files/,
+           which is staff-only. This route is the page with the buttons wired
+           up, and it is the one a client can open. */
+        if (state.rendered) { proofBtn.href = proofUrl(); proofBtn.style.display = ''; }
         else proofBtn.style.display = 'none';
         $('conceptPick').innerHTML = doc.campaign.concepts.map(function (c) {
           return '<option value="' + esc(c.conceptId) + '">Concept ' + esc(c.conceptId) + ' — ' + esc(c.name) + '</option>';
@@ -2547,7 +2830,7 @@
         var rail = railSizes();
         if (rail.length && rail.indexOf(state.size) < 0) state.size = rail[0];
         drawControls(); drawRail(); preview();
-        refreshDeliver(); refreshOverrideNote(); refreshAttachLink();
+        refreshDeliver(); refreshOverrideNote(); refreshStage();
         loadApprovals();
       });
   }
@@ -2626,6 +2909,13 @@
     }).then(function (r) {
       if (!r.ok) throw new Error('save failed');
       state.dirty = false;
+      /* Here rather than in the Save button's handler, because every other
+         path that saves -- switching size with unsaved edits, duplicating a
+         set, starting a render -- leaves the server holding exactly what is
+         on screen too, and a gate that only one of five doors opens is a gate
+         people learn to resent. */
+      state.saved = true;
+      refreshStage();
       return r;
     });
   }
@@ -2644,8 +2934,9 @@
 
     var acts = [];
     if (!isError) {
-      acts.push(['Render all sizes', 'render',
-                 'Build every size in this family, not just the one on screen.']);
+      acts.push(['Render\u2026', 'render',
+                 'Build the finished files, file them onto the client, or ' +
+                 'package what is already built.']);
       if (projectIdForCurrent()) {
         acts.push(['Duplicate as the next concept', 'clone',
                    'A fresh copy on its own number, named Concept B \u2014 then ' +
@@ -2710,16 +3001,87 @@
      follows the job, and reports the count -- and it names the sizes that
      were not approved, since this is the step that writes the files a proof
      and a delivery ZIP are built from. */
-  /* Render: all of them, or the ones that changed.
-     
+  /* What the render button is actually for.
+
+     It used to do one thing -- build every file -- and everything a person
+     wanted to do WITH those files was somewhere else: filing them onto the
+     client was a link in the toolbar that had been sitting there since before
+     anything was rendered, and the delivery ZIP only appeared once a status
+     had changed. So the ordinary job, "build these and put them on the
+     client's record", was two controls in two places with a page in between.
+
+     Four answers, because there are four real jobs and they are not the same
+     job. Rendering writes files. Filing copies finished files onto a client
+     record. The ZIP puts them on your own disk. Each is offered on its own,
+     and the first is the two people do together.  */
+  function askRenderAction() {
+    var count = railSizes().length;
+    var opts = [
+      ['render-file', 'Render and save to the client', true,
+       'Build the files, then file them onto ' + clientLabel() + '\u2019s record. ' +
+       'The usual answer.'],
+      ['render', 'Render only', true,
+       'Build the files and leave them here. Nothing reaches the client record.'],
+      ['file', 'Save to the client', state.rendered,
+       state.rendered
+         ? 'File the files already rendered onto ' + clientLabel() + '\u2019s record. No rebuild.'
+         : 'Nothing has been rendered yet, so there is nothing to file.'],
+      ['zip', 'Download the full ZIP', state.rendered,
+       state.rendered
+         ? 'Every finished file in one zip, in platform folders and named for ' +
+           'upload. Packaging ' + count + ' files can take a minute.'
+         : 'Nothing has been rendered yet, so the zip would be empty.'],
+    ];
+    return new Promise(function (resolve) {
+      var wrap = document.createElement('div');
+      wrap.className = 'ask';
+      wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
+        '<h4>What would you like to do?</h4>' +
+        '<p>The preview on screen is a live sketch. These act on real files.</p>' +
+        '<div class="nsacts" style="flex-direction:column">' +
+          opts.map(function (o) {
+            return '<button type="button" class="nsbtn" style="max-width:none" data-act="' +
+              o[0] + '"' + (o[2] ? '' : ' disabled') + '><b>' + esc(o[1]) +
+              '</b><span>' + esc(o[3]) + '</span></button>';
+          }).join('') +
+        '</div><div class="askacts"><button type="button" class="btn" data-cancel>Cancel</button></div></div>';
+      function done(v) { document.removeEventListener('keydown', onKey); wrap.remove(); resolve(v); }
+      function onKey(e) { if (e.key === 'Escape') done(null); }
+      wrap.addEventListener('click', function (e) { if (e.target === wrap) done(null); });
+      wrap.querySelector('[data-cancel]').addEventListener('click', function () { done(null); });
+      Array.prototype.forEach.call(wrap.querySelectorAll('[data-act]'), function (b) {
+        b.addEventListener('click', function () { done(b.dataset.act); });
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(wrap);
+      var first = wrap.querySelector('[data-act]:not([disabled])');
+      if (first) first.focus();
+    });
+  }
+
+  $('renderAll').addEventListener('click', function () {
+    askRenderAction().then(function (act) {
+      if (!act) return;
+      if (act === 'zip') return packageZip();
+      if (act === 'file') return fileOnlyStep();
+      chooseSizes().then(function (sizes) {
+        if (sizes === false) return;
+        startRender(sizes, act === 'render-file');
+      });
+    });
+  });
+
+  /* Which sizes, when there is more than one.
+
      A package of eight takes a couple of minutes, and an operator who fixed
      one headline on the 300x600 was waiting on seven renders they did not ask
-     for. So this asks first — and remembers that "all" is the ordinary answer
-     by making it the primary button. */
-  $('renderAll').addEventListener('click', function () {
+     for. Resolves null for "all of them", an array for a selection, and false
+     for a cancel -- which is not the same as null and must not start a render
+     of everything. */
+  function chooseSizes() {
     var sizes = railSizes();
-    if (sizes.length < 2) return startRender(null);
-    ask(
+    if (sizes.length < 2) return Promise.resolve(null);
+    return ask(
       'Render which sizes?',
       'Building all ' + sizes.length + ' takes a couple of minutes. If you have ' +
       'only changed one, you do not have to wait for the rest.',
@@ -2727,46 +3089,125 @@
        ['Just ' + state.size, 'one'],
        ['Choose\u2026', 'pick']],
     ).then(function (choice) {
-      if (!choice) return;
-      if (choice === 'all') return startRender(null);
-      if (choice === 'one') return startRender([state.size]);
-      pickSizes(sizes);
+      if (!choice) return false;
+      if (choice === 'all') return null;
+      if (choice === 'one') return [state.size];
+      return pickSizes(sizes);
     });
-  });
+  }
 
   /* The chooser, when "just this one" is not the answer either. */
   function pickSizes(sizes) {
-    var wrap = document.createElement('div');
-    wrap.className = 'ask';
-    wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
-      '<h4>Which sizes?</h4>' +
-      '<div style="display:grid;gap:6px;margin-bottom:14px">' +
-        sizes.map(function (sz) {
-          return '<label style="display:flex;gap:8px;align-items:center;font-size:13px">' +
-            '<input type="checkbox" value="' + esc(sz) + '"' +
-            (sz === state.size ? ' checked' : '') + '>' + esc(sz) +
-            (isApproved(sz) ? ' <span style="color:var(--pass);font-size:11px">approved</span>' : '') +
-            '</label>';
-        }).join('') +
-      '</div><div class="askacts">' +
-        '<button type="button" class="btn primary" data-go>Render these</button>' +
-        '<button type="button" class="btn" data-cancel>Cancel</button>' +
-      '</div></div>';
-    function close() { document.removeEventListener('keydown', onKey); wrap.remove(); }
-    function onKey(e) { if (e.key === 'Escape') close(); }
-    wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
-    wrap.querySelector('[data-cancel]').addEventListener('click', close);
-    wrap.querySelector('[data-go]').addEventListener('click', function () {
-      var picked = Array.prototype.map.call(
-        wrap.querySelectorAll('input:checked'), function (i) { return i.value; });
-      close();
-      if (picked.length) startRender(picked);
+    return new Promise(function (resolve) {
+      var wrap = document.createElement('div');
+      wrap.className = 'ask';
+      wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
+        '<h4>Which sizes?</h4>' +
+        '<div style="display:grid;gap:6px;margin-bottom:14px">' +
+          sizes.map(function (sz) {
+            return '<label style="display:flex;gap:8px;align-items:center;font-size:13px">' +
+              '<input type="checkbox" value="' + esc(sz) + '"' +
+              (sz === state.size ? ' checked' : '') + '>' + esc(sz) +
+              (isApproved(sz) ? ' <span style="color:var(--pass);font-size:11px">approved</span>' : '') +
+              '</label>';
+          }).join('') +
+        '</div><div class="askacts">' +
+          '<button type="button" class="btn primary" data-go>Render these</button>' +
+          '<button type="button" class="btn" data-cancel>Cancel</button>' +
+        '</div></div>';
+      function close(v) { document.removeEventListener('keydown', onKey); wrap.remove(); resolve(v); }
+      function onKey(e) { if (e.key === 'Escape') close(false); }
+      wrap.addEventListener('click', function (e) { if (e.target === wrap) close(false); });
+      wrap.querySelector('[data-cancel]').addEventListener('click', function () { close(false); });
+      wrap.querySelector('[data-go]').addEventListener('click', function () {
+        var picked = Array.prototype.map.call(
+          wrap.querySelectorAll('input:checked'), function (i) { return i.value; });
+        close(picked.length ? picked : false);
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(wrap);
     });
-    document.addEventListener('keydown', onKey);
-    document.body.appendChild(wrap);
   }
 
-  function startRender(sizes) {
+  /* Filing on its own, with no render in front of it. */
+  function fileOnlyStep() {
+    showNextSteps('Filing the finished files onto ' + clientLabel() + '\u2019s record\u2026');
+    fileToClient().then(function (res) { reportFiling(res); });
+  }
+
+  /* What came of a filing, in the words the Hub answered with.
+
+     "Filed" and "already there" are different outcomes and both are
+     successes; a filing that reached the gallery for six of eight ads is not
+     a tick. */
+  function reportFiling(res) {
+    if (!res || !res.ok) {
+      $('nsMsg').className = 'nsmsg bad';
+      $('nsMsg').textContent = (res && res.error) ||
+        'Those files could not be filed onto the client record.';
+      return;
+    }
+    var bits = [];
+    if (res.filed) bits.push(res.filed + ' filed onto ' + esc(res.client || clientLabel()) + '\u2019s record');
+    if (res.duplicates) bits.push(res.duplicates + ' already there');
+    $('nsMsg').className = 'nsmsg';
+    $('nsMsg').textContent = bits.length ? bits.join(', ') + '.'
+                                         : 'Nothing new to file \u2014 the record already has these.';
+    if (res.gallery_url) {
+      $('nsActs').insertAdjacentHTML('afterbegin',
+        '<a class="nsbtn" href="' + esc(res.gallery_url) + '" target="_blank" rel="noopener">' +
+        '<b>Open the client gallery</b><span>Where these ads now sit on the ' +
+        'client record.</span></a>');
+    }
+  }
+
+  /* The zip, on demand.
+
+     Same package delivery produces -- one description of what a package is --
+     but deliberately not recorded as a delivery: this is somebody wanting the
+     files, and marking the project handed over because a file was downloaded
+     is a status nobody set. A QA-failing size is left out, as it is in a real
+     delivery, and named here rather than silently missing from the folder. */
+  function packageZip() {
+    var pid = projectIdOf();
+    if (!pid) {
+      showNextSteps('This build has no project record, so there is nothing to package.', true);
+      return;
+    }
+    showNextSteps('Packaging every finished file. This can take a minute \u2014 ' +
+                  'the zip is built from the rendered files, not from the preview.');
+    fetch('/api/project/' + encodeURIComponent(pid) + '/deliver', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ concept: state.conceptId, record: false })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          $('nsMsg').className = 'nsmsg bad';
+          $('nsMsg').textContent = res.b.error || 'That could not be packaged.';
+          return;
+        }
+        var skipped = res.b.skipped || [];
+        $('nsMsg').className = 'nsmsg';
+        $('nsMsg').textContent = res.b.fileCount + ' file' +
+          (res.b.fileCount === 1 ? '' : 's') + ' packaged.' +
+          (skipped.length
+            ? ' Left out: ' + skipped.map(function (sk) {
+                return sk.size + ' (' + sk.reason + ')'; }).join(', ') +
+              ' \u2014 a size that fails QA is never packaged.'
+            : '');
+        $('nsActs').insertAdjacentHTML('afterbegin',
+          '<a class="nsbtn" href="' + esc(res.b.zipUrl) + '" download><b>Download the ZIP</b>' +
+          '<span>' + res.b.fileCount + ' files, in platform folders, named for upload.' +
+          '</span></a>');
+      })
+      .catch(function () {
+        $('nsMsg').className = 'nsmsg bad';
+        $('nsMsg').textContent = 'That could not be packaged.';
+      });
+  }
+
+  function startRender(sizes, alsoFile) {
     var btn = $('renderAll');
     btn.disabled = true; btn.textContent = 'Rendering…';
     var count = sizes ? sizes.length : railSizes().length;
@@ -2780,7 +3221,7 @@
       })
       .then(function (b) {
         if (b && b.error) throw new Error(b.error);
-        btn.disabled = false; btn.textContent = 'Render all sizes';
+        btn.disabled = false; btn.textContent = 'Render…';
         var left = unapprovedSizes();
         showNextSteps(
           'Building ' + count + ' finished file' + (count === 1 ? '' : 's') +
@@ -2789,12 +3230,14 @@
             ? ' for ' + state.platforms.join(' and ') : '') +
           '. These are what the client proof and the delivery ZIP read \u2014 ' +
           'the preview on screen is a live sketch and is not filed anywhere.' +
+          (alsoFile ? ' They will be filed onto ' + clientLabel() +
+                      '\u2019s record as soon as they are built.' : '') +
           (left.length ? ' Still unapproved: ' + left.join(', ') + '.'
                        : ' Every size is approved.'));
-        if (b && b.jobId) followRender(b.jobId, count);
+        if (b && b.jobId) followRender(b.jobId, count, alsoFile);
       })
       .catch(function (e) {
-        btn.disabled = false; btn.textContent = 'Render all sizes';
+        btn.disabled = false; btn.textContent = 'Render…';
         showNextSteps((e && e.message) || 'That render could not be started.', true);
       });
   }
@@ -2802,7 +3245,7 @@
   /* A queued job that nobody watches is a job nobody knows failed — and a
      finished one used to say "open the proof to see them" with nothing to
      click, because the proof URL lives on the job and nothing read it. */
-  function followRender(jobId, sizes) {
+  function followRender(jobId, sizes, alsoFile) {
     var tries = 0;
     (function poll() {
       if (++tries > 60) return;                 // ~3 minutes, then stop asking
@@ -2812,26 +3255,21 @@
           if (!j || !j.status) return;
           var prog = j.progress || {};
           if (j.status === 'complete') {
-            var proof = (j.reports || []).filter(function (r) {
-              return r.indexOf('/proof_') >= 0;
-            })[0];
+            state.rendered = true;
+            refreshStage();
             $('nsMsg').textContent = 'Built ' + (prog.done != null ? prog.done : sizes) +
               ' of ' + (prog.total != null ? prog.total : sizes) + ' files.';
-            if (proof) {
-              // The link, here, now. The proof button in the toolbar reads
-              // the project record, which is written a moment later; this is
-              // the thing the person who just pressed Render is looking at.
-              $('nsActs').insertAdjacentHTML('afterbegin',
-                '<button type="button" class="nsbtn" data-proofnow>' +
-                '<b>Open the proof</b><span>The page the client sees, with ' +
-                'every size that just rendered on it.</span></button>');
-              var btn = $('nsActs').querySelector('[data-proofnow]');
-              btn.addEventListener('click', function () {
-                window.open(proof, '_blank', 'noopener');
+            showHandover();
+            /* Filing waits for the files to exist. Started with the render it
+               would copy the PREVIOUS build onto the client record and report
+               a clean success for doing it -- the failure this whole sequence
+               is arranged to stop. */
+            if (alsoFile) {
+              fileToClient().then(function (res) {
+                var was = $('nsMsg').textContent;
+                reportFiling(res);
+                if (res && res.ok) $('nsMsg').textContent = was + ' ' + $('nsMsg').textContent;
               });
-              // And catch the toolbar button up, so it works from now on.
-              var link = $('proofLink');
-              if (link) { link.href = proof; link.style.display = ''; }
             }
             refreshDeliver();
             return;
@@ -2846,6 +3284,140 @@
         })
         .catch(function () { /* stop quietly; the proof link still works */ });
     })();
+  }
+
+  /* What to do with a set that has just been built.
+
+     Two things, and they are different questions. The link is what you send
+     the client, so it is a field you can select rather than a button that
+     opens it here. The decision underneath is the same decision recorded
+     against the same project -- an account manager who has looked at eight
+     sizes should not have to open the client\u2019s own page and press the
+     client\u2019s button to write down what they decided. What it records
+     says which of the two happened. */
+  function showHandover() {
+    var url = proofUrlAbsolute();
+    $('nsActs').insertAdjacentHTML('afterbegin',
+      '<div style="flex:1 0 100%">' +
+        '<div style="font-size:12px;color:var(--ink-2);margin-bottom:2px">' +
+          'Send this to ' + esc(clientLabel()) + ' to approve or send back. ' +
+          'It opens without a Smart 1 login and shows every size that just rendered.' +
+        '</div>' +
+        '<div class="proofurl">' +
+          '<input type="text" id="proofUrlBox" readonly value="' + esc(url) + '">' +
+          '<button type="button" class="btn" id="proofCopy">Copy link</button>' +
+          '<a class="btn" href="' + esc(proofUrl()) + '" target="_blank" rel="noopener">Open it</a>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--ink-2);margin:8px 0 2px">' +
+          'Or record the decision yourself:' +
+        '</div>' +
+        '<div class="proofurl">' +
+          '<button type="button" class="btn" id="decApprove" ' +
+            'style="border-color:var(--pass);color:var(--pass)">Approve</button>' +
+          '<button type="button" class="btn" id="decRevise">Send back for changes</button>' +
+        '</div>' +
+      '</div>');
+
+    /* navigator.clipboard is not available on http and is allowed to refuse
+       on https. A button that reports a copy it never made is worse than one
+       that asks, so the last resort selects the text and says so. */
+    $('proofCopy').addEventListener('click', function () {
+      var box = $('proofUrlBox'), btn = this;
+      function ok() { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy link'; }, 1600); }
+      function manual() { box.focus(); box.select(); btn.textContent = 'Press Ctrl-C'; }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(box.value).then(ok, function () {
+          box.select();
+          try { document.execCommand('copy') ? ok() : manual(); } catch (e) { manual(); }
+        });
+        return;
+      }
+      box.select();
+      try { document.execCommand('copy') ? ok() : manual(); } catch (e) { manual(); }
+    });
+
+    $('decApprove').addEventListener('click', function () { recordDecision('approve'); });
+    $('decRevise').addEventListener('click', function () { recordDecision('revision'); });
+  }
+
+  /* Approving here is the same event as approving on the client\u2019s page,
+     including its consequence: approval is what packages the files. Said out
+     loud before the press, because a button that quietly hands a campaign
+     over is one nobody presses twice. */
+  function recordDecision(kind) {
+    var pid = projectIdOf();
+    if (!pid) { showNextSteps('This build has no project record to sign off.', true); return; }
+
+    var go = kind === 'approve'
+      ? ask('Approve this set?',
+            'Recorded against ' + clientLabel() + '\u2019s project as approved by you rather ' +
+            'than by them, and approval is what packages the finished files.',
+            [['Approve', true], ['Not yet', null]])
+      : askNotes();
+
+    go.then(function (answer) {
+      if (!answer) return;
+      $('nsMsg').className = 'nsmsg';
+      $('nsMsg').textContent = kind === 'approve' ? 'Recording the approval\u2026'
+                                                  : 'Sending it back\u2026';
+      return fetch('/api/project/' + encodeURIComponent(pid) + '/decision', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          kind: kind, concept: state.conceptId,
+          notes: (kind === 'revision' ? answer : undefined)
+        })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          if (!res.ok) {
+            $('nsMsg').className = 'nsmsg bad';
+            $('nsMsg').textContent = res.b.error || 'That decision was not recorded.';
+            return;
+          }
+          $('nsMsg').textContent = kind === 'approve'
+            ? 'Approved' + (res.b.fileCount ? ' \u2014 ' + res.b.fileCount +
+                ' file(s) packaged and ready to hand over.' : '.') +
+              (res.b.deliveryError ? ' Packaging did not finish: ' + res.b.deliveryError +
+                ' Use Deliver final files once that is sorted.' : '')
+            : 'Recorded as needing changes. Your note is on the project.';
+          /* The status pill and the Deliver button both read the campaign
+             list, which is fetched once at boot -- so without this the screen
+             goes on saying "draft" about a set it has just approved. */
+          reloadCampaignList();
+        });
+    });
+  }
+
+  /* A change request with no detail is not actionable, and one recorded
+     without it reads on the queue exactly like one that was explained. The
+     server refuses an empty note; this is why. */
+  function askNotes() {
+    return new Promise(function (resolve) {
+      var wrap = document.createElement('div');
+      wrap.className = 'ask';
+      wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
+        '<h4>What needs to change?</h4>' +
+        '<p>This goes on the project and into the team notification. ' +
+        '\u201CThe client wants it different\u201D is not something anybody can act on.</p>' +
+        '<textarea id="revNotes" rows="4" style="width:100%;background:var(--bg);color:var(--ink);' +
+          'border:1px solid var(--line);border-radius:7px;padding:9px;font:inherit;font-size:13px"></textarea>' +
+        '<div class="askacts" style="margin-top:12px">' +
+          '<button type="button" class="btn primary" data-go>Send it back</button>' +
+          '<button type="button" class="btn" data-cancel>Cancel</button>' +
+        '</div></div>';
+      function close(v) { document.removeEventListener('keydown', onKey); wrap.remove(); resolve(v); }
+      function onKey(e) { if (e.key === 'Escape') close(null); }
+      wrap.addEventListener('click', function (e) { if (e.target === wrap) close(null); });
+      wrap.querySelector('[data-cancel]').addEventListener('click', function () { close(null); });
+      wrap.querySelector('[data-go]').addEventListener('click', function () {
+        var v = wrap.querySelector('#revNotes').value.trim();
+        if (!v) { wrap.querySelector('#revNotes').focus(); return; }
+        close(v);
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(wrap);
+      wrap.querySelector('#revNotes').focus();
+    });
   }
 
   /* ------------------------------------------------------- delivery */
@@ -2872,16 +3444,70 @@
       box.style.display = 'none';
     }
   }
-  /* --------------------------------------------- attach to a Hub client */
-  // window.S1_BASE is set by the server only when the page is served under a
-  // mount prefix, which is exactly the case where the Hub is in front of us.
-  function refreshAttachLink() {
-    var link = $('attachClient');
-    if (!link) return;
+  /* ------------------------------------------------- what exists yet
+     One function decides which controls are on the toolbar, because the rule
+     is one sentence -- save, then render, then file -- and three handlers
+     each deciding a piece of it is how a button comes back after the step
+     that should have retired it. */
+  function refreshStage() {
     var pid = projectIdOf();
-    if (!window.S1_BASE || !pid) { link.style.display = 'none'; return; }
-    link.href = window.S1_BASE + '/_hub/attach?project=' + encodeURIComponent(pid);
-    link.style.display = '';
+
+    $('renderAll').style.display = state.saved ? '' : 'none';
+    $('save').classList.toggle('primary', !state.saved);
+    $('renderAll').classList.toggle('primary', state.saved);
+    $('saveHint').style.display = state.saved ? 'none' : '';
+
+    // window.S1_BASE is set by the server only when the page is served under
+    // a mount prefix, which is exactly the case where the Hub is in front of
+    // us. Standalone there is no client registry to file anything into.
+    var link = $('attachClient');
+    if (link) {
+      if (!window.S1_BASE || !pid || !state.rendered) link.style.display = 'none';
+      else {
+        link.href = window.S1_BASE + '/_hub/attach?project=' + encodeURIComponent(pid);
+        link.style.display = '';
+      }
+    }
+
+    var proofBtn = $('proofLink');
+    if (proofBtn && state.rendered) { proofBtn.href = proofUrl(); proofBtn.style.display = ''; }
+  }
+
+  /* The page a client is shown. Same address every time for a given request,
+     so a link sent last week still opens the current set rather than the one
+     that happened to be built the day it was sent. */
+  function proofUrl() { return '/proof/' + encodeURIComponent(state.requestId); }
+
+  /* The same thing, spelled out, for pasting into an email. S1_BASE is the
+     Hub's mount prefix; the origin is whichever hostname this browser used,
+     which is the honest answer -- this app cannot enumerate the hostnames it
+     answers on, and the one in the address bar is the one that works. */
+  function proofUrlAbsolute() {
+    return location.origin + (window.S1_BASE || '') + proofUrl();
+  }
+
+  /* ------------------------------------------- file the ads onto a client */
+  /* The one-press version of the Attach page, for the ordinary case where
+     the answer to "which client, which sizes" is "this one, all of them". */
+  function fileToClient() {
+    var pid = projectIdOf();
+    if (!window.S1_BASE) {
+      return Promise.resolve({ ok: false,
+        error: 'Filing to a client needs the Smart 1 Hub in front of this tool. ' +
+               'There is no client record to file into standalone.' });
+    }
+    if (!pid) {
+      return Promise.resolve({ ok: false,
+        error: 'This build has no project record, so there is nothing to file.' });
+    }
+    return fetch(window.S1_BASE + '/_hub/attach', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: pid })
+    })
+      .then(function (r) { return r.json().then(function (b) { return b; }); })
+      .catch(function () {
+        return { ok: false, error: 'The Hub did not answer, so nothing was filed.' };
+      });
   }
 
   $('deliver').addEventListener('click', function () {
@@ -2976,6 +3602,29 @@
   window.addEventListener('beforeunload', function (e) {
     if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
   });
+
+  /* Refetch the campaign list and re-apply everything read off it. */
+  function reloadCampaignList() {
+    return fetch('/api/campaigns')
+      .then(function (r) { return r.json(); })
+      .then(function (b) {
+        window.__campaignList = b.campaigns || window.__campaignList || [];
+        var le = (window.__campaignList).filter(function (c) {
+          return c.requestId === state.requestId; })[0];
+        var pill = $('statusPill');
+        if (le && le.status === 'proof-sent') {
+          pill.textContent = 'Needs revision'; pill.className = 'pill revision'; pill.style.display = '';
+        } else if (le && le.status === 'approved') {
+          pill.textContent = 'Approved'; pill.className = 'pill approved'; pill.style.display = '';
+        } else if (le && le.status === 'complete') {
+          pill.textContent = 'Delivered'; pill.className = 'pill approved'; pill.style.display = '';
+        } else {
+          pill.style.display = 'none';
+        }
+        refreshDeliver(); refreshStage();
+      })
+      .catch(function () { /* the decision is recorded either way */ });
+  }
 
   /* --------------------------------------------------------------- start */
   Promise.all([

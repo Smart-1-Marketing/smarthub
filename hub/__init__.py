@@ -5198,7 +5198,14 @@ def create_hub_app() -> Flask:
                   # coincidence of the mimetype check.
                   "/robots.txt", "/llms.txt",
                   "/connect", "/api/", "/assets/", "/hub-", "/static/",
-                  "/sales/landing/p/")
+                  "/sales/landing/p/",
+                  # The display-ad proof. A client opens this to approve or
+                  # send back a set of banners, so it must not arrive wearing
+                  # the staff sidebar, the help layer and a feedback tab --
+                  # the same reason the built landing pages above are here.
+                  # The longer prefix, so the builder itself at
+                  # /tools/display-ads keeps its chrome.
+                  "/tools/display-ads/proof/")
 
     @app.after_request
     def _embed_policy(resp):

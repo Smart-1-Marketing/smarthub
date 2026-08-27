@@ -21,6 +21,25 @@ export interface CopySuggestion {
   headline: string;
   support: string;
   cta: string;
+  /**
+   * The two fields every ad in this tool has a box for and nothing ever
+   * wrote.
+   *
+   * A build screen offers five copy fields; this answered three, so an
+   * operator asking for a draft got most of an ad and typed the rest --
+   * usually meaning the offer and the proof point stayed empty, on templates
+   * that draw both. Empty is the one outcome the layouts handle worst: an
+   * offer band with nothing in it and a proof line that is white space.
+   *
+   * Both are optional in the ANSWER as well as the type, and deliberately:
+   * a business with no offer running should not have one invented for it,
+   * and a proof point nobody can substantiate is the single riskiest
+   * sentence on a banner. An empty string here means "this page gave me
+   * nothing to say", which is a better answer than a plausible one.
+   */
+  offer?: string;
+  /** The proof point -- the reason to believe the headline. */
+  trust?: string;
   /** Short note on the angle, shown to the person for context. */
   rationale?: string;
   /** Non-blocking quality flags: things a human should look at. */
@@ -100,7 +119,14 @@ function fallbackSuggestion(input: SuggestInput): CopySuggestion {
     .split(/\s+/).slice(0, 10).join(' ');
   const cta = input.cta && input.cta !== 'Smart 1 should recommend' ? input.cta : 'Learn More';
   const base = { headline, support, cta };
-  return { ...base, warnings: critiqueCopy(base), source: 'fallback', rationale: 'Assembled from your form answers.' };
+  // With no model in play the offer can only be what somebody typed or what
+  // the page analyser literally found on the page, and the proof point has no
+  // source at all. Both stay empty rather than being padded out of the
+  // summary, for the reason the prompt gives at length: these are the two
+  // lines a client has to stand behind.
+  const offer = (input.offer || input.landing?.detectedOffer || '').trim();
+  return { ...base, offer, trust: '', warnings: critiqueCopy(base),
+           source: 'fallback', rationale: 'Assembled from your form answers.' };
 }
 
 export async function suggestCopy(
@@ -116,14 +142,24 @@ export async function suggestCopy(
 
   const sys = [
     'You write display-ad copy for local and regional businesses.',
-    'Return ONE headline, ONE supporting line, and ONE call-to-action.',
+    'You are given what a business\u2019s own web page says. Draft the five lines',
+    'an ad carries, from that page and nothing else.',
     'Rules:',
     '- Headline: 3-7 words, a complete, benefit-led thought. Never a bare category label like "Football Starts".',
     '- Supporting line: one short sentence (4-12 words) that adds a NEW point, not a repeat of the headline.',
+    '- Offer: the specific thing on the page - a price, a discount, a free first step. 1-6 words.',
+    '- Proof: the reason to believe it - years in business, a rating, a licence, a count. 1-8 words.',
     '- CTA: 1-3 words, an action the viewer takes.',
     '- Never truncate. Never output fragments ending in "Str", "Adv", etc.',
     '- Plain, concrete, human. No hype, no "Hurry".',
-    'Respond ONLY with JSON: {"headline":"","support":"","cta":"","rationale":""}. No markdown.',
+    // Two lines a client has to stand behind if a regulator or a customer
+    // asks. A model asked for a proof point will always produce one, and
+    // "Trusted by thousands" about a business nobody has counted is the ad
+    // that costs an account. So the instruction is to LEAVE IT EMPTY, twice,
+    // and the code below keeps whatever it returns without topping it up.
+    '- Offer and proof must come from the page. If the page states neither, return "" for that field.',
+    '- Never invent a discount, a rating, a review count, a number of years or an award.',
+    'Respond ONLY with JSON: {"headline":"","support":"","offer":"","proof":"","cta":"","rationale":""}. No markdown.',
   ].join('\n');
 
   const user = [
@@ -136,6 +172,13 @@ export async function suggestCopy(
     input.objective ? `Goal: ${input.objective}` : '',
     input.cta && input.cta !== 'Smart 1 should recommend' ? `Preferred CTA: ${input.cta}` : '',
     input.landing?.summary ? `Landing page says: ${input.landing.summary}` : '',
+    // The analyser already read these off the page. Passing them saves the
+    // model guessing at the two fields it is most likely to invent.
+    input.landing?.detectedOffer ? `Offer stated on the page: ${input.landing.detectedOffer}` : '',
+    input.landing?.detectedCta ? `The page\u2019s own button says: ${input.landing.detectedCta}` : '',
+    input.landing?.audience ? `Who the page addresses: ${input.landing.audience}` : '',
+    input.landing?.title ? `Page title: ${input.landing.title}` : '',
+    input.landing?.url ? `Page: ${input.landing.url}` : '',
   ].filter(Boolean).join('\n');
 
   try {
@@ -158,7 +201,16 @@ export async function suggestCopy(
       support: String(parsed.support ?? '').trim(),
       cta: String(parsed.cta ?? input.cta ?? 'Learn More').trim(),
     };
-    return { ...base, rationale: parsed.rationale, warnings: critiqueCopy(base), source: 'openai' };
+    // No fallback for these two. Every other field defaults to something
+    // sensible when the model omits it; an offer and a proof point that were
+    // not on the page have no sensible default, and the empty string is the
+    // honest one.
+    const extra = {
+      offer: String(parsed.offer ?? '').trim(),
+      trust: String(parsed.proof ?? parsed.trust ?? '').trim(),
+    };
+    return { ...base, ...extra, rationale: parsed.rationale,
+             warnings: critiqueCopy(base), source: 'openai' };
   } catch {
     return fallbackSuggestion(input);
   } finally {

@@ -21,10 +21,10 @@ import { validateCampaign } from './validate';
 import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog } from './jobs';
 import { renderPreview } from './render';
 import { buildCampaign, type Submission } from './intake';
-import { loadPlatforms, loadTemplates } from './registry';
+import { loadPlatforms, loadTemplates, acceptPlatforms } from './registry';
 import { logoInkLuminance } from './qa';
 import { paletteVariants } from './palette';
-import { ProjectStore } from './projects';
+import { ProjectStore, type Project } from './projects';
 import { analyzeLandingPage } from './landing';
 import { landingImages } from './landing-images';
 import { checkAuth, denied, rateLimit, sessionCookie, configuredToken, sweepBuckets, intakeCodeOk, intakeAllowed } from './auth';
@@ -192,6 +192,101 @@ function fileJobOntoProject(jobId: string, projectId: string): void {
   })();
 }
 
+/**
+ * Approve a proof, or send it back for changes.
+ *
+ * Two doors reach this and they are not the same door. A client presses a
+ * button on the proof page, which is public on purpose — the project id in
+ * that URL is the capability. Staff press it on the build screen, which
+ * arrives through the Hub proxy with an admin token and a name attached.
+ *
+ * One function for both, because approving has consequences beyond a status:
+ * it is the trigger for packaging the files, and two copies of that would
+ * drift into two different ideas of what "approved" delivers. What must NOT
+ * be shared is the claim. A record saying "approved by the client" about a
+ * decision an account manager made in the office is the confidently wrong
+ * answer this codebase keeps having to undo — it is the difference between a
+ * campaign that is signed off and one that somebody expects to be. So `by`
+ * travels with the decision and the note says which door it came through.
+ */
+async function recordDecision(
+  project: Project,
+  opts: { kind: 'approve' | 'revision'; concept?: string; notes?: string; by?: string },
+): Promise<{ code: number; body: Record<string, unknown> }> {
+  const at = new Date().toISOString();
+  const who = (opts.by ?? '').trim();
+  const source = who ? `internally by ${who}` : 'by the client';
+
+  if (opts.kind === 'approve') {
+    project.status = 'approved';
+    if (opts.concept) project.approvedConcept = opts.concept;
+    project.notes.push(`[${at}] Concept ${opts.concept ?? '?'} approved ${source}.`);
+    projects.save(project);
+    console.log(`[proof] ${project.projectId} -> approved (${who || 'client'})`);
+
+    // Approval IS the trigger for delivery — no human in the loop just to
+    // press "deliver". Package the approved concept now: platform folders,
+    // final names, QA failures withheld. The client gets the download link
+    // in this response; staff get it in the notification.
+    try {
+      const out = await deliverProject(project, { outDir: OUT, conceptId: opts.concept });
+      project.status = 'complete';
+      project.delivered = project.delivered ?? [];
+      project.delivered.push({ at, zipUrl: out.zipUrl, fileCount: out.fileCount });
+      project.notes.push(
+        `[${at}] Auto-delivered ${out.fileCount} file(s) on approval` +
+        (out.skipped.length ? `; withheld ${out.skipped.map((s) => s.size).join(', ')}` : ''),
+      );
+      projects.save(project);
+      await notify(
+        {
+          subject: `Approved & delivered — ${project.client} / ${project.projectName}`,
+          body: `Concept ${opts.concept ?? '?'} was approved ${source}. ${out.fileCount} finished file(s) are packaged — download from the build screen or the projects dashboard.` +
+            (out.skipped.length ? `\nNot included: ${out.skipped.map((s) => `${s.size} (${s.reason})`).join('; ')}` : ''),
+          url: `${PUBLIC_URL}/build?request=${project.requestId}`,
+        },
+        OUT,
+      );
+      return { code: 200, body: { status: 'complete', recordedAt: at, by: who || 'client',
+                                  downloadUrl: out.zipUrl, fileCount: out.fileCount,
+                                  skipped: out.skipped } };
+    } catch (e: any) {
+      // Delivery failing must not lose the approval. Record it, tell staff,
+      // and let the client know files are on the way manually.
+      project.notes.push(`[${at}] Auto-delivery failed: ${e?.message ?? e}. Deliver manually from the build screen.`);
+      projects.save(project);
+      await notify(
+        {
+          subject: `Approved (delivery needs attention) — ${project.client} / ${project.projectName}`,
+          body: `Concept ${opts.concept ?? '?'} was approved ${source} but packaging failed: ${e?.message ?? e}`,
+          url: `${PUBLIC_URL}/build?request=${project.requestId}`,
+        },
+        OUT,
+      );
+      return { code: 200, body: { status: 'approved', recordedAt: at, by: who || 'client',
+                                  deliveryError: e?.message ?? 'Packaging failed' } };
+    }
+  }
+
+  project.status = 'proof-sent';
+  project.notes.push(
+    `[${at}] Revision requested ${source} on concept ${opts.concept ?? '?'}: ${opts.notes ?? '(no detail)'}`);
+  projects.save(project);
+  console.log(`[proof] ${project.projectId} -> ${project.status} (${who || 'client'})`);
+
+  await notify(
+    {
+      subject: `Revision requested — ${project.client} / ${project.projectName}`,
+      body: `Concept ${opts.concept ?? '?'} needs changes (requested ${source}):\n\n"${opts.notes ?? '(no detail given)'}"`,
+      url: `${PUBLIC_URL}/build?request=${project.requestId}`,
+    },
+    OUT,
+  );
+
+  // TODO: push the status to HighLevel once the custom object exists there.
+  return { code: 200, body: { status: project.status, recordedAt: at, by: who || 'client' } };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
   const route = `${req.method} ${url.pathname}`;
@@ -219,6 +314,9 @@ const server = http.createServer(async (req, res) => {
     route === 'POST /api/background/apply' ||
     route === 'POST /api/logo/apply' ||
     route === 'POST /api/palette/variants' ||
+    // Uploads into our own Cloudinary account. Staff only, for the reason the
+    // route itself gives at length.
+    route === 'POST /api/imagery/keep' ||
     url.pathname.startsWith('/api/diagnostics') ||
     (url.pathname.startsWith('/files/') && !url.pathname.startsWith('/files/imagery/') && !url.pathname.startsWith('/files/gallery/') && !url.pathname.startsWith('/files/deliveries/') && !url.pathname.startsWith('/files/renders/')) ||
     route === 'POST /api/render' ||
@@ -372,7 +470,7 @@ const server = http.createServer(async (req, res) => {
           path.join(OUT, 'campaigns', `${requestId}.json`),
           JSON.stringify({
             campaign: result.campaign,
-            platforms: (body.platforms ?? ['google']).filter((p: string) => p === 'google' || p === 'amazon'),
+            platforms: acceptPlatforms(body.platforms).platforms,
             notes: result.notes,
             assetSources: result.assetSources,
           }, null, 2),
@@ -436,9 +534,7 @@ const server = http.createServer(async (req, res) => {
         // uploaded a logo and a photo should not need staff to notice their
         // request before anything happens.
         if (result.renderable) {
-          const platforms = (body.platforms ?? ['google']).filter(
-            (p: string) => p === 'google' || p === 'amazon',
-          );
+          const platforms = acceptPlatforms(body.platforms).platforms;
           // First look BEFORE the batch job. Order matters on a small
           // instance: one 300x250 rendered alone lands in seconds, while the
           // same render competing with a 20-size batch for one starved CPU is
@@ -742,7 +838,15 @@ const server = http.createServer(async (req, res) => {
         }
       } catch { /* editor simply starts blank if the campaign can't be read */ }
 
+      // Who is reading this decides how much of it is drawn. Staff arrive
+      // through the Hub proxy, which attaches the admin token server-side; a
+      // client arrives with the project id in the URL and nothing else. The
+      // page itself is public either way -- that is the point of a proof --
+      // but the live editor rebuilds the creative and reaches billed
+      // endpoints, so it belongs to the operator.
+      const staffViewing = checkAuth(req, url).ok;
       let html = renderProof(manifest, {
+        editor: staffViewing,
         fileBase: '',
         actionBase: project ? `/api/proof/${project.projectId}` : undefined,
         initialCopy,
@@ -770,9 +874,19 @@ const server = http.createServer(async (req, res) => {
     if (deliverMatch && req.method === 'POST') {
       const project = projects.get(deliverMatch[1]);
       if (!project) return json(res, 404, { error: 'No such project' });
-      const body = JSON.parse((await readBody(req, 20_000)) || '{}') as { concept?: string };
+      const body = JSON.parse((await readBody(req, 20_000)) || '{}') as
+        { concept?: string; record?: boolean };
       try {
         const out = await deliverProject(project, { outDir: OUT, conceptId: body.concept });
+        // Packaging and delivering are two different events, and the build
+        // screen's "Download the full ZIP" is the first without the second:
+        // somebody wants the files in their hands. Recording it would set the
+        // project complete, push a "Delivered" note and mail the team, so a
+        // download taken to check one file would read on every screen as the
+        // campaign having been handed over. The zip is byte-for-byte the same
+        // either way -- one description of what a package is, two things you
+        // can do with it.
+        if (body.record === false) return json(res, 200, { ...out, recorded: false });
         project.status = 'complete';
         project.delivered = project.delivered ?? [];
         project.delivered.push({ at: new Date().toISOString(), zipUrl: out.zipUrl, fileCount: out.fileCount });
@@ -791,7 +905,7 @@ const server = http.createServer(async (req, res) => {
           },
           OUT,
         );
-        return json(res, 200, out);
+        return json(res, 200, { ...out, recorded: true });
       } catch (e: any) {
         return json(res, 422, { error: e?.message ?? 'Delivery failed' });
       }
@@ -974,8 +1088,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { approvals });
     }
 
-    /* ------------------------------------------------------------ approvals */
-    // Posted by the proof screen. Public on purpose: the customer opening a
     // In-place rebuild. The heart of "revisions happen in the same window":
     // apply edits (per-concept or per-size copy, CTA, colours) to the stored
     // campaign, re-render, and refresh the proof. No new request, no "a revised
@@ -1175,6 +1287,8 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { rebuilt: true, building: true, requestId: project.requestId, proofUrl: `/proof/${project.requestId}` });
     }
 
+    /* ------------------------------------------------------- the client's */
+    // Posted by the proof screen. Public on purpose: the customer opening a
     // proof link is not an authenticated user. The project id in the URL is
     // the capability, so treat it like a signed link, not a secret.
     const decision = url.pathname.match(/^\/api\/proof\/([\w.-]+)\/(approve|revision)$/);
@@ -1184,72 +1298,103 @@ const server = http.createServer(async (req, res) => {
       if (!project) return json(res, 404, { error: 'No such project' });
 
       const body = JSON.parse(await readBody(req, 50_000)) as { concept?: string; notes?: string };
-      const at = new Date().toISOString();
+      // No `by` is read here, and that is the point: this route is reached
+      // with nothing but the project id, so anything it claimed about who
+      // pressed the button would be a claim anyone with the link could make.
+      // The decision is recorded as the client's, which is what it is.
+      const out = await recordDecision(project, {
+        kind: kind === 'approve' ? 'approve' : 'revision',
+        concept: body.concept, notes: body.notes,
+      });
+      return json(res, out.code, out.body);
+    }
 
-      if (kind === 'approve') {
-        project.status = 'approved';
-        if (body.concept) project.approvedConcept = body.concept;
-        project.notes.push(`[${at}] Concept ${body.concept ?? '?'} approved by the client.`);
-        projects.save(project);
-        console.log(`[proof] ${projectId} -> approved`);
-
-        // Approval IS the trigger for delivery — no human in the loop just to
-        // press "deliver". Package the approved concept now: platform folders,
-        // final names, QA failures withheld. The client gets the download link
-        // in this response; staff get it in the notification.
-        try {
-          const out = await deliverProject(project, { outDir: OUT, conceptId: body.concept });
-          project.status = 'complete';
-          project.delivered = project.delivered ?? [];
-          project.delivered.push({ at, zipUrl: out.zipUrl, fileCount: out.fileCount });
-          project.notes.push(
-            `[${at}] Auto-delivered ${out.fileCount} file(s) on approval` +
-            (out.skipped.length ? `; withheld ${out.skipped.map((s) => s.size).join(', ')}` : ''),
-          );
-          projects.save(project);
-          await notify(
-            {
-              subject: `Approved & delivered — ${project.client} / ${project.projectName}`,
-              body: `Concept ${body.concept ?? '?'} was approved. ${out.fileCount} finished file(s) are packaged — download from the build screen or the projects dashboard.` +
-                (out.skipped.length ? `\nNot included: ${out.skipped.map((s) => `${s.size} (${s.reason})`).join('; ')}` : ''),
-              url: `${PUBLIC_URL}/build?request=${project.requestId}`,
-            },
-            OUT,
-          );
-          return json(res, 200, { status: 'complete', recordedAt: at, downloadUrl: out.zipUrl, fileCount: out.fileCount });
-        } catch (e: any) {
-          // Delivery failing must not lose the approval. Record it, tell
-          // staff, and let the client know files are on the way manually.
-          project.notes.push(`[${at}] Auto-delivery failed: ${e?.message ?? e}. Deliver manually from the build screen.`);
-          projects.save(project);
-          await notify(
-            {
-              subject: `Approved (delivery needs attention) — ${project.client} / ${project.projectName}`,
-              body: `Concept ${body.concept ?? '?'} was approved but packaging failed: ${e?.message ?? e}`,
-              url: `${PUBLIC_URL}/build?request=${project.requestId}`,
-            },
-            OUT,
-          );
-          return json(res, 200, { status: 'approved', recordedAt: at });
-        }
-      } else {
-        project.status = 'proof-sent';
-        project.notes.push(`[${at}] Revision requested on concept ${body.concept ?? '?'}: ${body.notes ?? '(no detail)'}`);
+    /* --------------------------------------- keeping a generated picture */
+    /*
+     * A generated picture lives on the render disk, under /files/imagery, and
+     * that is the right place for a draft: most of them are thrown away, and
+     * `retention.ts` sweeps the folder so they do not accumulate for ever.
+     *
+     * It is the wrong place for one worth keeping. The sweep does not know
+     * that somebody liked this one, the disk is not backed up, and a URL
+     * under /files needs a Hub login -- so filing that address onto a client
+     * record produces a gallery row that works today, 404s after the sweep,
+     * and was never openable by the client whose gallery it is in.
+     *
+     * So keeping a picture means moving it to Cloudinary, which is where
+     * every other client asset already lives, and handing back the address it
+     * got. Filing it onto the client is the Hub's job and stays there: this
+     * service does not know who our clients are, which is the line
+     * `hub/ad_builder_link.py` draws and the reason the renderer has never
+     * had to.
+     */
+    const keepMatch = url.pathname === '/api/imagery/keep';
+    if (keepMatch && req.method === 'POST') {
+      const body = JSON.parse(await readBody(req, 20_000)) as
+        { url?: string; client?: string; campaign?: string; label?: string };
+      // Only a path this service wrote. The value comes from a page, and a
+      // route that uploads whatever URL it is handed is an open relay into
+      // our own Cloudinary account.
+      const rel = String(body.url ?? '').replace(/^\/files\//, '');
+      if (!/^imagery\/[\w.\-/]+\.(png|jpg|jpeg|webp)$/i.test(rel) || rel.includes('..')) {
+        return json(res, 400, { error: 'That is not a generated picture from this build.' });
       }
-      projects.save(project);
-      console.log(`[proof] ${projectId} -> ${project.status}`);
+      const file = path.join(OUT, rel);
+      if (!fs.existsSync(file)) {
+        return json(res, 404, { error: 'That picture is no longer on the render disk.' });
+      }
+      const cld = new CloudinaryService();
+      if (!cld.live) {
+        return json(res, 200, { ok: false,
+          error: 'Cloudinary is not configured here, so there is nowhere permanent ' +
+                 'to keep it. The picture still works on this build.' });
+      }
+      try {
+        const client = String(body.client || 'smart-1-marketing');
+        const campaign = String(body.campaign || 'display ads');
+        const up = await cld.uploadCreative({
+          file,
+          folder: `${cld.projectFolder(client, campaign)}/generated`,
+          publicId: `ai-${path.basename(rel).replace(/\.[^.]+$/, '')}`,
+          tags: ['smart1', 'display-ads', 'ai-generated'],
+          context: { client, campaign, source: 'ai' },
+        });
+        return json(res, 200, { ok: true, url: up.secureUrl, public_id: up.publicId,
+                                width: up.width, height: up.height,
+                                filename: `${slug(body.label || 'ai-background')}.${up.format}` });
+      } catch (e: any) {
+        return json(res, 502, { error: e?.message ?? 'That picture could not be stored.' });
+      }
+    }
 
-      await notify(
-        {
-          subject: `Revision requested — ${project.client} / ${project.projectName}`,
-          body: `Concept ${body.concept ?? '?'} needs changes:\n\n"${body.notes ?? '(no detail given)'}"`,
-          url: `${PUBLIC_URL}/build?request=${project.requestId}`,
-        },
-        OUT,
-      );
-
-      // TODO: push the status to HighLevel once the custom object exists there.
-      return json(res, 200, { status: project.status, recordedAt: at });
+    /* ------------------------------------------- the same call, from inside */
+    // The build screen's own approve / send-back, so an account manager who
+    // has just looked at eight sizes does not have to open the client's page
+    // and press the client's button to record what they decided.
+    //
+    // A separate route rather than a flag on the one above, because the two
+    // differ in exactly one way that matters: this path sits under
+    // /api/project, which the admin gate covers, so the name it records
+    // arrives from the Hub proxy rather than from whoever holds the link.
+    const staffDecision = url.pathname.match(/^\/api\/project\/([\w.-]+)\/decision$/);
+    if (staffDecision && req.method === 'POST') {
+      const project = projects.get(staffDecision[1]);
+      if (!project) return json(res, 404, { error: 'No such project' });
+      const body = JSON.parse(await readBody(req, 50_000)) as {
+        kind?: string; concept?: string; notes?: string;
+      };
+      const kind = body.kind === 'approve' ? 'approve' : body.kind === 'revision' ? 'revision' : null;
+      if (!kind) return json(res, 400, { error: 'kind must be "approve" or "revision"' });
+      // A change request with no detail is not actionable, and one recorded
+      // without it reads on the queue exactly like one that was explained.
+      if (kind === 'revision' && !String(body.notes ?? '').trim()) {
+        return json(res, 400, { error: 'Say what needs to change. A revision with no detail cannot be worked on.' });
+      }
+      const out = await recordDecision(project, {
+        kind, concept: body.concept, notes: body.notes,
+        by: (req.headers['x-s1-user'] as string) || 'a member of staff',
+      });
+      return json(res, out.code, out.body);
     }
 
     /* ------------------------------------------------------------ retention */
@@ -1918,6 +2063,14 @@ const server = http.createServer(async (req, res) => {
           ...doc,
           status: proj?.status,
           reportUrl: lastBatch?.reportUrl,
+          // What was read off the client's own page, and the page it was read
+          // from. Both live on the project record and neither reached the
+          // build screen, so the screen's "write this for me" and "draw me a
+          // picture" buttons were working from a business name and a headline
+          // somebody had already typed -- the analysis sat one fetch away and
+          // was never asked for.
+          landingPage: proj?.landingPage,
+          landing: proj?.landingAnalysis,
         });
       }
       if (req.method === 'PUT') {

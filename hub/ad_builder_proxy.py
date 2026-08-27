@@ -57,6 +57,33 @@ _DROP_RESPONSE = {"content-length", "connection", "keep-alive",
 
 TIMEOUT = (10, 180)          # connect, read — a full ad package takes a while
 
+# The two paths a client meets, and the only ones that answer without a Hub
+# login.
+#
+# A proof is a page you send to somebody outside this company. Behind the Hub
+# session it was staff-only, so "here is the link, tell us what you think"
+# landed a client on a login form for an account they do not have — a URL that
+# looks like a working link and is a dead end, which is worse than not offering
+# one. The project id in the path is the capability, the same arrangement
+# ``modules/scans`` and ``modules/ads_builder`` use for their client-facing
+# documents, and the renderer draws the page without its editor when the
+# request arrives without the admin token.
+#
+# Matched on the whole path segment, anchored, so ``/proofs`` and
+# ``/api/proof/x/rebuild`` are not in it. Rebuild is deliberately out: it
+# re-renders the creative for everyone holding the link and reaches endpoints
+# that are billed per call, so it stays with the operator.
+PUBLIC_PATTERNS = (
+    re.compile(r"^proof/[\w.-]+$"),
+    re.compile(r"^api/proof/[\w.-]+/(approve|revision)$"),
+)
+
+
+def is_public(path: str) -> bool:
+    """Is this a path a client may reach with no Hub session?"""
+    p = (path or "").strip("/")
+    return any(rx.match(p) for rx in PUBLIC_PATTERNS)
+
 
 def available() -> bool:
     """Is the renderer answering? Used by the tile and by diagnostics."""
@@ -157,11 +184,14 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         # Hub login. Imported here rather than at module scope because
         # hub/__init__ imports this module while it is still being defined.
         from hub import current_user
-        if not current_user():
+        if not (current_user() or is_public(path)):
             from flask import redirect, url_for
             return redirect(f"/login?next={request.path}")
 
-        if not ADMIN_TOKEN:
+        # A public proof needs no token of ours, so it must not meet a page of
+        # ours explaining that one is missing: that text is addressed to
+        # whoever can set an environment variable, and a client is not them.
+        if not ADMIN_TOKEN and not is_public(path):
             return _explain(
                 "The Display Ad Builder isn't configured yet",
                 "ADBUILDER_ADMIN_TOKEN is not set, so the renderer refuses "
@@ -181,12 +211,29 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         # The token is added here, not carried by the browser. It never reaches
         # the page, so it cannot leak through the address bar, history or a
         # referrer header.
-        headers["X-Admin-Token"] = ADMIN_TOKEN
-        # The intake code guards the client-facing form; staff coming through
-        # the Hub have already authenticated, so supply it for them.
-        intake = os.environ.get("INTAKE_CODE", "").strip()
-        if intake:
-            headers["X-Intake-Code"] = intake
+        #
+        # And it is added only for somebody signed in. A public proof request
+        # forwarded WITH it would tell the renderer a client is staff -- which
+        # is precisely the question the renderer asks to decide whether to draw
+        # the live editor on that page. Attaching our own credential to an
+        # anonymous request is how a public page quietly gains an operator's
+        # controls, with every screen looking healthy.
+        signed_in = bool(current_user())
+        if signed_in:
+            headers["X-Admin-Token"] = ADMIN_TOKEN
+            # The intake code guards the client-facing form; staff coming
+            # through the Hub have already authenticated, so supply it for them.
+            intake = os.environ.get("INTAKE_CODE", "").strip()
+            if intake:
+                headers["X-Intake-Code"] = intake
+        else:
+            # Nothing of ours travels with an anonymous request -- including a
+            # header of that name the caller supplied themselves. Matched
+            # case-insensitively, because "x-admin-token" and "X-Admin-Token"
+            # are one header to every HTTP implementation and would be two
+            # keys to a dict.
+            _mine = {"x-admin-token", "x-intake-code", "x-s1-user"}
+            headers = {k: v for k, v in headers.items() if k.lower() not in _mine}
         # So the upstream builds links back through the Hub rather than to
         # its own loopback address.
         headers["X-Forwarded-Prefix"] = url_prefix
@@ -197,7 +244,7 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         # UnicodeEncodeError inside requests, and losing the whole proxied
         # request over a name with an accent in it would be absurd.
         who = (current_user() or "").encode("ascii", "ignore").decode()[:120].strip()
-        if who:
+        if who and signed_in:
             headers["X-S1-User"] = who
 
         try:

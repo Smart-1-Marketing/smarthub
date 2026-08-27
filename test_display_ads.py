@@ -475,7 +475,11 @@ def test_the_render_asks_which_sizes_and_the_proof_is_reachable():
     check("one place files a finished job onto its project",
           "function fileJobOntoProject" in server)
     check("and the render route uses it too", "if (forProject) fileJobOntoProject" in server)
-    check("the finished render links the proof", "data-proofnow" in screen)
+    # This used to look for a "data-proofnow" button. The finished render now
+    # hands over a copyable client link and the two decision buttons instead,
+    # which is the same promise kept better -- see
+    # test_a_finished_render_hands_over_a_client_link below.
+    check("the finished render hands the proof over", "function showHandover" in screen)
 
 
 def test_a_generated_picture_can_be_revised():
@@ -566,6 +570,327 @@ def test_a_disk_that_is_fine_does_not_read_as_broken():
     )
     screen = BUILD_HTML.read_text()
     check("and the health dot does not flash", "animation: pulse" not in screen)
+
+
+# --------------------------------------------------------------- the sequence
+
+
+def test_the_toolbar_appears_in_the_order_the_work_happens():
+    """Save, then render, then file. Nothing offered before it can work.
+
+    Filing ads onto a client and rendering a set both stood next to Save from
+    the moment the page opened, on a build that had never been written down --
+    and both act on what is on the SERVER. On an unsaved build that is the
+    previous version, so "attach to client" filed the ads somebody had just
+    finished replacing and reported a clean success for doing it.
+    """
+    screen = BUILD_HTML.read_text()
+    check("the render button starts hidden",
+          'id="renderAll" style="display:none"' in screen)
+    check("and says why it is not there yet", 'id="saveHint"' in screen)
+    check("save is the primary action on arrival",
+          'class="btn primary" id="save"' in screen)
+    check("one function decides what is on the toolbar",
+          "function refreshStage" in screen)
+    check("saving is what reveals the render button",
+          "$('renderAll').style.display = state.saved ? '' : 'none';" in screen)
+    check("attaching waits for files to exist",
+          "!window.S1_BASE || !pid || !state.rendered" in screen)
+    check("the gate lives in saveCampaign, so every door opens it",
+          "state.saved = true;\n      refreshStage();" in screen)
+    check("opening a campaign is not saving it", "state.saved = false;" in screen)
+
+
+def test_the_render_button_offers_the_four_real_jobs():
+    """Render, render and file, file, and package.
+
+    They were spread across three places: a toolbar link that predated any
+    render, a Deliver button that only appeared once a status had changed, and
+    the render itself. So the ordinary job -- build these and put them on the
+    client's record -- was two controls with a page in between.
+    """
+    screen = BUILD_HTML.read_text()
+    check("the menu exists", "function askRenderAction" in screen)
+    for act in ("render-file", "render", "file", "zip"):
+        check(f"it offers {act}", f"'{act}',", extra=act)
+    check("filing has a one-press path", "function fileToClient" in screen)
+    check("which posts to the Hub's own attach route",
+          "'/_hub/attach'" in screen)
+    check("the zip says it takes a moment", "This can take a minute" in screen)
+    check("the two that need files are disabled without them",
+          "state.rendered," in screen and
+          "Nothing has been rendered yet, so there is nothing to file." in screen)
+    check("cancelling the size question does not render everything",
+          "if (sizes === false) return;" in screen)
+    check("filing happens after the files exist, not with the render",
+          "if (alsoFile) {" in screen)
+
+
+def test_a_download_is_not_a_delivery():
+    """The ZIP button packages; it does not hand the campaign over.
+
+    ``deliverProject`` sets the project complete, writes a "Delivered" note and
+    mails the team. Doing that because somebody downloaded a file to look at it
+    is a status nobody set, on every screen that reads it.
+    """
+    server = (MODULE / "src" / "server.ts").read_text()
+    screen = BUILD_HTML.read_text()
+    check("the route can package without recording",
+          "if (body.record === false) return json(res, 200, { ...out, recorded: false });"
+          in server)
+    check("and says which it did", "recorded: true" in server)
+    check("the download asks for the unrecorded one", '"record": false' in screen or
+          "record: false" in screen)
+    check("a withheld size is named rather than silently missing",
+          "a size that fails QA is never packaged" in screen)
+
+
+def test_a_finished_render_hands_over_a_client_link():
+    """A URL to send, and the decision, on the screen that just built them."""
+    screen = BUILD_HTML.read_text()
+    check("the handover panel exists", "function showHandover" in screen)
+    check("the link is a field you can select", 'id="proofUrlBox"' in screen)
+    check("with a copy button", 'id="proofCopy"' in screen)
+    check("that never claims a copy it did not make",
+          "Press Ctrl-C" in screen and "execCommand" in screen)
+    check("it is the live proof route, not the static snapshot",
+          "function proofUrl() { return '/proof/'" in screen)
+    check("spelled out for pasting", "function proofUrlAbsolute" in screen)
+    check("and both decisions are on it",
+          'id="decApprove"' in screen and 'id="decRevise"' in screen)
+    check("approving says what it will do before the press",
+          "approval is what packages the finished files" in screen)
+
+
+def test_a_decision_says_which_door_it_came_through():
+    """Approved by the client and approved by us are different records.
+
+    One function, because approving is the trigger for packaging and two
+    copies of that drift. Two routes, because only one of them can know who
+    pressed the button: the client's page is reached with nothing but the
+    project id, so a name claimed there is a name anyone with the link could
+    claim.
+    """
+    server = (MODULE / "src" / "server.ts").read_text()
+    check("one description of what approving means",
+          "async function recordDecision" in server)
+    check("the client's door records the client",
+          "approved ${source}" in server and "'by the client'" in server)
+    check("the staff door is under the admin gate",
+          "/^\\/api\\/project\\/([\\w.-]+)\\/decision$/" in server)
+    check("and reads the name the Hub proxy attached",
+          "by: (req.headers['x-s1-user'] as string) || 'a member of staff'" in server)
+    check("the public door reads no name at all",
+          "No `by` is read here" in server)
+    check("a change request with no detail is refused",
+          "A revision with no detail cannot be worked on." in server)
+    screen = BUILD_HTML.read_text()
+    check("and the screen asks for that detail rather than sending it empty",
+          "function askNotes" in screen)
+
+
+def _proxy_headers_for(path, supplied=None):
+    """The headers the proxy would forward upstream, without an upstream.
+
+    The renderer is a second process and is not running in CI, so the request
+    is intercepted at ``requests.request`` -- which is the line under test
+    anyway: what this proxy chooses to attach.
+    """
+    sys.path.insert(0, str(ROOT))
+    import os
+    os.environ.setdefault("ADBUILDER_ADMIN_TOKEN", "t" * 24)
+    os.environ.setdefault("SECRET_KEY", "x" * 32)
+    from hub import ad_builder_proxy as pxy
+
+    seen = {}
+
+    class _Fake:
+        status_code, headers, raw = 200, {"content-type": "text/plain"}, None
+        def iter_content(self, *a, **k):
+            return iter([b"ok"])
+
+    def _spy(method, url, **kw):
+        seen.update(kw.get("headers") or {})
+        return _Fake()
+
+    real = pxy.requests.request
+    pxy.requests.request = _spy
+    try:
+        import wsgi
+        from werkzeug.test import Client
+        Client(wsgi.application).get(path, headers=supplied or {})
+    finally:
+        pxy.requests.request = real
+    return seen
+
+
+def test_the_proof_a_client_opens_is_reachable_and_theirs():
+    """A link that lands on a staff login is not a link you can send.
+
+    The proof page sat behind the Hub session, so "here is the link, tell us
+    what you think" put a client on a login form for an account they do not
+    have. And the editor on that page rebuilds the creative for everyone
+    holding the link and reaches billed endpoints, so it is not theirs.
+    """
+    proxy = (ROOT / "hub" / "ad_builder_proxy.py").read_text()
+    proof = (MODULE / "src" / "proof.ts").read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+    hub = (ROOT / "hub" / "__init__.py").read_text()
+
+    # This one is Python, so it is exercised rather than grepped. It is the
+    # gate that decides what a stranger can reach, and a string match would
+    # pass just as happily on a pattern that matched everything.
+    sys.path.insert(0, str(ROOT))
+    from hub.ad_builder_proxy import is_public
+    for path, want in [
+        ("proof/AD-2026-000777", True),
+        ("/proof/AD-2026-000777/", True),
+        ("api/proof/P-1/approve", True),
+        ("api/proof/P-1/revision", True),
+        # Everything else keeps the Hub login. Rebuild re-renders the creative
+        # for everyone holding the link and reaches billed endpoints.
+        ("api/proof/P-1/rebuild", False),
+        ("build", False),
+        ("projects", False),
+        ("api/campaigns", False),
+        ("api/project/P-1/decision", False),
+        ("api/images/generate", False),
+        # Anchored on whole segments, so a longer name is not a prefix match.
+        ("proofs/all", False),
+        ("proof/P-1/../../build", False),
+        ("", False),
+    ]:
+        check(f"is_public({path!r}) is {want}", is_public(path) is want,
+              extra=path)
+    check("rebuild is deliberately not public", "Rebuild is deliberately out" in proxy)
+    # Also exercised. Forwarding our admin token with an anonymous request
+    # would tell the renderer a client is staff -- which is exactly the
+    # question it asks to decide whether to draw the live editor. Attaching
+    # our own credential to a stranger's request is how a public page quietly
+    # gains an operator's controls with every screen looking healthy.
+    sent = _proxy_headers_for(
+        "/tools/display-ads/proof/AD-2026-000777",
+        supplied={"X-Admin-Token": "a-token-the-caller-made-up",
+                  "x-s1-user": "someone@example.com"},
+    )
+    lower = {k.lower() for k in sent}
+    check("no admin token travels with an anonymous request",
+          "x-admin-token" not in lower)
+    check("no staff name either", "x-s1-user" not in lower)
+    check("nor the intake code", "x-intake-code" not in lower)
+    check("and the mount prefix still does, or every link breaks",
+          "x-forwarded-prefix" in lower)
+    check("the proof is chrome-free, like the landing pages",
+          '"/tools/display-ads/proof/"' in hub)
+    check("the page can be drawn without its editor", "editor?: boolean" in proof)
+    check("and the route decides from the request, not from a parameter",
+          "const staffViewing = checkAuth(req, url).ok;" in server)
+    check("the per-size wiring survives the editor being absent",
+          proof.count("if (sizeModal)") >= 3)
+
+
+# ------------------------------------------------------------------- meta
+
+
+def test_meta_is_a_platform_you_can_buy():
+    """It had a config file, every template drew its sizes, and one line
+    dropped it.
+
+    ``.filter(p => p === 'google' || p === 'amazon')``, written out three
+    times. A Meta buy came back as a set of Google banners with nothing
+    anywhere saying so.
+    """
+    registry = (MODULE / "src" / "registry.ts").read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+    intake = (MODULE / "src" / "intake.ts").read_text()
+    embed = (MODULE / "public" / "embed.html").read_text()
+
+    check("one function decides", "export function acceptPlatforms" in registry)
+    check("and the literal is gone from every caller",
+          "p === 'google' || p === 'amazon'" not in server + intake)
+    check("the request route uses it",
+          "acceptPlatforms(body.platforms).platforms" in server)
+    check("the validator uses it",
+          "acceptPlatforms(sub.platforms).platforms" in intake)
+    check("the public form offers Meta", 'name="platforms" value="meta"' in embed)
+
+    meta = json.loads((MODULE / "src" / "config" / "platforms" / "meta.json").read_text())
+    for size in ("1080x1080", "1200x628", "1080x1350", "1080x1920"):
+        check(f"meta buys {size}", size in meta["sizes"], extra=size)
+    check("meta is not held to the display-banner file ceiling",
+          all(s["maxFileBytes"] > 1_000_000 for s in meta["sizes"].values()))
+
+    # The reason Meta could be switched on rather than built: the layouts were
+    # already there. A size added to the platform with no template behind it
+    # renders as a 422 in the preview pane.
+    for path in sorted(TEMPLATES.glob("*.json")):
+        spec = json.loads(path.read_text())
+        for size in meta["sizes"]:
+            check(f"{spec['id']} draws {size}", size in spec["sizes"],
+                  extra=f"{spec['id']}/{size}")
+
+
+def test_the_hub_start_form_requires_a_url_and_asks_where_it_runs():
+    """The URL is what the tool reads, so a build without one is a build
+    written about a business nothing has looked at."""
+    link = (ROOT / "hub" / "ad_builder_link.py").read_text()
+    form = (ROOT / "hub" / "templates" / "ad_builder_start.html").read_text()
+
+    check("the form requires it", 'name="website" type="text" required' in form)
+    check("and says why", "it is what the tool reads" in form)
+    check("the server requires it too, not only the browser",
+          "A website or landing page is required." in link)
+    check("a required attribute is not a rule", "is a courtesy to somebody typing" in link)
+    check("a campaign name typed into it is refused", "_looks_like_a_site" in link)
+    check("the platforms are offered", "PLATFORM_CHOICES" in link)
+    check("meta among them", '("meta", "Meta (Facebook & Instagram)")' in link)
+    check("and travel to the renderer", '"platforms": [p for p, _ in PLATFORM_CHOICES' in link)
+    check("the landing page is sent under the name the renderer reads",
+          '"landingPage": website,' in link)
+
+
+def test_the_ai_reads_the_page_it_is_writing_about():
+    """The analysis sat on the project record and no button on the build
+    screen ever asked for it."""
+    server = (MODULE / "src" / "server.ts").read_text()
+    screen = BUILD_HTML.read_text()
+
+    check("the campaign hands over its page and the analysis",
+          "landingPage: proj?.landingPage," in server and
+          "landing: proj?.landingAnalysis," in server)
+    check("the screen keeps both", "state.landing = doc.landing || null;" in screen)
+    check("and fetches one when there is none", "function ensureLanding" in screen)
+    check("the copy draft exists", "function wireDraftCopy" in screen)
+    check("it fills empty fields only", "if (effective(k)) { kept.push(k); return; }" in screen)
+    check("and writes to the whole set, not one size",
+          "state.copyScope[k] = 'all';" in screen)
+    check("a blank offer is reported, not hidden",
+          "left blank rather than invented" in screen)
+    check("the picture is drawn against the page too",
+          "landingAnalysis: landing || undefined," in screen)
+    check("and a redraw keeps it", "landingAnalysis: state.landing || undefined," in screen)
+
+
+def test_a_generated_picture_can_be_kept():
+    """A picture on the render disk is a draft; the sweep removes it.
+
+    Filing that address onto a client record produces a gallery row that works
+    today, 404s after the sweep, and was never openable by the client whose
+    gallery it is in.
+    """
+    server = (MODULE / "src" / "server.ts").read_text()
+    screen = BUILD_HTML.read_text()
+    check("there is a route that makes one permanent",
+          "'/api/imagery/keep'" in server)
+    check("it only accepts a path this service wrote",
+          "That is not a generated picture from this build." in server)
+    check("it is staff-only", "route === 'POST /api/imagery/keep' ||" in server)
+    check("the screen offers it", "id=\"aiKeep\"" in screen)
+    check("and files it through the Hub", "'/_hub/gallery'" in screen)
+    check("the renderer never learns who our clients are",
+          "does not know who our clients are" in server)
+    check("asking for a change is still there, not replaced",
+          "id=\"aiRevise\"" in screen)
 
 
 def main():
