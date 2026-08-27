@@ -3,7 +3,7 @@
 Internal tool suite for Smart 1 Marketing. Flask, deployed on Render via
 Docker, ~22 modules mounted under one login.
 
-**Live:** https://smart1-hub.onrender.com · **Repo:** `Smart-1-Marketing/smarthub`
+**Live:** https://smart1.agency · **Repo:** `Smart-1-Marketing/smarthub`
 
 ---
 
@@ -249,6 +249,20 @@ them, to make a static check happy about a string. Declaring it is not enough
 on its own — the check then looks for that name across `hub/`, and
 `test_env_config.py` points it at a name nothing writes and requires the
 finding back.
+
+**And a log name nothing else knows is a log nobody reads.** Declaring
+`display_ads` closed the integrity check and left the other half open: every
+build started and every finished pack filed against a client was written to
+the activity log, kept, and then dropped on the way to the record it was
+written for, because `hub/client_brand.WORK_KINDS` was keyed on neither
+`ad_builder` nor `display_ads` and `work_log()` skips a module it cannot name.
+So a client who had just had a set of display ads built read as a client
+nobody had done any work for — the tool's own screens complete, the log row
+present, the client record confidently empty, and nothing erroring at any of
+the three. `test_client_images.py` now asserts that **every name
+`audit.LOG_NAMES` declares is one the work log can name**: the declaration
+exists precisely because the directory and the log disagree, which makes it
+exactly the case where a second table gets keyed on the wrong one.
 
 **A URL built by concatenation is a URL nothing checks.** `tools/linkcheck.py`
 only sees a path literal that sits directly inside `fetch("…")`. Written as
@@ -507,6 +521,47 @@ carried when the table will not answer, and a section the account's plan does
 not include is **left out** rather than printed — forty rows of "not measured"
 is a wall nobody reads, and a zero there would be a lie. A `False` boolean is
 an answer and is kept. `test_client_images.py` asserts all of it.
+
+**Two brand cards is the reader deciding which of our services to believe.**
+The record drew the brand kit and, underneath it, a second block for what had
+been read off the client's own website — so the same company's colours
+appeared twice, in two sizes, under two headings, one of them tagged with the
+name of the provider that answered. And for a local business the lookup
+publishes nothing at all, which made the *upper* block the empty one: the card
+led with **"No brand data on file yet"** directly above the logo it plainly
+had. It is one card. `hub/client_brand._merge()` builds one set of tiles and
+one palette from both sources, deduped on the hex, and the card asks
+`has_brand` — is there anything to draw — rather than `found`, which is the
+answer to *has a lookup ever run* and is what the button reads.
+
+What does **not** merge is the claim. Each tile says where it came from — *on
+file* or *seen on their website* — and `logos` is left exactly as it was,
+because that is what `brand_guide_payload()` pushes to Suite and what
+`io_prefill`, `landing_maker` and `client_context` read: merging is a thing
+the card does for a reader, never a thing done to the data. Nor does the
+wording carry the plumbing. Which of our tools did the reading is not a fact a
+rep can act on — the note `modules/ads_builder/logo.py` already makes about
+naming Brandfetch to somebody who cannot rotate its key — so the sources are
+named as *their website* and *on file*, the date still travels with the
+sighting, and the reference card underneath is titled by the question it
+answers rather than by the audit that answered it. The audit itself keeps its
+name, on the Site Health card, where opening it is the point.
+
+**A contact strip that says "none on file" about a record holding the
+address.** The name, the address and the phone number were read off the
+client's own site and sat three cards down under a heading about our tooling,
+while the strip at the top of the same record offered a blank form. Nobody
+types a client's address in twice, so it stayed blank. `contact_observed()`
+reads them and `contact_suggestions()` offers them **into the empty fields
+only** — a value somebody typed is the better source and is never offered
+over, the overlay rule `hub/client_urls.py` works to. They are drawn dotted so
+an offer reads as an offer, one press keeps them, and nothing is written until
+that press. Contact fields are gated on the record having *no* contact at all
+rather than field by field: a contact row is a person, and dropping a phone
+number read off a home page into the row holding the owner's name is us
+inventing who answers it. First non-empty wins across the sources, and the
+order is the point — the business describing itself on its own site beats the
+Google listing address, which is the one most often out of date.
 
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
@@ -3370,8 +3425,9 @@ python3 test_celebrations.py       # birthdays and anniversaries: what is still 
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
-python3 test_client_images.py      # deleting a client image, the count, the brand card,
-                                   #   and the way back to the record
+python3 test_client_images.py      # deleting a client image, the count, the one brand
+                                   #   card, the contact details offered into the strip,
+                                   #   the display-ads work log, and the way back
 python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
 python3 test_stock_search.py       # four sources in one search; a missing folder is not an empty one
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts

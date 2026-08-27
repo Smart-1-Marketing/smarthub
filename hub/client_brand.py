@@ -39,6 +39,15 @@ WORK_KINDS = {
     "proposal_builder":     ("Proposal generated", "Proposal Builder"),
     "sales_builder":        ("Quote", "Sales Builder"),
     "ads_builder":          ("Ads campaign", "Ads Builder"),
+    # The Display Ad Builder logs under `display_ads`, not under its directory
+    # name — `modules/ad_builder` is the TypeScript renderer and its Hub-side
+    # half lives in `hub/ad_builder_link.py`, which is why `audit.LOG_NAMES`
+    # declares the mapping. This table was keyed on neither, so every build
+    # started and every pack filed against a client was written to the
+    # activity log, kept, and then dropped on the way to the record it was
+    # written for: `work_log()` skips a module it cannot name, and a skipped
+    # module is indistinguishable from a client nobody has done any work for.
+    "display_ads":          ("Display ads", "Display Ad Builder"),
     "fan_radio":            ("Radio spot", "Fan Radio"),
     "commercial_builder":   ("Commercial", "Commercial Builder"),
     "utm_builder":          ("Tracked links", "UTM Builder"),
@@ -69,12 +78,57 @@ def _hex(value: str) -> str:
 
 
 def _observed(domain: str) -> dict:
-    """What the last site scan saw, as a second source. Never merged in."""
+    """What was seen on the client's own website, as a second source."""
     try:
         from hub import scan_facts
         return scan_facts.brand_observed(domain)
     except Exception:                                   # noqa: BLE001
         return {"found": False}
+
+
+def _merge(logos: list[dict], colors: list[dict], observed: dict) -> tuple[list, list]:
+    """One set of logos and one palette for the card, from both sources.
+
+    Client 360 drew these as two blocks — a "Brand" card fed by the brand
+    lookup, and a second block underneath fed by what had been read off the
+    client's own website — so the same company's colours appeared twice, in
+    two sizes, under two headings, and the rep had to work out which of them
+    was the brand. For most local businesses the lookup publishes nothing at
+    all, which made the *upper* block the empty one: the card led with "No
+    brand data on file yet" above the logo it plainly had.
+
+    So the card is one card. What does **not** merge is the claim: a logo the
+    client gave us and a logo lifted off their home page are different things,
+    and only the first belongs on a document a client reads. Each tile
+    carries its own origin and `logos` is left exactly as it was, which is
+    what `brand_guide_payload()` pushes to Suite and what `hub/io_prefill.py`,
+    `hub/landing_maker.py` and `hub/client_context.py` read. Merging is a
+    thing this card does for a reader; it is not a thing done to the data.
+
+    A colour is deduped on the hex, so a palette both sources agree on draws
+    once — and it keeps the stored role label when it has one, because
+    "Primary accent" read off a stylesheet is a guess at what the brand calls
+    it and the brand's own answer is not.
+    """
+    tiles = [{"url": l["url"], "origin": "file", "label": "On file",
+              "format": l.get("format") or "", "theme": l.get("theme") or ""}
+             for l in logos if l.get("url")]
+    seen = {c["hex"].upper() for c in colors if c.get("hex")}
+    palette = [{"hex": c["hex"].upper(), "type": c.get("type") or "",
+                "origin": "file"} for c in colors if c.get("hex")]
+
+    if observed and observed.get("found"):
+        if observed.get("logo_url") and observed["logo_url"] not in [t["url"] for t in tiles]:
+            tiles.append({"url": observed["logo_url"], "origin": "site",
+                          "label": "Seen on their website",
+                          "format": "", "theme": ""})
+        for c in (observed.get("colors") or []):
+            hx = str(c.get("hex") or "").upper()
+            if hx and hx not in seen:
+                seen.add(hx)
+                palette.append({"hex": hx, "type": c.get("type") or "",
+                                "origin": "site"})
+    return tiles[:8], palette[:14]
 
 
 def brand_kit(client: str, domain: str = "") -> dict:
@@ -131,11 +185,19 @@ def brand_kit(client: str, domain: str = "") -> dict:
                     "on Settings.")
         else:
             note = f"No brand data on file yet. Look it up from {dom}."
+        tiles, palette = _merge([], [], observed)
         return {"found": False, "client": client, "domain": domain,
                 "logos": [], "colors": [], "fonts": [],
                 "can_lookup": bool(dom and ready),
                 "lookup_domain": dom,
                 "observed": observed,
+                # Nothing was looked up, and their own website may still have
+                # published a logo and a palette. `found` stays False — it is
+                # the answer to "is there brand data on file" and the lookup
+                # button reads it — while `has_brand` is the answer to "is
+                # there anything to draw", which is what the card asks.
+                "logo_tiles": tiles, "palette": palette,
+                "has_brand": bool(tiles or palette),
                 "note": note}
 
     logos = []
@@ -174,6 +236,9 @@ def brand_kit(client: str, domain: str = "") -> dict:
                           "usage": (f.get("type") if isinstance(f, dict) else "") or "",
                           "google": f"https://fonts.google.com/?query={name}"})
 
+    observed = _observed(domain or payload.get("domain") or "")
+    tiles, palette = _merge(logos[:8], colors[:10], observed)
+
     return {
         "found": True, "client": client,
         "domain": payload.get("domain") or domain,
@@ -192,9 +257,13 @@ def brand_kit(client: str, domain: str = "") -> dict:
         # nowhere to put it.
         "can_lookup": bool(_lookup_domain(domain, payload)),
         "lookup_domain": _lookup_domain(domain, payload),
-        # The scan's own sighting, beside the stored kit rather than in it —
-        # useful precisely when the stored kit has colours and no logo.
-        "observed": _observed(domain or payload.get("domain") or ""),
+        # The website's own sighting, beside the stored kit rather than in
+        # it — useful precisely when the stored kit has colours and no logo.
+        "observed": observed,
+        # The one set the card draws, from both sources, each tile and each
+        # swatch saying which it came from. See `_merge`.
+        "logo_tiles": tiles, "palette": palette,
+        "has_brand": bool(tiles or palette or fonts),
     }
 
 
