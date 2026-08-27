@@ -161,6 +161,10 @@
   .pkg li{font-size:12.5px;padding:5px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;color:#33415C}
   .pkg li b{color:var(--navy)}
   .bnav{position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.96);border-top:1px solid var(--line);z-index:60;display:none}
+  /* The footer nav is fixed, so its height has to be reserved or the last
+     control on a step sits behind Continue -- which reads as a step that
+     will not scroll rather than as a bar overlapping it. */
+  body.wizard .shell{padding-bottom:96px}
   .bnav .wrap{max-width:960px;margin:0 auto;padding:13px 22px;display:flex;justify-content:space-between;gap:12px;align-items:center}
   .savestate{font-size:11.5px;color:var(--muted)}
   .spin{display:inline-block;width:14px;height:14px;border:2px solid #c3d4ea;border-top-color:var(--blue);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:7px}
@@ -211,9 +215,58 @@
   /* Guardrail choices, three across -- same reason. */
   .pillrow.c3{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
   .pillrow.c3 .pill{margin:0;text-align:center}
+  /* ---- age and income: a low, a high, and an explicit none ---- */
+  .bandbox{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:#fbfcfe}
+  .bandbox.off{opacity:.72}
+  .bandhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .bandhead .pill{margin:0 0 0 auto}
+  .bandval{font-weight:800;color:var(--navy);font-size:15px;margin:6px 0 2px}
+  /* Two plain range inputs stacked on one track. The lower one keeps pointer
+     events so both thumbs stay grabbable; without that the high thumb sits
+     over the low one and the low end becomes unreachable at the top of the
+     range, which is exactly where somebody drags first. */
+  .bandtrack{position:relative;height:30px;margin-top:4px}
+  .bandtrack input[type=range]{position:absolute;left:0;right:0;top:6px;width:100%;
+    margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none}
+  .bandtrack input[type=range]::-webkit-slider-runnable-track{height:5px;border-radius:4px;background:#dde5ee}
+  .bandtrack input[type=range]::-moz-range-track{height:5px;border-radius:4px;background:#dde5ee}
+  .bandtrack input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    pointer-events:auto;width:19px;height:19px;border-radius:50%;background:var(--blue);
+    border:2px solid #fff;box-shadow:0 1px 4px rgba(20,40,75,.35);margin-top:-7px;cursor:pointer}
+  .bandtrack input[type=range]::-moz-range-thumb{pointer-events:auto;width:19px;height:19px;
+    border-radius:50%;background:var(--blue);border:2px solid #fff;
+    box-shadow:0 1px 4px rgba(20,40,75,.35);cursor:pointer}
+  .bandtrack input[type=range]:disabled::-webkit-slider-thumb{background:#b6c2d0;cursor:not-allowed}
+  .bandtrack input[type=range]:disabled::-moz-range-thumb{background:#b6c2d0;cursor:not-allowed}
+  .bandticks{display:flex;justify-content:space-between;gap:2px;font-size:10.5px;color:var(--muted);font-weight:700}
+  .bandticks span.on{color:var(--navy)}
+  /* ---- responsive ----
+     The builder is opened beside the Hub sidebar, so its usable width is the
+     viewport minus the rail. Every breakpoint here is about the same thing:
+     nothing on this page should need a horizontal scroll to be read, and a
+     wizard step should not need a vertical one to reach its Continue button
+     on an ordinary laptop. Tables are the exception that cannot fold, so
+     they scroll inside their own box rather than pushing the page sideways. */
+  .tblwrap,.panel .pbody>table,.dtbl{max-width:100%}
+  .panel .pbody{overflow-x:auto}
+  .paperdoc{max-width:100%}
+  .dtbl{display:block;overflow-x:auto;white-space:normal}
   @media(max-width:820px){.disc2,.pillrow.c3{grid-template-columns:1fr}}
   @media(max-width:1000px){.cols{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
-  @media(max-width:720px){.cards,.cards.c3,.estgrid,.pkgs,.two,.three{grid-template-columns:1fr}}
+  @media(max-width:900px){.two,.three,.cards.c3{grid-template-columns:1fr}}
+  @media(max-width:720px){.cards,.cards.c3,.estgrid,.pkgs,.two,.three{grid-template-columns:1fr}
+    .topbar .wrap,.bnav .wrap{padding:11px 14px}
+    .stats{grid-template-columns:1fr}
+    .prod{flex-wrap:wrap}
+    .search input{width:100%}}
+  /* Short screens, which is most laptops once a browser's own chrome is
+     taken off. The wizard's own padding was costing about 90px of a 640px
+     stage, so the step's buttons sat below the fold on the longest steps. */
+  @media(max-height:820px){
+    .shell{padding:14px 18px 74px}
+    .cards{gap:10px;margin-top:12px}
+    .bpanel{padding:11px 13px}
+    .fld{margin-top:9px}}
   /* ---- proposal preview: the document as the client will read it ---- */
   .paperdoc{background:#fff;border:1px solid var(--line);border-radius:14px;
     padding:0 0 26px;box-shadow:var(--shadow);overflow:hidden}
@@ -246,7 +299,7 @@
   .progress .bar{height:100%;background:var(--blue);border-radius:20px;transition:width .3s ease}
 </style>
 </head>
-<body data-module="sales_builder">
+<body data-module="sales_builder" data-s1hub-collapse="1">
 <div class="topbar"><div class="wrap">
   <div class="brand" onclick="nav('dashboard')"><span class="dot">S1</span><span>SMART 1 SALES BUILDER<small>Proposals &amp; Insertion Orders</small></span></div>
   <nav class="topnav" id="topnav">
@@ -319,8 +372,8 @@ const GOAL_CATEGORIES={
  "Store Visits":["MOBILE ONLY","LOCATION LOOKBACK","SEARCH ENGINE MARKETING / PAY PER CLICK","OTT"],
  "Phone Calls":["SEARCH ENGINE MARKETING / PAY PER CLICK","MOBILE ONLY","META"],
  "Conversions":["SEARCH ENGINE MARKETING / PAY PER CLICK","RETARGETING","DATA TARGETED DISPLAY","META"],
- "Recruitment":["SOCIAL ADS","DISPLAY","SEARCH ENGINE MARKETING / PAY PER CLICK"],
- "Event Promotion":["META","SOCIAL ADS","DISPLAY","DIGITAL RADIO"]};
+ "Recruitment":["SOCIAL ADS - VIDEO","DISPLAY","SEARCH ENGINE MARKETING / PAY PER CLICK"],
+ "Event Promotion":["META","SOCIAL ADS - VIDEO","DISPLAY","DIGITAL RADIO"]};
 const industryIdeas={
  automotive:{behavioral:["In-market vehicle buyers","Auto-intenders","Vehicle owners","Lease expiration audiences"],contextual:["Automotive research","Vehicle reviews","Financing and leasing","Local dealerships"]},
  healthcare:{behavioral:["Health-conscious consumers","Caregivers","Parents","Condition or service intenders"],contextual:["Health and wellness","Medical services","Insurance and benefits","Local healthcare resources"]},
@@ -330,7 +383,27 @@ const industryIdeas={
  retail:{behavioral:["Frequent shoppers","Category purchasers","Deal seekers","Loyalty-program users"],contextual:["Shopping and retail","Product reviews","Lifestyle interests","Local events"]},
  general:{behavioral:["Category intenders","Recent purchasers","Engaged website visitors","Lookalike audiences"],contextual:["Industry-related content","Local news and lifestyle","Product research","Relevant professional content"]}};
 const INDUSTRY_KEYS={"Healthcare / Dental":"healthcare","Automotive":"automotive","Restaurant / Hospitality":"restaurant","Home Services":"home","Legal":"legal","Retail / E-comm":"retail"};
-const incomeOptions=["No income targeting","Under $50,000","$50,000–$74,999","$75,000–$99,999","$100,000–$149,999","$150,000–$199,999","$200,000+"];
+/* Age and household income are ranges, and they were being asked as tick
+   boxes -- six age chips and seven income chips, any combination of which
+   could be on. So "25-34 and 55-64 but not the fifteen years between them"
+   was two clicks away and reached the insertion order looking deliberate,
+   while the thing every campaign actually wants, a low and a high, took five.
+   Worse, nothing said what "no chips ticked" meant: the estimate read it as
+   everybody and the IO read it as nothing.
+
+   Both are a low, a high, and an explicit **none**. None is a real answer and
+   the only one that means "do not target on this at all" -- it is not the
+   same as a range covering everything, which is a decision to buy the whole
+   distribution and is priced as one.
+
+   The stops are the buckets the reach estimate is actually built on rather
+   than arbitrary years. A slider that offers 37 implies we can size 37, and
+   we cannot: the estimate works in these six bands, so the control works in
+   them too. */
+const AGE_BUCKETS=["18-24","25-34","35-44","45-54","55-64","65+"];
+const AGE_WEIGHT={"18-24":.11,"25-34":.18,"35-44":.17,"45-54":.16,"55-64":.14,"65+":.13};
+const INCOME_BUCKETS=["Under $50,000","$50,000–$74,999","$75,000–$99,999","$100,000–$149,999","$150,000–$199,999","$200,000+"];
+const INCOME_WEIGHT={"Under $50,000":.4,"$50,000–$74,999":.22,"$75,000–$99,999":.16,"$100,000–$149,999":.15,"$150,000–$199,999":.06,"$200,000+":.05};
 const INDUSTRIES=["Healthcare / Dental","Home Services","Legal","Automotive","Real Estate","Retail / E-comm","Restaurant / Hospitality","Financial Services","Fitness / Wellness","Education","B2B / Professional","Other"];
 const rateCard=[
  {category:"PROGRAMMATIC CAMPAIGN",product:"Select Tactics - Comes with Retargeting",listedRate:"5.50 /CPM",rateType:"CPM",rateValue:5.5},
@@ -379,14 +452,70 @@ const rateCard=[
  {category:"EMAIL MARKETING",product:"Behavioral Targeted Email",listedRate:"$20 / CPM",rateType:"CPM",rateValue:20.0},
  {category:"WEB DEVELOPMENT",product:"Landing Page",listedRate:"$100 one-time or $19/mo",rateType:null,rateValue:100.0},
  {category:"CREATIVE / DESIGN SERVICES",product:"Standard Set of 6 Ad Creation",listedRate:"$250",rateType:null,rateValue:250.0}];
-const CATEGORY_RENAME={"PROGRAMMATIC CAMPAIGN":"DATA TARGETED DISPLAY","OUTREACH":"DISPLAY","DISPLAY":"META","VIDEO":"SOCIAL ADS","DISPLAY & VIDEO":"IP TARGETS"};
+const CATEGORY_RENAME={"PROGRAMMATIC CAMPAIGN":"DATA TARGETED DISPLAY","OUTREACH":"DISPLAY","DISPLAY":"META","VIDEO":"SOCIAL ADS - VIDEO","DISPLAY & VIDEO":"IP TARGETS"};
 const PRODUCT_RENAME={"PROGRAMMATIC CAMPAIGN|Select Tactics - Comes with Retargeting":"Programmatic Campaign with Retargeting"};
 rateCard.forEach(x=>{const oc=x.category||"";const k=oc+"|"+(x.product||"");if(PRODUCT_RENAME[k])x.product=PRODUCT_RENAME[k];if(CATEGORY_RENAME[oc])x.category=CATEGORY_RENAME[oc];x.label=x.category+" — "+x.product;});
-const CATEGORY_EM={"DATA TARGETED DISPLAY":"🎯","DISPLAY":"🖼","META":"📱","SOCIAL ADS":"🎬","IP TARGETS":"📡","RETARGETING":"🔁","MOBILE ONLY":"📶","LOCATION LOOKBACK":"🕓","YOUTUBE":"▶","SEARCH ENGINE MARKETING / PAY PER CLICK":"🔍","SEARCH ENGINE OPTIMIZATION":"📈","SOCIAL MEDIA MANAGEMENT":"💬","DIGITAL RADIO":"🎧","OTT":"📺","EMAIL MARKETING":"✉","WEB DEVELOPMENT":"🖥","CREATIVE / DESIGN SERVICES":"🎨"};
-const CATEGORY_ROI={"SEARCH ENGINE MARKETING / PAY PER CLICK":"4–6× ROAS","META":"3–4× ROAS","SOCIAL ADS":"3–4× ROAS","RETARGETING":"5–8× ROAS","DATA TARGETED DISPLAY":"2–3× ROAS","DISPLAY":"2–3× ROAS","OTT":"Brand lift + recall","YOUTUBE":"View-through lift","DIGITAL RADIO":"Reach + frequency","MOBILE ONLY":"Store-visit lift","LOCATION LOOKBACK":"Conquest lift","IP TARGETS":"Household match","EMAIL MARKETING":"5–8× ROAS","SEARCH ENGINE OPTIMIZATION":"Compounding","SOCIAL MEDIA MANAGEMENT":"Engagement","WEB DEVELOPMENT":"Conversion foundation","CREATIVE / DESIGN SERVICES":"Enables performance"};
+const CATEGORY_EM={"DATA TARGETED DISPLAY":"🎯","DISPLAY":"🖼","META":"📱","SOCIAL ADS - VIDEO":"🎬","IP TARGETS":"📡","RETARGETING":"🔁","MOBILE ONLY":"📶","LOCATION LOOKBACK":"🕓","YOUTUBE":"▶","SEARCH ENGINE MARKETING / PAY PER CLICK":"🔍","SEARCH ENGINE OPTIMIZATION":"📈","SOCIAL MEDIA MANAGEMENT":"💬","DIGITAL RADIO":"🎧","OTT":"📺","EMAIL MARKETING":"✉","WEB DEVELOPMENT":"🖥","CREATIVE / DESIGN SERVICES":"🎨"};
+const CATEGORY_ROI={"SEARCH ENGINE MARKETING / PAY PER CLICK":"4–6× ROAS","META":"3–4× ROAS","SOCIAL ADS - VIDEO":"3–4× ROAS","RETARGETING":"5–8× ROAS","DATA TARGETED DISPLAY":"2–3× ROAS","DISPLAY":"2–3× ROAS","OTT":"Brand lift + recall","YOUTUBE":"View-through lift","DIGITAL RADIO":"Reach + frequency","MOBILE ONLY":"Store-visit lift","LOCATION LOOKBACK":"Conquest lift","IP TARGETS":"Household match","EMAIL MARKETING":"5–8× ROAS","SEARCH ENGINE OPTIMIZATION":"Compounding","SOCIAL MEDIA MANAGEMENT":"Engagement","WEB DEVELOPMENT":"Conversion foundation","CREATIVE / DESIGN SERVICES":"Enables performance"};
 const productCategories=[...new Set(rateCard.map(x=>x.category))];
 function em(cat){return CATEGORY_EM[cat]||"•";}
-function findProduct(cat){return rateCard.find(x=>x.category===cat);}
+/* Mirrored from hub/rate_card.py, which is what the insertion order reads.
+   `findProduct` used to mean "the first row the card happens to list under
+   that heading", and the card's order is the order somebody typed it in --
+   so Run of Network, $3.50 CPM of untargeted inventory, was the display
+   product every awareness and traffic goal opened with, on a document
+   arguing that Smart 1 targets precisely. RON is still addable by name; it
+   is never what a goal picks for you, and programmatic is. */
+function rateRules(){return (CFG.rate_rules)||{sellMultiplier:2,addOnOnly:[],categoryGoto:{},ambiguousNames:[]};}
+function isAddOn(product){
+ return rateRules().addOnOnly.includes(String(product||"").trim().toLowerCase());}
+function gotoCategory(cat){
+ const c=String(cat||"").trim().toUpperCase();
+ return rateRules().categoryGoto[c]||c;}
+function findProduct(cat){
+ const want=gotoCategory(cat);
+ const rows=rateCard.filter(x=>x.category===want);
+ const pool=rows.length?rows:rateCard.filter(x=>x.category===String(cat||"").trim().toUpperCase());
+ return pool.find(x=>!isAddOn(x.product))||pool[0];}
+/* Four categories carry a product literally called "Demographic" or
+   "Behavioral", so a quote line read "Demographic" where the tactic sold was
+   location lookback -- a client cannot tell which of the four they bought
+   and neither can the IO. The category goes in front of the ambiguous names
+   and the self-describing ones are left alone. */
+function quoteLabel(product,category){
+ const name=String(product||"").trim(),cat=String(category||"").trim();
+ if(!name)return cat;
+ if(!cat||!rateRules().ambiguousNames.includes(name.toLowerCase()))return name;
+ return cat.replace(/\w\S*/g,w=>w[0].toUpperCase()+w.slice(1).toLowerCase())+" — "+name;}
+function itemLabel(i){return quoteLabel(i&&i.product,i&&i.category);}
+/* The listed rate is what Smart 1 pays; the quoted rate is what is sold. The
+   builder was quoting the buy-side number straight through, so a proposal
+   promised the client the card's own CPM and the delivery table computed
+   impressions at cost, with no margin anywhere in the document and nothing
+   saying one was missing. Lines start at 2x and every one of them is
+   editable. A management-fee product has no rate to double -- paid search is
+   15% of retail spend, SEO is a monthly fee, a website is a project price --
+   so those are left exactly as the card lists them. */
+function isMarkedUp(rateType){return rateType==="CPM"||rateType==="CPV";}
+function startingRate(rateValue,rateType){
+ if(!isMarkedUp(rateType))return null;
+ const v=+rateValue||0;
+ return v>0?Math.round(v*(+rateRules().sellMultiplier||2)*100)/100:null;}
+/* What this line is actually quoted at. A rep's own number wins; otherwise
+   the 2x start. Null means there is no rate -- a fee line, and a screen that
+   prints a CPM for one is inventing it. */
+function sellRateOf(i){
+ if(!i)return null;
+ if(!isMarkedUp(i.rate))return null;
+ const own=+i.sellRate;
+ if(own>0)return own;
+ return startingRate(i.rateValue,i.rate);}
+function rateIsCustom(i){
+ const own=+((i||{}).sellRate);
+ if(!(own>0))return false;
+ const start=startingRate((i||{}).rateValue,(i||{}).rate);
+ return start!==null&&Math.abs(own-start)>0.001;}
+function creativeSizesFor(m){return (CFG.creative_sizes||{})[m]||null;}
 
 /* ============================================================
    CONFIG + HELPERS
@@ -395,6 +524,31 @@ let CFG={io_api_base:"/tools/io",io_app_url:"/tools/io/?embed=1",ai_enabled:fals
 function lsGet(k,d){try{return localStorage.getItem(k)||d;}catch(e){return d;}}
 function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
 let REP_NAME=lsGet("s1_rep_name",""),REP_EMAIL=lsGet("s1_rep_email","");
+/* Generated copy carries exactly one tag. hub/proposal_spec.clean_ai_text
+   turns every other form of emphasis into plain prose and leaves <b>, which
+   reportlab reads natively and python-docx gets as a bold run -- so here the
+   string is escaped like any other and then those two are put back, and
+   nothing else in the body can reach the page as markup. Copy typed into the
+   editor by hand goes through the same path, or the rule holds only until
+   somebody pastes. */
+function richText(s){
+ return esc(s).replace(/&lt;b&gt;/g,'<b>').replace(/&lt;\/b&gt;/g,'</b>').replace(/\n/g,'<br>');}
+/* The same cleaning, client side, so a rep who pastes Markdown into a
+   section sees it normalised at once rather than discovering it in the PDF.
+   Deliberately the conservative half of the server's rule: bold and the
+   obvious markers. Whatever this misses, the server catches on the way to
+   the document. */
+function cleanCopy(s){
+ return String(s==null?"":s)
+  .replace(/\*\*(.+?)\*\*/gs,(m,t)=>"<b>"+t.trim()+"</b>")
+  .replace(/__(.+?)__/gs,(m,t)=>"<b>"+t.trim()+"</b>")
+  .replace(/<\s*\/?\s*strong\s*>/gi,m=>m.includes("/")?"</b>":"<b>")
+  .replace(/^\s{0,3}#{1,6}\s*/gm,"")
+  .replace(/^\s{0,3}[-*+]\s+/gm,"• ")
+  .replace(/`/g,"")
+  .replace(/(?<!<)\*+(?!\/?b>)/g,"")
+  .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu,"")
+  .replace(/\n{3,}/g,"\n\n");}
 function esc(s){return String(s==null?"":s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function money(n){return "$"+(+n||0).toLocaleString('en-US');}
 function fmt(n){n=+n||0;if(n>=1e6)return(n/1e6).toFixed(n>=1e7?0:1).replace(/\.0$/,'')+'M';if(n>=1e3)return Math.round(n/1e3)+'k';return String(Math.round(n));}
@@ -414,6 +568,7 @@ const VIEWS=["dashboard","proposals","builder","io","clients"];
 function nav(v){VIEWS.forEach(x=>{document.getElementById('view-'+x).style.display=(x===v)?'':'none';});
  document.querySelectorAll('#topnav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v||(v==='builder'&&a.dataset.v==='proposals')));
  document.getElementById('bnav').style.display=(v==='builder')?'block':'none';
+ document.body.classList.toggle('wizard',v==='builder');
  if(v==='dashboard')drawDashboard();
  if(v==='proposals')drawProposals();
  if(v==='io')drawIO();
@@ -476,7 +631,7 @@ async function drawDashboard(){
     <div class="phead"><span class="ttl">Recent Quotes &amp; Proposals</span>
      <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Uploaded"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t+"s"===t+"s"?(t==="Draft"?"Drafts":t):t}</span>`).join("")}</div>
      <div class="search"><input id="q" placeholder="Search client, quote #, website…" oninput="drawRows()"></div></div>
-    <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+    <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
     <tbody id="rows"></tbody></table>
    </div>
    <div class="panel" style="margin-top:16px">
@@ -528,6 +683,16 @@ function drawIoRows(){
  tb.innerHTML=rows.map(ioRowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:22px">No IOs yet — convert an approved proposal above, or click <b>＋ New IO</b> to build one directly in the IO builder.</td></tr>`;
 }
 function setTab(el,t){listTab=t;document.querySelectorAll('#tabs span').forEach(s=>s.classList.remove('on'));el.classList.add('on');drawRows();}
+/* Who made this one. Built here and uploaded are different acts and the
+   column says which, because "who do I ask about this proposal" is the
+   question and the answer is a different person for each. A row from before
+   the name was recorded says "not recorded" rather than showing a blank cell
+   somebody reads as nobody -- the same distinction this codebase draws
+   everywhere between an absent answer and a negative one. */
+function byLine(who,kind){
+ const name=String(who||"").trim();
+ if(!name)return `<span class="note" style="margin:0;display:block">${esc(kind)}<small style="display:block;color:var(--muted)">not recorded</small></span>`;
+ return `<span style="font-size:12.5px;color:#33415C">${esc(name)}<small style="display:block;color:var(--muted)">${esc(kind)}</small></span>`;}
 function rowHtml(x){
  const gapsN=(x.gaps||[]).length,guard=(x.guardrails||[]);
  return `<tr class="rowlink" onclick="openDrawer(${x.id})">
@@ -537,6 +702,7 @@ function rowHtml(x){
    ${x.status==='Draft'&&guard.length?`<span class="miss">⚠ ${esc(guard[0])}</span>`:""}</td>
   <td style="font-size:12.5px;color:#33415C">${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td>
   <td><span class="money">${money(x.monthly_budget)}<small>${x.months} mo · ${money(x.total_budget)} total</small></span></td>
+  <td>${byLine(x.created_by,"Built here")}</td>
   <td><span class="badge ${badge(x.status)}">${x.status}</span>${x.io_number?`<small style="display:block;color:var(--muted);margin-top:3px">IO #${esc(x.io_number)}</small>`:""}</td>
   <td><div class="rowact" onclick="event.stopPropagation()">
    <button class="ic" title="Edit proposal" onclick="editQuote(${x.id})">✏️</button>
@@ -570,9 +736,9 @@ function uploadedRowHtml(x){
   <td><span class="qnum">${x.quote_number?esc(x.quote_number):"Uploaded"}<small>Uploaded · ${esc(mdy(x.date_sent||x.created_at))}</small></span></td>
   <td><b style="color:var(--navy)">${esc(x.client||"—")}</b>
    <small style="display:block;color:var(--muted)">${esc(x.filename)}</small></td>
-  <td style="font-size:12.5px;color:#33415C">${esc(x.title)}${x.note?` · ${esc(x.note)}`:""}
-   <small style="display:block;color:var(--muted)">${esc(x.uploaded_by||"")}</small></td>
+  <td style="font-size:12.5px;color:#33415C">${esc(x.title)}${x.note?` · ${esc(x.note)}`:""}</td>
   <td><span class="money">${x.value?money(x.value):"—"}<small>${x.value?"":"not priced here"}</small></span></td>
+  <td>${byLine(x.uploaded_by,"Uploaded")}</td>
   <td><span class="badge">Uploaded</span></td>
   <td><div class="rowact" onclick="event.stopPropagation()">
    ${x.url?`<button class="ic" title="Open the proposal file" onclick="window.open('${esc(x.url)}','_blank','noopener')">${x.kind==='pdf'?"📄":"📝"}</button>`:""}
@@ -624,7 +790,7 @@ function drawRows(){
    .concat(ups.map(x=>({x,html:uploadedRowHtml(x),t:x.date_sent||x.created_at||""})))
    .sort((a,b)=>String(b.t).localeCompare(String(a.t)));
  const tb=document.getElementById('rows');if(!tb)return;
- tb.innerHTML=merged.map(r=>r.html).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
+ tb.innerHTML=merged.map(r=>r.html).join("")||`<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
 }
 function quickConvert(){
  const approved=LIST.filter(x=>x.status==='Approved');
@@ -670,7 +836,7 @@ async function drawProposals(){
    <div class="phead"><span class="ttl">All Quotes</span>
     <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Lost","Uploaded"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t}</span>`).join("")}</div>
     <div class="search"><input id="q" placeholder="Search client, quote #, IO #…" oninput="drawRows()"></div></div>
-   <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+   <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
    <tbody id="rows"></tbody></table>
   </div>`;
  drawRows();
@@ -781,18 +947,28 @@ function freshState(){return{
  // hand-off payload, an old saved quote being re-opened -- still reads a
  // correct campaign. hub/target_areas.py owns the same conversion server-side.
  targetAreas:[],geoType:"City/ZIP + Radius",geo:"",radius:10,population:0,
+ // Age and income are a low, a high and an explicit none. The bucket lists
+ // are written alongside because the IO, the Suite webhook and
+ // /api/estimate-audience all read those and none of them knows about a
+ // range -- the same arrangement hub/target_areas.py keeps for geography.
  ages:["25-34","35-44","45-54"],gender:"Both",income:["No income targeting"],
+ ageRange:{low:1,high:3,none:false},incomeRange:{low:0,high:5,none:true},
+ // Who we are taking customers from, by name, with the addresses a
+ // geo-fence needs. "Competitor conquesting" as a tick box is a tactic, not
+ // a campaign.
+ targetsOfInterest:[],
  audiences:[],budgetMode:"range",budget:8000,months:6,
  items:[],landingMode:"One landing page",landingUrl:"",landing:"",landingReview:"",
  // Per-medium creative answers, keyed "video"/"audio" -- see hub/creative_needs.py.
  // {answer:"has"|"client"|"comp", fee:number, confirmed:bool}
- creativePlan:{},suiteTier:{},
+ creativePlan:{},suiteTier:{include:true},
  packages:[],selPkg:1,selectedPackage:null,estimates:null,aiEst:null,
  // Discovery. The last three questions are the ones that change what we
  // recommend; `traditional` is the one with money behind it. Mirrors
  // hub/current_marketing.py.
- mkt:{seo:"",paidSearch:"",socialPosting:"",paidSocial:"",
-      retargeting:"",aiOptimized:"",websiteHappy:""},
+ mkt:{seo:"",paidSearch:"",socialPosting:"",socialScheduling:"",paidSocial:"",
+      retargeting:"",aiOptimized:"",websiteHappy:"",reputation:"",email:"",
+      chat:"",callTracking:"",texting:""},
  traditional:{running:"",detail:"",budget:"",posture:""},
  suggestDismissed:[],
  sections:null,
@@ -855,6 +1031,7 @@ const DISCOVERY_QUESTIONS=[
  {key:"seo",label:"Doing SEO / local listings?"},
  {key:"paidSearch",label:"Running paid search (Google / Bing)?"},
  {key:"socialPosting",label:"Posting on social media regularly?"},
+ {key:"socialScheduling",label:"Scheduling those posts ahead with a tool?"},
  {key:"paidSocial",label:"Running paid social media ads?"},
  {key:"retargeting",label:"Retargeting visitors to their website?"},
  {key:"aiOptimized",label:"Optimizing for AI search (AI Overviews, ChatGPT)?"},
@@ -867,28 +1044,95 @@ const DISCOVERY_QUESTIONS=[
 ];
 const SUGGESTION_RULES=[
  {key:"retargeting",when:["No", "Unknown"],title:"Retarget the people who already visited",
-  detail:"Someone who has already been to the site is the cheapest conversion available and the easiest audience to reach again. Website retargeting runs at $4.75 CPM on the card and needs only a pixel on the site."},
+  detail:"Someone who has already been to the site is the cheapest conversion available and the easiest audience to reach again. Website retargeting runs at $4.75 CPM on the card and needs only a pixel on the site.",
+  products:["Website Retargeting"]},
  {key:"aiOptimized",when:["No", "Unknown"],title:"Get the site readable by AI search",
-  detail:"Search is turning into an answer engine \u2014 AI Overviews, ChatGPT and Siri increasingly answer instead of linking. Being cited needs accurate schema markup, fast pages and clean directory listings across the local platforms."},
+  detail:"Search is turning into an answer engine \u2014 AI Overviews, ChatGPT and Siri increasingly answer instead of linking. Being cited needs accurate schema markup, fast pages and clean directory listings across the local platforms.",
+  products:["Local Business Boost", "Search Engine Optimization"]},
  {key:"websiteHappy",when:["No"],title:"Fix the page the media points at",
-  detail:"Paid media cannot outrun a landing page that does not convert \u2014 it just buys more people to lose. If they are not happy with the site, that is the first thing to fix, before the budget scales."},
+  detail:"Paid media cannot outrun a landing page that does not convert \u2014 it just buys more people to lose. If they are not happy with the site, that is the first thing to fix, before the budget scales.",
+  products:["Smart 1 Site / 2-5 pages", "WordPress Website"]},
  {key:"seo",when:["No", "Unknown"],title:"Claim the organic and map results",
-  detail:"Paid media stops the day the budget stops. Local listings and organic visibility compound, and they feed the same review and ranking signals AI search reads."},
+  detail:"Paid media stops the day the budget stops. Local listings and organic visibility compound, and they feed the same review and ranking signals AI search reads.",
+  products:["Search Engine Optimization", "Local Business Boost"]},
  {key:"paidSearch",when:["No"],title:"Capture the demand already searching",
-  detail:"Everything else in this plan creates demand. Paid search catches the people who already have it and are typing the words right now \u2014 usually the lowest cost per lead on the plan."},
+  detail:"Everything else in this plan creates demand. Paid search catches the people who already have it and are typing the words right now \u2014 usually the lowest cost per lead on the plan.",
+  products:["Pay Per Click"]},
  {key:"paidSocial",when:["No"],title:"Re-engage in feed",
-  detail:"Paid social is where an audience that has met the brand once gets met again, cheaply, with a different message."},
+  detail:"Paid social is where an audience that has met the brand once gets met again, cheaply, with a different message.",
+  products:["Facebook | Instagram - Targeted Paid Social Media Advertising"]},
  {key:"callTracking",when:["No", "Unknown"],title:"Count the calls the media produces",
-  detail:"A local campaign's best leads arrive as phone calls, and an untracked call is a conversion the report cannot show. Without it the plan gets judged on the half of the response that happens to leave a form fill behind."},
+  detail:"A local campaign's best leads arrive as phone calls, and an untracked call is a conversion the report cannot show. Without it the plan gets judged on the half of the response that happens to leave a form fill behind.",
+  products:["Call Tracking", "Smart 1 Suite"]},
  {key:"reputation",when:["No", "Unknown"],title:"Get the reviews working for the ads",
-  detail:"Star rating is the first thing a click sees and it feeds the same local signals AI search reads. Media pointed at a three-star listing pays more for every conversion it gets."},
+  detail:"Star rating is the first thing a click sees and it feeds the same local signals AI search reads. Media pointed at a three-star listing pays more for every conversion it gets.",
+  products:["Local Business Boost", "Smart 1 Suite"]},
  {key:"chat",when:["No"],title:"Answer the visitors who will not fill in a form",
-  detail:"Chat catches the people who want an answer now and would otherwise leave. It is the cheapest lift available to a landing page that traffic is already being bought for."},
+  detail:"Chat catches the people who want an answer now and would otherwise leave. It is the cheapest lift available to a landing page that traffic is already being bought for.",
+  products:["Smart 1 Suite", "Smart 1 Site / 2-5 pages"]},
  {key:"texting",when:["No"],title:"Reply the way the lead expects",
-  detail:"Speed to lead decides most local sales, and a text is answered where a voicemail is not. The Suite already holds the numbers the campaign produces."},
+  detail:"Speed to lead decides most local sales, and a text is answered where a voicemail is not. The Suite already holds the numbers the campaign produces.",
+  products:["Smart 1 Suite", "Snap Management Fee & Texting for Snap"]},
  {key:"email",when:["No"],title:"Use the list they already own",
-  detail:"Email reaches people who have already bought or enquired, at no media cost per impression. It is the one channel here that does not need a budget to reach an audience."},
+  detail:"Email reaches people who have already bought or enquired, at no media cost per impression. It is the one channel here that does not need a budget to reach an audience.",
+  products:["List Provided Email", "Email Template Creation"]},
+ {key:"socialPosting",when:["No", "Unknown"],title:"Give the paid social somewhere to land",
+  detail:"An ad clicks through to a profile that has not posted since last year, and the click is where the interest stops. A page that looks maintained is what makes paid social worth running at all, and it is the cheapest half of it.",
+  products:["Social Media Management", "Smart 1 Suite"]},
+ {key:"socialScheduling",when:["No", "Unknown"],title:"Schedule the month instead of remembering it",
+  detail:"Posting by hand is what stops first when the business gets busy, which is exactly when the campaign is working. A month planned and queued in one sitting keeps posting through the weeks nobody has time for it.",
+  products:["Smart 1 Suite", "Social Media Management"]},
 ];
+/* Which of the discovery answers the Suite licence itself closes, mirrored
+   from hub/current_marketing.SUITE_FEATURES. `tier` is the lowest tier that
+   actually has the feature -- offering smart webchat against a Smart 1
+   licence sells something the client cannot switch on. */
+const SUITE_FEATURES=[
+ {key:"callTracking",tier:"Smart 1",feature:"Call tracking and the call centre",
+  detail:"Every campaign number tracked, recorded and attributed to the channel that produced it, with Missed Call Text Back on the ones nobody picks up."},
+ {key:"texting",tier:"Smart 1",feature:"Two-way texting",
+  detail:"The texting centre, so a lead is answered the way they expect rather than with a voicemail nobody returns."},
+ {key:"reputation",tier:"Smart 1",feature:"Reputation centre",
+  detail:"Automated Google review requests after a job, and every review answered from one inbox."},
+ /* Both social questions are answered by the same part of the Suite, so they
+    share a group and are claimed once -- listed separately they read as two
+    things the licence buys, on the one panel whose job is to justify a
+    recurring charge. */
+ {key:"socialScheduling",tier:"Smart 1",group:"social",feature:"Social planner",
+  detail:"A month of posts written, queued and scheduled in one sitting across every connected channel, with the campaign's own creative already in the media library."},
+ {key:"socialPosting",tier:"Smart 1",group:"social",feature:"Social planner",
+  detail:"Somewhere for the posting to actually happen, with the campaign's own creative already in it."},
+ {key:"email",tier:"Smart 1",feature:"Email centre",
+  detail:"Campaigns and automated follow-up to the list they already own, at no media cost per send."},
+ {key:"chat",tier:"Smarter",feature:"Smart webchat",
+  detail:"Catches the visitors who will not fill in a form, and turns the conversation into a text thread that survives the visit."},
+];
+const SUITE_TIER_ORDER=["Smart 1","Smarter","Smartest"];
+/* The Suite's reason for being on the quote, from their own answers. Three
+   outcomes and never two: what this tier covers, what a higher one would,
+   and what nobody has answered -- a question left blank is not a gap the
+   Suite gets credited with closing. */
+function suiteCoverage(tierName){
+ const mkt=S.mkt||{},tier=tierName||chosenTier().name;
+ const have=Math.max(0,SUITE_TIER_ORDER.indexOf(tier));
+ const covered=[],upgrade=[],unmeasured=[];
+ SUITE_FEATURES.forEach(f=>{
+  const a=mkt[f.key];
+  if(a==="Yes")return;
+  const row=Object.assign({answer:a||"",group:f.group||f.key},f);
+  if(a!=="No"&&a!=="Unknown"){unmeasured.push(row);return;}
+  (Math.max(0,SUITE_TIER_ORDER.indexOf(f.tier))<=have?covered:upgrade).push(row);});
+ // One row per capability. Two questions can want the same feature.
+ const once=rows=>{const seen=new Set();return rows.filter(r=>
+  seen.has(r.group)?false:(seen.add(r.group),true));};
+ const cov=once(covered),covGroups=new Set(cov.map(r=>r.group));
+ return{tier,covered:cov,upgrade:once(upgrade),
+        unmeasured:once(unmeasured).filter(r=>!covGroups.has(r.group))};}
+function suiteLine(tierName){
+ const c=suiteCoverage(tierName),names=c.covered.map(r=>r.feature.toLowerCase());
+ if(!names.length)return "";
+ const listed=names.length===1?names[0]:names.slice(0,-1).join(", ")+" and "+names[names.length-1];
+ return "Against what this client told us they are not doing today, the "+c.tier+" licence covers "+listed+".";}
 const TRADITIONAL_SUGGESTION={
  supplement:{key:"traditional",title:"Make the traditional buy measurable",
   detail:"They are already spending on traditional media. Digital around it is what makes the whole thing attributable: the same households reached on connected TV and streaming audio, with every response landing in the Smart 1 Suite where it can be counted."},
@@ -898,7 +1142,11 @@ const TRADITIONAL_SUGGESTION={
 function suggestions(){
  const dismissed=S.suggestDismissed||[];
  const out=SUGGESTION_RULES.filter(r=>!dismissed.includes(r.key)&&r.when.includes(S.mkt[r.key]||""))
-  .map(r=>({key:r.key,title:r.title,detail:r.detail}));
+  // `products` travels with the suggestion. Dropped here, the media-mix
+  // step's own panel had nothing to offer and came back empty on a client
+  // with real gaps -- which reads as "discovery found nothing" rather than
+  // as a list that lost a field on the way.
+  .map(r=>({key:r.key,title:r.title,detail:r.detail,products:r.products||[]}));
  const t=S.traditional||{};
  if(t.running==="Yes"&&!dismissed.includes("traditional")&&TRADITIONAL_SUGGESTION[t.posture])
   out.push(Object.assign({},TRADITIONAL_SUGGESTION[t.posture]));
@@ -947,10 +1195,18 @@ function minimumFor(product,category){
 }
 
 const COMP_CONFIRM_UNDER=1500;
-const TYPICAL_PRODUCTION={video:750,audio:250};
+/* Per medium, where the medium's own economics differ. Display creative is
+   $250 of design on the card, so comping it stops being sensible far lower
+   down than a shoot does -- and a confirmation that fires on every plan is
+   one nobody reads. */
+const COMP_CONFIRM_BY_MEDIUM={display:500,retargeting:500};
+function confirmUnder(m){return COMP_CONFIRM_BY_MEDIUM[m]||COMP_CONFIRM_UNDER;}
+const TYPICAL_PRODUCTION={video:750,audio:250,display:250,retargeting:250};
 const MEDIUM_LABEL={video:"Video (CTV, streaming, YouTube, pre-roll)",
  audio:"Audio (digital radio, podcasts, streaming audio)",
- display:"Display",social:"Paid social",other:"Other"};
+ display:"Display (banners, native, IP targeted, geo-fenced)",
+ retargeting:"Retargeting (the banners that bring them back)",
+ social:"Paid social",other:"Other"};
 /* Four programmatic VIDEO products sit under the same DISPLAY category as
    banner inventory and their names do not say so -- "Programmatic - Targeted"
    is $17.00 CPM video while "Category" beside it is $4.25 display. Guessing
@@ -958,7 +1214,13 @@ const MEDIUM_LABEL={video:"Video (CTV, streaming, YouTube, pre-roll)",
 const EXPLICIT_MEDIUM={"programmatic - ron (run of network)":"video",
  "programmatic - targeted":"video","premium: non-skippable":"video",
  "premium native video":"video"};
-const CATEGORY_MEDIUM={"digital radio":"audio","ott":"video","youtube":"video"};
+const CATEGORY_MEDIUM={"digital radio":"audio","ott":"video","youtube":"video",
+ "retargeting":"retargeting",
+ /* "Select Tactics - Comes with Retargeting" is the programmatic DISPLAY
+    buy, whose name lists retargeting as one of the tactics inside it. Read
+    off the name alone it becomes a retargeting line and the display half of
+    the plan never gets asked for banners at all. */
+ "data targeted display":"display","programmatic campaign":"display"};
 function mediumOf(i){
  const cat=String((i&&i.category)||"").trim().toLowerCase();
  if(CATEGORY_MEDIUM[cat])return CATEGORY_MEDIUM[cat];
@@ -968,28 +1230,38 @@ function mediumOf(i){
  if(/radio|podcast|audio|spotify|pandora|iheart/.test(t))return "audio";
  if(/video|ott|youtube|trueview|bumper|connected tv|advanced tv|ctv|pre-?roll|non-skippable/.test(t))return "video";
  if(/facebook|instagram|meta|tik ?tok|linkedin|snapchat|pinterest|twitter|social/.test(t))return "social";
- if(/display|banner|retarget|geo-?fence|outreach|native|location lookback|ip target/.test(t))return "display";
+ if(/retarget/.test(t))return "retargeting";
+ if(/display|banner|geo-?fence|outreach|native|location lookback|ip target|select tactics/.test(t))return "display";
  return "other";}
 function mediumSpend(m){
  const months=Math.max(1,+S.months||1);
  return Math.round(S.items.filter(i=>mediumOf(i)===m)
   .reduce((sum,i)=>sum+(+i.dollars||0),0)*months);}
+/* Display and retargeting joined video and audio here. A display plan reached
+   the insertion order with the creative box empty exactly as often as a CTV
+   one did -- it simply cost $250 and a week rather than a shoot, so it was
+   found at trafficking instead of at launch and nobody called it a failure.
+   Retargeting is asked separately because it is a different set of files:
+   the same six sizes carrying the offer that brings somebody back, not the
+   one that introduced the brand. */
+const GATED_MEDIA=["video","audio","display","retargeting"];
 function gatedMedia(){
  const present=new Set(S.items.map(mediumOf));
- return ["video","audio"].filter(m=>present.has(m));}
+ return GATED_MEDIA.filter(m=>present.has(m));}
 function creativeRows(){
  return gatedMedia().map(m=>{
   const d=(S.creativePlan||{})[m]||{};
   const answer=["has","client","comp"].includes(d.answer)?d.answer:"";
   const spend=mediumSpend(m);
-  const needsConfirm=spend<COMP_CONFIRM_UNDER;
+  const needsConfirm=spend<confirmUnder(m);
   // A comp confirmed on a $1,400 buy is not a comp confirmed on the $300 one
  // it just became. confirmedAt records the number the rep was shown; the
  // confirmation lapses if the budget has fallen since.
  const confirmed=!!d.confirmed&&!(d.confirmedAt&&spend<d.confirmedAt);
   const fee=answer==="client"?(+d.fee||TYPICAL_PRODUCTION[m]||0):0;
   const resolved=!!answer&&!(answer==="comp"&&needsConfirm&&!confirmed);
-  return{medium:m,label:MEDIUM_LABEL[m],spend,answer,fee,needsConfirm,confirmed,resolved};});}
+  return{medium:m,label:MEDIUM_LABEL[m],spend,answer,fee,needsConfirm,confirmed,resolved,
+         threshold:confirmUnder(m),sizes:creativeSizesFor(m)};});}
 function creativeUnresolved(){return creativeRows().filter(r=>!r.resolved).map(r=>r.medium);}
 function creativeFees(){return creativeRows().reduce((s,r)=>s+(r.fee||0),0);}
 function creativeSummary(){
@@ -1027,7 +1299,60 @@ function areaComplete(a){
  if(a.type==="DMA")return !!(a.dma||"").trim();
  if(a.type==="Other")return !!((a.other||"").trim()||(a.zips||"").trim());
  return !!(a.origin||"").trim();}
-function areaZips(a){return String((a&&a.zips)||"").match(/\b\d{5}\b/g)||[];}
+/* Every ZIP the lookup returned. */
+function areaZipsAll(a){return String((a&&a.zips)||"").match(/\b\d{5}\b/g)||[];}
+/* The ZIPs this area actually runs in -- the found list minus whatever the
+   exception drops. The exception is parsed on the server (hub/target_areas)
+   and the answer is stored on the area, so every read here is local and
+   there is still only one thing that knows what "only New Jersey" means.
+   The full list is never thrown away: loosening the rule must not mean
+   running the radius lookup again, which is billed, slow, and would come
+   back with a different answer than the first one did. */
+function areaZips(a){
+ const all=areaZipsAll(a);
+ const rule=(a||{}).zipRule;
+ if(!rule||!rule.applied||!Array.isArray(rule.kept))return all;
+ const keep=new Set(rule.kept);
+ return all.filter(z=>keep.has(z));}
+function areaZipsDropped(a){
+ const all=areaZipsAll(a),kept=new Set(areaZips(a));
+ return all.filter(z=>!kept.has(z));}
+function zipRuleNote(a){
+ const text=String((a||{}).zipException||"").trim();
+ if(!text)return "No exception — every ZIP the radius returns is used. A radius does not stop at a state line and a campaign often does.";
+ const rule=(a||{}).zipRule;
+ if(!rule)return "Reading that…";
+ if(!rule.understood)
+  return '<b style="color:#8c2f24">Not applied.</b> ' + esc(rule.note||"That exception was not understood.") ;
+ return esc(rule.note||"");}
+function paintZipRule(){
+ const el=document.getElementById('zipRuleNote');
+ if(el)el.innerHTML=zipRuleNote(currentArea());}
+/* Debounced, and it never redraws the step -- the exception is typed into an
+   input, and a container that re-renders while somebody is typing into it
+   eats what they typed. Only the note beneath it is repainted. */
+let _zipRuleT=null;
+function zipRuleSoon(){
+ clearTimeout(_zipRuleT);
+ _zipRuleT=setTimeout(refreshZipRule,500);}
+async function refreshZipRule(){
+ const a=currentArea();if(!a)return;
+ const text=String(a.zipException||"").trim();
+ if(!text){a.zipRule=null;saveSoon();paintZipRule();drawAreaEst();return;}
+ try{
+  const d=await api('/sales/builder/api/zip-rule',{method:'POST',
+   body:JSON.stringify({text,zips:a.zips||""})});
+  a.zipRule={understood:!!(d.rule&&d.rule.understood),applied:!!d.applied,
+             kept:d.kept||[],dropped:d.dropped||[],note:d.note||"",
+             mode:(d.rule||{}).mode||"",states:(d.rule||{}).states||[]};
+ }catch(e){
+  // We could not ask. That is not "the rule does not apply" -- the ZIP list
+  // is left whole and the note says the exception has not been applied,
+  // rather than a filter silently failing open on a client's own document.
+  a.zipRule={understood:false,applied:false,kept:[],dropped:[],
+             note:"We could not check that exception just now, so it has not been applied. Try again before this goes out."};
+ }
+ saveSoon();paintZipRule();drawAreaEst();}
 /* People per square mile inside a radius, mirroring hub/target_areas.py.
    This was a flat 900 -- roughly a county average -- but a radius is drawn on
    a city, deliberately centred on where the people are, so every campaign's
@@ -1066,8 +1391,88 @@ function syncLegacyGeo(){
  S.geo=rows.map(a=>{const z=areaZips(a);return areaLabel(a)+(z.length?" | ZIP Codes: "+z.join(", "):"");}).join("  ||  ");}
 
 /* estimator (built-in fallback; the AI re-estimate sizes each area for real) */
-function ageF(){const map={"18-24":.11,"25-34":.18,"35-44":.17,"45-54":.16,"55-64":.14,"65+":.13};return S.ages.length?S.ages.reduce((s,x)=>s+(map[x]||0),0):.78;}
-function incF(){const has=S.income.filter(x=>x!=="No income targeting");if(!has.length)return 1;const m={"Under $50,000":.4,"$50,000–$74,999":.22,"$75,000–$99,999":.16,"$100,000–$149,999":.15,"$150,000–$199,999":.06,"$200,000+":.05};return Math.min(1,has.reduce((s,x)=>s+(m[x]||0),0))||.5;}
+/* The range, read from whatever the quote carries. A proposal saved before
+   this control existed has a list of ticked buckets and nothing else, so the
+   range is derived from the lowest and highest of them rather than the record
+   being migrated -- the same reading `hub/target_areas.from_legacy` does for
+   geography, and for the same reason: nobody has re-opened those quotes. */
+function bandRange(kind){
+ const buckets=kind==="age"?AGE_BUCKETS:INCOME_BUCKETS;
+ const stored=kind==="age"?S.ageRange:S.incomeRange;
+ if(stored&&typeof stored==="object"){
+  const none=!!stored.none;
+  let lo=Math.max(0,Math.min(buckets.length-1,+stored.low||0));
+  let hi=Math.max(0,Math.min(buckets.length-1,stored.high==null?buckets.length-1:+stored.high));
+  if(lo>hi){const t=lo;lo=hi;hi=t;}
+  return{low:lo,high:hi,none};}
+ const list=(kind==="age"?S.ages:S.income)||[];
+ const real=list.filter(x=>buckets.includes(x));
+ if(!real.length)
+  // No chips ticked meant "everybody" to the estimate and "nothing" to the
+  // IO. Age defaults to the whole span; income defaults to none, which is
+  // what "No income targeting" -- the chip that was selected by default --
+  // always meant.
+  return{low:0,high:buckets.length-1,none:kind!=="age"};
+ const idx=real.map(x=>buckets.indexOf(x));
+ return{low:Math.min.apply(null,idx),high:Math.max.apply(null,idx),none:false};}
+function bandBuckets(kind){
+ const r=bandRange(kind);
+ if(r.none)return [];
+ const buckets=kind==="age"?AGE_BUCKETS:INCOME_BUCKETS;
+ return buckets.slice(r.low,r.high+1);}
+function setBand(kind,low,high,none){
+ const buckets=kind==="age"?AGE_BUCKETS:INCOME_BUCKETS;
+ let lo=Math.max(0,Math.min(buckets.length-1,+low||0));
+ let hi=Math.max(0,Math.min(buckets.length-1,+high||0));
+ if(lo>hi){const t=lo;lo=hi;hi=t;}
+ const range={low:lo,high:hi,none:!!none};
+ if(kind==="age"){S.ageRange=range;S.ages=range.none?[]:AGE_BUCKETS.slice(lo,hi+1);}
+ // The legacy list is written alongside, because the IO, the Suite webhook
+ // and /api/estimate-audience all read it and none of them knows about a
+ // range. `hub/target_areas.from_legacy` keeps the same arrangement.
+ else{S.incomeRange=range;S.income=range.none?["No income targeting"]:INCOME_BUCKETS.slice(lo,hi+1);}
+ S.aiEst=null;saveSoon();renderStep();drawEst();}
+function bandLabel(kind){
+ const r=bandRange(kind);
+ if(r.none)return kind==="age"?"No age targeting — every adult in the area":"No income targeting";
+ const buckets=kind==="age"?AGE_BUCKETS:INCOME_BUCKETS;
+ if(kind==="age"){
+  const lo=buckets[r.low].split("-")[0].replace("+","");
+  const hiRaw=buckets[r.high];
+  return hiRaw==="65+"?lo+"+":lo+"–"+hiRaw.split("-")[1];}
+ if(r.low===0&&r.high===buckets.length-1)return "Every household income";
+ if(r.high===buckets.length-1)return buckets[r.low].replace("Under ","up to ")+" and above";
+ if(r.low===0)return buckets[r.high].replace(/^\$[\d,]+–/,"Up to ").replace("Under ","Under ");
+ return buckets[r.low].split("–")[0]+" – "+buckets[r.high].split("–").pop();}
+function ageF(){
+ const picks=bandBuckets("age");
+ // No age targeting is every adult, which is not the same as a factor of 1:
+ // .78 is the share of the population that is one.
+ if(!picks.length)return .78;
+ return Math.min(1,picks.reduce((s,x)=>s+(AGE_WEIGHT[x]||0),0))||.78;}
+function incF(){
+ const picks=bandBuckets("income");
+ if(!picks.length)return 1;
+ return Math.min(1,picks.reduce((s,x)=>s+(INCOME_WEIGHT[x]||0),0))||.5;}
+/* Two thumbs on one track. Deliberately two plain range inputs rather than a
+   drag-handle widget: they are keyboard-reachable and screen-reader-readable
+   for free, and this is a form a rep fills in at speed. */
+function bandSlider(kind,title,help){
+ const buckets=kind==="age"?AGE_BUCKETS:INCOME_BUCKETS;
+ const r=bandRange(kind),max=buckets.length-1;
+ return `<div class="bandbox${r.none?' off':''}">
+  <div class="bandhead"><div class="ttl" style="margin:0">${esc(title)}</div>
+   <span class="pill${r.none?' on':''}" onclick="setBand('${kind}',${r.low},${r.high},${r.none?'false':'true'})">${r.none?'✓ ':''}None</span></div>
+  <div class="bandval">${esc(bandLabel(kind))}</div>
+  <div class="bandtrack">
+   <input type="range" min="0" max="${max}" value="${r.low}" ${r.none?'disabled':''}
+     aria-label="${esc(title)} — lowest" oninput="setBand('${kind}',this.value,${r.high},false)">
+   <input type="range" min="0" max="${max}" value="${r.high}" ${r.none?'disabled':''}
+     aria-label="${esc(title)} — highest" oninput="setBand('${kind}',${r.low},this.value,false)">
+  </div>
+  <div class="bandticks">${buckets.map((b,i)=>`<span class="${!r.none&&i>=r.low&&i<=r.high?'on':''}">${esc(b.replace("Under ","<").replace("$","").replace(/,000/g,"k").replace(/–.*/,""))}</span>`).join('')}</div>
+  <div class="note" style="margin:6px 0 0">${esc(help)}</div>
+ </div>`;}
 function computePopulation(){
  // Every area the campaign runs in, added up. Overlap is NOT deducted -- two
  // 10-mile radii five miles apart share most of their people -- so the number
@@ -1088,10 +1493,17 @@ function estimates(){
  return{pop,aud,hh:Math.round(aud/1.9),dev:Math.round(aud*2.3),ai:false,
         measured:(S.targetAreas||[]).filter(a=>areaPopulation(a)).length,
         unmeasured:(S.targetAreas||[]).filter(a=>!areaPopulation(a)).map(areaLabel)};}
+/* Delivery at the rate the client is quoted, never at the card's buy-side
+   number. Handed the listed rate this said a $1,000 line buys 235,000
+   impressions at $4.25 -- a figure printed on the client's own ROI table
+   that the campaign could never deliver, because the line is sold at $8.50
+   and buys half of it. Callers pass the sell rate. */
 function productDelivery(rateValue,rateType,dollars){
  if(rateType==="CPM"&&rateValue>0)return{unit:"impr",val:Math.round(dollars/rateValue*1000)};
  if(rateType==="CPV"&&rateValue>0)return{unit:"views",val:Math.round(dollars/rateValue)};
  return{unit:"managed",val:0};}
+function itemDelivery(i,dollars){
+ return productDelivery(sellRateOf(i),i&&i.rate,dollars);}
 function applySeeds(){const seed=S.items.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
  S.items.forEach(i=>{i.dollars=Math.round(S.budget*(i.pctSeed/seed)/50)*50;});}
 function buildPackages(){
@@ -1100,8 +1512,8 @@ function buildPackages(){
  S.packages=tiers.map(t=>{
   const monthly=Math.round(S.budget*t.mult/250)*250;
   const lines=S.items.map(i=>{const dollars=Math.round(monthly*(i.pctSeed/seed)/50)*50;
-   const d=productDelivery(i.rateValue,i.rate,dollars*S.months);
-   return{name:i.product,cat:i.category,amt:dollars,unit:d.unit,val:d.val};});
+   const d=itemDelivery(i,dollars*S.months);
+   return{name:itemLabel(i),cat:i.category,amt:dollars,unit:d.unit,val:d.val};});
   const impr=lines.filter(l=>l.unit==="impr").reduce((s,l)=>s+l.val,0);
   const views=lines.filter(l=>l.unit==="views").reduce((s,l)=>s+l.val,0);
   const roi=t.mult<1?"2–3×":t.mult>1?"4–6×":"3–5×";
@@ -1113,7 +1525,11 @@ function buildPackages(){
 function recommendItems(){
  const cats=[];S.objectives.forEach(o=>(GOAL_CATEGORIES[o]||[]).forEach(c=>{if(!cats.includes(c))cats.push(c);}));
  const chosen=cats.slice(0,4),seeds=[40,30,20,10];
- S.items=chosen.map((c,i)=>{const p=findProduct(c)||{};return{label:p.label,category:c,product:p.product||c,rate:p.rateType,rateValue:p.rateValue,pctSeed:seeds[i]||10,dollars:0};});
+ S.items=chosen.map((c,i)=>{const p=findProduct(c)||{};
+  return{label:p.label,category:p.category||c,product:p.product||c,
+         rate:p.rateType,rateValue:p.rateValue,
+         sellRate:startingRate(p.rateValue,p.rateType),
+         pctSeed:seeds[i]||10,dollars:0};});
  applySeeds();}
 function guardrailsJs(){
  const warns=[];
@@ -1243,7 +1659,91 @@ function suggestBlock(){
     <div class="grow"><h4 style="color:#1c6b32">${esc(pk.title)}</h4><div class="meta">${esc(pk.detail)}</div></div>
     <button class="x" title="Not for this client" onclick="dismissSuggestion('${pk.key}')">✕</button></div>`).join('')}</div>
   ${dismissed?`<div class="note" style="margin-top:8px"><a onclick="restoreSuggestions()" style="cursor:pointer;color:var(--blue);font-weight:700">Restore ${dismissed} dismissed</a></div>`:''}</div>`;}
-function pill(kind,v){const m={exc:S.exclusions,age:S.ages,inc:S.income,aud:S.audiences,kpi:S.kpis};toggle(m[kind],v);if(kind==='age'||kind==='inc')S.aiEst=null;saveSoon();renderStep();if(kind==='age'||kind==='inc')drawEst();}
+/* ============================================================
+   COMPETITORS AND PLACES TO TARGET
+
+   The audience step offered "Competitor physical locations" and "Competitor
+   conquesting" as two chips, and a ticked chip is not a campaign: nothing
+   anywhere asked WHICH competitors, or which addresses. So the proposal
+   promised to target a client's rivals without naming one, the insertion
+   order arrived with the same two words on it, and the first person who had
+   to know -- whoever builds the geo-fence -- went back to the rep weeks
+   later. Meanwhile the client, who is the only person in the room who
+   actually knows who they lose business to, was never asked.
+
+   Named here, carried onto the proposal's audience section, and handed to
+   the IO with the addresses attached. Two rules:
+
+     * **A competitor with no address is still worth having.** Conquesting by
+       brand name and browsing behaviour needs no location at all, and
+       refusing the row until somebody looks up a street address is how the
+       list stays empty. The row says which of the two it can do.
+     * **Nothing is inferred from the name.** No guessed website, no
+       geocoding, no "did you mean" -- the rule modules/ads_builder/logo.py
+       works to. A wrong address on a geo-fence spends the budget outside
+       somebody else's front door.
+   ============================================================ */
+const TARGET_KINDS=[
+ {key:"competitor",label:"Competitor",help:"A business we want to take customers from"},
+ {key:"venue",label:"Venue or event",help:"A stadium, expo, dealership row, trade show"},
+ {key:"place",label:"Place of interest",help:"A hospital, campus, retail park, employer"},
+];
+function blankTarget(){return{id:uid(),kind:"competitor",name:"",address:"",note:""};}
+function targetRows(){if(!Array.isArray(S.targetsOfInterest))S.targetsOfInterest=[];return S.targetsOfInterest;}
+function addTarget(kind){
+ targetRows().push(Object.assign(blankTarget(),{kind:kind||"competitor"}));
+ saveSoon();drawCompetitors();}
+function setTarget(i,field,value){
+ const row=targetRows()[i];if(!row)return;
+ row[field]=String(value||"").slice(0,200);
+ saveSoon();
+ // Only the summary is repainted. Redrawing the rows would replace the
+ // <input> somebody is typing into and eat the rest of the word -- the trap
+ // the Smart 1 Ads target-area rows had, and the Google orphan list after it.
+ paintTargetMeta();}
+function rmTarget(i){targetRows().splice(i,1);saveSoon();drawCompetitors();}
+function targetsReady(){return targetRows().filter(r=>(r.name||"").trim());}
+function targetsWithAddress(){return targetsReady().filter(r=>(r.address||"").trim());}
+function competitorPanel(){return '<div id="compWrap"></div>';}
+function targetSummary(){
+ const named=targetsReady(),located=targetsWithAddress();
+ if(!named.length)return "Nobody named yet. Conquesting stays a general audience layer until somebody is.";
+ const bits=[named.length+" named"];
+ if(located.length)bits.push(located.length+" with an address we can fence");
+ const noAddr=named.length-located.length;
+ if(noAddr)bits.push(noAddr+" by brand and behaviour only — no address to fence");
+ return bits.join(" · ");}
+function paintTargetMeta(){
+ const el=document.getElementById('compMeta');
+ if(el)el.textContent=targetSummary();}
+function drawCompetitors(){
+ const w=document.getElementById('compWrap');if(!w)return;
+ const rows=targetRows();
+ w.innerHTML=`<div class="bpanel"><div class="ttl">🥊 Competitors and places to target</div>
+  <div class="note" style="margin-top:2px">Who do they lose business to, and where do their customers already go? Named here, this reaches the proposal's audience section and the insertion order — a geo-fence cannot be built from "competitor conquesting".</div>
+  <div class="arealist" style="margin-top:10px">${rows.map((r,i)=>`
+   <div class="prod"><div class="pi">${r.kind==="venue"?"🏟":r.kind==="place"?"📍":"🥊"}</div>
+    <div class="grow">
+     <div class="two">
+      <div class="fld" style="margin-top:0"><label>Name</label>
+       <input value="${esc(r.name)}" placeholder="${r.kind==="competitor"?"Riverside Dental":"Lucas Oil Stadium"}" oninput="setTarget(${i},'name',this.value)"></div>
+      <div class="fld" style="margin-top:0"><label>Address, if we are fencing it <span style="font-weight:400;color:var(--muted)">— optional</span></label>
+       <input value="${esc(r.address)}" placeholder="1200 Main St, Carmel, IN 46032" oninput="setTarget(${i},'address',this.value)"></div>
+     </div>
+     <div class="fld"><label>What we want from it</label>
+      <input value="${esc(r.note)}" placeholder="e.g. their implant patients — they run a discount offer every spring" oninput="setTarget(${i},'note',this.value)"></div>
+    </div>
+    <button class="x" title="Remove" onclick="rmTarget(${i})">✕</button></div>`).join('')}</div>
+  <div class="addrow" style="margin-top:12px">${TARGET_KINDS.map(k=>
+   `<button class="btn btn-ghost" title="${esc(k.help)}" onclick="addTarget('${k.key}')">+ ${esc(k.label)}</button>`).join('')}</div>
+  <div class="note" id="compMeta" style="margin-top:8px">${esc(targetSummary())}</div>
+ </div>`;}
+/* Age and income were chips and are sliders now, so 'age' and 'inc' are gone
+   from this map. Left in, they would toggle S.ages under a control that reads
+   its range from S.ageRange -- the screen and the reach estimate disagreeing
+   with nothing erroring. */
+function pill(kind,v){const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};
+ if(!m[kind])return;toggle(m[kind],v);saveSoon();renderStep();}
 function addCustom(kind,id){const el=document.getElementById(id);const v=(el.value||'').trim();if(!v)return;const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};if(!m[kind].includes(v))m[kind].push(v);el.value='';saveSoon();renderStep();}
 function goal(k){toggle(S.objectives,k);S.items=[];S.kpis=[];saveSoon();renderStep();}
 function setBudget(v){S.budget=+v||0;S.configured=false;applySeeds();saveSoon();renderStep();}
@@ -1289,6 +1789,10 @@ function areaEditorStep(){
      ${a.type==="City/ZIP + Radius"?`<button class="btn ${z.length?'btn-line':'btn-primary'}" id="zipBtn" onclick="lookupZips()">📍 ${z.length?'Find them again':'Find the ZIP Codes this radius touches'}</button>`:''}
      <button class="btn btn-ghost" onclick="S._zipEdit=!S._zipEdit;renderStep()">${S._zipEdit?'✓ Done':'✎ Enter or edit them by hand'}</button></div>
     ${S._zipEdit?`<div class="fld" style="margin-top:10px"><textarea style="min-height:70px" oninput="setArea('zips',this.value);drawAreaEst()" placeholder="46032, 46033, 46074…">${esc(a.zips||'')}</textarea></div>`:''}
+    <div class="fld" style="margin-top:10px"><label>Exceptions — say it the way you would say it</label>
+     <input value="${esc(a.zipException||'')}" placeholder="e.g. only New Jersey zip codes · exclude 46032, 46033 · everything except Ohio"
+       oninput="setArea('zipException',this.value);zipRuleSoon()">
+     <div class="note" id="zipRuleNote" style="margin-top:5px">${zipRuleNote(a)}</div></div>
     <div class="note" id="zipNote" style="margin-top:5px"></div></div>`;})():''}
   ${a.type==="Other"?`<div class="fld"><label>Approximate population (optional)</label><input type="number" value="${a.population||''}" oninput="setArea('population',+this.value||0);drawAreaEst()" style="max-width:220px"><div class="note" style="margin-top:5px">Without this, an "Other" area is reported as not measured rather than being guessed at.</div></div>`:''}
   <div class="fld"><label>Notes for this area (optional)</label>
@@ -1326,8 +1830,10 @@ function areaListStep(){
   <div class="bpanel" style="margin-top:20px"><div class="ttl">Who we're targeting inside these areas</div>
    <div class="two" style="margin-top:8px"><div class="fld"><label>Gender</label>
     <select onchange="S.gender=this.value;S.aiEst=null;saveSoon();drawEst()">${opt(["Both","Male","Female"],S.gender)}</select></div><div></div></div>
-   <div class="ttl" style="margin-top:10px">Age ranges</div>${pillRow(["18-24","25-34","35-44","45-54","55-64","65+"],S.ages,'age')}
-   <div class="ttl" style="margin-top:10px">Household income</div>${pillRow(incomeOptions,S.income,'inc')}</div>
+   <div class="two" style="margin-top:10px">
+    ${bandSlider("age","Age range","Drag both ends. None means we do not filter on age at all — different from a range that happens to cover everybody, which is a decision to buy the whole distribution.")}
+    ${bandSlider("income","Household income","None means no income filter. Narrowing it raises the CPM on most platforms and shrinks the addressable audience shown above.")}
+   </div></div>
   <div class="bpanel"><div class="ttl">📊 Smart 1 estimated reach across ${rows.length===1?'this area':'all '+rows.length+' areas'}</div>
    <div class="estgrid" id="estGrid"></div><div class="note" id="popNote"></div>
    <div id="areaBreakdown"></div>
@@ -1374,7 +1880,12 @@ async function lookupZips(){
   const d=await api('/sales/builder/api/zipcodes-in-radius',{method:'POST',
    body:JSON.stringify({origin:a.origin,radius:a.radius})});
   a.zips=d.zipcodes||"";syncLegacyGeo();saveSoon();renderStep();
-  toast("📍 "+(d.count||0)+" ZIP Codes found — review them before trafficking.");
+  // The exception was applied to the previous list. Left alone it would go
+  // on describing that one while a new list ran unfiltered -- the rule
+  // reading as saved and doing nothing, which is the failure the field
+  // exists to close.
+  if(String(a.zipException||"").trim())await refreshZipRule();
+  toast("📍 "+(d.count||0)+" ZIP Codes found"+(String(a.zipException||"").trim()?", exception re-applied":"")+" — review them before trafficking.");
  }catch(e){toast("ZIP lookup failed: "+e.message);}
  finally{const bb=document.getElementById('zipBtn');if(bb){bb.disabled=false;bb.textContent='📍 Find the ZIP Codes this radius touches';}}}
 
@@ -1398,37 +1909,151 @@ function drawPreview(){
 function previewSection(sec,i,e){
  const req=isRequired(sec);
  const editing=S._editSec===sec.id;
+ const hasTable=sectionHasTable(sec);
+ const tableOn=sec.showTable!==false;
  const tools=`<div class="dtools">
    <button class="ic" title="${editing?'Done editing':'Edit this section'}" onclick="toggleEditSec('${sec.id}')">${editing?'✓':'✎'}</button>
    <button class="ic" title="Rewrite with AI" onclick="rewriteSecById('${sec.id}')">✨</button>
+   ${hasTable?`<button class="ic" title="${tableOn?'Leave this table out of the proposal — the section copy stays':'Put this table back in the proposal'}" onclick="toggleSecTable('${sec.id}')">${tableOn?'📊':'🚫📊'}</button>`:''}
+   ${hasTable&&tableOn?`<button class="ic" title="${isTableEdited(sec)?'Edit this table — currently hand-edited':'Edit this table by hand'}" onclick="editSecTable('${sec.id}')">${isTableEdited(sec)?'✍':'⊞'}</button>`:''}
    <button class="ic" title="${req?'Required — every Smart 1 proposal includes this':(sec.enabled?'Hide from the proposal':'Show in the proposal')}" ${req?'disabled style="opacity:.3;cursor:not-allowed"':''} onclick="${req?'':`toggleSec('${sec.id}')`}">${sec.enabled?'👁':'🚫'}</button>
   </div>`;
  if(!sec.enabled)
   return `<div class="docsec off"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
    <div class="note">Hidden — this section will not appear in the PDF.</div></div>`;
  const body=editing
-  ? `<textarea class="dedit" oninput="S.sections[${i}].body=this.value;saveSoon()" placeholder="${sec.kind==='text'?'Section copy…':'Short intro above the table…'}">${esc(sec.body||'')}</textarea>`
-  : (sec.body?`<div class="dbody">${esc(sec.body).replace(/\n/g,'<br>')}</div>`
+  ? `<textarea class="dedit" oninput="S.sections[${i}].body=this.value;saveSoon()" onchange="S.sections[${i}].body=cleanCopy(this.value);saveNow();drawPreview()" placeholder="${sec.kind==='text'?'Section copy…':'Short intro above the table…'}">${esc(sec.body||'')}</textarea>`
+  : (sec.body?`<div class="dbody">${richText(sec.body)}</div>`
              :`<div class="note dempty">No copy yet — ✨ writes it, or ✎ to type it.</div>`);
+ const table=hasTable&&!tableOn
+  ? `<div class="dnote">This table is left out of the proposal. The copy above still prints.</div>`
+  : previewTable(sec,e);
  return `<div class="docsec"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
-  ${body}${previewTable(sec,e)}</div>`;}
+  ${body}${isTableEdited(sec)&&tableOn?`<div class="dnote" style="color:#8c5a00">✍ This table was edited by hand and no longer recomputes from the plan. <a onclick="resetSecTable('${sec.id}')" style="cursor:pointer;color:var(--blue);font-weight:700">Put the generated one back</a></div>`:''}${table}</div>`;}
+/* Which sections carry a generated table at all. `text` and `cover` are prose
+   and have nothing to exclude, and offering them the control would make the
+   two buttons mean nothing. */
+const TABLE_KINDS=["areas","reach","friction","channels","creative","timeline",
+                   "kpis","mediaplan","packages","roi","growth","zips"];
+function sectionHasTable(sec){return TABLE_KINDS.includes((sec||{}).kind);}
+function isTableEdited(sec){
+ const t=(sec||{}).tableEdit;
+ return !!(t&&Array.isArray(t.rows)&&t.rows.length);}
+function toggleSecTable(id){
+ const sec=S.sections.find(x=>x.id===id);if(!sec)return;
+ sec.showTable=sec.showTable===false;saveSoon();drawPreview();}
+function resetSecTable(id){
+ const sec=S.sections.find(x=>x.id===id);if(!sec)return;
+ delete sec.tableEdit;saveSoon();drawPreview();}
+/* Editing a generated table.
+
+   The standing rule in this builder is that a table is computed and the copy
+   above it introduces it, because a proposal whose prose and figures
+   disagree is the failure the whole specification is built around. That rule
+   still holds for what the tables say by default -- nothing here changes how
+   one is generated, and the media plan is still edited by changing the plan.
+
+   What this adds is the case the rule never covered: a table that is right
+   and still wrong for this client. A row that names a location under NDA, a
+   phase of the timeline this client does not want printed, a KPI they asked
+   us to drop. The alternative a rep actually has is exporting to Word and
+   editing it there, which takes the document out of the system entirely.
+
+   Two things keep it honest. An edited table is **marked** in the builder,
+   in amber, with the generated version one click away -- so nobody
+   discovers weeks later that a figure was typed rather than computed. And
+   the edit is stored as its own rows rather than replacing the generator, so
+   changing the plan does not silently re-write somebody's edit; the badge
+   says the table no longer recomputes, which is exactly true. */
+function editSecTable(id){
+ const sec=S.sections.find(x=>x.id===id);if(!sec)return;
+ S._tableEdit=(S._tableEdit===id)?null:id;
+ if(S._tableEdit===id&&!isTableEdited(sec)){
+  const grid=tableGridOf(sec);
+  if(!grid){toast("This section has nothing generated to edit yet.");S._tableEdit=null;return;}
+  sec.tableEdit={head:grid.head,rows:grid.rows};
+ }
+ saveNow();drawPreview();}
+/* The generated table read back as data. Parsed out of the HTML the preview
+   already builds rather than by re-implementing twelve generators: the point
+   of an edit is to change what is on screen, so what is on screen is what is
+   offered. Cells come back as text -- an edited table is prose in a grid,
+   not a spreadsheet. */
+function tableGridOf(sec){
+ const html=generatedTable(sec,S.estimates||estimates());
+ if(!html)return null;
+ const box=document.createElement('div');box.innerHTML=html;
+ const table=box.querySelector('table');if(!table)return null;
+ const head=[...table.querySelectorAll('thead th')].map(th=>th.textContent.trim());
+ const rows=[...table.querySelectorAll('tbody tr')].map(tr=>
+  [...tr.querySelectorAll('td,th')].map(td=>td.textContent.trim()));
+ if(!rows.length)return null;
+ return{head:head.length?head:rows[0].map(()=>""),rows};}
+function setTableCell(id,r,c,value){
+ const sec=S.sections.find(x=>x.id===id);if(!sec||!isTableEdited(sec))return;
+ if(!sec.tableEdit.rows[r])return;
+ sec.tableEdit.rows[r][c]=String(value||"").slice(0,400);
+ saveSoon();}
+function setTableHead(id,c,value){
+ const sec=S.sections.find(x=>x.id===id);if(!sec||!isTableEdited(sec))return;
+ sec.tableEdit.head[c]=String(value||"").slice(0,120);
+ saveSoon();}
+function rmTableRow(id,r){
+ const sec=S.sections.find(x=>x.id===id);if(!sec||!isTableEdited(sec))return;
+ sec.tableEdit.rows.splice(r,1);
+ if(!sec.tableEdit.rows.length)delete sec.tableEdit;
+ saveNow();drawPreview();}
+function addTableRow(id){
+ const sec=S.sections.find(x=>x.id===id);if(!sec||!isTableEdited(sec))return;
+ sec.tableEdit.rows.push(sec.tableEdit.head.map(()=>""));
+ saveNow();drawPreview();}
+function editedTableHtml(sec){
+ const t=sec.tableEdit,editing=S._tableEdit===sec.id;
+ if(!editing)
+  return `<table class="dtbl"><thead><tr>${t.head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>`
+   +t.rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')+`</tbody></table>`;
+ return `<table class="dtbl editable"><thead><tr>${t.head.map((h,c)=>
+   `<th><input value="${esc(h)}" onchange="setTableHead('${sec.id}',${c},this.value)" style="width:100%;font:inherit;border:0;background:transparent;color:inherit"></th>`).join('')}<th></th></tr></thead><tbody>`
+  +t.rows.map((r,ri)=>`<tr>${r.map((c,ci)=>
+    `<td><input value="${esc(c)}" onchange="setTableCell('${sec.id}',${ri},${ci},this.value)" style="width:100%;font:inherit;border:0;background:transparent"></td>`).join('')}
+    <td><button class="ic" title="Remove this row" onclick="rmTableRow('${sec.id}',${ri})">✕</button></td></tr>`).join('')
+  +`</tbody></table><div class="addrow" style="margin-top:8px">
+    <button class="btn btn-ghost" onclick="addTableRow('${sec.id}')">+ Add a row</button>
+    <button class="btn btn-line" onclick="resetSecTable('${sec.id}')">↺ Back to the generated table</button>
+    <button class="btn btn-primary" onclick="S._tableEdit=null;saveNow();drawPreview()">✓ Done</button></div>`;}
 
 /* The generated tables, rendered as the PDF renders them. These are never
    editable text: they are computed from the campaign, and a proposal whose
    prose and tables disagree is the failure the whole spec is built around. */
 function previewTable(sec,e){
+ if(isTableEdited(sec))return editedTableHtml(sec);
+ return generatedTable(sec,e);}
+function generatedTable(sec,e){
  const k=sec.kind;
- if(k==="areas"){const rows=(S.targetAreas||[]).filter(areaComplete);if(!rows.length)return '';
+ if(k==="areas"){const rows=(S.targetAreas||[]).filter(areaComplete);
+  const named=targetsReady();
+  /* Who we are taking customers from, named. The audience section used to
+     say "competitor conquesting" and stop, which is a tactic rather than a
+     campaign -- and the client, the only person who actually knows who they
+     lose business to, was never shown a list to correct. A row with no
+     address still belongs here: conquesting by brand and behaviour needs no
+     location, and the column says which of the two this one can do. */
+  const comp=named.length?dtable(["Who we are going after","What we want from them","How we reach them"],
+   named.map(r=>[esc(r.name),esc(r.note||(r.kind==="competitor"?"Their customers":"The people who go there")),
+    (r.address||"").trim()?"Geo-fenced at "+esc(r.address):"Brand and behaviour — no address on file to fence"])):'';
+  if(!rows.length)return comp;
   return dtable(["Target area","Coverage","Est. population"],rows.map(a=>{
    const pop=areaPopulation(a),z=areaZips(a);
-   return [esc(areaLabel(a)),esc(a.notes||(z.length?z.length+" ZIP Codes":a.type)),pop?fmt(pop):"<b>Not measured</b>"];}));}
+   return [esc(areaLabel(a)),esc(a.notes||(z.length?z.length+" ZIP Codes":a.type)),pop?fmt(pop):"<b>Not measured</b>"];}))+comp;}
  if(k==="reach")return dgrid([["Est. population",e.measured?fmt(e.pop):"—"],["Addressable audience",e.measured?fmt(e.aud):"—"],["Households",e.measured?fmt(e.hh):"—"],["Devices",e.measured?fmt(e.dev):"—"]]);
  if(k==="friction"){const picks=suggestions();if(!picks.length)return '';
   return dtable(["We suggest they should","Why"],picks.map(pk=>[esc(pk.title),esc(pk.detail)]));}
  if(k==="channels"){if(!S.items.length)return '';
-  return dtable(["Channel","Role in the funnel","Primary KPI"],S.items.map(it=>{const r=channelRole(it);return [esc(it.product),esc(r[0]),esc(r[1])];}));}
+  return dtable(["Channel","Role in the funnel","Primary KPI"],S.items.map(it=>{const r=channelRole(it);return [esc(itemLabel(it)),esc(r[0]),esc(r[1])];}));}
  if(k==="creative"){const rows=creativeRows();if(!rows.length)return '';
-  return dtable(["Medium","Campaign spend","Creative"],rows.map(r=>[esc(r.label),money(r.spend),esc(creativePhrase(r))]));}
+  return dtable(["Medium","Campaign spend","Creative","What we need"],rows.map(r=>[
+   esc(r.label),money(r.spend),esc(creativePhrase(r)),
+   r.sizes&&r.sizes.line?esc(r.sizes.line):"<b>Not measured</b>"]));}
  if(k==="timeline")return dtable(["Phase","What happens"],TIMELINE_PHASES.map(t=>[esc(t[0])+"<br>"+esc(t[1]),esc(t[2])]));
  if(k==="kpis")return S.kpis.length?`<div class="dnote">KPIs: ${esc(S.kpis.join(', '))}</div>`:'';
  if(k==="mediaplan")return mediaPlanEditor();
@@ -1437,12 +2062,20 @@ function previewTable(sec,e){
  if(k==="growth")return growthTable();
  if(k==="zips"){
   /* Every ZIP, at the back of the document. Trafficking cannot launch
-     without this list and nobody reads it in the middle of the strategy. */
-  const rows=(S.targetAreas||[]).filter(areaComplete).map(a=>[a,areaZips(a)]).filter(r=>r[1].length);
-  if(!rows.length)return '<div class="dnote">No ZIP Codes captured yet. Find them on the target-area step — the insertion order needs them before trafficking.</div>';
+     without this list and nobody reads it in the middle of the strategy.
+     The running list, not the found one -- an area restricted to one state
+     must not print the ZIPs it was restricted away from. */
+  const areas=(S.targetAreas||[]).filter(areaComplete);
+  const rows=areas.map(a=>[a,areaZips(a)]).filter(r=>r[1].length);
+  const rules=areas.filter(a=>String(a.zipException||"").trim()).map(a=>{
+   const rule=a.zipRule||{},dropped=areaZipsDropped(a).length;
+   return rule.applied
+    ? `<div class="dnote">${esc(areaLabel(a))} — exception: “${esc(a.zipException)}”. ${dropped} ZIP Code${dropped===1?'':'s'} excluded, ${areaZips(a).length} running.</div>`
+    : `<div class="dnote" style="color:#8c2f24">${esc(areaLabel(a))} — the exception “${esc(a.zipException)}” could not be read and has <b>not</b> been applied. Every ZIP above is running.</div>`;}).join('');
+  if(!rows.length)return '<div class="dnote">No ZIP Codes captured yet. Find them on the target-area step — the insertion order needs them before trafficking.</div>'+rules;
   return dtable(["Target area","ZIP Codes"],rows.map(([a,z])=>
    [esc(areaLabel(a))+'<br><span style="color:var(--muted)">'+z.length+' ZIP Code'+(z.length===1?'':'s')+'</span>',
-    '<span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.7">'+z.map(esc).join(", ")+'</span>']));}
+    '<span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.7">'+z.map(esc).join(", ")+'</span>']))+rules;}
  return '';}
 /* Recommended budgets: what "more" looks like, editable here.
 
@@ -1568,27 +2201,43 @@ function previewGuards(){
  let h='';
  if(g.length)h+=`<div class="warnbox" style="margin-top:10px"><b>🛡 Guardrails</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`;
  if(need.length)h+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
-  +need.map(m=>esc(MEDIUM_LABEL[m].split(" (")[0])+" is in the plan and no spot has been confirmed.").join("<br>")+`</div>`;
+  +need.map(m=>esc(MEDIUM_LABEL[m].split(" (")[0])+" is in the plan and nobody has been named to supply the "+(m==="display"||m==="retargeting"?"banners":"spot")+".").join("<br>")+`</div>`;
  return h;}
 function investmentTable(){
- const t=chosenTier(),media=S.items.reduce((a,b)=>a+(+b.dollars||0),0)||+((S.selectedPackage||{}).monthly||S.budget||0);
+ const st=suiteState();
+ const media=S.items.reduce((a,b)=>a+(+b.dollars||0),0)||+((S.selectedPackage||{}).monthly||S.budget||0);
  const fees=creativeFees(),months=Math.max(1,+S.months||1);
- const recur=t.monthly+media,rows=[
-  ["Smart 1 Suite — "+t.name,money(t.monthly),"Monthly"],
-  ["Media spend",money(media),"Monthly"]];
+ const suite=st.include?st.monthly:0;
+ const recur=suite+media,rows=[];
+ if(st.include)rows.push(["Smart 1 Suite — "+st.name,money(suite),"Monthly"]);
+ rows.push(["Media spend",money(media),"Monthly"]);
  if(fees)rows.push(["Creative production",money(fees),"One-time"]);
  rows.push(["Total first month",money(recur+fees),""]);
  rows.push(["Total campaign ("+months+" mo)",money(recur*months+fees),""]);
- return dtable(["","Amount","Recurs"],rows.map(r=>[esc(r[0]),r[1],esc(r[2])]));}
+ let html=dtable(["","Amount","Recurs"],rows.map(r=>[esc(r[0]),r[1],esc(r[2])]));
+ /* All three tiers, on the document. The PDF has printed them for as long as
+    it has existed and the preview showed only the selected one, so a rep read
+    a one-package proposal and the client received a three-package one. The
+    preview is how you find out whether the document is any good; it has to be
+    the document. */
+ const pk=S.packages||[];
+ if(pk.length){
+  html+=`<div class="dnote" style="margin-top:10px">The three options below all appear on the proposal. ★ is the one we recommend.</div>`;
+  html+=dtable(["",...pk.map(p=>esc(p.name)+(p.rec||p===S.selectedPackage?" ★":""))],
+   [["Monthly",...pk.map(p=>money(p.monthly))],
+    ["Total ("+months+" mo)",...pk.map(p=>money(p.total))],
+    ["Est. impressions / mo",...pk.map(p=>fmt(p.impr))]]);}
+ return html;}
 function roiTable(){
  const months=Math.max(1,+S.months||1);
  let impr=0,views=0;const unpriced=[];
  const rows=S.items.map(it=>{
   const d=+it.dollars||0;let units=null,label="";
-  if(it.rate==="CPM"&&it.rateValue>0){units=Math.round(d/it.rateValue*1000);label="impressions/month";impr+=units*months;}
-  else if(it.rate==="CPV"&&it.rateValue>0){units=Math.round(d/it.rateValue);label="views/month";views+=units*months;}
-  else unpriced.push(it.product);
-  return [esc(it.product),money(d),money(d*months),units?fmt(units)+" "+label:"Not impression-based"];});
+  const sr=sellRateOf(it);
+  if(it.rate==="CPM"&&sr>0){units=Math.round(d/sr*1000);label="impressions/month";impr+=units*months;}
+  else if(it.rate==="CPV"&&sr>0){units=Math.round(d/sr);label="views/month";views+=units*months;}
+  else unpriced.push(itemLabel(it));
+  return [esc(itemLabel(it)),money(d),money(d*months),units?fmt(units)+" "+label:"Not impression-based"];});
  if(!rows.length)return '';
  const bits=[];if(impr)bits.push(fmt(impr)+" impressions");if(views)bits.push(fmt(views)+" video views");
  rows.push(["<b>Campaign total</b>","<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))+"</b>",
@@ -1725,12 +2374,13 @@ const STEPS=[
      +'<div class="note">These travel onto the insertion order and into the proposal\'s Measurement &amp; Reporting section.</div>',
    valid:()=>S.kpis.length>0};},
 
- ()=>({eyebrow:"Audience Strategy",title:"Who we target",sub:"Pulled from the industry audience library. Adjust as needed.",
+ ()=>({eyebrow:"Audience Strategy",title:"Who we target",sub:"Pulled from the industry audience library — then the part only the client knows: whose customers we want.",
    html:(()=>{const key=INDUSTRY_KEYS[S.industry]||'general';const lib=industryIdeas[key]||industryIdeas.general;
     const list=[...(lib.behavioral||[]),...(lib.contextual||[]),"Website retargeting","Lookalike / CRM match","Competitor physical locations","Competitor conquesting"];
     return '<div class="bpanel"><div class="ttl">🎯 Recommended audience layers — '+esc(key)+'</div>'+pillRow(list,S.audiences,'aud')+
-    '<div class="addpill"><input id="audIn" placeholder="Add a custom audience…" onkeydown="if(event.key===\'Enter\'){addCustom(\'aud\',\'audIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'aud\',\'audIn\')">+ Add</button></div></div>';})(),
-   valid:()=>true}),
+    '<div class="addpill"><input id="audIn" placeholder="Add a custom audience…" onkeydown="if(event.key===\'Enter\'){addCustom(\'aud\',\'audIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'aud\',\'audIn\')">+ Add</button></div></div>'
+    +competitorPanel();})(),
+   valid:()=>true,after:drawCompetitors}),
 
  ()=>({eyebrow:"Budget",title:"What's the working budget?",sub:"Monthly media budget. Three packages build around it and reconfigure if you change it.",
    html:'<div class="cards">'+
@@ -1744,10 +2394,12 @@ const STEPS=[
 
  ()=>{ if(S.items.length===0)recommendItems(); return{eyebrow:"The Media Mix",title:"Products & pricing",sub:"From your goals, using real catalog products & rates. Edit the monthly $ per product, add or remove products — guardrails recheck as you go.",
    html:'<div id="prodList"></div>'+
-    '<div class="addrow"><select id="addCat">'+productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')+'</select><button class="btn btn-ghost" onclick="addItem()">+ Add product</button></div>'+
+    '<div class="addrow"><select id="addCat">'+productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')+'</select><button class="btn btn-ghost" onclick="addItem()">+ Add category</button></div>'+
+    '<div class="addrow"><select id="addProd">'+productPickerHtml()+'</select><button class="btn btn-ghost" onclick="addSpecificItem(document.getElementById(\'addProd\').value)">+ Add a specific product</button></div>'+
+    '<div id="discoWrap"></div>'+
     '<div id="reconfigWrap"></div><div id="guardWrap"></div>'+
     '<div class="bpanel"><div class="ttl">💡 Sample ROI by product (internal only)</div><div id="roiTags" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div><div class="note">Illustrative category benchmarks — not shown to the client unless you include them.</div></div>',
-   valid:()=>S.items.length>0,after:()=>{drawItems();drawRoi();drawGuards();}};},
+   valid:()=>S.items.length>0,after:()=>{drawItems();drawRoi();drawGuards();drawDiscoveryPicks();}};},
 
  /* Creative. Sits directly after the media mix, so the question is asked
     while the plan that raises it is still on screen and before any package
@@ -1755,26 +2407,25 @@ const STEPS=[
     audio -- there is nothing to ask. */
  ()=>{
   const rows=creativeRows();
-  if(!rows.length)return{eyebrow:"Creative",title:"No video or audio in this plan",
-   sub:"Display and social creative is a standard rate-card line — nothing to decide here.",
+  if(!rows.length)return{eyebrow:"Creative",title:"Nothing on this plan needs creative",
+   sub:"Every line here is management or a fee — there is no file for anybody to supply.",
    html:'<div class="bpanel"><div class="ttl">🎨 Creative</div><div class="note" style="margin-top:6px">'
-    +'Add Connected TV, streaming audio, YouTube or podcasts to the media mix and Smart 1 will ask '
-    +'whether a spot already exists before pricing it.</div></div>',
+    +'Add display, retargeting, Connected TV, streaming audio, YouTube or podcasts to the media mix '
+    +'and Smart 1 will ask who is supplying the files — and name the sizes — before pricing it.</div></div>',
    valid:()=>true};
-  return{eyebrow:"Creative",title:"Do they have the spots for this?",
-   sub:"Video and audio need creative before they can run. Answer this now and it travels onto the insertion order.",
+  return{eyebrow:"Creative",title:"Do they have the files for this?",
+   sub:"Every medium on this plan needs creative before it can run — banners as much as spots. Answer it now and it travels onto the insertion order with the sizes attached.",
    html:rows.map(creativeCard).join('')
-    +'<div class="note" style="margin-top:12px">A comp under '+money(COMP_CONFIRM_UNDER)
-    +' per medium gets one confirmation — over the campaign, production usually pays for itself above that.</div>',
+    +'<div class="note" style="margin-top:12px">A comp gets one confirmation when the campaign is under the point where production pays for itself — '
+    +money(COMP_CONFIRM_UNDER)+' for video and audio, '+money(COMP_CONFIRM_BY_MEDIUM.display)
+    +' for banners, which are a $250 line on the card rather than a shoot.</div>',
    valid:()=>creativeUnresolved().length===0};
  },
 
- ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. Pick the featured one.",
-   html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Essential ≈ 70%, Recommended = 100%, Accelerated ≈ 150% of budget. Change the budget or products and these rebuild.</div>'
-    +'<div class="bpanel" style="margin-top:18px"><div class="ttl">🧠 Smart 1 Suite tier</div>'
-    +'<div class="note" style="margin-top:4px">The Suite is the central nervous system of the campaign — every lead the media produces lands there. Licensing is quoted separately from media on the proposal.</div>'
-    +'<div class="cards c3" style="margin-top:10px">'+SUITE_TIERS.map(t=>card("🧠",t.name+" · "+money(t.monthly)+"/mo",t.specs,chosenTier().name===t.name,`pickTier('${t.name}')`)).join('')+'</div></div>',
-   valid:()=>true,after:drawPkgs};},
+ ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. All three go on the quote; pick the one it recommends.",
+   html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Essential ≈ 70%, Recommended = 100%, Accelerated ≈ 150% of budget. All three are printed on the proposal — the one you pick is marked as our recommendation. Change the budget or products and these rebuild.</div>'
+    +'<div id="suiteWrap"></div>',
+   valid:()=>true,after:()=>{drawPkgs();drawSuite();}};},
 
  /* The proposal, as the client will read it. Two views behind one step:
     the preview -- what the PDF will say, section by section, each editable
@@ -1841,9 +2492,17 @@ function prevStep(){
 function creativeCard(r){
  const n=r.label.split(" (")[0];
  const pick=(v,em2,t,d)=>card(em2,t,d,r.answer===v,`setCreative('${r.medium}','${v}')`);
+ /* What "creative" actually means for this medium, from the IO's own spec
+    kit rather than from a second list here. "Do you have banners" has no
+    answer until somebody says which sizes: a client who hands over a
+    300x250 and nothing else has answered yes and blocked the buy, and the
+    discovery happens at trafficking. */
+ const sizes=r.sizes&&r.sizes.line?r.sizes:null;
  let html=`<div class="bpanel"><div class="ttl">🎬 ${esc(r.label)} — ${money(r.spend)} over ${S.months} month${S.months===1?'':'s'}</div>
+  ${sizes?`<div class="note" style="margin-top:4px">What this needs: <b>${esc(sizes.line)}</b>. Straight from the Smart 1 creative spec kit, which is what the insertion order checks every delivered file against.</div>`
+   :`<div class="note" style="margin-top:4px">The spec kit maps no unit for this medium, so the sizes are <b>not measured</b> here — confirm them with trafficking before the spot is booked.</div>`}
   <div class="cards c3" style="margin-top:10px">
-   ${pick("has","✅","They have creative","Finished "+n.toLowerCase()+" spots we can traffic")}
+   ${pick("has","✅","They have creative",(r.medium==="display"||r.medium==="retargeting"?"Finished banners in the sizes above":"Finished "+n.toLowerCase()+" spots")+" we can traffic")}
    ${pick("client","💳","They'll pay for it","Smart 1 produces it — the fee goes on this proposal")}
    ${pick("comp","🎁","We comp it","Smart 1 absorbs the production cost")}
   </div>`;
@@ -1854,14 +2513,14 @@ function creativeCard(r){
  if(r.answer==="comp"){
   html+=r.needsConfirm
    ? `<div class="warnbox" style="margin-top:12px"><b>⚠ ${money(r.spend)} ${esc(n.toLowerCase())} campaign — are you sure you want to comp this?</b>
-      Smart 1 would be producing ${esc(n.toLowerCase())} creative at no charge on a campaign under ${money(COMP_CONFIRM_UNDER)}, which is below where a comp usually pays for itself.
+      Smart 1 would be producing ${esc(n.toLowerCase())} creative at no charge on a campaign under ${money(r.threshold||COMP_CONFIRM_UNDER)}, which is below where a comp usually pays for itself.
       <div style="margin-top:9px;display:flex;gap:9px;flex-wrap:wrap">
        ${r.confirmed
          ? `<span class="pill on" style="cursor:default">✓ Confirmed — Smart 1 comps this</span><button class="btn btn-line" onclick="setCreative('${r.medium}','client')">Actually, charge for it</button>`
          : `<button class="btn btn-gold" onclick="confirmComp('${r.medium}')">Yes — comp it anyway</button>
             <button class="btn btn-line" onclick="setCreative('${r.medium}','client')">No — the client pays</button>`}
       </div></div>`
-   : `<div class="note" style="margin-top:12px">${money(r.spend)} is above the ${money(COMP_CONFIRM_UNDER)} mark, so the comp is recorded without a second question.</div>`;}
+   : `<div class="note" style="margin-top:12px">${money(r.spend)} is above the ${money(r.threshold||COMP_CONFIRM_UNDER)} mark, so the comp is recorded without a second question.</div>`;}
  return html+`</div>`;}
 function setCreative(medium,answer){
  S.creativePlan=S.creativePlan||{};
@@ -2005,11 +2664,29 @@ function drawLanding(){
   ? `<div style="margin-top:12px;background:#f6faff;border:1px solid var(--line);border-radius:10px;padding:14px;white-space:pre-wrap;font-size:13px;color:#33415C">${esc(S.landingReview)}</div>`
   : '<div class="note" style="margin-top:8px">Add a URL and click Review — Smart 1 checks the CTA and conversion readiness before launch.</div>';}
 function drawItems(){const host=document.getElementById('prodList');if(!host)return;
- host.innerHTML=S.items.map((i,ix)=>{const rateLabel=i.rate?(i.rate+' '+(i.rateValue||'')):'Mgmt/flat';
-  return `<div class="prod"><div class="pi">${em(i.category)}</div><div class="grow"><h4>${esc(i.product)}</h4><div class="meta">${esc(i.category)} · ${esc(rateLabel)} · ROI ${esc(CATEGORY_ROI[i.category]||'—')}</div></div>
+ host.innerHTML=S.items.map((i,ix)=>{
+  const sr=sellRateOf(i);
+  const rateLabel=sr!==null?(i.rate+' $'+sr.toFixed(2)):'Management / flat fee';
+  return `<div class="prod"><div class="pi">${em(i.category)}</div><div class="grow"><h4>${esc(itemLabel(i))}</h4><div class="meta">${esc(i.category)} · ${esc(rateLabel)} · ROI ${esc(CATEGORY_ROI[i.category]||'—')}${isAddOn(i.product)?' · <b>add-on</b>':''}</div></div>
   <div class="alloc"><input type="number" min="0" step="50" value="${i.dollars||0}" onchange="setItemDollars(${ix},+this.value)"><small>$ / ${i.basis==="one_time"?"one time":"month"}</small></div>
   <button class="x" onclick="rmItem(${ix})">✕</button>
+  ${rateRow(i,ix)}
   ${basisRow(i,ix)}</div>`;}).join('');}
+/* The rate this line is quoted at. Shown as a number a rep can change rather
+   than as a fact, with the card's own listed rate beside it so the margin is
+   never a mystery -- and a fee line says plainly that there is no rate to
+   set, instead of offering a box that changes nothing. */
+function rateRow(i,ix){
+ const sr=sellRateOf(i);
+ if(sr===null)
+  return `<div class="basisrow"><span class="note" style="margin:0">Priced as a ${esc(String(i.rate||'management or flat').toLowerCase())} fee — this line has no ${'CPM'} to set. ${i.rateValue?money(i.rateValue)+' on the card.':'The card quotes it as listed.'}</span></div>`;
+ const start=startingRate(i.rateValue,i.rate);
+ return `<div class="basisrow">
+  <span class="note" style="margin:0">Quoted ${esc(i.rate)}</span>
+  <input type="number" min="0" step="0.25" value="${sr}" class="dmoney" style="width:82px" onchange="setItemRate(${ix},this.value)">
+  <span class="note" style="margin:0">card ${money(i.rateValue)} · starts at ${start!==null?money(start):'—'} (2×)${rateIsCustom(i)?' · <b>adjusted</b>':''}</span>
+  ${rateIsCustom(i)?`<span class="pill" onclick="resetItemRate(${ix})">↺ Back to 2×</span>`:''}
+ </div>`;}
 /* Monthly or one-time, and for how long -- asked here for the same reason the
    IO conversion asks it. A dollar figure on its own has not said which, and
    the difference is what gets billed: a $3,000 line read as monthly over six
@@ -2047,17 +2724,172 @@ function drawGuards(){const w=document.getElementById('guardWrap');if(!w)return;
  const need=creativeUnresolved();
  let html=g.length?`<div class="warnbox"><b>🛡 IO guardrail warnings (not blocks)</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:"";
  if(need.length)html+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
-  +need.map(m=>"This plan runs "+esc(MEDIUM_LABEL[m].split(" (")[0].toLowerCase())+" — the next step asks whether a spot exists.").join("<br>")+`</div>`;
+  +need.map(m=>"This plan runs "+esc(MEDIUM_LABEL[m].split(" (")[0].toLowerCase())+" — the next step asks who is supplying the "+(m==="display"||m==="retargeting"?"banners":"spot")+".").join("<br>")+`</div>`;
  w.innerHTML=html;}
 function addItem(){const cat=document.getElementById('addCat').value;const p=findProduct(cat)||{};
- if(S.items.some(i=>i.category===cat)){toast("That category is already in the mix.");return;}
- S.items.push({label:p.label,category:cat,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,pctSeed:15,dollars:0});
+ const real=p.category||cat;
+ if(S.items.some(i=>i.category===real)){toast("That category is already in the mix.");return;}
+ S.items.push({label:p.label,category:real,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,
+               sellRate:startingRate(p.rateValue,p.rateType),pctSeed:15,dollars:0});
  applySeeds();flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
+/* Every product on the card, so a rep can put the exact line they want on the
+   plan -- including the add-ons a goal will never choose for them. Grouped by
+   category and labelled the way the quote will read, because "Demographic"
+   appears four times in a flat list and identifies nothing. */
+function addSpecificItem(label){
+ const p=rateCard.find(x=>x.label===label);if(!p)return;
+ if(S.items.some(i=>i.product===p.product&&i.category===p.category)){
+  toast("That product is already on the plan.");return;}
+ S.items.push({label:p.label,category:p.category,product:p.product,rate:p.rateType,rateValue:p.rateValue,
+               sellRate:startingRate(p.rateValue,p.rateType),pctSeed:15,dollars:0});
+ applySeeds();flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
+function productPickerHtml(){
+ const groups={};rateCard.forEach(x=>{(groups[x.category]=groups[x.category]||[]).push(x);});
+ return Object.keys(groups).sort().map(cat=>
+  `<optgroup label="${esc(em(cat)+" "+cat)}">`+groups[cat].map(x=>
+   `<option value="${esc(x.label)}">${esc(quoteLabel(x.product,x.category))}${isAddOn(x.product)?" · add-on":""}${x.listedRate?" — "+esc(x.listedRate):""}</option>`).join('')
+  +`</optgroup>`).join('');}
+/* The quoted rate, per line. A rep who negotiates one number should not have
+   to re-plan the campaign around it, and a plan whose rates cannot move is a
+   plan that gets rebuilt in a spreadsheet nobody else can read. Clearing the
+   box returns the line to the 2x start rather than to zero -- a blank rate
+   would silently price the delivery table at nothing. */
+function setItemRate(ix,value){
+ const i=S.items[ix];if(!i)return;
+ const v=+value;
+ i.sellRate=(v>0)?Math.round(v*100)/100:startingRate(i.rateValue,i.rate);
+ flagDirty();saveSoon();drawItems();drawRoi();drawGuards();}
+function resetItemRate(ix){
+ const i=S.items[ix];if(!i)return;
+ i.sellRate=startingRate(i.rateValue,i.rate);
+ flagDirty();saveSoon();drawItems();drawRoi();drawGuards();}
 function rmItem(i){S.items.splice(i,1);applySeeds();flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
+/* What discovery pointed at, on the screen where products are chosen.
+
+   Twelve questions are asked on step 4 and every answer already produced a
+   suggestion -- on step 4, three steps earlier, in a panel a rep reads once
+   and then walks away from. So the media mix was built from the goals alone
+   and the answers were, in practice, read by the proposal copy and by
+   nothing that decides what is on the plan. This is the same list, offered
+   where it can be acted on, with the product named and one press to add it.
+
+   Nothing is added automatically. A suggestion is a recommendation the rep
+   agreed with when they kept it on step 4, not an instruction -- and a plan
+   that grows a line by itself is a plan somebody has to audit before every
+   send. */
+function discoveryPicks(){
+ const onPlan=new Set(S.items.map(i=>String(i.product||"").toLowerCase()));
+ const out=[];
+ suggestions().forEach(sug=>{
+  (sug.products||[]).forEach(name=>{
+   const card=rateCard.find(x=>x.product===name)
+     ||rateCard.find(x=>String(x.product||"").toLowerCase().startsWith(String(name).toLowerCase()));
+   if(!card||onPlan.has(String(card.product).toLowerCase()))return;
+   if(out.some(o=>o.card.label===card.label))return;
+   out.push({card,why:sug.title,key:sug.key});});});
+ return out;}
+function drawDiscoveryPicks(){
+ const w=document.getElementById('discoWrap');if(!w)return;
+ const picks=discoveryPicks();
+ const gaps=suggestions().length;
+ if(!gaps){w.innerHTML='';return;}
+ /* A suggestion the rate card sells nothing for is still worth showing --
+    the Suite closes several of these and is quoted two steps later, and a
+    silently shorter list reads as "discovery found nothing". */
+ const unsold=suggestions().filter(sug=>!(sug.products||[]).some(n=>
+   rateCard.some(x=>x.product===n||String(x.product||"").toLowerCase().startsWith(String(n).toLowerCase()))
+   &&!S.items.some(i=>String(i.product||"").toLowerCase()===String(n).toLowerCase())));
+ w.innerHTML=`<div class="bpanel"><div class="ttl">🧭 From what they told us in discovery</div>
+  <div class="note" style="margin-top:2px">${gaps} gap${gaps===1?'':'s'} came out of step 4. Nothing is added for you — these are one press each.</div>
+  ${picks.length?`<div class="arealist" style="margin-top:10px">${picks.map(pk=>`
+   <div class="prod"><div class="pi">${em(pk.card.category)}</div><div class="grow">
+    <h4>${esc(quoteLabel(pk.card.product,pk.card.category))}</h4>
+    <div class="meta">${esc(pk.why)} · ${esc(pk.card.listedRate||'')}${isAddOn(pk.card.product)?' · <b>add-on</b>':''}</div></div>
+    <button class="btn btn-ghost" onclick="addSpecificItem('${esc(pk.card.label)}')">+ Add to the plan</button></div>`).join('')}</div>`
+   :`<div class="note" style="margin-top:8px">Everything discovery pointed at that this rate card sells is already on the plan.</div>`}
+  ${unsold.length?`<div class="note" style="margin-top:10px">Also raised, and not a media line: ${unsold.map(u=>esc(u.title)).join(' · ')}. The Suite covers several of these — it is quoted two steps on.</div>`:''}
+ </div>`;}
 function flagDirty(){if(!S.configured)return;S.dirty=true;S.keepAsIs=false;drawReconfig();}
 function drawReconfig(){const w=document.getElementById('reconfigWrap');if(!w)return;
  w.innerHTML=(S.dirty&&!S.keepAsIs)?`<div class="reconfig"><p>🔄 You changed the product mix. Reconfigure the three packages to match — or keep the current numbers as-is?</p><button class="btn btn-primary" onclick="buildPackages();S.dirty=false;drawReconfig();saveSoon()">Reconfigure</button><button class="btn btn-back" onclick="S.keepAsIs=true;S.dirty=false;drawReconfig()">Keep as is</button></div>`:'';}
-function pickTier(name){S.suiteTier={name,monthly:(SUITE_TIERS.find(t=>t.name===name)||{}).monthly||0};saveSoon();renderStep();}
+function pickTier(name){
+ const listed=(SUITE_TIERS.find(t=>t.name===name)||{}).monthly||0;
+ const prev=S.suiteTier||{};
+ S.suiteTier={name,monthly:listed,listed,
+              include:prev.include!==false,
+              // A negotiated price belongs to the tier it was negotiated on.
+              // Carrying it across would quietly re-price Smartest at what
+              // somebody agreed for Smart 1.
+              note:prev.name===name?(prev.note||""):""};
+ saveSoon();renderStep();}
+function suiteState(){
+ const t=S.suiteTier||{};
+ const listedTier=t.name?(SUITE_TIERS.find(x=>x.name===t.name)||chosenTier()):chosenTier();
+ const listed=listedTier.monthly||0;
+ const monthly=(t.monthly===0||+t.monthly>0)?+t.monthly:listed;
+ return{name:listedTier.name,specs:listedTier.specs,listed,monthly,
+        include:t.include!==false,note:t.note||"",
+        adjusted:Math.abs(monthly-listed)>0.001};}
+function setSuiteInclude(on){
+ const st=suiteState();
+ S.suiteTier=Object.assign({},S.suiteTier||{},
+  {name:st.name,listed:st.listed,monthly:st.monthly,include:!!on});
+ saveSoon();drawSuite();drawPkgs();}
+function setSuitePrice(v){
+ const st=suiteState();const n=+v;
+ S.suiteTier=Object.assign({},S.suiteTier||{},
+  {name:st.name,listed:st.listed,include:st.include,
+   monthly:(n>=0&&String(v).trim()!=="")?Math.round(n*100)/100:st.listed});
+ saveSoon();drawSuite();}
+function setSuiteNote(v){
+ const st=suiteState();
+ S.suiteTier=Object.assign({},S.suiteTier||{},
+  {name:st.name,listed:st.listed,monthly:st.monthly,include:st.include,
+   note:String(v||"").slice(0,200)});
+ saveSoon();}
+function resetSuitePrice(){
+ const st=suiteState();
+ S.suiteTier=Object.assign({},S.suiteTier||{},{monthly:st.listed});
+ saveSoon();drawSuite();}
+/* The Suite panel. It used to be three tiles and a sentence about the Suite
+   being the campaign's nervous system -- true, and true of every proposal
+   this tool has ever produced, which is why nobody read it. What it says now
+   is which of the things this client told us in discovery they are not doing
+   the licence actually closes, so the one line on the Investment Summary
+   that recurs for ever has a reason on the page beside it. */
+function drawSuite(){
+ const w=document.getElementById('suiteWrap');if(!w)return;
+ const st=suiteState(),cov=suiteCoverage(st.name);
+ const gapsN=(S.mkt?discoveryUnanswered().length:0);
+ const priceRow=st.include
+  ? `<div class="basisrow" style="margin-top:8px">
+      <span class="note" style="margin:0">Quoted at $</span>
+      <input type="number" min="0" step="10" value="${st.monthly}" class="dmoney" style="width:96px" onchange="setSuitePrice(this.value)">
+      <span class="note" style="margin:0">/mo · list ${money(st.listed)}${st.adjusted?' · <b>adjusted</b>':''}</span>
+      ${st.adjusted?`<span class="pill" onclick="resetSuitePrice()">↺ List price</span>`:''}
+     </div>
+     ${st.adjusted?`<div class="fld" style="margin-top:8px"><label>Why the price was adjusted (internal — never printed for the client)</label>
+      <input value="${esc(st.note)}" placeholder="e.g. matched their current CRM spend for the first six months" onchange="setSuiteNote(this.value)"></div>`:''}`
+  : `<div class="note" style="margin-top:10px;color:#8c2f24"><b>Left off the quote.</b> The Investment Summary will show media and production only, and nothing in the proposal will offer the Suite.</div>`;
+ const covered=cov.covered.length
+  ? `<ul style="margin:8px 0 0 18px;padding:0">${cov.covered.map(r=>`<li style="margin-bottom:4px"><b>${esc(r.feature)}</b> — ${esc(r.detail)}</li>`).join('')}</ul>`
+  : `<div class="note" style="margin-top:6px">Nothing — by their own answers they already have every part of the Suite this plan would lean on. Worth saying out loud before it goes on the quote.</div>`;
+ const upgrade=cov.upgrade.length
+  ? `<div class="note" style="margin-top:10px;color:#8c5a00"><b>A higher tier would also cover:</b> ${cov.upgrade.map(r=>esc(r.feature)+" ("+esc(r.tier)+")").join(' · ')}</div>` : '';
+ const unmeasured=cov.unmeasured.length
+  ? `<div class="note" style="margin-top:8px">Not measured — nobody answered ${cov.unmeasured.map(r=>esc(r.feature.toLowerCase())).join(', ')} in discovery${gapsN?', along with '+gapsN+' other question'+(gapsN===1?'':'s'):''}. An unanswered question is not a gap the Suite gets credit for closing.</div>` : '';
+ w.innerHTML=`<div class="bpanel" style="margin-top:18px"><div class="ttl">🧠 Smart 1 Suite</div>
+  <div class="note" style="margin-top:4px">Every lead the media produces lands here. Licensing is quoted separately from media on the proposal, so a client can tell what stops if they pause the campaign — and what does not.</div>
+  <div class="cards c3" style="margin-top:10px">${SUITE_TIERS.map(t=>card("🧠",t.name+" · "+money(t.monthly)+"/mo",t.specs,st.name===t.name,`pickTier('${t.name}')`)).join('')}</div>
+  <div class="basisrow" style="margin-top:12px">
+   <span class="pill${st.include?' on':''}" onclick="setSuiteInclude(true)">On the quote</span>
+   <span class="pill${st.include?'':' on'}" onclick="setSuiteInclude(false)">Leave it off</span>
+  </div>
+  ${priceRow}
+  <div class="bpanel" style="background:#fbfcfe;margin-top:12px"><div class="ttl">What this covers that they are not doing today</div>
+   ${covered}${upgrade}${unmeasured}
+  </div>
+ </div>`;}
 function drawPkgs(){const w=document.getElementById('pkgWrap');if(!w)return;
  w.innerHTML=S.packages.map((p,i)=>`<div class="pkg${i===S.selPkg?' on':''}" onclick="S.selPkg=${i};S.selectedPackage=S.packages[${i}];saveSoon();drawPkgs()">${p.rec?'<div class="flag">Recommended</div>':''}<div class="pn">${p.name}</div><div class="pp">${money(p.monthly)}<small>/mo</small></div><div class="ptot">${money(p.total)} over ${S.months} mo</div><ul>${p.lines.map(l=>`<li>${esc(l.name)}<b>${money(l.amt)}</b></li>`).join('')}<li>Est. impressions<b>${fmt(p.impr)}</b></li>${p.views?`<li>Est. video views<b>${fmt(p.views)}</b></li>`:''}</ul></div>`).join('');}
 
@@ -2082,7 +2914,7 @@ function drawSections(){const host=document.getElementById('secList');if(!host)r
    </div>
    ${purpose?`<div class="note" style="margin:0 0 6px 2px">${esc(purpose)}</div>`:''}
    <div class="sbody">
-    <textarea placeholder="${s.kind==='text'||s.kind==='cover'?'Section copy…':'Optional intro copy above the auto table…'}" onchange="S.sections[${i}].body=this.value;saveSoon()">${esc(s.body||'')}</textarea>
+    <textarea placeholder="${s.kind==='text'||s.kind==='cover'?'Section copy…':'Optional intro copy above the auto table…'}" onchange="S.sections[${i}].body=cleanCopy(this.value);saveSoon();drawSections()">${esc(s.body||'')}</textarea>
     <div class="airow"><input id="aiIns${i}" placeholder="✨ AI rewrite — e.g. shorter, friendlier, more ROI-focused"><button class="btn btn-ghost" style="padding:8px 13px" onclick="aiRewrite(${i})">✨ Rewrite</button></div>
    </div>
   </div>`;}).join('');}
@@ -2390,6 +3222,11 @@ function ioDataPayload(){
   // IO PDF and the Suite webhook have always taken.
   targetAreas:st.targetAreas||[],geo:st.geo||"",
   audiences:st.audiences||[],incomes:st.income||[],dayparting:"",
+  // Named competitors and places, with their addresses. Without these the IO
+  // arrives saying "competitor conquesting" and whoever builds the geo-fence
+  // has to go back to the rep weeks later to find out whose.
+  targetsOfInterest:targetsReady(),
+  ages:st.ages||[],ageRange:st.ageRange||null,incomeRange:st.incomeRange||null,
   creativeSource:a.creativeSource,creativeFee:a.creativeFee,managementFee:a.managementFeeAck,
   // What the creative gate decided, per medium, so trafficking knows which
   // spots to expect and who agreed to pay for them.

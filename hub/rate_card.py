@@ -449,3 +449,151 @@ def tiers_for(channels: list, budget: float = 0,
         for t in out:
             t["recommended"] = t["monthly"] <= float(budget)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Which product a category leads with, and what a client reads it as
+#
+# `findProduct(category)` used to mean "the first row the card happens to list
+# under that heading", and the card's order is the order somebody typed it in.
+# That made three wrong answers the proposal shipped with, each of which reads
+# as a deliberate recommendation to the client:
+#
+#   * **Run of Network led DISPLAY.** RON is $3.50 CPM of untargeted
+#     inventory. It is a volume add-on to a targeted buy, and it was the
+#     display product every awareness and traffic goal recommended first --
+#     so the cheapest, least targeted line on the card was what the proposal
+#     opened with, on a document arguing that Smart 1 targets precisely.
+#     Programmatic (DATA TARGETED DISPLAY -- "Select Tactics", $5.50 CPM,
+#     which builds the custom audience and carries retargeting with it) is the
+#     go-to, and RON is reachable but never chosen for you.
+#
+#   * **"Demographic" led LOCATION LOOKBACK.** Four categories carry a product
+#     literally called "Demographic" or "Behavioral", so the quote line said
+#     *Demographic* where the tactic sold was location lookback -- a client
+#     reading it cannot tell which of the four they bought, and neither can
+#     the IO. `quote_label()` puts the category in front of the ambiguous
+#     names and leaves the self-describing ones alone.
+#
+# Both are data here rather than rules in the wizard, because the IO reads the
+# same card and the two documents must not disagree about what was sold.
+# ---------------------------------------------------------------------------
+
+# Never auto-selected. Addable by name -- a rep who wants run-of-network
+# volume on top of a targeted buy should have it -- but never the first thing
+# a goal recommends.
+ADD_ON_ONLY = {
+    "ron (run of network)",
+    "programmatic - ron (run of network)",
+    "programmatic - run of site (ros)",
+    "podcasts - run of site (ros)",
+}
+
+# A category whose lead product lives under a different heading. Display is
+# the only one: the programmatic buy is filed under its own category on the
+# card, and it is what a display goal should recommend.
+CATEGORY_GOTO = {
+    "DISPLAY": "DATA TARGETED DISPLAY",
+}
+
+# Product names that identify a tactic but not a channel. On the quote these
+# are printed as "<Category> — <Product>".
+AMBIGUOUS_PRODUCT_NAMES = {
+    "demographic", "behavioral", "behaviorial", "category", "contextual",
+    "brand affinity", "advanced audience", "job title", "temperature",
+    "ron (run of network)", "trueview", "trueview - targeted", "bumpers",
+    "in-store visits", "geo-fence", "geo-fence :: targeted",
+    "list provided locations", "programmatic - targeted",
+    "programmatic - ron (run of network)", "programmatic - run of site (ros)",
+}
+
+
+def is_add_on(product: str = "") -> bool:
+    """Whether this product is a top-up rather than a campaign's lead line."""
+    return str(product or "").strip().lower() in ADD_ON_ONLY
+
+
+def goto_category(category: str = "") -> str:
+    """The category a goal should actually recommend, given this one."""
+    cat = str(category or "").strip().upper()
+    return CATEGORY_GOTO.get(cat, cat)
+
+
+def default_product(category: str = "") -> dict | None:
+    """The product a category leads with — never an add-on.
+
+    Falls back to the first row only when every product under the heading is
+    an add-on, because returning nothing would leave the goal with no line at
+    all and a silently shorter media plan is worse than a debatable one.
+    """
+    rows = by_category().get(goto_category(category)) or \
+        by_category().get(str(category or "").strip().upper()) or []
+    for row in rows:
+        if not is_add_on(row.get("product")):
+            return row
+    return rows[0] if rows else None
+
+
+def quote_label(product: str = "", category: str = "") -> str:
+    """What this line is called on a document a client reads.
+
+    "Location Lookback — Demographic", not "Demographic". A product name that
+    already says what channel it is keeps its own name; putting the category
+    in front of "Connected TV - Targeted" only makes it longer.
+    """
+    name = str(product or "").strip()
+    cat = str(category or "").strip()
+    if not name:
+        return cat
+    if not cat or name.lower() not in AMBIGUOUS_PRODUCT_NAMES:
+        return name
+    return f"{cat.title()} — {name}"
+
+
+# ---------------------------------------------------------------------------
+# The listed rate is what Smart 1 pays. The quoted rate is what is sold.
+#
+# Every rate on the card is the buy-side number, and the builder was quoting
+# it straight through -- so a proposal promised the client a $4.25 CPM and the
+# delivery table computed impressions at cost, with no margin anywhere in the
+# document and nothing saying one was missing. The starting quote is 2x the
+# listed rate, editable per line, and the multiplier is applied only where
+# there is a rate to multiply:
+#
+# A management-fee product has `rate_type` of None -- paid search is 15% of
+# retail spend, SEO is a monthly fee, a website is a project price. Doubling
+# any of those would double a fee that is already the sell price. Those are
+# left exactly as the card lists them, which is what "not managed by
+# percentage" means in practice: the CPM and CPV lines carry the markup, the
+# percentage and flat-fee lines do not.
+# ---------------------------------------------------------------------------
+SELL_MULTIPLIER = 2.0
+
+
+def is_marked_up(rate_type: str | None = None) -> bool:
+    """Whether a line's rate is a media rate the markup applies to."""
+    return str(rate_type or "").strip().upper() in ("CPM", "CPV")
+
+
+def sell_rate(rate_value, rate_type: str | None = None,
+              multiplier: float = SELL_MULTIPLIER):
+    """The starting quoted rate for a line. None where there is no rate."""
+    if not is_marked_up(rate_type):
+        return None
+    try:
+        value = float(rate_value or 0)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    return round(value * float(multiplier or 1), 2)
+
+
+def rate_rules_for_js() -> dict:
+    """The whole of the above, in the shape the two wizards mirror."""
+    return {
+        "sellMultiplier": SELL_MULTIPLIER,
+        "addOnOnly": sorted(ADD_ON_ONLY),
+        "categoryGoto": dict(CATEGORY_GOTO),
+        "ambiguousNames": sorted(AMBIGUOUS_PRODUCT_NAMES),
+    }

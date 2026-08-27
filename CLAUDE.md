@@ -92,6 +92,27 @@ client's own domain; it is in `CHROMELESS` for that reason, and the entry is
 the longer prefix so the maker at `/sales/landing` keeps its chrome. Any new
 public hub route needs the same treatment. `test_landing_maker.py` asserts it.
 
+**A page can ask the Hub chrome for its icon rail, and asking is not
+choosing.** The wide tools — the Display Ad Builder's bench, the Proposal
+Builder's wizard, the IO's printable documents — lose 224px of a laptop's
+width to a nav nobody is reading while they work, which is what turns a step
+into a horizontal scroll. Two ways to ask, because two arrived at once and
+both are in use: `render_sidebar(collapsed_default=…)`, decided server-side
+from the path, and `data-s1hub-collapse="1"` on the body, declared by the
+page's own template. The attribute simply sets the same flag, so there is one
+decision rather than two racing each other.
+
+**The distinction that matters is between asking and recording.** `coll()`
+writes `s1hub:collapsed`, and the automatic call that applies a page's request
+used to write it too — so one visit to a collapsed-by-default tool stored the
+preference globally and every other screen in the Hub came up collapsed,
+without anybody having pressed anything. It also quietly retired the feature:
+after that first visit there was no longer such a thing as "no stored
+preference", so the page default was never consulted again. Only a real press
+of the toggle records a preference now (`coll(on, persist)`), and a stored one
+still wins in both directions — a tool that starts collapsed can be opened for
+good.
+
 **Bubbles mount on late-rendered content.** Client 360, the SEO client page
 and Image Creator draw panels from a fetch. `hub-help.js` runs a debounced
 MutationObserver for this. A bubble added to a JS-rendered panel works; one
@@ -2124,16 +2145,245 @@ The PDF scales its type down as the document grows (`_type_scale`), bounded at
 0.82. An ordinary proposal is not shrunk at all: "lower the fonts when
 necessary" means when there is more than usual in it, not always.
 
-### Video and audio are asked about before they are priced
+**Any generated table can be left out, or edited.** The standing rule is that
+a table is computed and the copy above it introduces one — a proposal whose
+prose and figures disagree is the failure the whole specification is built
+around — and that rule still decides what the tables say by default. What it
+never covered is a table that is right and still wrong for *this* client: a
+row naming a location under NDA, a phase of the timeline they do not want
+printed, a KPI they asked us to drop. The alternative a rep actually had was
+exporting to Word and editing it there, which takes the document out of the
+system entirely. So `section_table()` is the single reading of "what goes
+under this section" — generated, excluded, or replaced — read by the preview,
+the PDF and the Word export alike, in **one** gate in front of the twelve
+`kind` branches rather than in each of them, because a branch per kind is how
+a setting comes to be honoured by eleven of the twelve. An edited table is
+drawn in amber in the builder with the generated one one click away, and its
+badge says it no longer recomputes, which is exactly true.
+
+### The listed rate is what Smart 1 pays; the quoted rate is what is sold
+
+Every rate on the card is the buy-side number and the builder was quoting it
+straight through — so a proposal promised the client the card's own CPM and
+the delivery table computed impressions **at cost**, with no margin anywhere
+in the document and nothing saying one was missing. A $1,000 line at $4.25
+promised 235,000 impressions on the client's own ROI table and could only ever
+have bought half of them.
+
+`rate_card.sell_rate()` starts every CPM and CPV line at **2×**, editable per
+line, and `_sell_rate()` in the builder is the one server-side reading of what
+a line is quoted at — the delivery table, the packages and the media plan all
+go through it. A management-fee, flat-fee or custom-quote line has `rate_type`
+of None, nothing to multiply, and is left exactly as the card lists it: that
+is what "not managed by percentage" means in practice. The line's own rate
+also wins over the looked-up card row, because `find()` matches on the product
+name and four categories carry a product called "Demographic" — a location
+lookback line resolved to the $4.25 display row and was costed against a rate
+nobody quoted.
+
+### What a goal leads with, and what a client reads it as
+
+`findProduct(category)` meant "the first row the card happens to list under
+that heading", and the card's order is the order somebody typed it in. Three
+wrong answers came out of that, each of which reads to a client as a
+deliberate recommendation.
+
+**Run of Network led DISPLAY.** RON is $3.50 CPM of untargeted inventory — a
+volume top-up to a targeted buy — and it was the display product every
+awareness and traffic goal recommended first, on a document arguing that
+Smart 1 targets precisely. `ADD_ON_ONLY` and `CATEGORY_GOTO` are data in
+`hub/rate_card.py` now: programmatic (DATA TARGETED DISPLAY, "Select Tactics",
+which builds the custom audience and carries retargeting with it) is the
+go-to, and RON stays addable by name and is never chosen for anybody.
+
+**"Demographic" led LOCATION LOOKBACK.** Four categories carry a product
+literally called "Demographic" or "Behavioral", so the quote line said
+*Demographic* where the tactic sold was location lookback — a client reading
+it cannot tell which of the four they bought, and neither can the IO.
+`quote_label()` puts the category in front of the ambiguous names and leaves
+the self-describing ones alone: "Connected TV - Targeted" is not improved by
+having OTT bolted to the front of it.
+
+**"Social Ads" was the whole of paid social, next to Meta.** That category is
+Facebook and Instagram *video*, LinkedIn, TikTok and Pinterest, so it is
+**SOCIAL ADS - VIDEO** on all three copies of the card. `check_drift()` still
+reports the shared card and the IO template agree.
+
+Both of the first two are data rather than rules in the wizard, because the IO
+reads the same card and the two documents must not disagree about what was
+sold.
+
+### The Suite is an option, and it says what it is for
+
+It was quoted on every proposal at a tier picked purely from media spend, with
+the client never told which of the things they said they were not doing it
+closes — so the one line on the Investment Summary that recurs for ever had no
+stated reason for being there. It can be left off the quote, its price
+adjusted with the reason recorded **internally** (a discount nobody recorded
+is a discount nobody can renew, and it is not the client's business), and
+`current_marketing.suite_coverage()` answers three ways, never two: what this
+tier covers, what a **higher tier** would (named with the tier — offering
+smart webchat against a Smart 1 licence sells something the client cannot
+switch on), and *not measured*, because an unanswered discovery question is
+not a gap the Suite gets credit for closing. A capability is claimed **once**
+however many questions want it: both social questions are answered by the
+social planner, and listed separately they read as two things the licence
+buys, on the one panel whose job is to justify a recurring charge.
+
+### Every discovery answer changes something, and `unanswered_keys()` proves it
+
+`socialPosting` had no suggestion rule behind it from the day it was written,
+so a client who posts nothing produced a proposal that never mentioned it —
+the exact failure `hub/current_marketing.py` was written to undo, sitting
+inside the module that undid it. Social post *scheduling* was never asked at
+all. Both exist now, and `unanswered_keys()` names any question with neither a
+suggestion rule nor a Suite feature behind it. It returns an empty list today,
+which is the only way it was worth adding.
+
+The suggestions also reach the screen where products are **chosen**. They were
+raised on the discovery step, three steps earlier, in a panel a rep reads once
+and walks away from — so the media mix was built from the goals alone and the
+answers were, in practice, read by the proposal copy and by nothing that
+decides what is on the plan. Nothing is added automatically: a plan that grows
+a line by itself is a plan somebody has to audit before every send.
+
+### A ZIP exception is a rule, not a note
+
+A radius does not stop at a state line and a campaign frequently does — a
+client licensed in one state, a franchise with a protected territory, a dealer
+whose registration only works one side of the river. The restriction lived in
+an email, and the only two outcomes were a rep deleting a hundred ZIPs by hand
+or the list shipping as it came back. Both are silent: nothing in either
+document said the list was supposed to be narrower, so the proposal quoted
+reach the client could not use and the IO trafficked into a state nobody was
+allowed to sell in.
+
+`target_areas.parse_zip_rule()` reads it the way it is said ("only New Jersey
+zip codes", "exclude 46032, 46033", "everything except Ohio") against a table
+of USPS **prefixes** — the first three digits are the sectional centre and
+never straddle a state line, so a five-digit range table would need
+maintaining every time a facility opens. Three rules on it:
+
+- **A rule nobody could read is never silently ignored.** It comes back
+  `understood: False` with the text kept, and every screen — and the client
+  document — says *not applied* beside the sentence. A restriction that reads
+  as saved and does nothing is worse than one nobody typed.
+- **Filtering only ever removes.** "Only New Jersey" on a radius touching no
+  New Jersey ZIP leaves nothing, and that empty result is reported as an empty
+  result rather than falling back to the unfiltered list.
+- **The found list is kept.** Loosening a rule, or fixing a typo in it, must
+  not mean running the radius lookup again — that call is billed, slow, and
+  the second answer would differ from the first.
+
+`all_zips()` and `to_legacy_geo()` return the **running** list, because those
+are what the IO's ZIP field and the Suite webhook read: a rule that narrowed
+the proposal and not the insertion order would leave the document a client
+signed and the campaign that was trafficked disagreeing, with both looking
+correct on their own. The exception is part of an area's identity in the
+dedupe key too — the New Jersey half of a Philadelphia buy and the
+Pennsylvania half are two areas, and without that the second collapses into
+the first.
+
+The parse is a **round trip**, not a fourth JavaScript mirror. Target areas
+and the creative classifier each carry one already and each needs its own test
+proving the halves agree; a third, carrying every state's ZIP prefixes, would
+drift silently and be wrong about which state a campaign runs in. The browser
+stores what comes back on the area, so every later read is local.
+
+### Competitors are named, age and income are a range
+
+The audience step offered "Competitor physical locations" and "Competitor
+conquesting" as two chips, and a ticked chip is not a campaign: nothing
+anywhere asked *which* competitors, or which addresses. So the proposal
+promised to target a client's rivals without naming one, the IO arrived with
+the same two words on it, and the first person who had to know — whoever
+builds the geo-fence — went back to the rep weeks later. Meanwhile the client,
+the only person in the room who knows who they lose business to, was never
+asked. A row with **no address is still kept**: conquesting by brand and
+browsing behaviour needs no location, and refusing the row until somebody
+looks up a street address is how the list stays empty. Nothing is inferred
+from a name — no guessed website, no geocoding — the rule
+`modules/ads_builder/logo.py` works to.
+
+Age and household income were thirteen tick boxes, so "25-34 and 55-64 but not
+the fifteen years between them" was two clicks away and reached the IO looking
+deliberate, while a low and a high took five. And nothing said what *no chips
+ticked* meant: the reach estimate read it as everybody and the IO read it as
+nothing. Both are a low, a high and an explicit **none** now — none being a
+real answer, and not the same as a range covering everybody, which is a
+decision to buy the whole distribution and is priced as one. The stops are the
+buckets the estimate is actually built on rather than arbitrary years: a
+slider offering 37 implies we can size 37. The bucket lists are still written
+alongside, because the IO, the Suite webhook and `/api/estimate-audience` all
+read those.
+
+### Generated copy is cleaned, not trusted
+
+The models write Markdown by habit and nothing downstream renders it: the
+preview HTML-escapes the body, the PDF escapes it into a reportlab Paragraph,
+and python-docx writes it as literal text — so `**Reach**` reached the client
+as `**Reach**`, three ways, on a document quoting five figures. Emoji arrived
+the same way, in a proposal. This is the Smart 1 Labs rule one step on: the
+instruction is in the prompt **and** `proposal_spec.clean_ai_text()` runs over
+whatever comes back, and over anything typed into the section editor by hand —
+or the rule holds only until somebody pastes. Copy is *cleaned* rather than
+discarded, because a section is thrown away for naming Smart 1 Labs and a
+stray asterisk is not that. Bold survives, normalised to `<b>`, which
+reportlab reads natively, `rich_runs()` turns into a bold run for Word, and
+the preview un-escapes deliberately and alone.
+
+### Who built it is not who is on it
+
+The proposals list showed `salesperson`, which is the sales contact *typed
+onto the proposal for the client's benefit* — blank on most drafts and
+sometimes somebody else's name entirely. So "who wrote this?" had no answer on
+the one screen the question is asked. `created_by` is read off the Hub session
+at creation and never rewritten, so the column cannot quietly become "last
+touched by" while the heading says Created by; an uploaded proposal answers
+the same question with its own field, and a row from before it was recorded
+says *not recorded* rather than showing a blank somebody reads as nobody.
+
+### Every medium is asked about before it is priced
 
 `hub/creative_needs.py`. A Connected TV or digital radio buy that reaches an
 insertion order with no spot behind it is a launch date nobody can hit, so
-those two mediums are gated: does the client have creative, and if not does
+those mediums are gated: does the client have creative, and if not does
 the client pay or does Smart 1 comp it. **A comp on a medium spending under
-$1,500 across the flight gets one explicit confirmation, with the number
-shown**, and that confirmation lapses if the budget is later cut below what
-was confirmed. Display is not gated — six banner sizes is a $250 rate-card
-line.
+the point where production pays for itself gets one explicit confirmation,
+with the number shown**, and that confirmation lapses if the budget is later
+cut below what was confirmed.
+
+**Display and retargeting are gated too, and the paragraph that used to
+exclude them was half right.** Six banner sizes genuinely is a $250 rate-card
+line and genuinely is produced routinely — and none of that answers the
+question, which is whether anybody has *asked*. A display plan reached the
+insertion order with the creative box empty exactly as often as a CTV one did;
+it simply cost $250 and a week rather than a shoot, so it was discovered at
+trafficking instead of at launch and nobody called it a failure. Retargeting
+is asked **separately** from display because it is a different set of files in
+practice: the same six sizes carrying the offer that brings somebody back,
+not the one that introduced the brand. A plan with both that answers once has
+answered for one of them.
+
+What stops that becoming noise is that the confirmation threshold is **per
+medium** — `COMP_CONFIRM_BY_MEDIUM` puts banners at $500 against video's
+$1,500 — because a warning that fires on every plan is a warning nobody reads,
+which is the note `hub/qr_codes.py` makes about QR on social.
+
+**"Do you have banners" has no answer until somebody says which sizes.** A
+client who hands over a 300x250 and nothing else has answered yes and blocked
+the buy. `required_units()` reads `hub/creative_specs.py` — the same S1M
+CREATIVE SPEC KIT the IO's upload manager checks every delivered file
+against — rather than restating it, so the proposal cannot ask for a set the
+IO then refuses. Two rules on how that reads. A unit is **described in the
+terms it is specified in**: an audio spot has no pixel size, it has a length
+and a bitrate, and listing sizes alone made the audio row read *300x250* —
+the **optional companion banner** presented as the whole requirement, which
+is how somebody sends a banner and no spot. And the **ask leads**: a display
+buy is a set of sizes and the HTML5 package is another way to deliver the
+same set, so naming it first read as an extra thing to produce. A product the
+kit maps no unit for is *not measured*, never an empty list rendered as
+"nothing needed".
 
 The classifier is the whole gate, and it cannot work from the rate card's
 categories: four programmatic **video** products are filed under DISPLAY
@@ -3241,7 +3491,9 @@ python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkt
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
-python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math
+python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math,
+                                   #   the 2x quoted rate, the product a goal leads
+                                   #   with, ZIP exceptions and what the Suite covers
 python3 test_landing_maker.py      # built pages stay public and chrome-free
 python3 test_quote_numbers.py      # uploaded quotes are numbered, drafts delete
 python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates

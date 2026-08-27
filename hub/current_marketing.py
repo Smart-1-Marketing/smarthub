@@ -51,6 +51,7 @@ QUESTIONS = [
     {"key": "seo", "label": "Doing SEO / local listings?"},
     {"key": "paidSearch", "label": "Running paid search (Google / Bing)?"},
     {"key": "socialPosting", "label": "Posting on social media regularly?"},
+    {"key": "socialScheduling", "label": "Scheduling those posts ahead with a tool?"},
     {"key": "paidSocial", "label": "Running paid social media ads?"},
     {"key": "retargeting", "label": "Retargeting visitors to their website?"},
     {"key": "aiOptimized", "label": "Optimizing for AI search (AI Overviews, ChatGPT)?"},
@@ -166,6 +167,35 @@ SUGGESTION_RULES += [
         "products": ["List Provided Email", "Email Template Creation"],
     },
 ]
+
+# Two questions were being asked and read by nothing at all. `socialPosting`
+# had no rule under it from the day it was written, so a client who posts
+# nothing produced a proposal that never mentioned it; `socialScheduling` is
+# new, and is the one of the twelve the Suite answers most directly. Every
+# question on the discovery step now has a rule, and `unanswered_keys()` below
+# is what keeps it that way -- a thirteenth added without one is a question
+# whose answer changes nothing, which is where this module started.
+SUGGESTION_RULES += [
+    {
+        "key": "socialPosting", "when": (NO, UNKNOWN),
+        "title": "Give the paid social somewhere to land",
+        "detail": "An ad clicks through to a profile that has not posted since "
+                  "last year, and the click is where the interest stops. A page "
+                  "that looks maintained is what makes paid social worth "
+                  "running at all, and it is the cheapest half of it.",
+        "products": ["Social Media Management", "Smart 1 Suite"],
+    },
+    {
+        "key": "socialScheduling", "when": (NO, UNKNOWN),
+        "title": "Schedule the month instead of remembering it",
+        "detail": "Posting by hand is what stops first when the business gets "
+                  "busy, which is exactly when the campaign is working. A "
+                  "month planned and queued in one sitting keeps posting "
+                  "through the weeks nobody has time for it.",
+        "products": ["Smart 1 Suite", "Social Media Management"],
+    },
+]
+
 
 # Raised from the traditional-media answer rather than from a gap.
 TRADITIONAL_SUGGESTION = {
@@ -361,3 +391,161 @@ def gaps(state) -> list[dict]:
                  "label": "Whether we supplement their traditional media or "
                           "move some of that budget into digital"}]
     return []
+
+
+# ---------------------------------------------------------------------------
+# What the Suite covers, and what nothing on the plan does
+#
+# Six of the twelve discovery questions describe work the Smart 1 Suite does
+# out of the box -- the missed call text back, the review requests, the social
+# planner, the scheduler, the inbox. The Suite was being quoted on every
+# proposal anyway, at a tier picked purely from media spend, with the client
+# never told which of the things they said they were not doing it closes. So
+# the one line on the Investment Summary that recurs for ever was the one line
+# with no stated reason for being there.
+#
+# `suite_coverage()` is that reason, built from their own answers rather than
+# from a feature list: a client who is already texting, already scheduling and
+# already asking for reviews gets a shorter list, honestly, and a rep can see
+# the tier is carrying less than it looks.
+#
+# `MIN_TIER` is which tier actually has the feature. Smart webchat is Smarter
+# and up -- offering it against a Smart 1 licence is selling something the
+# client cannot switch on.
+# ---------------------------------------------------------------------------
+SUITE_FEATURES = [
+    {"key": "callTracking", "tier": "Smart 1",
+     "feature": "Call tracking and the call centre",
+     "detail": "Every campaign number tracked, recorded and attributed to the "
+               "channel that produced it, with Missed Call Text Back on the "
+               "ones nobody picks up."},
+    {"key": "texting", "tier": "Smart 1",
+     "feature": "Two-way texting",
+     "detail": "The texting centre, so a lead is answered the way they expect "
+               "rather than with a voicemail nobody returns."},
+    {"key": "reputation", "tier": "Smart 1",
+     "feature": "Reputation centre",
+     "detail": "Automated Google review requests after a job, and every "
+               "review answered from one inbox."},
+    # Both social questions are answered by the same part of the Suite, so
+    # they share a group and are claimed once. Listed separately they read as
+    # two things the licence buys -- "Social planner" directly above "Social
+    # planner and media library" -- which makes the whole list look padded,
+    # on the one panel whose job is to justify a recurring charge.
+    {"key": "socialScheduling", "tier": "Smart 1", "group": "social",
+     "feature": "Social planner",
+     "detail": "A month of posts written, queued and scheduled in one sitting "
+               "across every connected channel, with the campaign's own "
+               "creative already in the media library."},
+    {"key": "socialPosting", "tier": "Smart 1", "group": "social",
+     "feature": "Social planner",
+     "detail": "Somewhere for the posting to actually happen, with the "
+               "campaign's own creative already in it."},
+    {"key": "email", "tier": "Smart 1",
+     "feature": "Email centre",
+     "detail": "Campaigns and automated follow-up to the list they already "
+               "own, at no media cost per send."},
+    {"key": "chat", "tier": "Smarter",
+     "feature": "Smart webchat",
+     "detail": "Catches the visitors who will not fill in a form, and turns "
+               "the conversation into a text thread that survives the visit."},
+]
+
+# Tier order, weakest first, so "does this tier include it" is a comparison
+# rather than a table of every combination.
+_TIER_ORDER = ["Smart 1", "Smarter", "Smartest"]
+
+
+def unanswered_keys() -> list[str]:
+    """Discovery questions with no suggestion rule and no Suite feature.
+
+    An answer that changes nothing is the defect this whole module exists to
+    close, so it is reported rather than left to be noticed. `/api/integrity`
+    and test_proposal_spec.py both read this; it returns an empty list today
+    and a thirteenth question added without a rule is what makes it stop.
+    """
+    covered = {rule["key"] for rule in SUGGESTION_RULES}
+    covered |= {f["key"] for f in SUITE_FEATURES}
+    return [q["key"] for q in QUESTIONS if q["key"] not in covered]
+
+
+def gaps_named(state) -> list[dict]:
+    """Every discovery answer that is a No or an Unknown, with its label.
+
+    The single reading of "what are they not doing", so the suggestion list,
+    the Suite panel and the proposal copy cannot disagree about it.
+    """
+    mkt = _answers(state)
+    return [{"key": q["key"], "label": q["label"].rstrip("?"),
+             "answer": mkt.get(q["key"])}
+            for q in QUESTIONS if mkt.get(q["key"]) in (NO, UNKNOWN)]
+
+
+def suite_coverage(state, tier_name: str = "") -> dict:
+    """Which of their gaps the quoted Suite tier closes, and which it cannot.
+
+    Three answers, never two. `covered` is what this tier does today.
+    `needs_upgrade` is a gap a higher tier closes -- named with the tier, so
+    the choice is a decision rather than a discovery six weeks in. And
+    `not_measured` is the honest one: a question nobody answered is not a gap
+    the Suite can be credited with closing.
+    """
+    mkt = _answers(state)
+    tier = str(tier_name or "").strip() or _TIER_ORDER[0]
+    try:
+        have = _TIER_ORDER.index(tier)
+    except ValueError:
+        have = 0
+
+    covered, needs_upgrade, not_measured = [], [], []
+    for feature in SUITE_FEATURES:
+        answer = mkt.get(feature["key"])
+        if answer == YES:
+            continue
+        row = {k: feature[k] for k in ("key", "feature", "detail", "tier")}
+        row["group"] = feature.get("group") or feature["key"]
+        row["answer"] = answer or ""
+        if answer not in (NO, UNKNOWN):
+            not_measured.append(row)
+            continue
+        try:
+            need = _TIER_ORDER.index(feature["tier"])
+        except ValueError:
+            need = 0
+        (covered if need <= have else needs_upgrade).append(row)
+
+    def once(rows):
+        """One row per capability. Two questions can want the same feature."""
+        seen, out = set(), []
+        for row in rows:
+            if row["group"] in seen:
+                continue
+            seen.add(row["group"])
+            out.append(row)
+        return out
+
+    covered = once(covered)
+    return {"tier": tier, "covered": covered,
+            "needs_upgrade": once(needs_upgrade),
+            "not_measured": [r for r in once(not_measured)
+                             if r["group"] not in {c["group"] for c in covered}],
+            "ok": bool(covered) or bool(needs_upgrade)}
+
+
+def suite_line(state, tier_name: str = "") -> str:
+    """One sentence for the proposal: what the licence is doing here.
+
+    Empty when discovery says they already have all of it -- a Suite sentence
+    listing nothing is worse than no sentence, and the tier may genuinely be
+    carrying less than the rep assumed.
+    """
+    result = suite_coverage(state, tier_name)
+    names = [row["feature"] for row in result["covered"]]
+    if not names:
+        return ""
+    if len(names) == 1:
+        listed = names[0]
+    else:
+        listed = ", ".join(names[:-1]) + " and " + names[-1]
+    return (f"Against what this client told us they are not doing today, the "
+            f"{result['tier']} licence covers {listed.lower()}.")

@@ -180,6 +180,13 @@ def blank_area(name: str = "") -> dict:
         "state": "",
         "other": "",
         "zips": "",
+        # The exception as it was typed, and the rule parsed out of it. Both
+        # are kept: the sentence is what a person reads back and corrects, the
+        # rule is what the ZIP list is actually filtered by, and storing only
+        # one of them means either the screen cannot show what was asked for
+        # or the filter has to re-parse prose on every read.
+        "zipException": "",
+        "zipRule": None,
         "population": 0,
         "notes": "",
     }
@@ -205,6 +212,12 @@ def normalize_area(raw) -> dict:
     area["other"] = _clean(raw.get("other") or raw.get("geoOther"))
     area["zips"] = ", ".join(zip_list(raw.get("zips") or raw.get("geoZipcodes")))
     area["notes"] = _clean(raw.get("notes"))[:500]
+    # Re-parsed on every normalise rather than trusted from the record: a
+    # stored rule written before a spelling was recognised would go on being
+    # unapplied for ever, and re-reading the sentence is what lets a fix here
+    # reach quotes somebody saved last month.
+    area["zipException"] = _clean(raw.get("zipException"))[:300]
+    area["zipRule"] = parse_zip_rule(area["zipException"])
 
     radius = _num(raw.get("radius") if raw.get("radius") is not None else raw.get("geoRadius"), 0)
     area["radius"] = int(radius) if radius > 0 else 10
@@ -234,8 +247,14 @@ def normalize(areas) -> list[dict]:
         area = normalize_area(raw)
         if is_empty(area):
             continue
+        # The exception is part of what makes an area itself. The same
+        # radius run twice under two different restrictions -- the New Jersey
+        # half of a Philadelphia buy and the Pennsylvania half -- is two
+        # areas, and without this the second collapses into the first and
+        # half the campaign disappears between the proposal and the IO.
         key = (area["type"], area["origin"].lower(), area["dma"].lower(),
-               area["state"].lower(), area["other"].lower(), int(area["radius"]))
+               area["state"].lower(), area["other"].lower(), int(area["radius"]),
+               area["zipException"].lower())
         if key in seen:
             continue
         seen.add(key)
@@ -314,12 +333,52 @@ def names(areas) -> list[str]:
 
 
 def all_zips(areas) -> list[str]:
+    """Every ZIP a campaign runs in, after each area's own exception.
+
+    This is what the IO's ZIP field and the Suite webhook read, so it has to
+    be the running list rather than the found one. A rule that narrowed the
+    proposal and not the insertion order would be worse than no rule at all:
+    the document a client signed and the campaign that was trafficked would
+    disagree, with both looking correct on their own.
+    """
     seen, out = set(), []
     for area in normalize(areas):
-        for z in zip_list(area.get("zips")):
+        for z in area_zips(area)["kept"]:
             if z not in seen:
                 seen.add(z)
                 out.append(z)
+    return out
+
+
+def dropped_zips(areas) -> list[str]:
+    """Every ZIP an exception removed, so a screen can say what it cost."""
+    seen, out = set(), []
+    for area in normalize(areas):
+        for z in area_zips(area)["dropped"]:
+            if z not in seen:
+                seen.add(z)
+                out.append(z)
+    return out
+
+
+def zip_exceptions(areas) -> list[dict]:
+    """The exceptions in force, one per area that has one.
+
+    Includes the ones that could not be read: an exception somebody typed and
+    the system did not apply is the single most important row here, and
+    dropping it from this list is how it becomes invisible again.
+    """
+    out = []
+    for area in normalize(areas):
+        text = str(area.get("zipException") or "").strip()
+        if not text:
+            continue
+        result = area_zips(area)
+        out.append({"area": label(area), "text": text,
+                    "understood": bool((result.get("rule") or {}).get("understood")),
+                    "applied": result["applied"],
+                    "kept": len(result["kept"]), "dropped": len(result["dropped"]),
+                    "note": result["note"]})
     return out
 
 
@@ -437,9 +496,19 @@ def to_legacy_geo(areas) -> str:
     parts = []
     for area in rows:
         text = label(area)
-        zips = zip_list(area.get("zips"))
-        if zips:
-            text += f" | ZIP Codes: {', '.join(zips)}"
+        result = area_zips(area)
+        if result["kept"]:
+            text += f" | ZIP Codes: {', '.join(result['kept'])}"
+        # The exception rides on the one string the IO PDF and the Suite
+        # webhook actually read. Without it, a campaign restricted to one
+        # state arrives looking like a plain radius and nobody trafficking it
+        # has any way to know a rule was ever applied.
+        if result["applied"] and result["dropped"]:
+            text += (f" | Exception: {str(area.get('zipException') or '').strip()} "
+                     f"({len(result['dropped'])} ZIP Codes excluded)")
+        elif str(area.get("zipException") or "").strip() and not result["applied"]:
+            text += (f" | Exception NOT applied: "
+                     f"{str(area.get('zipException') or '').strip()}")
         parts.append(text)
     return "  ||  ".join(parts)
 
@@ -492,3 +561,243 @@ def for_prompt(areas) -> str:
             text += f" — {area['notes']}"
         out.append(text)
     return "; ".join(out)
+
+
+# ---------------------------------------------------------------------------
+# ZIP exceptions — "only New Jersey ZIP Codes"
+#
+# A radius does not stop at a state line and a campaign frequently does. A
+# 25-mile radius on Philadelphia is half of New Jersey; a client licensed in
+# one state, a franchise with a protected territory, a dealer whose
+# registration only works one side of the river -- all of them describe the
+# same exception, in words, to a rep, who then either deleted a hundred ZIPs
+# by hand or shipped the list as it came back.
+#
+# Both failures are silent. Nothing in either document said the list was
+# supposed to be narrower, so the proposal quoted reach the client could not
+# use and the insertion order trafficked the campaign into a state nobody was
+# allowed to sell in -- and the only record of the restriction was a sentence
+# in an email.
+#
+# So the exception is a field. It is written the way it is said, parsed into
+# a rule the ZIP list is actually filtered by, printed on the proposal and
+# carried to the IO. Three rules on it:
+#
+#   * **A rule that could not be understood is never silently ignored.**
+#     `parse_zip_rule` returns `understood: False` with the text kept, and
+#     every screen shows the sentence with "not applied" next to it. A
+#     restriction that reads as saved and does nothing is worse than one
+#     nobody typed.
+#   * **Filtering never invents a ZIP.** It only removes, from the list the
+#     lookup returned. "Only New Jersey" on a radius that touches no New
+#     Jersey ZIP leaves nothing, and that empty result is reported as an
+#     empty result rather than falling back to the unfiltered list.
+#   * **The original list is kept.** Loosening a rule, or correcting a typo
+#     in it, must not mean running the radius lookup again -- that call is
+#     billed and slow, and the second answer would differ from the first.
+# ---------------------------------------------------------------------------
+
+# USPS ZIP prefix ranges, by state. Prefixes rather than ranges of full ZIPs
+# because the first three digits are the sectional centre and never straddle a
+# state line; a five-digit range table would need maintaining every time the
+# Postal Service opens a facility. Ranges are inclusive on both ends.
+STATE_ZIP_PREFIXES: dict[str, list[tuple[int, int]]] = {
+    "AL": [(350, 369)], "AK": [(995, 999)], "AZ": [(850, 850), (852, 853), (855, 857), (859, 860), (863, 865)],
+    "AR": [(716, 729), (755, 755)], "CA": [(900, 908), (910, 928), (930, 961)],
+    "CO": [(800, 816)], "CT": [(60, 69)], "DE": [(197, 199)], "DC": [(200, 205), (569, 569)],
+    "FL": [(320, 339), (341, 342), (344, 344), (346, 347), (349, 349)],
+    "GA": [(300, 319), (398, 399)], "HI": [(967, 968)], "ID": [(832, 838)],
+    "IL": [(600, 629)], "IN": [(460, 479)], "IA": [(500, 528)],
+    "KS": [(660, 679)], "KY": [(400, 427)], "LA": [(700, 701), (703, 708), (710, 714)],
+    "ME": [(39, 49)], "MD": [(206, 219)], "MA": [(10, 27), (55, 55)],
+    "MI": [(480, 499)], "MN": [(550, 567)], "MS": [(386, 397)],
+    "MO": [(630, 658)], "MT": [(590, 599)], "NE": [(680, 693)],
+    "NV": [(889, 898)], "NH": [(30, 38), (3800, 3899)], "NJ": [(70, 89)],
+    "NM": [(870, 884)], "NY": [(5, 5), (6, 6), (10, 14), (100, 149)],
+    "NC": [(270, 289)], "ND": [(580, 588)], "OH": [(430, 459)],
+    "OK": [(730, 731), (734, 749)], "OR": [(970, 979)],
+    "PA": [(150, 196)], "RI": [(28, 29)], "SC": [(290, 299)],
+    "SD": [(570, 577)], "TN": [(370, 385)], "TX": [(750, 799), (885, 885)],
+    "UT": [(840, 847)], "VT": [(50, 54), (56, 59)],
+    "VA": [(201, 201), (220, 246)], "WA": [(980, 994)],
+    "WV": [(247, 268)], "WI": [(530, 549)], "WY": [(820, 831)],
+}
+
+STATE_NAMES = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
+    "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
+    "district of columbia": "DC", "washington dc": "DC", "washington d.c.": "DC",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
+    "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS",
+    "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN",
+    "mississippi": "MS", "missouri": "MO", "montana": "MT", "nebraska": "NE",
+    "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
+    "new mexico": "NM", "new york": "NY", "north carolina": "NC",
+    "north dakota": "ND", "ohio": "OH", "oklahoma": "OK", "oregon": "OR",
+    "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
+    "vermont": "VT", "virginia": "VA", "washington": "WA",
+    "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+}
+
+# "only", "exclude" and the ways each is actually written. Order matters:
+# "everything except New Jersey" must not match the "only" family first.
+_EXCLUDE_WORDS = ("exclude", "excluding", "except", "not in", "no ", "without",
+                  "outside", "drop", "remove", "leave out", "avoid")
+_ONLY_WORDS = ("only", "just", "limit to", "restrict to", "confined to",
+               "inside", "within", "keep")
+
+
+def zip_state(zipcode: str) -> str:
+    """Which state a five-digit ZIP belongs to, or "" if none matches."""
+    digits = re.sub(r"\D", "", str(zipcode or ""))[:5]
+    if len(digits) != 5:
+        return ""
+    prefix = int(digits[:3])
+    for state, ranges in STATE_ZIP_PREFIXES.items():
+        for low, high in ranges:
+            if low <= prefix <= high:
+                return state
+    return ""
+
+
+def _states_in(text: str) -> list[str]:
+    """State codes named anywhere in a sentence, longest name first.
+
+    Full names are matched before abbreviations, or "Washington" inside
+    "Washington DC" resolves to WA — and a two-letter code is matched only as
+    a whole word, or the "OR" in "New Jersey or Delaware" becomes Oregon.
+    """
+    lowered = f" {str(text or '').lower()} "
+    found, consumed = [], lowered
+    for name in sorted(STATE_NAMES, key=len, reverse=True):
+        if re.search(rf"(?<![a-z]){re.escape(name)}(?![a-z])", consumed):
+            code = STATE_NAMES[name]
+            if code not in found:
+                found.append(code)
+            consumed = re.sub(rf"(?<![a-z]){re.escape(name)}(?![a-z])", " ", consumed)
+    for code in STATE_ZIP_PREFIXES:
+        if re.search(rf"\b{code.lower()}\b", consumed) and code not in found:
+            found.append(code)
+    return found
+
+
+def parse_zip_rule(text) -> dict:
+    """A ZIP exception written in words, as a rule the list can be filtered by.
+
+    {"mode": "only"|"exclude"|"", "states": [...], "zips": [...],
+     "text": "...", "understood": bool, "note": "..."}
+    """
+    raw = _clean(text)
+    rule = {"mode": "", "states": [], "zips": [], "text": raw,
+            "understood": False, "note": ""}
+    if not raw:
+        rule["note"] = "No exception — every ZIP the radius returns is used."
+        rule["understood"] = True
+        return rule
+
+    lowered = raw.lower()
+    explicit = zip_list(raw)
+    exclude = any(word in lowered for word in _EXCLUDE_WORDS)
+    only = any(word in lowered for word in _ONLY_WORDS)
+    # "Everything except X" carries both families of word. Exclusion wins,
+    # because the exception is the half that narrows the list.
+    mode = "exclude" if exclude else ("only" if only else "")
+
+    states = _states_in(raw)
+    # A bare state name with no verb at all ("New Jersey ZIP codes") is the
+    # way this gets typed most often, and it means only.
+    if not mode and (states or explicit):
+        mode = "only"
+
+    if not mode or not (states or explicit):
+        rule["note"] = ("This exception was not understood, so it has not been "
+                        "applied — the full ZIP list is being used. Write it as "
+                        "\"only New Jersey ZIP codes\" or \"exclude 46032, "
+                        "46033\".")
+        return rule
+
+    rule.update({"mode": mode, "states": states, "zips": explicit,
+                 "understood": True})
+    rule["note"] = describe_zip_rule(rule)
+    return rule
+
+
+def describe_zip_rule(rule) -> str:
+    """The rule in one plain sentence, for a document or a screen."""
+    rule = rule or {}
+    if not rule.get("understood") or not rule.get("mode"):
+        return rule.get("note") or ""
+    parts = []
+    if rule.get("states"):
+        parts.append(", ".join(rule["states"]))
+    if rule.get("zips"):
+        count = len(rule["zips"])
+        parts.append(f"{count} named ZIP Code{'' if count == 1 else 's'}")
+    listed = " and ".join(parts)
+    if rule["mode"] == "only":
+        return f"Restricted to {listed}. Every other ZIP the radius returns is dropped."
+    return f"{listed} excluded. Every other ZIP the radius returns is kept."
+
+
+def apply_zip_rule(zips, rule) -> dict:
+    """Filter a ZIP list by a parsed rule.
+
+    {"kept": [...], "dropped": [...], "applied": bool, "note": "..."} — the
+    dropped list is returned rather than discarded, because "we found 240 and
+    are running 90" is the claim, and a screen showing only the 90 cannot
+    make it.
+    """
+    all_zips = zip_list(zips) if not isinstance(zips, list) else [
+        z for z in zips if re.fullmatch(r"\d{5}", str(z))]
+    rule = rule or {}
+    if not rule.get("understood") or not rule.get("mode"):
+        return {"kept": all_zips, "dropped": [], "applied": False,
+                "note": rule.get("note") or ""}
+
+    states = {s.upper() for s in rule.get("states") or []}
+    named = set(rule.get("zips") or [])
+    kept, dropped = [], []
+    for code in all_zips:
+        matches = code in named or (bool(states) and zip_state(code) in states)
+        target = kept if (matches if rule["mode"] == "only" else not matches) else dropped
+        target.append(code)
+
+    note = describe_zip_rule(rule)
+    if dropped:
+        note += (f" {len(dropped)} of {len(all_zips)} ZIP Code"
+                 f"{'' if len(all_zips) == 1 else 's'} dropped.")
+    elif all_zips:
+        note += " Nothing was dropped — every ZIP already satisfied it."
+    if all_zips and not kept:
+        note += (" Nothing is left: this radius returns no ZIP Code that "
+                 "satisfies the exception. Widen the radius or the rule.")
+    return {"kept": kept, "dropped": dropped, "applied": True, "note": note}
+
+
+def area_zips(area) -> dict:
+    """One area's ZIP list after its own exception, with what it cost.
+
+    The single reading of "which ZIPs does this area actually run in",
+    so the reach estimate, the proposal's ZIP section and the insertion order
+    cannot disagree about it.
+    """
+    area = area if isinstance(area, dict) else {}
+    rule = area.get("zipRule")
+    if not isinstance(rule, dict):
+        rule = parse_zip_rule(area.get("zipException") or area.get("zipRule"))
+    result = apply_zip_rule(area.get("zips"), rule)
+    result["rule"] = rule
+    return result
+
+
+def running_zips(areas) -> list[str]:
+    """Every ZIP a campaign actually runs in, exceptions applied."""
+    seen, out = set(), []
+    for area in normalize(areas):
+        for code in area_zips(area)["kept"]:
+            if code not in seen:
+                seen.add(code)
+                out.append(code)
+    return out

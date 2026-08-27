@@ -37,6 +37,8 @@ number the insertion order will bill.
 """
 from __future__ import annotations
 
+import re
+
 # ---------------------------------------------------------------------------
 # The 13-part master outline
 # ---------------------------------------------------------------------------
@@ -521,7 +523,11 @@ def system_prompt(state=None) -> str:
         "",
         "Standing directives — these are rules, not preferences:",
     ]
-    lines += [f"{i}. {d}" for i, d in enumerate(DIRECTIVES, 1)]
+    # The formatting rule is a directive like the rest, and it is defined
+    # below beside the cleaner that enforces it -- a rule stated in one place
+    # and checked in another is how the two come to disagree.
+    lines += [f"{i}. {d}" for i, d in
+              enumerate(list(DIRECTIVES) + [FORMATTING_DIRECTIVE], 1)]
 
     facts = nuances_for(state)
     if facts:
@@ -534,3 +540,124 @@ def system_prompt(state=None) -> str:
                       "rather than describing 'targeted adults':"]
         lines += [f"- {s}" for s in segments]
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# What generated copy is allowed to look like
+#
+# The models write Markdown by habit. Nothing downstream renders it: the
+# preview HTML-escapes the body, the PDF escapes it into a reportlab
+# Paragraph, and python-docx writes it as literal text -- so `**Reach**`
+# reached the client as `**Reach**`, three ways, on a document quoting five
+# figures. Emoji arrived the same way, in a proposal.
+#
+# This is the Smart 1 Labs rule one step on: a prompt is a request, and "the
+# model was told to write plain prose" is not evidence that it did. So the
+# instruction goes in the prompt *and* `clean_ai_text()` runs over whatever
+# comes back, and over anything typed into the section editor by hand -- or
+# the rule holds only until somebody pastes.
+#
+# Bold survives, because bold is legitimate and three renderers can do it.
+# It is normalised to `<b>…</b>`, which is what reportlab reads natively,
+# what `rich_runs()` turns into a bold run for Word, and what the preview
+# un-escapes deliberately and alone. Everything else -- headings, italics,
+# code ticks, bullet asterisks, emoji -- is removed rather than passed
+# through, because a character the renderer will not interpret is a character
+# the client reads.
+# ---------------------------------------------------------------------------
+FORMATTING_DIRECTIVE = (
+    "Write plain professional prose. No Markdown: no asterisks, no "
+    "underscores for emphasis, no # headings, no backticks, no tables and no "
+    "emoji or decorative symbols of any kind. Bold is available and is the "
+    "only formatting there is — write it as <b>text</b> and use it sparingly, "
+    "for a term worth stressing rather than for every noun. Where the copy "
+    "needs a list, write the items as sentences or separate them with the "
+    "bullet character •."
+)
+
+# Ranges that are emoji, pictographs, dingbats and the variation selectors and
+# skin-tone modifiers that ride with them. Deliberately not "anything
+# non-ASCII": the proposal legitimately carries en dashes, curly quotes and
+# the • it is told to use, and stripping those would mangle correct copy.
+_EMOJI_RE = re.compile(
+    "[" 
+    "\U0001F000-\U0001FAFF"      # pictographs, symbols, transport, faces
+    "\U00002190-\U000021FF"      # arrows
+    "\U00002300-\U000023FF"      # technical (⌚ ⏰ …)
+    "\U00002600-\U000027BF"      # misc symbols and dingbats
+    "\U0000FE00-\U0000FE0F"      # variation selectors
+    "\U0001F3FB-\U0001F3FF"      # skin tones
+    "\U00002B00-\U00002BFF"
+    "\U0000200D"                 # zero-width joiner
+    "]+")
+
+_BOLD_MD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.S)
+_BOLD_TAG_RE = re.compile(r"<\s*/?\s*(b|strong)\s*>", re.I)
+
+
+def clean_ai_text(text) -> str:
+    """Generated or pasted copy, in the only shape the renderers agree on.
+
+    Idempotent: running it over already-clean copy changes nothing, which
+    matters because it runs on every save as well as on every generation.
+    """
+    out = str(text or "")
+    if not out.strip():
+        return ""
+
+    # Bold first, before the loose asterisks below eat its markers.
+    out = _BOLD_MD_RE.sub(lambda m: f"<b>{(m.group(1) or m.group(2)).strip()}</b>", out)
+    # <strong> is the same intent written differently; normalise, then drop
+    # every other tag -- a model that decides to emit <ul> must not reach a
+    # renderer that would print the angle brackets.
+    out = _BOLD_TAG_RE.sub(lambda m: "</b>" if "/" in m.group(0) else "<b>", out)
+    out = re.sub(r"<(?!/?b>)[^>]{0,120}>", "", out)
+
+    out = _EMOJI_RE.sub("", out)
+    out = re.sub(r"^\s{0,3}#{1,6}\s*", "", out, flags=re.M)     # headings
+    out = re.sub(r"^\s{0,3}[-*+]\s+", "• ", out, flags=re.M)    # bullet markers
+    out = re.sub(r"^\s{0,3}>\s?", "", out, flags=re.M)          # block quotes
+    out = out.replace("`", "")
+    out = re.sub(r"(?<!<)\*+(?!/?b>)", "", out)                 # stray asterisks
+    out = re.sub(r"_{2,}", "", out)
+    out = re.sub(r"^\s*[-–—_]{3,}\s*$", "", out, flags=re.M)    # rules
+
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"[ \t]+\n", "\n", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
+
+
+def rich_runs(text) -> list[list[tuple[str, bool]]]:
+    """Cleaned copy as paragraphs of (text, bold) runs, for python-docx.
+
+    Word has no way to read `<b>` out of a string, so the split has to happen
+    before the paragraph is written. Returning runs rather than a marked-up
+    string is what stops the DOCX export being the one of the three renderers
+    that prints the tag.
+    """
+    cleaned = clean_ai_text(text)
+    if not cleaned:
+        return []
+    paragraphs = []
+    for block in cleaned.split("\n"):
+        runs, bold = [], False
+        for piece in re.split(r"(<b>|</b>)", block):
+            if piece == "<b>":
+                bold = True
+            elif piece == "</b>":
+                bold = False
+            elif piece:
+                runs.append((piece, bold))
+        paragraphs.append(runs or [("", False)])
+    return paragraphs
+
+
+def plain_text(text) -> str:
+    """Cleaned copy with the bold markers removed as well.
+
+    For anywhere that cannot render bold at all — a CSV cell, a webhook
+    payload, the Suite opportunity note — so those carry prose rather than a
+    tag nobody there interprets.
+    """
+    return _BOLD_TAG_RE.sub("", clean_ai_text(text))

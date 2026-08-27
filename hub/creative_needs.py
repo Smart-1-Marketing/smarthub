@@ -44,15 +44,35 @@ from __future__ import annotations
 VIDEO = "video"
 AUDIO = "audio"
 DISPLAY = "display"
+RETARGETING = "retargeting"
 SOCIAL = "social"
 OTHER = "other"
 
-GATED = (VIDEO, AUDIO)
+# Display and retargeting joined the gate after the paragraph above turned out
+# to be half right. A standard set of six banners genuinely is a $250 line and
+# genuinely is produced routinely -- and none of that answers the question,
+# which is whether anybody has *asked*. A display plan reached the insertion
+# order with the creative box empty exactly as often as a CTV one did; it
+# simply cost $250 and a week rather than a shoot, so it was discovered at
+# trafficking instead of at launch and nobody called it a failure.
+#
+# Retargeting is separated from display rather than folded into it because it
+# is a different set of files in practice: the same six sizes carrying the
+# offer that brings somebody back, not the one that introduced the brand. A
+# plan that has both and answers once has answered for one of them.
+#
+# What keeps this from becoming noise is the confirmation threshold below,
+# which is per medium. Display creative pays for itself far lower down than a
+# video shoot does, so a comped set of banners is questioned at $500 rather
+# than at $1,500 -- a warning that fires on every plan is a warning nobody
+# reads, which is the note hub/qr_codes.py makes about QR on social.
+GATED = (VIDEO, AUDIO, DISPLAY, RETARGETING)
 
 MEDIUM_LABEL = {
     VIDEO: "Video (CTV, streaming, YouTube, pre-roll)",
     AUDIO: "Audio (digital radio, podcasts, streaming audio)",
-    DISPLAY: "Display",
+    DISPLAY: "Display (banners, native, IP targeted, geo-fenced)",
+    RETARGETING: "Retargeting (the banners that bring them back)",
     SOCIAL: "Paid social",
     OTHER: "Other",
 }
@@ -62,9 +82,21 @@ MEDIUM_LABEL = {
 # one-time cost and a three-month flight amortises it three ways.
 COMP_CONFIRM_UNDER = 1500
 
+# Per medium, where the medium's own economics differ from the default above.
+# Display is $250 of design on the card, so the campaign at which comping it
+# stops being sensible is far lower than the one for a shoot.
+COMP_CONFIRM_BY_MEDIUM = {DISPLAY: 500, RETARGETING: 500}
+
 # Starting points for production when Smart 1 builds it. Overridable on the
-# quote; a custom shoot is a custom quote.
-TYPICAL_PRODUCTION = {VIDEO: 750, AUDIO: 250}
+# quote; a custom shoot is a custom quote. Display and retargeting are the
+# card's own "Standard Set of 6 Ad Creation" at $250 rather than a number
+# invented here -- the same rule the video figures follow, one step further.
+TYPICAL_PRODUCTION = {VIDEO: 750, AUDIO: 250, DISPLAY: 250, RETARGETING: 250}
+
+
+def confirm_under(medium: str) -> int:
+    """The campaign size below which comping this medium is questioned."""
+    return COMP_CONFIRM_BY_MEDIUM.get(medium, COMP_CONFIRM_UNDER)
 
 HAS = "has"            # the client already has creative for this medium
 CLIENT_PAYS = "client"  # the client pays Smart 1 to produce it
@@ -98,6 +130,15 @@ CATEGORY_MEDIUM = {
     "digital radio": AUDIO,
     "ott": VIDEO,
     "youtube": VIDEO,
+    # Its own category on the card, and its own set of files in practice.
+    "retargeting": RETARGETING,
+    # ...and its opposite: "Select Tactics - Comes with Retargeting" is the
+    # programmatic display buy, whose name lists retargeting as one of the
+    # tactics it includes. Read off the name alone it becomes a retargeting
+    # line, and the display half of the plan then never gets asked for
+    # banners at all.
+    "data targeted display": DISPLAY,
+    "programmatic campaign": DISPLAY,
 }
 
 
@@ -138,9 +179,11 @@ def medium_of(item) -> str:
                                "linkedin", "snapchat", "pinterest", "twitter",
                                "social")):
         return SOCIAL
-    if any(w in text for w in ("display", "banner", "retarget", "geo-fence",
+    if "retarget" in text:
+        return RETARGETING
+    if any(w in text for w in ("display", "banner", "geo-fence",
                                "geofence", "outreach", "native", "location lookback",
-                               "ip target")):
+                               "ip target", "select tactics")):
         return DISPLAY
     return OTHER
 
@@ -220,7 +263,8 @@ def evaluate(state) -> dict:
         decision = _decision(state, medium)
         answer = decision.get("answer") if decision.get("answer") in ANSWERS else ""
         spend = medium_spend(state, medium)
-        confirm_needed = spend < COMP_CONFIRM_UNDER
+        threshold = confirm_under(medium)
+        confirm_needed = spend < threshold
         # A comp confirmed on a $1,400 buy is not a comp confirmed on the $300
         # one it just became. `confirmed_at` records the spend the rep was
         # looking at; the confirmation lapses if the budget has since fallen.
@@ -252,7 +296,7 @@ def evaluate(state) -> dict:
             warning = (f"Smart 1 is producing {MEDIUM_LABEL[medium].split(' (')[0].lower()} "
                        f"creative at no charge on a "
                        f"{'$%s' % f'{spend:,.0f}'} {MEDIUM_LABEL[medium].split(' (')[0].lower()} "
-                       f"campaign — under the ${COMP_CONFIRM_UNDER:,} where a comp "
+                       f"campaign — under the ${threshold:,} where a comp "
                        f"usually pays for itself.")
 
         rows.append({
@@ -265,6 +309,8 @@ def evaluate(state) -> dict:
             "confirmed": confirmed,
             "confirmed_at": confirmed_at,
             "fee": fee,
+            "threshold": threshold,
+            "units": required_units(state, medium),
             "question": question_for(medium, answer, spend),
             "warning": warning,
         })
@@ -278,7 +324,7 @@ def question_for(medium: str, answer: str = "", spend: float = 0.0) -> str:
     name = MEDIUM_LABEL.get(medium, medium).split(" (")[0].lower()
     if not answer:
         return f"Does the client already have {name} creative we can run?"
-    if answer == COMP and spend < COMP_CONFIRM_UNDER:
+    if answer == COMP and spend < confirm_under(medium):
         return (f"This is a ${spend:,.0f} {name} campaign. Are you sure you want to "
                 f"comp the production?")
     return ""
@@ -312,10 +358,154 @@ def gaps(state) -> list[dict]:
             continue
         name = row["label"].split(" (")[0].lower()
         if not row["answer"]:
-            label = (f"Whether the client has {name} creative — the plan plays "
-                     f"{name} and nothing has said a spot exists")
+            # "A spot" is a video and audio word. Banners are not spots, and
+            # the gate covers them now.
+            file_word = ("banners" if row["medium"] in (DISPLAY, RETARGETING)
+                         else "spot")
+            label = (f"Whether the client has {name} creative — the plan runs "
+                     f"{name} and nothing has said the {file_word} exist"
+                     f"{'' if file_word == 'banners' else 's'}")
         else:
             label = (f"Confirmation that Smart 1 comps the {name} production on a "
                      f"${row['spend']:,.0f} campaign")
         out.append({"key": f"creative_{row['medium']}", "label": label})
     return out
+
+
+# ---------------------------------------------------------------------------
+# What "creative" actually means for this line — from the IO's own spec kit
+#
+# The gate asked whether a spot exists and stopped there, which is the whole
+# question for video and audio and only half of it for display: "do you have
+# banners" has no answer until somebody says which sizes. A client who hands
+# over a 300x250 and nothing else has answered yes and blocked the buy, and
+# the discovery happens at trafficking.
+#
+# hub/creative_specs.py already holds the answer -- it is the S1M CREATIVE
+# SPEC KIT the IO's upload manager checks every delivered file against, and it
+# already maps display, retargeting, geo-fencing, IP targeting and location
+# lookback onto the desktop, mobile and tablet units. So this reads that
+# rather than restating it: two lists of banner sizes is how the proposal
+# comes to promise a set the IO then refuses.
+#
+# A product the kit maps no unit for is **not measured**, never an empty list
+# presented as "nothing needed" -- the rule creative_specs itself works to for
+# a format it has no unit for.
+# ---------------------------------------------------------------------------
+def required_units(state, medium: str) -> dict:
+    """The spec-kit units the lines of one medium need, with their sizes.
+
+    {"units": [{"id","label","sizes"}], "products": [...], "measured": bool,
+     "note": "..."} -- `measured` false where the kit maps nothing, so a
+    screen can say so instead of drawing an empty requirement.
+    """
+    state = state or {}
+    products = [item for item in (state.get("items") or [])
+                if medium_of(item) == medium]
+    if not products:
+        return {"units": [], "products": [], "measured": False,
+                "note": "No lines of this medium on the plan."}
+
+    try:
+        from . import creative_specs
+    except Exception as exc:                            # noqa: BLE001
+        return {"units": [], "products": [str(p.get("product") or "") for p in products],
+                "measured": False,
+                "note": f"The creative spec kit could not be read ({exc}). "
+                        f"Sizes not measured."}
+
+    seen, units = set(), []
+    unmapped = []
+    for item in products:
+        rows = creative_specs.units_for_product(
+            str(item.get("product") or ""), str(item.get("category") or ""))
+        if not rows:
+            unmapped.append(str(item.get("product") or item.get("category") or ""))
+            continue
+        for unit in rows:
+            if unit["id"] in seen:
+                continue
+            seen.add(unit["id"])
+            try:
+                pairs = creative_specs._sizes_of(unit)
+            except Exception:                           # noqa: BLE001
+                pairs = [unit.get("size")] if unit.get("size") else []
+            duration = unit.get("duration") or ()
+            units.append({
+                "id": unit["id"],
+                "label": unit.get("name") or unit["id"],
+                "kind": unit.get("kind") or "image",
+                "channel": creative_specs.CHANNEL_LABELS.get(
+                    unit.get("channel", ""), unit.get("channel", "")),
+                "sizes": [f"{w}x{h}" for w, h in pairs if w and h],
+                "formats": [str(f).upper() for f in (unit.get("formats") or [])],
+                "seconds": list(duration) if len(duration) == 2 else [],
+            })
+
+    note = ""
+    if unmapped:
+        note = ("The spec kit maps no unit for " + ", ".join(sorted(set(unmapped)))
+                + " — sizes for those are not measured here.")
+    return {"units": units,
+            "products": [str(p.get("product") or "") for p in products],
+            "measured": bool(units), "note": note,
+            "source": getattr(creative_specs, "SPEC_KIT_URL", "")}
+
+
+def _describe_unit(unit) -> str:
+    """One spec-kit unit in the terms it is actually specified in.
+
+    An audio spot has no pixel size -- it has a length and a bitrate -- and
+    listing the sizes alone made the audio row read "300x250", which is the
+    *optional companion banner* presented as the whole requirement. A client
+    reading that sends a banner and no spot, which is the confident wrong
+    answer this codebase keeps having to undo. So each unit is described by
+    what it is: an image by its size, a video or audio by its length and
+    format.
+    """
+    kind = unit.get("kind") or "image"
+    seconds = unit.get("seconds") or []
+    length = (f"{seconds[0]}–{seconds[1]}s" if len(seconds) == 2
+              and seconds[0] != seconds[1] else
+              (f"{seconds[0]}s" if seconds else ""))
+    fmt = "/".join(unit.get("formats") or [])
+    if kind in ("video", "audio"):
+        bits = [b for b in (", ".join(unit.get("sizes") or []), fmt, length) if b]
+        return f"{unit['label']} ({', '.join(bits)})" if bits else unit["label"]
+    if unit.get("sizes"):
+        return ", ".join(unit["sizes"])
+    return unit["label"]
+
+
+def units_line(state, medium: str) -> str:
+    """What one medium needs, in one line for a rep or a client document."""
+    result = required_units(state, medium)
+    if not result["measured"]:
+        return result.get("note") or "Sizes not measured."
+
+    # Banner units are listed as a run of sizes, because there are nine of
+    # them and nine labels is a wall. Anything else is described.
+    images = [u for u in result["units"] if (u.get("kind") or "image") == "image"]
+    others = [u for u in result["units"] if (u.get("kind") or "image") != "image"]
+    # Desktop, mobile and tablet each carry their own "HTML5 package" unit,
+    # so describing all three printed the same words three times.
+    described = list(dict.fromkeys(_describe_unit(u) for u in others))
+    sizes = list(dict.fromkeys(sz for u in images for sz in u["sizes"]))
+
+    # Lead with what the ask actually is. A display buy is a set of banner
+    # sizes, and the HTML5 package is another way to deliver the same set --
+    # named first it reads as an extra thing to produce. A radio buy is a
+    # spot, and the 300x250 beside it is the optional companion; named first
+    # it reads as the whole requirement, which is how somebody sends a banner
+    # and no audio.
+    if not sizes:
+        parts = described
+    elif len(sizes) == 1 and described:
+        parts = described + [f"plus a companion banner: {sizes[0]}"]
+    elif described:
+        parts = [", ".join(sizes)] + [f"or {d}" for d in described]
+    else:
+        parts = [", ".join(sizes)]
+    if not parts:
+        return result.get("note") or "Sizes not measured."
+    return " · ".join(parts)

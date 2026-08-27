@@ -161,6 +161,13 @@ class Quote(Base):
     suite_contact_id = Column(String(64), default="")
     suite_opportunity_id = Column(String(64), default="")
     delivered_at = Column(DateTime, nullable=True)
+    # Who opened it, from the Hub session rather than from the state. The
+    # `salesperson` column above is the *sales contact typed onto the
+    # proposal* -- a field a rep fills in for the client's benefit, blank on
+    # most drafts and sometimes somebody else's name entirely. The list was
+    # showing that, so "who wrote this?" had no answer on the one screen the
+    # question is asked.
+    created_by = Column(String(160), default="")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
@@ -192,6 +199,7 @@ _LATE_QUOTE_COLUMNS = [
     ("suite_contact_id", "VARCHAR(64)"),
     ("suite_opportunity_id", "VARCHAR(64)"),
     ("delivered_at", "TIMESTAMP"),
+    ("created_by", "VARCHAR(160)"),
 ]
 
 
@@ -327,6 +335,22 @@ def _client_key(name, url):
         return ""
 
 
+def _signed_in_as() -> str:
+    """Who is using the builder, from the Hub session.
+
+    `AuthGuard` puts the display name on the WSGI environ before Flask sees
+    the request, which is the only place it exists for a dispatcher-mounted
+    module -- this app has no Hub app context and no `flask.g` of its own.
+    Empty is a real answer: the module runs standalone in the tests and
+    behind the shared password in an emergency, and "" reads as "not
+    recorded" on the list rather than as somebody's name.
+    """
+    try:
+        return str(request.environ.get("s1hub.user") or "").strip()[:160]
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
 def quote_json(q, include_data=False):
     state = {}
     try:
@@ -341,6 +365,10 @@ def quote_json(q, include_data=False):
         "website": q.website,
         "industry": q.industry,
         "salesperson": q.salesperson,
+        # Two different questions, and the list was answering the wrong one.
+        # `salesperson` is the sales contact typed onto the proposal for the
+        # client's benefit; `created_by` is who opened it here.
+        "created_by": getattr(q, "created_by", "") or "",
         "monthly_budget": q.monthly_budget,
         "months": q.months,
         "total_budget": q.total_budget,
@@ -366,6 +394,8 @@ def quote_json(q, include_data=False):
         "growth": growth_options(state),
         "guardrails": compute_guardrails(state),
         "target_areas": campaign_areas(state),
+        "targets_of_interest": targets_of_interest(state),
+        "zip_exceptions": hub_areas.zip_exceptions(campaign_areas(state)),
         "creative": hub_creative.evaluate(state),
         "suggestions": hub_discovery.suggestions(state),
         "pdf_url": q.pdf_url or "",
@@ -375,6 +405,41 @@ def quote_json(q, include_data=False):
     if include_data:
         out["data"] = state
     return out
+
+
+def targets_of_interest(state) -> list[dict]:
+    """The competitors, venues and places this campaign is going after.
+
+    The audience step offered "Competitor conquesting" as a tick box and
+    nothing anywhere asked which competitors -- so the proposal promised to
+    target a client's rivals without naming one and the insertion order
+    arrived with the same two words on it. Named rows only: an empty name is
+    a row somebody started and abandoned, and it must not reach a client
+    document as a blank line.
+
+    A row with no address is kept. Conquesting by brand and browsing
+    behaviour needs no location at all, and dropping those would mean the
+    list is only ever as long as somebody's patience for looking up street
+    addresses. `fenceable` says which of the two each row can do, so nothing
+    downstream has to guess -- and nothing here invents an address from a
+    name, the rule modules/ads_builder/logo.py works to.
+    """
+    rows = []
+    for raw in (state or {}).get("targetsOfInterest") or []:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or "").strip()
+        if not name:
+            continue
+        address = str(raw.get("address") or "").strip()
+        rows.append({
+            "kind": str(raw.get("kind") or "competitor").strip() or "competitor",
+            "name": name[:200],
+            "address": address[:200],
+            "note": str(raw.get("note") or "").strip()[:200],
+            "fenceable": bool(address),
+        })
+    return rows
 
 
 def campaign_areas(state):
@@ -456,7 +521,57 @@ def api_config():
         # still works as an override if the standalone app is ever needed.
         "io_app_url": os.getenv("IO_APP_URL", "/tools/io/?embed=1"),
         "ai_enabled": bool(os.getenv("OPENAI_API_KEY")),
+        # Served rather than mirrored. Target areas and the creative
+        # classifier each carry a JavaScript copy of a server rule, and each
+        # needs a test proving the two halves still agree; that cost is paid
+        # twice already, so the sizes and the markup rule come down the wire
+        # and the browser renders what it is given -- the choice Social
+        # Planner made about its calendar, for the same reason.
+        "creative_sizes": _creative_sizes(),
+        "rate_rules": hub_rate_card.rate_rules_for_js(),
     })
+
+
+def _creative_sizes() -> dict:
+    """The spec-kit sizes each gated medium needs, for the creative step.
+
+    The exact answer is per product and lives in
+    `hub.creative_needs.required_units()`, which is what travels to the
+    insertion order. This is the same kit read one level up, so the wizard can
+    say "here is what we will be asking the client for" before a product has
+    been picked. A medium the kit maps nothing for is left out rather than
+    sent as an empty list a screen would render as "no creative needed".
+    """
+    try:
+        from hub import creative_specs
+    except Exception:                                   # noqa: BLE001
+        return {}
+    # One representative product per medium, only to reach the kit's own
+    # channel mapping. Naming products here rather than channels keeps this
+    # honest: if the mapping changes, this follows it.
+    probes = {
+        "video": ("Connected TV - Targeted", "OTT"),
+        "audio": ("Programmatic - Targeted", "DIGITAL RADIO"),
+        "display": ("Select Tactics - Comes with Retargeting", "DATA TARGETED DISPLAY"),
+        "retargeting": ("Website Retargeting", "RETARGETING"),
+    }
+    out = {}
+    for medium, (product, category) in probes.items():
+        # The same sentence the proposal prints, from the same function.
+        # Built here from a flat list of pixel sizes, the audio row read
+        # "300x250" -- the optional companion banner presented as the whole
+        # requirement, on the screen that asks whether the client has the
+        # creative. Somebody sends a banner and no spot.
+        probe = {"months": 1, "items": [{"product": product, "category": category,
+                                         "dollars": 1}]}
+        line = hub_creative.units_line(probe, medium)
+        detail = hub_creative.required_units(probe, medium)
+        if detail["measured"]:
+            out[medium] = {"line": line,
+                           "sizes": [sz for unit in detail["units"]
+                                     for sz in unit["sizes"]],
+                           "source": detail.get("source") or ""}
+    return out
 
 
 # ---- Quotes CRUD ----
@@ -467,6 +582,7 @@ def create_quote():
     db = SessionLocal()
     try:
         q = Quote(quote_number=next_quote_number(db),
+                  created_by=_signed_in_as(),
                   status=body.get("status") or "Draft",
                   data=json.dumps(state, ensure_ascii=False))
         summarize_into(q, state)
@@ -628,7 +744,10 @@ def duplicate_quote(qid):
         # New quotes start clean of decision/IO fields
         for k in ("startDate", "ioPayload",):
             state.pop(k, None)
+        # A duplicate is a new proposal, so it is credited to whoever made
+        # it rather than to whoever wrote the one it was copied from.
         q = Quote(quote_number=next_quote_number(db), status="Draft",
+                  created_by=_signed_in_as(),
                   data=json.dumps(state, ensure_ascii=False))
         summarize_into(q, state)
         db.add(q)
@@ -732,8 +851,74 @@ SOFT = rl_colors.HexColor("#eef3f8")
 MUTED = rl_colors.HexColor("#53657a")
 
 
+# The one tag generated copy is allowed to carry. `clean_ai_text` normalises
+# every other form of emphasis away and leaves this, so escaping the string
+# and then putting these two back is the whole of "bold is fine": reportlab
+# reads <b> natively, and nothing else in the copy can reach it as markup.
+_BOLD_OPEN, _BOLD_CLOSE = xml_escape("<b>"), xml_escape("</b>")
+
+
 def _p(text, style):
-    return Paragraph(xml_escape(str(text or "")).replace("\n", "<br/>"), style)
+    body = xml_escape(str(text or "")).replace("\n", "<br/>")
+    body = body.replace(_BOLD_OPEN, "<b>").replace(_BOLD_CLOSE, "</b>")
+    return Paragraph(body, style)
+
+
+# Sections whose generated table a rep may leave out or replace by hand.
+# `text` and `cover` carry no table, so offering them the control would make
+# the button mean nothing.
+TABLE_KINDS = ("areas", "reach", "friction", "channels", "creative", "timeline",
+               "kpis", "mediaplan", "packages", "roi", "growth", "zips")
+
+
+def section_table(sec) -> dict:
+    """What to render under one section: the generated table, an edit, or none.
+
+    Three answers, and the document has to honour all three. The builder can
+    leave a table out (the copy above it still prints) or replace it with one
+    edited by hand -- for the case the generator cannot cover, a row naming a
+    location under NDA or a KPI the client asked us to drop. Read here rather
+    than in each of the twelve `kind` branches so a section added later
+    cannot quietly ignore the setting, which is how the creative check came
+    to be missing from the Preview panel's label map.
+
+        {"show": bool, "rows": [[...]] or None, "head": [...] or None}
+    """
+    sec = sec or {}
+    if sec.get("kind") not in TABLE_KINDS:
+        return {"show": True, "rows": None, "head": None}
+    if sec.get("showTable") is False:
+        return {"show": False, "rows": None, "head": None}
+    edit = sec.get("tableEdit")
+    if isinstance(edit, dict) and isinstance(edit.get("rows"), list) and edit["rows"]:
+        head = [str(h) for h in (edit.get("head") or [])]
+        rows = [[str(c) for c in row] for row in edit["rows"] if isinstance(row, list)]
+        return {"show": True, "rows": rows, "head": head}
+    return {"show": True, "rows": None, "head": None}
+
+
+def _sell_rate(item):
+    """What one media line is quoted at, or None where there is no rate.
+
+    The card's rate is the buy-side number. Every CPM and CPV line is quoted
+    at a multiple of it -- 2x to start, and a rep's own number once they set
+    one -- and everything downstream of the plan has to read the same figure,
+    or the delivery table promises impressions the campaign cannot buy. A
+    management-fee, flat-fee or custom-quote line has nothing to multiply and
+    reports None rather than a plausible number.
+    """
+    item = item or {}
+    rate_type = item.get("rate") or item.get("rate_type")
+    if not hub_rate_card.is_marked_up(rate_type):
+        return None
+    try:
+        own = float(item.get("sellRate") or 0)
+    except (TypeError, ValueError):
+        own = 0.0
+    if own > 0:
+        return round(own, 2)
+    return hub_rate_card.sell_rate(item.get("rateValue") or item.get("rate_value"),
+                                   rate_type)
 
 
 def _money(n):
@@ -875,10 +1060,29 @@ def investment_lines(state, q):
     lines = []
     suite = state.get("suiteTier") or {}
     if suite.get("include") is not False:
-        tier = suite if suite.get("name") else hub_spec.suggested_tier(monthly_media)
-        lines.append({"label": f"Smart 1 Suite — {tier['name']} ({tier.get('specs', '')})",
-                      "amount": float(tier.get("monthly") or 0),
-                      "recurs": "Monthly", "kind": "saas"})
+        # The tier's own name and specs come from the specification; only the
+        # price is the rep's to move. Reading `specs` off whatever the wizard
+        # saved left the line as "Smart 1 Suite — Smarter ()" the moment a
+        # tier was picked, because the wizard stores the choice rather than a
+        # copy of the tier.
+        listed = hub_spec.suggested_tier(monthly_media)
+        if suite.get("name"):
+            listed = next((t for t in hub_spec.SAAS_TIERS
+                           if t["name"] == suite["name"]), listed)
+        try:
+            quoted = float(suite["monthly"]) if suite.get("monthly") is not None \
+                else float(listed.get("monthly") or 0)
+        except (TypeError, ValueError):
+            quoted = float(listed.get("monthly") or 0)
+        lines.append({"label": f"Smart 1 Suite — {listed['name']} ({listed.get('specs', '')})",
+                      "amount": quoted,
+                      "recurs": "Monthly", "kind": "saas",
+                      # Printed nowhere on the client document. It is here so
+                      # the internal copy and the IO can tell a negotiated
+                      # price from the list one -- a discount nobody recorded
+                      # is a discount nobody can renew.
+                      "listed": float(listed.get("monthly") or 0),
+                      "adjusted": abs(quoted - float(listed.get("monthly") or 0)) > 0.001})
     lines.append({"label": "Media spend", "amount": round(monthly_media, 2),
                   "recurs": "Monthly", "kind": "media"})
 
@@ -1073,6 +1277,26 @@ def build_proposal_pdf(q, state):
         if sec.get("body"):
             story.append(_p(sec.get("body"), st_body))
         kind = sec.get("kind")
+        # Excluded or hand-edited, decided once. A branch per kind is how the
+        # setting comes to be honoured by eleven of the twelve.
+        table_plan = section_table(sec)
+        if not table_plan["show"]:
+            continue
+        if table_plan["rows"] is not None:
+            head = table_plan["head"] or []
+            rows = ([[_p(c, st_small) for c in head]] if head else []) + \
+                   [[_p(c, st_small) for c in row] for row in table_plan["rows"]]
+            width = max((len(r) for r in rows), default=0)
+            if width:
+                for row in rows:
+                    row.extend([_p("", st_small)] * (width - len(row)))
+                col = (7.4 * inch) / width
+                et = Table(rows, colWidths=[col] * width,
+                           repeatRows=1 if head else 0)
+                et.setStyle(_head_style() if head
+                            else TableStyle(_head_style_rows()[2:]))
+                story.append(et)
+            continue
         if kind == "areas":
             if areas:
                 rows = [["Target area", "Coverage", "Est. population"]]
@@ -1100,6 +1324,23 @@ def build_proposal_pdf(q, state):
                 if len(areas) > 1:
                     story.append(_p("Populations are shown per area and are not de-duplicated "
                                     "where areas overlap.", st_small))
+            targets = targets_of_interest(state)
+            if targets:
+                rows = [["Who we are going after", "What we want from them",
+                         "How we reach them"]]
+                for row in targets:
+                    rows.append([
+                        _p(row["name"], st_small),
+                        _p(row["note"] or ("Their customers"
+                                           if row["kind"] == "competitor"
+                                           else "The people who go there"), st_small),
+                        _p(f"Geo-fenced at {row['address']}" if row["fenceable"]
+                           else "Brand and behaviour — no address on file to fence",
+                           st_small)])
+                tt = Table(rows, colWidths=[2.1 * inch, 2.6 * inch, 2.7 * inch],
+                           repeatRows=1)
+                tt.setStyle(_head_style())
+                story += [Spacer(1, 6), tt]
         elif kind == "reach":
             est = state.get("estimates") or {}
             if est:
@@ -1120,9 +1361,11 @@ def build_proposal_pdf(q, state):
             if items:
                 rows = [["Product", "Category", "Rate", "Monthly", f"Total ({q.months} mo)"]]
                 for i in items:
-                    rows.append([_p(i.get("product") or "", st_small), _p(i.get("category") or "", st_small),
-                                 _p((i.get("rate") or "Managed") if not i.get("rateValue")
-                                    else f"{i.get('rate')} {i.get('rateValue')}", st_small),
+                    quoted = _sell_rate(i)
+                    rows.append([_p(hub_rate_card.quote_label(i.get("product"), i.get("category")), st_small),
+                                 _p(i.get("category") or "", st_small),
+                                 _p(f"{i.get('rate')} ${quoted:,.2f}" if quoted
+                                    else (i.get("rate") or "Managed"), st_small),
                                  _money(i.get("dollars") or 0), _money((i.get("dollars") or 0) * q.months)])
                 mt = Table(rows, colWidths=[2.3 * inch, 1.7 * inch, 1.1 * inch, 1.15 * inch, 1.15 * inch], repeatRows=1)
                 mt.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), NAVY), ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.white),
@@ -1202,12 +1445,20 @@ def build_proposal_pdf(q, state):
         elif kind == "creative":
             plan = hub_creative.evaluate(state)
             if plan["media"]:
-                rows = [["Medium", "Campaign spend", "Creative"]]
+                # The sizes are on the client's copy on purpose: "do you have
+                # banners" has no answer until somebody says which, and the
+                # client is the one being asked to send them. They come from
+                # the IO's own spec kit, so what the proposal asks for and
+                # what the insertion order checks are the same list.
+                rows = [["Medium", "Campaign spend", "Creative", "What we need"]]
                 for row in plan["media"]:
                     rows.append([_p(row["label"], st_small),
                                  _money(row["spend"]),
-                                 _p(_creative_phrase(row), st_small)])
-                kt = Table(rows, colWidths=[2.9 * inch, 1.5 * inch, 3.0 * inch], repeatRows=1)
+                                 _p(_creative_phrase(row), st_small),
+                                 _p(hub_creative.units_line(state, row["medium"]),
+                                    st_small)])
+                kt = Table(rows, colWidths=[2.0 * inch, 1.1 * inch, 2.1 * inch,
+                                            2.2 * inch], repeatRows=1)
                 kt.setStyle(_head_style())
                 story.append(kt)
         elif kind == "timeline":
@@ -1300,12 +1551,17 @@ def build_proposal_pdf(q, state):
         elif kind == "zips":
             # The trafficking reference, at the back. Monospaced and small on
             # purpose: it is a list to be checked against, not read.
+            # `zip_list(area)` was being handed the whole area dict, so it
+            # regexed five-digit runs out of every field on it. Correct only
+            # by accident, and it read the found list rather than the
+            # running one -- so an area restricted to one state printed the
+            # ZIPs it was restricted away from.
             rows = [["Target Area", "ZIP Codes"]]
             for area in campaign_areas(state):
-                codes = hub_areas.zip_list(area)
-                if codes:
+                result = hub_areas.area_zips(area)
+                if result["kept"]:
                     rows.append([_p(hub_areas.label(area), st_small),
-                                 _p(", ".join(codes), st_small)])
+                                 _p(", ".join(result["kept"]), st_small)])
             if len(rows) > 1:
                 zt = Table(rows, colWidths=[2.1 * inch, 5.3 * inch], repeatRows=1)
                 zt.setStyle(TableStyle(_head_style_rows()))
@@ -1314,6 +1570,19 @@ def build_proposal_pdf(q, state):
                 story.append(_p("No ZIP Codes were captured for this campaign. "
                                 "The insertion order needs them before trafficking.",
                                 st_small))
+            # An exception is part of what was agreed, so it is printed where
+            # the list is -- including one the system could not read, which
+            # is the row that most needs somebody's eye on it.
+            for rule in hub_areas.zip_exceptions(state.get("targetAreas")
+                                                 or campaign_areas(state)):
+                if rule["applied"]:
+                    story.append(_p(f"{rule['area']} — exception: “{rule['text']}”. "
+                                    f"{rule['dropped']} ZIP Code(s) excluded, "
+                                    f"{rule['kept']} running.", st_small))
+                else:
+                    story.append(_p(f"{rule['area']} — the exception “{rule['text']}” "
+                                    f"could not be read and has NOT been applied. "
+                                    f"Every ZIP above is running.", st_small))
 
 
     # Footer
@@ -1412,8 +1681,33 @@ def build_proposal_docx(q, state):
         for run in h.runs:
             run.font.color.rgb = NAVY_D
         if sec.get("body"):
-            d.add_paragraph(str(sec.get("body")))
+            for runs in hub_spec.rich_runs(sec.get("body")):
+                para = d.add_paragraph()
+                for piece, bold in runs:
+                    run = para.add_run(piece)
+                    run.font.bold = bold
         kind = sec.get("kind")
+        table_plan = section_table(sec)
+        if not table_plan["show"]:
+            continue
+        if table_plan["rows"] is not None:
+            head = table_plan["head"] or []
+            body = table_plan["rows"]
+            width = max([len(r) for r in body] + ([len(head)] if head else []), default=0)
+            if width:
+                t = d.add_table(rows=1 if head else 0, cols=width)
+                t.style = "Light Grid Accent 1"
+                if head:
+                    cells = t.rows[0].cells
+                    for i, value in enumerate(head[:width]):
+                        cells[i].text = value
+                        if cells[i].paragraphs[0].runs:
+                            cells[i].paragraphs[0].runs[0].font.bold = True
+                for row in body:
+                    cells = t.add_row().cells
+                    for i, value in enumerate(row[:width]):
+                        cells[i].text = value
+            continue
         if kind == "areas" and areas:
             t0 = d.add_table(rows=1, cols=3)
             t0.style = "Light Grid Accent 1"
@@ -1428,6 +1722,13 @@ def build_proposal_docx(q, state):
                 row[0].text = hub_areas.label(area)
                 row[1].text = area.get("notes") or (f"{len(zips)} ZIP Codes" if zips else area["type"])
                 row[2].text = f"{population:,}" if population else "Not measured"
+            for row in targets_of_interest(state):
+                d.add_paragraph(
+                    f"{row['name']} — "
+                    + (row["note"] or ("their customers" if row["kind"] == "competitor"
+                                       else "the people who go there"))
+                    + (f" (geo-fenced at {row['address']})" if row["fenceable"]
+                       else " (brand and behaviour — no address on file to fence)"))
         elif kind == "mediaplan" and state.get("items"):
             t2 = d.add_table(rows=1, cols=4)
             t2.style = "Light Grid Accent 1"
@@ -1468,7 +1769,8 @@ def build_proposal_docx(q, state):
         elif kind == "creative":
             for row in hub_creative.evaluate(state)["media"]:
                 d.add_paragraph(f"{row['label']} — {_money(row['spend'])} campaign. "
-                                f"{_creative_phrase(row)}.")
+                                f"{_creative_phrase(row)}. "
+                                f"Needs: {hub_creative.units_line(state, row['medium'])}")
         elif kind == "timeline":
             for phase in hub_spec.TIMELINE:
                 d.add_paragraph(f"{phase['phase']} · {phase['title']} — {phase['detail']}")
@@ -1526,13 +1828,21 @@ def build_proposal_docx(q, state):
         elif kind == "zips":
             wrote = False
             for area in campaign_areas(state):
-                codes = hub_areas.zip_list(area)
-                if codes:
-                    d.add_paragraph(f"{hub_areas.label(area)} — {', '.join(codes)}")
+                result = hub_areas.area_zips(area)
+                if result["kept"]:
+                    d.add_paragraph(f"{hub_areas.label(area)} — "
+                                    f"{', '.join(result['kept'])}")
                     wrote = True
             if not wrote:
                 d.add_paragraph("No ZIP Codes were captured for this campaign. "
                                 "The insertion order needs them before trafficking.")
+            for rule in hub_areas.zip_exceptions(state.get("targetAreas")
+                                                 or campaign_areas(state)):
+                d.add_paragraph(
+                    f"{rule['area']} — exception: “{rule['text']}”. "
+                    + (f"{rule['dropped']} ZIP Code(s) excluded, {rule['kept']} running."
+                       if rule["applied"] else
+                       "This could not be read and has NOT been applied; every ZIP above is running."))
 
     p = d.add_paragraph("Smart 1 Marketing · smart1marketing.com · This proposal is valid for 30 days.")
     hcolor(p, 8, MUTED_D, bold=False, center=True)
@@ -1649,7 +1959,28 @@ def expected_results(state):
             # a rep added by hand is still estimated rather than dropped.
             product = {"rate_type": item.get("rate"), "rate_value": item.get("rateValue"),
                        "listed_rate": item.get("rate") or ""}
-        delivery = hub_rate_card.estimate_delivery(product, monthly)
+        # Delivery is what the client's money buys at the rate the client is
+        # quoted. Estimated off the card's own rate it said a $1,000 line
+        # buys 235,000 impressions at $4.25 -- printed on the client's ROI
+        # table, and undeliverable, because the line is sold at $8.50 and
+        # buys half of that.
+        quoted = _sell_rate(item)
+        priced = dict(product)
+        if quoted:
+            # The line's own rate wins over the looked-up row. `find()`
+            # matches on the product name, and four categories carry a
+            # product called "Demographic" -- so a location-lookback line
+            # resolved to the $4.25 display row and its delivery was
+            # estimated against a rate nobody quoted. The wizard carried the
+            # rate off the card row the rep actually picked; that is the
+            # one to price against.
+            priced["rate_type"] = item.get("rate") or priced.get("rate_type")
+            priced["rate_value"] = quoted
+            priced["listed_rate"] = f"{item.get('rate')} ${quoted:,.2f}"
+        delivery = hub_rate_card.estimate_delivery(priced, monthly)
+        if quoted:
+            delivery["note"] = (f"At the quoted rate of {item.get('rate')} "
+                                f"${quoted:,.2f}.")
         units = delivery.get("units")
         run = 1 if basis == "one_time" else term
         if units and delivery["unit_label"].startswith("impressions"):
@@ -1657,16 +1988,20 @@ def expected_results(state):
         elif units:
             totals["views"] += units * run
         if not units:
-            unpriced.append(str(item.get("product") or ""))
+            unpriced.append(hub_rate_card.quote_label(item.get("product"),
+                                                      item.get("category")))
         rows.append({
-            "product": item.get("product") or "",
+            "product": hub_rate_card.quote_label(item.get("product"),
+                                                 item.get("category")),
             "category": item.get("category") or "",
             "medium": hub_creative.medium_of(item),
+            "quoted_rate": quoted,
             "monthly": line_monthly,
             "campaign": line_campaign,
             "basis": basis,
             "term_months": 1 if basis == "one_time" else term,
-            "rate": product.get("listed_rate") or "",
+            "rate": (f"{item.get('rate')} ${quoted:,.2f}" if quoted
+                     else (product.get("listed_rate") or "")),
             "units": units,
             "unit_label": delivery.get("unit_label") or "",
             "note": delivery.get("note") or "",
@@ -1926,6 +2261,7 @@ def ai_rewrite():
         rewritten = _openai_response(prompt, 2500)
     except Exception as exc:                            # noqa: BLE001
         return jsonify({"ok": False, "error": "AI rewrite failed", "detail": str(exc)}), 502
+    rewritten = hub_spec.clean_ai_text(rewritten)
     problems = hub_spec.violations(rewritten)
     if problems:
         # Returned unchanged rather than silently handing back copy that
@@ -1995,6 +2331,23 @@ def ai_draft_sections():
         "current_marketing": hub_discovery.for_prompt(state),
         "traditional_guidance": hub_discovery.guidance(state),
         "we_suggest": [s["title"] for s in hub_discovery.suggestions(state)],
+        # Named competitors and places. Without these the audience section
+        # says "competitor conquesting", which is a tactic rather than a
+        # campaign, and is the paragraph a client checks hardest.
+        "targets_of_interest": [
+            {"name": row["name"], "what_we_want": row["note"],
+             "reached_by": ("geo-fenced at their address" if row["fenceable"]
+                            else "brand and behaviour targeting — no address on file")}
+            for row in targets_of_interest(state)],
+        # What the Suite licence is on the quote for, in this client's own
+        # terms. The technology section used to describe the Suite in the
+        # abstract on every proposal ever produced here, which is why nobody
+        # read it.
+        "suite_covers": hub_discovery.suite_line(
+            state, (state.get("suiteTier") or {}).get("name") or ""),
+        "zip_exceptions": [r["note"] for r in
+                           hub_areas.zip_exceptions(campaign_areas(state))
+                           if r["applied"]],
         "suite_tier": hub_spec.suggested_tier(
             (state.get("selectedPackage") or {}).get("monthly")
             or state.get("budget") or 0)["name"],
@@ -2043,6 +2396,11 @@ def ai_draft_sections():
     # Labs exclusion is the whole reason this check exists.
     breaches = {}
     for sec_id, text in list(written.items()):
+        # Markdown and emoji are cleaned rather than discarded. A section is
+        # thrown away for breaking a standing directive -- naming Smart 1
+        # Labs -- and a stray asterisk is not that: dropping otherwise good
+        # copy over one would cost the rep the section and tell them nothing.
+        written[sec_id] = text = hub_spec.clean_ai_text(text)
         problems = hub_spec.violations(text)
         if problems:
             breaches[sec_id] = problems
@@ -2141,6 +2499,10 @@ def api_business_description():
     except Exception as exc:                            # noqa: BLE001
         return jsonify({"ok": False, "error": "Description request failed",
                         "detail": str(exc)}), 502
+    # A Google Business Profile description is pasted straight into Google,
+    # which renders no markup at all -- so this one is cleaned to plain text
+    # with the bold markers taken out as well.
+    description = hub_spec.plain_text(description)
     if not description:
         return jsonify({"ok": False, "error": "The AI returned no description."}), 502
     return jsonify({"ok": True, "description": description,
@@ -2165,9 +2527,17 @@ def api_review_landing_page():
         "signals, trust indicators, testimonials, privacy language, tracking readiness, distractions, "
         "and whether the conversion action is easy to complete. Return a concise internal note with "
         "these headings: CTA Status, Strengths, Required Fixes Before Launch, Recommended Improvements, "
-        "Tracking Checks. Be specific and practical. If the page cannot be accessed, say so clearly.")
+        "Tracking Checks. Be specific and practical. If the page cannot be accessed, say so clearly.\n"
+        # The review is read on screen and pasted into the proposal's landing
+        # section, and neither renders Markdown -- so a heading written as
+        # "## CTA Status" arrived as literally that. Asked for here, and
+        # enforced by clean_ai_text below, for the reason the Smart 1 Labs
+        # exclusion is checked rather than merely requested.
+        + hub_spec.FORMATTING_DIRECTIVE)
     try:
-        return jsonify({"ok": True, "review": _openai_response(prompt, 5000), "url": url})
+        return jsonify({"ok": True,
+                        "review": hub_spec.clean_ai_text(_openai_response(prompt, 5000)),
+                        "url": url})
     except Exception as exc:                            # noqa: BLE001
         return jsonify({"ok": False, "error": "Landing-page review failed",
                         "detail": str(exc)}), 502
@@ -2204,6 +2574,28 @@ def api_zipcodes_in_radius():
     return jsonify({"ok": True, "zipcodes": ", ".join(zips), "count": len(zips),
                     "warning": "AI-assisted ZIP-radius results should be reviewed before "
                                "trafficking — ZIP boundaries and radius intersections change."})
+
+
+@app.post("/api/zip-rule")
+def api_zip_rule():
+    """Read a ZIP exception written in words, and apply it to a ZIP list.
+
+    Deliberately a round trip rather than a JavaScript copy of the rule.
+    Target areas and the creative classifier each carry a mirror already, and
+    each needs its own test proving the two halves still agree; a third --
+    carrying a table of every state's ZIP prefixes -- is a mirror that would
+    drift silently and be wrong about which state a campaign runs in. The
+    browser stores what comes back on the area, so every later read is local
+    and `hub.target_areas` stays the only thing that knows what
+    "only New Jersey" means.
+    """
+    body = request.get_json(force=True) or {}
+    rule = hub_areas.parse_zip_rule(body.get("text"))
+    result = hub_areas.apply_zip_rule(body.get("zips"), rule)
+    return jsonify({"ok": True, "rule": rule, "kept": result["kept"],
+                    "dropped": result["dropped"], "applied": result["applied"],
+                    "note": result["note"],
+                    "describe": hub_areas.describe_zip_rule(rule)})
 
 
 @app.post("/api/estimate-audience")

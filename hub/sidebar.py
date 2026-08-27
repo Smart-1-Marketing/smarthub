@@ -297,16 +297,39 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         "if(e.target.closest('a'))set(false);});"
         # Collapse to an icon rail, remembered across pages. Applied before
         # paint where possible so the layout doesn't jump on every navigation.
+        #
+        # A page asks for the rail two ways, and both are honoured because
+        # both are in use: `collapsed_default` above, decided server-side from
+        # the path (the Display Ad Builder), and `data-s1hub-collapse="1"` on
+        # the body, declared by the page's own template (the Proposal
+        # Builder's wizard). The wide tools lose 224px of a laptop's width to
+        # a nav nobody is reading while they work, which is what turns a step
+        # into a horizontal scroll. The body attribute simply feeds the same
+        # flag, so there is one decision rather than two racing each other.
         "var t=document.querySelector('.s1hub-toggle');"
-        "function coll(on){document.body.classList.toggle('s1hub-collapsed',on);"
+        "if(document.body&&document.body.getAttribute("
+        "'data-s1hub-collapse')==='1')window.__s1hubCollapseDefault=true;"
+        # `persist` is what keeps a page default from becoming everybody's
+        # preference. `coll()` writes localStorage, and the automatic call
+        # below used to write it too -- so one visit to a collapsed-by-default
+        # tool stored 's1hub:collapsed=1' globally and every other screen in
+        # the Hub came up collapsed, without anybody having pressed anything.
+        # It also meant the page default was only ever consulted once, since
+        # after that first visit there was no longer such a thing as "no
+        # stored preference". Only a real press of the toggle records a
+        # preference now; asking for the rail is per page and per visit.
+        "function coll(on,persist){"
+        "document.body.classList.toggle('s1hub-collapsed',on);"
         "if(t){t.innerHTML=on?'\\u276F':'\\u276E';"
         "t.title=on?'Show menu':'Hide menu';"
         "t.setAttribute('aria-label',t.title);}"
-        "try{localStorage.setItem('s1hub:collapsed',on?'1':'0');}catch(e){}}"
+        "if(persist!==false){"
+        "try{localStorage.setItem('s1hub:collapsed',on?'1':'0');}catch(e){}}}"
         # A stored preference wins over the page default in both directions,
         # so a tool that starts collapsed can still be opened for good.
         "try{var sv=localStorage.getItem('s1hub:collapsed');"
-        "if(sv==='1'||(sv===null&&window.__s1hubCollapseDefault))coll(true);}catch(e){}"
+        "if(sv==='1'||(sv===null&&window.__s1hubCollapseDefault))coll(true,false);}"
+        "catch(e){if(window.__s1hubCollapseDefault)coll(true,false);}"
         "if(t)t.addEventListener('click',function(){"
         "coll(!document.body.classList.contains('s1hub-collapsed'));});"
         "})();</script>"
