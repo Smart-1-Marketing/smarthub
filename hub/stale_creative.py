@@ -18,6 +18,12 @@ Those clients are grouped by how long it has been, worst elapsed time first:
     30-60 days            watch
     Under 30 days         current
     No creative on file   nothing on file for a client we are working for
+    Evergreen             creative is fixed for the campaign, so elapsed time
+                          is not a gap anybody is going to close
+
+Evergreen is an overlay rather than a bucket — `hub/creative_evergreen.py` —
+applied on every read of the cached audit so a mark taken in one gunicorn
+worker is honoured by the other immediately.
 
 Mounted at /qa/stale-creative with a JSON API at /api/qa/stale-creative and a
 small scorecard payload at /api/qa/stale-creative/scorecard for the dashboard.
@@ -595,6 +601,10 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
         rows.append({
             "client": c["name"],
             "client_id": c["id"],
+            # Derived on read, never stored. The evergreen overlay is keyed on
+            # the client's name and re-matched here, so tightening the matcher
+            # cannot orphan a mark somebody made.
+            "key": c["key"],
             "active": c.get("active", True),
             "in_registry": c["in_registry"],
             "days_since": days,
@@ -687,10 +697,94 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
     }
 
 
+EVERGREEN_GROUP = {
+    "key": "evergreen",
+    "label": "Evergreen",
+    "blurb": "Creative is fixed for the campaign. Not counted as stale.",
+}
+
+
+def _apply_evergreen(data):
+    """Pull the evergreen clients out of the groups, into their own.
+
+    Deliberately applied on every *read* of the cache rather than inside
+    build_audit(): the audit is cached for five minutes and there are two
+    gunicorn workers, so a mark made in one of them would go on being ignored
+    by the other until its own cache expired — a button that appears to do
+    nothing, which is the failure `hub/client_urls.missing()` had to undo.
+    Reading the overlay here costs one small JSON read per page.
+
+    Nothing is mutated in place: the cached dict is shared between requests
+    and between the page, the API, the CSV and the dashboard scorecard.
+    """
+    try:
+        from hub import creative_evergreen
+        marked = creative_evergreen.by_key(_client_matcher())
+    except Exception as exc:                            # noqa: BLE001
+        current_app.logger.warning("stale_creative: evergreen read failed: %s", exc)
+        marked = {}
+
+    groups, pulled = [], []
+    for g in data["groups"]:
+        if g["key"] == "evergreen":
+            continue                                    # rebuilt below
+        kept = []
+        for row in g["clients"]:
+            mark = marked.get(row.get("key"))
+            if mark is None:
+                kept.append(row)
+                continue
+            copy = dict(row)
+            copy["evergreen"] = {
+                "by": mark.get("by") or "",
+                "at": mark.get("at") or "",
+                "note": mark.get("note") or "",
+                "campaign": mark.get("campaign") or "",
+                # The bucket it would have sat in, so the evergreen list still
+                # says how long it has actually been. A row parked here with
+                # no elapsed time reads as a row nobody measured.
+                "from_group": g["label"],
+            }
+            pulled.append(copy)
+        ng = dict(g)
+        ng["clients"] = kept
+        ng["count"] = len(kept)
+        groups.append(ng)
+
+    pulled.sort(key=lambda r: (r["days_since"] is None,
+                               -(r["days_since"] or 0), r["client"].lower()))
+    ever = dict(EVERGREEN_GROUP)
+    ever["clients"] = pulled
+    ever["count"] = len(pulled)
+    ever["inactive_count"] = 0
+    groups.append(ever)
+
+    out = dict(data)
+    out["groups"] = groups
+    totals = dict(data["totals"])
+    listed = sum(g["count"] for g in groups if g["key"] != "evergreen")
+    totals["clients"] = listed
+    totals["evergreen"] = len(pulled)
+    totals["needs_attention"] = sum(
+        g["count"] for g in groups if g["key"] not in ("fresh", "evergreen")
+    )
+    out["totals"] = totals
+    return out
+
+
 def _cached(refresh=False, items_per_client=DEFAULT_ITEMS_PER_CLIENT):
     """Today's audit. Built on the first ask, read by every ask after it.
 
     `refresh=True` is the Refresh button and re-runs the scan.
+
+    The evergreen overlay is applied on the way *out* and is never part of
+    what is stored. `_apply_evergreen()` gives the reason — a mark made in one
+    gunicorn worker would otherwise be ignored by the other until its cache
+    expired — and holding the audit for a day rather than five minutes puts a
+    much longer fuse on exactly that: the row somebody has just marked would
+    sit where it was until tomorrow, which is a button that appears to do
+    nothing. So the mark needs no cache invalidation at all; it is read fresh
+    every time.
     """
     now = datetime.now(timezone.utc)
     with _CACHE_LOCK:
@@ -701,25 +795,25 @@ def _cached(refresh=False, items_per_client=DEFAULT_ITEMS_PER_CLIENT):
             and _CACHE.get("items") == items_per_client
         )
         if fresh_enough and not refresh:
-            return _CACHE["data"]
+            data = _CACHE["data"]
+        else:
+            def build():
+                return build_audit(items_per_client=items_per_client, now=now)
 
-        def build():
-            return build_audit(items_per_client=items_per_client, now=now)
-
-        # The import is guarded and the call is not: a scan that fails must
-        # fail once and reach the caller, not be quietly run a second time by
-        # a bare `except` that cannot tell "report_cache is missing" from
-        # "Cloudinary refused".
-        try:
-            from hub import report_cache
-        except Exception:                               # noqa: BLE001
-            report_cache = None
-        data = (build() if report_cache is None else
-                report_cache.serve("qa:stale-creative", build,
-                                   params=f"items={int(items_per_client)}",
-                                   force=bool(refresh)))
-        _CACHE.update({"at": now, "data": data, "items": items_per_client})
-        return data
+            # The import is guarded and the call is not: a scan that fails
+            # must fail once and reach the caller, not be quietly run a second
+            # time by a bare `except` that cannot tell "report_cache is
+            # missing" from "Cloudinary refused".
+            try:
+                from hub import report_cache
+            except Exception:                           # noqa: BLE001
+                report_cache = None
+            data = (build() if report_cache is None else
+                    report_cache.serve("qa:stale-creative", build,
+                                       params=f"items={int(items_per_client)}",
+                                       force=bool(refresh)))
+            _CACHE.update({"at": now, "data": data, "items": items_per_client})
+    return _apply_evergreen(data)
 
 
 def scorecard():
@@ -761,6 +855,34 @@ def _audit_log(event, **extra):
 # --------------------------------------------------------------------------
 # Routes
 # --------------------------------------------------------------------------
+
+def _actor():
+    """The signed-in name, or "" for the shared-password session."""
+    try:
+        from hub import current_user
+        return current_user() or ""
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
+@bp.before_request
+def _require_login():
+    """One guard on the blueprint, not one per view.
+
+    This report names every active client and how far behind we are on each,
+    and it now carries a write route. `hub/auth.py` names the failure in its
+    own docstring: a guard written per view is a guard the next route added
+    does not have to remember, and Commercial Builder shipped forty of them
+    answering 200 to anyone with the URL.
+    """
+    from flask import redirect
+    from hub import current_user, access
+    if current_user():
+        return None
+    if access.wants_json(request.path or "/", request.headers.get("Accept", "")):
+        return jsonify({"error": "Sign in to read this report."}), 401
+    return redirect("/login?next=" + (request.path or "/"))
+
 
 def _items_param():
     raw = request.args.get("items", DEFAULT_ITEMS_PER_CLIENT)
@@ -825,6 +947,33 @@ def api_csv():
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": 'attachment; filename="stale-creative.csv"',
     })
+
+
+@bp.route("/api/qa/stale-creative/evergreen", methods=["POST"])
+def api_evergreen():
+    """Mark a client's creative evergreen, or take the mark off again.
+
+    Evergreen means the creative is not going to change for this campaign, so
+    the elapsed time since the last one is not a gap anybody is going to close.
+    The row leaves the stale list and joins the Evergreen group underneath it —
+    it is never simply deleted, because a list that quietly gets shorter cannot
+    be told from a list that failed to load.
+    """
+    from hub import creative_evergreen
+    body = request.get_json(silent=True) or {}
+    client = str(body.get("client") or "").strip()
+    on = bool(body.get("evergreen", True))
+    result = creative_evergreen.set_mark(
+        client, on,
+        actor=_actor(),
+        note=str(body.get("note") or ""),
+        campaign=str(body.get("campaign") or ""),
+    )
+    if not result.get("ok"):
+        return jsonify(result), 400
+    _audit_log("evergreen_marked" if on else "evergreen_cleared",
+               actor=_actor(), client=client)
+    return jsonify(result)
 
 
 def register_stale_creative(app):

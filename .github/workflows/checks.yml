@@ -344,6 +344,18 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: Proposal targeting tests — the map, the pastes, the research
+        # Guarded like the steps around it so this workflow stays mergeable on
+        # a branch that predates the file. Nothing in it reaches a third party:
+        # the tile server and the geocoder are stubbed, so a green run here
+        # means the same thing it means on somebody's laptop.
+        run: |
+          if [ -f test_proposal_targeting.py ]; then
+            python test_proposal_targeting.py
+          else
+            echo "test_proposal_targeting.py not on this branch — nothing to run."
+          fi
+
       - name: Social content planner tests
         # Guarded like the steps above so this workflow stays mergeable on a
         # branch that predates the file. Safe to run after the others despite
@@ -577,6 +589,21 @@ jobs:
             python test_campaign_assets.py
           else
             echo "test_campaign_assets.py not on this branch — nothing to run."
+          fi
+
+      - name: Stale Creative row-action tests
+        # The three actions at the end of a row, and the evergreen overlay
+        # behind the first of them: applied on every read of the cached audit
+        # rather than inside it, so a mark taken in one gunicorn worker is not
+        # ignored by the other. Also asserts the report and its write route are
+        # behind a login — the blueprint had no guard at all. Guarded like the
+        # steps above so this workflow stays mergeable on a branch that
+        # predates the file. Sets its own HUB_DATA_DIR.
+        run: |
+          if [ -f test_stale_creative.py ]; then
+            python test_stale_creative.py
+          else
+            echo "test_stale_creative.py not on this branch — nothing to run."
           fi
 
       - name: Dashboard trend tests

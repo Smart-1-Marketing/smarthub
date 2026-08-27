@@ -801,3 +801,349 @@ def running_zips(areas) -> list[str]:
                 seen.add(code)
                 out.append(code)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Pasting a list of locations instead of typing each one into a box
+#
+# A campaign with eleven rooftops is eleven trips through the area editor --
+# name, type, origin, radius, save, add another -- and the list the rep is
+# copying from already exists: it is in the email, the spreadsheet or the
+# client's own store locator. So the paste is read here rather than being
+# retyped, and every rule below is about the two ways that goes wrong.
+#
+#   * **Nothing is dropped in silence.** A line this cannot read comes back
+#     in `skipped` with the reason, because a paste of twelve lines that
+#     quietly produces nine areas is a campaign missing three locations that
+#     nobody can see is missing. The same rule `knack_websites.py` applies to
+#     a value Knack would refuse.
+#   * **Every line says how it was read.** "Carmel, IN 10mi" and
+#     "Carmel, IN" are not the same instruction, and the second one gets a
+#     radius this module chose. `rows` carries that sentence per line so the
+#     screen can show it before anything is added -- a paste that silently
+#     assumes ten miles on eight lines is eight quiet decisions.
+#   * **Nothing is invented.** An unreadable fragment is never turned into a
+#     radius around a guess at what it might have meant, the rule
+#     `modules/ads_builder/logo.py` works to.
+# ---------------------------------------------------------------------------
+_PASTE_FIELD_SPLIT = re.compile(r"\t+|\s*\|\s*")
+_RADIUS_IN_TEXT = re.compile(
+    r"(?:\+\s*)?(\d{1,3}(?:\.\d+)?)\s*(?:mi\b|mi\.|miles?\b|mile\b|-?\s*mile\s*radius)",
+    re.I)
+_NATIONAL_WORDS = ("national", "nationwide", "nationally", "usa", "u.s.",
+                   "united states", "coast to coast")
+_STATEWIDE_WORDS = ("statewide", "state wide", "whole state", "entire state",
+                    "state of")
+
+# A header row pasted along with the rows. Recognised so it does not come
+# back as a skipped line the rep has to read and dismiss on every paste.
+_HEADER_WORDS = ("location", "locations", "city", "cities", "market",
+                 "markets", "store", "stores", "address", "radius", "zip",
+                 "zips", "zip code", "zip codes", "name", "area", "areas",
+                 "target", "targets", "dma", "state", "notes", "note")
+
+MAX_PASTE_LINES = 200       # a paste, not an import
+
+
+def _looks_like_header(fields: list[str]) -> bool:
+    """A pasted spreadsheet's first row, rather than a location."""
+    if not fields or len(fields) < 2:
+        return False
+    return all(f.strip().lower() in _HEADER_WORDS for f in fields if f.strip())
+
+
+def _radius_from(text: str) -> tuple[str, int]:
+    """A radius stated inside a line, and the line with it taken out."""
+    match = _RADIUS_IN_TEXT.search(text)
+    if not match:
+        return text, 0
+    radius = int(_num(match.group(1), 0))
+    rest = (text[:match.start()] + " " + text[match.end():])
+    rest = re.sub(r"\s*[+,;/-]\s*$", "", rest.strip())
+    rest = re.sub(r"^\s*[+,;/-]\s*", "", rest)
+    return rest.strip(), radius
+
+
+def _geography_from(text: str) -> tuple[dict, str] | tuple[None, str]:
+    """One line of pasted geography, as an area and a sentence saying how.
+
+    Returns ``(None, reason)`` where the line names nowhere: a fragment left
+    over from a spreadsheet, a phone number, a page of notes. The reason is
+    shown to the rep rather than being counted, because "we read nine of your
+    twelve lines" is only useful with the three named.
+    """
+    raw = _clean(text)
+    if not raw:
+        return None, "the line is empty"
+    lowered = raw.lower()
+
+    # National first: "nationwide" contains no city and every other branch
+    # below would read it as one.
+    if any(w in lowered for w in _NATIONAL_WORDS) and len(raw) <= 40:
+        area = blank_area("National")
+        area["type"] = NATIONAL
+        return area, "read as a national campaign"
+
+    zips = zip_list(raw)
+    words_left = re.sub(r"\b\d{5}\b", " ", raw)
+    words_left = re.sub(r"[,;/|]+", " ", words_left).strip()
+    if len(zips) >= 2 and not words_left:
+        area = blank_area(f"{len(zips)} ZIP Codes")
+        area["type"] = OTHER
+        area["other"] = f"{len(zips)} ZIP Codes"
+        area["zips"] = ", ".join(zips)
+        return area, f"read as a list of {len(zips)} ZIP Codes"
+
+    if re.search(r"\bdma\b", lowered):
+        dma = re.sub(r"\bdma\b", " ", raw, flags=re.I)
+        dma = re.sub(r"\s{2,}", " ", dma).strip(" ,-–—")
+        if not dma:
+            return None, "a DMA was named without saying which one"
+        area = blank_area(f"{dma} DMA")
+        area["type"] = DMA
+        area["dma"] = dma
+        return area, f"read as the {dma} DMA"
+
+    if any(w in lowered for w in _STATEWIDE_WORDS):
+        states = _states_in(raw)
+        rest = re.sub(r"statewide|state wide|whole state|entire state|state of",
+                      " ", raw, flags=re.I)
+        rest = re.sub(r"\s{2,}", " ", rest).strip(" ,-–—:")
+        state = rest or (states[0] if states else "")
+        if not state:
+            return None, "statewide was asked for without saying which state"
+        area = blank_area(f"{state} (statewide)")
+        area["type"] = STATEWIDE
+        area["state"] = state
+        return area, f"read as statewide — {state}"
+
+    # A bare state name on its own line means that state, not a radius drawn
+    # on a city that happens to share the name.
+    if lowered in STATE_NAMES:
+        pretty = raw.strip().title()
+        area = blank_area(f"{pretty} (statewide)")
+        area["type"] = STATEWIDE
+        area["state"] = pretty
+        return area, f"read as statewide — {pretty}"
+
+    origin, radius = _radius_from(raw)
+    origin = origin.strip(" ,-–—:;")
+    if not origin:
+        return None, "no city or ZIP Code in the line to draw a radius on"
+    # Something has to identify a place, and a place is short. "Carmel, IN"
+    # and "1200 Main St, Carmel IN" are five words between them; a line
+    # somebody typed into the wrong box is a sentence. A comma alone is not
+    # evidence -- prose has commas in it, which is how "not a place at all,
+    # just a sentence somebody typed into the wrong box" became a target area
+    # with a ten-mile radius drawn on it.
+    if len(origin.split()) > 6 and not zip_list(origin):
+        return None, "this reads as a note rather than a place"
+    if not (zip_list(origin) or "," in origin or _states_in(origin)
+            or len(origin.split()) <= 4):
+        return None, "this reads as a note rather than a place"
+    area = blank_area()
+    area["type"] = RADIUS
+    area["origin"] = origin
+    if radius:
+        area["radius"] = radius
+        return area, f"read as {origin} + {radius}-mile radius"
+    area["radius"] = blank_area()["radius"]
+    return area, (f"read as {origin} — no radius was stated, so "
+                  f"{area['radius']} miles is assumed. Change it on the area.")
+
+
+def parse_paste(text, existing=None) -> dict:
+    """A pasted block of locations, as target areas.
+
+    One line per location. A line may be just the place ("Carmel, IN 10mi"),
+    or tab- or pipe-separated fields the way a spreadsheet pastes:
+
+        Carmel showroom | Carmel, IN | 10
+        Fishers showroom | Fishers, IN | 10 | weekends only
+        Indianapolis DMA
+        46032, 46033, 46074
+
+    ``existing`` is whatever the campaign already holds, so a location
+    already on it is reported as a duplicate rather than added twice --
+    pasting the same list after adding one by hand is the ordinary case.
+
+        {"areas": [...], "rows": [{"line", "read", "duplicate"}],
+         "skipped": [{"line", "reason"}], "note": "..."}
+    """
+    raw = str(text or "")
+    lines = [ln for chunk in raw.split("\n") for ln in chunk.split(";")]
+    lines = [ln.strip() for ln in lines]
+    out: dict = {"areas": [], "rows": [], "skipped": [], "note": ""}
+
+    seen = set()
+    for area in normalize(existing):
+        seen.add((canonical_type(area["type"]), describe(area).lower()))
+
+    over = 0
+    for line in lines:
+        if not line:
+            continue
+        fields = [f.strip() for f in _PASTE_FIELD_SPLIT.split(line) if f.strip()]
+        if _looks_like_header(fields):
+            continue
+        if len(out["areas"]) >= MAX_AREAS:
+            over += 1
+            continue
+        if len(out["rows"]) + len(out["skipped"]) >= MAX_PASTE_LINES:
+            over += 1
+            continue
+
+        name, notes, geography = "", "", line
+        if len(fields) > 1:
+            # A bare number in its own column is the radius, wherever the
+            # spreadsheet happens to put it -- a "Radius" column with a
+            # "Notes" column after it is the common shape, and reading only
+            # the last field files the radius into the notes and quietly
+            # falls back to the default.
+            trailing_radius = ""
+            for ix in range(len(fields) - 1, 0, -1):
+                if re.fullmatch(r"\d{1,3}(?:\.\d+)?", fields[ix] or ""):
+                    trailing_radius = fields.pop(ix)
+                    break
+            if len(fields) >= 3:
+                name, geography, notes = fields[0], fields[1], " ".join(fields[2:])
+            elif len(fields) == 2:
+                name, geography = fields[0], fields[1]
+            else:
+                geography = fields[0]
+            if trailing_radius and not _RADIUS_IN_TEXT.search(geography):
+                geography = f"{geography} {trailing_radius} miles"
+
+        area, read = _geography_from(geography)
+        if area is None:
+            out["skipped"].append({"line": line, "reason": read})
+            continue
+        if name and name.lower() != geography.lower():
+            area["name"] = name[:200]
+        if notes:
+            area["notes"] = notes[:500]
+
+        key = (canonical_type(area["type"]), describe(area).lower())
+        if key in seen:
+            out["rows"].append({"line": line, "read": read, "duplicate": True})
+            continue
+        seen.add(key)
+        out["areas"].append(area)
+        out["rows"].append({"line": line, "read": read, "duplicate": False})
+
+    added = len(out["areas"])
+    dupes = sum(1 for r in out["rows"] if r["duplicate"])
+    bits = [f"{added} target area{'' if added == 1 else 's'} read"]
+    if dupes:
+        bits.append(f"{dupes} already on this campaign")
+    if out["skipped"]:
+        bits.append(f"{len(out['skipped'])} line"
+                    f"{'' if len(out['skipped']) == 1 else 's'} not understood")
+    if over:
+        bits.append(f"{over} beyond the {MAX_AREAS}-area limit were not read")
+    out["note"] = " · ".join(bits)
+    if not added and not dupes and not out["skipped"]:
+        out["note"] = "Nothing in that paste looked like a location."
+    return out
+
+
+# ---------------------------------------------------------------------------
+# The same paste, for the competitors and venues inside those areas
+#
+# `targetsOfInterest` is three boxes a row and a campaign routinely names a
+# dozen of them, which is the same retyping problem one level in. Deliberately
+# a separate reader rather than a mode on the one above: a competitor line is
+# a business and an address, an area line is a geography and a radius, and one
+# parser trying to be both would read "Riverside Dental, 1200 Main St" as a
+# city called Riverside Dental.
+# ---------------------------------------------------------------------------
+PLACE_KINDS = ("competitor", "venue", "place")
+
+# A street address, as opposed to a business name. Enough to tell the two
+# apart in a "Name, address" line -- nothing here geocodes and nothing
+# invents an address that was not typed.
+_STREET_RE = re.compile(
+    r"\b\d+\s+[\w.'-]+(\s+[\w.'-]+)*\s+"
+    r"(st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|"
+    r"court|pkwy|parkway|hwy|highway|pl|place|ter|terrace|cir|circle|"
+    r"suite|ste|unit)\b", re.I)
+
+
+def parse_places(text, kind: str = "competitor", existing=None) -> dict:
+    """A pasted list of competitors, venues or places, as target rows.
+
+        Riverside Dental | 1200 Main St, Carmel, IN 46032 | their implants
+        Lucas Oil Stadium, 500 S Capitol Ave, Indianapolis, IN
+
+    The first field is always the name. An address is taken only where the
+    line plainly holds one -- a row with no address is legitimate and common
+    (conquesting by brand and behaviour needs no location), so guessing one
+    from a business name is the one thing this must never do.
+
+        {"places": [{"kind", "name", "address", "note"}],
+         "rows": [...], "skipped": [...], "note": "..."}
+    """
+    kind = kind if kind in PLACE_KINDS else "competitor"
+    raw = str(text or "")
+    out: dict = {"places": [], "rows": [], "skipped": [], "note": ""}
+
+    seen = {str((r or {}).get("name") or "").strip().lower()
+            for r in (existing or []) if isinstance(r, dict)}
+    seen.discard("")
+
+    for line in [ln.strip() for ln in raw.split("\n")]:
+        if not line:
+            continue
+        if len(out["rows"]) + len(out["skipped"]) >= MAX_PASTE_LINES:
+            break
+        fields = [f.strip() for f in _PASTE_FIELD_SPLIT.split(line) if f.strip()]
+        if _looks_like_header(fields):
+            continue
+        name = address = note = ""
+        if len(fields) >= 2:
+            name = fields[0]
+            address = fields[1] if _STREET_RE.search(fields[1]) else ""
+            rest = fields[2:] if address else fields[1:]
+            note = " ".join(rest)[:200]
+        else:
+            # One field: "Name, 1200 Main St, Carmel IN" or just a name. The
+            # address starts at the first comma-separated part that looks
+            # like a street, so a business with a comma in its own name
+            # ("Smith, Jones & Co") keeps it.
+            parts = [p.strip() for p in line.split(",")]
+            cut = next((i for i, p in enumerate(parts) if _STREET_RE.search(p)), None)
+            if cut is None or cut == 0:
+                name = line
+            else:
+                name = ", ".join(parts[:cut]).strip()
+                address = ", ".join(parts[cut:]).strip()
+        name = name.strip(" ,-–—")[:200]
+        if not name:
+            out["skipped"].append({"line": line, "reason": "no name in the line"})
+            continue
+        if name.lower() in seen:
+            out["rows"].append({"line": line, "name": name, "duplicate": True,
+                                "read": "already on this campaign"})
+            continue
+        seen.add(name.lower())
+        out["places"].append({"kind": kind, "name": name,
+                              "address": address[:200], "note": note})
+        out["rows"].append({"line": line, "name": name, "duplicate": False,
+                            "read": (f"{name} — geo-fenceable at {address}"
+                                     if address else
+                                     f"{name} — no address, so brand and "
+                                     "behaviour only")})
+
+    added = len(out["places"])
+    dupes = sum(1 for r in out["rows"] if r["duplicate"])
+    fenceable = sum(1 for p in out["places"] if p["address"])
+    bits = [f"{added} read"]
+    if fenceable:
+        bits.append(f"{fenceable} with an address we can fence")
+    if dupes:
+        bits.append(f"{dupes} already named")
+    if out["skipped"]:
+        bits.append(f"{len(out['skipped'])} not understood")
+    out["note"] = " · ".join(bits) if (added or dupes or out["skipped"]) \
+        else "Nothing in that paste looked like a name."
+    return out

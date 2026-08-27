@@ -2332,6 +2332,141 @@ stray asterisk is not that. Bold survives, normalised to `<b>`, which
 reportlab reads natively, `rich_runs()` turns into a bold run for Word, and
 the preview un-escapes deliberately and alone.
 
+### A bullet inside a sentence is not a list
+
+`clean_ai_text` normalised the markup and left the *shape* alone, and the
+directive it works to actually asked for the wrong thing: "write the items as
+sentences or separate them with the bullet character •". So a model obliged
+with `We will reach three areas: • Carmel • Fishers • Noblesville` — one
+paragraph, which all three renderers duly set as one paragraph, and a client
+read a sentence with dots in it on the page listing where their money goes.
+Nothing errored; the copy was even correct.
+
+The shape is enforced now rather than requested, the Smart 1 Labs rule one
+step on: `_one_bullet_per_line()` puts every bullet at the start of its own
+line and keeps the lead-in above it, and the directive asks for one item per
+line so the model mostly gets there on its own. What the renderers read is
+`proposal_spec.blocks()` — paragraphs and lists, decided **once** — so the
+preview builds a `<ul>`, the PDF gives each item its own bullet-indented
+Paragraph and Word writes a List Bullet paragraph, and a fourth renderer
+added later cannot go back to printing the bullet inside a sentence. The
+browser carries the same split in `cleanCopy()`, because a rep pastes into
+the section editor and must see it normalise there rather than in the PDF.
+
+One thing it deliberately does not do: a sentence written *after* the last
+bullet stays attached to that item. Where a list ends is not knowable from
+the text, and cutting at the first full stop would split "Carmel, IN. 10
+miles" into two items.
+
+### The map is the part of the proposal the client can check
+
+Geography was a table of sentences — "Carmel, IN + 10-mile radius" three
+times — and it is the one section a client cannot read against what they
+know, because the person reading it lives there. A map answers in a glance
+what three sentences do not: that the rings overlap, that the whole buy sits
+on one side of the city, that the suburb they care about is inside it.
+
+`hub/target_map.py` draws it: OpenStreetMap tiles composed with Pillow, rings
+computed from each radius, numbered pins and a key, and the tile attribution
+printed **onto the image** — three renderers show this picture and a credit
+written into one of them travels with none of the others. One PNG serves the
+preview, the PDF and the Word export, so the three cannot disagree about
+where the campaign runs. There is **no JavaScript map**: target areas and the
+creative classifier each carry a mirror already and each needs a test proving
+the halves agree, and a fourth renderer of the same fact is the cost this
+codebase has already paid twice.
+
+Every rule in it is a way to be confidently wrong:
+
+- **A named state must match.** A geocoder handed "Carmel" answers
+  Carmel-by-the-Sea, California — so an origin naming a state and finding
+  nothing in it comes back *not found*, never the same name somewhere else.
+  A map of the wrong Carmel is a wrong answer that looks exactly like a right
+  one, and it is on a document a client recognises.
+- **A DMA, a state and a national buy are not drawn.** There is no boundary
+  data here and inventing a blob is a claim about coverage nobody can check.
+  Those are *named under the map* as covered and not drawn, so the picture is
+  never mistaken for the whole buy.
+- **Four kinds of missing are four answers.** Covered-but-not-drawable, a
+  spelling nothing could find, an area with no origin at all, and a tile
+  server that did not answer. Only two are somebody's to fix, so only those
+  two are offered as something to fix — and they are shown on the areas
+  screen, where the fix is, never on the client's document.
+- **A failure costs the picture and nothing else.** No blank grey box, no
+  "map unavailable" graphic: the client document simply omits it, and
+  `render()` returns `(None, reason)` so the builder can say why. A map made
+  mostly of missing tiles is refused for the same reason.
+- **The URL carries a signature of the areas.** A stale map is the worst
+  failure available here — plausible, dated, and about somewhere else — so
+  changing a radius changes the URL rather than letting the browser serve
+  yesterday's picture.
+
+`MAP_TILE_URL` and `MAP_TILE_ATTRIBUTION` are settings, so a deployment with
+its own tile server (or a keyed one — the key rides in the URL) needs no
+second code path. No provider key is asked for: this deployment has never had
+a maps key, and a page inviting a credential nobody has set reads as broken
+while the feature works perfectly well without one.
+
+The route's first version caught **every** exception around reading the
+quote and answered "quote could not be read", which turned an
+`AttributeError` on a wrong column name into a 404 that looks exactly like a
+proposal with no target areas — the whole feature silently absent, with
+nothing anywhere saying why. Only a malformed blob is caught now.
+
+### Eleven rooftops is not eleven trips through the area editor
+
+The list already exists — in the email, the spreadsheet, the client's own
+store locator — and typing it back in one box at a time is where a
+multi-location campaign loses its third location. `target_areas.parse_paste()`
+reads a pasted block, and `parse_places()` does the same for the competitors
+and venues inside it. Deliberately two readers: a competitor line is a
+business and an address, an area line is a geography and a radius, and one
+parser trying to be both reads "Riverside Dental, 1200 Main St" as a city
+called Riverside Dental.
+
+Three rules, each about the way a paste goes wrong quietly:
+
+- **Nothing is added by the reading.** The rows come back with a sentence per
+  line saying how each was read and a rep presses Add. A paste that silently
+  assumed ten miles on eight of twelve lines is eight decisions nobody made.
+- **A line nobody could read comes back by name.** Twelve lines producing
+  nine areas is a campaign missing three locations nobody can see are
+  missing. The rule `knack_websites.py` applies to a value Knack would refuse.
+- **A place is short.** A comma is not evidence — prose has commas — which is
+  how "not a place at all, just a sentence somebody typed into the wrong box"
+  became a target area with a ten-mile radius drawn on it. Over six words
+  with no ZIP Code in them reads as a note.
+
+A location already on the campaign is reported as a duplicate rather than
+added twice, because pasting the whole list after adding one by hand is the
+ordinary case.
+
+### Who to go after is researched, and stays a suggestion until somebody ticks it
+
+The client is the only person who knows who they lose business to, and they
+are not in the room when the proposal is built — so the competitor list was
+whatever the rep could remember. `/api/find-targets` researches it over the
+web, scoped to the target areas already on the campaign, and refuses to run
+at all with no area on it: a search with nowhere to look comes back with
+national brands.
+
+Everything it returns arrives `accepted: False`. Printing a researched list
+on a proposal is us telling a client who their competitors are on a model's
+say-so, and that is the paragraph a client checks hardest — the same rule
+`modules/ads_builder` applies to its own competitor research. An address is
+carried only where the model gave one, is labelled **unverified** on the
+screen, and is never derived from the name: a geo-fence built on a wrong
+address spends the budget outside somebody else's front door, the rule
+`modules/ads_builder/logo.py` works to. A row with no address is a real
+answer rather than a gap — conquesting by brand and behaviour needs no
+location — and the screen says so in those words.
+
+And the two empty answers are kept apart, for the reason
+`connected_accounts_result()` gives in Google Finder: **"we could not look"**
+is a 502 that says the campaign is unchanged, **"there is nobody worth
+naming"** is a 200 that says so in as many words. Only the second one means
+stop looking.
+
 ### Who built it is not who is on it
 
 The proposals list showed `salesperson`, which is the sales contact *typed
@@ -2858,6 +2993,56 @@ is gated on that tick. Each id is overridable by environment variable
 and the page's own script reads the ids handed to it by the server rather than
 carrying a second copy. `test_campaign_assets.py` asserts all of it.
 
+## A stale list that can only be read is a list nobody works
+
+`hub/stale_creative.py` says how long it has been since we last made creative
+for each client running a product today, and every row was a fact with nothing
+to do about it: a rep read the number, went and found the client somewhere else,
+and the row aged another week. The end of the row is three actions now —
+**Evergreen**, **New** and **Create** — each opening the thing that already
+exists rather than a fourth copy of it. *New* is `/campaign-request.js`, the
+same Campaign Change Request form Client 360 and the dashboard open, handed the
+client's real insertion orders from `/api/c360` so the campaign/IO dropdown is
+populated rather than a free-text box. *Create* is
+`/tools/display-ads/_hub/start?client=…`, which fills the client in and files
+the build against that record.
+
+**The Source column went with it.** Which of our tools filed the last creative
+is not a decision the person reading the row makes — the note
+`modules/ads_builder/logo.py` already makes about naming Brandfetch to somebody
+who cannot rotate its key. Each creative in the expanded panel still says where
+it came from, which is where opening it is the point.
+
+**Evergreen is the answer to a row that is not a gap.** An always-on brand
+spot, a sponsorship board, a rebate banner that runs unchanged until the offer
+ends: the creative is fixed for the campaign, so the elapsed time is not
+something anybody is going to close, and left in the list those rows are
+permanent red on a report whose whole job is to say what to act on this week.
+`hub/creative_evergreen.py` is that overlay, and four rules hold it up.
+
+**It is applied on every read of the cache, not baked into it.** The audit is
+cached for five minutes and there are two gunicorn workers, so a mark taken in
+one of them would go on being ignored by the other until its own cache expired —
+a button that appears to do nothing, which is exactly the failure
+`hub/client_urls.missing()` had to undo. **The mark is stored against the
+client's name, never the derived match key**, for the reason `hub/client_key.py`
+gives at length; the key is re-derived on read with whatever matcher the report
+is using. **Nothing disappears in silence**: the row moves to an Evergreen
+section with the group it came from, who marked it and when, and one press puts
+it back — a list that quietly gets shorter cannot be told from a list that
+failed to load, and the tile row carries the count beside the other five.
+And **a mark says who and when**, because "this is evergreen" is somebody's
+decision about a campaign and one nobody can attribute is one nobody can
+revisit.
+
+**The blueprint had no guard at all.** `/qa/stale-creative` and its APIs
+answered 200 to anyone with the URL — every active client and how far behind we
+are on each — because `wsgi.py` wraps only *dispatcher-mounted* modules in
+`AuthGuard` and the hub app guards its own views one at a time. The gate sits on
+the blueprint now rather than on each route, the arrangement
+`modules/commercial_builder/__init__.py` arrived at for the same reason: the
+write route added here must not have to remember, and neither must the next one.
+
 ## A report that has been opened has already been run
 
 `hub/report_cache.py`. Every QA report and every report-shaped tool page
@@ -2921,6 +3106,14 @@ runs inside the sweep *and* `set_client()` *and* `apply_domain_matches()`, and
 `client_urls._forget_registry_cache()` gained the reports next to the registry
 cache it already cleared for the same reason. Two descriptions of when to
 invalidate is one that drifts.
+
+The **evergreen** mark above needs none of this, and the reason is worth
+keeping: `_apply_evergreen()` is applied on every *read* of the audit rather
+than baked into it, so a mark taken in one worker is never held by the other's
+copy. That rule was written against a five-minute memo; a day-long hold puts a
+much longer fuse on the same failure, and the mark still costs one small JSON
+read per page instead of an invalidation somebody has to remember. Where an
+overlay can be applied on read, that beats dropping a cache.
 
 **A free-text search is not a cache key.** `q=acme` and `q=acm` are two files
 on a 5 GB disk and a search box types one per keystroke. Where a report filters
@@ -3584,6 +3777,9 @@ python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkt
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
+python3 test_proposal_targeting.py # the coverage map, the pasted location list,
+                                   #   the competitor research, and a bulleted
+                                   #   list that reaches the client as a list
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math,
                                    #   the 2x quoted rate, the product a goal leads
                                    #   with, ZIP exceptions and what the Suite covers
@@ -3593,6 +3789,7 @@ python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
 python3 test_campaign_assets.py    # campaigns waiting on an asset, by media partner
+python3 test_stale_creative.py     # the row actions, the evergreen overlay, the login gate
 python3 test_dashboard_trends.py   # the monthly readings accumulate; no card claims a comparison
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named

@@ -571,8 +571,9 @@ FORMATTING_DIRECTIVE = (
     "emoji or decorative symbols of any kind. Bold is available and is the "
     "only formatting there is — write it as <b>text</b> and use it sparingly, "
     "for a term worth stressing rather than for every noun. Where the copy "
-    "needs a list, write the items as sentences or separate them with the "
-    "bullet character •."
+    "needs a list, write one item per line, each line starting with the "
+    "bullet character • and nothing else — never run the items together "
+    "inside a sentence or a paragraph."
 )
 
 # Ranges that are emoji, pictographs, dingbats and the variation selectors and
@@ -593,6 +594,77 @@ _EMOJI_RE = re.compile(
 
 _BOLD_MD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.S)
 _BOLD_TAG_RE = re.compile(r"<\s*/?\s*(b|strong)\s*>", re.I)
+
+
+# A bullet that shares a line with other bullets is not a list.
+#
+# The directive above asks for one item per line and a model obliges most of
+# the time, which is the problem: the times it does not are indistinguishable
+# from correct copy until the document is read. What comes back is
+# "We will reach three areas: • Carmel • Fishers • Noblesville" -- one
+# paragraph, rendered by all three renderers as one paragraph, and a client
+# reads a sentence with three dots in it rather than a list of three places.
+#
+# So the shape is enforced rather than requested, the Smart 1 Labs rule one
+# step on. A bullet anywhere but the start of a line begins a new line, and
+# the text in front of the first one stays where it is -- it is the lead-in
+# ("We will reach three areas:") and deleting it would lose a clause.
+_INLINE_BULLET_RE = re.compile(r"[ \t]*(?<=\S)[ \t]+•[ \t]*")
+
+
+def _one_bullet_per_line(text: str) -> str:
+    """Every bullet at the start of its own line, its lead-in kept above it."""
+    lines = []
+    for line in str(text or "").split("\n"):
+        # Only lines that carry a bullet *after* something else are touched;
+        # a line that is already one item is left exactly as it is, because
+        # this runs on every save as well as on every generation.
+        lines.append(_INLINE_BULLET_RE.sub("\n• ", line))
+    return "\n".join(lines)
+
+
+def _line_runs(line: str) -> list[tuple[str, bool]]:
+    """One line of cleaned copy as (text, bold) runs."""
+    runs, bold = [], False
+    for piece in re.split(r"(<b>|</b>)", line):
+        if piece == "<b>":
+            bold = True
+        elif piece == "</b>":
+            bold = False
+        elif piece:
+            runs.append((piece, bold))
+    return runs or [("", False)]
+
+
+def blocks(text) -> list[dict]:
+    """Cleaned copy as the blocks a renderer actually has to draw.
+
+    Three renderers read this -- the preview builds a <ul>, the PDF gives
+    each item its own bullet-indented Paragraph, and Word writes a
+    List Bullet paragraph -- so that "a list is a list" is decided once
+    rather than three times, and a fourth renderer added later cannot quietly
+    go back to printing the bullet character inside a sentence.
+
+        [{"kind": "para", "text": "...", "runs": [(text, bold), ...]},
+         {"kind": "list", "items": [{"text": ..., "runs": [...]}, ...]}]
+    """
+    out: list[dict] = []
+    for line in clean_ai_text(text).split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("•"):
+            item = stripped.lstrip("•").strip()
+            if not item:
+                continue        # a bullet with nothing after it is not an item
+            entry = {"text": item, "runs": _line_runs(item)}
+            if out and out[-1]["kind"] == "list":
+                out[-1]["items"].append(entry)
+            else:
+                out.append({"kind": "list", "items": [entry]})
+            continue
+        out.append({"kind": "para", "text": stripped, "runs": _line_runs(stripped)})
+    return out
 
 
 def clean_ai_text(text) -> str:
@@ -623,6 +695,7 @@ def clean_ai_text(text) -> str:
     out = re.sub(r"^\s*[-–—_]{3,}\s*$", "", out, flags=re.M)    # rules
 
     out = re.sub(r"[ \t]{2,}", " ", out)
+    out = _one_bullet_per_line(out)
     out = re.sub(r"[ \t]+\n", "\n", out)
     out = re.sub(r"\n{3,}", "\n\n", out)
     return out.strip()
@@ -639,18 +712,7 @@ def rich_runs(text) -> list[list[tuple[str, bool]]]:
     cleaned = clean_ai_text(text)
     if not cleaned:
         return []
-    paragraphs = []
-    for block in cleaned.split("\n"):
-        runs, bold = [], False
-        for piece in re.split(r"(<b>|</b>)", block):
-            if piece == "<b>":
-                bold = True
-            elif piece == "</b>":
-                bold = False
-            elif piece:
-                runs.append((piece, bold))
-        paragraphs.append(runs or [("", False)])
-    return paragraphs
+    return [_line_runs(block) for block in cleaned.split("\n")]
 
 
 def plain_text(text) -> str:
