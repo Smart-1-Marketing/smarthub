@@ -235,9 +235,15 @@ function render(g,q){
     </select></div></div>
     <div class="card-b" id="c-forms"><div class="empty">Loading…</div></div></div>`;
 
-  // ---------- Brand kit (logos, colours, fonts already cached per client) ----------
+  /* ---------- Brand: logos, colours and fonts, from every source ----------
+     One card. This was two — a brand kit above and a second block beneath it
+     for what had been read off the client's own website — which drew the same
+     company's colours twice under two headings and led with "No brand data on
+     file yet" above a logo it plainly had. The tag names no provider: which
+     service answered is not something the rep reading it can act on, and each
+     tile says where it came from, which is. See hub/client_brand._merge. */
   html+=`<div class="card"><div class="card-h">
-    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Brandfetch</span><h3>Brand</h3>
+    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Brand</span><h3>Brand &amp; logos</h3>
     <div class="right" id="c-brand-acts"></div></div>
     <div class="card-b" id="c-brand"><div class="empty">Loading brand…</div></div></div>`;
 
@@ -254,15 +260,18 @@ function render(g,q){
     <div class="card-b" id="c-health"><div class="empty">Checking for a recent scan… <span class="spin"></span></div></div>
     <div class="card-b" id="c-audits" style="padding-top:0"></div></div>`;
 
-  // ---------- What else the last scan knows ----------
-  // An Insites audit carries 440 fields and this record read four of them.
-  // The rest was already bought and paid for and sat in a JSON blob nobody
-  // opened. Collapsed by default because it is a reference, not a headline.
+  /* ---------- Everything else known about the business ----------
+     440 fields are read off a client's site and this record showed four of
+     them; the rest was already paid for and sat in a blob nobody opened.
+     Collapsed by default because it is a reference, not a headline — and
+     titled by what it answers rather than by which of our tools answered it,
+     the note modules/ads_builder/logo.py carries about naming a provider to a
+     rep. The Site Health card above is the audit itself and keeps its name. */
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
-    <span class="src-tag src-web" style="background:#e0edff;color:#1e40af">Insites</span>
-    <h3>What the last scan found {{ help_dot('hub.client360.scanfacts') if help_dot is defined else '' }}</h3>
+    <span class="src-tag src-web" style="background:#e0edff;color:#1e40af">Business</span>
+    <h3>What we know about this business {{ help_dot('hub.client360.scanfacts') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center" id="c-scanfacts-acts"></div></div>
-    <div class="card-b" id="c-scanfacts"><div class="empty">Reading the last scan… <span class="spin"></span></div></div></div>`;
+    <div class="card-b" id="c-scanfacts"><div class="empty">Reading their website… <span class="spin"></span></div></div></div>`;
 
   // ---------- Website record (moved to the bottom) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
@@ -694,7 +703,7 @@ function render(g,q){
 
   window.loadClientImages();
 
-  // ---------- What else the last scan knows ----------
+  // ---------- Everything else known about the business ----------
   /* Read-only, and deliberately a second call rather than more keys on the
      health payload: that one is the fix list and the speed, which is what
      somebody acts on today, and burying it under forty reference rows would
@@ -705,26 +714,27 @@ function render(g,q){
     const dom=(web0&&web0.domain)?String(web0.domain):'';
     if(!dom){
       host.innerHTML='<div class="empty">No website record attached, so there is '
-        +'no scan to read. Attach one below.</div>';
+        +'nothing to read this off. Attach one below.</div>';
       return;
     }
     fetch('/api/client/scan-facts?domain='+encodeURIComponent(dom),{credentials:'same-origin'})
       .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
         if(d.error){
           // "We could not look" is not "there is nothing" — never a clean nothing.
-          host.innerHTML='<div class="empty">The site scans could not be read, so '
-            +'this is <b>not measured</b>: '+esc(d.error)+'</div>';
+          host.innerHTML='<div class="empty">This could not be read, so '
+            +'it is <b>not measured</b>: '+esc(d.error)+'</div>';
           return;
         }
         if(!d.found){
-          host.innerHTML='<div class="empty">'+esc(d.note||'No completed scan yet.')
-            +' <a href="/scans/?q='+encodeURIComponent(dom)+'">Run one →</a></div>';
+          host.innerHTML='<div class="empty">'
+            +esc(d.note||'Nothing has been read from this website yet.')+'</div>';
           return;
         }
+        // The date the details were read, because a reading with no date on
+        // it is taken for today's. Which tool did the reading is not on it.
         if(acts) acts.innerHTML=
-          '<span class="muted" style="font-size:12px">Scanned '
-          + esc(String(d.scanned_at||'').slice(0,10))+'</span>'
-          + (d.scan_url?'<a class="open-link" href="'+esc(d.scan_url)+'">Open the scan →</a>':'');
+          '<span class="muted" style="font-size:12px">Read '
+          + esc(String(d.scanned_at||'').slice(0,10))+'</span>';
         if(!d.groups || !d.groups.length){
           host.innerHTML='<div class="empty">'+esc(d.note||'')+'</div>';
           return;
@@ -751,7 +761,7 @@ function render(g,q){
             + '</dl></details>').join('')
           + '</div>';
       }).catch(()=>{
-        host.innerHTML='<div class="empty">The scan detail could not be loaded — '
+        host.innerHTML='<div class="empty">These details could not be loaded — '
           +'<b>not measured</b> rather than nothing found.</div>';
       });
   })();
@@ -1116,12 +1126,12 @@ function render(g,q){
         ctl=`<input id="${id}" data-key="${esc(f.key)}" class="wk-in" value="${esc(f.value||'')}"${dis}
               placeholder="${f.kind==='date'?'as Knack stores it, e.g. 01/31/2026':'not recorded'}">`;
       }
-      // A registrar nobody recorded is usually in the last Insites scan of the
-      // same domain — WHOIS. Offered to be copied in, never written for you:
-      // "observed by a scan" and "recorded by us" are different claims.
+      // A registrar nobody recorded is usually already known for the same
+      // domain — WHOIS. Offered to be copied in, never written for you:
+      // "observed on the domain" and "recorded by us" are different claims.
       let extra='';
       if(f.key==='registrar'&&!f.value&&d.registrar&&d.registrar.value){
-        extra=`<div class="muted" style="font-size:11px;margin-top:3px">WHOIS on the latest scan says
+        extra=`<div class="muted" style="font-size:11px;margin-top:3px">WHOIS on this domain says
           <b>${esc(d.registrar.value)}</b>${d.registrar.expires?' · expires '+esc(d.registrar.expires):''}
           <a class="gbtn wk-use" data-for="${id}" data-val="${esc(d.registrar.value)}"
              style="cursor:pointer;font-size:11px;margin-left:4px">use it</a></div>`;
@@ -1303,23 +1313,59 @@ function render(g,q){
     document.getElementById('webq').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
   };
 
-  // ---------- Client profile: contacts, address, category + notes ----------
-  let clientProfile=null;
+  /* ---------- Client profile: contacts, address, category + notes ----------
+     The strip said "No contact info on file yet" about businesses whose
+     address and phone number were already on this record, further down, under
+     a heading about our own tooling. Nobody types a client's address in twice,
+     so it stayed unfilled. What their website publishes is offered into the
+     empty fields, drawn dotted so it reads as an offer rather than a record,
+     and one press keeps it. Nothing is written until that press: the profile
+     is what a person typed and it wins from then on. */
+  let clientProfile=null, clientSuggested=null;
   function renderProfile(p){
     clientProfile=p||{contacts:[],address:'',category:'',notes:[]};
+    // Held across redraws: saving a note re-renders from a payload that
+    // carries no suggestions, and the offer must not vanish because somebody
+    // typed a note.
+    if(p&&p.suggested)clientSuggested=p.suggested;
+    const sug=((clientSuggested||{}).values)||{};
+    const offered=[];
+    const offer=(html)=>'<span style="border-bottom:1px dashed #94a3b8" '
+      +'title="Read from their website. Press “Save these details” to keep it.">'+html+'</span>';
     const prim=(p.contacts||[]).find(c=>c.primary)||(p.contacts||[])[0]||{};
     const others=(p.contacts||[]).filter(c=>c!==prim);
     const bits=[];
     if(prim.name)bits.push('<b>'+esc(prim.name)+'</b>');
+    else if(sug.name){bits.push(offer('<b>'+esc(sug.name)+'</b>'));offered.push('name');}
     if(prim.phone)bits.push('&#128222; '+esc(prim.phone));
+    else if(sug.phone){bits.push('&#128222; '+offer(esc(sug.phone)));offered.push('phone');}
     if(prim.email)bits.push('<a href="mailto:'+esc(prim.email)+'">'+esc(prim.email)+'</a>');
+    else if(sug.email){bits.push(offer('<a href="mailto:'+esc(sug.email)+'">'+esc(sug.email)+'</a>'));offered.push('email');}
     if(p.address)bits.push('&#128205; '+esc(p.address));
+    else if(sug.address){bits.push('&#128205; '+offer(esc(sug.address)));offered.push('address');}
     if(p.category)bits.push('<span class="pill neutral">'+esc(p.category)+'</span>');
+    else if(sug.category){bits.push(offer('<span class="pill neutral">'+esc(sug.category)+'</span>'));offered.push('category');}
     others.forEach(c=>{bits.push('<span class="muted">+ '+esc(c.name||c.email||c.phone)+'</span>');});
+    const keep=offered.length
+      ? '<a class="gbtn" id="profKeep" style="cursor:pointer" title="Writes '
+        +esc(offered.join(', '))+' onto this client record">Save these details</a>' : '';
     $('c-profile').innerHTML=`<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px">
       ${bits.length?bits.join('<span class="muted" style="margin:0 2px">·</span>'):'<span class="muted">No contact info on file yet.</span>'}
-      <a class="gbtn" id="profEdit" style="cursor:pointer;margin-left:auto">&#9998; Edit info</a></div>`;
+      <span style="margin-left:auto;display:flex;gap:8px;align-items:center">${keep}
+      <a class="gbtn" id="profEdit" style="cursor:pointer">&#9998; Edit info</a></span></div>`;
     document.getElementById('profEdit').onclick=openProfileModal;
+    const keepBtn=document.getElementById('profKeep');
+    if(keepBtn)keepBtn.onclick=()=>{
+      keepBtn.textContent='Saving…';
+      fetch('/api/client/profile',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(profileWith(sug))})
+        .then(r=>r.json()).then(d=>{
+          if(d.error){keepBtn.textContent='Save these details';alert(d.error);return;}
+          clientSuggested={values:{}};
+          renderProfile(d.profile);
+        }).catch(()=>{keepBtn.textContent='Save these details';
+          alert('Those details could not be saved.');});
+    };
     // notes card
     const notes=p.notes||[];
     $('c-notes').innerHTML=`<div style="display:flex;gap:8px;margin-bottom:12px">
@@ -1339,12 +1385,29 @@ function render(g,q){
     };
     document.getElementById('noteInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('noteAdd').click();});
   }
-  fetch('/api/client/profile?name='+encodeURIComponent(name)).then(r=>r.json())
+  /* The stored profile, plus what is offered into its empty fields. Never
+     the other way round: a value a person typed is the better source than
+     anything read off a home page, so an offer only ever fills a blank. */
+  function profileWith(sug){
+    const p=clientProfile||{contacts:[]};
+    const contacts=(p.contacts||[]).slice();
+    if(!contacts.length && (sug.name||sug.phone||sug.email))
+      contacts.push({name:sug.name||'',email:sug.email||'',phone:sug.phone||'',primary:true});
+    return {client:name, contacts:contacts,
+            address:(p.address||sug.address||''),
+            category:(p.category||sug.category||'')};
+  }
+
+  fetch('/api/client/profile?name='+encodeURIComponent(name)
+        +'&domain='+encodeURIComponent(window.__c360domain||'')).then(r=>r.json())
     .then(d=>renderProfile(d.profile||{}))
     .catch(()=>{$('c-profile').innerHTML='';$('c-notes').innerHTML='<div class="empty">Notes unavailable.</div>';});
 
   function openProfileModal(){
-    const p=clientProfile||{contacts:[]};
+    // Opened on the merged view: a modal that shows blanks beside a strip
+    // showing values is the screen contradicting itself, and saving from it
+    // would wipe the offer the rep just came to keep.
+    const p=profileWith(((clientSuggested||{}).values)||{});
     let m=document.getElementById('profModal');
     if(m)m.remove();
     m=document.createElement('div');
@@ -1514,8 +1577,8 @@ function render(g,q){
            explanation looks like something a person typed and forgot. */
         + (d.from_scan && d.from_scan.length
             ? '<div class="muted" style="font-size:11.5px;margin-top:8px">'
-              + d.from_scan.length + ' found by the last site scan ('
-              + d.from_scan.join(', ') + ') — Brandfetch didn\'t have '
+              + d.from_scan.length + ' found on their own website ('
+              + d.from_scan.join(', ') + ') — the brand lookup didn\'t have '
               + (d.from_scan.length>1?'them':'it') + '. Save to keep.</div>'
             : '');
       const saveBtn=document.getElementById('c-social-save');
@@ -1758,13 +1821,14 @@ function addLogosToImages(){
 }
 
 function renderBrand(d){
-  // Kept so the Client Images card can show them; the two cards load
-  // independently, so whichever finishes second does the redraw.
-  /* The logo is a client image; it just lives in Brandfetch rather than the
-     gallery, so it never appeared there. The two cards load independently and
-     the gallery fetch isn't in a named function, so rather than re-running it
-     the logo is inserted into whatever the images card has already drawn. */
-  window.BRAND_LOGOS = (d.logos||[]).filter(function(l){ return l.url; }).slice(0,2);
+  /* The logo is a client image; it just lives in the brand store rather than
+     the gallery, so it never appeared there. The two cards load independently
+     and the gallery fetch isn't in a named function, so rather than re-running
+     it the logo is inserted into whatever the images card has already drawn.
+     Only the logos actually on file go across: the gallery is the client's own
+     library, and a logo lifted off a home page is a candidate for it, not a
+     member of it. */
+  window.BRAND_LOGOS = (d&&d.logos||[]).filter(function(l){ return l.url; }).slice(0,2);
   addLogosToImages();
 
   const el=document.getElementById('c-brand'); if(!el) return;
@@ -1775,76 +1839,73 @@ function renderBrand(d){
       + '. This call is billed, which is why it is a button.">'
       + (d&&d.found?'Refresh brand':'Look up the brand')+'</a>'
     : '';
-  if(!d || !d.found){
-    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>'
-      + observedHtml(d&&d.observed);
+  const obs = (d&&d.observed)||{};
+  /* "We could not look" is never drawn as "there is nothing" — the rule
+     hub/scan_facts.py carries at length. It says which half is missing, so a
+     card with colours and no logo does not read as a card with everything. */
+  const unread = obs.error
+    ? '<div class="muted" style="font-size:11.5px;margin-top:10px">Their website '
+      + 'could not be read, so whether it carries a logo is <b>not measured</b> '
+      + 'rather than nothing found.</div>'
+    : '';
+
+  if(!d || !d.has_brand){
+    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>'+unread;
     if(acts) acts.innerHTML = lookBtn;
     return;
   }
-  const swatches = (d.colors||[]).map(c=>
-    `<span title="${esc(c.hex)}${c.type?' — '+esc(c.type):''}" style="display:inline-flex;
-      flex-direction:column;align-items:center;gap:4px;margin:0 8px 8px 0">
+
+  /* Every swatch and every tile says where it came from. They are one set
+     because a rep wants the client's colours, not a lesson in which of our
+     services answered — and they stay labelled because a logo the client gave
+     us and a logo seen on their home page are different claims, and only the
+     first belongs on a document a client reads. */
+  const originText = o => o==='site' ? 'Seen on their website' : 'On file';
+  const swatches = (d.palette||[]).map(c=>
+    `<span title="${esc(c.hex)}${c.type?' — '+esc(c.type):''} · ${esc(originText(c.origin))}"
+      style="display:inline-flex;flex-direction:column;align-items:center;gap:4px;margin:0 8px 8px 0">
       <span style="width:38px;height:38px;border-radius:8px;background:${esc(c.hex)};
-        border:1px solid rgba(0,0,0,.12);display:block"></span>
+        border:1px solid rgba(0,0,0,.12);display:block${c.origin==='site'?';box-shadow:inset 0 0 0 2px #fff':''}"></span>
       <code style="font-size:10.5px;color:#64748b">${esc(c.hex)}</code></span>`).join('');
-  const logos = (d.logos||[]).slice(0,4).map(l=>
-    `<a href="${esc(l.url)}" target="_blank" rel="noopener"
-        style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin:0 6px 6px 0;
-        border:1px solid #e2e8f0;border-radius:8px;text-decoration:none;font-size:12px;color:#1769AA">
-        ${esc((l.format||'').toUpperCase()||'LOGO')}${l.theme?' · '+esc(l.theme):''}</a>`).join('');
+
+  const tiles = (d.logo_tiles||[]).slice(0,6).map(l=>
+    `<div style="display:inline-block;margin:0 8px 8px 0;vertical-align:top">
+      <a href="${esc(l.url)}" target="_blank" rel="noopener"
+         style="display:block;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff">
+        <img src="${esc(l.url)}" alt="${esc(l.origin==='site'?'Logo on their website':'Logo on file')}"
+             loading="lazy" style="max-width:120px;max-height:52px;display:block"></a>
+      <div class="muted" style="font-size:10.5px;margin-top:3px;text-align:center">
+        ${esc(l.label||originText(l.origin))}${l.format?' · '+esc(l.format.toUpperCase()):''}</div></div>`).join('');
+
   const fonts = (d.fonts||[]).map(f=>
     `<a href="${esc(f.google)}" target="_blank" rel="noopener"
        style="font-size:13px;color:#1769AA;text-decoration:none;margin-right:12px">${esc(f.name)}</a>`).join('');
+
+  /* A card with something on it still says when nothing has been looked up:
+     the colours may be their website's and the brand's own answer may simply
+     never have been asked for, which is a button press rather than a fact. */
+  const gap = (!d.found && d.note)
+    ? `<div class="muted" style="font-size:11.5px;margin-top:10px">${esc(d.note)}</div>` : '';
+
   el.innerHTML =
+    (tiles?`<div style="margin-bottom:10px"><div class="lbl">Logos</div>${tiles}</div>`:'')+
     (swatches?`<div style="margin-bottom:6px"><div class="lbl">Brand colours</div>${swatches}</div>`:'')+
-    (logos?`<div style="margin-bottom:10px"><div class="lbl">Logos</div>${logos}</div>`:'')+
     (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
     (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'')+
-    observedHtml(d.observed);
+    gap + unread;
+
   /* Once the guide is in Suite the button is a trap: pressing it again just
-     overwrites what's there. Show the state instead. */
-  if(acts) acts.innerHTML = (d.suite_brand_guide
-    ? '<span class="pill ok" title="Pushed '+esc(d.suite_brand_guide)+'">Brand Guide setup in Suite</span>'
-    : '<a class="gbtn" href="#" onclick="pushBrand();return false">Send to Suite Brand Guide</a>')
+     overwrites what's there. Show the state instead. The push carries the
+     brand on file and never a sighting, so it is offered only where there is
+     one — see brand_guide_payload(). */
+  if(acts) acts.innerHTML = (d.found
+    ? (d.suite_brand_guide
+        ? '<span class="pill ok" title="Pushed '+esc(d.suite_brand_guide)+'">Brand Guide setup in Suite</span>'
+        : '<a class="gbtn" href="#" onclick="pushBrand();return false">Send to Suite Brand Guide</a>')
+    : '')
     + ' ' + lookBtn;
 }
 
-/* What the last site scan saw on the client's own website.
-   Deliberately a separate block with its own heading rather than more tiles
-   in "Logos": a logo lifted off a home page and a logo the client gave us
-   are different claims, and only the second belongs on a document a client
-   reads. Most local businesses have no published brand at all, so for them
-   this is the only logo the Hub will ever have — which is exactly why it has
-   to say where it came from. */
-function observedHtml(o){
-  if(!o) return '';
-  if(o.error) return '<div class="muted" style="font-size:12px;margin-top:12px;'
-    + 'border-top:1px solid var(--line);padding-top:10px">Site scans could not '
-    + 'be read, so we cannot say whether one has seen a logo — not measured.</div>';
-  if(!o.found) return '';
-  const swatches=(o.colors||[]).map(c=>
-    `<span title="${esc(c.hex)} — ${esc(c.type||'')}" style="display:inline-flex;
-      flex-direction:column;align-items:center;gap:4px;margin:0 8px 8px 0">
-      <span style="width:30px;height:30px;border-radius:7px;background:${esc(c.hex)};
-        border:1px solid rgba(0,0,0,.12);display:block"></span>
-      <code style="font-size:10px;color:#64748b">${esc(c.hex)}</code></span>`).join('');
-  return '<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:11px">'
-    + '<div class="lbl">Seen on their website '
-    + (o.scanned_at?'<span class="muted" style="font-weight:400">· last scan '
-        +esc(String(o.scanned_at).slice(0,10))+'</span>':'')
-    + '</div>'
-    + (o.logo_url
-        ? '<a href="'+esc(o.logo_url)+'" target="_blank" rel="noopener" '
-          + 'style="display:inline-block;padding:8px;border:1px solid var(--line);'
-          + 'border-radius:8px;background:#fff;margin:0 8px 8px 0">'
-          + '<img src="'+esc(o.logo_url)+'" alt="Logo seen on the site" '
-          + 'style="max-width:120px;max-height:52px;display:block"></a>'
-        : '')
-    + swatches
-    + '<div class="muted" style="font-size:11.5px;margin-top:4px">'+esc(o.note||'')
-    + (o.scan_url?' <a href="'+esc(o.scan_url)+'">See the scan →</a>':'')
-    + '</div></div>';
-}
 function pushBrand(){
   var acts = document.querySelector('#card-brand .right');
 

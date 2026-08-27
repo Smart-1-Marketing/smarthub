@@ -39,11 +39,31 @@ Five failures, and every one of them left a screen looking healthy.
      they publish nothing" are four situations and one of them is a button
      press. They read identically before this.
 
-And the second source: an Insites audit already carries the logo, the brand
+And the second source: a site audit already carries the logo, the brand
 colours, the Google Business Profile and thirty other things this record had
 no answer for. It is read here — labelled **observed**, never merged into the
 brand kit, because a logo lifted off a home page is a candidate and a wrong
 logo on a client-facing document is worse than none.
+
+Three more since:
+
+  6. **Two brand cards.** The kit and the sighting drew as two blocks, so the
+     same colours appeared twice under two headings — and since the lookup
+     publishes nothing for a local business, the *upper* one was the empty
+     one: "No brand data on file yet" printed directly above the logo the
+     card plainly had. One card now, one set of tiles, each saying where it
+     came from and none of them saying which of our services answered.
+
+  7. **A contact strip reading "none on file" about a record holding the
+     address.** The name, address and phone were read off the client's own
+     site and sat three cards down. They are offered into the empty fields,
+     drawn as an offer, and kept by one press — never over anything typed.
+
+  8. **Display ads that reached the log and not the record.**
+     `hub/client_brand.WORK_KINDS` was keyed on neither `ad_builder` nor
+     `display_ads`, and `work_log()` skips a module it cannot name, so a
+     client who had just had a set of ads built read as one nobody had done
+     any work for.
 """
 import os
 import shutil
@@ -444,7 +464,10 @@ check("a section the scan never returned is absent, not nought",
 scan_facts._latest = lambda d: ({}, {}, "")
 none_yet = scan_facts.facts("iconsolar.com")
 check("never scanned: found is False", none_yet["found"], False)
-check("and it says so plainly", "No completed site scan" in none_yet["note"], True)
+check("and it says so plainly",
+      "Nothing has been read from this website yet" in none_yet["note"], True)
+check("without naming which of our tools would have done the reading",
+      "scan" in none_yet["note"].lower(), False)
 check("but it is not an error", none_yet.get("error"), None)
 
 scan_facts._latest = lambda d: ({}, {}, "OperationalError: no such table")
@@ -461,6 +484,151 @@ scan_facts._latest = _real_latest
 check("nothing here reaches a provider",
       "requests" not in (ROOT / "hub" / "scan_facts.py").read_text(), True)
 
+
+
+# =====================================================================
+section("One brand card, from both sources, naming neither of them")
+# =====================================================================
+#
+# It was two blocks: a brand kit fed by the lookup, and a second block under
+# it fed by what had been read off the client's own website. For a local
+# business the lookup publishes nothing at all, so the *upper* block was the
+# empty one — the card led with "No brand data on file yet" directly above the
+# logo it plainly had, and the same colours drew twice under two headings.
+
+scan_facts._latest = lambda d: (REPORT, ROW, "")
+merged = client_brand.brand_kit("Icon Solar", "iconsolar.com")
+
+check("one set of tiles, both sources in it",
+      [t["origin"] for t in merged["logo_tiles"]], ["file", "site"])
+check("and each says where it came from, not which service answered",
+      [t["label"] for t in merged["logo_tiles"]],
+      ["On file", "Seen on their website"])
+check("one palette, and a colour both sources agree on draws once",
+      len({c["hex"] for c in merged["palette"]}), len(merged["palette"]))
+check("the stored role label survives the merge",
+      merged["palette"][0]["origin"], "file")
+
+# The merge is a thing the card does for a reader. It is not done to the data:
+# `logos` is what brand_guide_payload() pushes to Suite and what io_prefill,
+# landing_maker and client_context read, and a logo lifted off a home page has
+# no business in any of them.
+check("nothing was merged into the kit itself",
+      [l["url"] for l in merged["logos"]], ["https://cdn/icon.svg"])
+guide = client_brand.brand_guide_payload("Icon Solar", "iconsolar.com")
+check("so the Suite push still carries only the approved logo",
+      guide["brand_logo_url"], "https://cdn/icon.svg")
+
+# The ordinary local business: no lookup has ever answered, and their own site
+# carries the only logo the Hub will ever have for them. `found` stays False —
+# it is the answer to "is there brand data on file", which the lookup button
+# reads — while the card asks `has_brand`, and drawing an empty state over a
+# logo we hold is the failure this closes.
+_real_brand_for = seo.brand_for
+seo.brand_for = lambda c, d="": None
+nolookup = client_brand.brand_kit("Icon Solar", "iconsolar.com")
+check("no lookup on file: found is still False", nolookup["found"], False)
+check("but there is something to draw", nolookup["has_brand"], True)
+check("and it is their website's logo",
+      [t["url"] for t in nolookup["logo_tiles"]], ["https://site/logo.png"])
+seo.brand_for = _real_brand_for
+
+check("the card draws one merged set", "d.logo_tiles" in C360, True)
+check("and asks whether there is anything at all to draw",
+      "d.has_brand" in C360, True)
+check("the card names no provider to the rep reading it",
+      "Brandfetch</span>" in C360, False)
+
+
+# =====================================================================
+section("Contact details are offered into the strip that had none")
+# =====================================================================
+#
+# The strip said "No contact info on file yet" about businesses whose address
+# and phone number were already on this record, three cards further down,
+# under a heading about our own tooling. Nobody types a client's address in
+# twice, so it stayed unfilled.
+
+CONTACT_REPORT = {
+    "meta": {"detected_name": "Icon Solar", "detected_phone": "(317) 555-0142",
+             "primary_industry": "Solar installer"},
+    "local_presence": {"business_address": "12 Mill Rd, Carmel IN"},
+    "google_business_profile": {"google_address": "1 Old Road, Carmel IN"},
+}
+scan_facts._latest = lambda d: (CONTACT_REPORT, ROW, "")
+seen = scan_facts.contact_observed("iconsolar.com")
+
+check("the details their own site publishes are read",
+      (seen["fields"]["name"], seen["fields"]["phone"]),
+      ("Icon Solar", "(317) 555-0142"))
+# First non-empty wins, and the order is the point: the business describing
+# itself beats the listing address a customer is driven to, which is the one
+# most often out of date.
+check("their own address beats the listing address",
+      seen["fields"]["address"], "12 Mill Rd, Carmel IN")
+check("with the date it was read", seen["observed_at"], "2026-08-01 10:00:00")
+check("and no plumbing in the wording", "scan" in seen["note"].lower(), False)
+
+# "Nothing has been read" and "we could not look" are different answers, and
+# only the first means there is nothing to offer.
+scan_facts._latest = lambda d: ({}, {}, "")
+check("nothing read yet is not an error",
+      (scan_facts.contact_observed("x.com")["found"],
+       scan_facts.contact_observed("x.com").get("error")), (False, None))
+scan_facts._latest = lambda d: ({}, {}, "OperationalError: no such table")
+check("and a table that will not answer says so",
+      "OperationalError" in scan_facts.contact_observed("x.com")["error"], True)
+
+# Suggested is never saved, and only ever fills a blank: a value a person
+# typed is the better source than anything read off a home page.
+scan_facts._latest = lambda d: (CONTACT_REPORT, ROW, "")
+empty = scan_facts.contact_suggestions({"contacts": [], "address": "", "category": ""},
+                                       "iconsolar.com")
+check("an untouched record is offered everything read",
+      sorted(empty["values"]), ["address", "category", "name", "phone"])
+typed = scan_facts.contact_suggestions(
+    {"contacts": [{"name": "Dana", "phone": "(317) 555-9000"}],
+     "address": "9 Elm St", "category": ""}, "iconsolar.com")
+check("a field somebody filled in is never offered over",
+      sorted(typed["values"]), ["category"])
+check("and a record with no domain is offered nothing at all",
+      scan_facts.contact_suggestions({}, "")["values"], {})
+
+check("the strip asks with the record's own domain",
+      "'&domain='+encodeURIComponent(window.__c360domain" in C360, True)
+check("an offer is drawn as an offer, not as a record",
+      "Read from their website" in C360, True)
+check("and one press keeps it", "Save these details" in C360, True)
+check("the edit modal opens on what the strip is showing",
+      "profileWith(((clientSuggested||{}).values)||{})" in C360, True)
+scan_facts._latest = _real_latest
+
+
+# =====================================================================
+section("Work in the Display Ad Builder reaches the client record")
+# =====================================================================
+#
+# `modules/ad_builder` is the TypeScript renderer, so its Hub-side half logs
+# under `display_ads` — declared in `audit.LOG_NAMES` precisely because the
+# directory name and the log name differ. `WORK_KINDS` was keyed on neither,
+# and `work_log()` skips a module it cannot name: every build started and
+# every pack filed against a client was written to the activity log, kept, and
+# then dropped on the way to the record it was written for. A client who had
+# just had a set of display ads built read as a client nobody had done any
+# work for, which is the confidently wrong answer this codebase treats as
+# worse than an error.
+
+from hub import audit                                          # noqa: E402
+
+check("the Display Ad Builder's log name is a kind of work",
+      "display_ads" in client_brand.WORK_KINDS, True)
+check("and it is named for the tool a rep opened, not the directory",
+      client_brand.WORK_KINDS["display_ads"], ("Display ads", "Display Ad Builder"))
+# Whatever audit declares a renamed log for is a name work_log has to know:
+# the declaration exists because the two differ, so it is exactly the case
+# where the table gets keyed on the wrong one.
+check("every declared log name is one the work log can name",
+      sorted(set(audit.LOG_NAMES.values()) - set(client_brand.WORK_KINDS)), [])
 
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)

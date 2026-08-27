@@ -112,20 +112,30 @@ COLOUR_ROLES = [
 
 
 def brand_observed(domain: str) -> dict:
-    """The logo and colours the last scan saw on the client's own site.
+    """The logo and colours seen on the client's own website.
 
     Offered beside stored brand data, never merged into it: a logo lifted off
     a home page and a logo the client gave us are different claims, and the
     only one safe to put on a document is the second. Same shape as
     `hub/knack_websites.registrar_for()` — a person copies it across.
+
+    **The wording carries none of the plumbing.** Where this came from is a
+    site audit, and the person reading the brand card is looking for the
+    client's logo — "the last Insites scan" tells them which of our tools
+    answered, which is not a fact they can act on and is the note
+    `modules/ads_builder/logo.py` already carries about naming Brandfetch to
+    a rep. What a screen shows is *where the logo came from*: their own
+    website, a lookup, or the client record. The date still travels with it,
+    because a sighting with no date on it reads as today's.
     """
     report, row, err = _latest(domain)
     if err:
         return {"found": False, "error": err,
-                "note": "The site scans could not be read, so we cannot say "
-                        "whether one has seen a logo for this client."}
+                "note": "We could not read what has been seen on this website, "
+                        "so whether there is a logo on it is not measured."}
     if not row:
-        return {"found": False, "note": "No completed site scan for this domain yet."}
+        return {"found": False,
+                "note": "Nothing has been read from this website yet."}
 
     logo = str(_get(report, "logo.logo_url") or "").strip()
     has_logo = _get(report, "logo.has_detected_logo")
@@ -146,11 +156,120 @@ def brand_observed(domain: str) -> dict:
         "domain": row.get("domain_key") or canonical_domain(domain),
         "scanned_at": _stamp(row),
         "scan_url": f"/scans/scan/{row.get('public_id')}" if row.get("public_id") else "",
-        "note": ("Seen on the client's own website by the last site scan — a "
-                 "candidate, not an approved brand asset."
+        "note": ("Seen on the client's own website — a candidate, not an "
+                 "approved brand asset."
                  if (logo or colours) else
-                 "The last site scan found no logo or colour scheme on this site."),
+                 "Nothing on their website read as a logo or a colour scheme."),
     }
+
+
+
+# ----------------------------------------------------------------- contact
+# The order each field is taken in. First non-empty wins, and the ordering is
+# the point: `meta` is what the crawler read off the client's own site, which
+# is the business describing itself; `local_presence` is the same details as
+# the directories carry them; the Google listing is last because a listing
+# address is the one a customer is driven to and is the most often out of
+# date. Nothing here is a guess — a field nobody published stays absent.
+CONTACT_SOURCES = {
+    "name":     ("meta.detected_name", "local_presence.business_name"),
+    "address":  ("meta.detected_address", "local_presence.business_address",
+                 "google_business_profile.google_address"),
+    "phone":    ("meta.detected_phone", "local_presence.business_phone",
+                 "google_business_profile.google_phone"),
+    "email":    ("meta.detected_email", "local_presence.business_email"),
+    "category": ("meta.primary_industry", "google_business_profile.gmb_industries"),
+}
+
+
+def contact_observed(domain: str) -> dict:
+    """Name, address, phone and category read off the client's own website.
+
+    Client 360 asked every rep to type these in by hand into the client info
+    strip, on a record where they had already been read off the site and were
+    sitting three cards further down under a heading about our own tooling.
+    Nobody types a client's address in twice, so the strip said "No contact
+    info on file yet" about businesses whose address was on the same page.
+
+    Three rules, each one this codebase has had to learn:
+
+    * **Suggested is not saved.** This never writes anything. It is offered
+      into the empty fields of `hub/seo.get_profile`, a person presses Save,
+      and from that moment the profile wins — the `hub/client_urls.py`
+      overlay rule, and the reason `knack_websites.registrar_for()` offers a
+      registrar rather than writing one.
+    * **`(values, error)`, never a bare dict.** "Nothing has been read from
+      this website" and "we could not look" are different answers and only
+      the first means there is nothing to offer.
+    * **No plumbing in the wording.** Where it came from is their website;
+      which of our tools read it is not something the rep can act on.
+    """
+    report, row, err = _latest(domain)
+    if err:
+        return {"found": False, "fields": {}, "error": err,
+                "note": "We could not read this website, so there is nothing "
+                        "to offer — not measured rather than nothing found."}
+    if not row:
+        return {"found": False, "fields": {},
+                "note": "Nothing has been read from this website yet."}
+
+    fields: dict[str, str] = {}
+    for field, paths in CONTACT_SOURCES.items():
+        for path in paths:
+            value = _s(_get(report, path))
+            if value:
+                fields[field] = value
+                break
+
+    return {
+        "found": bool(fields),
+        "fields": fields,
+        "domain": row.get("domain_key") or canonical_domain(domain),
+        "observed_at": _stamp(row),
+        "note": ("Read from the client's own website."
+                 if fields else
+                 "Their website carried no contact details we could read."),
+    }
+
+
+
+def contact_suggestions(profile: dict, domain: str) -> dict:
+    """`contact_observed`, minus everything already on the client record.
+
+    Only the empty fields are offered. A rep who typed an address is the
+    better source than anything read off a home page — the overlay rule
+    `hub/client_urls.py` works to — and re-offering a value already recorded
+    is how somebody comes to press a button that appears to do nothing.
+
+    Contact fields are gated on the record having *no* contact at all rather
+    than field by field: a contact row is a person, and dropping a phone
+    number read off a home page into the row holding the owner's name is us
+    inventing who answers it.
+
+    Never raises, and never writes. `error` rides through so the strip can say
+    it could not look rather than drawing a clean nothing.
+    """
+    if not domain:
+        return {"values": {}, "note": "", "error": ""}
+    try:
+        seen = contact_observed(domain)
+    except Exception as exc:                              # noqa: BLE001
+        return {"values": {}, "note": "", "error": f"{type(exc).__name__}: {exc}"}
+
+    profile = profile or {}
+    have_contact = any((c or {}).get("name") or (c or {}).get("phone")
+                       or (c or {}).get("email")
+                       for c in (profile.get("contacts") or []))
+    values = {}
+    for field, value in (seen.get("fields") or {}).items():
+        if field in ("address", "category"):
+            if not str(profile.get(field) or "").strip():
+                values[field] = value
+        elif not have_contact:
+            values[field] = value
+    return {"values": values, "note": seen.get("note") or "",
+            "observed_at": seen.get("observed_at") or "",
+            "error": seen.get("error") or ""}
 
 
 # ------------------------------------------------------------------- facts
@@ -201,11 +320,12 @@ def facts(domain: str) -> dict:
     report, row, err = _latest(domain)
     if err:
         return {"found": False, "measured": False, "error": err,
-                "note": "The site scans could not be read."}
+                "note": "This website could not be read, so none of this is "
+                        "measured."}
     if not row:
         return {"found": False, "measured": False,
                 "domain": canonical_domain(domain),
-                "note": "No completed site scan for this domain yet."}
+                "note": "Nothing has been read from this website yet."}
 
     g = lambda p, d=None: _get(report, p, d)                    # noqa: E731
     groups = []
@@ -247,7 +367,7 @@ def facts(domain: str) -> dict:
 
     fb_link = _s(g("facebook_page.page_link"))
     group("Social presence",
-          "What the scan found linked from the site, with the numbers behind "
+          "What is linked from their site, with the numbers behind "
           "each — a page with 40 followers and a page with 4,000 are not the "
           "same finding.",
           [_row("Facebook", _s(g("facebook_page.page_name")) or _b(g("facebook_page.found")),
@@ -346,7 +466,7 @@ def facts(domain: str) -> dict:
           "The renewal facts, observed rather than recorded — "
           "hub/knack_websites.py reads the same registrar for the domain record.",
           [_row("Registrar", _s(g("domain_age.registrar")),
-                hint="Observed by the scan. The recorded registrar is on the "
+                hint="Observed on the domain itself. The recorded registrar is on the "
                      "domain record; where they disagree, the record wins."),
            _row("Registered", _s(g("domain_age.registered_date"))[:10]),
            _row("Domain expires", _s(g("domain_age.expiry_date"))[:10]),
@@ -356,9 +476,10 @@ def facts(domain: str) -> dict:
            _row("Redirects to HTTPS", _b(g("ssl.ssl_redirect"))),
            _row("Has a privacy policy", _b(g("ccpa.has_privacy_policy")))])
 
-    group("Who the scan thinks they are",
-          "The name, address and phone number the crawler read off the site — "
-          "worth an eye when a client record disagrees with it.",
+    group("Business details on their website",
+          "The name, address and phone number their own site publishes — "
+          "worth an eye when the client record disagrees with it. These are "
+          "offered into the client info strip at the top of this record.",
           [_row("Name", _s(g("meta.detected_name"))),
            _row("Address", _s(g("meta.detected_address"))),
            _row("Phone", _s(g("meta.detected_phone"))),
@@ -374,6 +495,6 @@ def facts(domain: str) -> dict:
         "scan_url": f"/scans/scan/{row.get('public_id')}" if row.get("public_id") else "",
         "groups": groups,
         "note": ("" if groups else
-                 "The last scan carried none of these sections — that is a "
-                 "plan or a site the crawler could not read, not a clean bill."),
+                 "None of these sections came back for this website — that is "
+                 "a plan or a site that could not be read, not a clean bill."),
     }
