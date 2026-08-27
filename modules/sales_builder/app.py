@@ -63,8 +63,8 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import (Paragraph, SimpleDocTemplate, Spacer, Table,
-                                TableStyle)
+from reportlab.platypus import (Image as RLImage, Paragraph, SimpleDocTemplate,
+                                Spacer, Table, TableStyle)
 from xml.sax.saxutils import escape as xml_escape
 
 # ---- Word export ----
@@ -84,6 +84,8 @@ from hub import industries as hub_industries
 from hub import proposal_spec as hub_spec
 from hub import rate_card as hub_rate_card
 from hub import target_areas as hub_areas
+from hub import target_map as hub_map
+from hub.config import settings as hub_config
 
 # Activity logging. Guarded so this module still runs standalone, but
 # inside the Hub every action is attributable — this module created client quotes,
@@ -864,6 +866,138 @@ def _p(text, style):
     return Paragraph(body, style)
 
 
+def _inline(text) -> str:
+    """One line of cleaned copy, escaped, with the one allowed tag put back."""
+    body = xml_escape(str(text or ""))
+    return body.replace(_BOLD_OPEN, "<b>").replace(_BOLD_CLOSE, "</b>")
+
+
+def show_map(state) -> bool:
+    """Whether this proposal carries a coverage map.
+
+    Default on, and switched off per proposal the same way a generated table
+    is -- one flag on the areas section, read by the preview, the PDF and the
+    Word export, rather than three screens each deciding for themselves.
+    """
+    for sec in (state or {}).get("sections") or []:
+        if sec.get("kind") == "areas":
+            return sec.get("showMap") is not False and sec.get("enabled", True)
+    # No outline on this quote yet -- which is every quote at the moment the
+    # target areas are being described, three steps before the document
+    # exists. Answering False there meant the map panel on the areas screen
+    # said "left out of this proposal" about a proposal with no sections in
+    # it at all. Only an explicit no is a no.
+    return True
+
+
+def campaign_map(state):
+    """The campaign's map, and what it does and does not show. Never raises."""
+    if not show_map(state):
+        return None, {"reason": "The map is left out of this proposal.",
+                      "plotted": [], "not_plotted": [], "measured": False}
+    try:
+        return hub_map.render(campaign_areas(state))
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("target map failed: %s", exc)
+        return None, {"reason": f"The map could not be drawn ({exc}).",
+                      "plotted": [], "not_plotted": [], "measured": False}
+
+
+def _docx_body(d, text) -> None:
+    """Section copy in Word, with a bulleted list as a bulleted list.
+
+    Word has a List Bullet style and python-docx will raise if the template
+    does not carry it, so the fallback writes the bullet character itself --
+    a list that looks slightly hand-made beats an export that 500s, and beats
+    the run-on sentence this replaced.
+    """
+    for block in hub_spec.blocks(text):
+        rows = ([block] if block["kind"] == "para" else block["items"])
+        for row in rows:
+            para = None
+            if block["kind"] == "list":
+                try:
+                    para = d.add_paragraph(style="List Bullet")
+                except Exception:                   # noqa: BLE001
+                    para = d.add_paragraph()
+                    para.add_run("\u2022  ")
+            if para is None:
+                para = d.add_paragraph()
+            for piece, bold in row["runs"]:
+                run = para.add_run(piece)
+                run.font.bold = bold
+
+
+def _docx_map(d, png: bytes, meta: dict) -> None:
+    """The same map the PDF carries, at the same place in the document."""
+    try:
+        d.add_picture(BytesIO(png), width=Inches(6.4))
+    except Exception as exc:                        # noqa: BLE001
+        logger.warning("map could not be placed in the Word export: %s", exc)
+        return
+    covered = [row["label"] for row in meta.get("not_plotted") or []
+               if row.get("kind") in hub_map.NOT_DRAWN]
+    if covered:
+        note = d.add_paragraph()
+        run = note.add_run("Also covered, and not drawn on the map: "
+                           + ", ".join(covered) + ".")
+        run.font.size = Pt(8.5)
+        run.font.color.rgb = RGBColor(0x53, 0x65, 0x7A)
+
+
+def _map_flowables(png: bytes, meta: dict, small_style) -> list:
+    """The map, sized to the text column, with what it leaves out named.
+
+    The caveat line is deliberately short and factual. It exists because a
+    map showing two rings on a campaign that also covers a whole DMA is a
+    picture of *part* of the buy, and a client reading it as the whole buy is
+    the confidently wrong answer this codebase keeps having to undo. What is
+    never printed here is the internal half -- a geocoder that could not find
+    a spelling is the rep's to fix, and belongs on the builder's screen.
+    """
+    from PIL import Image as PILImage           # already a dependency
+    try:
+        with PILImage.open(BytesIO(png)) as im:
+            width, height = im.size
+    except Exception:                           # noqa: BLE001
+        return []
+    draw_w = 7.4 * inch
+    flow = [Spacer(1, 4),
+            RLImage(BytesIO(png), width=draw_w, height=draw_w * height / max(1, width))]
+    covered = [row["label"] for row in meta.get("not_plotted") or []
+               if row.get("kind") in hub_map.NOT_DRAWN]
+    if covered:
+        flow.append(_p("Also covered, and not drawn on the map: "
+                       + ", ".join(covered) + ".", small_style))
+    flow.append(Spacer(1, 4))
+    return flow
+
+
+def _body_flowables(text, style) -> list:
+    """Section copy as paragraphs and real bullet lists.
+
+    A bulleted list used to arrive here as one string with the bullet
+    characters inside it, so reportlab set it as a paragraph and the client
+    read "we will target three areas: • Carmel • Fishers • Noblesville" as a
+    sentence. `proposal_spec.blocks()` is the one place that decides what is a
+    list -- the preview and the Word export read the same function, so the
+    three renderers cannot disagree about it.
+    """
+    out = []
+    for block in hub_spec.blocks(text):
+        if block["kind"] == "para":
+            out.append(Paragraph(_inline(block["text"]).replace("\n", "<br/>"), style))
+            continue
+        bullet = ParagraphStyle(
+            f"bul{id(block)}", parent=style, leftIndent=style.fontSize * 1.6,
+            bulletIndent=style.fontSize * 0.5, spaceAfter=max(1, style.spaceAfter - 2))
+        for item in block["items"]:
+            out.append(Paragraph(_inline(item["text"]), bullet, bulletText="\u2022"))
+        if out:
+            out.append(Spacer(1, 3))
+    return out
+
+
 # Sections whose generated table a rep may leave out or replace by hand.
 # `text` and `cover` carry no table, so offering them the control would make
 # the button mean nothing.
@@ -1275,7 +1409,7 @@ def build_proposal_pdf(q, state):
             continue
         story.append(Paragraph(xml_escape(sec.get("title") or ""), st_h2))
         if sec.get("body"):
-            story.append(_p(sec.get("body"), st_body))
+            story += _body_flowables(sec.get("body"), st_body)
         kind = sec.get("kind")
         # Excluded or hand-edited, decided once. A branch per kind is how the
         # setting comes to be honoured by eleven of the twelve.
@@ -1298,6 +1432,14 @@ def build_proposal_pdf(q, state):
                 story.append(et)
             continue
         if kind == "areas":
+            # The map first, then the table that names what it shows. A client
+            # recognises where the campaign runs far faster than they read
+            # three sentences describing it -- and the areas a map cannot draw
+            # (a DMA, a state, a national buy) are in the table underneath,
+            # which is why the picture never stands alone.
+            png, map_meta = campaign_map(state)
+            if png:
+                story += _map_flowables(png, map_meta, st_small)
             if areas:
                 rows = [["Target area", "Coverage", "Est. population"]]
                 for area in areas:
@@ -1681,12 +1823,12 @@ def build_proposal_docx(q, state):
         for run in h.runs:
             run.font.color.rgb = NAVY_D
         if sec.get("body"):
-            for runs in hub_spec.rich_runs(sec.get("body")):
-                para = d.add_paragraph()
-                for piece, bold in runs:
-                    run = para.add_run(piece)
-                    run.font.bold = bold
+            _docx_body(d, sec.get("body"))
         kind = sec.get("kind")
+        if kind == "areas":
+            png, map_meta = campaign_map(state)
+            if png:
+                _docx_map(d, png, map_meta)
         table_plan = section_table(sec)
         if not table_plan["show"]:
             continue
@@ -2574,6 +2716,223 @@ def api_zipcodes_in_radius():
     return jsonify({"ok": True, "zipcodes": ", ".join(zips), "count": len(zips),
                     "warning": "AI-assisted ZIP-radius results should be reviewed before "
                                "trafficking — ZIP boundaries and radius intersections change."})
+
+
+@app.get("/api/quotes/<int:qid>/target-map.png")
+def quote_target_map(qid):
+    """The campaign's coverage map, as the proposal carries it.
+
+    A URL rather than a data URL in the page, because the preview redraws on
+    every keystroke of an edited section and a re-encoded PNG in the DOM each
+    time is the same picture paid for a hundred times. `hub.target_map`
+    caches the composed image, so the PDF built a second later is free.
+
+    `v` is ignored deliberately: it carries the areas' signature so a changed
+    campaign gets a new URL and the browser stops serving the old picture.
+    A stale map on a proposal is the worst version of this bug -- it is
+    plausible, it is dated, and it is about somewhere else.
+    """
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        number, raw = q.quote_number, q.data
+    finally:
+        db.close()
+    # Only a malformed blob is caught. A broader except here read an
+    # AttributeError on the wrong column name as "quote could not be read",
+    # which is a 404 that looks exactly like an empty campaign -- the whole
+    # feature silently absent with nothing anywhere saying why.
+    try:
+        state = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "This quote's data could not be read"}), 404
+    png, meta = campaign_map(state)
+    if not png:
+        # 404 rather than a placeholder image: the builder asks for the reason
+        # separately and the client document simply leaves the map out. An
+        # "unavailable" graphic is the one outcome that could reach a client.
+        return jsonify({"ok": False, "error": meta.get("reason") or "No map"}), 404
+    resp = send_file(BytesIO(png), mimetype="image/png",
+                     download_name=f"target-map-{number or qid}.png")
+    resp.headers["Cache-Control"] = "private, max-age=600"
+    return resp
+
+
+@app.post("/api/target-map/status")
+def api_target_map_status():
+    """What the map would show, for the builder — never for the client.
+
+    Answers the three questions separately, because they need three different
+    things done about them: which areas are drawn, which are covered but not
+    drawable (a DMA, a state), and which could not be placed at all and are
+    therefore somebody's to fix.
+    """
+    body = request.get_json(force=True) or {}
+    areas = hub_areas.normalize(body.get("areas") or body.get("targetAreas")) \
+        or hub_areas.from_legacy(body)
+    ok, why = hub_map.available()
+    if not ok:
+        return jsonify({"ok": True, "measured": False, "reason": why,
+                        "plotted": [], "not_plotted": [], "unfound": []})
+    try:
+        placed = hub_map.locate(areas)
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": True, "measured": False, "plotted": [],
+                        "not_plotted": [], "unfound": [],
+                        "reason": f"We could not look the areas up ({exc})."}), 200
+    drawn = [row["kind"] in hub_map.NOT_DRAWN for row in placed["not_plotted"]]
+    return jsonify({
+        "ok": True,
+        "measured": bool(placed["points"]),
+        "plotted": [{"label": p["label"], "found": p["found"],
+                     "radius": p["radius"]} for p in placed["points"]],
+        # Covered by the campaign and not drawable, versus not found at all.
+        # Only the second is a defect, and a screen that lists them together
+        # asks somebody to fix a DMA.
+        "not_plotted": [r for r, is_kind in zip(placed["not_plotted"], drawn) if is_kind],
+        "unfound": [r for r, is_kind in zip(placed["not_plotted"], drawn) if not is_kind],
+        "reason": "" if placed["points"] else
+                  "Nothing here can be placed on a map yet — an area needs a "
+                  "city or a ZIP Code.",
+        "attribution": hub_config.map_tile_attribution})
+
+
+@app.post("/api/paste-areas")
+def api_paste_areas():
+    """A pasted block of locations, read into target areas.
+
+    Nothing is added here. The rows come back with a sentence per line saying
+    how each was read, and the rep presses Add -- because a paste that
+    silently assumed a ten-mile radius on eight of twelve lines is eight
+    decisions nobody made, and a line this could not read must be seen rather
+    than counted.
+    """
+    body = request.get_json(force=True) or {}
+    result = hub_areas.parse_paste(body.get("text"), existing=body.get("areas"))
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/api/paste-places")
+def api_paste_places():
+    """The same paste, for competitors, venues and places to target."""
+    body = request.get_json(force=True) or {}
+    result = hub_areas.parse_places(body.get("text"),
+                                    kind=str(body.get("kind") or "competitor"),
+                                    existing=body.get("existing"))
+    return jsonify({"ok": True, **result})
+
+
+# The research prompt. Separate from the route so the rules are readable and
+# so the test harness can assert they are still in it -- three of them are the
+# difference between a list a rep can use and a list that puts a business on a
+# client's proposal for being plausible.
+FIND_TARGETS_RULES = (
+    "Rules you must follow:\n"
+    "1. Only name businesses, venues or places that genuinely exist today and "
+    "are inside or adjacent to the target areas given. Do not invent a name, "
+    "and do not list a national brand that has no location there.\n"
+    "2. Give a street address ONLY where you are confident it is that "
+    "location's real address. If you are not sure, leave the address empty. An "
+    "empty address is correct and useful — the campaign can still target the "
+    "brand and its customers' behaviour. A wrong address builds a geo-fence "
+    "around somebody else's building.\n"
+    "3. Say in one short line what targeting them is FOR — whose customers "
+    "they are and why this client wants them. Not a description of the "
+    "business.\n"
+    "4. Prefer places the client's actual customers overlap with. A stadium, a "
+    "trade show, a hospital campus or a university is worth more than a "
+    "competitor nobody visits.\n"
+    "5. Return at most 12 rows, strongest first, and no commentary.\n")
+
+
+@app.post("/api/find-targets")
+def api_find_targets():
+    """Research competitors, venues and places worth targeting.
+
+    Everything this returns is a **suggestion**. Nothing is added to the
+    campaign and nothing reaches the client document until a person ticks it:
+    printing a researched list on a proposal is us telling a client who their
+    competitors are on a model's say-so, and that is the paragraph a client
+    checks hardest. Same rule `modules/ads_builder` applies to its competitor
+    research.
+
+    An address is carried only where the model gave one, is labelled
+    unverified, and is never derived from the name -- the rule
+    `modules/ads_builder/logo.py` works to. "We could not research this" and
+    "there is nobody worth naming" are answered differently, because only the
+    second means stop looking.
+    """
+    body = request.get_json(force=True) or {}
+    client = str(body.get("client") or "").strip()
+    areas = hub_areas.normalize(body.get("areas") or body.get("targetAreas")) \
+        or hub_areas.from_legacy(body)
+    where = hub_areas.summary(areas, limit=6) or str(body.get("geo") or "").strip()
+    if not where:
+        return jsonify({"ok": False, "error": "Add at least one target area first — "
+                                              "without somewhere to look, this would "
+                                              "return national brands."}), 400
+    kinds = [k for k in (body.get("kinds") or ["competitor", "venue", "place"])
+             if k in hub_areas.PLACE_KINDS] or list(hub_areas.PLACE_KINDS)
+    already = [str((r or {}).get("name") or "").strip()
+               for r in (body.get("existing") or []) if isinstance(r, dict)]
+    prompt = (
+        "You are a media planner at Smart 1 Marketing building the targeting "
+        "for a local advertising campaign. Research, using the web, who and "
+        "where this campaign should go after.\n\n"
+        f"Client: {client or 'the advertiser'}\n"
+        f"Their website: {str(body.get('url') or '') or 'not given'}\n"
+        f"Industry: {str(body.get('industry') or '') or 'not given'}\n"
+        f"What they sell: {str(body.get('sells') or '') or 'not given'}\n"
+        f"Target areas: {where}\n"
+        f"Campaign goals: {', '.join(str(o) for o in (body.get('objectives') or [])) or 'not given'}\n"
+        + (f"Already named on this campaign, do not repeat: {', '.join(already[:40])}\n"
+           if already else "")
+        + "\nReturn STRICT JSON only: {\"targets\":[{\"kind\":\"competitor|venue|place\","
+        "\"name\":\"\",\"address\":\"\",\"why\":\"\",\"confidence\":\"confirmed|likely\"}]}\n"
+        f"Kinds to include: {', '.join(kinds)}. "
+        "competitor = a business that takes this client's customers. "
+        "venue = somewhere their customers gather (a stadium, an arena, an "
+        "expo centre, a campus). place = any other location worth fencing (a "
+        "retail park, a hospital, an employer, an event site).\n\n"
+        + FIND_TARGETS_RULES)
+    try:
+        raw = _json_from_ai(_openai_response(prompt, 6000))
+    except Exception as exc:                            # noqa: BLE001
+        # Deliberately not an empty list: "we could not look" and "there is
+        # nobody" send a rep to two different places, and only the second one
+        # means the campaign has no conquesting to do.
+        return jsonify({"ok": False, "error": "The research request failed",
+                        "detail": str(exc)}), 502
+
+    seen = {n.lower() for n in already if n}
+    out = []
+    for row in (raw.get("targets") or [])[:12]:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()[:200]
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        kind = str(row.get("kind") or "competitor").strip().lower()
+        out.append({
+            "kind": kind if kind in hub_areas.PLACE_KINDS else "competitor",
+            "name": name,
+            "address": str(row.get("address") or "").strip()[:200],
+            "note": hub_spec.plain_text(str(row.get("why") or ""))[:200],
+            "confidence": ("confirmed" if str(row.get("confidence") or "").lower()
+                           == "confirmed" else "likely"),
+            # Ticked by a person before it is anything at all.
+            "accepted": False,
+        })
+    return jsonify({
+        "ok": True, "targets": out, "searched": where,
+        "note": ("Nothing came back for this campaign. That is an answer — it "
+                 "does not mean the search failed." if not out else
+                 "Researched, not verified. Tick what belongs on this campaign; "
+                 "check any address before it is used to build a geo-fence."),
+    })
 
 
 @app.post("/api/zip-rule")

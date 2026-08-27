@@ -280,7 +280,16 @@
   .dhead h3{color:var(--navy);font-size:15px;margin:0;flex:1}
   .dtools{display:flex;gap:4px;opacity:.45;transition:opacity .15s}
   .docsec:hover .dtools{opacity:1}
-  .dbody{font-size:13.5px;line-height:1.62;color:#33415C;margin-top:8px;white-space:pre-wrap}
+  /* Blocks rather than pre-wrap. A bulleted list is a real <ul> now — the
+     PDF and the Word export draw one too, from the same hub/proposal_spec
+     blocks() — so the body can no longer be one preformatted string. */
+  .dbody{font-size:13.5px;line-height:1.62;color:#33415C;margin-top:8px}
+  .dbody p{margin:0 0 8px}
+  .dbody p:last-child{margin-bottom:0}
+  .dlist{margin:0 0 9px;padding-left:20px}
+  .dlist li{margin:0 0 4px}
+  .dmap{margin-top:11px}
+  .dmap img{width:100%;display:block;border:1px solid var(--line);border-radius:10px}
   .dempty{margin-top:8px}
   .dedit{width:100%;min-height:130px;margin-top:8px;font:13.5px/1.6 inherit;
     border:2px solid var(--blue);border-radius:10px;padding:11px;box-sizing:border-box}
@@ -531,8 +540,27 @@ let REP_NAME=lsGet("s1_rep_name",""),REP_EMAIL=lsGet("s1_rep_email","");
    nothing else in the body can reach the page as markup. Copy typed into the
    editor by hand goes through the same path, or the rule holds only until
    somebody pastes. */
+function inlineRich(s){
+ return esc(s).replace(/&lt;b&gt;/g,'<b>').replace(/&lt;\/b&gt;/g,'</b>');}
+/* Copy as the blocks the document actually draws: paragraphs, and a bulleted
+   list as a list. This is the browser half of hub/proposal_spec.blocks() --
+   the PDF and the Word export read the Python one, and all three had better
+   agree, because the failure being fixed here is a list that arrived as
+   "three areas: • Carmel • Fishers • Noblesville" inside one sentence. */
 function richText(s){
- return esc(s).replace(/&lt;b&gt;/g,'<b>').replace(/&lt;\/b&gt;/g,'</b>').replace(/\n/g,'<br>');}
+ const out=[];let list=null;
+ String(cleanCopy(s)||"").split("\n").forEach(line=>{
+  const t=line.trim();
+  if(!t)return;
+  if(t.charAt(0)==="\u2022"){
+   const item=t.replace(/^\u2022+\s*/,"").trim();
+   if(!item)return;
+   if(!list){list=[];out.push(list);}
+   list.push(item);return;}
+  list=null;out.push(t);});
+ return out.map(b=>Array.isArray(b)
+   ? '<ul class="dlist">'+b.map(i=>'<li>'+inlineRich(i)+'</li>').join('')+'</ul>'
+   : '<p>'+inlineRich(b)+'</p>').join('');}
 /* The same cleaning, client side, so a rep who pastes Markdown into a
    section sees it normalised at once rather than discovering it in the PDF.
    Deliberately the conservative half of the server's rule: bold and the
@@ -545,6 +573,12 @@ function cleanCopy(s){
   .replace(/<\s*\/?\s*strong\s*>/gi,m=>m.includes("/")?"</b>":"<b>")
   .replace(/^\s{0,3}#{1,6}\s*/gm,"")
   .replace(/^\s{0,3}[-*+]\s+/gm,"• ")
+  /* A bullet that shares a line with other bullets is not a list. Mirrors
+     hub/proposal_spec._one_bullet_per_line: the models write
+     "…three areas: • Carmel • Fishers" often enough that asking politely is
+     not a fix, and the server enforces the same shape on the way to the
+     document. */
+  .replace(/(\S)[ \t]+•[ \t]*/g,"$1\n• ")
   .replace(/`/g,"")
   .replace(/(?<!<)\*+(?!\/?b>)/g,"")
   .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu,"")
@@ -1736,8 +1770,126 @@ function drawCompetitors(){
     <button class="x" title="Remove" onclick="rmTarget(${i})">✕</button></div>`).join('')}</div>
   <div class="addrow" style="margin-top:12px">${TARGET_KINDS.map(k=>
    `<button class="btn btn-ghost" title="${esc(k.help)}" onclick="addTarget('${k.key}')">+ ${esc(k.label)}</button>`).join('')}</div>
+  <div class="addrow" style="margin-top:8px">
+   <button class="btn btn-line" onclick="FINDT.open=!FINDT.open;drawCompetitors()">🔎 Find competitors and places</button>
+   <button class="btn btn-line" onclick="PLACEPASTE.open=!PLACEPASTE.open;drawCompetitors()">📋 Paste a list</button></div>
+  ${findTargetsHtml()}${placePasteHtml()}
   <div class="note" id="compMeta" style="margin-top:8px">${esc(targetSummary())}</div>
  </div>`;}
+
+/* ------------------------------------------------------------
+   Researching who to go after
+
+   The client is the person who knows who they lose business to, and they are
+   not in the room when the proposal is built. So this asks the model, over
+   the web, inside the target areas that are already on the campaign.
+
+   Everything it returns is a **suggestion**. Nothing reaches the campaign or
+   the client document until somebody ticks it -- printing a researched list
+   on a proposal is us telling a client who their competitors are on a
+   model's say-so, and that is the paragraph a client checks hardest. Same
+   rule modules/ads_builder applies to its own competitor research.
+
+   An address comes back only where the model gave one and is labelled
+   unverified, because a geo-fence built on a wrong address spends the budget
+   outside somebody else's front door.
+   ------------------------------------------------------------ */
+let FINDT={open:false,busy:false,rows:null,note:"",error:""};
+function findTargetsHtml(){
+ if(!FINDT.open)return '';
+ const areas=(S.targetAreas||[]).filter(areaComplete);
+ return `<div class="bpanel" style="margin-top:12px;background:#f7fbff"><div class="ttl">🔎 Find competitors and places to target</div>
+  <div class="note" style="margin-top:3px">Smart 1 researches the target areas already on this campaign${areas.length?' ('+esc(areas.map(areaLabel).join(' · '))+')':''} and proposes who to go after. Everything it finds is a suggestion until you tick it.</div>
+  ${areas.length?'':'<div class="warnbox" style="margin-top:9px">Add a target area first — without somewhere to look, a search like this comes back with national brands.</div>'}
+  <div class="fld" style="margin-top:9px"><label>What do they sell, in a few words? <span style="font-weight:400;color:var(--muted)">— optional, but it sharpens the answer</span></label>
+   <input id="findSells" value="${esc(FINDT.sells||S.sells||'')}" placeholder="e.g. dental implants and cosmetic dentistry" oninput="FINDT.sells=this.value"></div>
+  <div class="addrow" style="margin-top:9px">
+   <button class="btn btn-primary" ${(!areas.length||FINDT.busy)?'disabled':''} onclick="runFindTargets()">${FINDT.busy?'<span class="spin"></span>Researching…':'🔎 Research this market'}</button>
+   <button class="btn btn-ghost" onclick="FINDT.open=false;drawCompetitors()">Close</button></div>
+  ${FINDT.error?'<div class="warnbox" style="margin-top:9px">'+esc(FINDT.error)+'</div>':''}
+  ${FINDT.rows?findResultsHtml():''}</div>`;}
+function findResultsHtml(){
+ if(!FINDT.rows.length)
+  return '<div class="note" style="margin-top:10px">'+esc(FINDT.note||'Nothing came back for this campaign.')+'</div>';
+ const icon=k=>k==="venue"?"🏟":k==="place"?"📍":"🥊";
+ return `<div style="margin-top:11px">
+  <div class="note" style="margin-bottom:7px">${esc(FINDT.note||'')}</div>
+  ${FINDT.rows.map((r,i)=>`<label class="prod" style="cursor:pointer;background:#fff">
+    <input type="checkbox" ${r.accepted?'checked':''} onchange="FINDT.rows[${i}].accepted=this.checked;drawFindCount()" style="margin:4px 8px 0 0">
+    <div class="pi">${icon(r.kind)}</div>
+    <div class="grow"><h4>${esc(r.name)}</h4>
+     <div class="meta">${esc(r.note||'')}</div>
+     <div class="meta">${r.address
+       ? '📍 '+esc(r.address)+' <span style="color:#8c5a00">— unverified, check it before it is used to build a fence</span>'
+       : 'No address — brand and behaviour only, which is a real answer and not a gap'}</div>
+    </div></label>`).join('')}
+  <div class="addrow" style="margin-top:10px">
+   <button class="btn btn-primary" onclick="addFoundTargets()">+ Add ticked</button>
+   <span class="note" id="findCount" style="align-self:center"></span></div></div>`;}
+function drawFindCount(){
+ const n=(FINDT.rows||[]).filter(r=>r.accepted).length;
+ const el=document.getElementById('findCount');
+ if(el)el.textContent=n?n+" ticked":"Nothing ticked yet — tick what belongs on this campaign.";}
+async function runFindTargets(){
+ FINDT.busy=true;FINDT.error="";drawCompetitors();
+ try{
+  const d=await api('/sales/builder/api/find-targets',{method:'POST',body:JSON.stringify({
+    client:S.client||"",url:S.url||"",industry:S.industry||"",sells:FINDT.sells||"",
+    objectives:S.objectives||[],areas:S.targetAreas||[],existing:targetRows()})});
+  FINDT.rows=d.targets||[];FINDT.note=d.note||"";
+ }catch(e){
+  /* "We could not look" and "there is nobody worth naming" are different
+     answers and only the second means stop looking. */
+  FINDT.error="The research did not run: "+e.message+". Nothing has been changed on the campaign.";
+  FINDT.rows=null;
+ }finally{FINDT.busy=false;drawCompetitors();drawFindCount();}}
+function addFoundTargets(){
+ const picked=(FINDT.rows||[]).filter(r=>r.accepted);
+ if(!picked.length){toast("Tick the ones that belong on this campaign first.");return;}
+ picked.forEach(r=>targetRows().push(Object.assign(blankTarget(),
+   {kind:r.kind,name:r.name,address:r.address||"",note:r.note||""})));
+ FINDT.rows=(FINDT.rows||[]).filter(r=>!r.accepted);
+ saveNow();drawCompetitors();
+ toast("Added "+picked.length+" — check any address before the fence is built.");}
+
+/* The same paste box as the target areas, for the rows inside them. A
+   separate reader on the server, deliberately: a competitor line is a
+   business and an address, an area line is a geography and a radius, and one
+   parser trying to be both reads "Riverside Dental, 1200 Main St" as a city
+   called Riverside Dental. */
+let PLACEPASTE={open:false,busy:false,text:"",kind:"competitor",result:null};
+function placePasteHtml(){
+ if(!PLACEPASTE.open)return '';
+ const r=PLACEPASTE.result;
+ return `<div class="bpanel" style="margin-top:12px"><div class="ttl">📋 Paste a list</div>
+  <div class="note" style="margin-top:3px">One per line: <span style="white-space:nowrap">name | address | what we want from it</span>. The address is optional — a row without one is still targeted by brand and behaviour.</div>
+  <div class="two" style="margin-top:9px"><div class="fld" style="margin-top:0"><label>These are</label>
+   <select onchange="PLACEPASTE.kind=this.value">${TARGET_KINDS.map(k=>`<option value="${k.key}" ${PLACEPASTE.kind===k.key?'selected':''}>${esc(k.label)}</option>`).join('')}</select></div><div></div></div>
+  <div class="fld"><textarea style="min-height:100px" oninput="PLACEPASTE.text=this.value"
+    placeholder="Riverside Dental | 1200 Main St, Carmel, IN 46032 | their implant patients&#10;Lucas Oil Stadium, 500 S Capitol Ave, Indianapolis, IN">${esc(PLACEPASTE.text)}</textarea></div>
+  <div class="addrow">
+   <button class="btn btn-primary" ${PLACEPASTE.busy?'disabled':''} onclick="readPlacePaste()">${PLACEPASTE.busy?'<span class="spin"></span>Reading…':'Read this list'}</button>
+   <button class="btn btn-ghost" onclick="PLACEPASTE.open=false;PLACEPASTE.result=null;drawCompetitors()">Cancel</button></div>
+  ${r?`<div style="margin-top:11px;border-top:1px solid var(--line);padding-top:10px">
+    <div class="note"><b>${esc(r.note||'')}</b></div>
+    ${(r.rows||[]).map(x=>`<div class="note" style="margin:3px 0">${x.duplicate?'⏭':'✓'} ${esc(x.read)}</div>`).join('')}
+    ${(r.skipped||[]).map(x=>`<div class="note" style="margin:3px 0;color:#8c5a00">✕ <b>${esc(x.line)}</b> — ${esc(x.reason)}</div>`).join('')}
+    <div class="addrow" style="margin-top:10px"><button class="btn ${(r.places||[]).length?'btn-primary':'btn-ghost'}" ${(r.places||[]).length?'':'disabled'} onclick="applyPlacePaste()">+ Add ${(r.places||[]).length}</button></div></div>`:''}
+ </div>`;}
+async function readPlacePaste(){
+ if(!String(PLACEPASTE.text||"").trim()){toast("Paste the list first.");return;}
+ PLACEPASTE.busy=true;drawCompetitors();
+ try{PLACEPASTE.result=await api('/sales/builder/api/paste-places',{method:'POST',
+   body:JSON.stringify({text:PLACEPASTE.text,kind:PLACEPASTE.kind,existing:targetRows()})});}
+ catch(e){toast("Could not read that list: "+e.message);}
+ finally{PLACEPASTE.busy=false;drawCompetitors();}}
+function applyPlacePaste(){
+ const add=((PLACEPASTE.result||{}).places)||[];
+ if(!add.length)return;
+ add.forEach(r=>targetRows().push(Object.assign(blankTarget(),r)));
+ PLACEPASTE.open=false;PLACEPASTE.result=null;PLACEPASTE.text="";
+ saveNow();drawCompetitors();
+ toast("Added "+add.length+".");}
 /* Age and income were chips and are sliders now, so 'age' and 'inc' are gone
    from this map. Left in, they would toggle S.ages under a control that reads
    its range from S.ageRange -- the screen and the reach estimate disagreeing
@@ -1747,6 +1899,147 @@ function pill(kind,v){const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};
 function addCustom(kind,id){const el=document.getElementById(id);const v=(el.value||'').trim();if(!v)return;const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};if(!m[kind].includes(v))m[kind].push(v);el.value='';saveSoon();renderStep();}
 function goal(k){toggle(S.objectives,k);S.items=[];S.kpis=[];saveSoon();renderStep();}
 function setBudget(v){S.budget=+v||0;S.configured=false;applySeeds();saveSoon();renderStep();}
+
+/* ============================================================
+   THE COVERAGE MAP
+
+   One picture, drawn server-side by hub/target_map.py and served as a PNG,
+   so the preview, the PDF and the Word export cannot disagree about where
+   the campaign runs. Deliberately not drawn in the browser: a JavaScript map
+   would be a fourth renderer of the same fact, and this codebase already
+   pays for two mirrors (target areas, the creative classifier) that each
+   need a test proving the halves still agree.
+
+   The URL carries a signature of the areas, so changing a radius gets a new
+   picture rather than the browser serving yesterday's -- a stale map is the
+   worst failure available here, because it is plausible, it is on the
+   document, and it is about somewhere else.
+   ============================================================ */
+function areaSig(){
+ const rows=(S.targetAreas||[]).map(a=>[a.type,a.origin,a.radius,a.dma,a.state,a.other,a.name].join("|"));
+ let h=0;const str=rows.join("~");
+ for(let i=0;i<str.length;i++){h=((h<<5)-h+str.charCodeAt(i))|0;}
+ return String(h>>>0);}
+function mapUrl(){return '/sales/builder/api/quotes/'+QUOTE_ID+'/target-map.png?v='+areaSig();}
+function mapBlock(sec){
+ if(sec.showMap===false)
+  return '<div class="dnote">🗺 The coverage map is left out of this proposal. The target areas below still print.</div>';
+ if(!QUOTE_ID)
+  return '<div class="dnote">The map is drawn once this proposal has saved.</div>';
+ if(!(S.targetAreas||[]).some(areaComplete))
+  return '<div class="dnote">No target area to map yet.</div>';
+ return `<div class="dmap"><img src="${mapUrl()}" alt="Map of the campaign's target areas"
+   onerror="mapImgFailed(this)"><div class="dnote" id="mapNote"></div></div>`;}
+function toggleSecMap(id){
+ const sec=S.sections.find(x=>x.id===id);if(!sec)return;
+ sec.showMap=sec.showMap===false;saveSoon();drawPreview();}
+/* A map that could not be drawn leaves no gap on the client's document and
+   no silence on the rep's screen: the image is removed and the reason is
+   printed here, where somebody can act on it. */
+function mapImgFailed(img){
+ img.style.display='none';
+ mapStatus().then(st=>{
+  const n=document.getElementById('mapNote');
+  if(n)n.textContent=(st&&st.reason)||"The map could not be drawn this time. The target areas are unaffected.";});}
+let _mapStatusSig=null,_mapStatusData=null,_mapStatusP=null;
+function mapStatus(force){
+ const sig=areaSig();
+ if(!force&&_mapStatusSig===sig&&_mapStatusData)return Promise.resolve(_mapStatusData);
+ if(_mapStatusP&&_mapStatusSig===sig)return _mapStatusP;
+ _mapStatusSig=sig;
+ _mapStatusP=api('/sales/builder/api/target-map/status',{method:'POST',
+   body:JSON.stringify({areas:S.targetAreas||[]})})
+  .then(d=>{_mapStatusData=d;return d;})
+  .catch(()=>({measured:false,plotted:[],not_plotted:[],unfound:[],
+    reason:"We could not check the map."}));
+ return _mapStatusP;}
+/* What the map shows, said in words, on the screen where the areas are
+   edited. Three answers rather than two: drawn, covered but not drawable (a
+   DMA has no boundary here and drawing a blob would be a claim nobody can
+   check), and not found at all -- which is the only one of the three that is
+   somebody's to fix, so it is the only one offered as something to fix. */
+function drawMapPanel(){
+ const box=document.getElementById('mapPanel');if(!box)return;
+ if(!QUOTE_ID){box.innerHTML='<div class="note">The map is drawn once this proposal has saved.</div>';return;}
+ if(!(S.targetAreas||[]).some(areaComplete)){
+  box.innerHTML='<div class="note">Describe an area and it appears here.</div>';return;}
+ /* Capped rather than full-bleed. At the width of this step the picture
+    fills a laptop screen on its own and pushes the audience controls under
+    the fold -- and the map is reference here, not the deliverable. */
+ box.innerHTML=`<img src="${mapUrl()}" alt="Map of the campaign's target areas"
+   style="width:100%;max-width:560px;display:block;border:1px solid var(--line);border-radius:10px"
+   onerror="this.style.display='none'"><div class="note" id="mapPanelNote" style="margin-top:7px"><span class="spin"></span>Checking what the map can show…</div>`;
+ mapStatus().then(st=>{
+  const n=document.getElementById('mapPanelNote');if(!n)return;
+  const bits=[];
+  if(st.plotted&&st.plotted.length)
+   bits.push('<b>'+st.plotted.length+'</b> area'+(st.plotted.length===1?'':'s')+' drawn');
+  (st.not_plotted||[]).forEach(r=>bits.push(esc(r.label)+' — '+esc(r.reason)));
+  let html=bits.join(' · ')||esc(st.reason||'');
+  if(st.unfound&&st.unfound.length)
+   html+='<div class="warnbox" style="margin-top:8px">Not on the map: '
+    +st.unfound.map(r=>'<b>'+esc(r.label)+'</b> — '+esc(r.reason)).join('<br>')
+    +'<div style="margin-top:5px">The campaign still covers these. Correcting the city or adding the state puts them on the picture.</div></div>';
+  n.innerHTML=html;});}
+
+/* ============================================================
+   PASTING A LIST OF LOCATIONS
+
+   Eleven rooftops is eleven trips through the area editor, and the list
+   already exists in the email the rep is reading. Nothing is added until the
+   rows come back and somebody presses Add: the reading is shown first, line
+   by line, because a paste that quietly assumed ten miles on eight lines is
+   eight decisions nobody made -- and a line that could not be read has to be
+   seen rather than counted.
+   ============================================================ */
+let PASTE={open:false,busy:false,result:null,text:""};
+function pasteBox(){
+ if(!PASTE.open)
+  return `<div style="margin-top:10px"><button class="btn btn-line" onclick="PASTE.open=true;renderStep()">📋 Paste a list of locations</button></div>`;
+ const r=PASTE.result;
+ return `<div class="bpanel" style="margin-top:12px"><div class="ttl">📋 Paste a list of locations</div>
+  <div class="note" style="margin-top:3px">One location per line. A city, a ZIP Code, a DMA or a state — with a radius if you have one. Columns pasted from a spreadsheet work too: <span style="white-space:nowrap">name | city | radius | notes</span>.</div>
+  <div class="fld" style="margin-top:9px"><textarea id="pasteIn" style="min-height:110px"
+    placeholder="Carmel showroom | Carmel, IN | 10&#10;Fishers, IN 15mi&#10;Indianapolis DMA&#10;46032, 46033, 46074"
+    oninput="PASTE.text=this.value">${esc(PASTE.text)}</textarea></div>
+  <div class="addrow">
+   <button class="btn btn-primary" id="pasteBtn" onclick="readPaste()" ${PASTE.busy?'disabled':''}>${PASTE.busy?'<span class="spin"></span>Reading…':'Read this list'}</button>
+   <button class="btn btn-ghost" onclick="PASTE.open=false;PASTE.result=null;renderStep()">Cancel</button>
+  </div>
+  ${r?pasteResultHtml(r):''}</div>`;}
+function pasteResultHtml(r){
+ const rows=(r.rows||[]).map(x=>`<div class="note" style="margin:3px 0">${x.duplicate?'⏭':'✓'} <b>${esc(x.line)}</b> — ${esc(x.read)}${x.duplicate?' (already on this campaign)':''}</div>`).join('');
+ const bad=(r.skipped||[]).map(x=>`<div class="note" style="margin:3px 0;color:#8c5a00">✕ <b>${esc(x.line)}</b> — ${esc(x.reason)}</div>`).join('');
+ const n=(r.areas||[]).length;
+ return `<div style="margin-top:11px;border-top:1px solid var(--line);padding-top:10px">
+  <div class="note"><b>${esc(r.note||'')}</b></div>
+  ${rows}${bad}
+  ${bad?'<div class="note" style="margin-top:5px">Lines that were not understood are left out — add those by hand, or reword them and read the list again.</div>':''}
+  <div class="addrow" style="margin-top:10px">
+   <button class="btn ${n?'btn-primary':'btn-ghost'}" ${n?'':'disabled'} onclick="applyPaste()">+ Add ${n} target area${n===1?'':'s'}</button>
+  </div></div>`;}
+async function readPaste(){
+ if(!String(PASTE.text||"").trim()){toast("Paste the list first.");return;}
+ PASTE.busy=true;renderStep();
+ try{PASTE.result=await api('/sales/builder/api/paste-areas',{method:'POST',
+   body:JSON.stringify({text:PASTE.text,areas:S.targetAreas||[]})});}
+ catch(e){toast("Could not read that list: "+e.message);}
+ finally{PASTE.busy=false;renderStep();}}
+function applyPaste(){
+ const add=(PASTE.result||{}).areas||[];
+ if(!add.length)return;
+ S.targetAreas=(S.targetAreas||[]).filter(a=>areaComplete(a)||!areaIsBlank(a)).concat(add);
+ S.aiEst=null;PASTE.open=false;PASTE.result=null;PASTE.text="";
+ syncLegacyGeo();saveNow();renderStep();
+ toast("📍 "+add.length+" target area"+(add.length===1?'':'s')+" added.");}
+/* A blank starter row the wizard creates for the editor. Pasting a list
+   should replace it rather than leaving an empty area at the top of the
+   campaign, which is what `areaComplete` alone would do. */
+function areaIsBlank(a){
+ a=a||{};
+ return !String(a.name||"").trim()&&!String(a.origin||"").trim()&&!String(a.dma||"").trim()
+   &&!String(a.state||"").trim()&&!String(a.other||"").trim()&&!String(a.zips||"").trim()
+   &&a.type!=="Statewide"&&a.type!=="National";}
 
 /* ============================================================
    TARGET AREA SUB-FLOW
@@ -1827,6 +2120,10 @@ function areaListStep(){
      <button class="btn btn-ghost" style="padding:7px 11px" onclick="editArea(${i})">Edit</button>
      <button class="x" title="Remove this target area" onclick="removeArea(${i})">✕</button></div>`;}).join('')}</div>
   <div style="margin-top:14px"><button class="btn btn-primary" onclick="addAnotherArea()">+ Add another target area</button></div>
+  ${pasteBox()}
+  <div class="bpanel" style="margin-top:16px"><div class="ttl">🗺 Where this campaign runs</div>
+   <div class="note" style="margin-top:3px">This map goes on the proposal. A DMA, a state or a national buy is covered by the campaign and is not drawn — the table on the document names those underneath it.</div>
+   <div id="mapPanel" style="margin-top:9px"><div class="note"><span class="spin"></span>Drawing…</div></div></div>
   <div class="bpanel" style="margin-top:20px"><div class="ttl">Who we're targeting inside these areas</div>
    <div class="two" style="margin-top:8px"><div class="fld"><label>Gender</label>
     <select onchange="S.gender=this.value;S.aiEst=null;saveSoon();drawEst()">${opt(["Both","Male","Female"],S.gender)}</select></div><div></div></div>
@@ -1839,7 +2136,7 @@ function areaListStep(){
    <div id="areaBreakdown"></div>
    <div style="margin-top:8px"><a onclick="estimateAudienceAI()" style="cursor:pointer;color:var(--blue);font-weight:700;font-size:13px">↻ Re-estimate every area with Smart 1 AI</a></div></div>`,
   valid:()=>(S.targetAreas||[]).some(areaComplete),
-  after:drawEst,
+  after:()=>{drawEst();drawMapPanel();},
   nextLabel:"Continue →"};}
 function addAnotherArea(){
  S.targetAreas=S.targetAreas||[];
@@ -1915,6 +2212,7 @@ function previewSection(sec,i,e){
    <button class="ic" title="${editing?'Done editing':'Edit this section'}" onclick="toggleEditSec('${sec.id}')">${editing?'✓':'✎'}</button>
    <button class="ic" title="Rewrite with AI" onclick="rewriteSecById('${sec.id}')">✨</button>
    ${hasTable?`<button class="ic" title="${tableOn?'Leave this table out of the proposal — the section copy stays':'Put this table back in the proposal'}" onclick="toggleSecTable('${sec.id}')">${tableOn?'📊':'🚫📊'}</button>`:''}
+   ${sec.kind==='areas'?`<button class="ic" title="${sec.showMap===false?'Put the coverage map back in the proposal':'Leave the coverage map out — the target areas still print'}" onclick="toggleSecMap('${sec.id}')">${sec.showMap===false?'🚫🗺':'🗺'}</button>`:''}
    ${hasTable&&tableOn?`<button class="ic" title="${isTableEdited(sec)?'Edit this table — currently hand-edited':'Edit this table by hand'}" onclick="editSecTable('${sec.id}')">${isTableEdited(sec)?'✍':'⊞'}</button>`:''}
    <button class="ic" title="${req?'Required — every Smart 1 proposal includes this':(sec.enabled?'Hide from the proposal':'Show in the proposal')}" ${req?'disabled style="opacity:.3;cursor:not-allowed"':''} onclick="${req?'':`toggleSec('${sec.id}')`}">${sec.enabled?'👁':'🚫'}</button>
   </div>`;
@@ -1928,8 +2226,12 @@ function previewSection(sec,i,e){
  const table=hasTable&&!tableOn
   ? `<div class="dnote">This table is left out of the proposal. The copy above still prints.</div>`
   : previewTable(sec,e);
+ /* The map leads the areas section, and the table naming what it shows sits
+    under it. A DMA or a statewide buy cannot be drawn, so the picture is
+    never the whole campaign -- which is exactly why it is never on its own. */
+ const map=sec.kind==='areas'?mapBlock(sec):'';
  return `<div class="docsec"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
-  ${body}${isTableEdited(sec)&&tableOn?`<div class="dnote" style="color:#8c5a00">✍ This table was edited by hand and no longer recomputes from the plan. <a onclick="resetSecTable('${sec.id}')" style="cursor:pointer;color:var(--blue);font-weight:700">Put the generated one back</a></div>`:''}${table}</div>`;}
+  ${body}${map}${isTableEdited(sec)&&tableOn?`<div class="dnote" style="color:#8c5a00">✍ This table was edited by hand and no longer recomputes from the plan. <a onclick="resetSecTable('${sec.id}')" style="cursor:pointer;color:var(--blue);font-weight:700">Put the generated one back</a></div>`:''}${table}</div>`;}
 /* Which sections carry a generated table at all. `text` and `cover` are prose
    and have nothing to exclude, and offering them the control would make the
    two buttons mean nothing. */
