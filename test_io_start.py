@@ -139,7 +139,7 @@ check("a named-month flight is read too",
 none = io_prefill.from_proposal("", "12 month campaign at $5,000 per month.")
 check("with no dates stated a flight is still suggested",
       bool(none["fields"].get("start_date")), True)
-check("but it is labelled assumed, not read",
+check("but it is labeled assumed, not read",
       none["sources"].get("start_date"), "assumed")
 check("and the note says so in words",
       "suggested flight" in none["note"], True)

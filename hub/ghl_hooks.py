@@ -102,7 +102,7 @@ def ghl_hook():
                   reason="no token" if not _token() else "bad token")
         # Same response either way: a caller shouldn't be able to tell whether
         # the endpoint is unconfigured or their token was simply wrong.
-        return jsonify({"error": "Not authorised."}), 401
+        return jsonify({"error": "Not authorized."}), 401
 
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict) or not payload:

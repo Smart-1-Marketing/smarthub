@@ -159,7 +159,7 @@ def brand_observed(domain: str) -> dict:
         "note": ("Seen on the client's own website — a candidate, not an "
                  "approved brand asset."
                  if (logo or colours) else
-                 "Nothing on their website read as a logo or a colour scheme."),
+                 "Nothing on their website read as a logo or a color scheme."),
     }
 
 
@@ -437,7 +437,7 @@ def facts(domain: str) -> dict:
           "Each of these has a tool in this Hub behind it.",
           [_row("Images with no alt text", _n(g("alternative_text.images_no_alt_count")),
                 hint="The SEO Image Pipeline and the alt-text writer do these."),
-           _row("Images to optimise", _n(g("image_optimisation.images_to_optimise_count"))),
+           _row("Images to optimize", _n(g("image_optimisation.images_to_optimise_count"))),
            _row("Pages missing a title", _n(g("page_titles_and_descriptions.pages_missing_title_count"))),
            _row("Pages missing a description",
                 _n(g("page_titles_and_descriptions.pages_missing_description_count"))),
@@ -457,7 +457,7 @@ def facts(domain: str) -> dict:
            _row("Ecommerce", _s(g("ecommerce.ecommerce_name"))
                 or _b(g("ecommerce.has_ecommerce"))),
            _row("Email provider", _s(g("email_provider.email_providers"))),
-           _row("Mobile optimised", _b(g("mobile.is_mobile"))),
+           _row("Mobile optimized", _b(g("mobile.is_mobile"))),
            _row("WCAG AA issues", _n(g("accessibility.wcag_aa_issues_count")),
                 hint="Level " + (_s(g("accessibility.wcag_level")) or "AA")
                      + " accessibility failures found on the pages tested.")])

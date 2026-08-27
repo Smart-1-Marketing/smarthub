@@ -301,7 +301,7 @@
 <div class="card seoc-card" id="cardImages">
   <div class="seoc-cardhead"><h3>Client Images</h3>
     <div class="seoc-muted" id="imgCount"></div></div>
-  <p class="seoc-muted" style="margin:0 0 12px">Images optimised and named for this client &mdash; saved to
+  <p class="seoc-muted" style="margin:0 0 12px">Images optimized and named for this client &mdash; saved to
     client gallery as WebP with SEO filenames and alt text.</p>
   <div id="imgStrip"></div>
   <div class="seoc-imgacts">
@@ -378,12 +378,12 @@
       </div>
       <div class="seoc-biz-head">What should the engine know about this company?</div>
       <textarea id="ba_guidance" rows="4"
-        placeholder="How they operate, who they serve, licences and certifications they really hold, warranty and financing terms, legal or compliance wording their industry requires, anything they have asked us to say a particular way."></textarea>
+        placeholder="How they operate, who they serve, licenses and certifications they really hold, warranty and financing terms, legal or compliance wording their industry requires, anything they have asked us to say a particular way."></textarea>
       <p class="seoc-muted" style="font-size:11.5px;margin:5px 0 12px">
         Goes to the topic planner and the writer with every post.</p>
       <div class="seoc-biz-head">Never mention <span class="seoc-muted" style="font-weight:400">(one per line)</span></div>
       <textarea id="ba_avoid" rows="3"
-        placeholder="Competitor names, a discontinued service, “guaranteed”, a claim their licence does not cover…"></textarea>
+        placeholder="Competitor names, a discontinued service, “guaranteed”, a claim their license does not cover…"></textarea>
       <p class="seoc-muted" style="font-size:11.5px;margin:5px 0 12px">
         These are <b>checked in the finished copy</b>, not just asked of the AI.
         A post whose text contains one is flagged in the table and in the client
@@ -928,7 +928,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
 
 
 
-<!-- The centring used to be inline, next to `hidden`. An inline display beats
+<!-- The centering used to be inline, next to `hidden`. An inline display beats
      the browser's [hidden]{display:none}, so the moment this markup started
      rendering the modal covered the page on load — the JS only ever toggles
      `.hidden`. It stayed invisible for as long as it did because the whole
@@ -959,7 +959,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
            are separate decisions: rejecting a pending image means "not this
            one, try again", and it clears the box so the next generate starts
            from the notes you just typed. Deleting an approved image is
-           removing something already in use. Showing one button labelled
+           removing something already in use. Showing one button labeled
            "Delete" next to a pending image asks the wrong question. -->
       <button class="seoc-btn" data-act="reject" onclick="imgAction('reject')"
         style="border-color:#f3d4a8;color:#8a5a12">Reject &amp; try again</button>
@@ -3581,7 +3581,7 @@ function imgAction(act){
 }
 </script>
 <script>
-/* The FAQ export already matches the source page's fonts and colours. The
+/* The FAQ export already matches the source page's fonts and colors. The
    Hub preview didn't, so what you approved looked nothing like what shipped —
    and a preview that misrepresents the output is worse than no preview. This
    applies the same palette here, scoped to the list so it can't leak into the
@@ -3601,7 +3601,7 @@ function applyFaqPalette(style){
     '#faqList a{color:'+f(style.accent,'#1769AA')+'}';
   var note = document.getElementById('faqPaletteNote');
   if(note){
-    note.textContent = 'Preview is using this page\'s own fonts and colours — '+
+    note.textContent = 'Preview is using this page\'s own fonts and colors — '+
       'the same ones the export applies.';
   }
 }

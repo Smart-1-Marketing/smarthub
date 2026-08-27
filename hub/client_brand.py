@@ -28,7 +28,7 @@ from hub import audit, seo
 # describe it. Anything not listed is Hub housekeeping and stays out, so the
 # log reads as a record of deliverables rather than a debug feed.
 WORK_KINDS = {
-    "seo_images":           ("Images optimised", "SEO Image Pipeline"),
+    "seo_images":           ("Images optimized", "SEO Image Pipeline"),
     "image_creator":        ("Graphic created", "Image Creator"),
     "image_picker":         ("Images added to library", "Image Picker"),
     "page_image_optimizer": ("Page images fixed", "Page Image Optimizer"),

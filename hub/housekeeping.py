@@ -199,7 +199,7 @@ def _knack_export() -> list[Finding]:
         issue=f"The products export was generated for {state['label']}, and "
               f"it is now {state['current_label']}. The new, lost, up and "
               "down counts on the scorecard are that month's, not this "
-              "month's — the card labels them, in grey, under the number.",
+              "month's — the card labels them, in gray, under the number.",
         fix="Re-export object_135 to clients_app/data/products.json.",
         count=1, level="low")]
 

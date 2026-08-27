@@ -121,7 +121,7 @@ POST_TYPES: dict[str, dict] = {
     },
     "promo": {
         "label": "Promotion", "share": 12,
-        "brief": "An offer the client has actually authorised. If no offer was "
+        "brief": "An offer the client has actually authorized. If no offer was "
                  "supplied, write about the value of the service instead and "
                  "invent nothing.",
     },
@@ -178,7 +178,7 @@ POST_TYPES: dict[str, dict] = {
 TONES: dict[str, dict] = {
     "friendly": {
         "label": "Friendly and local",
-        "guidance": "Warm and neighbourly. Write the way you would talk to "
+        "guidance": "Warm and neighborly. Write the way you would talk to "
                     "someone over a fence, not the way a brochure talks.",
     },
     "straight": {
@@ -214,7 +214,7 @@ TONES: dict[str, dict] = {
     "community": {
         "label": "Community-minded",
         "guidance": "The business as part of the town. People, places and "
-                    "events a local would recognise.",
+                    "events a local would recognize.",
     },
     "helpful": {
         "label": "Helpful and practical",
@@ -306,7 +306,7 @@ _FLOATING = (
 HOLIDAY_SOURCE = ("Smart 1's own list, kept in hub/social_plan.py. There is no "
                   "authority publishing “national days” and the lists that "
                   "circulate contradict each other, so this one is short and "
-                  "checkable. Check any day you do not recognise before it "
+                  "checkable. Check any day you do not recognize before it "
                   "goes out.")
 
 
@@ -633,7 +633,7 @@ def validate_copy(text: str, *, channels=(), facts: dict | None = None) -> list[
     if hit and hit.group(0).lower() not in allowed.lower():
         flags.append({"level": "block", "code": "deadline",
                       "message": f"“{hit.group(0)}” promises a deadline nobody "
-                                 "authorised."})
+                                 "authorized."})
 
     hit = SUPERLATIVE_RE.search(text)
     if hit:
@@ -739,10 +739,10 @@ def draft_messages(batch: dict, slot: dict, context: dict | None = None) -> list
     if context.get("areas"):
         facts.append(f"Areas served: {context['areas']}")
     if brief.get("offers"):
-        facts.append(f"Authorised offers (the ONLY offers you may mention): "
+        facts.append(f"Authorized offers (the ONLY offers you may mention): "
                      f"{brief['offers']}")
     else:
-        facts.append("Authorised offers: none. Mention no offer, discount or price.")
+        facts.append("Authorized offers: none. Mention no offer, discount or price.")
     if brief.get("notes"):
         facts.append(f"Strategist notes: {brief['notes']}")
     tone = tone_guidance(brief.get("tones"), brief.get("tone"))

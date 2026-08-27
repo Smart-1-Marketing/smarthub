@@ -522,7 +522,7 @@ def api_batch_status(batch_id: str):
     if wanted == "approved" and counts["block"]:
         return _fail(f"{counts['block']} post(s) still have a blocking flag. "
                      "Those are the ones that could publish something the "
-                     "client never authorised.")
+                     "client never authorized.")
     batch["status"] = wanted
     save_batch(batch)
     _log("batch_" + wanted, client=batch.get("client", ""),

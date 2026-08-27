@@ -268,7 +268,7 @@ def test_the_things_that_had_no_control_have_one():
     types = (MODULE / "src" / "types.ts").read_text()
 
     check("a concept can say where its background sits", "backgroundPosition" in types)
-    check("the composer still honours the nine legacy alignments", "resolveBgPosition" in svg)
+    check("the composer still honors the nine legacy alignments", "resolveBgPosition" in svg)
     check("and refuses an alignment SVG would not accept", "BG_POSITIONS" in svg)
     # The nine-way grid was replaced by nudge arrows in the round after this
     # one: it could answer "top or bottom" and not "a bit further down", which
@@ -276,12 +276,12 @@ def test_the_things_that_had_no_control_have_one():
     # test_the_picture_can_be_moved_and_zoomed_rather_than_snapped.
     check("the build screen offers a way to move the picture", "data-nudge" in screen)
 
-    check("a concept can say what colour its overlay is", "backgroundOverlayColor" in types)
-    check("a chosen colour is painted flat, not graded", "fill-opacity" in svg)
-    check("the build screen offers colour and transparency", "bgOpacity" in screen and "bgWash" in screen)
+    check("a concept can say what color its overlay is", "backgroundOverlayColor" in types)
+    check("a chosen color is painted flat, not graded", "fill-opacity" in svg)
+    check("the build screen offers color and transparency", "bgOpacity" in screen and "bgWash" in screen)
 
     check("a text block can carry its own ink", "color?: string" in style)
-    check("an unresolvable colour is dropped rather than rendered as black",
+    check("an unresolvable color is dropped rather than rendered as black",
           "resolveStyleColor" in style)
     check("the build screen offers the brand's own five", "data-ink=" in screen)
 
@@ -524,11 +524,11 @@ def test_the_site_scan_is_read_for_what_it_knows():
     link = (ROOT / "hub" / "ad_builder_link.py").read_text()
     screen = BUILD_HTML.read_text()
     check("there is a route for it", '"/site-brand"' in link)
-    check("it reads the scan's own colour scheme", '_sec("colour_scheme")' in link)
+    check("it reads the scan's own color scheme", '_sec("colour_scheme")' in link)
     check("and the detected logo", '"has_detected_logo"' in link)
     check("joined by domain, never by name", "The URL is the join key" in link)
     check("a client with no scan is not an error", '"found": False' in link)
-    check("the screen offers the colours", "drawSiteBrand" in screen)
+    check("the screen offers the colors", "drawSiteBrand" in screen)
     # Copied rather than applied: which of the five roles a site colour should
     # become is a judgement, and guessing it moves four other things.
     check("clicking one copies it rather than applying it",
@@ -541,6 +541,9 @@ def test_british_spellings_are_gone_from_what_a_person_reads():
     Only the pages: code comments are for whoever opens the file, and
     rewriting three hundred of them would bury the change.
     """
+    # These strings stay British on purpose: they are what the check looks
+    # *for*. A repo-wide pass over the copy converted them once, and the check
+    # then reported every correct "color" on the page as a finding.
     offenders = []
     for path in (MODULE / "public").glob("*.html"):
         for word in ("colour", "Colour", "centre", "Centre", "centred"):

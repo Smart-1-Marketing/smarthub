@@ -74,7 +74,7 @@ SCENARIOS: list[Scenario] = [
     # ------------------------------------------------------------------
     Scenario(
         key="seo_images.first_batch", module="seo_images",
-        title="Name and optimise a batch of client photos",
+        title="Name and optimize a batch of client photos",
         goal="Three photos renamed for SEO, resized, converted to WebP, and "
              "saved to a client's gallery with alt text — plus the <img> tags "
              "ready to paste.",
@@ -97,7 +97,7 @@ SCENARIOS: list[Scenario] = [
                  action="fill", selector="[name='page_url']",
                  value="https://riverside-hvac.example/furnace-repair"),
             Step("Name the project",
-                 "Anything you'll recognise later. This becomes the Cloudinary "
+                 "Anything you'll recognize later. This becomes the Cloudinary "
                  "folder and the archive filter.",
                  "Use the same shape every time — 'furnace-repair-2026' beats "
                  "'photos'. You'll be searching these in six months.",
@@ -117,12 +117,12 @@ SCENARIOS: list[Scenario] = [
                  "images, 1600 for in-page, 1200 for thumbnails.",
                  action="choose", selector="[name='max_edge']", value="2400"),
             Step("Let the AI name them",
-                 "Click Analyse. Each photo comes back with a proposed filename "
+                 "Click Analyze. Each photo comes back with a proposed filename "
                  "and alt text.",
                  "In this demo the names are pre-supplied so we don't spend "
                  "tokens — but they're exactly what the live call returns for "
                  "these inputs.",
-                 action="click", selector="[data-demo='analyse']", simulated=True),
+                 action="click", selector="[data-demo='analyze']", simulated=True),
             Step("Read the alt text, then fix it",
                  "Edit anything that's wrong. The counter turns amber past 125 "
                  "characters.",
@@ -163,7 +163,7 @@ SCENARIOS: list[Scenario] = [
         key="image_creator.promo_post", module="image_creator",
         title="Build a 1080×1080 promo post for a client",
         goal="A finished square social post with a stock background, the "
-             "client's logo, brand colours and headline text — saved as a "
+             "client's logo, brand colors and headline text — saved as a "
              "reopenable project and exported as PNG.",
         minutes=8, path="/tools/image-creator",
         spends=["openai.text"],
@@ -196,14 +196,14 @@ SCENARIOS: list[Scenario] = [
                  action="click", selector="[data-demo='fill-canvas']"),
             Step("Pull in the client's logo",
                  "Open Logos and type the company name — not just the domain.",
-                 "Brandfetch returns the logo variants *and* the brand colours, "
-                 "and the colours drop straight into your picker. That's how you "
+                 "Brandfetch returns the logo variants *and* the brand colors, "
+                 "and the colors drop straight into your picker. That's how you "
                  "stay on-brand without asking anyone for hex codes.",
                  action="fill", selector="[data-demo='logo-search']", value="Riverside HVAC"),
             Step("Add a headline",
                  "Text → Add Heading, then type the offer.",
-                 "Use the brand colour that just appeared in your recent "
-                 "colours. Keep headlines under about six words at this size — "
+                 "Use the brand color that just appeared in your recent "
+                 "colors. Keep headlines under about six words at this size — "
                  "it's being read at thumbnail scale in a feed.",
                  action="fill", selector="[data-demo='text-input']",
                  value="Beat the Heat — $89 Tune-Up"),
@@ -255,7 +255,7 @@ SCENARIOS: list[Scenario] = [
                  "Google Analytics groups traffic by this field and it is "
                  "case-sensitive. 'Paid Social' and 'paid-social' become two "
                  "separate rows in every report you ever run. Watch the field "
-                 "normalise what you type — that's the whole reason this tool "
+                 "normalize what you type — that's the whole reason this tool "
                  "exists rather than building links by hand.",
                  action="fill", selector="[name='utm_medium']", value="Paid Social"),
             Step("See what it did to that",
@@ -412,7 +412,7 @@ SCENARIOS: list[Scenario] = [
                  action="click", selector="[data-demo='faq-save']"),
             Step("Download the accordion",
                  "The `</>` button on the saved row.",
-                 "The HTML reads the fonts and colours off the page it came "
+                 "The HTML reads the fonts and colors off the page it came "
                  "from, so it looks native when it's pasted in. Native "
                  "<details> tags — no JavaScript to break on their site.",
                  action="click", selector="[data-demo='faq-export']"),
@@ -528,7 +528,7 @@ SCENARIOS: list[Scenario] = [
                  "It picks the CPC benchmark and seeds the negative themes.",
                  "Every click estimate on the estimate is computed from this "
                  "band — an industry benchmark for the sector, never a measured "
-                 "cost for this account, and labelled as such wherever it "
+                 "cost for this account, and labeled as such wherever it "
                  "appears. For a local service business the negative list "
                  "matters more than the positive one: it is what stops you "
                  "paying for 'hvac jobs' and 'hvac school'.",
@@ -637,7 +637,7 @@ SCENARIOS: list[Scenario] = [
                  "The client gets three answers, not two: yes, yes with my "
                  "changes, and let's talk. The middle one is the most common "
                  "real answer, and an approve/reject pair forces it into "
-                 "whichever end is nearest. No answer yet stays grey rather "
+                 "whichever end is nearest. No answer yet stays gray rather "
                  "than reading as a no.",
                  action="click", selector="[data-demo='ads-share']", autofill=False),
             Step("Hand it over without the API",
@@ -768,7 +768,7 @@ SCENARIOS: list[Scenario] = [
                  action="fill", selector="[data-demo='prospect-first']", value="Dana"),
             Step("Brand it from their domain",
                  "Enter their domain and preview the branding.",
-                 "Pulls their logo and colours automatically. Do it now — an "
+                 "Pulls their logo and colors automatically. Do it now — an "
                  "account that looks like Smart 1 instead of like the client "
                  "undercuts the whole white-label.",
                  action="fill", selector="#brandDomain", value="riverside-hvac.example"),
@@ -993,7 +993,7 @@ SCENARIOS: list[Scenario] = [
             Step("Optimize and download",
                  "Check the before/after in the details panel.",
                  "If the saving is small, the image was probably already "
-                 "optimised — don't re-process it repeatedly. Each pass through "
+                 "optimized — don't re-process it repeatedly. Each pass through "
                  "a lossy format loses a little more.",
                  action="click", selector="#submit"),
         ]),
@@ -1127,7 +1127,7 @@ SCENARIOS: list[Scenario] = [
                  "Resized to the max edge, uploaded to their folder.",
                  "Simulated here. In live use these land in the client's own "
                  "Cloudinary folder and show up in Client 360 alongside "
-                 "anything the SEO pipeline optimised.",
+                 "anything the SEO pipeline optimized.",
                  action="click", selector="#addBtn", simulated=True),
         ]),
 
@@ -1135,7 +1135,7 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         key="page_image_optimizer.fix_page", module="page_image_optimizer",
         title="Fix the heavy images on a client's live page",
-        goal="The heaviest images on one real page found, optimised five at a "
+        goal="The heaviest images on one real page found, optimized five at a "
              "time, and the replacement tags ready to paste.",
         minutes=6, path="/tools/page-images",
         spends=["openai.text"],
@@ -1156,14 +1156,14 @@ SCENARIOS: list[Scenario] = [
                  "How many images found, and their combined weight.",
                  "The weight number is the one to quote back to the client. "
                  "'Your service page ships 14 MB of images' lands; 'your "
-                 "images aren't optimised' doesn't.",
+                 "images aren't optimized' doesn't.",
                  action="look", selector="#nWeight"),
             Step("Pick the heavy ones",
                  "You don't have to do all of them.",
                  "Sort by size and take the worst offenders. The top three "
                  "images are usually most of the page weight.",
                  action="look", selector="#choose"),
-            Step("Optimise in batches of five",
+            Step("Optimize in batches of five",
                  "Deliberately small.",
                  "Five at a time keeps the review honest — you actually look "
                  "at each filename and alt text instead of rubber-stamping "
@@ -1332,7 +1332,7 @@ SCENARIOS: list[Scenario] = [
         spends=["openai.text"],
         steps=[
             Step("Set the brand profile before the brief",
-                 "Logo, colours, fonts, phone, CTA, tagline.",
+                 "Logo, colors, fonts, phone, CTA, tagline.",
                  "Everything downstream reads from here — the end card, the "
                  "persistent logo, the QC check for brand logo. Filling it "
                  "once saves re-doing the CTA on every spot.",
@@ -1359,7 +1359,7 @@ SCENARIOS: list[Scenario] = [
             Step("Build the storyboard",
                  "Per scene: find stock, generate, use a spokesperson, upload, "
                  "or pull a client asset.",
-                 "This is the centrepiece. Scene durations must sum exactly to "
+                 "This is the centerpiece. Scene durations must sum exactly to "
                  "your length — the tool enforces it, so shortening one scene "
                  "means lengthening another.",
                  action="look", selector="[data-demo='cb-storyboard']"),

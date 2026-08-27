@@ -3981,7 +3981,7 @@ def create_hub_app() -> Flask:
 
         # The rate card is given to the model so a line it reads as "OTT" is
         # matched against what we actually sell, rather than invented.
-        catalogue = [p.get("label", "") for p in (_rc.products() or [])][:120]
+        catalog = [p.get("label", "") for p in (_rc.products() or [])][:120]
 
         schema_hint = {
             "client": "business name the proposal is addressed to",
@@ -3990,7 +3990,7 @@ def create_hub_app() -> Flask:
             "start_date": "YYYY-MM-DD if stated, else null",
             "end_date": "YYYY-MM-DD if stated, else null",
             "products": "array of {product, monthly, notes} — product must be "
-                        "one of the catalogue labels, or the closest match",
+                        "one of the catalog labels, or the closest match",
             "geography": "markets or radius named, else null",
             "notes": "anything a trafficker would need that has no field",
         }
@@ -4000,11 +4000,11 @@ def create_hub_app() -> Flask:
                   "You read media proposals and extract the facts needed to "
                   "write an insertion order. Never invent a number: if the "
                   "proposal does not state something, return null for it. "
-                  "Match products to the supplied catalogue; if nothing is a "
+                  "Match products to the supplied catalog; if nothing is a "
                   "reasonable match, use the proposal's own wording and say so "
                   "in notes. Return JSON only."},
                  {"role": "user", "content":
-                  f"Catalogue: {catalogue}\n\nReturn JSON with these keys: "
+                  f"Catalog: {catalog}\n\nReturn JSON with these keys: "
                   f"{schema_hint}\n\nProposal text:\n{text}"}],
                 module="io_builder", purpose="proposal_to_io")
         except Exception as exc:                        # noqa: BLE001
@@ -4966,7 +4966,7 @@ def create_hub_app() -> Flask:
                     "manager account under Tools → API Center.")
             elif not ads_st["connected"]:
                 add("Smart 1 Ads", "warn",
-                    "Credentials set but no account authorised yet — open "
+                    "Credentials set but no account authorized yet — open "
                     "/tools/ads/settings and click Connect Google Ads.")
             else:
                 add("Smart 1 Ads", "ok",

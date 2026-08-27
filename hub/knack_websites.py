@@ -653,7 +653,7 @@ def suggest_for(name: str, domain: str = "", threshold: float = 0.72) -> list[di
                 reasons.append(f"domain stem matches ({r['domain']})")
                 score = max(score, 0.85)
         for field, label in (("client_name", "client name"),
-                             ("organization", "organisation")):
+                             ("organization", "organization")):
             s = _similar(name, r.get(field, ""))
             if s >= threshold:
                 reasons.append(f"{label} looks like \"{r[field]}\" ({int(s*100)}%)")

@@ -138,11 +138,11 @@ check("a price that IS in the offer passes clean",
       not [f for f in flags if f["level"] == "block"], flags)
 
 flags = spec.validate_copy("$49 furnace tune-up", "headline", AD)
-check("a price nobody authorised is a block",
+check("a price nobody authorized is a block",
       any(f["code"] == "price" and f["level"] == "block" for f in flags), flags)
 
 flags = spec.validate_copy("Book by Friday and save", "body", AD)
-check("a deadline nobody authorised is a block",
+check("a deadline nobody authorized is a block",
       any(f["code"] == "deadline" for f in flags), flags)
 
 flags = spec.validate_copy("Call (704) 555-0142 today", "body", AD)
@@ -366,7 +366,7 @@ saved = client.post("/api/ads/save", json={
                         {"text": "Booked in under a minute."}],
              "ctas": [{"text": "Book Now"}, {"text": "Learn More"}]},
 }).get_json()
-check("saving normalises a bare domain into an https URL",
+check("saving normalizes a bare domain into an https URL",
       saved["ad"]["landing"]["url"] == "https://live.example/offer",
       saved["ad"]["landing"]["url"])
 copy_flags = [f for s in saved["readiness"]["sections"] if s["key"] == "copy"

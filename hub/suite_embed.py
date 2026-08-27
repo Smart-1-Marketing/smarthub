@@ -292,7 +292,7 @@ Two things about that are worth writing down before anyone starts:
 
   * The SSO key is a *third* credential, separate from GHL_CLIENT_ID and
     GHL_CLIENT_SECRET, issued on the app's own settings page.
-  * The location id in that payload is the authorisation, and it is the whole
+  * The location id in that payload is the authorization, and it is the whole
     security model. Every read behind a client-facing page has to be filtered
     by it — resolved to a client the way hub/client_key.py resolves one, never
     by a name in a query string. Getting that wrong shows one client another

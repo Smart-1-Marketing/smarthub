@@ -321,7 +321,7 @@ check("and the audit says so too", integrity.check_stale_json_exemptions(), [])
 
 
 # ------------------------------- 15. a resolved risk is not an amber finding
-section("The structure panel's own colours")
+section("The structure panel's own colors")
 # The client-key row is the *resolved* case: the columns still differ and
 # hub/client_key.py joins them on read. renderStructure() painted every
 # non-high level amber, so "this is handled, and here is what handles it" sat

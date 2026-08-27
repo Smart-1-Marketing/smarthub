@@ -13,7 +13,7 @@
 {% elif oauth_source == 'GOOGLE_CLIENT_ID' %}
   <div class="banner warn">
     Using the Hub's shared Google OAuth client (<span class="mono">GOOGLE_CLIENT_ID</span>) &mdash;
-    the same one Google Finder and Hub sign-in use. That client's Authorised redirect URIs must
+    the same one Google Finder and Hub sign-in use. That client's Authorized redirect URIs must
     include <span class="mono">{{ cfg.redirect_uri() }}</span>, or the client lands on
     <span class="mono">redirect_uri_mismatch</span> instead of a consent screen.
     Set <span class="mono">GOOGLE_ACCESS_CLIENT_ID</span> / <span class="mono">GOOGLE_ACCESS_CLIENT_SECRET</span>

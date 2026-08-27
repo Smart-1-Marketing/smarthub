@@ -348,7 +348,7 @@
       items.forEach((item) => {
         /* OWNED footage was drawn with the FREE badge, so a clip we already
            hold looked exactly like a Pexels result. routes/stock.py ranks it
-           first precisely because it costs nothing and needs no licence check,
+           first precisely because it costs nothing and needs no license check,
            and a badge that does not say so throws that away. */
         const tier = item.tier === "PREMIUM" ? "cb-badge-premium"
                    : (item.tier === "OWNED" ? "cb-badge-owned" : "cb-badge-free");
@@ -623,7 +623,7 @@
     }
     note.textContent = owned
       ? `${owned} clip${owned === 1 ? "" : "s"} from our own library are listed first — `
-        + "they cost nothing and need no licence check."
+        + "they cost nothing and need no license check."
       : "Our own library was searched and had nothing matching this. "
         + "Everything below is stock.";
   }

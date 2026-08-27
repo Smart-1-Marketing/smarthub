@@ -562,7 +562,7 @@ function richText(s){
    ? '<ul class="dlist">'+b.map(i=>'<li>'+inlineRich(i)+'</li>').join('')+'</ul>'
    : '<p>'+inlineRich(b)+'</p>').join('');}
 /* The same cleaning, client side, so a rep who pastes Markdown into a
-   section sees it normalised at once rather than discovering it in the PDF.
+   section sees it normalized at once rather than discovering it in the PDF.
    Deliberately the conservative half of the server's rule: bold and the
    obvious markers. Whatever this misses, the server catches on the way to
    the document. */
@@ -617,7 +617,7 @@ let DASH=null,LIST=[],UPLOADED=[],listTab="all";
 /* An uploaded proposal is a file with a date; a quote has a number, a
    revision and a status this tool owns. Rather than invent a status for a
    document nobody here drafted, uploaded rows carry uploaded:true and are
-   labelled as such wherever they appear. */
+   labeled as such wherever they appear. */
 function asUploadedRow(p){
   return {uploaded:true, id:p.id, client:p.client||"", filename:p.filename||"",
           title:p.title||p.filename||"Proposal", url:p.url||"",
@@ -1108,7 +1108,7 @@ const SUGGESTION_RULES=[
   detail:"Speed to lead decides most local sales, and a text is answered where a voicemail is not. The Suite already holds the numbers the campaign produces.",
   products:["Smart 1 Suite", "Snap Management Fee & Texting for Snap"]},
  {key:"email",when:["No"],title:"Use the list they already own",
-  detail:"Email reaches people who have already bought or enquired, at no media cost per impression. It is the one channel here that does not need a budget to reach an audience.",
+  detail:"Email reaches people who have already bought or inquired, at no media cost per impression. It is the one channel here that does not need a budget to reach an audience.",
   products:["List Provided Email", "Email Template Creation"]},
  {key:"socialPosting",when:["No", "Unknown"],title:"Give the paid social somewhere to land",
   detail:"An ad clicks through to a profile that has not posted since last year, and the click is where the interest stops. A page that looks maintained is what makes paid social worth running at all, and it is the cheapest half of it.",
@@ -1117,26 +1117,26 @@ const SUGGESTION_RULES=[
   detail:"Posting by hand is what stops first when the business gets busy, which is exactly when the campaign is working. A month planned and queued in one sitting keeps posting through the weeks nobody has time for it.",
   products:["Smart 1 Suite", "Social Media Management"]},
 ];
-/* Which of the discovery answers the Suite licence itself closes, mirrored
+/* Which of the discovery answers the Suite license itself closes, mirrored
    from hub/current_marketing.SUITE_FEATURES. `tier` is the lowest tier that
    actually has the feature -- offering smart webchat against a Smart 1
-   licence sells something the client cannot switch on. */
+   license sells something the client cannot switch on. */
 const SUITE_FEATURES=[
- {key:"callTracking",tier:"Smart 1",feature:"Call tracking and the call centre",
+ {key:"callTracking",tier:"Smart 1",feature:"Call tracking and the call center",
   detail:"Every campaign number tracked, recorded and attributed to the channel that produced it, with Missed Call Text Back on the ones nobody picks up."},
  {key:"texting",tier:"Smart 1",feature:"Two-way texting",
-  detail:"The texting centre, so a lead is answered the way they expect rather than with a voicemail nobody returns."},
- {key:"reputation",tier:"Smart 1",feature:"Reputation centre",
+  detail:"The texting center, so a lead is answered the way they expect rather than with a voicemail nobody returns."},
+ {key:"reputation",tier:"Smart 1",feature:"Reputation center",
   detail:"Automated Google review requests after a job, and every review answered from one inbox."},
  /* Both social questions are answered by the same part of the Suite, so they
     share a group and are claimed once -- listed separately they read as two
-    things the licence buys, on the one panel whose job is to justify a
+    things the license buys, on the one panel whose job is to justify a
     recurring charge. */
  {key:"socialScheduling",tier:"Smart 1",group:"social",feature:"Social planner",
   detail:"A month of posts written, queued and scheduled in one sitting across every connected channel, with the campaign's own creative already in the media library."},
  {key:"socialPosting",tier:"Smart 1",group:"social",feature:"Social planner",
   detail:"Somewhere for the posting to actually happen, with the campaign's own creative already in it."},
- {key:"email",tier:"Smart 1",feature:"Email centre",
+ {key:"email",tier:"Smart 1",feature:"Email center",
   detail:"Campaigns and automated follow-up to the list they already own, at no media cost per send."},
  {key:"chat",tier:"Smarter",feature:"Smart webchat",
   detail:"Catches the visitors who will not fill in a form, and turns the conversation into a text thread that survives the visit."},
@@ -1166,7 +1166,7 @@ function suiteLine(tierName){
  const c=suiteCoverage(tierName),names=c.covered.map(r=>r.feature.toLowerCase());
  if(!names.length)return "";
  const listed=names.length===1?names[0]:names.slice(0,-1).join(", ")+" and "+names[names.length-1];
- return "Against what this client told us they are not doing today, the "+c.tier+" licence covers "+listed+".";}
+ return "Against what this client told us they are not doing today, the "+c.tier+" license covers "+listed+".";}
 const TRADITIONAL_SUGGESTION={
  supplement:{key:"traditional",title:"Make the traditional buy measurable",
   detail:"They are already spending on traditional media. Digital around it is what makes the whole thing attributable: the same households reached on connected TV and streaming audio, with every response landing in the Smart 1 Suite where it can be counted."},
@@ -1389,7 +1389,7 @@ async function refreshZipRule(){
  saveSoon();paintZipRule();drawAreaEst();}
 /* People per square mile inside a radius, mirroring hub/target_areas.py.
    This was a flat 900 -- roughly a county average -- but a radius is drawn on
-   a city, deliberately centred on where the people are, so every campaign's
+   a city, deliberately centered on where the people are, so every campaign's
    reach read low. Density falls as the radius grows because a bigger circle
    keeps reaching into land nobody lives on.
 
@@ -1510,7 +1510,7 @@ function bandSlider(kind,title,help){
 function computePopulation(){
  // Every area the campaign runs in, added up. Overlap is NOT deducted -- two
  // 10-mile radii five miles apart share most of their people -- so the number
- // is labelled an estimate wherever it appears.
+ // is labeled an estimate wherever it appears.
  const rows=(S.targetAreas||[]).map(areaPopulation).filter(n=>n);
  return rows.length?rows.reduce((s,n)=>s+n,0):0;}
 function estimates(){
@@ -1595,8 +1595,8 @@ const PROPOSAL_OUTLINE=[
  {id:"channels",title:"Recommended Channel Strategy",kind:"channels",purpose:"Every channel's role in the funnel and its KPI."},
  {id:"mediaplan",title:"Media Mix & Budget Allocation",kind:"mediaplan",purpose:"Where the money goes, at card rates."},
  {id:"creative",title:"Creative & Messaging Strategy",kind:"creative",purpose:"Messaging themes and who produces the creative."},
- {id:"technology",title:"Smart 1 Technology",kind:"text",purpose:"The Suite as the client's command centre."},
- {id:"reporting",title:"Reporting, Optimization & Transparency",kind:"text",purpose:"How it is optimised and what they can see."},
+ {id:"technology",title:"Smart 1 Technology",kind:"text",purpose:"The Suite as the client's command center."},
+ {id:"reporting",title:"Reporting, Optimization & Transparency",kind:"text",purpose:"How it is optimized and what they can see."},
  {id:"timeline",title:"Implementation Timeline",kind:"timeline",purpose:"The 30-day blueprint."},
  {id:"packages",title:"Investment Summary",kind:"packages",purpose:"Platform, media and one-time, kept apart."},
  {id:"kpis",title:"How We Measure Success",kind:"kpis",purpose:"The metrics we are judged on."},
@@ -1635,7 +1635,7 @@ function defaultSections(){
    +"• Fixed-schedule advertising that runs the same way regardless of weather, foot traffic or real-time intent.",
   mediaplan:"The split below is weighted toward the stage of the funnel this campaign has to move. Every rate is the Smart 1 card rate — there is no markup between the line item and what runs.",
   technology:"The Smart 1 Suite is the central nervous system of this campaign. Every call, form, chat and message the media generates lands in one inbox, and the Suite goes to work immediately: Missed Call Text Back so a missed call becomes a conversation instead of a lost lead, automated text and email follow-up, online scheduling, and automated review requests that compound into local search visibility. The media creates the opportunity; the Suite is what turns it into revenue you can trace.",
-  reporting:"Optimisation is a routine, not a promise: bids adjusted against delivery and cost per action, negative keywords and placement exclusions updated, creative checked against performance and rotated before it fatigues. Everything reports into one live dashboard inside the Smart 1 Suite that you can open whenever you want, rather than waiting for a monthly PDF.",
+  reporting:"Optimization is a routine, not a promise: bids adjusted against delivery and cost per action, negative keywords and placement exclusions updated, creative checked against performance and rotated before it fatigues. Everything reports into one live dashboard inside the Smart 1 Suite that you can open whenever you want, rather than waiting for a monthly PDF.",
   packages:"Platform licensing, media spend and any one-time production are listed separately below so it is clear what recurs and what does not.",
   roi:"The delivery figures below are calculated from the Smart 1 rate card at the budgets in this plan — they are what the money buys, not a forecast. The Smart 1 Suite is the single source of truth for what those impressions produced: every lead is attributed to the channel that created it, so the spend can be judged against the business, not against a click count.",
   next:"1. Approve this proposal and sign the digital agreement.\n2. Complete the Smart 1 onboarding questionnaire — access, tracking and creative.\n3. Book the 30-minute campaign kickoff call.",
@@ -1709,7 +1709,7 @@ function suggestBlock(){
    the IO with the addresses attached. Two rules:
 
      * **A competitor with no address is still worth having.** Conquesting by
-       brand name and browsing behaviour needs no location at all, and
+       brand name and browsing behavior needs no location at all, and
        refusing the row until somebody looks up a street address is how the
        list stays empty. The row says which of the two it can do.
      * **Nothing is inferred from the name.** No guessed website, no
@@ -1745,7 +1745,7 @@ function targetSummary(){
  const bits=[named.length+" named"];
  if(located.length)bits.push(located.length+" with an address we can fence");
  const noAddr=named.length-located.length;
- if(noAddr)bits.push(noAddr+" by brand and behaviour only — no address to fence");
+ if(noAddr)bits.push(noAddr+" by brand and behavior only — no address to fence");
  return bits.join(" · ");}
 function paintTargetMeta(){
  const el=document.getElementById('compMeta');
@@ -1790,7 +1790,7 @@ function drawCompetitors(){
    model's say-so, and that is the paragraph a client checks hardest. Same
    rule modules/ads_builder applies to its own competitor research.
 
-   An address comes back only where the model gave one and is labelled
+   An address comes back only where the model gave one and is labeled
    unverified, because a geo-fence built on a wrong address spends the budget
    outside somebody else's front door.
    ------------------------------------------------------------ */
@@ -1821,7 +1821,7 @@ function findResultsHtml(){
      <div class="meta">${esc(r.note||'')}</div>
      <div class="meta">${r.address
        ? '📍 '+esc(r.address)+' <span style="color:#8c5a00">— unverified, check it before it is used to build a fence</span>'
-       : 'No address — brand and behaviour only, which is a real answer and not a gap'}</div>
+       : 'No address — brand and behavior only, which is a real answer and not a gap'}</div>
     </div></label>`).join('')}
   <div class="addrow" style="margin-top:10px">
    <button class="btn btn-primary" onclick="addFoundTargets()">+ Add ticked</button>
@@ -1862,7 +1862,7 @@ function placePasteHtml(){
  if(!PLACEPASTE.open)return '';
  const r=PLACEPASTE.result;
  return `<div class="bpanel" style="margin-top:12px"><div class="ttl">📋 Paste a list</div>
-  <div class="note" style="margin-top:3px">One per line: <span style="white-space:nowrap">name | address | what we want from it</span>. The address is optional — a row without one is still targeted by brand and behaviour.</div>
+  <div class="note" style="margin-top:3px">One per line: <span style="white-space:nowrap">name | address | what we want from it</span>. The address is optional — a row without one is still targeted by brand and behavior.</div>
   <div class="two" style="margin-top:9px"><div class="fld" style="margin-top:0"><label>These are</label>
    <select onchange="PLACEPASTE.kind=this.value">${TARGET_KINDS.map(k=>`<option value="${k.key}" ${PLACEPASTE.kind===k.key?'selected':''}>${esc(k.label)}</option>`).join('')}</select></div><div></div></div>
   <div class="fld"><textarea style="min-height:100px" oninput="PLACEPASTE.text=this.value"
@@ -2168,7 +2168,7 @@ function drawAreaEst(){
   ? "About <b>"+fmt(pop)+"</b> people in "+esc(areaGeo(a)||"this area")+(z.length?" · "+z.length+" ZIP Codes listed":"")+". Refined per area by the AI estimate on the next screen."
   : "Not measured yet — describe the area (or add an approximate population) and Smart 1 can size it.";
  const zn=document.getElementById('zipNote');
- if(zn)zn.textContent=z.length?z.length+" ZIP Codes recognised.":"No ZIP Codes yet. The insertion order needs them before trafficking, but the proposal does not.";}
+ if(zn)zn.textContent=z.length?z.length+" ZIP Codes recognized.":"No ZIP Codes yet. The insertion order needs them before trafficking, but the proposal does not.";}
 async function lookupZips(){
  const a=currentArea();
  if(!a.origin||!a.radius){toast("Enter the origin city or ZIP and a radius first.");return;}
@@ -2338,11 +2338,11 @@ function generatedTable(sec,e){
      say "competitor conquesting" and stop, which is a tactic rather than a
      campaign -- and the client, the only person who actually knows who they
      lose business to, was never shown a list to correct. A row with no
-     address still belongs here: conquesting by brand and behaviour needs no
+     address still belongs here: conquesting by brand and behavior needs no
      location, and the column says which of the two this one can do. */
   const comp=named.length?dtable(["Who we are going after","What we want from them","How we reach them"],
    named.map(r=>[esc(r.name),esc(r.note||(r.kind==="competitor"?"Their customers":"The people who go there")),
-    (r.address||"").trim()?"Geo-fenced at "+esc(r.address):"Brand and behaviour — no address on file to fence"])):'';
+    (r.address||"").trim()?"Geo-fenced at "+esc(r.address):"Brand and behavior — no address on file to fence"])):'';
   if(!rows.length)return comp;
   return dtable(["Target area","Coverage","Est. population"],rows.map(a=>{
    const pop=areaPopulation(a),z=areaZips(a);
@@ -2447,7 +2447,7 @@ function dgrid(pairs){
 const TIMELINE_PHASES=[
  ["Weeks 1–2","Setup & Onboarding","Admin access collected, tracking pixels placed, conversion actions defined, audience and geography built, Smart 1 Suite provisioned."],
  ["Weeks 3–4","Production & Integration","Creative produced or supplied and approved, landing pages reviewed, workflow automations mapped in the Smart 1 Suite, tracking verified end to end before a cent is spent."],
- ["Month 2+","Execution & Scaling","Campaigns live, weekly pacing and bid optimisation, creative performance checks, budget shifted toward what proves out, first full performance review delivered."]];
+ ["Month 2+","Execution & Scaling","Campaigns live, weekly pacing and bid optimization, creative performance checks, budget shifted toward what proves out, first full performance review delivered."]];
 function channelRole(it){
  const c=String(it.category||"").toUpperCase(),m=mediumOf(it);
  if(/SEARCH ENGINE MARKETING|PAY PER CLICK/.test(c))return ["Bottom of funnel — captures demand that is already searching","Cost per lead and conversion rate"];
@@ -3036,7 +3036,7 @@ function addItem(){const cat=document.getElementById('addCat').value;const p=fin
  applySeeds();flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
 /* Every product on the card, so a rep can put the exact line they want on the
    plan -- including the add-ons a goal will never choose for them. Grouped by
-   category and labelled the way the quote will read, because "Demographic"
+   category and labeled the way the quote will read, because "Demographic"
    appears four times in a flat list and identifies nothing. */
 function addSpecificItem(label){
  const p=rateCard.find(x=>x.label===label);if(!p)return;
@@ -3157,7 +3157,7 @@ function resetSuitePrice(){
    being the campaign's nervous system -- true, and true of every proposal
    this tool has ever produced, which is why nobody read it. What it says now
    is which of the things this client told us in discovery they are not doing
-   the licence actually closes, so the one line on the Investment Summary
+   the license actually closes, so the one line on the Investment Summary
    that recurs for ever has a reason on the page beside it. */
 function drawSuite(){
  const w=document.getElementById('suiteWrap');if(!w)return;
@@ -3375,7 +3375,7 @@ function submitContact(){
  S.clientContactName=name;S.clientContactEmail=email;S.clientContactPhone=phone;
  deliverProposal({name,email,phone});}
 
-/* What a line costs across the flight, honouring the basis the rep answered
+/* What a line costs across the flight, honoring the basis the rep answered
    on the media-mix step. Both the review summary and the payload that builds
    the IO used to multiply by months independently, so a one-time production
    fee reached the insertion order as a monthly charge. */

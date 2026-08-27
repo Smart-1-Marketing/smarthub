@@ -843,3 +843,21 @@ jobs:
       # start it red.
       - name: Known defect patterns (/api/integrity)
         run: python tools/integritycheck.py
+
+      # American English, over the copy this Hub puts on a screen. Smart 1
+      # sells in the US and modules/scans/reports.py has normalized the copy
+      # it lifts from Insites for a while; everything the Hub wrote itself was
+      # drifting the other way, one template at a time, because a British
+      # spelling is not a defect any other check here can see -- the page
+      # renders, the link resolves, the English is correct. This is green, so
+      # a new "colour" is a failing build rather than something a client finds
+      # on a proposal.
+      - name: American English in the copy
+        run: python tools/spellcheck.py
+
+      # ...and that the check above cannot be silenced by an edit somewhere
+      # else: it is handed a sentence that plainly drifts and required to say
+      # so, and its exemption list is required to still name real files and
+      # real words. The failure hub/config.py's ALIASES table describes.
+      - name: The spelling check still bites
+        run: python3 test_spelling.py

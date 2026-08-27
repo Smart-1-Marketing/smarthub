@@ -608,11 +608,11 @@ def oauth_callback():
     if error:
         return (f"HighLevel returned an error: {error}", 400)
     if not _check_state(request.args.get("state")):
-        return ("That authorisation link didn't come from this Hub, or it sat "
+        return ("That authorization link didn't come from this Hub, or it sat "
                 "unused too long. Start again from Suite.", 400)
     code = request.args.get("code")
     if not code:
-        return ("HighLevel didn't send an authorisation code.", 400)
+        return ("HighLevel didn't send an authorization code.", 400)
     try:
         ghl_oauth.exchange_code(code)
     except Exception as exc:  # noqa: BLE001

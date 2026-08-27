@@ -215,7 +215,7 @@ try:
     reg = knack_websites.registrar_for("riverstoneheating.example")
     check("with none on the record, WHOIS from the site scan answers instead",
           reg["value"] == "Tucows Domains Inc.", reg)
-    check("...labelled as observed rather than as something we recorded",
+    check("...labeled as observed rather than as something we recorded",
           reg["source"] == "scan" and "observed" in reg["label"], reg)
     check("...and it brings the expiry date with it",
           reg.get("expires") == "2027-05-02", reg)
@@ -739,7 +739,7 @@ check("a different product on the same invoice is not a domain renewal",
 check("a product that only contains the name is refused, not matched",
       not _qb.line_item_matches("Website Domain Renewal - Annual", "144",
                                 item_name="Website Domain Renewal"))
-check("...and the Sites Billing report reads the same normaliser",
+check("...and the Sites Billing report reads the same normalizer",
       __import__("hub.sites_billing", fromlist=["x"])._norm_item(
           "Website Hosting:Website Domain Renewal")
       == _qb.normalise_item_name("website domain renewal"))
@@ -1153,7 +1153,7 @@ check("an answer that is neither pass nor fail is not shown as a pass",
       "not in a shape this page can read" in APPPY)
 CSS = open(os.path.join(ROOT, "modules", "sites_admin", "static", "styles.css"),
            encoding="utf-8").read()
-check("...and that flash category has a colour of its own, not red by default",
+check("...and that flash category has a color of its own, not red by default",
       ".flash.warning{" in CSS)
 
 

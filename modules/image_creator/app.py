@@ -349,10 +349,10 @@ def api_ai_image():
     style = (body.get("style") or "").strip().lower()
     style_hint = {
         "photo": "Photorealistic, natural lighting, shot on a real camera.",
-        "illustration": "Clean vector-style illustration, flat colours.",
+        "illustration": "Clean vector-style illustration, flat colors.",
         "graphic": "Bold graphic design, simple shapes, high contrast.",
-        "abstract": "Abstract, no recognisable objects or text.",
-        "gradient": "Smooth colour gradient, no objects, no text.",
+        "abstract": "Abstract, no recognizable objects or text.",
+        "gradient": "Smooth color gradient, no objects, no text.",
         "texture": "Subtle repeating texture, no focal subject, no text.",
     }.get(style, "")
     size = body.get("size") if body.get("size") in (

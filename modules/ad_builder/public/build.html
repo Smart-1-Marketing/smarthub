@@ -13,7 +13,7 @@
    * Different job, so a deliberately different room: the proof screen is a
    * light neutral gallery, this is a dark studio. Dark because the operator
    * spends an hour here judging brand color against a backdrop, and a bright
-   * white surround skews that judgement all day.
+   * white surround skews that judgment all day.
    *
    * Layout is a fixed three-column bench: controls left, live canvas center,
    * every size and its QA state right. Nothing moves as you type — the preview
@@ -30,7 +30,7 @@
     --pass: #35C089;
     --warn: #E0A72B;
     --fail: #EF6B62;
-    /* The canvas surround is a neutral mid-grey, not the panel color: brand
+    /* The canvas surround is a neutral mid-gray, not the panel color: brand
        colors must be judged against something that does not tint them. */
     --stage: #8A8F98;
   }
@@ -183,7 +183,7 @@
 
   /* What an approved size looks like from the controls: everything is
      readable, nothing is editable, and the reason is at the top rather than
-     left for someone to work out from a greyed-out box. */
+     left for someone to work out from a grayed-out box. */
   .locked { padding: 11px 12px; margin-bottom: 12px; border-radius: 7px;
     background: rgba(53,192,137,.12); border: 1px solid rgba(53,192,137,.4);
     font-size: 12.5px; line-height: 1.45; }
@@ -224,7 +224,7 @@
      Five text blocks, each with eight controls, is forty controls in a column
      you scroll — so the block you are working on is off screen by the time
      you reach its color row. They are an accordion now: opening one closes
-     the rest, which is the behaviour people expect from a stack of headers
+     the rest, which is the behavior people expect from a stack of headers
      and the only one that keeps the thing you are editing in view. */
   .blockstyle > summary {
     cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
@@ -622,7 +622,7 @@
     var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
     var b = t && t.blocks && t.blocks[state.size];
     // An older server does not send `blocks`. Say nothing rather than
-    // labelling every field as missing.
+    // labeling every field as missing.
     return b || null;
   }
 
@@ -901,7 +901,7 @@
   }
 
   /* An approved size is read-only. The banner is the whole explanation --
-     a panel of greyed-out boxes with no reason attached is a bug report
+     a panel of grayed-out boxes with no reason attached is a bug report
      waiting to be filed. */
   function lockedBanner() {
     if (!isApproved()) return '';
@@ -1106,7 +1106,7 @@
       get: function () { return concept().backgroundOffset || { x: 0, y: 0 }; },
       // The offset names the part of the PICTURE that shows, so an arrow that
       // moves the picture up is asking to see more of its bottom -- the sign
-      // is inverted here on purpose, and the arrows are labelled by what they
+      // is inverted here on purpose, and the arrows are labeled by what they
       // do to the picture rather than by the number underneath.
       step: function (dx, dy) {
         var c = concept();
@@ -1245,7 +1245,7 @@
   }
 
   /* The template's own logo box for this size, so Advanced shows what it is
-     overriding rather than an empty field labelled "auto". */
+     overriding rather than an empty field labeled "auto". */
   function layoutLogoBox() { return layoutBox('logo'); }
 
   function styleOf(block) {
@@ -1526,7 +1526,7 @@
      "Full background with copy panel" puts the headline on a filled panel over
      the photograph, and that fill is the single thing deciding whether the
      copy can be read. It was a template constant -- brand primary at 88% --
-     so a client whose primary is a mid-grey got copy nobody could read and
+     so a client whose primary is a mid-gray got copy nobody could read and
      there was no control anywhere that could change it. */
   function panelControls() {
     if (!willDraw('panel')) return '';
@@ -1629,7 +1629,7 @@
      walking a channel until the WCAG ratio clears, and every one comes back
      with the ratio it achieves, so the panel shows its work. Where the client
      has an Insites scan, the colors their real website uses are offered
-     first and labelled as observed -- those are their colors rather than a
+     first and labeled as observed -- those are their colors rather than a
      tint of one entry in them. */
   function askAboutTheLogo() {
     var box = $('logoFix');
@@ -1714,7 +1714,7 @@
           'From their website' +
           help('Read off ' + d.domain + ' by their latest site scan \u2014 what the ' +
                'live pages actually paint, rather than a palette somebody ' +
-               'labelled. Click one to copy its hex.') +
+               'labeled. Click one to copy its hex.') +
         '</div>' +
         '<div class="inkrow" style="margin-bottom:9px">' +
           entries.map(function (k) {
@@ -1727,7 +1727,7 @@
         el.addEventListener('click', function () {
           var hex = el.dataset.sitecolor;
           // Copied, not applied. Which of the five roles a site color should
-          // become is a judgement -- their page background is not always the
+          // become is a judgment -- their page background is not always the
           // ad's primary -- and guessing it would move four other things.
           if (navigator.clipboard) navigator.clipboard.writeText(hex).catch(function () {});
           el.title = hex + ' copied \u2014 paste it into a swatch below';

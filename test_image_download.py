@@ -162,7 +162,7 @@ seo_images.save_archive([
      "bytes": 38000, "saved_at": "2026-08-01 10:01"},
     # exactly the shape the Image Optimizer used to write: no id at all
     {"company": "Acme HVAC", "url": CDN + "three.webp",
-     "filename": "optimised.webp", "alt_text": "", "project": "Optimized"},
+     "filename": "optimized.webp", "alt_text": "", "project": "Optimized"},
 ])
 
 rows = seo_images.load_archive()

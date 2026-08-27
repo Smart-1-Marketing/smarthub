@@ -67,7 +67,7 @@ def analyse_budget(monthly_budget, sector_key="general") -> dict:
         status = "CRITICAL"
         advice = (
             f"At roughly ${mid_cpc:.2f} average CPC in {sector['label']}, ${budget:,.0f}/mo buys "
-            f"about {clicks:.0f} clicks. That is not enough traffic for Google to optimise or for "
+            f"about {clicks:.0f} clicks. That is not enough traffic for Google to optimize or for "
             f"you to read the data. Either raise the budget, or cut scope hard: one tight "
             f"exact-match ad group, a small radius, business-hours-only scheduling."
         )
@@ -116,7 +116,7 @@ RULES
    or NEITHER, each max 35 characters.
 6. At least 6 callouts, max 25 characters each.
 7. Structured snippets with a valid header and at least 4 values, max 25 characters each.
-8. A categorised negative keyword vault, specific to this business. Be thorough.
+8. A categorized negative keyword vault, specific to this business. Be thorough.
 9. Cost estimates grounded in real CPC ranges for the sector, not optimistic ones.
 
 Respond with pure JSON only, matching this structure exactly:
@@ -433,7 +433,7 @@ TIER_SYSTEM = """You size Google Ads search budgets into three tiers a client ca
 
 RULES
 1. Ground every tier in the sector CPC range you are given. A tier that cannot buy enough
-   clicks to be optimised is not a tier — say so rather than offering it.
+   clicks to be optimized is not a tier — say so rather than offering it.
 2. Below roughly 30 clicks a month a campaign cannot be read at all. Never present a
    budget under that threshold as workable.
 3. Say what each tier BUYS and what it gives up, in concrete terms: how many ad groups,

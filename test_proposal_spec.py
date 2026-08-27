@@ -773,7 +773,7 @@ gaps_everywhere = {"mkt": {"retargeting": cm.NO, "aiOptimized": cm.NO,
 titles = [s["title"] for s in cm.suggestions(gaps_everywhere)]
 check("not retargeting raises retargeting",
       any("Retarget" in t for t in titles), titles)
-check("not optimised for AI raises it", any("AI search" in t for t in titles))
+check("not optimized for AI raises it", any("AI search" in t for t in titles))
 check("an unhappy website raises the website first",
       any("page the media points at" in t for t in titles))
 check("every suggestion names a product that could deliver it",
@@ -1272,7 +1272,7 @@ check("and the one geo string carries the exception",
       ta.to_legacy_geo([area]))
 check("an exception nobody could read is named on that string too",
       "NOT applied" in ta.to_legacy_geo([dict(area, zipException="mumble")]))
-check("the exception survives a normalise",
+check("the exception survives a normalize",
       ta.normalize_area(area)["zipException"] == "only New Jersey zip codes")
 check("and is re-parsed on read rather than trusted from the record",
       ta.normalize_area(dict(area, zipRule={"mode": "exclude"}))["zipRule"]["mode"] == "only")

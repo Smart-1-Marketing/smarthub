@@ -86,7 +86,7 @@ QUOTAS: dict[str, Quota] = {
     "brandfetch": Quota(
         "brandfetch", "Brandfetch", "lookups", 80, 100,
         "BRANDFETCH_WARN_AT", "BRANDFETCH_MONTHLY_LIMIT",
-        "Logo and brand-colour lookups from Image Creator and Suite Panel. "
+        "Logo and brand-color lookups from Image Creator and Suite Panel. "
         "Cached results do not count."),
     "insites": Quota(
         "insites", "Insites", "scans", 900, 1000,

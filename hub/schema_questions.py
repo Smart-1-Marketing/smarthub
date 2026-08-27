@@ -76,14 +76,14 @@ QUESTIONS: tuple[tuple[str, str, str, str], ...] = (
     # --- credibility ----------------------------------------------------
     ("founder",         "Who founded the business, or who owns it now?", "Credibility", ""),
     ("employees",       "Roughly how many people work there?", "Credibility", ""),
-    ("licenses",        "Does the business hold any licences, certifications or accreditations worth naming?", "Credibility", ""),
+    ("licenses",        "Does the business hold any licenses, certifications or accreditations worth naming?", "Credibility", ""),
     ("awards",          "Has the business won any awards or notable recognition?", "Credibility", ""),
     ("associations",    "Does it belong to any trade associations or chambers of commerce?", "Credibility", ""),
 
     # --- online ---------------------------------------------------------
     ("social_profiles", "List the business's social media profile URLs.", "Online", ""),
     ("booking_url",     "Is there a page where customers book, order or request a quote?", "Online", ""),
-    ("menu_url",        "Is there a menu, price list or service catalogue page?", "Online", "restaurant"),
+    ("menu_url",        "Is there a menu, price list or service catalog page?", "Online", "restaurant"),
     ("reservations",    "Does the business accept reservations?", "Online", "restaurant"),
     ("delivery",        "Does it offer delivery, takeaway or on-site service?", "Online", "restaurant"),
 )
@@ -231,7 +231,7 @@ def _ask_ai(client: str, known: dict, unknown: list) -> dict:
         "range gets shown to someone deciding whether to travel there.\n\n"
         f"If you cannot answer from the information given, return exactly "
         f"\"{NEED}\" for that key. Do not guess. Do not invent awards, "
-        "licences, founding dates, coordinates or staff numbers — these are "
+        "licenses, founding dates, coordinates or staff numbers — these are "
         "the fields people most often fabricate and the ones most damaging "
         "when wrong.\n\n"
         "Safe inferences: a schema.org type from the industry; a country from "

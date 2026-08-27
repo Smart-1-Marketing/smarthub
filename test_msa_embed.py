@@ -263,12 +263,12 @@ section("The rate card is linked, not just named")
 # checkbox now says so and both boxes link to it -- a client cannot agree to
 # a document they were given no way to open.
 check("the rate card URL is on the page", msa.RATE_CARD_URL in body_now, True)
-check("both acknowledgements link to it",
+check("both acknowledgments link to it",
       body_now.count('class="cardlink"'), 2)
 check("the links open outside the frame, not inside it",
       body_now.count('target="_blank"') >= 2, True)
 check("and carry rel=noopener", body_now.count('rel="noopener"') >= 2, True)
-check("the launch-times acknowledgement names the rate card",
+check("the launch-times acknowledgment names the rate card",
       "campaign launch times" in body_now and "published" in body_now, True)
 # Opening the card must not tick the box that says you have read it.
 check("a link click is stopped before it reaches the label",

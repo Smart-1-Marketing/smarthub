@@ -408,7 +408,7 @@ obs = scan_facts.brand_observed("iconsolar.com")
 f = scan_facts.facts("iconsolar.com")
 
 check("the scan's logo is found", obs["logo_url"], "https://site/logo.png")
-check("the colours come with their role",
+check("the colors come with their role",
       [c["type"] for c in obs["colors"]], ["Primary accent", "Text"])
 check("and it says where it came from",
       "candidate, not an approved brand asset" in obs["note"], True)
@@ -450,7 +450,7 @@ check("a False pixel is an answer and is kept",
 check("spend is money-formatted",
       row_of("What they are already spending",
              "Estimated monthly Google Ads spend"), "$2,400")
-check("and is labelled an estimate rather than a bill",
+check("and is labeled an estimate rather than a bill",
       any("not a billed figure" in (r.get("hint") or "")
           for g in f["groups"] for r in g["rows"]), True)
 # A field the account's plan does not include is left out, not printed as a
@@ -504,7 +504,7 @@ check("one set of tiles, both sources in it",
 check("and each says where it came from, not which service answered",
       [t["label"] for t in merged["logo_tiles"]],
       ["On file", "Seen on their website"])
-check("one palette, and a colour both sources agree on draws once",
+check("one palette, and a color both sources agree on draws once",
       len({c["hex"] for c in merged["palette"]}), len(merged["palette"]))
 check("the stored role label survives the merge",
       merged["palette"][0]["origin"], "file")

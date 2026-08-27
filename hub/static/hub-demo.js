@@ -9,7 +9,7 @@
  *   or, on a screen this module's walkthrough cannot drive:
  *     <body data-module="seo_images" data-demo="off">
  *   and mark the things a step points at:
- *     <button data-demo="analyse">Analyse</button>
+ *     <button data-demo="analyze">Analyze</button>
  *
  * Steps that would spend a credit are flagged `simulated` server-side; those
  * are narrated and skipped rather than clicked.
@@ -50,7 +50,7 @@
 
   function typeInto(node, value, done) {
     // Typing character by character so any live preview updates visibly —
-    // the UTM builder's normalisation is only convincing if you watch it happen.
+    // the UTM builder's normalization is only convincing if you watch it happen.
     if (!node) return done && done();
     node.focus();
     setValue(node, "");

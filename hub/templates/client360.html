@@ -238,10 +238,10 @@ function render(g,q){
     </select></div></div>
     <div class="card-b" id="c-forms"><div class="empty">Loading…</div></div></div>`;
 
-  /* ---------- Brand: logos, colours and fonts, from every source ----------
+  /* ---------- Brand: logos, colors and fonts, from every source ----------
      One card. This was two — a brand kit above and a second block beneath it
      for what had been read off the client's own website — which drew the same
-     company's colours twice under two headings and led with "No brand data on
+     company's colors twice under two headings and led with "No brand data on
      file yet" above a logo it plainly had. The tag names no provider: which
      service answered is not something the rep reading it can act on, and each
      tile says where it came from, which is. See hub/client_brand._merge. */
@@ -1526,7 +1526,7 @@ function render(g,q){
   // ---------- Campaign Change / Support requests (Knack object_140 / 121) ----------
   // The form itself now lives in /campaign-request.js, because the dashboard
   // opens the same three requests without a client on screen and a second copy
-  // is how a fix ends up landing in only one of them. Behaviour here is
+  // is how a fix ends up landing in only one of them. Behavior here is
   // unchanged: the groups this search produced are handed straight over, so a
   // name matching several clients stays switchable inside the form.
   function openCampaignModal(kind){
@@ -1862,7 +1862,7 @@ function renderBrand(d){
   const obs = (d&&d.observed)||{};
   /* "We could not look" is never drawn as "there is nothing" — the rule
      hub/scan_facts.py carries at length. It says which half is missing, so a
-     card with colours and no logo does not read as a card with everything. */
+     card with colors and no logo does not read as a card with everything. */
   const unread = obs.error
     ? '<div class="muted" style="font-size:11.5px;margin-top:10px">Their website '
       + 'could not be read, so whether it carries a logo is <b>not measured</b> '
@@ -1876,8 +1876,8 @@ function renderBrand(d){
   }
 
   /* Every swatch and every tile says where it came from. They are one set
-     because a rep wants the client's colours, not a lesson in which of our
-     services answered — and they stay labelled because a logo the client gave
+     because a rep wants the client's colors, not a lesson in which of our
+     services answered — and they stay labeled because a logo the client gave
      us and a logo seen on their home page are different claims, and only the
      first belongs on a document a client reads. */
   const originText = o => o==='site' ? 'Seen on their website' : 'On file';
@@ -1902,14 +1902,14 @@ function renderBrand(d){
        style="font-size:13px;color:#1769AA;text-decoration:none;margin-right:12px">${esc(f.name)}</a>`).join('');
 
   /* A card with something on it still says when nothing has been looked up:
-     the colours may be their website's and the brand's own answer may simply
+     the colors may be their website's and the brand's own answer may simply
      never have been asked for, which is a button press rather than a fact. */
   const gap = (!d.found && d.note)
     ? `<div class="muted" style="font-size:11.5px;margin-top:10px">${esc(d.note)}</div>` : '';
 
   el.innerHTML =
     (tiles?`<div style="margin-bottom:10px"><div class="lbl">Logos</div>${tiles}</div>`:'')+
-    (swatches?`<div style="margin-bottom:6px"><div class="lbl">Brand colours</div>${swatches}</div>`:'')+
+    (swatches?`<div style="margin-bottom:6px"><div class="lbl">Brand colors</div>${swatches}</div>`:'')+
     (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
     (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'')+
     gap + unread;

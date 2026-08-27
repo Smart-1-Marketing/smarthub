@@ -42,7 +42,7 @@
           {% if status.blocks %}
             {% for b in status.blocks %}<span class="mono">{{ b.name }}</span> — {{ b.why }}.<br>{% endfor %}
           {% elif not status.connected %}
-            Credentials are set; nobody has authorised a Google account yet.
+            Credentials are set; nobody has authorized a Google account yet.
           {% else %}
             Connected.
           {% endif %}
@@ -79,7 +79,7 @@
       <div class="f">{{ ('Missing: ' + status.missing|join(', ')) if status.missing else 'All keys present' }}</div>
     </div>
     <div class="stat">
-      <div class="l">Authorisation</div>
+      <div class="l">Authorization</div>
       <div class="v" style="font-size:17px">{{ 'Connected' if status.connected else 'Not connected' }}</div>
       <div class="f">{{ status.refresh_token_source }}</div>
     </div>
@@ -112,7 +112,7 @@
       Based on <span class="mono">PUBLIC_BASE_URL</span> it should be
       <span class="mono brk">{{ expected_redirect }}</span>.
     {% endif %}
-    This must match the Authorised redirect URI in Google Cloud Console character for character.
+    This must match the Authorized redirect URI in Google Cloud Console character for character.
   </div>
 </div>
 

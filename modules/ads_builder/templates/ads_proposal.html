@@ -36,7 +36,7 @@
   .bub { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:6px;
          vertical-align:middle; border:1px solid rgba(15,23,42,.15) }
   .bub-green { background:#059669 } .bub-yellow { background:#eab308 }
-  .bub-red { background:#dc2626 } .bub-grey { background:#cbd5e1 }
+  .bub-red { background:#dc2626 } .bub-gray { background:#cbd5e1 }
   .est { color:#94a3b8; font-weight:400 }
   .pickrow { display:flex; gap:9px; align-items:flex-start; padding:7px 9px; border-radius:8px;
              border:1px solid transparent; cursor:pointer; margin:0 }
@@ -61,7 +61,7 @@
   <span class="tag {{ tone }}">{{ p.status.replace('_',' ').title() }}</span>
   <span style="color:#64748b">${{ '{:,.0f}'.format(c.monthlyBudget or 0) }}/mo · {{ c.sector or '' }}</span>
   {% if review.sent %}
-    <span class="bub bub-{{ review.colour }}"></span>
+    <span class="bub bub-{{ review.color }}"></span>
     <span style="color:#64748b;font-size:12.5px">
       {% if review.outcome %}{{ spec.OUTCOME_LABELS[review.outcome] }}
       {% else %}Sent to the client{{ ', opened' if review.opened else ', not opened yet' }}{% endif %}
@@ -435,7 +435,7 @@
     {% for sh in shares %}
       <div class="comment">
         <div class="meta">
-          <span class="bub bub-{{ sh.colour }}"></span>
+          <span class="bub bub-{{ sh.color }}"></span>
           Sent by {{ sh.created_by }} · {{ (sh.created_at or '')[:16].replace('T',' ') }}
           {%- if sh.revoked %} · revoked{% endif %}
           {%- if sh.opened_count %} · opened {{ sh.opened_count }}×{% else %} · not opened{% endif %}
@@ -556,7 +556,7 @@
               {% endfor %}
             </ul>
           {% else %}
-            The credentials are set but no Google account has been authorised.
+            The credentials are set but no Google account has been authorized.
             Open <a href="{{ mount }}/settings">Settings</a> and click Connect Google Ads.
           {% endif %}
         </p>
@@ -784,7 +784,7 @@ async function analysePage(force) {
     const d = await api('POST', `${MOUNT}/api/proposals/${PID}/analyse/landing-page`);
     drawPage(d.analysis, d.observed);
   } catch (err) {
-    box.innerHTML = `<div class="note n-bad"><b>The page could not be analysed</b>${esc(err.message)}</div>`;
+    box.innerHTML = `<div class="note n-bad"><b>The page could not be analyzed</b>${esc(err.message)}</div>`;
   } finally { btn.disabled = false; }
 }
 

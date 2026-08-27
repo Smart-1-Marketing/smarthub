@@ -574,6 +574,51 @@ inventing who answers it. First non-empty wins across the sources, and the
 order is the point — the business describing itself on its own site beats the
 Google listing address, which is the one most often out of date.
 
+**Smart 1 sells in the US, and half the Hub was written in British
+English.** `modules/scans/reports.py` has normalized the copy it lifts from
+Insites for a while -- Insites writes British in its callback and American in
+its own PDF -- and everything the Hub wrote itself was drifting the other way:
+"colour", "behaviour", "licence", "organisation", "analyse" and "centre"
+across forty templates, the help layer, and a proposal a client reads. Nothing
+caught it, and nothing could: a British spelling is not a defect any check
+here can see, because the page renders, the link resolves, and the English is
+correct.
+
+`tools/spellcheck.py` is the rule now and CI runs it. What it reads is the
+**copy**, which is why Python is scanned as **string literals only, through
+the AST**: a full-text pass reports `from hub.images import optimise`,
+`client_key.normalise_name` and thirty other shared function names, which is a
+rename of the codebase dressed up as a copy change. Four shapes are code
+rather than copy and each has cost something -- a word touching `_` is a
+snake_case identifier or an **external field name** (`colour_scheme` and
+`pages_analysed` are Insites' spellings in Insites' payload, and correcting
+them reads back on Client 360 as a site with no palette and no page count); a
+word followed by `(` is a function; a word touching `/` is a URL segment, and
+a route already in a browser's history is not a spelling anybody reads; and a
+Python literal that is one bare lowercase token is a key, a stored id or a
+tag. That last one matters most: the landing-page goal id `enquire` is written
+into every page already saved and `colourful` is a Cloudinary tag on every
+clip indexed before today, so **renaming those is a data migration wearing a
+copy change**. Where a term genuinely had to move, the old spelling is still
+*matched* -- `video_library.TAG_ALIASES` -- rather than re-indexing a library
+to correct a label.
+
+`ALLOW` is per file **and** per word, with the reason written down, and
+`stale_allowances()` fails on an entry naming a file that is gone or a word it
+no longer contains: an exemption that outlives what it exempted goes on
+covering whatever is written at that path next, the failure
+`check_stale_json_exemptions()` names. `test_spelling.py` hands the matcher a
+sentence that plainly drifts and requires it to say so, because a check that
+can be silenced by an edit somewhere else is worse than no check -- and it
+started green, which is the only way it was worth adding.
+
+Two things it deliberately leaves alone. **Comments and docstrings in Python**
+are for whoever opens the file, not for a screen. And a **class token** is not
+a spelling on the page -- though the ones that were already paired across a
+template and its stylesheet (`.bub-grey`, `.pill.grey`) were converted with
+their values, because converting one half of a pair is a pill with no
+background.
+
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
@@ -3993,6 +4038,7 @@ python tools/checktemplates.py     # the Jinja-carrying blocks jscheck skips
 python tools/linkcheck.py          # every internal URL resolves, every url_for has a route
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
+python tools/spellcheck.py         # American English in everything a person reads
 python3 test_jsonstore.py          # the mirror restores, and one answer on who is outside it
 python3 test_report_cache.py       # one run per report per day; a failed run is never
                                    #   the answer, and a write drops what it changed
@@ -4058,6 +4104,8 @@ python3 test_display_ads.py        # the display layouts, and the build screen's
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
+python3 test_spelling.py           # the spelling check still bites, and its
+                                   #   exemptions still name real files
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
 ```
 

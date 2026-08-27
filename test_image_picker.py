@@ -157,7 +157,7 @@ check("an explicit list wins outright", upload_sources.enabled(), ["local", "cam
 # as our page being broken. Dropped, and handed back so a screen can name it.
 env(PICKER_UPLOAD_SOURCES="local,onedrive,dropbox")
 keep, unknown = upload_sources.configured()
-check("an unrecognised source is dropped", keep, ["local", "dropbox"])
+check("an unrecognized source is dropped", keep, ["local", "dropbox"])
 check("and named rather than swallowed", unknown, ["onedrive"])
 env(PICKER_UPLOAD_SOURCES=None)
 
@@ -213,7 +213,7 @@ env(PICKER_UPLOAD_SOURCES="local,camera,url")
 # must not file a real Instagram upload as "local", which is the one thing the
 # gallery's source column exists for.
 check("instagram is off", "instagram" in upload_sources.enabled(), False)
-check("and still a name we recognise", upload_sources.known("instagram"), True)
+check("and still a name we recognize", upload_sources.known("instagram"), True)
 check("a name we have never heard of is not", upload_sources.known("myspace"), False)
 env(PICKER_UPLOAD_SOURCES=None)
 
@@ -337,7 +337,7 @@ hub_ai.chat_json = _real_chat_json
 
 check("no error when the model answers", err, "")
 check("the chips are the model's", built["source"], "ai")
-check("labelled for this business", built["topics"][0]["label"], "Back on the water")
+check("labeled for this business", built["topics"][0]["label"], "Back on the water")
 check("services come across too", built["services"][0]["label"], "Seat re-covering")
 check("with the negative terms kept", built["services"][0]["negative"], ["car seat"])
 # for_prompt()'s lesson in Smart 1 Ads: the model is handed the answers, not a
@@ -470,7 +470,7 @@ check("and no services tick-list", "<h2>Services</h2>" in quiet, False)
 # and it names the variable somebody has to correct.
 env(PICKER_UPLOAD_SOURCES="local,onedrive")
 loud = http.get("/tools/image-picker/").data.decode()
-check("an unrecognised source is reported", "Unrecognised upload source" in loud, True)
+check("an unrecognized source is reported", "Unrecognized upload source" in loud, True)
 check("naming the source", "onedrive" in loud, True)
 check("and the variable to fix it", "PICKER_UPLOAD_SOURCES" in loud, True)
 env(PICKER_UPLOAD_SOURCES=None)

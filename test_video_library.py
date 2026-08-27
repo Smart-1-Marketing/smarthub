@@ -303,7 +303,7 @@ check_true("out of scope counts as skipped, not failed",
 
 
 # ---------------------------------------------------------------------------
-print("\nThe back catalogue is swept, and one negation is all there is")
+print("\nThe back catalog is swept, and one negation is all there is")
 # ---------------------------------------------------------------------------
 # Forward-only was right when the in-scope library was thirty nameless supplier
 # clips; once the scope became the two folders holding the real footage it
@@ -416,7 +416,7 @@ check_true("the page no longer claims indexing is forward-only",
 print("\nThe tag vocabulary is closed, and drops are reported not swallowed")
 # ---------------------------------------------------------------------------
 tags, desc, dropped = vl.validate({
-    "description": "Drone shot over a suburban neighbourhood at sunset.",
+    "description": "Drone shot over a suburban neighborhood at sunset.",
     "subject": ["aerial", "suburb", "banana"],
     "motion": ["drone"],
     "look": ["golden-hour", "warm"],
@@ -428,7 +428,7 @@ check_not_in("a term outside the vocabulary is dropped", "banana", tags)
 check_in("...and the drop is reported so the drift is visible",
          "subject:banana", dropped)
 check("the description survives", desc,
-      "Drone shot over a suburban neighbourhood at sunset.")
+      "Drone shot over a suburban neighborhood at sunset.")
 
 # Group limits stop one runaway reply flooding a clip with twelve subjects.
 tags, _, _ = vl.validate({"subject": list(vl.VOCAB["subject"]),
@@ -550,7 +550,7 @@ shaped = vl._shape({
 for key in ("id", "provider", "tier", "thumbnail", "preview_url", "full_url",
             "width", "height", "duration", "author", "source_url"):
     check_true(f"the universal asset shape carries {key}", key in shaped)
-check("owned footage is labelled as such", shaped["tier"], "OWNED")
+check("owned footage is labeled as such", shaped["tier"], "OWNED")
 check("the description is lifted out of nested context",
       shaped["description"], "Drone over a suburb.")
 check_not_in("the marker tag is not shown to a user", vl.INDEX_TAG, shaped["tags"])

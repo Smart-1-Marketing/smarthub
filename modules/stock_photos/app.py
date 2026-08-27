@@ -82,7 +82,7 @@ def _boot() -> dict:
         "sources": [
             {"key": "library", "label": "Our library", "on": configured["library"],
              "ours": True,
-             "note": "Photography we already own — no licence, no attribution."},
+             "note": "Photography we already own — no license, no attribution."},
             {"key": "pexels", "label": "Pexels", "on": configured["pexels"],
              "ours": False, "note": "Free for commercial use."},
             {"key": "pixabay", "label": "Pixabay", "on": configured["pixabay"],

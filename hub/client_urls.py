@@ -680,7 +680,7 @@ def missing(limit: int = 2000, include_found: bool = False, *,
     note = ("Nothing has been written. A URL attached to the wrong client is "
             "worse than none — every report keyed on domain would then agree, "
             "confidently, about the wrong company. Accept the ones you "
-            "recognise.")
+            "recognize.")
     if unreadable:
         note += (" " + ", ".join(s["label"] for s in unreadable) +
                  " could not be read, so this is a floor, not a total.")

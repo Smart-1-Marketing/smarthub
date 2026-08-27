@@ -39,8 +39,8 @@ p{margin:0 0 .8em;color:var(--cb-text-muted);}
 .cb-topnav{display:flex;align-items:center;gap:16px;}
 .cb-topnav a{color:var(--cb-text-muted);font-weight:500;}
 /* A button in the nav is a button, not a nav link. `.cb-topnav a` is (0,1,1)
-   and `.cb-btn-primary` is (0,1,0), so the muted grey above was winning on
-   specificity and painting the "+ New Commercial" label a dull grey-brown on
+   and `.cb-btn-primary` is (0,1,0), so the muted gray above was winning on
+   specificity and painting the "+ New Commercial" label a dull gray-brown on
    solid blue -- unreadable, and it looked like a broken theme rather than a
    cascade order. Scoped rather than !important so the rule is still
    overridable, and written for every button class the bar can carry. */
@@ -226,7 +226,7 @@ a.cb-step.done:hover{background:#d5f0e0;}
    The QC list drew pass green and everything else red. A recommendation and a
    refusal are not the same finding, and painting both red is how somebody
    learns to scroll past the red -- hub/templates/diagnostics.html has the
-   same note about a resolved finding rendered in an open finding's colour.
+   same note about a resolved finding rendered in an open finding's color.
    --------------------------------------------------------------------------- */
 .cb-qc-icon.warn{background:var(--cb-warn);}
 .cb-qc-icon.info{background:#8a93a3;}

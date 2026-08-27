@@ -308,7 +308,7 @@
   function select(i){ state.sel = i; drawBlockList(); drawEditor(); refresh(); }
 
   // ------------------------------------------------------------- editor
-  // Drawn from the catalogue rather than written per block type, so a new
+  // Drawn from the catalog rather than written per block type, so a new
   // block in blocks.py needs no change here.
   function field(spec, value, onChange){
     var wrap = document.createElement('div');
@@ -701,7 +701,7 @@
     }
   }).catch(function(){});
 
-  // Nothing can draw before the catalogue arrives: it is where the block
+  // Nothing can draw before the catalog arrives: it is where the block
   // types, their fields and the themes come from.
   api('api/catalogue').then(function(cat){
     CAT = cat;

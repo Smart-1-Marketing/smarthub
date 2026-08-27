@@ -135,7 +135,7 @@ def check_cloudinary() -> Check:
 def check_brandfetch() -> Check:
     if not settings.brandfetch_key:
         return _off("brandfetch", "Brandfetch", "brandfetch_key",
-                    "logo and brand-colour lookup is disabled.")
+                    "logo and brand-color lookup is disabled.")
     def go():
         # Their own domain — a stable, cheap lookup.
         r = requests.get("https://api.brandfetch.io/v2/brands/brandfetch.com",
@@ -309,12 +309,12 @@ def check_ghl_app() -> Check:
     def go():
         st = ghl_oauth.status()
         if not st["connected"]:
-            return ("warn", "App not authorised yet — connect once from "
+            return ("warn", "App not authorized yet — connect once from "
                             "Suite → Status → Connect.")
         try:
             ghl_oauth.agency_token()
         except Exception as exc:  # noqa: BLE001
-            return ("error", f"Stored authorisation is not usable: {exc}")
+            return ("error", f"Stored authorization is not usable: {exc}")
         # A healthy token that was granted half the scope set is the failure
         # this check exists to catch: nothing is broken today, and the features
         # behind the missing scopes 401 later looking like a bad token. Warn
@@ -358,7 +358,7 @@ def check_google_oauth() -> Check:
         r = requests.get("https://accounts.google.com/.well-known/openid-configuration",
                          timeout=TIMEOUT)
         return ("ok", "Configured. Confirm /auth/google/callback is an "
-                      "authorised redirect URI.") if r.ok else \
+                      "authorized redirect URI.") if r.ok else \
                ("warn", "Configured, but Google's discovery endpoint didn't respond.")
     (state, detail), ms = _timed(go)
     return Check("google_oauth", "Google sign-in", state, detail, ms)

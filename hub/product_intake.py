@@ -416,7 +416,7 @@ def ai_match(entries: list, catalogue: list | None = None) -> list:
           "name is written for the client; the card's is written for billing.\n"
           "- Empty string when the card has nothing that does the same job. "
           "Saying so is useful; guessing is not.\n"
-          "- `why` is one short clause a salesperson would recognise.\n"
+          "- `why` is one short clause a salesperson would recognize.\n"
           "- Answer for every item, in the order given."
     )
 

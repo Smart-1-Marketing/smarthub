@@ -236,7 +236,7 @@ check("...and the match says which reading of the name did it",
 check("the media partner is never proposed as the client",
       "FabLocal" not in [h["client"] for h in site_names.exact_matches(
           "FabLocal -  SERVPRO of Southwest San Antonio", BOOK)])
-check("the right franchise is the exact match, not the neighbouring one",
+check("the right franchise is the exact match, not the neighboring one",
       [h["client"] for h in site_names.exact_matches(
           "FabLocal -  SERVPRO of Southwest San Antonio", BOOK)]
       == ["SERVPRO Southwest San Antonio"],
@@ -421,7 +421,7 @@ marina_row = rows.get("Buckeye Lake Marina")
 check("the accepted URL reaches the client registry",
       marina_row and marina_row["url"] == "https://buckeyelakemarina.example",
       marina_row)
-check("labelled as discovered rather than presented as filed data",
+check("labeled as discovered rather than presented as filed data",
       marina_row.get("url_source") == "discovered", marina_row)
 check("and filling in a website does not make a Knack client one of ours",
       marina_row["is_house"] is False and marina_row["source"] == "knack",

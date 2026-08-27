@@ -1875,7 +1875,7 @@ def sites_billing() -> dict:
     if missing:
         miss_note += (" " + ", ".join(f"\u201c{p}\u201d" for p in missing)
                       + (" is" if len(missing) == 1 else " are")
-                      + " not in the QuickBooks catalogue under that name, so "
+                      + " not in the QuickBooks catalog under that name, so "
                         "nothing can be billed under it \u2014 that is a property of "
                         "the filter, not of the book.")
     if similar:

@@ -453,7 +453,7 @@ class Settings:
             row("Pixabay", bool(self.pixabay_key), False, f"{self.spellings('pixabay_key')} — stock search provider."),
             row("Unsplash", bool(self.unsplash_key), False, f"{self.spellings('unsplash_key')} — stock search provider."),
             row("remove.bg", bool(self.remove_bg_key), False, f"{self.spellings('remove_bg_key')} — Background Remover is disabled without it."),
-            row("Brandfetch", bool(self.brandfetch_key), False, f"{self.spellings('brandfetch_key')} — logo and brand-colour lookup."),
+            row("Brandfetch", bool(self.brandfetch_key), False, f"{self.spellings('brandfetch_key')} — logo and brand-color lookup."),
             row("Google Fonts", bool(self.google_fonts_key), False, f"{self.spellings('google_fonts_key')} — optional; curated list used without it."),
             row("Insites", bool(self.insites_key), False, f"{self.spellings('insites_key')} — Site Scans disabled without it."),
             row("HeyGen", bool(self.heygen_key), False,

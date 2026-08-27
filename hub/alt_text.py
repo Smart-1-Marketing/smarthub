@@ -270,7 +270,7 @@ Rules:
   claims about people (names, roles, qualifications) unless the page text states them.
 - A purely decorative image — a spacer, a divider, a background flourish, a bullet — gets
   "decorative": true and an EMPTY alt. That is the correct answer for those, not a description.
-- A logo's alt is the organisation's name plus "logo", nothing more.
+- A logo's alt is the organization's name plus "logo", nothing more.
 - "why" is at most 12 words saying what you based it on. It is for the reviewer, not the site."""
 
 

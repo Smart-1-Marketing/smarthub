@@ -95,11 +95,11 @@
   if (!btn || !out) return;
 
   var TONE = {
-    ok: {colour: "var(--cb-accent)", word: "accepted"},
-    rejected: {colour: "var(--cb-danger)", word: "refused"},
-    unreachable: {colour: "var(--cb-warn)", word: "not measured"},
-    inconclusive: {colour: "var(--cb-warn)", word: "not measured"},
-    absent: {colour: "#68707e", word: "no key"}
+    ok: {color: "var(--cb-accent)", word: "accepted"},
+    rejected: {color: "var(--cb-danger)", word: "refused"},
+    unreachable: {color: "var(--cb-warn)", word: "not measured"},
+    inconclusive: {color: "var(--cb-warn)", word: "not measured"},
+    absent: {color: "#68707e", word: "no key"}
   };
 
   function esc(value) {
@@ -118,7 +118,7 @@
       var cost = (r.state === "ok" || !r.cost) ? "" :
                  '<br><span class="cb-muted">' + esc(r.cost) + "</span>";
       html += "<tr><td><strong>" + esc(r.label) + "</strong></td>" +
-              '<td><span class="cb-status-pill" style="color:' + tone.colour + ';">' +
+              '<td><span class="cb-status-pill" style="color:' + tone.color + ';">' +
               tone.word + "</span></td>" +
               "<td>" + esc(r.detail) + cost + "</td></tr>";
     });

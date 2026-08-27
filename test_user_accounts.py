@@ -133,7 +133,7 @@ section("Every census field is carried, and none of them is invented")
 
 _aimee = _by_email["aimee@smart1marketing.com"]["profile"]
 check("title", _aimee["title"], "Senior Campaign Strategist")
-check("phone, normalised from the export's 309/631-2397",
+check("phone, normalized from the export's 309/631-2397",
       _aimee["phone"], "(309) 631-2397")
 check("birthday, as ISO", _aimee["birthday"], "1971-04-17")
 check("and shown unambiguously", _aimee["birthday_pretty"], "17 Apr 1971")

@@ -165,7 +165,7 @@ _CSS = """
   .s1hub-sb { transition: none } .s1hub-scrim { transition: none }
 }
 /* Collapsed state: the nav folds to a 56px icon rail rather than vanishing.
-   Hiding it entirely is what the old mobile behaviour did, and it left people
+   Hiding it entirely is what the old mobile behavior did, and it left people
    with no way back — a hide control has to be reversible from the hidden
    state, so the toggle stays visible either way. */
 body.s1hub-collapsed .s1hub-sb { width: 56px !important; }
@@ -194,7 +194,7 @@ body.s1hub-collapsed .s1hub-toggle { right: 4px; }
    has to assert its own layout rather than inherit whatever the host page
    happens to set. sites_admin ships `header>div,nav{display:flex;align-items:
    center}` -- a bare element selector -- which turned this sidebar into a
-   horizontal, vertically-centred row with every item overflowing off-screen.
+   horizontal, vertically-centered row with every item overflowing off-screen.
    Hence the explicit display/flex resets and the !important on the few
    properties a host stylesheet can plausibly clobber. */
 .s1hub-sb { position: fixed !important; top: 0 !important; bottom: 0 !important;

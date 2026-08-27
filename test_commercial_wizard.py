@@ -103,7 +103,7 @@ from hub import creative_specs, qr_codes, voice_casting                 # noqa: 
 
 section("Social is its own platform, not a third crop")
 check("it is offered", any(p["id"] == "social" for p in cb_config.PLATFORMS), True)
-check("and recognised", cb_config.is_social("social"), True)
+check("and recognized", cb_config.is_social("social"), True)
 check("CTV is not social", cb_config.is_social("ctv"), False)
 # The first beat is the whole difference: a feed has no slot holding the
 # viewer in place, so the hook is at zero rather than after an establishing
@@ -143,7 +143,7 @@ check("a :15 carries none", cb_config.length_warning(15), "")
 section("The spot is judged against the spec kit, before a frame exists")
 check("the kit names where to check it",
       creative_specs.SPEC_KIT_URL, "https://smart1.agency/partner/creative-specs")
-check("and the catalogue carries it",
+check("and the catalog carries it",
       creative_specs.catalogue()["source_url"], creative_specs.SPEC_KIT_URL)
 
 ctv30 = qc_service.spec_preview("ctv", 30, ["16:9"])
@@ -330,7 +330,7 @@ check("the note explains the ranking", note.startswith("Ranked on"), True)
 # empty from a question that was answered perfectly well.
 bare = [{"voice_id": f"v{i}", "name": f"Voice {i}", "labels": {}} for i in range(4)]
 ranked = voice_casting.match(bare, {"gender": "female"}, 3)
-check("unlabelled voices still rank", len(ranked), 3)
+check("unlabeled voices still rank", len(ranked), 3)
 check("and the note says the ranking is not one",
       "own order" in voice_casting.match_quality(ranked, len(bare)), True)
 check("an empty account is a different answer",
