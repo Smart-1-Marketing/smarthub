@@ -30,6 +30,22 @@
 
 <div class="card">
   <div class="card-h">
+    <h3>The same prospect, twice</h3>
+    <div class="right"><button class="btn-ghost" onclick="loadDupes()">Look for duplicates</button></div>
+  </div>
+  <div class="card-b" id="dupeBox">
+    <p class="muted" style="margin:0;font-size:13px">A business reaches this
+      panel more than once and always will &mdash; the widget on a client&rsquo;s
+      site in March, a website audit in May, a landing page in between. Grouping
+      is on evidence that identifies a business exactly (one email address, one
+      website); an exact company name on its own is offered as <i>possible</i>
+      and nothing more, because two franchises of one brand carry one name.
+      Nothing merges by itself.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-h">
     <h3>Captured leads <span class="lead-count muted" id="leadCount"></span></h3>
     <select id="lDays" class="lead-input" onchange="loadLeads()" aria-label="Period">
       <option value="7">Last 7 days</option>
@@ -157,7 +173,10 @@ function renderKpis(d){
   document.getElementById('leadKpis').innerHTML =
     kpi('Leads', d.count,
         'captured in the last '+d.days+' days'+
-        (d.with_pdf ? ' · '+d.with_pdf+' with a report' : '')) +
+        (d.with_pdf ? ' · '+d.with_pdf+' with a report' : '')+
+        /* A merged row leaves this list. Saying how many is what tells a
+           count that went down apart from a panel that failed to load. */
+        (d.merged ? ' · '+d.merged+' absorbed a duplicate' : '')) +
     kpi('Confirmed in Suite', d.confirmed,
         d.count ? 'of '+d.count+' carry a Suite contact id'
                 : 'nothing captured in this period') +
@@ -313,6 +332,91 @@ function convertLead(id){
     if(d.ok){ say('Linked to <b>'+esc(name)+'</b>.','ok'); loadLeads(); }
     else { say(esc(d.error || 'That could not be linked.'),''); }
   }).catch(function(){ say('That could not be linked.',''); });
+}
+
+/* Duplicates are proposed and a person presses. An automatic merge on a name
+   is how one company's inquiry is filed under another, which is the worst
+   outcome available to this panel. */
+function loadDupes(){
+  var host = document.getElementById('dupeBox');
+  host.innerHTML = '<p class="empty">Looking&hellip; <span class="spin"></span></p>';
+  fetch('/api/leads/duplicates?days=365',{credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(renderDupes)
+    .catch(function(){
+      host.innerHTML = '<p class="empty">The lead store could not be read, so '+
+        'whether anything is duplicated is <b>not measured</b> &mdash; which is '+
+        'not the same as nothing being duplicated.</p>';
+    });
+}
+
+function dupeGroup(g, certain){
+  var rows = g.leads.map(function(l, i){
+    return '<label class="lead-check" style="display:block;margin:2px 0">'+
+      '<input type="radio" name="keep-'+esc(g.leads[0].id)+'" value="'+esc(l.id)+'"'+
+      (i === 0 ? ' checked' : '')+'> '+
+      '<b>'+esc(l.company || l.name || l.email || l.id)+'</b> '+
+      '<span class="muted">'+esc(l.source||'')+' / '+esc(l.page||'')+
+      ' &middot; '+esc(String(l.created||'').slice(0,10))+
+      (l.contact_id ? ' &middot; in Suite' : '')+
+      (l.client ? ' &middot; '+esc(l.client) : '')+'</span></label>';
+  }).join('');
+  return '<div class="lead-note '+(certain ? 'info' : '')+'" '+
+    'data-group="'+esc(g.leads[0].id)+'">'+
+    '<b>'+esc(g.evidence)+'</b>'+rows+
+    '<div style="margin-top:6px"><button class="btn-ghost" '+
+    'onclick="mergeGroup(this)">Merge into the one I picked</button> '+
+    '<span class="muted" style="font-size:12px">The one you keep holds its own '+
+    'details and only fills its blanks. Nothing is deleted.</span></div></div>';
+}
+
+function renderDupes(d){
+  var host = document.getElementById('dupeBox');
+  if (d.error){
+    host.innerHTML = '<p class="empty">Not measured: '+esc(d.error)+'</p>';
+    return;
+  }
+  if (!d.certain.length && !d.possible.length){
+    host.innerHTML = '<p class="empty">'+esc(d.note)+'</p>';
+    return;
+  }
+  host.innerHTML =
+    (d.certain.length
+      ? '<h4 style="margin:0 0 6px">Same business, on the evidence</h4>'+
+        d.certain.map(function(g){ return dupeGroup(g, true); }).join('')
+      : '')+
+    (d.possible.length
+      ? '<h4 style="margin:14px 0 6px">Worth an eyeball</h4>'+
+        d.possible.map(function(g){ return dupeGroup(g, false); }).join('')
+      : '')+
+    '<p class="muted" style="font-size:12px;margin:10px 0 0">'+esc(d.note)+'</p>';
+}
+
+function mergeGroup(btn){
+  var box = btn.closest('[data-group]');
+  var picked = box.querySelector('input[type=radio]:checked');
+  if (!picked){ say('Pick which one to keep.',''); return; }
+  var others = [];
+  Array.prototype.forEach.call(box.querySelectorAll('input[type=radio]'), function(el){
+    if (el.value !== picked.value){ others.push(el.value); }
+  });
+  if (!others.length){ return; }
+  btn.disabled = true;
+  fetch('/api/leads/merge',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({into: picked.value, from: others})})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      btn.disabled = false;
+      if (!j.ok){ say(esc(j.error||'That could not be merged.'),'warnv'); return; }
+      say(esc(j.note)+(j.suite_note ? ' '+esc(j.suite_note) : ''), '');
+      loadDupes();
+      loadLeads();
+    })
+    .catch(function(){
+      btn.disabled = false;
+      say('That could not be merged.','warnv');
+    });
 }
 
 function retryLeads(){

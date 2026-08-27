@@ -121,13 +121,17 @@ ALLOW: dict[str, set[str]] = {
 SKIP_DIRS = {"_attic", "node_modules", ".git", ".venv", "venv", "dist", "build"}
 SKIP_SUBSTRINGS = ("clients_app/static",)   # a built React bundle, not source
 
-# A Python string that is one bare lowercase token is a dict key, a stored id
-# or a tag -- `"catalogue"`, `"enquire"`, `"colourful"`, `"grey"` -- and not
-# something anybody reads. Renaming those is a data migration wearing a copy
-# change: the goal id "enquire" is in every landing page already saved, and
-# `colourful` is a Cloudinary tag on every clip indexed before today. Copy has
-# spaces or capitals in it, so this costs the check nothing real.
-_IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
+# A Python string that is one bare lowercase token, or a dotted path of them,
+# is a dict key, a stored id, a tag or an external field path --
+# `"catalogue"`, `"enquire"`, `"colourful"`, `"grey"`,
+# `"display_ads.ad_transparency_centre_url"` -- and not something anybody
+# reads. Renaming those is a data migration wearing a copy change: the
+# landing-page goal id `enquire` is in every page already saved, `colourful`
+# is a Cloudinary tag on every clip indexed before today, and the dotted ones
+# are Insites' own spellings inside Insites' own payload, where correcting
+# them reads back on Client 360 as a site with no ad transparency link at all.
+# Copy has spaces or capitals in it, so this costs the check nothing real.
+_IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$")
 
 
 def _rel(p: pathlib.Path) -> str:

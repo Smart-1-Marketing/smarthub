@@ -55,7 +55,23 @@ _MOUNT_ACTIVE_HUB = {
     "/tools": "tools", "/qa": "qa", "/activity": "activity",
     "/diagnostics": "diagnostics", "/client360": "client360", "/seo": "seo",
     "/clients": "clients", "/status": "status",
+    # Two segments, matched before the one above it. A blueprint tool that has
+    # its own sidebar entry has to be able to say so: /tools/website-audit is
+    # under Sales in the nav, and resolving it to "tools" highlighted Client
+    # Tools instead -- nav pointing at the wrong entry is a small lie the
+    # reader corrects by ignoring the highlight.
+    "/tools/website-audit": "website_audit",
 }
+
+
+def _hub_active(path: str) -> str:
+    """Which sidebar entry a hub path belongs to. Longest prefix wins."""
+    parts = (path or "/").strip("/").split("/")
+    for depth in (2, 1):
+        key = "/" + "/".join(parts[:depth])
+        if key in _MOUNT_ACTIVE_HUB:
+            return _MOUNT_ACTIVE_HUB[key]
+    return ""
 
 
 def _read_document(raw: bytes, filename: str) -> str:
@@ -1774,6 +1790,46 @@ def create_hub_app() -> Flask:
             return jsonify({"ok": False,
                             "error": "That lead could not be found."}), 404
         return jsonify({"ok": True, "lead": row})
+
+    @app.route("/api/leads/duplicates")
+    def api_leads_duplicates():
+        """Rows that look like one prospect arriving more than once.
+
+        A proposal list, never a merge. Grouping is on evidence that
+        identifies a business exactly — one email address, one website — and
+        an exact company name on its own is offered as *possible* and
+        nothing more, because two franchises of one brand carry one name and
+        are two businesses.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import leads
+        return jsonify(leads.merge_candidates(
+            days=clamp_int(request.args.get("days"), 365, 1, 730)))
+
+    @app.route("/api/leads/merge", methods=["POST"])
+    def api_leads_merge():
+        """Fold one or more leads into another.
+
+        The survivor keeps its own details and fills only its blanks, the
+        merged rows are kept rather than deleted so where each came from
+        survives, and nothing is re-delivered — two delivered rows mean the
+        Suite already holds two contacts, and the answer to that is to say so
+        rather than to write a third.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import leads
+        body = request.get_json(silent=True) or {}
+        ids = body.get("from")
+        if isinstance(ids, str):
+            ids = [ids]
+        result = leads.merge(str(body.get("into") or ""),
+                             ids if isinstance(ids, list) else [],
+                             actor=current_user() or "")
+        return jsonify(result), (200 if result.get("ok") else 400)
 
     @app.route("/api/leads/ghl/preflight")
     def api_leads_ghl_preflight():
@@ -5212,8 +5268,7 @@ def create_hub_app() -> Flask:
             # renderers of the nav read it. A stored preference still wins,
             # so this is a starting point rather than the page overruling
             # anybody.
-            bar = render_sidebar(_MOUNT_ACTIVE_HUB.get(
-                "/" + path.strip("/").split("/")[0], ""),
+            bar = render_sidebar(_hub_active(path),
                 is_admin=viewer_is_admin(),
                 collapsed_default=collapses_by_default(path))
             # The help/demo/autofill layer has to come with the sidebar. It
@@ -5395,6 +5450,22 @@ def create_hub_app() -> Flask:
     except Exception as _sc_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _sc_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Website Audit (Tools > Sales) ----------------
+    # A blueprint rather than a mounted module, because everything it reads --
+    # the client registry, the discovered-URL overlay, the scan facts and the
+    # lead store -- is the hub's own. The login gate is on the blueprint
+    # itself: wsgi.py's AuthGuard only wraps dispatcher-mounted modules, and
+    # hub/auth.py names what happens when a blueprint is left to guard itself
+    # view by view.
+    try:
+        from .website_audit_routes import register_website_audit
+        register_website_audit(app)
+    except Exception as _wa_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _wa_exc)
         except Exception:  # noqa: BLE001
             pass
 

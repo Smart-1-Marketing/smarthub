@@ -343,7 +343,10 @@ check("an empty account is a different answer",
 section("The seven steps, through the app as it is actually mounted")
 
 import werkzeug.test                                                    # noqa: E402
-from wsgi import application                                            # noqa: E402
+from wsgi import application, hub_app                                   # noqa: E402
+from modules.commercial_builder.db import db as cb_db                   # noqa: E402
+from modules.commercial_builder.models import (                         # noqa: E402
+    CommercialProject as CommercialProject_cls, RenderJob as RenderJob_cls)
 
 client = werkzeug.test.Client(application)
 client.post("/login", data={"password": os.environ["PANEL_PASSWORD"]})
@@ -438,8 +441,10 @@ started = post_json(MOUNT + "/api/projects", {
 check("three lengths start three commercials", started.status_code, 201)
 payload = started.get_json()
 check("one per length", len(payload["projects"]), 3)
-check("sorted shortest first",
-      [p["length_seconds"] for p in payload["projects"]], [15, 30, 60])
+# Not shortest-first: the :30 is the length the others are cut down from, so
+# it is the one to get approved before anything else is built.
+check("built :30 first, then :15, then :60",
+      [p["length_seconds"] for p in payload["projects"]], [30, 15, 60])
 # Tied together so they share a concept: building the :15 afterwards means
 # walking the wizard again and getting a different idea out of it.
 check("they share a campaign", bool(payload["campaign_id"]), True)
@@ -460,7 +465,10 @@ refused = post_json(MOUNT + "/api/projects", {
     "commercial_type": "stock_vo"})
 check("an unknown length is refused, not rounded", refused.status_code, 400)
 
-pid = payload["projects"][1]["id"]        # the :30
+# By length, not by index: the index of the :30 moved when the build order
+# changed from ascending to BUILD_ORDER, and a test that picks position 1 and
+# calls it "the :30" starts asserting things about a different spot.
+pid = next(p["id"] for p in payload["projects"] if p["length_seconds"] == 30)
 
 section("Every step answers, and the old address still resolves")
 for step in ("brief", "blueprint", "voice", "cta", "preview"):
@@ -505,6 +513,138 @@ for js_file in ("blueprint.js", "preview.js"):
     block = text[block_start:text.index("};", block_start)]
     labelled = set(re.findall(r"(\w+):\s*\"", block))
     check(f"{js_file} labels every check run_qc returns", sorted(keys - labelled), [])
+
+# ---------------------------------------------------------------------------
+# 8. Rendering: the crash, one size at a time, and approval as the thing that
+#    files it.
+# ---------------------------------------------------------------------------
+section("Render answers at all")
+# It did not. `submit_render` read `project.name` and `project.length` —
+# attributes CommercialProject does not have; it has `title` and
+# `length_seconds` — so the route raised AttributeError before the QC gate,
+# before Creatomate, before anything. The 500 came back as HTML, CB.api could
+# not parse it as JSON, and a three-second toast said "Bad response from
+# server". Press Render, nothing happens. No commercial had ever rendered.
+check("CommercialProject still has no .name",
+      hasattr(CommercialProject_cls, "name"), False)
+check("nor .length", hasattr(CommercialProject_cls, "length"), False)
+
+rendered = post_json(MOUNT + f"/api/projects/{pid}/render",
+                     {"format": "16:9", "force_despite_qc_failures": True})
+check("a render is accepted", rendered.status_code, 200)
+render_payload = rendered.get_json()
+check("one job comes back", len(render_payload["render_jobs"]), 1)
+# Mock mode reports "succeeded" and produces no file. A panel drawing that as
+# a finished render is the confident wrong answer.
+check("mock mode is named rather than passed off as success",
+      "mock" in (render_payload.get("note") or "").lower(), True)
+job_id = render_payload["render_jobs"][0]["id"]
+
+section("One size at a time")
+# Three renders at once means the second and third come off a storyboard
+# nobody has watched: a note on the first applies to two cuts already paid for.
+many = post_json(MOUNT + f"/api/projects/{pid}/render",
+                 {"formats": ["16:9", "9:16"], "force_despite_qc_failures": True})
+check("two sizes in one press is refused", many.status_code, 400)
+check("and says why", "one size at a time" in many.get_json()["error"].lower(), True)
+bad_fmt = post_json(MOUNT + f"/api/projects/{pid}/render",
+                    {"format": "4:3", "force_despite_qc_failures": True})
+check("an unknown size is refused", bad_fmt.status_code, 400)
+
+section("Approving is what files it, and only a real file can be approved")
+# Approving a mock would file nothing into the client's library and log it as
+# a delivered commercial — a clean tick over an empty gallery.
+mock_approve = post_json(MOUNT + f"/api/projects/{pid}/render-jobs/{job_id}/approve")
+check("a render with no file cannot be approved", mock_approve.status_code, 400)
+check("and the reason is the missing file",
+      "no file" in mock_approve.get_json()["error"].lower(), True)
+
+with hub_app.app_context():
+    _job = RenderJob_cls.query.get(job_id)
+    _job.output_url = "https://cdn.example/render.mp4"
+    cb_db.session.commit()
+
+approved = post_json(MOUNT + f"/api/projects/{pid}/render-jobs/{job_id}/approve")
+check("a finished render approves", approved.status_code, 200)
+ap = approved.get_json()
+# "Filed" and "filed in one of two places" are different outcomes, and one
+# tick over both is how somebody learns not to trust the tick.
+check("the approval records who and where", "filed_to_client" in ap["approval"], True)
+check("and whether the video was stored", "stored_url" in ap["approval"], True)
+# This spot asked for one size, so approving it leaves nothing — and the
+# field says so rather than being absent.
+check("nothing is left to render on a one-size spot", ap["remaining_formats"], [])
+# Approving the :30 is not the end of the job when several lengths were
+# started together — the next one is waiting at its Blueprint.
+check("the next spot in the campaign is handed over", ap["next"]["length_seconds"], 15)
+check("as a Blueprint URL", "blueprint" in ap["next"]["url"], True)
+check("approving twice does not file twice",
+      post_json(MOUNT + f"/api/projects/{pid}/render-jobs/{job_id}/approve")
+      .get_json().get("already"), True)
+
+listed = get_json(MOUNT + f"/api/projects/{pid}/render-jobs")
+check("the job list carries its approval", bool(listed["render_jobs"][0]["approval"]), True)
+check("and which formats are approved", listed["approved_formats"], ["16:9"])
+
+section("The voice and music selections survive to the render")
+# `set_music` assigned a fresh two-key dict, which wiped `voice_track_url` —
+# the key routes/render.py reads to put narration on the timeline. So saving
+# the music selection after generating a voiceover threw the voiceover away
+# and the commercial came back silent, with no error at either end.
+with hub_app.app_context():
+    _p = CommercialProject_cls.query.get(pid)
+    _m = dict(_p.music or {})
+    _m["voice_track_url"] = "https://cdn.example/vo.mp3"
+    _p.music = _m
+    cb_db.session.commit()
+post_json(MOUNT + f"/api/projects/{pid}/music", {"mood": "Energetic", "level": "High"},
+          method="put")
+with hub_app.app_context():
+    _m = CommercialProject_cls.query.get(pid).music
+check("the mood saves", _m.get("mood"), "Energetic")
+check("and the voice track is still there",
+      _m.get("voice_track_url"), "https://cdn.example/vo.mp3")
+
+
+# ---------------------------------------------------------------------------
+# 9. The pickers are pictures, and the pictures are of something real
+# ---------------------------------------------------------------------------
+section("Casting is tiles carrying what they will actually match on")
+detail = get_json(MOUNT + "/api/voice-characteristics")["characteristics"]
+check("all five rows", len(detail), 5)
+by_id = {row["id"]: row for row in detail}
+# Energy is the one characteristic that does more than rank — STYLE_BY_ENERGY
+# becomes the `style` sent on the render — which is why it is the one with an
+# amplitude drawn for it.
+check("energy options carry the style they send",
+      all(o["style"] is not None for o in by_id["energy"]["options"]), True)
+check("and they differ", len({o["style"] for o in by_id["energy"]["options"]}), 4)
+check("delivery says which words it searches for",
+      "announcer" in by_id["delivery"]["options"][0]["matches"], True)
+check("accent carries its aliases",
+      "usa" in by_id["accent"]["options"][0]["matches"], True)
+# Nothing is drawn for gender or age: a glyph there would assert something the
+# tool does not know.
+check("gender claims no match words", by_id["gender"]["options"][0]["matches"], [])
+
+cast = post_json(MOUNT + "/api/voices/cast",
+                 {"want": {"gender": "female", "energy": "energetic"}, "count": 3}).get_json()
+# "No preference" is not a question, so counting it would make a voice that
+# matched everything asked read as "2 of 5".
+check("the denominator is what was actually asked", cast["asked"] >= 2, True)
+
+section("The music picker draws the real numbers")
+voice_page = client.get(f"{MOUNT}/project/{pid}/voice").get_data(as_text=True)
+check("mood is a tile grid, not a dropdown",
+      'id="music-mood-choices"' in voice_page and '<select id="music-mood"' not in voice_page, True)
+check("level is a tile grid too",
+      'id="music-level-choices"' in voice_page and '<select id="music-level"' not in voice_page, True)
+# The two dB figures on screen are the ones creatomate_service turns into the
+# ducking automation, so what is drawn is what renders.
+for label, (bed, ducked) in cb_config.MUSIC_LEVELS.items():
+    check(f"{label} carries its real dB pair",
+          f'data-bed="{bed}"' in voice_page and f'data-ducked="{ducked}"' in voice_page, True)
+
 
 section("The chrome arrives as an element, on every one of the new steps")
 from html.parser import HTMLParser                                      # noqa: E402

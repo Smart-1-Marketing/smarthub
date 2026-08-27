@@ -637,6 +637,39 @@ def api_client_context():
         return jsonify({"fields": {}, "error": f"{type(exc).__name__}"}), 200
 
 
+@app.post("/api/client-upload-link")
+def api_client_upload_link():
+    """The link this client uploads their own creative through.
+
+    An IO that says "creative is being supplied" is exactly the moment
+    somebody needs one, and until now the answer was to open Client Image
+    Uploads in another tab, find or add the client, and copy a link out of a
+    row — so it got made by whoever remembered the tool existed, and the
+    assets arrived by email instead.
+
+    A POST because it can create a gallery. The matching is the picker's own
+    and is deliberately strict: exactly one gallery or none, never a
+    substring, because a link that collects one client's photographs into
+    another client's gallery is worse than having no link at all.
+    """
+    body = request.get_json(silent=True) or {}
+    try:
+        from modules.image_picker import provisioning
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False,
+                        "error": f"Client Image Uploads is unavailable: {exc}"}), 200
+    out = provisioning.link_for(
+        str(body.get("client") or body.get("name") or ""),
+        str(body.get("url") or ""),
+        create=bool(body.get("create")),
+        # host_url, not url_root: this app is mounted at /tools/io, so
+        # url_root carries that mount and the picker path would be pasted
+        # onto the end of it.
+        base=request.host_url,
+    )
+    return jsonify(out)
+
+
 @app.post("/api/next-order-number")
 def next_order_number():
     try:
@@ -680,6 +713,30 @@ def _p(text, style):
     return Paragraph(xml_escape(str(text or '')).replace('\n', '<br/>'), style)
 
 
+def _upload_link_for(data):
+    """The client's creative upload link, for a document or the webhook.
+
+    Reads only — `create=False`. Building a PDF must never create a gallery:
+    a document is generated repeatedly, often twice in a row for the client
+    and internal versions, and a side effect that fires on each of those is
+    not one anybody asked for. The wizard creates the gallery explicitly and
+    puts the link in `clientUploadUrl`; this is the fallback so an IO for a
+    client who already has a gallery carries the link whether or not somebody
+    pressed the button.
+    """
+    given = str((data or {}).get('clientUploadUrl') or '').strip()
+    if given:
+        return given
+    try:
+        from modules.image_picker import provisioning
+        out = provisioning.link_for(str((data or {}).get('client') or ''),
+                                    str((data or {}).get('url') or ''),
+                                    create=False)
+        return out.get('share_url') or ''
+    except Exception:  # noqa: BLE001
+        return ''      # a missing link is a missing row, never a broken PDF
+
+
 def _build_requirements_pdf(data, doc_type):
     client = _safe_filename(data.get('client'))
     order_number = _safe_filename(data.get('orderNumber') or 'No Order')
@@ -702,6 +759,16 @@ def _build_requirements_pdf(data, doc_type):
         ['Monthly Spend', data.get('monthlySpendFormatted','')],
         ['Total Campaign Budget', data.get('totalCampaignBudgetFormatted','')],
     ]
+    # The link the client sends their own creative through. On BOTH documents:
+    # the customer version so the client can upload without anybody emailing
+    # them a link, and the internal one so whoever chases the assets has the
+    # same address rather than making a second gallery.
+    _upload_url = _upload_link_for(data)
+    if _upload_url:
+        meta.append(['Send Us Your Creative',
+                     Paragraph(f'<link href="{xml_escape(_upload_url)}">'
+                               f'{xml_escape(_upload_url)}</link>', styles['S1Body'])])
+
     # Geography was missing from this table entirely -- the IO said what was
     # being bought and never where it was running.
     from hub import target_areas as _ta
@@ -786,8 +853,15 @@ def _build_requirements_pdf(data, doc_type):
 
     # Uploaded creative section with thumbnails
     assets=data.get('creativeAssets') or []
-    if assets:
+    if assets or _upload_url:
         story.append(Paragraph('Creative Assets', styles['S1H2']))
+    if _upload_url:
+        story.append(Paragraph(
+            'Anything still to come can be uploaded here, and lands straight in '
+            f'this client&#39;s gallery: <link href="{xml_escape(_upload_url)}">'
+            f'{xml_escape(_upload_url)}</link>', styles['S1Small']))
+        story.append(Spacer(1, 6))
+    if assets:
         rows=[['Preview','Product','File / Status','Evergreen','Asset Link']]
         for a in assets:
             preview='-'
@@ -1008,6 +1082,21 @@ def submit_io():
     except Exception:  # noqa: BLE001
         pass
 
+    # An IO for a business nobody has a record of leaves them invisible on
+    # Client 360 -- the page reads Knack products and website records, and a
+    # brand-new client has neither until the campaign is set up. So the order
+    # registers them, and ONLY when they are genuinely new: an IO for a client
+    # who already resolves writes nothing, because a second row under a name
+    # that already exists is how one company becomes two on every report keyed
+    # on a client. Hub-side overlay, never a write to Knack -- the day the real
+    # record appears it wins. See hub/io_clients.py.
+    try:
+        from hub import io_clients
+        _b = request.get_json(silent=True) or {}
+        io_clients.register_from_io(_b)
+    except Exception:  # noqa: BLE001
+        pass           # an IO must never fail to submit over its own bookkeeping
+
     webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
     if not webhook_url:
         return jsonify({"ok": False, "error": "GHL_WEBHOOK_URL is not configured on the server."}), 500
@@ -1069,6 +1158,10 @@ def submit_io():
         "income_targets": data.get("incomes", data.get("income", [])),
         "dayparting": data.get("dayparting"),
         "creative_source": data.get("creativeSource"),
+        # The address the client uploads their own creative through, so a
+        # Suite automation can put it in a chase email or a task rather than
+        # somebody hunting for it in another tool.
+        "client_upload_url": _upload_link_for(data),
         "exclusions_negative_keywords": data.get("exclusions"),
         "landing_page_mode": data.get("landingPageMode"),
         "shared_landing_page": data.get("landingPage"),

@@ -275,3 +275,115 @@ a.cb-step.done:hover{background:#d5f0e0;}
 .cb-voice-row audio{height:30px;max-width:180px;}
 .cb-voice-name{font-weight:650;font-size:13.5px;}
 .cb-voice-why{font-size:11.5px;color:var(--cb-text-muted);}
+
+/* ---------------------------------------------------------------------------
+   The render panel.
+
+   Pressing Render showed nothing at all: the route 500'd, the HTML that came
+   back could not be parsed as JSON, and a three-second toast said "Bad
+   response from server". The crash is fixed; this is the other half — a
+   render in flight has to look like one.
+   --------------------------------------------------------------------------- */
+.cb-render-job{border:1px solid var(--cb-border);border-radius:var(--cb-radius-sm);
+  padding:12px 13px;margin-bottom:10px;background:#fff;}
+.cb-render-video{width:100%;border-radius:var(--cb-radius-sm);margin-top:10px;
+  background:#0b1220;display:block;}
+.cb-render-bar{height:5px;border-radius:99px;background:#eef0f4;overflow:hidden;margin-top:9px;}
+.cb-render-bar span{display:block;height:100%;width:38%;border-radius:99px;
+  background:var(--cb-primary);}
+@media (prefers-reduced-motion: no-preference){
+  .cb-render-bar span{animation:cb-crawl 1.6s ease-in-out infinite;}
+}
+/* Deliberately an indeterminate crawl rather than a percentage. Creatomate
+   reports queued/rendering and no progress figure, so a bar that filled would
+   be inventing one -- and a stalled render that reads "80%" is worse than one
+   that reads "still going". */
+@keyframes cb-crawl{
+  0%{transform:translateX(-100%);}
+  100%{transform:translateX(280%);}
+}
+/* A size already approved is not re-renderable from this picker. */
+#render-format-choices .cb-choice.is-approved{opacity:.7;cursor:default;
+  border-color:var(--cb-accent);background:#f2fbf6;}
+#render-format-choices .cb-choice.is-rendered{border-color:var(--cb-primary);}
+.cb-format-state{margin-top:6px;min-height:18px;}
+
+/* ---------------------------------------------------------------------------
+   Casting and music, as pictures rather than dropdowns.
+
+   The rule these follow: draw a graphic where it encodes something real, and
+   use a plain labeled tile where it would not. An energy waveform genuinely
+   shows the amplitude that gets sent to ElevenLabs, and the ducking diagram
+   genuinely shows the two dB figures in MUSIC_LEVELS. A face icon for "age"
+   or a flag for "accent" would assert something the tool does not know, which
+   is the failure this whole codebase is written against.
+   --------------------------------------------------------------------------- */
+.cb-optrow{display:flex;flex-wrap:wrap;gap:8px;}
+.cb-opt{border:1.5px solid var(--cb-border);border-radius:var(--cb-radius-sm);
+  background:#fff;padding:9px 12px;cursor:pointer;transition:.12s;text-align:left;
+  font-family:inherit;font-size:13px;color:var(--cb-text);display:flex;
+  align-items:center;gap:9px;min-height:44px;}
+.cb-opt:hover{border-color:#b7c4e0;}
+.cb-opt.selected{border-color:var(--cb-primary);background:var(--cb-primary-light);}
+.cb-opt-label{font-weight:640;font-size:13px;line-height:1.15;}
+.cb-opt-sub{font-size:11px;color:var(--cb-text-muted);margin-top:2px;}
+.cb-opt svg{flex:none;display:block;color:var(--cb-primary);}
+.cb-opt:not(.selected) svg{color:#93a0b5;}
+.cb-charname{font-weight:650;font-size:12.5px;margin-bottom:6px;display:block;}
+.cb-char{margin-bottom:14px;}
+
+/* Mood tiles: a mini waveform per mood. Illustrative, and labeled as such --
+   no track has been chosen at this point, so a waveform must not read as a
+   preview of one. */
+.cb-mood-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px;}
+.cb-mood{border:1.5px solid var(--cb-border);border-radius:var(--cb-radius-sm);
+  background:#fff;padding:10px;cursor:pointer;transition:.12s;text-align:center;
+  font-family:inherit;color:var(--cb-text);}
+.cb-mood:hover{border-color:#b7c4e0;}
+.cb-mood.selected{border-color:var(--cb-primary);background:var(--cb-primary-light);}
+.cb-mood svg{width:100%;height:34px;display:block;color:var(--cb-primary);}
+.cb-mood:not(.selected) svg{color:#9fb0cc;}
+.cb-mood-name{font-weight:640;font-size:12.5px;margin-top:6px;}
+
+/* The level picker draws what ducking actually does, with the real dB pair. */
+.cb-level-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;}
+.cb-level{border:1.5px solid var(--cb-border);border-radius:var(--cb-radius-sm);
+  background:#fff;padding:11px;cursor:pointer;transition:.12s;font-family:inherit;
+  color:var(--cb-text);text-align:left;width:100%;}
+.cb-level:hover{border-color:#b7c4e0;}
+.cb-level.selected{border-color:var(--cb-primary);background:var(--cb-primary-light);}
+.cb-level svg{width:100%;height:52px;display:block;}
+.cb-level-name{font-weight:650;font-size:13px;}
+.cb-level-db{font-size:11px;color:var(--cb-text-muted);}
+
+/* A cast voice is a row with a player on it, not a line in a dropdown. */
+.cb-voice-card{display:flex;align-items:center;gap:13px;border:1.5px solid var(--cb-border);
+  border-radius:var(--cb-radius-sm);padding:12px 13px;margin-bottom:9px;background:#fff;
+  cursor:pointer;transition:.12s;}
+.cb-voice-card:hover{border-color:#b7c4e0;}
+.cb-voice-card.selected{border-color:var(--cb-primary);background:var(--cb-primary-light);}
+.cb-play{flex:none;width:40px;height:40px;border-radius:50%;border:1.5px solid var(--cb-border);
+  background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  color:var(--cb-primary);padding:0;}
+.cb-play:hover{border-color:var(--cb-primary);}
+.cb-play[disabled]{opacity:.4;cursor:not-allowed;}
+.cb-voice-wave{flex:none;width:74px;height:26px;color:#c3cddd;}
+.cb-voice-card.playing .cb-voice-wave{color:var(--cb-primary);}
+@media (prefers-reduced-motion: no-preference){
+  .cb-voice-card.playing .cb-voice-wave rect{animation:cb-bounce .9s ease-in-out infinite;}
+  .cb-voice-card.playing .cb-voice-wave rect:nth-child(2){animation-delay:.1s;}
+  .cb-voice-card.playing .cb-voice-wave rect:nth-child(3){animation-delay:.2s;}
+  .cb-voice-card.playing .cb-voice-wave rect:nth-child(4){animation-delay:.3s;}
+  .cb-voice-card.playing .cb-voice-wave rect:nth-child(5){animation-delay:.4s;}
+  .cb-voice-card.playing .cb-voice-wave rect:nth-child(6){animation-delay:.5s;}
+}
+@keyframes cb-bounce{
+  0%,100%{transform:scaleY(.35);}
+  50%{transform:scaleY(1);}
+}
+.cb-voice-wave rect{transform-origin:center;}
+.cb-match{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px;}
+.cb-match span{background:#e7f7ee;color:#0f9d6b;border-radius:99px;padding:1px 8px;
+  font-size:10.5px;font-weight:700;text-transform:capitalize;}
+.cb-match span.none{background:#f1f3f7;color:var(--cb-text-muted);text-transform:none;}
+.cb-voice-strength{flex:none;text-align:right;font-size:11px;color:var(--cb-text-muted);}
