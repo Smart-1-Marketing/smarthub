@@ -1216,6 +1216,31 @@ def api_create_client():
     return jsonify({"ok": True, "client": client.to_dict(include_secrets=True)})
 
 
+@bp.route("/api/clients/for-hub-client", methods=["POST"])
+@staff_only
+@db_guard
+def api_client_upload_link():
+    """The upload link for a Hub client, made on the spot if there isn't one.
+
+    A POST because it can create a gallery, and creating one on a GET is
+    something a reload or a prefetch does without anybody asking. The matching
+    rules live in provisioning.py — exactly one gallery or none, never a
+    substring — because a link that collects a client's photographs into
+    another client's gallery is the worst thing this module can do.
+    """
+    from . import provisioning
+    body = request.get_json(silent=True) or {}
+    out = provisioning.link_for(
+        str(body.get("name") or ""),
+        str(body.get("url") or ""),
+        create=bool(body.get("create")),
+        hub_client_id=str(body.get("hub_client_id") or ""),
+        base=request.url_root,
+        actor=hub_user(),
+    )
+    return jsonify(out), (200 if out.get("ok") else 400)
+
+
 @bp.route("/api/clients/<int:client_id>", methods=["POST"])
 @staff_only
 @db_guard
