@@ -24,6 +24,10 @@ _ITEMS = [
     ("_sec2", "", "", "Sales"),
     # One entry, because there is one proposal builder. /sales/proposals is the
     # retired standalone tool: it redirects here and serves its archive only.
+    # Before the Proposal Builder because it is what happens before one: the
+    # audit is the evidence a proposal is written from, and the builder offers
+    # to run it anyway if nobody did.
+    ("website_audit", "/tools/website-audit", "&#128269;", "Website Audit"),
     ("salesb", "/sales/builder/", "&#128196;", "Proposal Builder"),
     # Sales, not Tools. It is the last step of the sales flow -- a proposal
     # becomes an insertion order -- and the Tools page is where staff looked

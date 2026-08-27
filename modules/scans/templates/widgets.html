@@ -83,6 +83,8 @@
   {% endif %}
   {% for w in warnings %}<div class="warn">{{ w }}</div>{% endfor %}
 
+  <script type="application/json" id="kindData">{{ kinds|tojson }}</script>
+
   <div class="card" id="formCard">
     <h2 id="formTitle">Add a placement</h2>
     <div class="grid2">
@@ -92,6 +94,22 @@
         <input id="f_tag" placeholder="smart1-home">
         <div class="muted">Filled in from the name if you leave it blank.</div></div>
     </div>
+    {#
+      Which scan sits behind the placement. Chosen at creation and locked
+      afterwards, for the same reason the address is: both are in the embed
+      code already on somebody else's website, and swapping one under a live
+      placement changes what a visitor is asked without anybody visiting the
+      page. The server refuses the change as well -- a rule the form keeps
+      while the write breaks it is not a rule.
+    #}
+    <div class="field"><label for="f_kind">What this placement runs</label>
+      <select id="f_kind">
+        {% for key, k in kinds.items() %}
+        <option value="{{ key }}">{{ k.label }}</option>
+        {% endfor %}
+      </select>
+      <div class="muted" id="kindBlurb"></div>
+      <div class="muted" id="kindLocked" style="display:none"></div></div>
     <div class="field"><label for="f_headline">Headline</label>
       <input id="f_headline" placeholder="{{ defaults.headline }}"></div>
     <div class="field"><label for="f_subhead">Sub-headline</label>
@@ -125,7 +143,7 @@
       {% for w in widgets %}
         <tr id="row-{{ w.slug }}">
           <td><b>{{ w.name }}</b>
-            <div class="muted">{{ w.headline }}</div>
+            <div class="muted">{{ w.kind_label }} &middot; {{ w.headline }}</div>
             <span class="pill {{ 'on' if w.active else 'off' }}">{{ 'live' if w.active else 'paused' }}</span>
           </td>
           <td><code>{{ w.tag }}</code></td>
@@ -233,6 +251,9 @@
     editing = '';
     ['f_name','f_tag','f_headline','f_subhead','f_btn','f_accent'].forEach(
       function(id){ $(id).value = ''; });
+    $('f_kind').disabled = false;
+    $('kindLocked').style.display = 'none';
+    paintKind();
     $('formTitle').textContent = 'Add a placement';
     $('saveBtn').textContent = 'Save placement';
     $('cancelBtn').style.display = 'none';
@@ -251,6 +272,15 @@
     $('f_subhead').value = w.subhead || '';
     $('f_btn').value = w.button_label || '';
     $('f_accent').value = w.accent || '';
+    $('f_kind').value = w.kind || 'aeo';
+    $('f_kind').disabled = true;
+    paintKind();
+    $('kindLocked').textContent =
+      'This placement runs the ' + ($('f_kind').selectedOptions[0] || {}).text +
+      ' and cannot be switched to the other one: the embed already on the ' +
+      'site would start asking its visitors something different. Create a ' +
+      'second placement instead.';
+    $('kindLocked').style.display = '';
     $('formTitle').textContent = 'Edit “' + (w.name || slug) + '”';
     $('saveBtn').textContent = 'Save changes';
     $('cancelBtn').style.display = '';
@@ -274,13 +304,34 @@
     });
   }
 
+  var KINDS = {};
+  try { KINDS = JSON.parse($('kindData').textContent || '{}') || {}; }
+  catch (e) { KINDS = {}; }
+
+  /* The placeholders come from the kind, so a rep adding an audit placement
+     is not shown the AI check's wording as the thing they are about to
+     publish. The stored defaults still win server-side; this only changes
+     what an empty field promises. */
+  function paintKind(){
+    var k = KINDS[$('f_kind').value] || {};
+    $('kindBlurb').textContent = k.blurb || '';
+    var d = k.defaults || {};
+    $('f_headline').placeholder = d.headline || '';
+    $('f_subhead').placeholder = d.subhead || '';
+    $('f_btn').placeholder = d.button_label || '';
+    $('f_accent').placeholder = d.accent || '';
+  }
+  $('f_kind').onchange = paintKind;
+  paintKind();
+
   $('cancelBtn').onclick = startAdd;
 
   $('saveBtn').onclick = function(){
     var body = {
       name: $('f_name').value, tag: $('f_tag').value,
       headline: $('f_headline').value, subhead: $('f_subhead').value,
-      button_label: $('f_btn').value, accent: $('f_accent').value
+      button_label: $('f_btn').value, accent: $('f_accent').value,
+      kind: $('f_kind').value
     };
     // Editing names the placement it means. Without it the server would have
     // to guess from the name, and a renamed placement would become a second

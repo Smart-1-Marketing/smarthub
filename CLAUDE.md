@@ -2588,6 +2588,175 @@ thirty days and the count on this page looked wrong rather than unfiltered.
 `test_scan_widgets.py` asserts all of it, the tile included --- a tool with no
 tile is invisible, and this file counts six that were.
 
+## The audit was already paid for, and four screens read it differently
+
+`hub/website_audit.py`, `/tools/website-audit`, the **Full website audit**
+placement in `modules/scans`, and the panel on the Proposal Builder's customer
+step. One Insites audit carries 440 fields about a business, and it was being
+read by a client record that showed it as a reference card and by nothing else.
+A rep writing a proposal was retyping what the audit had measured, or — far more
+often — writing the proposal without it.
+
+**What they are already spending is the first block, and it is the whole point.**
+A business putting $2,400 a month into Google Ads is a different sale from one
+putting in nothing, and the second question a rep asks is what that money is
+buying. `hub/scan_facts.py` carries the same five fields as one collapsed
+reference group among ten, which is right for a card on a client record and
+wrong for the document the conversation is built on. So `spend()` is its own
+block and `audit()` **drops the scan_facts group by title** rather than printing
+it twice — two panels answering one question differently on one page is how a
+reader learns to believe neither, the trap `jsonstore.unmirrored_json_writers()`
+exists to close. `check_spec()` fails if that title ever stops matching, because
+the failure mode is silent duplication rather than an error.
+
+**A total is only a total when every part of it was measured.** Meta publishes
+the ads and never the spend; Google's transparency centre publishes the fact of
+display and no figure either. A monthly total that counted those as zero would
+report a business spending $6,000 as spending $2,400, in a clean confident row,
+on the page somebody quotes from. `total` covers only what carries a number,
+everything left out is **named** in `total_excludes`, and the note on screen says
+so in words.
+
+**Arithmetic shows its working, and none of it is borrowed.** Annualising a
+third-party estimate is our `× 12`; a cost per visit is *their* two numbers
+divided, so it carries both margins of error and the row says which two. What
+their organic traffic would cost is computed **only** from a cost per visit their
+own campaign produced — with no campaign there is no CPC, and the row says *not
+measured* rather than applying a sector average, because a benchmark multiplied
+by a real visit count produces a five-figure "value" that reads as a measurement
+of their business.
+
+**What they told us and what was observed never merge.** The intake is the
+business's own answer and the audit is a crawler's. Where both exist and
+disagree, the disagreement is the finding — the point `hub/analytics_ids.py`
+makes about a recorded GA id against an observed one — so `stated` sits beside
+`observed` and neither is folded in. A band that broadly agrees raises nothing;
+a gap raises one sentence naming it. *Rather not say* is an answer and is kept
+as one.
+
+**Sixty days.** `STALE_DAYS`. A reading older than that describes a site that may
+have been rebuilt since, and it carries no sign of its own age once it is quoted
+into a document. Every screen gets `staleness()` rather than computing an age
+itself, the Proposal Builder offers the rescan unprompted, and a date that cannot
+be read is **not measured** and never zero — zero reads as "scanned today" on the
+one screen that decides whether to spend a credit.
+
+**A finding carries its evidence; a product name does not.** `OPPORTUNITIES` is
+what was measured and what it costs them ("no retargeting pixel of any kind is on
+the site — every visitor who leaves is gone for good"), with the product as the
+consequence. The first half survives being read out to the client; the second is
+what a rep gets argued with over. Every rule tests `is True` / `is False`, so a
+plan that does not check for pixels cannot produce "no pixel found" — the
+absent-is-not-zero rule, wearing a sales finding.
+
+**The discovery questions were already answered on their own website.**
+`discovery_answers()` maps the audit onto `hub/current_marketing.QUESTIONS` —
+paid search from the spend, paid social from the ad library, retargeting from the
+pixels, reputation from the review count. They arrive as **proposals with the
+evidence beside them** and one press takes them, because "are they doing SEO" is
+a judgement from a measurement and a judgement written into a client document on
+our say-so is the paragraph a client checks hardest. `applyAudit()` fills **only
+the blanks**: a rep who answered a question is the better source, the overlay rule
+`hub/client_urls.py` works to. A question the audit cannot speak to is **left
+out** rather than answered `unknown` — thirteen rows of "we don't know" is a
+screen nobody reads to the bottom of.
+
+**Every intake question changes something, and the check is what keeps that
+true.** `hub/current_marketing.py` shipped four discovery questions read by
+nothing, so a rep could answer all four and the document came out identical.
+Every entry in `INTAKE` carries `feeds`, and `check_spec()` names one that
+changes nothing. `ask` is `both` or `staff`: a prospect on somebody else's
+website answers six questions or leaves, and the rest are things a rep fills in
+after the call. Every yes/no is tri-state — **"not asked" is not "no"**.
+
+**Every audit is a lead.** Somebody typed a business and a website into this Hub,
+which is a prospect whatever else it is. It goes through `hub/leads.py`, the one
+store, delivery and panel; there is no second lead book here, for the reason
+`modules/scans/leads.py` gives at length. A lead with neither an email nor a
+phone number is **refused by name** rather than created — a contactless lead
+reads as a live prospect on every count that follows, the rule
+`modules/ads_builder` arrived at independently. `lead_fields()` is flat strings
+only, because `hub/leads.py` cleans and truncates every value and a nested one
+arrives in the Suite as the repr of a dict.
+
+### The customer-facing half is a second kind of placement, not a second widget
+
+`modules/scans` owns placements, and a second table describing one would be a
+second description of what a placement is. `ScanWidget.kind` is `aeo` (the free
+five-second AI-visibility pre-check) or `audit` (this one). Four things follow:
+
+- **`create_all()` never adds a column to an existing table**, so
+  `_add_missing_columns()` in `modules/scans/app.py` is what puts `kind` and
+  `intake_json` on the live Postgres. Asked-then-added rather than fired blindly:
+  the columns are on the models too, so on a fresh database `create_all()` has
+  already made them and firing unconditionally means two workers printing a
+  Postgres ERROR per column on every deploy — which is how a log stops being one
+  anybody finds the real error in.
+- **`kind_of()` reads NULL as `aeo`.** Every placement written before the column
+  existed is an AI-visibility one; reading NULL as the new kind would silently
+  change what a live embed on a client's website serves.
+- **The kind is fixed at creation**, like the address and for the same reason:
+  both are in the three lines of embed code already pasted on somebody else's
+  site, and swapping one turns an AI check into a form asking what they sell,
+  with the only sign being a save that reported success. Refused server-side as
+  well as hidden in the form — a rule the form keeps while the write breaks it is
+  not a rule.
+- **One step, not two.** The AI widget can afford a teaser because its pre-check
+  is free and instant. A full audit has nothing to show a stranger before a
+  credit has been spent, so it asks once — contact *and* the handful of answers a
+  crawler cannot get at — and files the lead **before** the audit starts, because
+  a lead is a lead whether or not Insites ever answers.
+
+The report at `/scans/r/<token>` is the same reading of the same audit a rep
+sees, minus the half that is the reason to call: `_audit_view()` **strips** the
+discovery mapping and the prefill rather than leaving a template not to print
+them, because a subset a renderer merely happens to omit is one the next renderer
+prints. There is no PDF — the audit is a page — and `/r/<token>.pdf` says where
+the document is rather than handing over the SEO & AEO report under a link that
+promised this one.
+
+### Leads merge, and merging is not deleting
+
+The same business reaches the Leads panel more than once and always will: the
+widget on a client's site in March, an audit in May, a landing page in between.
+`leads.merge_candidates()` proposes and `leads.merge()` acts, and every rule in
+it is a way to be confidently wrong:
+
+- **Nothing merges by itself.** An automatic merge on a name files one company's
+  enquiry under another, which is the worst outcome available to this panel.
+- **Exact or not at all.** Email and canonical domain are joins and group as
+  *certain*; an exact company name on its own is *possible* and groups with
+  nothing, because two franchises of one brand carry one name and are two
+  businesses with two owners. The `hub/client_key.py` rule, wearing a lead.
+- **The survivor's own values win.** A rep chose which row to keep. Blanks are
+  filled from the others newest-first; a value already there is never written
+  over. `created` becomes the **earliest**, because that is when the prospect
+  actually came in and it is the field a follow-up queue sorts on.
+- **Nothing is deleted.** The absorbed row keeps its place in the file with
+  `merged_into` on it and `listing()` filters it out, so a merge somebody regrets
+  is still readable. The panel prints how many rows absorbed a duplicate, because
+  a count that went down needs a reason on screen beside it.
+- **A merge does not undo a delivery.** Two delivered rows mean the Suite holds
+  two contacts; every contact id is kept, the panel is told there are two and
+  where to merge them, and the survivor is never re-delivered — re-sending a
+  delivered row is the duplicate `hub/leads.py` is built to avoid.
+- **Two clients is a refusal.** Merging rows converted to different clients
+  attributes one company's enquiry to another, and it is not a thing this panel
+  decides.
+
+### The Proposal Builder asks before it writes
+
+`?audit=<domain>` opens the builder on the customer step with the website filled
+in and the audit read, and the panel lives on that step for the whole session.
+Reading is free and scanning is billed, so **Read the audit** costs nothing and
+**Run a new audit** confirms first and posts to `/scans/api/scans` — the module
+that owns scans — rather than this one learning how to spend a credit. An audit
+over sixty days old says so in amber with the rescan one click away, and it
+**still prefills**: leaving a rep with nothing while they wait is worse than an
+old answer with the date printed on it.
+
+`test_website_audit.py` asserts all of it.
+
 ## Social posts are drafted here and published in Suite
 
 `modules/social_planner` (`/tools/social`) builds a client's month of organic
@@ -3914,6 +4083,9 @@ python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkt
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
+python3 test_website_audit.py      # the spend block that leads the audit, the customer
+                                   #   placement, the lead every scan files, merging two
+                                   #   rows that are one prospect
 python3 test_proposal_targeting.py # the coverage map, the pasted location list,
                                    #   the competitor research, and a bulleted
                                    #   list that reaches the client as a list

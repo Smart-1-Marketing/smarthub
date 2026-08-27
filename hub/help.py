@@ -129,6 +129,26 @@ REGISTRY: list[Help] = [
        "address and phone number here are offered into the client info strip "
        "at the top of this record, where one press keeps them."),
 
+    # ---------------- Website Audit ----------------
+    _h("hub.website_audit.intro", "What this tool is for",
+       "One audit of a website already knows what the business is spending on "
+       "Google Ads, whether their Google listing is claimed, how many reviews "
+       "they have, whether a pixel is on the site at all and about seventy "
+       "other things. This is that audit, read in the order a sales "
+       "conversation happens: what they are already spending first, then what "
+       "is worth fixing, then everything else. Reading it costs nothing and "
+       "spends no credit. Running a new one does both, so it asks first — and "
+       "it offers to, unprompted, once a reading is over sixty days old, "
+       "because a proposal written from an older one describes a site that "
+       "may have been rebuilt since."),
+    _h("hub.website_audit.intake", "What they told us",
+       "The handful of answers a crawler cannot get at: what they sell, where "
+       "their customers come from, what they are already spending. These are "
+       "kept apart from everything observed and never merged into it — where "
+       "the two disagree the disagreement is the finding, and folding one into "
+       "the other destroys the only evidence of it. Every question here "
+       "changes something in the proposal downstream, and each one says what."),
+
     # ---------------- SEO Image Pipeline ----------------
     _h("seo_images.upload.details", "Fill these in first",
        "Company, page URL and project name are sent to the AI along with the "
