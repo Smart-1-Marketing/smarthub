@@ -1,8 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Video Backgrounds — Smart 1 Hub{% endblock %}
+{% block title %}Video Search — Smart 1 Hub{% endblock %}
 {% block content %}
+{# "Video Search", not "Video Backgrounds": the tool searches the footage
+   library by what is on screen, and "backgrounds" named one thing the clips
+   get used for. The mount, the help key and the Cloudinary folder called
+   "Video Backgrounds" in hub/video_library.py are all deliberately unchanged
+   -- renaming the mount would break every existing link, renaming the help
+   key would orphan the bubble, and the folder is a folder on the account. #}
 <div class="page-head">
-  <h2>Video Backgrounds {{ help_dot('video_backgrounds.overview') if help_dot is defined else '' }}</h2>
+  <h2>Video Search {{ help_dot('video_backgrounds.overview') if help_dot is defined else '' }}</h2>
   <p>Search the footage we own by what is actually on screen, and copy a URL
      that is already sized, muted and trimmed for use behind a headline.</p>
 </div>

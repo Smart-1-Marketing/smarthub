@@ -4229,6 +4229,14 @@ def create_hub_app() -> Flask:
         # own pages, not table-returning functions. They still belong here —
         # somebody looking for "what's wrong" shouldn't have to know which
         # kind of thing each one is.
+        # Six of these are whole tools rather than table-returning functions,
+        # and every one of them answers "what is wrong / what do we owe" —
+        # which is the question this page exists for and is not what the
+        # Tools page is for. They were on Tools under "Client Work", a group
+        # whose name described where the work came from rather than what the
+        # screen is for, and a report nobody thinks to look for is a report
+        # nobody works. Each keeps its own URL, so every existing link and
+        # every Client 360 crumb still resolves.
         extras = [
             ("Data Quality", "stale-creative", {
                 "title": "Stale Creative",
@@ -4240,6 +4248,43 @@ def create_hub_app() -> Flask:
                 "desc": "Website change requests from Knack: what's open, "
                         "what's gone stale, and per-client history.",
                 "ico": "&#127915;", "href": "/tools/tickets/"}),
+            ("Data Quality", "scan-all-clients", {
+                "title": "Scan All Clients",
+                "desc": "Audit every client with a website on file. Previews "
+                        "the credit cost, skips anything scanned recently, and "
+                        "caps each run before anything is spent.",
+                "ico": "&#9776;", "href": "/scans/bulk"}),
+            ("Data Quality", "match-sites", {
+                "title": "Match Sites to Clients",
+                "desc": "Every website we hold that nobody is attached to. "
+                        "Accepting a match writes the client registry, their "
+                        "Client 360 record, the Simvoly project and the Knack "
+                        "website record at once — and reports each separately.",
+                "ico": "&#128279;", "href": "/tools/sites-match"}),
+            ("Data Quality", "match-google", {
+                "title": "Match Google Accounts",
+                "desc": "Every Analytics property, Tag Manager container and "
+                        "Search Console property we can reach that maps to no "
+                        "client — searchable, with whoever it might belong to "
+                        "and why.",
+                "ico": "&#128202;", "href": "/tools/google-match"}),
+            ("Data Quality", "campaign-assets", {
+                "title": "Campaign Assets Needed",
+                "desc": "Every campaign on an insertion order still waiting on "
+                        "a clarification or on additional assets, grouped by "
+                        "media partner then internal sales — so the chase is "
+                        "one list per partner.",
+                "ico": "&#128230;", "href": "/tools/campaign-assets"}),
+            # Billing rather than Data Quality: the question this one answers
+            # is whether QuickBooks invoiced a renewal, which is the same
+            # question as the three reports it now sits beside.
+            ("Billing & Accounting", "domain-renewals", {
+                "title": "Domain Renewals",
+                "desc": "Every domain Smart 1 bought for a client, by the "
+                        "month its renewal is billed. This month says whether "
+                        "QuickBooks actually invoiced it; later months ask "
+                        "whether it should renew at all.",
+                "ico": "&#128197;", "href": "/tools/domains"}),
         ]
         for g, key, meta in extras:
             if g not in groups:

@@ -1,11 +1,22 @@
 """Smart 1 Hub — Media Calculators.
 
-Mounted at /tools/calculators/. Two audiences:
+Mounted at /tools/calculators/. Two audiences and, for staff, two ways
+of asking the same question:
 
-  * Hub staff  — the index and leads pages, behind the normal Hub login.
+  * Hub staff  — the index, the leads page and the *internal* calculators at
+                 /internal/<slug>, all behind the Hub login.
   * Prospects  — the calculator pages and their two API routes, public so the
                  calculators can be embedded on smart1marketing.com or a
                  Smart 1 Sites page.
+
+The internal pages exist because the gate is the whole point of the public
+ones and is pure friction on our own screens: a rep sizing a buy for a client
+who is already ours had to type a name, an email and a phone number to see the
+plan, which either wasted a minute or -- far worse -- wrote a fake contact into
+the leads panel that reads exactly like a real prospect. /internal/<slug>
+computes the identical numbers through the identical compute function, returns
+the full plan in one response, and stores *nothing*: no estimate row, no
+contact, no webhook. Same maths, no lead.
 
 The gate is server-side. /api/<slug>/estimate returns headline metrics only and
 stores the full result under an unguessable token; /api/<slug>/unlock trades a
@@ -47,6 +58,31 @@ MOUNT = "/tools/calculators"
 # Routes below the mount that must stay outside the Hub login. Register these
 # with the Hub's AuthGuard when merging (see README).
 PUBLIC_PREFIXES = ("/c/", "/embed/", "/api/", "/embed.js")
+
+
+# The guard sits on the blueprint rather than on each view, for the reason
+# modules/commercial_builder/__init__.py gives at length: `wsgi.py` wraps only
+# *dispatcher-mounted* modules in AuthGuard, and this is a blueprint on the hub
+# app, which has no blanket gate of its own. So every route here that is not in
+# PUBLIC_PREFIXES was answering 200 to anyone with the URL -- including
+# /tools/calculators/leads, which is a table of real people's names, emails and
+# phone numbers. One before_request, so the next route added does not have to
+# remember.
+@bp.before_request
+def _staff_only():
+    path = request.path or "/"
+    rel = path[len(MOUNT):] if path.startswith(MOUNT) else path
+    if rel.startswith(PUBLIC_PREFIXES):
+        return None
+    try:
+        from hub.auth import user_from_environ
+    except Exception:  # noqa: BLE001 — standalone, outside the Hub
+        return None
+    if user_from_environ(request.environ):
+        return None
+    from flask import redirect
+    return redirect("/login?next=" + path)
+
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$")
 
@@ -228,6 +264,64 @@ def api_unlock(slug):
     store.send_webhook(current_app, row, catalog.get(slug)["title"])
 
     return jsonify({"ok": True, "detail": result.get("detail", {})})
+
+
+# --- Internal calculators (staff, no gate, no lead) --------------------------
+
+# The four the Media Tools group on /tools links to, in the order they are
+# listed there. Every calculator in the catalogue is reachable at
+# /internal/<slug> regardless -- a slug missing from this list loses its tile,
+# not its page, because a calculator that exists and cannot be opened is the
+# worse failure of the two.
+INTERNAL_ORDER = ("digital-audio", "ctv", "dooh", "trade")
+
+
+def _internal_nav():
+    """The other calculators, for the row of chips at the top of the page.
+
+    Built from the catalogue rather than typed into the template: a calculator
+    added to catalog.py appears here without a second edit, which is the whole
+    reason the catalogue is data.
+    """
+    ordered = [s for s in INTERNAL_ORDER if catalog.get(s)]
+    ordered += [c["slug"] for c in catalog.all_calculators() if c["slug"] not in ordered]
+    return [{"slug": s, "title": catalog.get(s)["short_title"]} for s in ordered]
+
+
+@bp.get("/internal/<slug>")
+def internal_page(slug):
+    """The whole plan on one screen. Staff only, and it captures nothing."""
+    calc = _calc_or_404(slug)
+    return render_template("calculators_internal.html", calc=calc, mount=MOUNT,
+                           nav=_internal_nav())
+
+
+@bp.post("/internal/<slug>/run")
+def internal_run(slug):
+    """Metrics and detail in one response.
+
+    Deliberately not under /api/: that prefix is in PUBLIC_PREFIXES, so a route
+    added there is a route outside the login -- and this one answers with the
+    full plan the public path withholds until a contact is captured. Nothing is
+    written: no estimate row to expire, no contact, no webhook to the Suite.
+    """
+    calc = _calc_or_404(slug)
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = catalog.run(slug, payload.get("inputs") or {})
+    except catalog.CalcError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception:  # noqa: BLE001
+        current_app.logger.exception("internal calculator %s failed", slug)
+        return jsonify({"ok": False, "error": "We couldn't build that estimate. "
+                                              "Check the numbers and try again."}), 500
+    return jsonify({
+        "ok": True,
+        "title": calc["title"],
+        "metrics": result["metrics"],
+        "teaser_note": result.get("teaser_note", ""),
+        "detail": result.get("detail", {}),
+    })
 
 
 # --- Hub-side pages (behind the Hub login) -----------------------------------
