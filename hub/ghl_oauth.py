@@ -276,7 +276,7 @@ def agency_token() -> str:
         if not record:
             raise NotConnected(
                 "The Smart 1 Suite app isn't connected yet. Open Suite and "
-                "click Connect to authorise it once for the agency.")
+                "click Connect to authorize it once for the agency.")
         if record.get("expires_at", 0) - _EXPIRY_MARGIN <= time.time():
             try:
                 record = _refresh(record)
@@ -371,7 +371,7 @@ def status() -> dict:
                           "Create the Marketplace app, then add them."}
     if not record:
         return {"configured": True, "connected": False,
-                "detail": "Not authorised yet — connect once as the agency owner."}
+                "detail": "Not authorized yet — connect once as the agency owner."}
     from . import ghl_scopes
     left = int(record.get("expires_at", 0) - time.time())
     scopes = ghl_scopes.compare(record.get("scope", ""))

@@ -177,7 +177,7 @@ check("approved-only stops the schedule at the approved list",
 check("the approved titles are reproduced exactly, in order",
       [p["title"] for p in posts] == [t["title"] for t in loaded["topics"]],
       [p["title"] for p in posts])
-check("each approved post is labelled as approved",
+check("each approved post is labeled as approved",
       all(p["source"] == "approved" for p in posts), posts[0])
 check("the plan reports how much of the approved list it used",
       plan["approved_used"] == 3 and plan["approved_available"] == 3, plan.get("approved_used"))

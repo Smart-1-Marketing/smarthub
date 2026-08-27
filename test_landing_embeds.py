@@ -250,8 +250,8 @@ section("A tool with its own embed mode uses it on /embed")
 # must not stop working.
 for m in ("/land/boat", "/land/restaurant"):
     body = client.get(m + "/embed").get_data(as_text=True)
-    check(f"{m} still honours ?embed=1", "get('embed')==='1'" in body, True)
-    check(f"{m}/embed is recognised as embedded too",
+    check(f"{m} still honors ?embed=1", "get('embed')==='1'" in body, True)
+    check(f"{m}/embed is recognized as embedded too",
           "/\\/embed$/.test(location.pathname)" in body, True)
     # The rule is worth nothing without the CSS it switches on.
     check(f"{m} has a rule that hides its hero when embedded",
@@ -347,7 +347,7 @@ check("the default names our domain",
       "https://smart1marketing.com" in hub_embed.frame_ancestors(), True)
 
 os.environ["HUB_FRAME_ANCESTORS"] = "'self' https://example.test"
-check("an override is honoured", hub_embed.frame_ancestors(),
+check("an override is honored", hub_embed.frame_ancestors(),
       "'self' https://example.test")
 # Render stores quotes literally, so a value pasted with them arrives with them.
 os.environ["HUB_FRAME_ANCESTORS"] = '"\'self\' https://example.test"'

@@ -1479,6 +1479,20 @@ def _client_context(client: str, store: dict) -> dict:
            "business_info": master_business_info(client, store),
            "answered_questions": store.get("answers", {}),
            "blog_answers": store.get("blogs", {}).get("answers", {})}
+    # ...and what the rest of the Hub holds: the industry on their Knack
+    # record, the city they trade in, their live products, the palette and
+    # contact details read off their own site by the last Insites scan. The
+    # writer had the home page and the answers somebody typed, so a post for a
+    # client of eleven years read like a post for a business we met yesterday.
+    # One reader — hub/client_context.for_prompt() — so a fact added there
+    # reaches the blog writer, the campaign generator and the ad copy alike.
+    try:
+        from .client_context import for_prompt
+        known = for_prompt(client, site)
+        if known:
+            ctx["hub_record"] = known
+    except Exception:                                   # noqa: BLE001
+        pass
     # What the account manager knows about the client that the site does not
     # say: how they operate, what they may not claim, who signs the posts.
     from . import blog_spec

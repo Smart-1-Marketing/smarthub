@@ -516,6 +516,18 @@ def form(client: str, *, user_name: str = "", user_email: str = "") -> dict:
     fields = _decorate(form_fields(obj), opts)
     values, notes = prefill(client, user_name=user_name, user_email=user_email,
                             fields=fields, options=opts)
+    # ...and then whatever this client's own record already answers, into the
+    # boxes the orders left blank. The same reader the web ticket and the
+    # campaign support request use: a rep should not type a website the Hub
+    # has held since that client's last site scan. It never overwrites, so
+    # everything decided above still wins.
+    try:
+        from hub.client_context import offer_into
+        values, more = offer_into(fields, values, opts.get("client") or client,
+                                  _one(opts.get("urls") or []))
+        notes += more
+    except Exception:                                     # noqa: BLE001
+        pass
     return {"configured": True, "object": obj, "fields": fields,
             "values": values, "options": opts, "notes": notes,
             "client": opts.get("client") or client}

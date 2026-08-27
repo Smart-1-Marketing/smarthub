@@ -194,7 +194,7 @@ def chrome_steps(cms: str, kind: str) -> list[dict]:
 _RULES = [
     "Work through the items below one at a time, in the order given.",
     "Reproduce every value EXACTLY as written. Do not rewrite, shorten, "
-    "re-title, summarise or otherwise improve any of it — a human has "
+    "re-title, summarize or otherwise improve any of it — a human has "
     "approved this copy as it stands.",
     "Do not invent anything. If a value is not given below, leave that field "
     "as the site already has it.",
@@ -510,7 +510,7 @@ def _post_fields(post: dict, settings: dict, cms: str) -> list[dict]:
                          "is written with AI."),
         _field("Categories", ", ".join(cats),
                note="" if cats else "None set — add one before publishing so "
-                                    "the post is not filed as Uncategorised."),
+                                    "the post is not filed as Uncategorized."),
     ]
     if cms == WORDPRESS or _SMART1_HAS_TAGS:
         out.append(_field("Tags", ", ".join(tags)))

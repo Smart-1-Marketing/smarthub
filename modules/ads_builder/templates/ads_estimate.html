@@ -132,11 +132,11 @@
       to proceed.</p>
 
     <div class="choices" id="choices">
-      {% for key, label, colour, note in outcomes %}
+      {% for key, label, color, note in outcomes %}
         <label class="choice" data-key="{{ key }}">
           <input type="radio" name="outcome" value="{{ key }}"
                  {{ 'checked' if share.outcome == key }}>
-          <span class="dot dot-{{ colour }}"></span>
+          <span class="dot dot-{{ color }}"></span>
           <span>
             <strong>{{ label }}</strong>
             <div style="color:var(--muted);font-size:12.5px">{{ note }}</div>

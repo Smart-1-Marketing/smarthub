@@ -137,7 +137,7 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
   }
 
   function cellHtml(c){
-    /* A coloured status bubble, e.g. "GTM Found". */
+    /* A colored status bubble, e.g. "GTM Found". */
     if(c && typeof c==='object' && c.pill){
       var bg = c.pill==='ok' ? '#e7f6ef' : c.pill==='warn' ? '#fff4d7' : '#feeceb';
       var fg = c.pill==='ok' ? '#147d52' : c.pill==='warn' ? '#a06a00' : '#b42318';
@@ -168,9 +168,9 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
     }
     /* A group heading row, e.g. "Ending this month (12)". */
     if(c && typeof c==='object' && c.group){
-      /* Ending this month and ending next month were the same grey label, one
+      /* Ending this month and ending next month were the same gray label, one
          after the other, so the boundary between "act now" and "act soon" was
-         easy to miss. Each band gets its own colour and a rule above it. */
+         easy to miss. Each band gets its own color and a rule above it. */
       var tone = c.tone==='now'  ? {bg:'#fdecec',bd:'#dc2626',fg:'#991b1b'} :
                  c.tone==='soon' ? {bg:'#fef9ec',bd:'#d97706',fg:'#92400e'} :
                                    {bg:'#f1f5f9',bd:'#94a3b8',fg:'#475569'};

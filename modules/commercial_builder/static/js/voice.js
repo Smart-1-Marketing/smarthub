@@ -325,7 +325,7 @@
   // Two dropdowns became two pictures, on the same rule as the casting tiles:
   // draw a graphic where it encodes something real.
   //
-  // The mood waveforms are the honest exception, and they are labelled as
+  // The mood waveforms are the honest exception, and they are labeled as
   // one. No track has been chosen at this point — nothing in this Hub picks
   // music yet — so a waveform here is an illustration of the mood, not a
   // reading of a file. The note under the grid says exactly that, because a

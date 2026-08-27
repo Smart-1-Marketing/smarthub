@@ -63,7 +63,7 @@ OUTLINE = [
     {
         "id": "summary", "title": "Executive Summary", "kind": "text", "enabled": True,
         "purpose": "Secure a yes from the C-suite even if they read nothing else.",
-        "guidance": "One page maximum. Summarise where the client is now, the single "
+        "guidance": "One page maximum. Summarize where the client is now, the single "
                     "largest growth opportunity, and the strategic direction. Write about "
                     "business outcomes — lead growth, cost control, conversion efficiency — "
                     "not click rates or impressions.",
@@ -128,7 +128,7 @@ OUTLINE = [
     },
     {
         "id": "technology", "title": "Smart 1 Technology", "kind": "text", "enabled": True,
-        "purpose": "The Smart 1 Suite as the client's command centre.",
+        "purpose": "The Smart 1 Suite as the client's command center.",
         "guidance": "Explain that the channels above feed the Smart 1 Suite, which captures "
                     "and nurtures every lead — Missed Call Text Back, unified inbox, "
                     "automated text and email workflows, reputation and review automation. "
@@ -139,7 +139,7 @@ OUTLINE = [
         "id": "reporting", "title": "Reporting, Optimization & Transparency", "kind": "text",
         "enabled": True,
         "purpose": "Remove the fear of where the money went.",
-        "guidance": "State the optimisation protocol — bid adjustments, negative keyword "
+        "guidance": "State the optimization protocol — bid adjustments, negative keyword "
                     "updates, creative performance checks — and the cadence. One real-time "
                     "dashboard inside the Smart 1 Suite, which they can open themselves.",
     },
@@ -311,7 +311,7 @@ AUDIENCE_PARTNERS = {
         ],
         "High-Intent Purchase Predictors": [
             "In-Market for New Vehicle Lease", "Active in-market buyers from "
-            "real-time digital behaviour, app usage and transaction history",
+            "real-time digital behavior, app usage and transaction history",
         ],
     },
     "Proximic by Comscore": {
@@ -445,8 +445,8 @@ SAAS_TIERS = [
         "name": "Smart 1", "monthly": 199,
         "specs": "5 users · 250 contacts · 5 forms · 5 pipelines · 1,500 emails · "
                  "500 texts · 1 phone number · 500 calls · 1 workflow",
-        "features": "Unified message centre, media library, email centre, texting "
-                    "centre, call centre, online scheduling, reputation centre with "
+        "features": "Unified message center, media library, email center, texting "
+                    "center, call center, online scheduling, reputation center with "
                     "automated Google review requests, social planner, Smart 1 Sites.",
     },
     {
@@ -498,7 +498,7 @@ TIMELINE = [
                "workflow automations mapped in the Smart 1 Suite, tracking verified "
                "end to end before a cent is spent."},
     {"phase": "Month 2+", "title": "Execution & Scaling",
-     "detail": "Campaigns live, weekly pacing and bid optimisation, creative "
+     "detail": "Campaigns live, weekly pacing and bid optimization, creative "
                "performance checks, budget shifted toward what proves out, first "
                "full performance review delivered."},
 ]

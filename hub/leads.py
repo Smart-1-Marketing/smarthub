@@ -598,7 +598,7 @@ def merge(into_id: str, from_ids: list[str], actor: str = "") -> dict:
         return {"ok": False,
                 "error": "These are converted to different clients ("
                          + ", ".join(sorted(clients)) + "), so merging them "
-                         "would attribute one company's enquiry to another. "
+                         "would attribute one company's inquiry to another. "
                          "Fix the conversion first."}
 
     # Newest first: where the survivor has a blank, the most recent thing we

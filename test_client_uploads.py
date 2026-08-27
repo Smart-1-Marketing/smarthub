@@ -198,7 +198,7 @@ check("the record says why it is empty", "registered from an insertion order" in
 rows = [r for r in clients_registry.all_clients(refresh=True)
         if r["name"] == "Brand New Roofing"]
 check("the registry lists them once", len(rows), 1)
-check("labelled, so nothing reads a quote as a confirmed client",
+check("labeled, so nothing reads a quote as a confirmed client",
       (rows[0]["source"], rows[0]["is_io_only"]), ("io", True))
 # An earlier version of the discovered-URL merge reused house_clients() for
 # this job and quietly relabelled real Knack clients as ours.

@@ -251,7 +251,7 @@
   /* ===========================================================================
      BRAND LOGOS
      Name -> domain. index.html renders <img src="https://logo.clearbit.com/DOMAIN">
-     with a favicon fallback and finally a coloured monogram tile, so a missing
+     with a favicon fallback and finally a colored monogram tile, so a missing
      logo never leaves a blank box.
   =========================================================================== */
   const BRAND_DOMAINS = {

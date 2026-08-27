@@ -155,7 +155,7 @@ hostile = {
     "logo": "", "geo": "Town",
 }
 pal = _palette(hostile)
-check("a colour that is not hex is dropped", pal["primary"], "#0D2340")
+check("a color that is not hex is dropped", pal["primary"], "#0D2340")
 check("a valid short hex is kept", pal["accent"], "#ABC")
 
 stack = _font_stack(hostile)
@@ -304,7 +304,7 @@ check("it does not claim a client record as its source",
       (_p.get("brief") or {}).get("source"), "prospect website")
 check("and it still captures leads, which is the point",
       "/api/leads/capture" in _p.get("page_html", ""), True)
-check("a client page is still labelled a client",
+check("a client page is still labeled a client",
       (lm.get(slug) or {}).get("kind"), "client")
 
 

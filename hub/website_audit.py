@@ -108,7 +108,7 @@ INTAKE: list[dict] = [
      "label": "What would you like more of?",
      "why": "What the campaign is bought to do decides the products on it.",
      "feeds": "proposal goal",
-     "options": ["Phone calls", "Form enquiries", "Booked appointments",
+     "options": ["Phone calls", "Form inquiries", "Booked appointments",
                  "Store or showroom visits", "Online sales",
                  "Brand awareness"]},
     {"key": "services", "ask": "both", "type": "text", "required": True,
@@ -150,7 +150,7 @@ INTAKE: list[dict] = [
             "somebody ticks them.",
      "feeds": "competitor targeting"},
     {"key": "handles_enquiries", "ask": "staff", "type": "text",
-     "label": "Who follows up an enquiry, and how fast?",
+     "label": "Who follows up an inquiry, and how fast?",
      "why": "Decides whether the plan needs the Suite's speed-to-lead at all.",
      "feeds": "Suite tier"},
     {"key": "timeline", "ask": "staff", "type": "choice",
@@ -391,7 +391,7 @@ def spend(report: dict, intake: dict | None = None) -> dict:
     if display is True:
         rows.append(_fig("Display advertising", "Running", measured=False,
                          link=_s(g("display_ads.ad_transparency_centre_url"), 500),
-                         note="Seen in Google's ad transparency centre. No "
+                         note="Seen in Google's ad transparency center. No "
                               "spend is published there either."))
         excluded.append("display, which is running with no figure against it")
     elif display is False:
@@ -563,7 +563,7 @@ OPPORTUNITIES = [
      "means": "ChatGPT, Gemini and Perplexity answer the questions customers "
               "used to type into Google, and this business is not in those "
               "answers.",
-     "sells": "AI search optimisation"},
+     "sells": "AI search optimization"},
     {"key": "no_paid_search",
      "when": lambda g: _b(g("paid_search.has_adwords_spend")) is False,
      "finding": "They are not running paid search.",
@@ -579,11 +579,11 @@ OPPORTUNITIES = [
     {"key": "no_chat",
      "when": lambda g: _b(g("live_chat.has_live_chat")) is False,
      "finding": "No chat widget on the site.",
-     "means": "An enquiry outside office hours has nowhere to go.",
+     "means": "An inquiry outside office hours has nowhere to go.",
      "sells": "Smart 1 Suite"},
     {"key": "slow_mobile",
      "when": lambda g: _b(g("mobile.is_mobile")) is False,
-     "finding": "The site is not mobile optimised.",
+     "finding": "The site is not mobile optimized.",
      "means": "Most of the traffic any campaign buys arrives on a phone.",
      "sells": "Website work"},
     {"key": "alt_text",
@@ -688,7 +688,7 @@ def discovery_answers(report: dict) -> list[dict]:
     if ai is not None:
         allowed = _b(g("ai_readiness.ai_user_agents_allowed"))
         add("aiOptimized", _YES if ai else _NO,
-            ("The site reads as optimised for AI search." if ai else
+            ("The site reads as optimized for AI search." if ai else
              "AI crawlers are blocked in robots.txt." if allowed is False else
              "The site is not set up for the AI assistants to read."))
 

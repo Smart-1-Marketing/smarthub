@@ -100,8 +100,8 @@ section("The background is one HeyGen accepts")
 # and it was the DEFAULT argument, so the default path was the failing one.
 over, keyed = heygen_service.background_for(True)
 solid, not_keyed = heygen_service.background_for(False)
-check("a presenter over footage gets a colour matte", over["type"], "color")
-check("and that colour is the shared chroma constant",
+check("a presenter over footage gets a color matte", over["type"], "color")
+check("and that color is the shared chroma constant",
       over["value"], cb_config.CHROMA_KEY_COLOR)
 check("and is marked as needing a key", keyed, True)
 check("a full-frame presenter gets a solid backdrop", solid["type"], "color")
@@ -232,7 +232,7 @@ check("it runs for exactly the scene's duration",
 check("it is keyed", "chroma_key" in presenter, True)
 # The colour the clip was generated against and the colour used to key it are
 # the same constant. Drift here is a green rectangle in a client's commercial.
-check("against the same colour it was generated against",
+check("against the same color it was generated against",
       presenter["chroma_key"]["color"], cb_config.CHROMA_KEY_COLOR)
 
 # A full-frame presenter IS the scene, so a second element would double it up.

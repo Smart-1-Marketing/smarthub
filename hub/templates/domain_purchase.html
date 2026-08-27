@@ -91,7 +91,7 @@ table.dp-t{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
 .pill.ok{background:#e7f6ef;color:#147d52}
 .pill.due{background:#fff4d7;color:#a06a00}
 .pill.bad{background:#fdeceb;color:#a3352a}
-.pill.grey{background:#eef2f6;color:#64748b}
+.pill.gray{background:#eef2f6;color:#64748b}
 .dp-tick{display:flex;gap:6px;align-items:center;font-size:12px;color:#64748b}
 .dp-none{color:#a06a00;font-size:12px}
 .dp-sm{color:#94a3b8;font-size:11.5px;display:block;margin-top:2px}
@@ -200,8 +200,8 @@ function billedCell(r){
   else if(r.billed) pill='<span class="pill ok">billed</span>';
   else pill='<span class="pill due">not billed</span>';
   var src='';
-  if(r.billed_source==='quickbooks') src=' <span class="pill grey">QuickBooks</span>';
-  else if(r.billed_source==='hub') src=' <span class="pill grey">ticked here</span>';
+  if(r.billed_source==='quickbooks') src=' <span class="pill gray">QuickBooks</span>';
+  else if(r.billed_source==='hub') src=' <span class="pill gray">ticked here</span>';
   var inv=(r.charges||[]).map(function(c){
     return '<span class="dp-sm">'+(c.link?'<a href="'+esc(c.link)+'" target="_blank" rel="noopener">':'')+
       'Invoice '+esc(c.doc_number||c.invoice_id)+(c.link?'</a>':'')+
@@ -217,7 +217,7 @@ function billedCell(r){
    it can be asked is whether it should renew at all. */
 function dnrCell(r){
   var pill=r.do_not_renew?'<span class="pill bad">do not renew</span>'
-                         :'<span class="pill grey">renewing</span>';
+                         :'<span class="pill gray">renewing</span>';
   if(r.renewed_anyway) pill='<span class="pill bad">renewed anyway</span>';
   return '<td><label class="dp-tick"><input type="checkbox" '+(r.do_not_renew?'checked':'')+
     ' onchange="setDnr(this,\''+esc(r.record_id)+'\',\''+
@@ -345,7 +345,7 @@ function setDnr(box,id,forDate){
      box.disabled=false;
      if(!d.ok){box.checked=!on;alert(d.error||'That did not save.');return;}
      var pill=box.parentElement.querySelector('.pill');
-     if(pill){pill.className='pill '+(on?'bad':'grey');
+     if(pill){pill.className='pill '+(on?'bad':'gray');
               pill.textContent=on?'do not renew':'renewing';}
      if(DNR)loadDnr();
    }).catch(function(){box.disabled=false;box.checked=!on;alert('That did not save.');});

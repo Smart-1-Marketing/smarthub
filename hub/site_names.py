@@ -107,7 +107,12 @@ _WEAK_WORDS = {
     "heating", "cooling", "air", "hvac", "plumbing", "roofing", "services",
     "service", "construction", "contracting", "group", "marketing", "media",
     "solutions", "systems", "auto", "automotive", "repair", "center",
-    "centre", "clinic", "dental", "law", "insurance", "realty", "real",
+    # Both spellings, and deliberately: this is a stop list of words that
+    # identify nobody, matched against business names a client chose. Smart
+    # 1's own copy is American English; "Riverside Centre for Dentistry" is
+    # still a real name on the book and dropping the British spelling here
+    # would make that word evidence again.
+    "center", "centre", "clinic", "dental", "law", "insurance", "realty", "real",
     "estate", "restaurant", "cafe", "shop", "store", "supply", "supplies",
 }
 

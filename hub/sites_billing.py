@@ -624,7 +624,7 @@ def unavailable(rep: dict) -> str:
         # "We asked and QuickBooks does not have these products" and "we could
         # not ask" are different answers, and the first one is an accusation
         # about somebody's catalogue. Say which happened.
-        return ("The QuickBooks product catalogue could not be read, so this "
+        return ("The QuickBooks product catalog could not be read, so this "
                 "report cannot confirm that it is filtering on products that "
                 "still exist — and a filter that matches nothing looks exactly "
                 "like a book with nothing billed: " + rep["catalogue_error"])

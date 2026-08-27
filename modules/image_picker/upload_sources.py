@@ -64,7 +64,7 @@ CATALOGUE: list[dict] = [
      "addon": False, "env": "", "option": ""},
     {"key": "google_drive", "label": "Google Drive", "always": False,
      "what": "The Drive folder the last designer left them. They sign in and "
-             "authorise it themselves.",
+             "authorize it themselves.",
      "addon": False, "env": "PICKER_GOOGLE_DRIVE_CLIENT_ID",
      "option": "googleDriveClientId"},
     {"key": "google_photos", "label": "Google Photos", "always": False,

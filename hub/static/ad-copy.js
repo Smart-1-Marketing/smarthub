@@ -34,7 +34,7 @@ window.AdCopyRequest = (function () {
 
   function esc(s) { return KF().esc(s); }
 
-  // What the form could not fill in, and why. Its own colour and not an
+  // What the form could not fill in, and why. Its own color and not an
   // error: "we could not look" and "there is nothing to look at" are both
   // worth saying, and neither one stops the form being sent.
   function notesHtml(notes) {

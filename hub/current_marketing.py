@@ -161,7 +161,7 @@ SUGGESTION_RULES += [
     {
         "key": "email", "when": (NO,),
         "title": "Use the list they already own",
-        "detail": "Email reaches people who have already bought or enquired, "
+        "detail": "Email reaches people who have already bought or inquired, "
                   "at no media cost per impression. It is the one channel "
                   "here that does not need a budget to reach an audience.",
         "products": ["List Provided Email", "Email Template Creation"],
@@ -415,16 +415,16 @@ def gaps(state) -> list[dict]:
 # ---------------------------------------------------------------------------
 SUITE_FEATURES = [
     {"key": "callTracking", "tier": "Smart 1",
-     "feature": "Call tracking and the call centre",
+     "feature": "Call tracking and the call center",
      "detail": "Every campaign number tracked, recorded and attributed to the "
                "channel that produced it, with Missed Call Text Back on the "
                "ones nobody picks up."},
     {"key": "texting", "tier": "Smart 1",
      "feature": "Two-way texting",
-     "detail": "The texting centre, so a lead is answered the way they expect "
+     "detail": "The texting center, so a lead is answered the way they expect "
                "rather than with a voicemail nobody returns."},
     {"key": "reputation", "tier": "Smart 1",
-     "feature": "Reputation centre",
+     "feature": "Reputation center",
      "detail": "Automated Google review requests after a job, and every "
                "review answered from one inbox."},
     # Both social questions are answered by the same part of the Suite, so
@@ -442,7 +442,7 @@ SUITE_FEATURES = [
      "detail": "Somewhere for the posting to actually happen, with the "
                "campaign's own creative already in it."},
     {"key": "email", "tier": "Smart 1",
-     "feature": "Email centre",
+     "feature": "Email center",
      "detail": "Campaigns and automated follow-up to the list they already "
                "own, at no media cost per send."},
     {"key": "chat", "tier": "Smarter",
@@ -548,4 +548,4 @@ def suite_line(state, tier_name: str = "") -> str:
     else:
         listed = ", ".join(names[:-1]) + " and " + names[-1]
     return (f"Against what this client told us they are not doing today, the "
-            f"{result['tier']} licence covers {listed.lower()}.")
+            f"{result['tier']} license covers {listed.lower()}.")

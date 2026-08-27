@@ -101,7 +101,7 @@ PUBLIC = (
 )
 for path in PUBLIC:
     check(f"{path} is embeddable", embed.embeddable(path), True)
-    check(f"{path} is recognised as a public page", embed.public_embeddable(path), True)
+    check(f"{path} is recognized as a public page", embed.public_embeddable(path), True)
 
 # The refusal is what a prospect saw where the calculator should have been.
 check("so the framed request is not refused",

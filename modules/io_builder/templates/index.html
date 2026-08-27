@@ -357,7 +357,7 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
    <div class="section-title">Creative Checklist</div>
    <!-- The link the client sends their own assets through. It sits at the top
         of the checklist because this is the screen a rep is on when they
-        realise they need something from the client; sending them to another
+        realize they need something from the client; sending them to another
         tool to find it is how the assets end up arriving by email instead. -->
    <div id="uploadLinkBox" class="tiny" style="border:1px solid var(--line);
         border-bottom:0;padding:11px 12px;background:#f4f8fd">
@@ -1494,7 +1494,7 @@ function question(){
   if(q.key==="intakeProduct"){
    if(v===INTAKE_SKIP||/^(skip|none|no)$/i.test(v)){
     /* Skipped deliberately, and recorded as such. "Not selected" was the old
-       behaviour precisely because nobody had decided -- a skip somebody chose
+       behavior precisely because nobody had decided -- a skip somebody chose
        is a different thing and is worth being able to tell apart. */
     e.skipped=true;e.product="";
     addMsg(`Left off: “${e.query}”.`);
@@ -1508,7 +1508,7 @@ function question(){
     /* A candidate the rep picked, or a product name they typed. Resolve it
        against the card the same way the reader did rather than trusting the
        typed string -- otherwise a near-miss becomes a product code nothing
-       downstream recognises. */
+       downstream recognizes. */
     const label=(typeof cardLabelFor==="function"&&cardLabelFor(v))||"";
     if(!label&&!(e.candidates||[]).some(c=>intakeShortName(c.product)===v)){
      addMsg(`⚠ “${v}” is not a product on the rate card. Choose one of the options, ${CONSULTING_PRODUCT}, or ${INTAKE_SKIP}.`);
@@ -3719,7 +3719,7 @@ function startWireClientSearch(){
  /* Not straight into question one. Ask where the campaign comes from
     first -- the answer decides how many of the questions still need
     asking, and a rep who has a proposal in hand should never have to
-    retype it. startBlank() is the old behaviour, one click away. */
+    retype it. startBlank() is the old behavior, one click away. */
  startWireClientSearch();
  startWireUpload();
  showStartScreen();

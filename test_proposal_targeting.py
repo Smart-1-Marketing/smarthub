@@ -270,7 +270,7 @@ check("a DMA's reason and a bad spelling's reason are not the same sentence",
 png, meta = tmap.render(CAMPAIGN, width=900, height=520)
 check("the map is drawn", bool(png) and png[:4] == b"\x89PNG", meta.get("reason"))
 check("it reports what it plotted", len(meta["plotted"]) == 2, meta)
-check("it carries the tile attribution, which is a licence condition",
+check("it carries the tile attribution, which is a license condition",
       "OpenStreetMap" in meta["attribution"], meta["attribution"])
 check("and the areas it could not draw travel with it",
       len(meta["not_plotted"]) == 3, meta["not_plotted"])
@@ -295,7 +295,7 @@ tmap._fetch_tile = _dead_tile
 dead, dead_meta = tmap.render([{"name": "Solo", "type": "City/ZIP + Radius",
                                 "origin": "Fishers, IN", "radius": 12}])
 check("a tile server that will not answer produces no map rather than a grid "
-      "of grey boxes", dead is None, len(dead or b""))
+      "of gray boxes", dead is None, len(dead or b""))
 check("and says the target areas are unaffected",
       "unaffected" in (dead_meta["reason"] or ""), dead_meta["reason"])
 tmap._fetch_tile = _fake_tile

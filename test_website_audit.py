@@ -423,7 +423,7 @@ from modules.scans import leads as widget_state               # noqa: E402
 
 check("a row written before the column existed reads as the original kind",
       widget_state.kind_of(None), "aeo")
-check("so does anything unrecognised", widget_state.kind_of("something"), "aeo")
+check("so does anything unrecognized", widget_state.kind_of("something"), "aeo")
 check("the audit kind is its own", widget_state.kind_of("audit"), "audit")
 check("each kind carries its own wording",
       widget_state.defaults_for("audit")["headline"]

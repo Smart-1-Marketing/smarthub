@@ -39,7 +39,7 @@ def _load(name: str, path: str):
 
 
 # ---------------------------------------------------------------- middleware
-from hub.sidebar import render_sidebar
+from hub.sidebar import render_sidebar, collapses_by_default
 
 
 def _session(environ) -> dict:
@@ -189,9 +189,17 @@ class AuthGuard:
 class HubBar:
     """Injects the shared Hub sidebar + theme into module HTML pages."""
 
-    def __init__(self, app, active="", bare_prefixes=()):
+    def __init__(self, app, active="", bare_prefixes=(), mount=""):
         self.app = app
         self.active = active
+        # The mount prefix, so the nav can be asked whether this is a
+        # creative tool. DispatcherMiddleware strips the prefix off PATH_INFO
+        # before the module ever sees it, so a module-relative path alone
+        # cannot answer that -- "/" is the front page of twenty different
+        # tools. Carried explicitly rather than read off SCRIPT_NAME because
+        # _mount() already knows it and a middleware that depends on the
+        # composition above it is one that breaks quietly when it moves.
+        self.mount = mount or ""
         # Routes that must never receive Hub chrome. Anything served outside
         # the Hub login is by definition being looked at by someone who is not
         # staff — a prospect on a client's website. Injecting the staff sidebar
@@ -257,7 +265,15 @@ class HubBar:
         # edited -- and it is deliberately not the gate. The gate re-reads the
         # row (hub/access.py, hub/__init__.py), so a role changed a minute ago
         # takes effect on the click even if a stale nav is still on screen.
-        _bar = render_sidebar(self.active, is_admin=_viewer_is_admin(environ))
+        # A creative tool opens with the nav as an icon rail: it is a
+        # workbench -- a canvas, a storyboard, a gallery of squares -- and the
+        # nav is 224px of a laptop the work needs. One list, in hub/sidebar.py,
+        # read here and by the hub app's own injector, because two prefix
+        # lists is how one tool comes to behave differently from the tool
+        # beside it. A stored preference still wins in both directions.
+        _full = self.mount + (environ.get("PATH_INFO", "") or "")
+        _bar = render_sidebar(self.active, is_admin=_viewer_is_admin(environ),
+                              collapsed_default=collapses_by_default(_full))
         _scripts = (b'<script defer src="/hub-help.js"></script>'
                     b'<script defer src="/hub-demo.js"></script>'
                     b'<script defer src="/hub-crumbs.js"></script>'
@@ -534,7 +550,7 @@ def _mount(flask_app, prefix, public_prefixes=None):
         pass
     _install_error_reporter(flask_app, prefix)
     return AuthGuard(HubBar(flask_app, _MOUNT_ACTIVE.get(prefix, ""),
-                            bare_prefixes=public_prefixes),
+                            bare_prefixes=public_prefixes, mount=prefix),
                      prefix, public_prefixes=public_prefixes)
 
 

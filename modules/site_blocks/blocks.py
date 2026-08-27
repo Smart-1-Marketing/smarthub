@@ -90,7 +90,7 @@ THEMES = {
     },
     "growth": {
         "label": "Growth green",
-        "note": "Green accent from the house check-mark colour. Suits results, "
+        "note": "Green accent from the house check-mark color. Suits results, "
                 "reporting and retention offers rather than acquisition.",
         "accent": "#2dbb72", "accent_d": "#1e8f56",
         "action": "#2dbb72", "action_d": "#1e8f56", "warm": "#7fdca8",
@@ -508,7 +508,7 @@ _CSS = """
    stack without naming it twice. */
 .s1blk,.s1blk *{box-sizing:border-box;font-family:inherit}
 /* The last four declarations are an inbound guard, not decoration. A host
-   page that styles bare `section` -- border, margin, centred text, letter
+   page that styles bare `section` -- border, margin, centered text, letter
    spacing -- would otherwise reach into the block, and the block would look
    wrong on the live site while looking perfect in the builder's preview.
    Leakage the other way is handled by scoping every selector; this is the
@@ -525,7 +525,7 @@ _CSS = """
 .s1blk ul{list-style:none;margin:0;padding:0}
 .s1-wrap{width:min(1140px,calc(100% - 40px));margin:0 auto}
 /* A div, not a p: `.s1-head p` below would outrank this and print the
-   eyebrow in muted grey. The industry pages use a div for the same reason. */
+   eyebrow in muted gray. The industry pages use a div for the same reason. */
 .s1-eyebrow{font-weight:800;letter-spacing:.15em;text-transform:uppercase;
  font-size:.72rem;color:var(--s1-accent);margin:0}
 .s1-head{max-width:720px;margin:0 auto 46px;text-align:center}

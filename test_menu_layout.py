@@ -36,6 +36,7 @@ same reason; what this file holds is both halves of it, because a guard that
 also refuses the embedded calculator is a broken embed on a client's website.
 """
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -124,6 +125,46 @@ check("and no tile carries a description",
 
 for name in ("GPT Ads Builder", "Social Content Planner"):
     check(f"{name} has left Creative", f"<h3>{name}</h3>" in CREATIVE, False)
+
+
+# -------------------------------------- 1b. Every creative tool hides the menu
+section("Every creative tool opens with the nav as an icon rail")
+
+# A creative tool is a workbench and the nav is 224px of a laptop the work
+# needs. The list that decides it is hub/sidebar.CREATIVE_PREFIXES, read by all
+# three renderers of the nav -- the hub app's injector, HubBar for the twenty
+# mounted modules, and the hub_sidebar global base.html calls.
+#
+# This asserts the two lists agree *in both directions*, because each way of
+# drifting is its own quiet failure. A tile with no prefix is a creative tool
+# that opens with a nav nobody asked for while every tool beside it behaves
+# differently. A prefix with no tile is a rail on a page nobody calls creative,
+# which reads as the menu breaking.
+from hub.sidebar import CREATIVE_PREFIXES, collapses_by_default  # noqa: E402
+
+tiled = sorted({("/" + h.strip("/")) for h in
+                re.findall(r'<a class="tool-tile" href="([^"]+)"', CREATIVE)})
+for href in tiled:
+    check(f"  {href} hides the menu", collapses_by_default(href), True)
+
+# The other direction. A prefix is claimed by a tile when the tile's path is
+# the prefix or sits underneath it -- /tools/display-ads/_hub/start is the
+# Display Ad Builder's tile and /tools/display-ads is the tool.
+for prefix in CREATIVE_PREFIXES:
+    claimed = any(h == prefix or h.startswith(prefix + "/") for h in tiled)
+    check(f"  {prefix} is a tool tiled on Creative", claimed, True)
+
+# The index itself is not a workbench, and neither is anything outside the list.
+check("/creative itself keeps its menu", collapses_by_default("/creative"), False)
+check("Client 360 keeps its menu", collapses_by_default("/client360"), False)
+check("and the Proposal Builder still asks for the rail its own way",
+      'data-s1hub-collapse="1"' in
+      (ROOT / "modules" / "sales_builder" / "templates" / "index.html")
+      .read_text(encoding="utf-8"), True)
+# Segment-matched, not startswith: /tools/image must not claim a tool that
+# merely begins with those letters.
+check("a neighboring path is not swept in",
+      collapses_by_default("/tools/imagery-report"), False)
 
 
 # -------------------------------------------------- 2. Client Tools, regrouped

@@ -181,7 +181,7 @@ def create_hub_app() -> Flask:
     @app.context_processor
     def _inject_sidebar():
         """Expose the one shared nav to hub templates."""
-        from .sidebar import render_sidebar
+        from .sidebar import render_sidebar, collapses_by_default
 
         def hub_sidebar(active=""):
             try:
@@ -197,7 +197,16 @@ def create_hub_app() -> Flask:
             except Exception:  # noqa: BLE001
                 pass
             try:
-                return render_sidebar(active or "", is_admin=viewer_is_admin()).decode()
+                # The same one decision the injector makes. base.html calls
+                # this global directly, so a hub page rendering its own nav
+                # has to reach the same answer or a tool would behave one way
+                # through its template and another through the injector.
+                try:
+                    collapsed = collapses_by_default(request.path)
+                except Exception:  # noqa: BLE001
+                    collapsed = False
+                return render_sidebar(active or "", is_admin=viewer_is_admin(),
+                                      collapsed_default=collapsed).decode()
             except Exception:  # noqa: BLE001 — nav must never break a page
                 return ""
         return {"hub_sidebar": hub_sidebar}
@@ -514,7 +523,41 @@ def create_hub_app() -> Flask:
         kit = brand_kit(client, domain)
         kit["looked_up"] = True
         kit["note"] = res.get("note", "")
+        # What the call we just paid for put into the client's gallery. Said
+        # on the card rather than done silently: a file that appears in a
+        # gallery with nothing announcing it is one nobody knows to look for.
+        try:
+            from . import client_logos
+            kit["logos_filed"] = client_logos.summary(res.get("logos") or {})
+        except Exception:  # noqa: BLE001
+            pass
         return jsonify(kit)
+
+    @app.route("/api/client/logos", methods=["POST"])
+    def api_client_logos():
+        """File every logo we already hold for this client into their gallery.
+
+        A POST behind a button, and deliberately **not** a lookup: this reads
+        the brand record already stored and the last site scan, so it costs
+        nothing at Brandfetch. That matters because the scan is where the logo
+        comes from for most local businesses, and there was no way to get one
+        into the gallery without spending a lookup that would find nothing.
+
+        Filing the same logo twice is impossible — see hub/client_logos.py —
+        so pressing it again is safe and says what was already there.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_logos
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("name") or "").strip()
+        if not client:
+            return jsonify({"error": "No client named."}), 400
+        res = client_logos.file_logos(
+            client, str(body.get("domain") or "").strip(),
+            actor=current_user() or "system")
+        return jsonify({**res, "summary": client_logos.summary(res)})
 
     @app.route("/api/client/scan-facts")
     def api_client_scan_facts():
@@ -575,6 +618,23 @@ def create_hub_app() -> Flask:
         audit.log("brand", "pushed_to_suite", actor=current_user(),
                   client=client, ok=ok)
         return jsonify({"ok": ok, "delivered": ok, "payload": payload})
+
+    @app.route("/api/search")
+    def api_search():
+        """The top search box: clients first, then the Hub's own pages.
+
+        Read-only and reaches no provider, so it is a GET a keystroke can
+        fire. The client half is matched live through `clients_registry`
+        rather than from a stored index, because a search that cannot find a
+        client we signed last week is one people stop using.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import search_index
+        return jsonify(search_index.search(
+            request.args.get("q", ""),
+            limit=clamp_int(request.args.get("limit"), 12, 1, 30)))
 
     @app.route("/api/client/context")
     def api_client_context():
@@ -3024,9 +3084,21 @@ def create_hub_app() -> Flask:
         if not knack_api.configured():
             return jsonify({"configured": False, "fields": []})
         try:
+            fields = knack_api.ticket_form_fields(scope)
+            # A ticket raised from a client record should not ask for the
+            # website that record has held since their last site scan. One
+            # reader, shared with the campaign request and the ad copy form:
+            # three copies of this mapping is how two of them come to offer a
+            # different answer for one client. Offered into empty fields only,
+            # and nothing is written until the ticket is created.
+            from .client_context import offer_into
+            values, notes = offer_into(fields, {},
+                                       request.args.get("client", ""),
+                                       request.args.get("url", ""))
             return jsonify({"configured": True, "scope": scope,
                             "object": knack_api.TICKETS_OBJECT,
-                            "fields": knack_api.ticket_form_fields(scope)})
+                            "fields": fields,
+                            "values": values, "notes": notes})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
@@ -3117,8 +3189,15 @@ def create_hub_app() -> Flask:
             return jsonify({"configured": False, "fields": []})
         try:
             info = knack_api.campaign_field_map(kind)
+            fields = knack_api.campaign_form_fields(kind)
+            # Same one reader as the web ticket above.
+            from .client_context import offer_into
+            values, notes = offer_into(fields, {},
+                                       request.args.get("client", ""),
+                                       request.args.get("url", ""))
             return jsonify({"configured": True, "kind": kind, **info,
-                            "fields": knack_api.campaign_form_fields(kind)})
+                            "fields": fields,
+                            "values": values, "notes": notes})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-campaign", exc, path=request.path,
                                  actor=current_user() or "")
@@ -4028,7 +4107,7 @@ def create_hub_app() -> Flask:
 
         # The rate card is given to the model so a line it reads as "OTT" is
         # matched against what we actually sell, rather than invented.
-        catalogue = [p.get("label", "") for p in (_rc.products() or [])][:120]
+        catalog = [p.get("label", "") for p in (_rc.products() or [])][:120]
 
         schema_hint = {
             "client": "business name the proposal is addressed to",
@@ -4037,7 +4116,7 @@ def create_hub_app() -> Flask:
             "start_date": "YYYY-MM-DD if stated, else null",
             "end_date": "YYYY-MM-DD if stated, else null",
             "products": "array of {product, monthly, notes} — product must be "
-                        "one of the catalogue labels, or the closest match",
+                        "one of the catalog labels, or the closest match",
             "geography": "markets or radius named, else null",
             "notes": "anything a trafficker would need that has no field",
         }
@@ -4047,11 +4126,11 @@ def create_hub_app() -> Flask:
                   "You read media proposals and extract the facts needed to "
                   "write an insertion order. Never invent a number: if the "
                   "proposal does not state something, return null for it. "
-                  "Match products to the supplied catalogue; if nothing is a "
+                  "Match products to the supplied catalog; if nothing is a "
                   "reasonable match, use the proposal's own wording and say so "
                   "in notes. Return JSON only."},
                  {"role": "user", "content":
-                  f"Catalogue: {catalogue}\n\nReturn JSON with these keys: "
+                  f"Catalog: {catalog}\n\nReturn JSON with these keys: "
                   f"{schema_hint}\n\nProposal text:\n{text}"}],
                 module="io_builder", purpose="proposal_to_io")
         except Exception as exc:                        # noqa: BLE001
@@ -4293,55 +4372,7 @@ def create_hub_app() -> Flask:
         # screen is for, and a report nobody thinks to look for is a report
         # nobody works. Each keeps its own URL, so every existing link and
         # every Client 360 crumb still resolves.
-        extras = [
-            ("Data Quality", "stale-creative", {
-                "title": "Stale Creative",
-                "desc": "How long since we last produced creative for each "
-                        "active client — and who has never had any.",
-                "ico": "&#9203;", "href": "/qa/stale-creative"}),
-            ("Data Quality", "web-tickets", {
-                "title": "Web Tickets",
-                "desc": "Website change requests from Knack: what's open, "
-                        "what's gone stale, and per-client history.",
-                "ico": "&#127915;", "href": "/tools/tickets/"}),
-            ("Data Quality", "scan-all-clients", {
-                "title": "Scan All Clients",
-                "desc": "Audit every client with a website on file. Previews "
-                        "the credit cost, skips anything scanned recently, and "
-                        "caps each run before anything is spent.",
-                "ico": "&#9776;", "href": "/scans/bulk"}),
-            ("Data Quality", "match-sites", {
-                "title": "Match Sites to Clients",
-                "desc": "Every website we hold that nobody is attached to. "
-                        "Accepting a match writes the client registry, their "
-                        "Client 360 record, the Simvoly project and the Knack "
-                        "website record at once — and reports each separately.",
-                "ico": "&#128279;", "href": "/tools/sites-match"}),
-            ("Data Quality", "match-google", {
-                "title": "Match Google Accounts",
-                "desc": "Every Analytics property, Tag Manager container and "
-                        "Search Console property we can reach that maps to no "
-                        "client — searchable, with whoever it might belong to "
-                        "and why.",
-                "ico": "&#128202;", "href": "/tools/google-match"}),
-            ("Data Quality", "campaign-assets", {
-                "title": "Campaign Assets Needed",
-                "desc": "Every campaign on an insertion order still waiting on "
-                        "a clarification or on additional assets, grouped by "
-                        "media partner then internal sales — so the chase is "
-                        "one list per partner.",
-                "ico": "&#128230;", "href": "/tools/campaign-assets"}),
-            # Billing rather than Data Quality: the question this one answers
-            # is whether QuickBooks invoiced a renewal, which is the same
-            # question as the three reports it now sits beside.
-            ("Billing & Accounting", "domain-renewals", {
-                "title": "Domain Renewals",
-                "desc": "Every domain Smart 1 bought for a client, by the "
-                        "month its renewal is billed. This month says whether "
-                        "QuickBooks actually invoiced it; later months ask "
-                        "whether it should renew at all.",
-                "ico": "&#128197;", "href": "/tools/domains"}),
-        ]
+        extras = qa.EXTRAS
         for g, key, meta in extras:
             if g not in groups:
                 groups[g] = []
@@ -5013,7 +5044,7 @@ def create_hub_app() -> Flask:
                     "manager account under Tools → API Center.")
             elif not ads_st["connected"]:
                 add("Smart 1 Ads", "warn",
-                    "Credentials set but no account authorised yet — open "
+                    "Credentials set but no account authorized yet — open "
                     "/tools/ads/settings and click Connect Google Ads.")
             else:
                 add("Smart 1 Ads", "ok",
@@ -5228,15 +5259,18 @@ def create_hub_app() -> Flask:
                 return resp                      # already has one
             if b"</body>" not in body:
                 return resp                      # a fragment, not a page
-            from .sidebar import render_sidebar
-            # A tool that is itself a full-width workbench opens with the nav
-            # as an icon rail. The Display Ad Builder is a three-column bench
-            # -- controls, canvas, size rail -- and the nav takes a fifth of
-            # the screen it needs. A stored preference still wins, so this is
-            # a starting point rather than the page overruling anybody.
+            from .sidebar import render_sidebar, collapses_by_default
+            # A creative tool is itself a full-width workbench and opens with
+            # the nav as an icon rail. The Display Ad Builder is a
+            # three-column bench -- controls, canvas, size rail -- and every
+            # other creative tool wants the same room for the same reason,
+            # which is why the list lives in hub/sidebar.py and all three
+            # renderers of the nav read it. A stored preference still wins,
+            # so this is a starting point rather than the page overruling
+            # anybody.
             bar = render_sidebar(_hub_active(path),
                 is_admin=viewer_is_admin(),
-                collapsed_default=path.startswith("/tools/display-ads"))
+                collapsed_default=collapses_by_default(path))
             # The help/demo/autofill layer has to come with the sidebar. It
             # was injected by HubBar for dispatcher-mounted modules and by
             # base.html for hub pages, which left blueprint-registered pages

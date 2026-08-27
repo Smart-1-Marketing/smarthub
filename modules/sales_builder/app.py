@@ -1477,7 +1477,7 @@ def build_proposal_pdf(q, state):
                                            if row["kind"] == "competitor"
                                            else "The people who go there"), st_small),
                         _p(f"Geo-fenced at {row['address']}" if row["fenceable"]
-                           else "Brand and behaviour — no address on file to fence",
+                           else "Brand and behavior — no address on file to fence",
                            st_small)])
                 tt = Table(rows, colWidths=[2.1 * inch, 2.6 * inch, 2.7 * inch],
                            repeatRows=1)
@@ -1870,7 +1870,7 @@ def build_proposal_docx(q, state):
                     + (row["note"] or ("their customers" if row["kind"] == "competitor"
                                        else "the people who go there"))
                     + (f" (geo-fenced at {row['address']})" if row["fenceable"]
-                       else " (brand and behaviour — no address on file to fence)"))
+                       else " (brand and behavior — no address on file to fence)"))
         elif kind == "mediaplan" and state.get("items"):
             t2 = d.add_table(rows=1, cols=4)
             t2.style = "Light Grid Accent 1"
@@ -2279,7 +2279,7 @@ def _seeded_sections(state):
         "it into revenue you can trace.")
 
     body["reporting"] = (
-        "Optimisation is a routine, not a promise: bids adjusted against delivery and "
+        "Optimization is a routine, not a promise: bids adjusted against delivery and "
         "cost per action, negative keywords and placement exclusions updated, creative "
         "checked against performance and rotated before it fatigues. Everything reports "
         "into one live dashboard inside the Smart 1 Suite that you can open whenever "
@@ -2479,7 +2479,7 @@ def ai_draft_sections():
         "targets_of_interest": [
             {"name": row["name"], "what_we_want": row["note"],
              "reached_by": ("geo-fenced at their address" if row["fenceable"]
-                            else "brand and behaviour targeting — no address on file")}
+                            else "brand and behavior targeting — no address on file")}
             for row in targets_of_interest(state)],
         # What the Suite licence is on the quote for, in this client's own
         # terms. The technology section used to describe the Suite in the
@@ -2836,7 +2836,7 @@ FIND_TARGETS_RULES = (
     "2. Give a street address ONLY where you are confident it is that "
     "location's real address. If you are not sure, leave the address empty. An "
     "empty address is correct and useful — the campaign can still target the "
-    "brand and its customers' behaviour. A wrong address builds a geo-fence "
+    "brand and its customers' behavior. A wrong address builds a geo-fence "
     "around somebody else's building.\n"
     "3. Say in one short line what targeting them is FOR — whose customers "
     "they are and why this client wants them. Not a description of the "
@@ -2894,7 +2894,7 @@ def api_find_targets():
         f"Kinds to include: {', '.join(kinds)}. "
         "competitor = a business that takes this client's customers. "
         "venue = somewhere their customers gather (a stadium, an arena, an "
-        "expo centre, a campus). place = any other location worth fencing (a "
+        "expo center, a campus). place = any other location worth fencing (a "
         "retail park, a hospital, an employer, an event site).\n\n"
         + FIND_TARGETS_RULES)
     try:

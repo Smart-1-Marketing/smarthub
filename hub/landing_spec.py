@@ -135,7 +135,7 @@ PAGE_GOALS: list[dict] = [
     },
     {
         "id": "enquire",
-        "label": "General enquiry",
+        "label": "General inquiry",
         "blurb": "When none of the above is quite it.",
         "cta": "Get in touch",
         "fields": ["name", "phone", "email", "details"],
@@ -325,7 +325,7 @@ def open_questions(brief: dict, goal_id: str, offer: str,
         out.append("Which area does this page serve? Without it the copy "
                    "cannot say where the business works.")
     if goal(goal_id)["id"] == DEFAULT_GOAL:
-        out.append("Is a general enquiry really the goal? A page with one "
+        out.append("Is a general inquiry really the goal? A page with one "
                    "specific next step converts better than one that just "
                    "invites contact.")
     if not brief.get("phone") and goal(goal_id)["id"] == "call":

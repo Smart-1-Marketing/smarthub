@@ -35,7 +35,7 @@
   }
 
   /* Direction is not always good news: a fall in bounce rate is an
-     improvement. Metrics where lower is better are coloured accordingly
+     improvement. Metrics where lower is better are colored accordingly
      rather than painting every minus sign red. */
   var LOWER_IS_BETTER = { bounceRate: 1, averageSessionDuration: 0 };
   function delta(cell) {

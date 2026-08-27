@@ -144,7 +144,7 @@
       that <code>create_all()</code> does not do. What closed the gap was
       joining them on read in <code>hub/client_key.py</code> rather than
       copying them, so a client renamed in Knack is re-joined on the next
-      request. A row below in grey is that arrangement working; amber and red
+      request. A row below in gray is that arrangement working; amber and red
       are findings. <a href="/api/clients/crosswalk">The crosswalk</a> lists
       what is joined and what has no URL on file and therefore cannot be.
       Read from source, so it stays accurate even when a module fails to load.
@@ -163,7 +163,7 @@
       Ads and Google Access on a typed business name, Image Picker on its own
       table. Rather than migrate four tables, the Hub derives one key on read
       (<code>hub/client_key.py</code>) and joins on that: a domain where there
-      is one, a normalised name where there is not. This is what that join
+      is one, a normalized name where there is not. This is what that join
       currently finds. A record with a name and no URL on file can only ever be
       matched to another name, so those are listed separately.
     </p>
@@ -301,7 +301,7 @@ function stateWord(state){
   return state==="not_measured" ? "not measured" : state;
 }
 
-// The provider's own counter, when it could be read. Always labelled as
+// The provider's own counter, when it could be read. Always labeled as
 // theirs: it is the number they bill on, and it is the one the ledger below
 // cannot see all of.
 function accountBlock(a, label){
@@ -626,9 +626,9 @@ function renderStructure(d){
   var el=document.getElementById("diag-structure-main"); if(!el) return;
   // A "low" risk here is the *resolved* case: the columns still differ, and
   // something joins them. Painting it amber put "this is handled, and here is
-  // what handles it" in the same colour as a real finding directly above it,
+  // what handles it" in the same color as a real finding directly above it,
   // which is how a panel teaches people to skim past the rows that matter.
-  // Grey is what this page already uses for a row that is not a verdict.
+  // Gray is what this page already uses for a row that is not a verdict.
   // Not the pillFor() above: that one maps a check *state*, this maps a risk
   // *level*, and two functions of one name reading two vocabularies is how the
   // wrong one gets called from the wrong place later.

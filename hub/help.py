@@ -55,7 +55,7 @@ REGISTRY: list[Help] = [
        "Everyone living inside the target areas, before any targeting is "
        "applied. For a radius it is the area of the circle times an assumed "
        "density that falls as the radius grows — a 10-mile ring drawn on a "
-       "city centre is far denser than a 50-mile one reaching into farmland. "
+       "city center is far denser than a 50-mile one reaching into farmland. "
        "Overlapping areas are added together, so two rings five miles apart "
        "count their shared households twice. It is an estimate, and the AI "
        "re-estimate sizes each area for real."),
@@ -112,7 +112,7 @@ REGISTRY: list[Help] = [
        "can see exactly what they were quoted.", step=3,
        selector="[data-tour='proposals']"),
     _h("hub.client360.images", "Client image library",
-       "Everything the SEO Image Pipeline has optimised for this client, plus "
+       "Everything the SEO Image Pipeline has optimized for this client, plus "
        "any logo on their brand record. Each tile downloads or deletes on the "
        "spot — deleting removes the file from the client gallery and from the "
        "pipeline's archive, and cannot be undone. The count is this client's, "
@@ -196,7 +196,7 @@ REGISTRY: list[Help] = [
        selector="[data-tour='describe-search']"),
     _h("image_creator.logos.search", "Logos by company name",
        "Type a company name or domain. Brandfetch returns the logo variants "
-       "and the brand colours, and the colours drop straight into your picker.",
+       "and the brand colors, and the colors drop straight into your picker.",
        step=4, selector="[data-tour='logo-search']"),
     _h("image_creator.layers.panel", "Nothing is flattened",
        "Every element stays a live, editable object — including anything the "
@@ -228,9 +228,9 @@ REGISTRY: list[Help] = [
        "cpc, email, social, referral, display. Google Analytics groups traffic "
        "by this field, and it is case-sensitive: 'Paid Social' and "
        "'paid-social' become two separate rows in every report you ever run. "
-       "That's the whole reason this tool normalises values for you.", step=2,
+       "That's the whole reason this tool normalizes values for you.", step=2,
        selector="[data-tour='utm-medium']"),
-    _h("utm.form.campaign", "Name it so you'll recognise it in six months",
+    _h("utm.form.campaign", "Name it so you'll recognize it in six months",
        "Pick a shape and keep it — 'spring-tuneup-2026' beats 'promo'. You'll "
        "be reading these in a report long after you've forgotten the context.",
        step=3, selector="[data-tour='utm-campaign']"),
@@ -261,7 +261,7 @@ REGISTRY: list[Help] = [
        "still blank, and it never overwrites something you've entered.",
        step=1, selector="[data-tour='schema-known']"),
     _h("seo.faq.accordion", "The accordion export matches their site",
-       "The downloaded HTML reads the fonts and colours off the page it came "
+       "The downloaded HTML reads the fonts and colors off the page it came "
        "from, so it looks native when it's pasted in. Plain <details> tags — "
        "no JavaScript to break.", step=2, selector="[data-tour='faq-export']"),
     _h("seo.schema.date_added", "Mark it once it's live",
@@ -475,7 +475,7 @@ REGISTRY: list[Help] = [
        "upload. Each answer says which of the three it was. Nothing is guessed "
        "at — no favicon scraped off the landing page, no invented "
        "/logo.png — because a wrong logo on a client-facing estimate is worse "
-       "than none: nobody proof-reads the thing they recognise."),
+       "than none: nobody proof-reads the thing they recognize."),
     _h("ads_builder.proposal.landing", "Measured facts, and judgment, kept apart",
        "The left of this panel is what was read off the page with the evidence "
        "beside it; the model is given those facts and asked only for judgment. "
@@ -507,7 +507,7 @@ REGISTRY: list[Help] = [
     _h("ads_builder.proposal.share", "The link, and the three answers to it",
        "A client can say yes, yes with my changes, or let\u2019s talk — the middle "
        "one is the most common real answer and an approve/reject pair forces it "
-       "into whichever end is nearest. No answer yet stays grey rather than "
+       "into whichever end is nearest. No answer yet stays gray rather than "
        "reading as a no. A change request carries the name and email of whoever "
        "asked, because three people at one company will disagree with each "
        "other. Revoked, deleted and never-existed all answer the same 404, so "
@@ -536,12 +536,12 @@ REGISTRY: list[Help] = [
        "\u201cnothing to do\u201d while every row in it waited on the same one press. "
        "Archived proposals are left out of this band: nobody is going to "
        "approve those.", step=1, selector="[data-tour='ads-blocking']"),
-    _h("ads_builder.approvals.colours", "Four states, not two",
+    _h("ads_builder.approvals.colors", "Four states, not two",
        "Green is approved as presented, yellow is approved with changes "
-       "attached, red is wants a conversation. Grey is no answer yet — which is "
+       "attached, red is wants a conversation. Gray is no answer yet — which is "
        "not a fourth kind of bad: not sent, sent and ignored, and they said no "
        "are three different situations and only one of them is finished.",
-       step=2, selector="[data-tour='ads-colours']"),
+       step=2, selector="[data-tour='ads-colors']"),
 
     _h("ads_builder.campaigns.token", "The one screen that needs Google",
        "Live campaigns reads the Google Ads API, which needs a developer token "
@@ -672,7 +672,7 @@ REGISTRY: list[Help] = [
        "Clips come back at 5 or 10 seconds and nothing else, so a scene longer "
        "than 10 seconds is refused rather than handed a clip that stops early. "
        "Footage we already own is listed first and badged OWNED: it costs "
-       "nothing and needs no licence check.",
+       "nothing and needs no license check.",
        step=4, selector=".cb-step-pair"),
 
     _h("commercial_builder.voice.cast", "Say what it should sound like, then listen",

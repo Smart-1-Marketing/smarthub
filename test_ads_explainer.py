@@ -256,7 +256,7 @@ check("the tour layer paints no scrim of its own", "background:" in layer, False
 check("...and the ring still does", "9999px" in help_css, True)
 
 demo_js = (ROOT / "hub" / "static" / "hub-demo.js").read_text(encoding="utf-8")
-check("the launcher honours an opt-out",
+check("the launcher honors an opt-out",
       'data-demo") !== "off"' in demo_js, True)
 check("...and the module opts its walkthrough-less screens out",
       '{%- if walkthrough is not defined %} data-demo="off"{% endif %}'

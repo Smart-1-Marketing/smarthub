@@ -559,7 +559,7 @@ check("Google's own Retry-After beats our guess when it sends one",
       gf._gtm_throttled(9.0), 9.0)
 _reset_pace()
 # A server that asks for an hour is asking for more than a sweep has.
-check("...but a Retry-After longer than the cap is not honoured in full",
+check("...but a Retry-After longer than the cap is not honored in full",
       gf._gtm_throttled(3600.0) <= max(gf._GTM_RETRY_AFTER_CAP,
                                        gf._GTM_MAX_INTERVAL), True)
 _reset_pace()

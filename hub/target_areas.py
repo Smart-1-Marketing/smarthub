@@ -1132,7 +1132,7 @@ def parse_places(text, kind: str = "competitor", existing=None) -> dict:
                             "read": (f"{name} — geo-fenceable at {address}"
                                      if address else
                                      f"{name} — no address, so brand and "
-                                     "behaviour only")})
+                                     "behavior only")})
 
     added = len(out["places"])
     dupes = sum(1 for r in out["rows"] if r["duplicate"])

@@ -18,6 +18,66 @@ chip so phone layouts are untouched.
 EVERYONE = "everyone"
 ADMIN_ONLY = "admin"
 
+# ----------------------------------------------------------- the icon rail
+# Every tool on /creative opens with the nav as an icon rail. A creative tool
+# is a workbench -- a canvas with controls either side of it, a storyboard, a
+# gallery of squares, a waveform -- and the nav is 224px of a laptop that the
+# work itself needs. Losing it is what turns a step into a horizontal scroll,
+# which is the note the Display Ad Builder's own entry here made when it was
+# the only one named.
+#
+# The list is the tiles on hub/templates/creative.html, and it has to be:
+# that page is the answer to "which tools are creative", so a tool tiled
+# there and missing here would open with a nav nobody asked for while every
+# tool beside it behaved differently, with nothing on either screen saying
+# why. test_menu_layout.py asserts the two agree in both directions.
+#
+# This is a *default*, not a lock. A stored preference wins in both
+# directions (see the JS below), so somebody who opens the menu on Image
+# Creator keeps it open there and everywhere else, and the toggle is on
+# screen either way. A page that fights the person using it is worse than a
+# page with a nav they did not want.
+CREATIVE_PREFIXES = (
+    # Images
+    "/tools/display-ads",
+    "/tools/image-creator",
+    "/tools/image",              # Image Optimizer & Resizer
+    "/tools/bg-remover",
+    "/tools/page-images",
+    "/tools/image-picker",
+    "/tools/seo-images",
+    "/tools/landing-ads",
+    "/tools/stock-photos",
+    # Videos
+    "/tools/commercial-builder",
+    "/tools/video-backgrounds",
+    # Audio
+    "/tools/radio-promo",
+    "/tools/fan-radio",
+)
+
+
+def collapses_by_default(path: str) -> bool:
+    """Does the tool at ``path`` open with the nav as an icon rail?
+
+    One decision, read by all three places that render the nav: the hub app's
+    injector, `HubBar` in wsgi.py for the twenty mounted modules, and the
+    `hub_sidebar` global that base.html calls directly. Three copies of a
+    prefix test is how two of them come to disagree about one tool.
+
+    Matched on path *segments* through `hub/access.py`'s own matcher, not on
+    a bare `startswith`: `/tools/image` must not claim a future
+    `/tools/imagery-report`, and `/tools/image-creator` is underneath it on
+    purpose. `/creative` itself is an index, not a workbench, and is
+    deliberately not in the list.
+    """
+    try:
+        from .access import path_matches
+    except Exception:  # noqa: BLE001 — the nav must never break a page
+        return False
+    return path_matches(path or "", CREATIVE_PREFIXES)
+
+
 _ITEMS = [
     ("dashboard", "/", "&#127968;", "Dashboard"),
     ("c360", "/client360", "&#127919;", "Client 360"),
@@ -109,7 +169,7 @@ _CSS = """
   .s1hub-sb { transition: none } .s1hub-scrim { transition: none }
 }
 /* Collapsed state: the nav folds to a 56px icon rail rather than vanishing.
-   Hiding it entirely is what the old mobile behaviour did, and it left people
+   Hiding it entirely is what the old mobile behavior did, and it left people
    with no way back — a hide control has to be reversible from the hidden
    state, so the toggle stays visible either way. */
 body.s1hub-collapsed .s1hub-sb { width: 56px !important; }
@@ -138,7 +198,7 @@ body.s1hub-collapsed .s1hub-toggle { right: 4px; }
    has to assert its own layout rather than inherit whatever the host page
    happens to set. sites_admin ships `header>div,nav{display:flex;align-items:
    center}` -- a bare element selector -- which turned this sidebar into a
-   horizontal, vertically-centred row with every item overflowing off-screen.
+   horizontal, vertically-centered row with every item overflowing off-screen.
    Hence the explicit display/flex resets and the !important on the few
    properties a host stylesheet can plausibly clobber. */
 .s1hub-sb { position: fixed !important; top: 0 !important; bottom: 0 !important;
@@ -261,11 +321,12 @@ def render_sidebar(active: str = "", is_admin: bool = True,
     the role lookup hiccuped, which is a bug nobody would report as one.
 
     ``collapsed_default`` starts the nav as an icon rail on tools that are
-    themselves a full-width workbench -- the Display Ad Builder is a
-    three-column bench and the nav takes a fifth of it. It is a *default*,
-    not a lock: a stored preference always wins, so somebody who opens the
-    menu there keeps it open, and the toggle still works either way. Without
-    that distinction it would be a page fighting the person using it.
+    themselves a full-width workbench -- every creative tool, which is what
+    `CREATIVE_PREFIXES` above lists and `collapses_by_default()` decides. It
+    is a *default*, not a lock: a stored preference always wins, so somebody
+    who opens the menu there keeps it open, and the toggle still works
+    either way. Without that distinction it would be a page fighting the
+    person using it.
     """
     rows = []
     rows.append('<div class="s1hub-logo"><div class="s1hub-mark">S1</div><span class="s1hub-name">Smart 1 Hub</span></div>')
@@ -302,9 +363,9 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         # Collapse to an icon rail, remembered across pages. Applied before
         # paint where possible so the layout doesn't jump on every navigation.
         #
-        # A page asks for the rail two ways, and both are honoured because
+        # A page asks for the rail two ways, and both are honored because
         # both are in use: `collapsed_default` above, decided server-side from
-        # the path (the Display Ad Builder), and `data-s1hub-collapse="1"` on
+        # the path (every creative tool), and `data-s1hub-collapse="1"` on
         # the body, declared by the page's own template (the Proposal
         # Builder's wizard). The wide tools lose 224px of a laptop's width to
         # a nav nobody is reading while they work, which is what turns a step

@@ -106,8 +106,20 @@ VOCAB: dict[str, tuple[str, ...]] = {
     ),
     "look": (
         "bright", "dark", "warm", "cool", "moody", "sunny", "overcast",
-        "night", "golden-hour", "high-contrast", "desaturated", "colourful",
+        "night", "golden-hour", "high-contrast", "desaturated", "colorful",
     ),
+}
+
+# A vocabulary term is written onto the clip as a Cloudinary tag, so renaming
+# one takes every clip already carrying the old spelling out of the filter it
+# used to answer -- a chip that returns nothing, on a library the page still
+# reports a healthy count for. `colourful` was the spelling until Smart 1's
+# copy was settled as American English. So the term offered is the new one and
+# the old one is still *matched*, per term, rather than the whole library being
+# re-indexed to correct a label. Re-indexing would be a vision call per clip
+# and would rewrite what a person may have corrected by hand.
+TAG_ALIASES: dict[str, tuple[str, ...]] = {
+    "colorful": ("colorful",),
 }
 
 # Facts about the clip rather than descriptions of it. Kept apart from VOCAB
@@ -590,7 +602,7 @@ def _num(value) -> str:
 # Indexing
 # ---------------------------------------------------------------------------
 
-_PROMPT = """You are cataloguing a stock video clip so it can be found later by
+_PROMPT = """You are cataloging a stock video clip so it can be found later by
 someone looking for a background to put behind headline text.
 
 You are shown {n} frames sampled evenly through one clip. Describe the clip,
@@ -613,11 +625,11 @@ flags: {flags}
 
 Flag meanings — these decide whether the clip is usable, so be strict:
   has-people  someone is on screen
-  has-faces   a face is large enough to recognise
+  has-faces   a face is large enough to recognize
   has-text    words are burned into the footage
   loopable    the last frame could cut back to the first without a jump
   bg-ready    the look holds steady and there is room for an overlay; do NOT
-              set this if has-text is set, or if the subject sits dead centre
+              set this if has-text is set, or if the subject sits dead center
               where a headline would go
 """
 
@@ -944,7 +956,18 @@ def build_expression(query: str = "", *, tags: list[str] | None = None,
 
     for tag in (tags or []):
         clean = _SAFE_TERM.sub("", str(tag).strip().lower())
-        if clean:
+        if not clean:
+            continue
+        # A term that was spelled differently when older clips were indexed
+        # still has to find them -- see TAG_ALIASES. Parenthesised, and every
+        # branch positive, so it stays a comparison clause the expression
+        # language accepts here.
+        also = [a for a in TAG_ALIASES.get(clean, ())
+                if _SAFE_TERM.sub("", a) == a]
+        if also:
+            branches = " OR ".join(f"tags:{t}" for t in (clean, *also))
+            clauses.append(f"({branches})")
+        else:
             clauses.append(f"tags:{clean}")
 
     words = [w for w in _SAFE_TERM.sub(" ", (query or "").lower()).split() if w]

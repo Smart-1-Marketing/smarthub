@@ -139,7 +139,7 @@ check("an unrelated product does not match",
       sb.is_hosting_item("SEO Retainer") == "")
 
 cat = sb.catalogue_check(ITEMS)
-check("all three found in a healthy catalogue", cat["missing"] == [], cat)
+check("all three found in a healthy catalog", cat["missing"] == [], cat)
 cat2 = sb.catalogue_check([{"name": "Monthly Web Hosting"},
                            {"name": "Monthly Web Hosting - Annual"},
                            {"name": "Website Care Plan"}])
@@ -157,7 +157,7 @@ section("Reading a domain out of a typed description")
 # ---------------------------------------------------------------------------
 check("a bare domain is read",
       sb.domains_in("Monthly hosting acmeplumbing.com") == ["acmeplumbing.com"])
-check("protocol, www, path and case are normalised away — and a file in the "
+check("protocol, www, path and case are normalized away — and a file in the "
       "path is not a second domain",
       sb.domains_in("HTTPS://WWW.AcmePlumbing.com/index.html")
       == ["acmeplumbing.com"],
@@ -200,7 +200,7 @@ check("a domain in the description is the join",
 
 m = sb.match_line(line("Monthly Web Hosting", "Whoever", "Monthly hosting",
                        invoice_text="Site: acmeplumbing.com"), IDX)
-check("a domain elsewhere on the invoice matches, labelled differently",
+check("a domain elsewhere on the invoice matches, labeled differently",
       m["kind"] == "invoice_domain" and "not on this line" in m["why"], m)
 
 m = sb.match_line(line("Website Maintenance", "Acme Plumbing", "Monthly"), IDX)
@@ -383,7 +383,7 @@ section("Not measured is not all clear")
 # ---------------------------------------------------------------------------
 gone = sb.report(lines=REPORT_LINES, projects=REPORT_PROJECTS,
                  items=[{"name": "Website Care Plan"}], today=TODAY)
-check("with none of the three products in the catalogue, nothing is measured",
+check("with none of the three products in the catalog, nothing is measured",
       "None of the three hosting products" in sb.unavailable(gone),
       sb.unavailable(gone))
 check("and every one of the three is named in the refusal",
@@ -412,7 +412,7 @@ broken3 = dict(broken, sites_error="", error="",
                catalogue_error="HTTP 401", catalogue={"found": {}, "missing":
                                                       list(sb.HOSTING_PRODUCTS),
                                                       "similar": []})
-check("a catalogue we could not READ is a different answer from products that "
+check("a catalog we could not READ is a different answer from products that "
       "are not there",
       "could not be read" in sb.unavailable(broken3)
       and "None of the three" not in sb.unavailable(broken3), sb.unavailable(broken3))

@@ -282,7 +282,7 @@ def api_batch(job_id):
         if not candidate:
             return _fail("One of those images isn't on the page that was scanned.")
         if not candidate.get("optimizable"):
-            return _fail(f"{url.rsplit('/', 1)[-1]} can't be optimised.")
+            return _fail(f"{url.rsplit('/', 1)[-1]} can't be optimized.")
         chosen.append(url)
 
     batch_id = store.new_id()
@@ -385,7 +385,7 @@ def api_save(job_id, batch_id):
         data = store.get_bytes(job_id, f"{item['id']}.webp")
         if not data:
             failed.append({"source_url": item["source_url"],
-                           "error": "The optimised file expired before saving."})
+                           "error": "The optimized file expired before saving."})
             continue
 
         try:

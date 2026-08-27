@@ -17,10 +17,19 @@
   {{ hub_sidebar(active)|safe if hub_sidebar is defined else '' }}
   <div class="main">
     <div class="topbar">
-      <form class="global-search" action="/client360" method="get">
+      {# Submitting still goes to /client360, unchanged: that URL is in
+         browser history and in links across this repo, and Enter has meant
+         "look this client up" since the box existed. The dropdown is added
+         beside it, not in place of it -- so the box answers for tools,
+         reports and help without the one thing it already did changing. #}
+      <form class="global-search" action="/client360" method="get"
+            autocomplete="off" role="search">
         <span data-help="hub.dashboard.client_search"></span>
         <span class="gs-ico">&#8981;</span>
-        <input name="q" placeholder="Search any client across Smart 1 Team, Google, Sites &amp; Suite&hellip;" value="{{ q or '' }}">
+        <input name="q" id="gsq" placeholder="Search clients, tools, reports and help&hellip;"
+               value="{{ q or '' }}" aria-controls="gsres" aria-expanded="false"
+               aria-autocomplete="list">
+        <div id="gsres" class="gs-res" role="listbox" hidden></div>
       </form>
       <div class="spacer"></div>
       <div class="chip"><div class="avatar">{{ (user or 'U')[0]|upper }}</div><span>{{ user }}</span></div>
@@ -33,10 +42,123 @@
   </div>
 </div>
 <style>
+/* The results panel. Anchored to the form rather than the page so it follows
+   the box on a narrow screen, and capped in height because a long help match
+   list should scroll rather than run off the bottom of the viewport. */
+.global-search{position:relative}
+.gs-res{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:60;
+  background:#fff;border:1px solid #e2e8f0;border-radius:10px;
+  box-shadow:0 12px 32px rgba(15,23,42,.14);max-height:60vh;overflow:auto;
+  font:13px 'Segoe UI',system-ui,sans-serif}
+.gs-res[hidden]{display:none}
+.gs-grp{padding:7px 12px 3px;font-size:10.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:#94a3b8;font-weight:700}
+.gs-row{display:block;padding:7px 12px;color:#1e293b;text-decoration:none;
+  border-left:3px solid transparent}
+.gs-row:hover,.gs-row.on{background:#f1f5f9;border-left-color:#1769AA}
+.gs-row b{font-weight:600}
+.gs-row span{display:block;color:#64748b;font-size:11.5px;margin-top:1px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* A help topic often has no page to open — the body IS the answer — so it is
+   drawn as text rather than as a link that goes nowhere. A row that looks
+   clickable and is not is worse than a row that does not. */
+.gs-note{padding:7px 12px;color:#64748b;font-size:12px}
+.gs-err{padding:7px 12px;color:#b45309;font-size:12px;background:#fffbeb}
 .s1hub-ver{text-align:center;color:#94a3b8;font:11.5px 'Segoe UI',system-ui,sans-serif;
   padding:22px 0 30px;margin-top:26px;border-top:1px solid #e2e8f0}
 .s1hub-ver b{color:#64748b;font-weight:700}
 </style>
+<script>
+/* The global search dropdown. Vanilla and dependency-free: this markup is in
+   base.html on every hub page.
+
+   Two things it is careful about. The request is debounced and every reply
+   carries the query it answered, so a slow response for "ima" cannot land on
+   top of the results for "image" — the out-of-order failure a type-ahead has
+   by default. And the panel is rebuilt from the answer rather than patched,
+   which is safe here precisely because there is no input inside it: the trap
+   the Smart 1 Ads target-area rows hit is about redrawing a container
+   somebody is typing into, and the box itself sits outside this element. */
+(function(){
+  var box = document.getElementById('gsq'), panel = document.getElementById('gsres');
+  if(!box || !panel) return;
+  var timer = null, latest = '', rows = [], cursor = -1;
+
+  function esc(s){ return String(s == null ? '' : s)
+    .replace(/[&<>"]/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function close(){ panel.hidden = true; box.setAttribute('aria-expanded','false');
+    rows = []; cursor = -1; }
+
+  function draw(d){
+    var out = '', group = '';
+    rows = [];
+    (d.results || []).forEach(function(r){
+      if(r.kind !== group){
+        group = r.kind;
+        out += '<div class="gs-grp">' + esc((d.labels || {})[group] || group) + '</div>';
+      }
+      var sub = r.subtitle ? '<span>' + esc(r.subtitle) + '</span>' : '';
+      if(r.url){
+        rows.push(r.url);
+        out += '<a class="gs-row" role="option" href="' + esc(r.url) + '">'
+             + '<b>' + esc(r.title) + '</b>' + sub + '</a>';
+      } else {
+        out += '<div class="gs-row" role="option"><b>' + esc(r.title) + '</b>'
+             + sub + '</div>';
+      }
+    });
+    /* "We could not read the client book" is not "no client called that", and
+       a search that quietly returns only the pages is the worse of the two. */
+    (d.errors || []).forEach(function(e){
+      out += '<div class="gs-err">' + esc(e) + '</div>'; });
+    if(!out && d.note) out = '<div class="gs-note">' + esc(d.note) + '</div>';
+    if(!out){ close(); return; }
+    panel.innerHTML = out;
+    panel.hidden = false;
+    box.setAttribute('aria-expanded','true');
+    cursor = -1;
+  }
+
+  function run(){
+    var q = box.value.trim();
+    if(q.length < 2){ close(); return; }
+    latest = q;
+    fetch('/api/search?q=' + encodeURIComponent(q), {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if(d && d.query !== undefined && latest === q) draw(d); })
+      .catch(function(){ /* a search box must never break the page it is on */ });
+  }
+
+  box.addEventListener('input', function(){
+    clearTimeout(timer); timer = setTimeout(run, 180); });
+  box.addEventListener('focus', function(){ if(box.value.trim().length >= 2) run(); });
+
+  /* Arrow keys move a highlight; Enter on a highlighted row opens it, and
+     Enter on none of them submits the form — which still means "look this
+     client up", exactly as it did before the dropdown existed. */
+  box.addEventListener('keydown', function(e){
+    var items = panel.querySelectorAll('a.gs-row');
+    if(e.key === 'Escape'){ close(); return; }
+    if(!items.length || panel.hidden) return;
+    if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+      e.preventDefault();
+      cursor += (e.key === 'ArrowDown' ? 1 : -1);
+      if(cursor < -1) cursor = items.length - 1;
+      if(cursor >= items.length) cursor = -1;
+      Array.prototype.forEach.call(items, function(el, i){
+        el.classList.toggle('on', i === cursor); });
+    } else if(e.key === 'Enter' && cursor >= 0 && items[cursor]){
+      e.preventDefault();
+      window.location.href = items[cursor].getAttribute('href');
+    }
+  });
+
+  document.addEventListener('click', function(e){
+    if(!e.target.closest('.global-search')) close(); });
+})();
+</script>
 {% block scripts %}{% endblock %}
 <style>
 /* Collapsed to a "?" so it stops competing with the page, and widens to

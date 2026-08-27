@@ -429,12 +429,12 @@ def review_state(public_id) -> dict:
     latest = answered[0] if answered else (live[0] if live else None)
     changes = sum(len(r["changes"]) for r in live)
     if not latest:
-        return {"sent": False, "outcome": "", "colour": NO_RESPONSE_COLOUR,
+        return {"sent": False, "outcome": "", "color": NO_RESPONSE_COLOUR,
                 "changes": 0, "reviewer": "", "responded_at": None, "opened": False}
     return {
         "sent": True,
         "outcome": latest["outcome"],
-        "colour": outcome_colour(latest["outcome"]),
+        "color": outcome_colour(latest["outcome"]),
         "changes": changes,
         "reviewer": latest["reviewer_name"] or latest["reviewer_email"],
         "responded_at": latest["responded_at"],

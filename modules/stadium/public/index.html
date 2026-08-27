@@ -1162,7 +1162,7 @@ const MATCH_RATE = 0.55;
 /* Share of HOUSEHOLDS that are reachable fan households.
    Raised from 0.20/0.08/0.03 — 20% of a home market being football-fan homes
    badly understates an NFL / major-college market. These are planning
-   estimates and are labelled as such on screen. Edit here only. */
+   estimates and are labeled as such on screen. Edit here only. */
 const FAN_PENETRATION = { local:0.55, regional:0.32, national:0.08 };
 const ADDRESSABLE_RATE = 0.86;   // fan homes with a matchable connected device
 const FANS_PER_FAN_HH  = 2.2;    // people per fan home — pricing + one stat line only
@@ -1375,7 +1375,7 @@ function recommendPackage(focus,scope){
 /* ---------------------------------------------------------------------------
    LOCAL / TEAM PODCASTS
    The old list was Finebaum / McAfee / Simmons for every team in every market —
-   nothing a local advertiser recognises. (Confirmed live: the AI returned five
+   nothing a local advertiser recognizes. (Confirmed live: the AI returned five
    national shows for the Bengals, one of them an NBA podcast.)
    Add or replace flagship shows in LOCAL_OVERRIDES below — that is the only
    place. Everything else falls back to two patterns that genuinely exist
@@ -1602,7 +1602,7 @@ async function buildProposal(){
   gtm("proposal_built",{team:team.name,league:state.league,scope:state.scope,focus:state.focus});
 }
 /* Four-step chain so a logo box is never empty:
-   self-hosted /logos/<domain>.svg -> Clearbit -> favicon -> coloured monogram. */
+   self-hosted /logos/<domain>.svg -> Clearbit -> favicon -> colored monogram. */
 window.S1=window.S1||{};
 S1.logoStep=function(img){
   const d=img.dataset, step=Number(d.step||0)+1; d.step=step;
@@ -1916,10 +1916,10 @@ const cb=document.getElementById('contactBtn');
 /* ---------- provider marquee ----------------------------------------------
    WAS: <img> tags pointing at a logo CDN. On the live site every one failed to
    load (naturalWidth 0, and onerror never fired because of loading="lazy"), so
-   the white CSS filter turned twenty empty boxes into featureless grey blocks.
+   the white CSS filter turned twenty empty boxes into featureless gray blocks.
 
    NOW: nothing is fetched. Each provider is a self-contained SVG name-plate —
-   brand-coloured glyph (a screen for video, a waveform for audio) plus the name
+   brand-colored glyph (a screen for video, a waveform for audio) plus the name
    and the channel type. Always renders, sharp at any size, and you can actually
    read which networks they are.
 --------------------------------------------------------------------------- */
