@@ -70,9 +70,29 @@
   .item .m{color:var(--muted);margin-top:2px}
   .item a{color:var(--blue);text-decoration:none}
   .empty{color:var(--muted);padding:14px 16px;font-size:14px}
+
+  /* Row actions. They sit inside a clickable row, so every one of them stops
+     the click from also toggling the detail panel — a button that expands a
+     panel behind the thing it just opened reads as a misfire. */
+  td.acts{text-align:right;white-space:nowrap}
+  .act{display:inline-block;padding:5px 10px;margin-left:6px;border:1px solid var(--line);
+       border-radius:6px;background:var(--card);color:var(--ink-2);font-size:12.5px;
+       text-decoration:none;cursor:pointer;line-height:1.4}
+  .act:hover{border-color:var(--ink-2)}
+  .act:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+  .act[disabled]{opacity:.55;cursor:default}
+  .act-ever{color:var(--green);border-color:#cfe6da}
+  .act-ever:hover{border-color:var(--green)}
+  .act-msg{font-size:12px;color:var(--muted);margin-right:4px}
+  .act-msg.bad{color:var(--red)}
+  .ever-meta{color:var(--muted);font-size:12px}
+  @media (max-width:900px){
+    td.acts,th.acts{text-align:left}
+    .act{margin:4px 6px 0 0}
+  }
   .foot{color:var(--muted);font-size:12px;margin-top:26px}
   @media (max-width:640px){
-    th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5){display:none}
+    th:nth-child(3),td:nth-child(3),th:nth-child(4),td:nth-child(4){display:none}
     .wrap{padding:16px 10px 48px}
   }
   @media (prefers-reduced-motion:reduce){.chev{transition:none}}
@@ -113,6 +133,8 @@
       <div class="l">Under {{ e[0] }} days</div></div>
     <div class="tile t-never"><div class="n">{{ g.get('never', 0) }}</div>
       <div class="l">No creative on file</div></div>
+    <div class="tile t-fresh"><div class="n">{{ g.get('evergreen', 0) }}</div>
+      <div class="l">Evergreen</div></div>
   </div>
 
   <div class="bar">
@@ -134,11 +156,16 @@
     <table>
       <thead>
         <tr>
-          <th style="width:38%">Customer</th>
+          <th style="width:30%">Customer</th>
           <th class="num">Days since</th>
           <th class="num">Last upload</th>
           <th class="num">On file</th>
-          <th>Source</th>
+          {# The source of the last creative told a rep nothing they could act
+             on — which of our tools filed it is not a decision they make. What
+             belongs at the end of the row is what to do about the row. The
+             per-creative source is still on each tile in the panel below,
+             where opening it is the point. #}
+          <th class="acts">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -146,13 +173,37 @@
         <tr class="row" tabindex="0" data-target="d-{{ grp.key }}-{{ loop.index }}">
           <td><span class="chev">&#9656;</span>
             <span class="name">{{ c.client }}</span>
+            {% if c.evergreen %}
+            <div class="ever-meta">Evergreen{% if c.evergreen.from_group %} &middot;
+              was {{ c.evergreen.from_group }}{% endif %}{% if c.evergreen.by %} &middot;
+              marked by {{ c.evergreen.by }}{% endif %}{% if c.evergreen.at %}
+              on {{ c.evergreen.at[:10] }}{% endif %}{% if c.evergreen.note %}
+              &middot; {{ c.evergreen.note }}{% endif %}</div>
+            {% endif %}
           </td>
           <td class="num">{% if c.days_since is none %}<span class="dash">never</span>
             {% else %}{{ c.days_since }}{% endif %}</td>
           <td class="num">{% if c.last_upload %}{{ c.last_upload[:10] }}
             {% else %}<span class="dash">&mdash;</span>{% endif %}</td>
           <td class="num">{{ c.total_creatives }}</td>
-          <td>{{ c.last_source or '' }}</td>
+          <td class="acts">
+            <span class="act-msg" data-msg="1"></span>
+            {% if grp.key == 'evergreen' %}
+            <button type="button" class="act" data-evergreen="0"
+                    data-client="{{ c.client }}"
+                    title="Put this client back on the stale list.">Not evergreen</button>
+            {% else %}
+            <button type="button" class="act act-ever" data-evergreen="1"
+                    data-client="{{ c.client }}"
+                    title="The creative will not change for this campaign. The client leaves this list and moves to Evergreen below.">Evergreen</button>
+            {% endif %}
+            <button type="button" class="act" data-campaign-change="1"
+                    data-client="{{ c.client }}"
+                    title="Raise a Campaign Change Request for this client.">New</button>
+            <a class="act"
+               href="/tools/display-ads/_hub/start?client={{ c.client|urlencode }}"
+               title="Open the Display Ad Builder with this client filled in.">Create</a>
+          </td>
         </tr>
         <tr class="detail" id="d-{{ grp.key }}-{{ loop.index }}">
           <td colspan="5">
@@ -177,8 +228,9 @@
             {% endif %}
             {% else %}
             <p class="empty" style="padding:0">Nothing on file yet. Start in the
-              <a href="/tools/seo-images">SEO Image Pipeline</a> or the
-              <a href="/tools/image-creator">Image Creator</a>.</p>
+              <a href="/tools/seo-images">SEO Image Pipeline</a>, the
+              <a href="/tools/image-creator">Image Creator</a>, or press
+              <b>Create</b> on this row to open the Display Ad Builder.</p>
             {% endif %}
           </td>
         </tr>
@@ -186,7 +238,14 @@
       </tbody>
     </table>
     {% else %}
+      {% if grp.key == 'evergreen' %}
+      <p class="empty">Nothing marked evergreen. Use the Evergreen button on a
+        row whose creative is fixed for the campaign — an always-on brand spot,
+        a sponsorship board — and it moves here instead of ageing on the list
+        above.</p>
+      {% else %}
       <p class="empty">No clients in this range.</p>
+      {% endif %}
     {% endif %}
   </section>
   {% endfor %}
@@ -201,6 +260,7 @@
   </p>
 </div>
 
+<script src="/campaign-request.js"></script>
 <script>
 (function () {
   function toggle(row) {
@@ -210,9 +270,95 @@
     d.classList.toggle('open');
   }
   document.querySelectorAll('tr.row').forEach(function (row) {
-    row.addEventListener('click', function () { toggle(row); });
+    row.addEventListener('click', function (e) {
+      // The row is the expander and the actions live inside it, so a press on
+      // a button would otherwise also open the panel behind whatever it just
+      // opened. Every control in the last cell opts out here rather than each
+      // handler remembering to.
+      if (e.target.closest('.act')) return;
+      toggle(row);
+    });
     row.addEventListener('keydown', function (e) {
+      if (e.target !== row) return;
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(row); }
+    });
+  });
+
+  function say(btn, text, bad) {
+    var cell = btn.closest('td');
+    var msg = cell && cell.querySelector('[data-msg]');
+    if (!msg) return;
+    msg.textContent = text || '';
+    msg.className = 'act-msg' + (bad ? ' bad' : '');
+  }
+
+  // ---------------------------------------------------------- Evergreen
+  // Marking says the creative is not going to change for this campaign, so
+  // the elapsed time is not a gap anybody is going to close. The row moves to
+  // the Evergreen section rather than vanishing — a list that quietly gets
+  // shorter cannot be told from one that failed to load — and the page is
+  // reloaded rather than the row moved by hand, so the counts, the tiles and
+  // the section it lands in are the server's answer rather than a second
+  // description of the same rule drawn in the browser.
+  document.querySelectorAll('[data-evergreen]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var on = btn.dataset.evergreen === '1';
+      var client = btn.dataset.client || '';
+      if (on && !window.confirm(
+            'Mark ' + client + ' as evergreen?\n\n' +
+            'The creative will not change for the campaign, so this client ' +
+            'leaves the stale list. They stay visible under Evergreen and you ' +
+            'can undo it there.')) return;
+      btn.disabled = true;
+      say(btn, on ? 'Marking\u2026' : 'Clearing\u2026');
+      fetch('/api/qa/stale-creative/evergreen', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client: client, evergreen: on })
+      }).then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (d) {
+          if (!d || !d.ok) {
+            btn.disabled = false;
+            say(btn, (d && d.error) || 'Nothing was saved.', true);
+            return;
+          }
+          window.location.reload();
+        })
+        .catch(function () {
+          btn.disabled = false;
+          say(btn, 'Could not reach the Hub. Nothing was saved.', true);
+        });
+    });
+  });
+
+  // ------------------------------------------------- New (campaign change)
+  // The same form Client 360 opens, from /campaign-request.js, rather than a
+  // second copy of it here. The client's real insertion orders are read first
+  // so the campaign / IO dropdown is populated; if that read fails the form
+  // still opens, with an empty product list, rather than not at all.
+  document.querySelectorAll('[data-campaign-change]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var client = btn.dataset.client || '';
+      if (!window.CampaignRequest) {
+        say(btn, 'The request form failed to load. Reload the page.', true);
+        return;
+      }
+      btn.disabled = true;
+      say(btn, 'Opening\u2026');
+      fetch('/api/c360?q=' + encodeURIComponent(client))
+        .then(function (r) { return r.json(); })
+        .catch(function () { return { groups: [] }; })
+        .then(function (d) {
+          var groups = (d && d.groups) || [];
+          var exact = groups.filter(function (g) { return g.client === client; });
+          btn.disabled = false;
+          say(btn, '');
+          window.CampaignRequest.open({
+            kind: 'change',
+            client: (exact[0] || groups[0] || {}).client || client,
+            groups: exact.length ? exact : groups,
+            subject: 'New creative for ' + client
+          });
+        });
     });
   });
 })();
