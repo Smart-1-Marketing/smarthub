@@ -63,8 +63,8 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import (Image as RLImage, Paragraph, SimpleDocTemplate,
-                                Spacer, Table, TableStyle)
+from reportlab.platypus import (Image as RLImage, KeepTogether, Paragraph,
+                                SimpleDocTemplate, Spacer, Table, TableStyle)
 from xml.sax.saxutils import escape as xml_escape
 
 # ---- Word export ----
@@ -931,7 +931,14 @@ def _docx_body(d, text) -> None:
 def _docx_map(d, png: bytes, meta: dict) -> None:
     """The same map the PDF carries, at the same place in the document."""
     try:
-        d.add_picture(BytesIO(png), width=Inches(6.4))
+        # Bounded on both axes for the reason `_map_flowables` gives: width
+        # alone lets a tall crop fill a page on its own.
+        from PIL import Image as PILImage
+        with PILImage.open(BytesIO(png)) as probe:
+            pw, ph = probe.size
+        scale = min(6.4 / max(1, pw), 4.0 / max(1, ph))
+        d.add_picture(BytesIO(png), width=Inches(pw * scale),
+                      height=Inches(ph * scale))
     except Exception as exc:                        # noqa: BLE001
         logger.warning("map could not be placed in the Word export: %s", exc)
         return
@@ -943,6 +950,13 @@ def _docx_map(d, png: bytes, meta: dict) -> None:
                            + ", ".join(covered) + ".")
         run.font.size = Pt(8.5)
         run.font.color.rgb = RGBColor(0x53, 0x65, 0x7A)
+
+
+# How big the map is allowed to be on the page. Half the text column's height
+# is plenty to recognise where a campaign runs, and it leaves the section's
+# copy and its table on the same page as the picture far more often.
+MAP_MAX_W = 7.4 * inch
+MAP_MAX_H = 4.3 * inch
 
 
 def _map_flowables(png: bytes, meta: dict, small_style) -> list:
@@ -961,16 +975,26 @@ def _map_flowables(png: bytes, meta: dict, small_style) -> list:
             width, height = im.size
     except Exception:                           # noqa: BLE001
         return []
-    draw_w = 7.4 * inch
-    flow = [Spacer(1, 4),
-            RLImage(BytesIO(png), width=draw_w, height=draw_w * height / max(1, width))]
+    # Bounded on BOTH axes, not just scaled to the column width.
+    #
+    # A three-rooftop campaign running north-south cropped to 511x606, and at
+    # the column width that is a picture 8.8 inches tall: most of page two, a
+    # half-empty page one above it, and one slightly taller campaign away from
+    # a flowable the page frame cannot place at all. `target_map` keeps the
+    # crop landscape now and this is the guarantee at the other end, because a
+    # map that cannot be placed takes the whole PDF with it.
+    scale = min(MAP_MAX_W / max(1, width), MAP_MAX_H / max(1, height))
+    image = RLImage(BytesIO(png), width=width * scale, height=height * scale)
+    image.hAlign = "CENTER"
+    block = [image]
     covered = [row["label"] for row in meta.get("not_plotted") or []
                if row.get("kind") in hub_map.NOT_DRAWN]
     if covered:
-        flow.append(_p("Also covered, and not drawn on the map: "
-                       + ", ".join(covered) + ".", small_style))
-    flow.append(Spacer(1, 4))
-    return flow
+        block.append(_p("Also covered, and not drawn on the map: "
+                        + ", ".join(covered) + ".", small_style))
+    # The caption is about the picture directly above it. Orphaned onto the
+    # next page it is a sentence about nothing, on a document a client reads.
+    return [Spacer(1, 4), KeepTogether(block), Spacer(1, 4)]
 
 
 def _body_flowables(text, style) -> list:

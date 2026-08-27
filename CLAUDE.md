@@ -2571,6 +2571,19 @@ Every rule in it is a way to be confidently wrong:
   failure available here — plausible, dated, and about somewhere else — so
   changing a radius changes the URL rather than letting the browser serve
   yesterday's picture.
+- **The picture is bounded on both axes, and the crop stays landscape.**
+  Scaling to the text column's width alone is only a bound if the picture is
+  wider than it is tall — and three rooftops running north-south crop to a
+  *portrait* map, which at that width is 8.8 inches high: most of page two,
+  a half-empty page one above it, and one slightly taller campaign away from
+  a flowable reportlab cannot place at all, which fails the whole PDF rather
+  than the picture. `MIN_ASPECT` widens the crop (never trims its height —
+  that would cut a ring off the thing the map exists to show), counting the
+  key that will be drawn underneath it, and `MAP_MAX_H` caps what the page
+  will draw whatever arrives. The map and its caption are one `KeepTogether`,
+  because a caption orphaned onto the next page is a sentence about nothing.
+  Found by building a real proposal and looking at it, which no assertion
+  about a PNG's bytes would have done.
 - **Taking it off is said out loud, not left to an icon.** A picture provokes
   exactly one question — *that doesn't look right, how do I get rid of it?* —
   and the answer was a 🗺 drawn at 45% opacity in a row of five section

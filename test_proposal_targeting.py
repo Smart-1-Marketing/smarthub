@@ -280,6 +280,25 @@ png2, _ = tmap.render(CAMPAIGN, width=900, height=520)
 check("the same campaign is not re-fetched tile by tile",
       png2 == png and _TILES["served"] == served_before)
 
+# The shape that broke the PDF: three areas running north-south crop to a
+# PORTRAIT picture, and a portrait map drawn at the text column's width is
+# 8.8 inches tall -- most of a page, with the page above it half empty, and
+# one slightly taller campaign away from a flowable the page frame cannot
+# place at all. Both ends are bounded now: the crop comes back landscape,
+# and the renderer caps the height whatever arrives.
+NORTH_SOUTH = [
+    {"name": "South", "type": "City/ZIP + Radius", "origin": "Carmel, IN", "radius": 8},
+    {"name": "Middle", "type": "City/ZIP + Radius", "origin": "Fishers, IN", "radius": 8},
+]
+tall_png, tall_meta = tmap.render(NORTH_SOUTH, width=900, height=520)
+from PIL import Image as _Im                                       # noqa: E402
+import io as _io                                                   # noqa: E402
+_w, _h = _Im.open(_io.BytesIO(tall_png)).size
+check("a north-south campaign still comes back landscape",
+      _w / _h >= 1.25, (_w, _h, round(_w / _h, 2)))
+check("and the key underneath it is counted in that, not added after",
+      _h >= 200, (_w, _h))
+
 check("a campaign with nothing placeable draws no map at all",
       tmap.render([{"type": "National"}])[0] is None)
 check("and says why, in words a rep can act on",
@@ -425,6 +444,25 @@ check("and the map is genuinely in it rather than silently skipped",
       plain_pdf.status_code == 200
       and len(pdf.data) - len(plain_pdf.data) > 2000,
       (len(plain_pdf.data), len(pdf.data)))
+# The height cap is the guarantee at the renderer's end. A flowable taller
+# than the printable page is not a big picture, it is a PDF that fails to
+# build — so this asserts the bound rather than the picture.
+from reportlab.lib.units import inch as _inch                      # noqa: E402
+check("the map is bounded on both axes, not just scaled to the column",
+      builder.MAP_MAX_H <= 4.5 * _inch and builder.MAP_MAX_W <= 7.4 * _inch,
+      (builder.MAP_MAX_W / _inch, builder.MAP_MAX_H / _inch))
+check("and that leaves room for the section's copy and table on a page",
+      builder.MAP_MAX_H < 9.0 * _inch / 2)
+
+tall_state = json.loads(json.dumps(state))
+tall_state["targetAreas"] = NORTH_SOUTH
+tall_quote = api("post", "/sales/builder/api/quotes",
+                 json={"data": tall_state})["quote"]
+tall_pdf = http.get(f"/sales/builder/api/quotes/{tall_quote['id']}/pdf")
+check("a campaign whose map crops tall still builds a PDF",
+      tall_pdf.status_code == 200 and tall_pdf.data[:4] == b"%PDF",
+      tall_pdf.status_code)
+
 docx = http.get(f"/sales/builder/api/quotes/{quote['id']}/docx")
 check("the Word export builds with the same map",
       docx.status_code == 200 and len(docx.data) > 20000, len(docx.data))
