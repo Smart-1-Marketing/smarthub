@@ -1,5 +1,14 @@
 /* New Web Ticket / Manage Ticket — the object_107 form.
  *
+ * The controls themselves come from hub/static/knack-form.js, which is the
+ * one reading of "what control does a Knack field type need" — the Ad Copy
+ * Request form draws the same list of {key, label, control, choices} and a
+ * second copy of that reading is a second copy to keep in step, the reason
+ * `coerce_field` in hub/knack_api.py is object-agnostic. What stays here is
+ * only what a *web ticket* means: the ready-to-submit toggle Knack's own
+ * workflow reads, the billable radios, and the website box that opens on the
+ * record the ticket was raised from.
+ *
  * The four-box modal this replaces sent a title, a website, a description and
  * a name. The type of ticket, whether the revision is billable, the media
  * partner and their contact, and the ready-to-submit answer Knack's workflow
@@ -25,228 +34,65 @@
 window.WebTicket = (function () {
   'use strict';
 
-  var INPUT = 'padding:9px 12px;border:1px solid var(--line,#e2e8f0);border-radius:8px;font:13px inherit;width:100%;box-sizing:border-box';
+  // Read at call time, not at load: the drawer is a separate script and a
+  // page that loads them in the other order would otherwise capture undefined
+  // here and fail with no clue why.
+  function kf() { return window.KnackForm; }
 
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
-    });
-  }
+  var PREFIX = 'wt-';                 // the ids this form has always used
 
-  function shell(id, titleHtml, bodyHtml, width) {
-    var old = document.getElementById(id);
-    if (old) old.remove();
-    var m = document.createElement('div');
-    m.id = id;
-    m.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;' +
-      'display:flex;align-items:center;justify-content:center;padding:16px';
-    m.innerHTML = '<div style="background:#fff;border-radius:14px;width:' + (width || 640) +
-      'px;max-width:100%;max-height:92vh;display:flex;flex-direction:column">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;' +
-      'border-bottom:1px solid var(--line,#e2e8f0)">' +
-      '<b style="color:var(--navy,#0f2545)">' + titleHtml + '</b>' +
-      '<button data-close="1" style="border:0;background:none;font-size:22px;cursor:pointer;color:#64748b">&times;</button></div>' +
-      '<div data-body="1" style="padding:16px 18px;overflow-y:auto">' + bodyHtml + '</div>' +
-      '<div data-foot="1" style="display:flex;justify-content:flex-end;gap:10px;align-items:center;' +
-      'padding:12px 18px;border-top:1px solid var(--line,#e2e8f0)"></div></div>';
-    document.body.appendChild(m);
-    m.onclick = function (e) { if (e.target === m) m.remove(); };
-    m.querySelector('[data-close]').onclick = function () { m.remove(); };
-    return m;
-  }
+  function esc(s) { return kf().esc(s); }
 
-  function same(a, b) {
-    if (Array.isArray(a) || Array.isArray(b)) {
-      return JSON.stringify(a || []) === JSON.stringify(b || []);
-    }
-    return String(a == null ? '' : a) === String(b == null ? '' : b);
-  }
-
-  // The yes and no a field actually holds. A boolean takes yes/no; a
-  // multiple-choice takes whichever of its own choices begins with y or n,
-  // because Knack refuses anything that is not one of them — the button says
-  // Yes, the record gets the word this object uses for yes.
-  function yesNo(f) {
-    if (f.control === 'boolean') return { yes: 'yes', no: 'no' };
-    var cs = f.choices || [];
-    var y = cs.filter(function (c) { return /^y/i.test(String(c)); })[0];
-    var n = cs.filter(function (c) { return /^n/i.test(String(c)); })[0];
-    return { yes: y || cs[0] || 'yes', no: n || cs[1] || '' };
-  }
-
-  // Two answers, two radios. A dropdown for a yes/no hides one of the two
-  // answers behind a click and reads as though there might be more.
-  function radios(f, v) {
-    var yn = yesNo(f);
-    var picked = String(v == null ? '' : v).toLowerCase();
-    return '<div style="display:flex;gap:16px;align-items:center;padding-top:3px">' +
-      [yn.yes, yn.no].filter(Boolean).map(function (c, i) {
-        var id = 'wt-' + f.key + '-' + i;
-        var on = picked === String(c).toLowerCase();
-        return '<label for="' + id + '" style="display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer">' +
-          '<input type="radio" id="' + id + '" name="wt-' + f.key + '" value="' + esc(c) + '"' +
-          (on ? ' checked' : '') + '>' + esc(c) + '</label>';
-      }).join('') + '</div>';
-  }
-
-  // Ready to submit is a button, not a question: sending the form is the act
-  // of submitting, so it opens on yes and one click turns it off for a ticket
-  // someone is filing to finish later. Knack's workflow reads this field, and
-  // a ticket that arrives with it blank sits in nobody's queue.
-  function submitButton(f, v) {
-    var yn = yesNo(f);
-    var on = (v === '' || v == null) ? true
-      : String(v).toLowerCase() === String(yn.yes).toLowerCase();
-    return '<button type="button" id="wt-' + f.key + '" data-toggle="1" ' +
-      'data-yes="' + esc(yn.yes) + '" data-no="' + esc(yn.no) + '" data-on="' + (on ? '1' : '0') + '" ' +
-      'style="' + TOGGLE + '">' + esc(toggleText(on)) + '</button>';
-  }
-
-  function toggleText(on) {
-    return on ? '\u2713  Yes — submit this ticket' : 'No — not ready to submit';
-  }
-
-  function toggleStyle(on) {
-    return 'padding:10px 16px;border-radius:8px;font:600 13px inherit;cursor:pointer;' +
-      'border:1px solid ' + (on ? '#15803d' : 'var(--line,#e2e8f0)') + ';' +
-      'background:' + (on ? '#dcfce7' : '#fff') + ';color:' + (on ? '#15803d' : '#64748b') + ';';
-  }
-
-  var TOGGLE = toggleStyle(true);
-
-  // -------------------------------------------------------------- controls
-  // One control per Knack field type. `value` is what the record already
-  // holds — a record id for a connection, because writing a connection's
-  // label back is what clears the link. `ctx.sites` is the client's own
-  // website list, offered on the URL field.
-  function control(f, value, ctx) {
-    var id = 'wt-' + f.key;
-    var v = value == null ? '' : value;
-    var blank = '<option value="">—</option>';
-
-    if (f.key === 'ready_to_submit') return submitButton(f, v);
-    if (f.key === 'billable') return radios(f, v);
-    if (f.key === 'website') {
-      // The URL of the page this was raised from, with the client's other
-      // sites offered beside it — and still a text box, because the site that
-      // needs the work is not always one we hold a record for.
-      var sites = ((ctx && ctx.sites) || []).filter(function (x) { return x; });
-      var listId = 'wt-sites';
-      return '<input id="' + id + '" value="' + esc(v) + '" list="' + listId + '" ' +
-        'placeholder="Which website?" style="' + INPUT + '">' +
-        '<datalist id="' + listId + '">' + sites.map(function (u) {
-          return '<option value="' + esc(u) + '"></option>';
-        }).join('') + '</datalist>' +
-        (sites.length ? '<div class="muted" style="font-size:11.5px;margin-top:3px">' +
-          'From the record on screen — or type another.</div>' : '');
-    }
-
-    if (f.control === 'textarea') {
-      return '<textarea id="' + id + '" rows="5" style="' + INPUT + '">' + esc(v) + '</textarea>';
-    }
-    if (f.control === 'boolean') {
-      var yes = v === true || String(v).toLowerCase() === 'yes' || String(v) === 'true';
-      var no = v === false || String(v).toLowerCase() === 'no' || String(v) === 'false';
-      return '<select id="' + id + '" style="' + INPUT + '">' + blank +
-        '<option value="yes"' + (yes ? ' selected' : '') + '>Yes</option>' +
-        '<option value="no"' + (no ? ' selected' : '') + '>No</option></select>';
-    }
-    if (f.control === 'select' || f.control === 'multi') {
-      if (!f.choices || !f.choices.length) {
-        // Knack published no choices for it — a text box is honest, a select
-        // with nothing in it is a field nobody can fill.
-        return '<input id="' + id + '" value="' + esc(v) + '" style="' + INPUT + '">';
+  // ---------------------------------------------------- what a ticket means
+  // The three fields whose control is not decided by their Knack type, handed
+  // to the shared drawer through its `custom` hook. Everything else on the
+  // object is drawn from the schema.
+  function custom(ctx) {
+    return function (f, v) {
+      var K = kf();
+      if (f.key === 'ready_to_submit') {
+        // Sending the form is the act of submitting, so this opens on yes and
+        // one click turns it off for a ticket someone is filing to finish
+        // later. Knack's workflow reads this field, and a ticket that arrives
+        // with it blank sits in nobody's queue.
+        return K.toggle(PREFIX, f, v,
+          '\u2713  Yes — submit this ticket', 'No — not ready to submit');
       }
-      var chosen = Array.isArray(v) ? v.map(String) : (v === '' ? [] : [String(v)]);
-      var opts = f.choices.map(function (c) {
-        var on = chosen.indexOf(String(c)) !== -1;
-        return '<option value="' + esc(c) + '"' + (on ? ' selected' : '') + '>' + esc(c) + '</option>';
-      }).join('');
-      if (f.control === 'multi') {
-        return '<select id="' + id + '" multiple size="' + Math.min(5, f.choices.length) +
-          '" style="' + INPUT + '">' + opts + '</select>';
+      if (f.key === 'billable') return K.radios(PREFIX, f, v);
+      if (f.key === 'website') {
+        // The URL of the page this was raised from, with the client's other
+        // sites offered beside it — and still a text box, because the site
+        // that needs the work is not always one we hold a record for.
+        return K.suggest(PREFIX, f, v, (ctx && ctx.sites) || [],
+          'From the record on screen — or type another.', 'Which website?');
       }
-      return '<select id="' + id + '" style="' + INPUT + '">' + blank + opts + '</select>';
-    }
-    if (f.control === 'connection') {
-      if (!f.choices || !f.choices.length) {
-        return '<input id="' + id + '" value="' + esc(v) + '" placeholder="Knack record id" style="' + INPUT + '">' +
-          '<div class="muted" style="font-size:11.5px;margin-top:3px">This connection’s records could not be read — ' +
-          'a name will be refused, an id will be written.</div>';
-      }
-      var picked = Array.isArray(v) ? String(v[0] || '') : String(v);
-      return '<select id="' + id + '" style="' + INPUT + '">' + blank +
-        f.choices.map(function (c) {
-          return '<option value="' + esc(c.id) + '"' + (c.id === picked ? ' selected' : '') +
-            '>' + esc(c.label) + '</option>';
-        }).join('') + '</select>';
-    }
-    if (f.control === 'date') {
-      // Left as text on purpose: Knack shows dates as MM/DD/YYYY and a date
-      // input would hand back YYYY-MM-DD, so the value that came out of the
-      // record would not be the value that goes back in.
-      return '<input id="' + id + '" value="' + esc(v) + '" placeholder="MM/DD/YYYY" style="' + INPUT + '">';
-    }
-    return '<input id="' + id + '" value="' + esc(v) + '" style="' + INPUT + '">';
+      return null;
+    };
   }
 
-  function read(f) {
-    var picked = document.querySelector('input[name="wt-' + f.key + '"]:checked');
-    if (picked) return picked.value;
-    var el = document.getElementById('wt-' + f.key);
-    if (!el) return '';
-    if (el.dataset && el.dataset.toggle) {
-      return el.dataset.on === '1' ? el.dataset.yes : el.dataset.no;
-    }
-    if (f.control === 'multi' && el.tagName === 'SELECT' && el.multiple) {
-      return Array.prototype.filter.call(el.options, function (o) { return o.selected; })
-        .map(function (o) { return o.value; });
-    }
-    return String(el.value == null ? '' : el.value).trim();
+  function withCustom(ctx) {
+    ctx = ctx || {};
+    ctx.custom = custom(ctx);
+    return ctx;
   }
 
   function form(fields, values, skip, ctx) {
-    var groups = [], byGroup = {};
-    fields.forEach(function (f) {
-      if (skip && skip.indexOf(f.key) !== -1) return;
-      if (!byGroup[f.group]) { byGroup[f.group] = []; groups.push(f.group); }
-      byGroup[f.group].push(f);
-    });
-    return groups.map(function (g) {
-      return '<div style="margin-bottom:16px">' +
-        '<div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;' +
-        'color:#64748b;margin-bottom:8px">' + esc(g) + '</div>' +
-        byGroup[g].map(function (f) {
-          return '<div style="margin-bottom:10px">' +
-            '<label for="wt-' + esc(f.key) + '" style="display:block;font-size:12px;color:#475569;margin-bottom:3px">' +
-            esc(f.label) + (f.required ? ' <span style="color:#b45309">*</span>' : '') +
-            (f.known ? '' : ' <span style="color:#b45309;font-size:11px">(not on the object — check Knack)</span>') +
-            '</label>' + control(f, (values || {})[f.key], ctx) + '</div>';
-        }).join('') + '</div>';
-    }).join('');
+    return kf().form(PREFIX, fields, values, skip, withCustom(ctx));
   }
 
-  // The toggle is the one control that carries its own state, so it is wired
-  // once the form is on the page.
-  function wire() {
-    Array.prototype.forEach.call(document.querySelectorAll('[data-toggle]'), function (b) {
-      b.onclick = function () {
-        var on = b.dataset.on !== '1';
-        b.dataset.on = on ? '1' : '0';
-        b.textContent = toggleText(on);
-        b.setAttribute('style', toggleStyle(on));
-      };
-    });
+  function read(f) { return kf().read(PREFIX, f); }
+
+  function wire() { kf().wire(); }
+
+  function same(a, b) { return kf().same(a, b); }
+
+  function refusedHtml(rejected) { return kf().refusedHtml(rejected); }
+
+  function shell(id, titleHtml, bodyHtml, width) {
+    return kf().shell(id, titleHtml, bodyHtml, width);
   }
 
-  // What came back refused. Never collapsed into "saved ✓".
-  function refusedHtml(rejected) {
-    if (!rejected || !rejected.length) return '';
-    return '<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;' +
-      'margin-bottom:12px;font-size:12px;color:#92400e">' +
-      '<b>' + rejected.length + ' field' + (rejected.length === 1 ? '' : 's') + ' not written:</b><ul style="margin:6px 0 0 16px;padding:0">' +
-      rejected.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul></div>';
-  }
+  var INPUT = 'padding:9px 12px;border:1px solid var(--line,#e2e8f0);border-radius:8px;font:13px inherit;width:100%;box-sizing:border-box';
 
   function loadFields(scope) {
     var url = scope === 'manage'
@@ -263,6 +109,10 @@ window.WebTicket = (function () {
   // ------------------------------------------------------------ raise one
   function open(opts) {
     opts = opts || {};
+    if (!kf()) {
+      alert('The ticket form failed to load. Reload the page and try again.');
+      return;
+    }
     var name = String(opts.client || '');
     var user = String(opts.user || '');
     var m = shell('tickModal', 'New Web Ticket — ' + esc(opts.site || name),
@@ -372,6 +222,10 @@ window.WebTicket = (function () {
   // ------------------------------------------------------------- edit one
   function manage(opts) {
     opts = opts || {};
+    if (!kf()) {
+      alert('The ticket form failed to load. Reload the page and try again.');
+      return;
+    }
     var t = opts.ticket || {};
     var m = shell('tickManageModal', 'Manage Ticket — ' + esc(t.title || ''),
       '<div class="empty">Reading the ticket fields from Knack… <span class="spin"></span></div>');

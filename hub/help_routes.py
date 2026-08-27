@@ -90,6 +90,31 @@ def static_campaign_request_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/knack-form.js")
+def static_knack_form_js():
+    """Drawing a Knack object as a form — the one copy of it.
+
+    Both the web ticket form and the Ad Copy Request form draw the same list
+    of {key, label, control, choices} into controls and read them back, and
+    two copies of that reading is two copies to keep in step. Root-level for
+    the same reason as the scripts above."""
+    return send_from_directory(_STATIC, "knack-form.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
+@bp.route("/ad-copy.js")
+def static_ad_copy_js():
+    """The Ad Copy Request form, shared by Client 360 and the dashboard.
+
+    Its own object rather than a Campaign Change Request with a pre-written
+    subject: the campaign team's form has fourteen fields and the old one
+    asked four questions, with the client, the campaign, the order number
+    and the media partner retyped out of the record on the screen behind
+    it."""
+    return send_from_directory(_STATIC, "ad-copy.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/web-ticket.js")
 def static_web_ticket_js():
     """The New Web Ticket / Manage Ticket form, root-level for the same reason

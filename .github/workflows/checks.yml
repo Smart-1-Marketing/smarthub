@@ -577,6 +577,19 @@ jobs:
             echo "test_web_tickets.py not on this branch — nothing to run."
           fi
 
+      - name: Ad copy request tests
+        # The Ad Copy Request object: the ids the campaign team gave us, the
+        # object discovered from them rather than guessed at, and a prefill
+        # that fills in exactly one candidate or none. Guarded like the steps
+        # above so this workflow stays mergeable on a branch that predates the
+        # file. Needs no Knack credentials — the requests seam is stubbed.
+        run: |
+          if [ -f test_ad_copy.py ]; then
+            python test_ad_copy.py
+          else
+            echo "test_ad_copy.py not on this branch — nothing to run."
+          fi
+
       - name: Campaign asset queue tests
         # The two object_135 fields behind /tools/campaign-assets: the tickbox
         # that gates the asset text, the partner-then-sales ordering, and that

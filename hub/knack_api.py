@@ -307,6 +307,13 @@ def _control_for(f: dict, obj: str = TICKETS_OBJECT) -> tuple[str, list]:
     fmt = f.get("format") or {}
     if t == "connection":
         return "connection", connection_choices(f.get("key"), obj)
+    if t in ("file", "image"):
+        # Not a text box. A Knack file field is written by uploading the
+        # bytes to Knack's asset endpoint and putting the id it hands back
+        # on the record — posting a string into it writes nothing, and a
+        # form that draws it as a text box is a form somebody attaches
+        # artwork to that never arrives.
+        return "file", []
     if t == "multiple_choice":
         opts = [str(o) for o in (fmt.get("options") or []) if str(o).strip()]
         multi = str(fmt.get("type") or "").lower() in ("multi", "checkboxes")
@@ -318,6 +325,17 @@ def _control_for(f: dict, obj: str = TICKETS_OBJECT) -> tuple[str, list]:
     if t in ("paragraph_text", "rich_text"):
         return "textarea", []
     return "text", []
+
+
+def control_for(f: dict, obj: str) -> tuple[str, list]:
+    """(control, choices) for one field on any object.
+
+    Public because a second object's form needs the same reading of a Knack
+    field type, and two copies of it is two descriptions of what a dropdown
+    is — the reason `coerce_field` is object-agnostic rather than being
+    restated per object.
+    """
+    return _control_for(f, obj)
 
 
 def ticket_form_fields(scope: str = "create") -> list[dict]:
@@ -376,6 +394,9 @@ def coerce_field(field_id: str, value, *, obj: str = TICKETS_OBJECT,
     control, choices = _control_for(f, obj) if f else ("text", [])
     if value in (None, "", [], {}):
         return None, ""
+    if control == "file":
+        return None, (f"{label}: a file is uploaded in Knack, not from the "
+                      "Hub — attach it on the record")
     if control == "connection":
         wanted = value if isinstance(value, list) else [value]
         ids = []

@@ -28,6 +28,8 @@
 
 {% block scripts %}
 <script src="/ask-analytics.js"></script>
+<script src="/knack-form.js"></script>
+<script src="/ad-copy.js"></script>
 <script src="/campaign-request.js"></script>
 <script src="/web-ticket.js"></script>
 <script>
@@ -114,6 +116,7 @@ function render(g,q){
   window.__c360prods=g.products||[];
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs {{ help_dot('hub.client360.products') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px">
+      <a class="open-link" id="c-ad-copy" style="cursor:pointer;color:#b45309">&#9997; Ad copy</a>
       <a class="open-link" id="c-camp-change" style="cursor:pointer;color:#b45309">&#9998; Campaign change</a>
       <a class="open-link" id="c-camp-support" style="cursor:pointer;color:#b45309">&#128736; Campaign support</a>
       <a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
@@ -1541,6 +1544,23 @@ function render(g,q){
   const campSupport=document.getElementById('c-camp-support');
   if(campChange)campChange.onclick=()=>openCampaignModal('change');
   if(campSupport)campSupport.onclick=()=>openCampaignModal('support');
+
+  // ---------- Ad Copy Request (its own Knack object) ----------
+  // Opened from the card that already shows this client's products and IOs,
+  // which is the whole point: the seller, the confirmation address, the
+  // client, the campaign, the current order number and the media partner are
+  // all things this page is already displaying, and the old form asked a rep
+  // to retype four of them. The prefill is decided server-side in
+  // hub/ad_copy.py — there is no second copy of the rules here.
+  const adCopyBtn=document.getElementById('c-ad-copy');
+  if(adCopyBtn)adCopyBtn.onclick=()=>{
+    if(!window.AdCopyRequest){
+      alert('The request form failed to load. Reload the page and try again.');
+      return;
+    }
+    window.AdCopyRequest.open({client:name,user:user_name,
+                               onsaved:()=>{if(window.loadWorkLog)loadWorkLog(name);}});
+  };
 
   // Accounting issue form (GHL) in a modal
   const acctBtn=document.getElementById('c-qb-acct');
