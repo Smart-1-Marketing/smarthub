@@ -2571,6 +2571,15 @@ Every rule in it is a way to be confidently wrong:
   failure available here — plausible, dated, and about somewhere else — so
   changing a radius changes the URL rather than letting the browser serve
   yesterday's picture.
+- **Taking it off is said out loud, not left to an icon.** A picture provokes
+  exactly one question — *that doesn't look right, how do I get rid of it?* —
+  and the answer was a 🗺 drawn at 45% opacity in a row of five section
+  icons, which is the note `hub/templates/diagnostics.html` and the Smart 1
+  Ads estimate's per-section pencils already make about a quiet control. It
+  is a line of words under the picture, the removed state offers its own way
+  back, and the areas screen says where the removal happens so the two
+  screens do not each answer half. `showMap` is still one flag on the areas
+  section, read by the preview, the PDF and the Word export.
 
 `MAP_TILE_URL` and `MAP_TILE_ATTRIBUTION` are settings, so a deployment with
 its own tile server (or a keyed one — the key rides in the URL) needs no

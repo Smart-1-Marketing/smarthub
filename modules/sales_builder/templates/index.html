@@ -290,6 +290,7 @@
   .dlist li{margin:0 0 4px}
   .dmap{margin-top:11px}
   .dmap img{width:100%;display:block;border:1px solid var(--line);border-radius:10px}
+  .maprow{display:flex;gap:12px;align-items:baseline;justify-content:space-between}
   .dempty{margin-top:8px}
   .dedit{width:100%;min-height:130px;margin-top:8px;font:13.5px/1.6 inherit;
     border:2px solid var(--blue);border-radius:10px;padding:11px;box-sizing:border-box}
@@ -1921,15 +1922,30 @@ function areaSig(){
  for(let i=0;i<str.length;i++){h=((h<<5)-h+str.charCodeAt(i))|0;}
  return String(h>>>0);}
 function mapUrl(){return '/sales/builder/api/quotes/'+QUOTE_ID+'/target-map.png?v='+areaSig();}
+/* The map, and the way to take it off the document said out loud.
+
+   Leaving it out was already possible from the 🗺 in the section tools, and
+   that is the same mistake the Smart 1 Ads estimate made with its per-section
+   pencils: a control drawn at 45% opacity in a row of five icons is a control
+   nobody finds, and the one question somebody actually asks of a map is
+   "that doesn't look right — how do I get rid of it?". So the answer sits
+   under the picture, in words, where the question is asked. The icon stays:
+   it is how the map comes back, and it is where every other section-level
+   switch lives. */
 function mapBlock(sec){
  if(sec.showMap===false)
-  return '<div class="dnote">🗺 The coverage map is left out of this proposal. The target areas below still print.</div>';
+  return `<div class="dnote">🗺 The coverage map is left out of this proposal — the target areas below still print.
+   <a onclick="toggleSecMap('${sec.id}')" style="cursor:pointer;color:var(--blue);font-weight:700">Put the map back</a></div>`;
  if(!QUOTE_ID)
   return '<div class="dnote">The map is drawn once this proposal has saved.</div>';
  if(!(S.targetAreas||[]).some(areaComplete))
   return '<div class="dnote">No target area to map yet.</div>';
  return `<div class="dmap"><img src="${mapUrl()}" alt="Map of the campaign's target areas"
-   onerror="mapImgFailed(this)"><div class="dnote" id="mapNote"></div></div>`;}
+   onerror="mapImgFailed(this)">
+  <div class="dnote maprow"><span id="mapNote"></span>
+   <a onclick="toggleSecMap('${sec.id}')" style="cursor:pointer;color:var(--blue);font-weight:700;white-space:nowrap"
+     title="The map comes off the PDF and the Word export. The target-area table stays.">Doesn't look right? Remove this map</a>
+  </div></div>`;}
 function toggleSecMap(id){
  const sec=S.sections.find(x=>x.id===id);if(!sec)return;
  sec.showMap=sec.showMap===false;saveSoon();drawPreview();}
@@ -2122,7 +2138,7 @@ function areaListStep(){
   <div style="margin-top:14px"><button class="btn btn-primary" onclick="addAnotherArea()">+ Add another target area</button></div>
   ${pasteBox()}
   <div class="bpanel" style="margin-top:16px"><div class="ttl">🗺 Where this campaign runs</div>
-   <div class="note" style="margin-top:3px">This map goes on the proposal. A DMA, a state or a national buy is covered by the campaign and is not drawn — the table on the document names those underneath it.</div>
+   <div class="note" style="margin-top:3px">This map goes on the proposal. A DMA, a state or a national buy is covered by the campaign and is not drawn — the table on the document names those underneath it. If it doesn't look right on the document, it can be removed there without changing any of these areas.</div>
    <div id="mapPanel" style="margin-top:9px"><div class="note"><span class="spin"></span>Drawing…</div></div></div>
   <div class="bpanel" style="margin-top:20px"><div class="ttl">Who we're targeting inside these areas</div>
    <div class="two" style="margin-top:8px"><div class="fld"><label>Gender</label>
