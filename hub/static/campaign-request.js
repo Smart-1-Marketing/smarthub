@@ -1,4 +1,4 @@
-/* Campaign Change / Campaign Support / Ad Copy request form.
+/* Campaign Change / Campaign Support request form.
  *
  * This modal lived inside client360.html, where it could only be opened from a
  * client record that was already on screen. The dashboard needs the same three
@@ -20,9 +20,11 @@
  *       real insertion orders rather than left as a free-text box.
  *
  * `kind` is what Knack sees: 'change' writes to the Campaign Change object,
- * 'support' to the Campaign Support object. Ad Copy is a change request with a
- * pre-filled subject, because that is the form the team asked for — not a
- * third object, which would be a Knack schema change nobody requested.
+ * 'support' to the Campaign Support object. Ad Copy used to be a third caller
+ * here — a change request with its subject pre-filled — and is now its own
+ * object in /ad-copy.js: the campaign team's ad copy form has fourteen fields
+ * of its own, and sending four of them down the change object left ten blank
+ * on every request the Hub raised.
  *
  * What the support form draws is the whole of object_121 — the insertion
  * order, the due date, the kind of support, the pixel URL, the timeline, the

@@ -104,7 +104,7 @@
 <div class="req-row">
   <a class="partner-btn rb-copy" id="rq-adcopy">
     <span class="pb-ico">&#9997;</span><span class="pb-name">Ad Copy Request</span>
-    <span class="pb-sub">Look up a client, send to the campaign team</span></a>
+    <span class="pb-sub">Look up a client — the campaign, IO and partner fill themselves in</span></a>
   <a class="partner-btn rb-change" id="rq-change">
     <span class="pb-ico">&#128260;</span><span class="pb-name">Campaign Change</span>
     <span class="pb-sub">Budget, targeting, dates or creative</span></a>
@@ -171,19 +171,30 @@
 
 {% block scripts %}
 <script src="/knack-form.js"></script>
+<script src="/ad-copy.js"></script>
 <script src="/campaign-request.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const user_name={{ (user or '')|tojson }};
 
-/* The same three forms Client 360 opens, from a dashboard that has no client
-   on screen — so each one asks who it is for first. Ad Copy and Campaign
-   Change are the same Knack object; Ad Copy only arrives with its subject
-   already written, which is what makes it findable in the queue. */
-[['rq-adcopy','change','Ad Copy Request',
-  'Ad copy request',
-  'What needs writing? Product, offer, tone, any wording that must appear, and where it runs.'],
- ['rq-change','change','Campaign Change Request','',''],
+/* The same forms Client 360 opens, from a dashboard that has no client on
+   screen — so each one asks who it is for first.
+
+   Ad Copy is its own object now, not a Campaign Change Request with its
+   subject pre-written: the campaign team's form asks fourteen questions and
+   four of them — the client, the campaign, the current order number and the
+   media partner — are on the client's own insertion orders, which is what
+   /ad-copy.js opens on. */
+const adCopy=$('rq-adcopy');
+if(adCopy) adCopy.onclick=function(){
+  if(!window.AdCopyRequest){
+    alert('The request form failed to load. Reload the page and try again.');
+    return;
+  }
+  window.AdCopyRequest.pick({user:user_name,title:'Ad Copy Request'});
+};
+
+[['rq-change','change','Campaign Change Request','',''],
  ['rq-support','support','Campaign Support Request','','']
 ].forEach(function(b){
   const el=$(b[0]);

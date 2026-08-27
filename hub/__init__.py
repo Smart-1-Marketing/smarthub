@@ -3122,6 +3122,72 @@ def create_hub_app() -> Flask:
                         "written": rec.get("written") or [],
                         "rejected": rec.get("rejected") or []})
 
+    # ------------------------------------------------- Ad Copy Request
+    # Ad Copy used to be a Campaign Change Request with its subject already
+    # written: four boxes, and a rep retyping the client, the campaign, the
+    # order number and the media partner from the record on the screen
+    # behind it. hub/ad_copy.py is the object itself — pinned ids, the
+    # controls read off the live schema, and everything the client's own
+    # insertion orders can already answer.
+    @app.route("/api/client/ad-copy/fields")
+    def api_ad_copy_fields():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import ad_copy
+        acct = current_account()
+        try:
+            data = ad_copy.form(
+                request.args.get("client", ""),
+                # The seller and the confirmation address are the signed-in
+                # *account's*, not a box to retype — and deliberately not
+                # `current_user()`, which answers "Shared login" for a
+                # PANEL_PASSWORD session. That is a true statement about the
+                # session and a wrong one in the Seller Name box, which the
+                # campaign team reads as a person. With no account behind the
+                # session the form falls back to the rep named on this
+                # client's own orders, and says so when there isn't one.
+                user_name=(getattr(acct, "name", "") or ""),
+                user_email=(getattr(acct, "email", "") or ""))
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("ad-copy-fields", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"configured": True, "error": str(exc),
+                            "fields": [], "values": {}, "options": {},
+                            "notes": []})
+        return jsonify(data)
+
+    @app.route("/api/client/ad-copy", methods=["POST"])
+    def api_ad_copy_create():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import ad_copy, knack_api
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        values = body.get("values") or {}
+        if not client or not isinstance(values, dict):
+            return jsonify({"error": "client and values are required."}), 400
+        if not knack_api.configured():
+            return jsonify({"error": "Knack isn't configured — set KNACK_APP_ID "
+                                     "and KNACK_API_KEY, then redeploy."}), 400
+        try:
+            rec = ad_copy.create(client, values, author=current_user() or "")
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("ad-copy", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"error": str(exc)})
+        # Logged under `ad_copy`, not `hub`: this is work filed against a
+        # client, and `client_brand.work_log()` skips a module its own table
+        # cannot name — which reads on the record as a client nobody has done
+        # anything for. `WORK_KINDS` carries the entry.
+        audit.log("ad_copy", "request_created", actor=current_user(),
+                  client=client,
+                  detail=f"{client}: {str(values.get('campaign') or '')[:60]}")
+        return jsonify({"ok": True, "id": rec.get("id"),
+                        "written": rec.get("written") or [],
+                        "rejected": rec.get("rejected") or []})
+
     @app.route("/api/client/website-hosted", methods=["POST"])
     def api_client_website_hosted():
         """Whether Smart 1 Marketing hosts this site.

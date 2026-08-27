@@ -83,8 +83,8 @@ def static_ask_analytics_js():
 
 @bp.route("/knack-form.js")
 def static_knack_form_js():
-    """The controls a form built from a live Knack object draws, shared by the
-    web ticket form and the campaign request form.
+    """The controls a form built from a live Knack object draws, shared by
+    the web ticket, campaign request and ad copy forms.
 
     Root-level for the same reason as the scripts around it, and shared for
     the reason CLAUDE.md gives twice over: the next fix to how a connection
@@ -99,6 +99,19 @@ def static_campaign_request_js():
     the dashboard. Root-level for the same reason as the scripts above: one
     copy of the form, reachable from any page that needs it."""
     return send_from_directory(_STATIC, "campaign-request.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
+@bp.route("/ad-copy.js")
+def static_ad_copy_js():
+    """The Ad Copy Request form, shared by Client 360 and the dashboard.
+
+    Its own object rather than a Campaign Change Request with a pre-written
+    subject: the campaign team's form has fourteen fields and the old one
+    asked four questions, with the client, the campaign, the order number
+    and the media partner retyped out of the record on the screen behind
+    it."""
+    return send_from_directory(_STATIC, "ad-copy.js",
                                mimetype="application/javascript", max_age=3600)
 
 

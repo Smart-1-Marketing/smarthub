@@ -333,6 +333,17 @@ def _control_for(f: dict, obj: str = TICKETS_OBJECT) -> tuple[str, list]:
     return "text", []
 
 
+def control_for(f: dict, obj: str) -> tuple[str, list]:
+    """(control, choices) for one field on any object.
+
+    Public because a second object's form needs the same reading of a Knack
+    field type, and two copies of it is two descriptions of what a dropdown
+    is — the reason `coerce_field` is object-agnostic rather than being
+    restated per object.
+    """
+    return _control_for(f, obj)
+
+
 def ticket_form_fields(scope: str = "create") -> list[dict]:
     """What a ticket form should draw, read from the live object.
 

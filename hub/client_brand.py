@@ -57,6 +57,12 @@ WORK_KINDS = {
     "suite_panel":          ("Suite account", "Suite Panel"),
     "sites_admin":          ("Website", "Sites"),
     "hooks":                ("Suite opportunity", "Smart 1 Suite"),
+    # An ad copy request is work filed against a client, so it is logged
+    # under its own name rather than under `hub` — `work_log()` skips a
+    # module it cannot name, and a skipped module is indistinguishable from
+    # a client nobody has done any work for. That is the `display_ads`
+    # failure above, one tool later.
+    "ad_copy":              ("Ad copy request", "Ad Copy Request"),
 }
 
 
