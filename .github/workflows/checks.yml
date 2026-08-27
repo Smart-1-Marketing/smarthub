@@ -262,6 +262,19 @@ jobs:
             echo "test_scan_widgets.py not on this branch — nothing to run."
           fi
 
+      - name: Website audit tests
+        # The spend block that leads every rendering of a site audit, the
+        # customer-facing audit placement, the lead every audit files, and
+        # merging two rows that are one prospect. Guarded like the steps around
+        # it so this workflow stays mergeable on a branch that predates the
+        # file.
+        run: |
+          if [ -f test_website_audit.py ]; then
+            python test_website_audit.py
+          else
+            echo "test_website_audit.py not on this branch — nothing to run."
+          fi
+
       - name: Stock photo search tests
         # Four sources in one search — the three free libraries and our own
         # Cloudinary folders. Asserts that a folder nobody has created reads as

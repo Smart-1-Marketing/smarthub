@@ -72,6 +72,34 @@ def _latest(domain: str) -> tuple[dict, dict, str]:
     return (report if isinstance(report, dict) else {}), row, ""
 
 
+def latest_report(domain: str) -> tuple[dict, dict, str]:
+    """``(report, meta, error)`` for the newest completed scan of a domain.
+
+    The public form of ``_latest``, so a second reader of the same audit does
+    not have to re-implement the query — `hub/website_audit.py` needs the raw
+    report to do arithmetic on what a business is already spending, which the
+    grouped rows below have already turned into strings. Two queries of one
+    table is how the two come to disagree about which scan is the latest one.
+
+    ``meta`` carries only what the row says about the scan itself: the domain
+    it was keyed on, the score, the tier, when it was read and where to open
+    it. The audit payload itself is the first element and is never merged into
+    it — an observation and the fact of having observed are different claims.
+    """
+    report, row, err = _latest(domain)
+    if err or not row:
+        return {}, {}, err
+    return report, {
+        "domain": row.get("domain_key") or canonical_domain(domain),
+        "score": row.get("overall_score"),
+        "tier": row.get("tier") or "",
+        "scanned_at": _stamp(row),
+        "public_id": row.get("public_id") or "",
+        "scan_url": (f"/scans/scan/{row.get('public_id')}"
+                     if row.get("public_id") else ""),
+    }, ""
+
+
 def _get(report: dict, dotted: str, default: Any = None) -> Any:
     cur: Any = report
     for part in dotted.split("."):

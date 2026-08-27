@@ -2590,6 +2590,7 @@ const STEPS=[
    <div class="fld"><label>Client / business name</label><input value="${esc(S.client)}" oninput="S.client=this.value;S.clientKey='';saveSoon();syncNext()" placeholder="Riverstone Dental Group"></div>
    <div class="two"><div class="fld"><label>Website</label><input value="${esc(S.url)}" oninput="S.url=this.value;S.clientKey='';saveSoon()" placeholder="riverstonedental.com"></div>
    <div class="fld"><label>Industry</label><select onchange="S.industry=this.value;saveSoon();renderStep()"><option value="">Select…</option>${opt(INDUSTRIES,S.industry)}</select></div></div>
+   ${auditPanel()}
    <div class="bpanel"><div class="ttl">Business description</div>
     <div class="cards" style="margin-top:6px">
      ${card("✨","Build one for me","AI writes it from the website",S.descriptionMode==="Build one for me",`S.descriptionMode='Build one for me';renderStep()`)}
@@ -2939,6 +2940,186 @@ function attachClient(raw){
  S.clientMode="existing";
  saveSoon();renderStep();
  toast("Attached to "+(c.name||"that client")+".");}
+
+/* ============================================================
+   THE WEBSITE AUDIT, INSIDE THE PROPOSAL
+
+   A proposal is written against evidence, and the evidence for most of it was
+   already sitting in a site audit somebody ran weeks ago -- the Google
+   listing, the reviews, the pixels, and what the business is already spending
+   with somebody else. A rep was reading that off another screen and typing it
+   back in, or more often not reading it at all.
+
+   Three rules, each one this codebase has had to learn somewhere else:
+
+   * **Offered, never applied.** Everything the audit answers arrives as a
+     proposal with its evidence beside it, and one press takes it. "Are they
+     doing SEO" is a judgement from a measurement, and a judgement written
+     into a client document on our say-so is the paragraph a client checks
+     hardest -- the rule modules/ads_builder applies to its researched
+     competitor list.
+   * **Sixty days.** A reading older than that describes a website that may
+     have been rebuilt since, and the reading carries no sign of its own age
+     once it is quoted from. The panel says so and offers the rescan; it never
+     refuses to prefill, because leaving a rep with nothing while they wait is
+     worse than an old answer they can see the date on.
+   * **Reading is free and scanning is billed.** Nothing here spends a credit
+     without a press and a confirmation, and the scan is started by posting to
+     the module that owns scans rather than by this one learning how.
+   ============================================================ */
+let AUDIT=null, AUDIT_STATE="idle", AUDIT_ERR="";
+
+function auditDomain(){
+ return String(S.url||"").trim();}
+
+function auditPanel(){
+ const dom=auditDomain();
+ let body;
+ if(!dom){
+  body='<div class="note" style="margin-top:6px">Add the website above and Smart 1 '
+   +'can read what the last audit found — what they are already spending, their '
+   +'Google listing, and which of the discovery questions are already answered.</div>';
+ }else if(AUDIT_STATE==="loading"){
+  body='<div class="note" style="margin-top:6px"><span class="spin"></span>Reading the audit for '+esc(dom)+'…</div>';
+ }else if(AUDIT_STATE==="scanning"){
+  body='<div class="note" style="margin-top:6px"><span class="spin"></span>Running a new audit of '
+   +esc(dom)+'. It takes a minute or two — this panel will fill in by itself.</div>';
+ }else if(AUDIT_ERR){
+  body='<div class="warnbox" style="margin-top:8px">This could not be read, so it is '
+   +'<b>not measured</b> rather than empty: '+esc(AUDIT_ERR)+'</div>';
+ }else if(AUDIT&&AUDIT.found){
+  body=auditFound();
+ }else{
+  body='<div class="note" style="margin-top:6px">'
+   +esc((AUDIT&&AUDIT.note)||"Nothing has been read from this website yet.")
+   +' Running one spends a credit and takes a few minutes.</div>';
+ }
+ return `<div class="bpanel"><div class="ttl">🔎 What the website audit already knows</div>
+  ${body}
+  <div class="addrow" style="margin-top:10px">
+   <button class="btn btn-ghost" onclick="loadAudit()"${dom?'':' disabled'}>Read the audit</button>
+   <button class="btn btn-ghost" onclick="runAudit()"${dom?'':' disabled'}>Run a new audit</button>
+   ${AUDIT&&AUDIT.found?`<button class="btn btn-ghost" onclick="applyAudit()">Use these answers</button>`:''}
+   ${AUDIT&&AUDIT.scan_url?`<a class="btn btn-ghost" href="${esc(AUDIT.scan_url)}" target="_blank" rel="noopener">Open the full audit ↗</a>`:''}
+  </div></div>`;}
+
+function auditFound(){
+ const age=AUDIT.age||{}, sp=AUDIT.spend||{};
+ let h='';
+ /* The age first, and loudest when it matters. A figure with no date on it is
+    read as today's, which is the whole way a stale reading reaches a client. */
+ if(age.stale){
+  h+=`<div class="warnbox" style="margin-top:8px"><b>⚠ This reading is ${esc(age.age_days)} days old</b>
+   — over the ${esc(age.limit_days)}-day mark. A proposal written from it describes a site
+   that may have been rebuilt since. <a onclick="runAudit()" style="cursor:pointer;color:var(--blue);font-weight:700">Run a new audit</a> before quoting from it.</div>`;
+ }else if(age.measured){
+  h+=`<div class="note" style="margin-top:6px">Read on ${esc(age.read_on)} — ${esc(age.note)}</div>`;
+ }else{
+  h+=`<div class="note" style="margin-top:6px">${esc(age.note||"How current this is: not measured.")}</div>`;
+ }
+
+ /* What they are already spending, first, because it is what decides what the
+    proposal is arguing for. */
+ h+='<div style="margin-top:10px"><b>What they are already spending</b>';
+ if(sp.total_display){
+  h+=`<div style="font-size:22px;font-weight:700;color:var(--navy);line-height:1.2;margin-top:2px">${esc(sp.total_display)}
+   <span class="note" style="font-weight:400">a month, that we can put a number on</span></div>`;
+  if(sp.total_note)h+=`<div class="note" style="margin-top:3px">${esc(sp.total_note)}</div>`;
+ }
+ if((sp.observed||[]).length){
+  h+='<div class="note" style="margin-top:6px">'+sp.observed.map(f=>
+    esc(f.label)+': <b>'+esc(f.value)+'</b>').join(' · ')+'</div>';
+ }else{
+  h+='<div class="note" style="margin-top:4px">'+esc(sp.note||'Not measured.')+'</div>';
+ }
+ if(sp.stated&&sp.stated.finding){
+  h+=`<div class="note" style="margin-top:6px;color:#8c2f24"><b>Worth asking:</b> ${esc(sp.stated.finding)}</div>`;
+ }
+ h+='</div>';
+
+ if((AUDIT.discovery||[]).length){
+  h+='<div style="margin-top:12px"><b>'+AUDIT.discovery.length
+   +' discovery answers already measured</b><div class="note" style="margin-top:4px">'
+   +AUDIT.discovery.map(a=>esc(a.key)+' → <b>'+(a.answer==='yes'?'Yes':'No')+'</b>').join(' · ')
+   +'</div><div class="note" style="margin-top:4px">'+esc(AUDIT.discovery_note||'')+'</div></div>';
+ }
+ if((AUDIT.opportunities||[]).length){
+  h+='<div style="margin-top:12px"><b>What the audit says we could fix</b><div class="note" style="margin-top:4px">'
+   +AUDIT.opportunities.slice(0,6).map(o=>esc(o.finding)).join(' ')+'</div></div>';
+ }
+ return h;}
+
+async function loadAudit(){
+ const dom=auditDomain();
+ if(!dom){toast("Add the website first.");return;}
+ AUDIT_STATE="loading";AUDIT_ERR="";renderStep();
+ try{
+  const d=await api('/api/website-audit?domain='+encodeURIComponent(dom)
+    +'&client='+encodeURIComponent(S.client||''));
+  AUDIT=d;AUDIT_ERR=d.error||"";
+ }catch(e){
+  /* "We could not look" and "there is nothing" are different answers, and only
+     the second one means there is nothing to do about it. */
+  AUDIT=null;AUDIT_ERR=e.message||"the audit could not be read";
+ }
+ AUDIT_STATE="idle";renderStep();}
+
+async function runAudit(){
+ const dom=auditDomain();
+ if(!dom){toast("Add the website first.");return;}
+ if(!window.confirm("Run a fresh audit of "+dom+"?\n\nThis spends one Insites credit "
+   +"and takes a few minutes."))return;
+ AUDIT_STATE="scanning";AUDIT_ERR="";renderStep();
+ try{
+  const r=await fetch('/scans/api/scans',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({url:dom,force:true,source:'proposal',
+                         business_name:S.client||''})});
+  const j=await r.json();
+  if(j&&j.error)throw new Error(j.error);
+ }catch(e){
+  AUDIT_STATE="idle";AUDIT_ERR=e.message||"the scanner could not be reached";
+  renderStep();return;
+ }
+ auditPoll(0);}
+
+function auditPoll(n){
+ if(n>24){
+  AUDIT_STATE="idle";
+  AUDIT_ERR="";
+  toast("The audit is still running. It is not lost — press Read the audit in a few minutes.");
+  renderStep();return;}
+ setTimeout(async()=>{
+  try{
+   const d=await api('/api/website-audit?domain='+encodeURIComponent(auditDomain()));
+   if(d&&d.found&&d.age&&d.age.age_days===0){
+    AUDIT=d;AUDIT_STATE="idle";renderStep();
+    toast("The new audit has landed.");return;}
+  }catch(e){/* a poll that fails is a poll, not a failure */}
+  auditPoll(n+1);
+ },15000);}
+
+function applyAudit(){
+ if(!AUDIT||!AUDIT.found)return;
+ let taken=0, skipped=0;
+ /* Only the blanks. A rep who answered a question is the better source than a
+    crawler, and writing over what somebody typed is the panel deciding the
+    person was wrong -- the overlay rule hub/client_urls.py works to. */
+ (AUDIT.discovery||[]).forEach(a=>{
+  const key=a.key, want=a.answer==="yes"?"Yes":"No";
+  if(!DISCOVERY_QUESTIONS.some(q=>q.key===key))return;
+  if(["Yes","No","Unknown"].includes((S.mkt||{})[key])){skipped++;return;}
+  S.mkt[key]=want;taken++;});
+ const intake=AUDIT.intake||{};
+ if(intake.services&&!String(S.description||"").trim()){
+  S.description=intake.services;S.descriptionMode="I have one";taken++;}
+ if(intake.website_happy&&!["Yes","No","Unknown"].includes((S.mkt||{}).websiteHappy)){
+  S.mkt.websiteHappy=intake.website_happy==="yes"?"Yes":"No";taken++;}
+ saveSoon();renderStep();
+ toast(taken
+  ? taken+" answer"+(taken===1?"":"s")+" taken from the audit"
+    +(skipped?", "+skipped+" left alone because they were already answered":"")+"."
+  : "Nothing to take — everything the audit measured is already answered here.");}
 
 async function generateDesc(){
  const b=document.getElementById('descBtn');if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Generating…';}
@@ -3618,6 +3799,27 @@ async function runConvert(){
    S.targetAreas=[a];S._areaIx=0;S._areaView="list";syncLegacyGeo();filled=true;
   }
   if(filled){saveNow();renderStep();toast("Client details filled from Client 360.");}
+  return;
+ }
+ /* ?audit=<domain> — arriving from the Website Audit tool with the scan
+    already run. The proposal opens on the customer step with the website
+    filled in and the audit read, so the first thing a rep sees is the
+    evidence rather than an empty form. Nothing is applied: "Use these
+    answers" is still a press. */
+ if(qs.get('audit')){
+  await startNewProposal();
+  S.url=(qs.get('audit')||'').trim();
+  const named=(qs.get('client')||'').trim();
+  if(named){S.client=named;S.clientMode="existing";}
+  else{S.clientMode="new";}
+  saveNow();
+  step=1;                       // Customer & Industry, where the panel lives
+  renderStep();
+  await loadAudit();
+  const age=(AUDIT&&AUDIT.age)||{};
+  toast(age.stale
+   ? "This audit is "+age.age_days+" days old — run a new one before quoting from it."
+   : "Audit read. Press “Use these answers” to take what it measured.");
   return;
  }
  nav('dashboard');

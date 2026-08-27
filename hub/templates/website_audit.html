@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Website Audit — Smart 1 Hub</title>
+<style>
+  :root{
+    --ink:#0a2240; --ink-2:#33507a; --muted:#6b7d99;
+    --line:#dfe6f0; --bg:#f6f8fb; --card:#fff;
+    --red:#c0392b; --amber:#d18b1f; --blue:#2f80ed; --green:#1e8e5a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:24px 16px 72px}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:17px;margin:0 0 2px}
+  .sub{color:var(--muted);margin:0 0 20px;max-width:74ch}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:11px;
+        padding:16px 18px;margin-bottom:16px}
+  .card.spend{border-left:4px solid var(--green)}
+  .card.stale{border-left:4px solid var(--amber)}
+  .muted{color:var(--muted)}
+  .small{font-size:12.5px}
+  .btn{display:inline-block;padding:8px 14px;border:1px solid var(--line);
+       border-radius:8px;background:var(--card);color:var(--ink-2);
+       text-decoration:none;font-size:14px;cursor:pointer}
+  .btn:hover{border-color:var(--ink-2)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.pri{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn.go{background:var(--green);color:#fff;border-color:var(--green)}
+  input,select,textarea{padding:8px 10px;border:1px solid var(--line);
+       border-radius:8px;font:14px inherit;background:#fff;color:var(--ink);
+       max-width:100%}
+  label{display:block;font-size:12.5px;font-weight:600;margin:0 0 3px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  .figs{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+  .fig{border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:#fbfdff}
+  .fig .v{font-size:20px;font-weight:650;line-height:1.2}
+  .fig .l{font-size:12.5px;color:var(--muted)}
+  .fig .n{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.45}
+  .fig.unmeasured .v{color:var(--muted);font-weight:600;font-size:15px}
+  .total{font-size:30px;font-weight:680;line-height:1.1}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;
+        font-weight:600;border:1px solid var(--line);background:#f2f6fc;color:var(--ink-2)}
+  .pill.warn{background:#fff6e6;border-color:#f0d8a8;color:#8a5b00}
+  .pill.ok{background:#e8f7ef;border-color:#b9e3cd;color:#12633f}
+  .pill.bad{background:#fdecea;border-color:#f5c2bd;color:#8f2a1e}
+  .opp{border:1px solid var(--line);border-left:3px solid var(--amber);
+       border-radius:9px;padding:10px 12px;background:#fff}
+  .opp .f{font-weight:620;font-size:13.5px}
+  .opp .m{font-size:12.5px;color:var(--muted);margin-top:2px}
+  details.gp{border:1px solid var(--line);border-radius:9px;background:#fff;
+             padding:10px 12px}
+  details.gp summary{cursor:pointer;font-weight:600;font-size:13.5px}
+  dl.kv{margin:8px 0 0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;
+        font-size:12.5px}
+  dl.kv dt{color:var(--muted);white-space:nowrap}
+  dl.kv dd{margin:0;overflow-wrap:anywhere}
+  .empty{color:var(--muted);font-size:13.5px;padding:6px 0}
+  .err{color:#8f2a1e;font-size:13px}
+  .sug{border:1px dashed #b9c9e0;border-radius:8px;padding:8px 10px;font-size:12.5px;
+       background:#f8fbff}
+  .hits{border:1px solid var(--line);border-radius:8px;background:#fff;
+        max-height:230px;overflow:auto;margin-top:4px}
+  .hits div{padding:7px 10px;cursor:pointer;font-size:13.5px;border-bottom:1px solid #eef2f7}
+  .hits div:hover{background:#f2f7ff}
+  .flow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+  table.mini{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:8px}
+  table.mini td{border-top:1px solid var(--line);padding:5px 6px;vertical-align:top}
+  table.mini td:first-child{color:var(--muted);white-space:nowrap;width:1%}
+  .wrapover{overflow-x:auto}
+</style>
+</head>
+<body data-screen="website_audit" data-module="website_audit">
+<div class="wrap">
+  <h1>Website Audit {{ help_dot('hub.website_audit.intro') if help_dot is defined else '' }}</h1>
+  <p class="sub">Everything one audit already knows about a business, starting
+    with what they are spending. Pull it for a customer we have, or type any
+    website. Every audit run here is filed as a lead, and a finished one can
+    open a proposal with the answers already in it.</p>
+
+  <!-- Server-supplied values, handed over as data rather than interpolated
+       into a script block: tools/jscheck.py can then run node --check over
+       the real JavaScript instead of skipping it for Jinja it cannot parse. -->
+  <script type="application/json" id="boot">{{ {'client': client, 'domain': domain}|tojson }}</script>
+
+  <div class="card">
+    <h2>What are we auditing?</h2>
+    <p class="small muted" style="margin:2px 0 12px">A customer is searched
+      rather than typed: a name that matches nothing files the work under a
+      client nothing joins to and still reads as a success.</p>
+    <div class="grid">
+      <div>
+        <label for="qClient">Existing customer</label>
+        <input id="qClient" placeholder="Start typing a client name…" autocomplete="off"
+               style="width:100%">
+        <div class="hits" id="hits" style="display:none"></div>
+        <div class="small muted" id="clientNote" style="margin-top:6px"></div>
+      </div>
+      <div>
+        <label for="qDomain">Website</label>
+        <input id="qDomain" placeholder="example.com" style="width:100%">
+        <div class="small muted" id="siteNote" style="margin-top:6px"></div>
+      </div>
+    </div>
+    <div class="flow">
+      <button class="btn pri" id="btnLoad">Read the last audit</button>
+      <button class="btn" id="btnScan">Run a new audit</button>
+      <span class="small muted">Running one spends a credit and takes a few
+        minutes. Reading costs nothing.</span>
+    </div>
+    <div class="small err" id="loadErr" style="margin-top:8px"></div>
+  </div>
+
+  <div id="ageBox"></div>
+  <div id="out"></div>
+
+  <div class="card" id="intakeCard" style="display:none">
+    <h2>What they told us {{ help_dot('hub.website_audit.intake') if help_dot is defined else '' }}</h2>
+    <p class="small muted" style="margin:2px 0 12px">Kept apart from what was
+      observed, and never merged into it — where the two disagree, the
+      disagreement is the finding. Every question here changes something
+      downstream; each says what.</p>
+    <div class="grid" id="intakeFields"></div>
+    <div class="flow">
+      <button class="btn" id="btnIntake">Save what they told us</button>
+      <span class="small muted" id="intakeMsg"></span>
+    </div>
+  </div>
+
+  <div class="card" id="leadCard" style="display:none">
+    <h2>File this as a lead</h2>
+    <p class="small muted" style="margin:2px 0 12px">Somebody looked this
+      business up, which makes them a prospect. The lead goes to the one
+      Leads panel with the audit attached — an email address or a phone
+      number is required, because a lead nobody can contact reads as a live
+      prospect on every report that counts it.</p>
+    <div class="grid">
+      <div><label for="lName">Contact name</label><input id="lName" style="width:100%"></div>
+      <div><label for="lCompany">Business</label><input id="lCompany" style="width:100%"></div>
+      <div><label for="lEmail">Email</label><input id="lEmail" type="email" style="width:100%"></div>
+      <div><label for="lPhone">Phone</label><input id="lPhone" style="width:100%"></div>
+    </div>
+    <div class="flow">
+      <button class="btn go" id="btnLead">File the lead</button>
+      <a class="btn" href="/sales/leads">Open the Leads panel →</a>
+      <span class="small" id="leadMsg"></span>
+    </div>
+  </div>
+
+  <div class="card" id="nextCard" style="display:none">
+    <h2>Turn this into a proposal</h2>
+    <p class="small muted" id="nextNote" style="margin:2px 0 12px"></p>
+    <div class="flow">
+      <a class="btn pri" id="btnProposal" href="#">Start a proposal from this audit →</a>
+      <a class="btn" id="btnFullScan" href="#" target="_blank" rel="noopener">Open the full audit →</a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var boot={};
+  try{ boot=JSON.parse(document.getElementById('boot').textContent||'{}')||{}; }
+  catch(e){ boot={}; }
+
+  function $(id){ return document.getElementById(id); }
+  function esc(s){
+    return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  var SPEC={questions:[],stale_days:60}, DATA=null, CLIENT='';
+
+  fetch('/api/website-audit/spec',{credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if(d&&d.ok){ SPEC=d; } })
+    .catch(function(){});
+
+  /* ---- customer search -------------------------------------------------
+     A searchable list of real clients, never a text box. */
+  var hitsBox=$('hits'), timer=null;
+  $('qClient').addEventListener('input',function(){
+    var q=this.value.trim();
+    clearTimeout(timer);
+    if(q.length<2){ hitsBox.style.display='none'; return; }
+    timer=setTimeout(function(){
+      fetch('/api/website-audit/clients?q='+encodeURIComponent(q),{credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(!d.ok){
+            hitsBox.style.display='block';
+            hitsBox.innerHTML='<div class="err" style="cursor:default">'+esc(d.error||'')+'</div>';
+            return;
+          }
+          if(!d.clients.length){
+            hitsBox.style.display='block';
+            hitsBox.innerHTML='<div class="muted" style="cursor:default">'
+              +'No customer of that name. Type the website instead — an audit '
+              +'for a business we do not have a record for is the ordinary case.</div>';
+            return;
+          }
+          hitsBox.style.display='block';
+          hitsBox.innerHTML=d.clients.map(function(c){
+            return '<div data-name="'+esc(c.name)+'">'+esc(c.name)
+              +(c.domain?' <span class="muted small">'+esc(c.domain)+'</span>':'')+'</div>';
+          }).join('');
+        }).catch(function(){ hitsBox.style.display='none'; });
+    },220);
+  });
+  hitsBox.addEventListener('click',function(ev){
+    var el=ev.target.closest('div[data-name]');
+    if(!el) return;
+    pickClient(el.getAttribute('data-name'));
+  });
+
+  function pickClient(name){
+    CLIENT=name;
+    $('qClient').value=name;
+    hitsBox.style.display='none';
+    $('clientNote').textContent='Auditing for '+name+'.';
+    $('lCompany').value=name;
+    fetch('/api/website-audit/websites?client='+encodeURIComponent(name),
+          {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var list=(d&&d.websites)||[];
+        if(!list.length){
+          $('siteNote').textContent=(d&&d.note)||'';
+          return;
+        }
+        $('qDomain').value=list[0].url||list[0].domain||'';
+        /* Every site on file is offered. Picking the first silently audits
+           whichever happened to be stored first, and a client has more than
+           one website more often than not. */
+        $('siteNote').innerHTML=list.length>1
+          ? 'On file: '+list.map(function(s){
+              return '<a href="#" data-pick="'+esc(s.domain)+'">'+esc(s.domain)+'</a>';
+            }).join(' · ')
+          : 'On file: '+esc(list[0].domain);
+      }).catch(function(){});
+  }
+  $('siteNote').addEventListener('click',function(ev){
+    var a=ev.target.closest('a[data-pick]');
+    if(!a) return;
+    ev.preventDefault();
+    $('qDomain').value=a.getAttribute('data-pick');
+  });
+
+  /* ---- load ----------------------------------------------------------- */
+  function domain(){ return $('qDomain').value.trim(); }
+
+  $('btnLoad').addEventListener('click',function(){ load(); });
+  $('qDomain').addEventListener('keydown',function(ev){
+    if(ev.key==='Enter'){ ev.preventDefault(); load(); }
+  });
+
+  function load(){
+    var dom=domain();
+    $('loadErr').textContent='';
+    if(!dom){ $('loadErr').textContent='Enter a website, or pick a customer.'; return; }
+    $('out').innerHTML='<div class="card"><div class="empty">Reading what we '
+      +'know about '+esc(dom)+'…</div></div>';
+    fetch('/api/website-audit?domain='+encodeURIComponent(dom)
+          +'&client='+encodeURIComponent(CLIENT),{credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ DATA=d; render(d); })
+      .catch(function(){
+        $('out').innerHTML='<div class="card"><div class="err">This could not '
+          +'be loaded, so it is <b>not measured</b> rather than empty.</div></div>';
+      });
+  }
+
+  /* ---- run a new audit -------------------------------------------------
+     Posted to the module that owns scans. Nothing on this page spends a
+     credit by itself: a page that bills on load is a page nobody opens twice. */
+  $('btnScan').addEventListener('click',function(){
+    var dom=domain(), btn=this;
+    $('loadErr').textContent='';
+    if(!dom){ $('loadErr').textContent='Enter a website first.'; return; }
+    if(!window.confirm('Run a fresh audit of '+dom+'? This spends one Insites '
+        +'credit and takes a few minutes.')) return;
+    btn.disabled=true; btn.textContent='Starting…';
+    fetch('/scans/api/scans',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:dom,force:true,source:'audit',
+                             business_name:CLIENT||$('lCompany').value||''})})
+      .then(function(r){ return r.json().then(function(j){ return {s:r.status,j:j}; }); })
+      .then(function(res){
+        btn.disabled=false; btn.textContent='Run a new audit';
+        if(res.j&&res.j.error){ $('loadErr').textContent=res.j.error; return; }
+        $('loadErr').textContent='';
+        $('out').innerHTML='<div class="card"><div class="empty">The audit is '
+          +'running. It usually takes one to four minutes — this page will '
+          +'check every fifteen seconds.</div></div>';
+        poll(0);
+      })
+      .catch(function(){
+        btn.disabled=false; btn.textContent='Run a new audit';
+        $('loadErr').textContent='The scanner could not be reached, so nothing '
+          +'was started — no credit was spent.';
+      });
+  });
+
+  function poll(n){
+    if(n>24){
+      $('out').innerHTML='<div class="card"><div class="empty">Still running '
+        +'after six minutes. It is not lost — open Site Scans to watch it, or '
+        +'read the last audit here once it lands.</div></div>';
+      return;
+    }
+    setTimeout(function(){
+      fetch('/api/website-audit?domain='+encodeURIComponent(domain()),
+            {credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          var age=(d&&d.age)||{};
+          if(d&&d.found&&age.age_days===0){ DATA=d; render(d); return; }
+          poll(n+1);
+        }).catch(function(){ poll(n+1); });
+    },15000);
+  }
+
+  /* ---- render ---------------------------------------------------------- */
+  function figHtml(f){
+    return '<div class="fig'+(f.measured?'':' unmeasured')+'">'
+      +'<div class="v">'+(f.link
+          ? '<a href="'+esc(f.link)+'" target="_blank" rel="noopener">'+esc(f.value)+' &#8599;</a>'
+          : esc(f.value))+'</div>'
+      +'<div class="l">'+esc(f.label)+'</div>'
+      +(f.why?'<div class="n">Worked out as '+esc(f.why)+'.</div>':'')
+      +(f.note?'<div class="n">'+esc(f.note)+'</div>':'')
+      +'</div>';
+  }
+
+  function ageHtml(d){
+    var a=d.age||{};
+    if(!a.measured){
+      return '<div class="card stale"><b>How current this is: not measured.</b> '
+        +'<span class="small muted">'+esc(a.note||'')+'</span></div>';
+    }
+    if(!a.stale){
+      return '<div class="card"><span class="pill ok">Current</span> '
+        +'<span class="small muted">Read on '+esc(a.read_on)+' — '
+        +esc(a.note)+'</span></div>';
+    }
+    return '<div class="card stale"><span class="pill warn">'
+      +esc(a.age_days)+' days old</span> '
+      +'<b>This reading is over '+esc(a.limit_days)+' days old.</b> '
+      +'<span class="small muted">A proposal written from it describes a site '
+      +'that may have been rebuilt since. Run a new audit before quoting from '
+      +'it.</span> <button class="btn" id="btnRescan" style="margin-left:8px">'
+      +'Run a new audit</button></div>';
+  }
+
+  function spendHtml(sp){
+    var h='<div class="card spend"><h2>'+esc(sp.title)+'</h2>'
+      +'<p class="small muted" style="margin:2px 0 12px">'+esc(sp.why)+'</p>';
+    if(!sp.measured&&!sp.observed.length){
+      return h+'<div class="empty">'+esc(sp.note)+'</div></div>';
+    }
+    if(sp.total_display){
+      h+='<div style="margin-bottom:12px"><div class="total">'+esc(sp.total_display)
+        +' <span class="small muted" style="font-weight:400">a month, that we can put a number on</span></div>'
+        +(sp.total_note?'<div class="small muted" style="margin-top:4px">'
+            +esc(sp.total_note)+'</div>':'')+'</div>';
+    }
+    h+='<div class="figs">'+sp.observed.map(figHtml).join('')+'</div>';
+    if(sp.stated&&(sp.stated.band||sp.stated.note)){
+      h+='<div class="sug" style="margin-top:12px"><b>What they told us:</b> '
+        +esc(sp.stated.band||'they would rather not say')+'. '
+        +esc(sp.stated.note||'')
+        +(sp.stated.finding?'<div style="margin-top:6px"><b>Worth asking:</b> '
+            +esc(sp.stated.finding)+'</div>':'')+'</div>';
+    }
+    if(sp.earned&&sp.earned.length){
+      h+='<h2 style="margin-top:16px;font-size:14px">What they earn without paying</h2>'
+        +'<div class="figs" style="margin-top:8px">'+sp.earned.map(figHtml).join('')+'</div>'
+        +(sp.earned_note?'<div class="small muted" style="margin-top:8px">'
+            +esc(sp.earned_note)+'</div>':'');
+    }
+    if(!sp.measured&&sp.note){
+      h+='<div class="small muted" style="margin-top:10px">'+esc(sp.note)+'</div>';
+    }
+    return h+'</div>';
+  }
+
+  function render(d){
+    $('ageBox').innerHTML='';
+    if(d.error){
+      $('out').innerHTML='<div class="card"><div class="err">This could not be '
+        +'read, so it is <b>not measured</b>: '+esc(d.error)+'</div></div>';
+      showForms(d);
+      return;
+    }
+    if(!d.found){
+      $('out').innerHTML='<div class="card"><div class="empty">'+esc(d.note||'')
+        +'</div></div>';
+      showForms(d);
+      return;
+    }
+    $('ageBox').innerHTML=ageHtml(d);
+    var rescan=$('btnRescan');
+    if(rescan) rescan.addEventListener('click',function(){ $('btnScan').click(); });
+
+    var h=spendHtml(d.spend||{observed:[],measured:false,title:'',why:'',note:''});
+
+    if(d.headline&&d.headline.rows.length){
+      h+='<div class="card"><h2>At a glance</h2><div class="figs" style="margin-top:10px">'
+        +d.headline.rows.map(figHtml).join('')+'</div></div>';
+    }
+
+    h+='<div class="card"><h2>What this audit says we could fix</h2>'
+      +'<p class="small muted" style="margin:2px 0 12px">Each is what was '
+      +'measured and what it costs them — never a product name on its own, '
+      +'because the finding is the half that survives being read out to the '
+      +'client.</p>';
+    if(!(d.opportunities||[]).length){
+      h+='<div class="empty">Nothing on this site came back as a gap we sell '
+        +'against. On a plan that does not include a check, that is <b>not '
+        +'measured</b> rather than a clean bill.</div>';
+    }else{
+      h+='<div class="grid">'+d.opportunities.map(function(o){
+        return '<div class="opp"><div class="f">'+esc(o.finding)+'</div>'
+          +'<div class="m">'+esc(o.means)+'</div>'
+          +'<div style="margin-top:6px"><span class="pill">'+esc(o.sells)+'</span></div></div>';
+      }).join('')+'</div>';
+    }
+    h+='</div>';
+
+    if((d.discovery||[]).length){
+      h+='<div class="card"><h2>Discovery answers this audit can fill in</h2>'
+        +'<p class="small muted" style="margin:2px 0 10px">'+esc(d.discovery_note)+'</p>'
+        +'<div class="wrapover"><table class="mini"><tbody>'
+        +d.discovery.map(function(a){
+          return '<tr><td>'+esc(a.key)+'</td><td><b>'
+            +(a.answer==='yes'?'Yes':'No')+'</b> — '+esc(a.evidence)+'</td></tr>';
+        }).join('')+'</tbody></table></div></div>';
+    }
+
+    h+='<div class="card"><h2>Everything else we know about this business</h2>'
+      +'<p class="small muted" style="margin:2px 0 12px">The same reading of the '
+      +'same audit the client record shows, grouped by the question each '
+      +'section answers.</p>';
+    if(!(d.groups||[]).length){
+      h+='<div class="empty">'+esc(d.note||'Nothing else came back.')+'</div>';
+    }else{
+      h+='<div class="grid">'+d.groups.map(function(gp){
+        return '<details class="gp"><summary>'+esc(gp.title)
+          +' <span class="muted" style="font-weight:400">· '+gp.rows.length+'</span></summary>'
+          +'<div class="small muted" style="margin:6px 0 4px">'+esc(gp.why)+'</div>'
+          +'<dl class="kv">'+gp.rows.map(function(r){
+            return '<dt'+(r.hint?' title="'+esc(r.hint)+'"':'')+'>'+esc(r.label)+'</dt>'
+              +'<dd>'+(r.link
+                  ? '<a href="'+esc(r.link)+'" target="_blank" rel="noopener">'+esc(r.value)+' &#8599;</a>'
+                  : esc(r.value))+'</dd>';
+          }).join('')+'</dl></details>';
+      }).join('')+'</div>';
+    }
+    h+='</div>';
+
+    $('out').innerHTML=h;
+    showForms(d);
+  }
+
+  function showForms(d){
+    drawIntake((d&&d.intake)||{});
+    $('intakeCard').style.display='block';
+    $('leadCard').style.display='block';
+    if(!$('lCompany').value) $('lCompany').value=CLIENT||'';
+    var dom=(d&&d.domain)||domain();
+    if(d&&d.found){
+      $('nextCard').style.display='block';
+      $('btnProposal').href='/sales/builder/?audit='+encodeURIComponent(dom)
+        +(CLIENT?'&client='+encodeURIComponent(CLIENT):'');
+      var full=$('btnFullScan');
+      if(d.scan_url){ full.href=d.scan_url; full.style.display=''; }
+      else { full.style.display='none'; }
+      var a=d.age||{};
+      $('nextNote').textContent=a.stale
+        ? 'The Proposal Builder will offer to rescan first — this reading is '
+          +a.age_days+' days old, and a proposal is written against it.'
+        : 'The proposal opens with the discovery answers, the target areas and '
+          +'the competitive picture already in it, each offered rather than applied.';
+    }else{
+      $('nextCard').style.display='none';
+    }
+  }
+
+  function drawIntake(values){
+    var host=$('intakeFields');
+    host.innerHTML=(SPEC.questions||[]).map(function(q){
+      var v=values[q.key]||'';
+      var input;
+      if(q.type==='choice'){
+        input='<select id="in_'+q.key+'" style="width:100%">'
+          +'<option value="">Not asked</option>'
+          +(q.options||[]).map(function(o){
+            return '<option'+(o===v?' selected':'')+'>'+esc(o)+'</option>';
+          }).join('')+'</select>';
+      }else if(q.type==='yesno'){
+        input='<select id="in_'+q.key+'" style="width:100%">'
+          +'<option value="">Not asked</option>'
+          +'<option value="yes"'+(v==='yes'?' selected':'')+'>Yes</option>'
+          +'<option value="no"'+(v==='no'?' selected':'')+'>No</option></select>';
+      }else{
+        input='<input id="in_'+q.key+'" style="width:100%" value="'+esc(v)+'">';
+      }
+      return '<div><label for="in_'+q.key+'">'+esc(q.label)+'</label>'+input
+        +'<div class="small muted" style="margin-top:4px">'+esc(q.why)+'</div></div>';
+    }).join('');
+  }
+
+  function readIntake(){
+    var out={};
+    (SPEC.questions||[]).forEach(function(q){
+      var el=$('in_'+q.key);
+      if(el&&el.value) out[q.key]=el.value;
+    });
+    return out;
+  }
+
+  $('btnIntake').addEventListener('click',function(){
+    var dom=domain();
+    if(!dom){ $('intakeMsg').textContent='Enter a website first.'; return; }
+    $('intakeMsg').textContent='Saving…';
+    fetch('/api/website-audit/intake',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({domain:dom,answers:readIntake()})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        $('intakeMsg').textContent=d.ok
+          ? 'Saved. Re-read the audit to see it against what was observed.'
+          : (d.error||'That could not be saved.');
+      })
+      .catch(function(){ $('intakeMsg').textContent='That could not be saved.'; });
+  });
+
+  $('btnLead').addEventListener('click',function(){
+    var dom=domain(), btn=this;
+    var msg=$('leadMsg');
+    if(!dom){ msg.textContent='Enter a website first.'; return; }
+    if(!$('lEmail').value.trim()&&!$('lPhone').value.trim()){
+      msg.className='small err';
+      msg.textContent='An email address or a phone number is required.';
+      return;
+    }
+    btn.disabled=true; msg.className='small muted'; msg.textContent='Filing…';
+    fetch('/api/website-audit/lead',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({domain:dom,client:CLIENT,answers:readIntake(),
+          contact:{name:$('lName').value,company:$('lCompany').value,
+                   email:$('lEmail').value,phone:$('lPhone').value}})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        btn.disabled=false;
+        msg.className=d.ok?'small muted':'small err';
+        msg.textContent=d.ok?(d.note||'Filed.'):(d.error||'That could not be filed.');
+      })
+      .catch(function(){
+        btn.disabled=false;
+        msg.className='small err';
+        msg.textContent='That could not be filed.';
+      });
+  });
+
+  if(boot.client){ pickClient(boot.client); }
+  if(boot.domain){ $('qDomain').value=boot.domain; }
+  if(boot.domain||boot.client){ setTimeout(load,350); }
+})();
+</script>
+</body>
+</html>
