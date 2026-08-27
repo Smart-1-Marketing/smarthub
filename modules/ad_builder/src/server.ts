@@ -16,12 +16,14 @@ import { withBase } from './basepath.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import type { Campaign } from './types';
+import type { Campaign, SizeKey } from './types';
 import { validateCampaign } from './validate';
 import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog } from './jobs';
 import { renderPreview } from './render';
 import { buildCampaign, type Submission } from './intake';
 import { loadPlatforms, loadTemplates } from './registry';
+import { logoInkLuminance } from './qa';
+import { paletteVariants } from './palette';
 import { ProjectStore } from './projects';
 import { analyzeLandingPage } from './landing';
 import { landingImages } from './landing-images';
@@ -36,7 +38,7 @@ import { searchPixabay, generateHero } from './imagery';
 import { reworkLogo } from './logo-tools';
 import { resolveAsset } from './assets';
 import { fitImageToBudget } from './image-budget';
-import { getPlatform } from './registry';
+import { getPlatform, getTemplate } from './registry';
 import { listFamilies } from './fonts';
 import sharp from 'sharp';
 import { notify } from './notify';
@@ -155,6 +157,41 @@ function serveStatic(res: http.ServerResponse, urlPath: string): boolean {
   return true;
 }
 
+/**
+ * Record a finished render against its project.
+ *
+ * This is what writes the batch, and the batch is what carries the proof URL
+ * that the build screen's "Open proof" button reads. It used to live inline
+ * in the rebuild route and nowhere else — so a render started from the build
+ * screen produced a proof file on disk that nothing linked to, and the screen
+ * told the operator to go and look at a proof with no way to reach it.
+ *
+ * Deliberately fire-and-forget: the HTTP request that started the render
+ * returns immediately, because holding it open through a multi-minute render
+ * blocks the UI and trips proxies.
+ */
+function fileJobOntoProject(jobId: string, projectId: string): void {
+  void (async () => {
+    const started = Date.now();
+    const t = setInterval(() => {
+      const j = getJob(jobId);
+      const done = !j || j.status === 'complete' || j.status === 'failed';
+      // Five minutes, then stop watching. A job still running past that has
+      // hit the watchdog in jobs.ts and will be marked failed by it.
+      if (!done && Date.now() - started <= 300_000) return;
+      clearInterval(t);
+      if (j?.status === 'complete' && j.results?.length) {
+        const proofUrl = j.reports?.find((r) => r.includes('/proof_'));
+        try {
+          projects.addBatch(projectId, j.results, { reportUrl: proofUrl });
+        } catch (e) {
+          console.error(`[jobs] could not file job ${jobId} onto ${projectId}`, e);
+        }
+      }
+    }, 1500);
+  })();
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
   const route = `${req.method} ${url.pathname}`;
@@ -181,6 +218,7 @@ const server = http.createServer(async (req, res) => {
     // token attached -- so there is no reason to leave the work open.
     route === 'POST /api/background/apply' ||
     route === 'POST /api/logo/apply' ||
+    route === 'POST /api/palette/variants' ||
     url.pathname.startsWith('/api/diagnostics') ||
     (url.pathname.startsWith('/files/') && !url.pathname.startsWith('/files/imagery/') && !url.pathname.startsWith('/files/gallery/') && !url.pathname.startsWith('/files/deliveries/') && !url.pathname.startsWith('/files/renders/')) ||
     route === 'POST /api/render' ||
@@ -842,6 +880,77 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { saved: true, file: path.basename(file), bytes: data.length });
     }
 
+    /* ------------------------------------------- a logo nobody can see */
+    // The client's mark is the one asset in a campaign nobody may edit, so
+    // when it is dark on their dark brand colour the palette is what has to
+    // move. QA has always said the logo is invisible; this is what can be
+    // done about it.
+    if (route === 'POST /api/palette/variants') {
+      const body = JSON.parse(await readBody(req, 500_000)) as {
+        campaign?: any; conceptId?: string; size?: string; observed?: any;
+      };
+      const campaign = body.campaign;
+      const concept = campaign?.concepts?.find((c: any) => c.conceptId === body.conceptId)
+        ?? campaign?.concepts?.[0];
+      if (!campaign?.brand || !concept) {
+        return json(res, 400, { error: 'Provide a campaign and a concept' });
+      }
+      try {
+        const template = getTemplate(concept.layoutFamily);
+        const size = (body.size ?? '300x250') as SizeKey;
+        const layout = template.sizes[size];
+        if (!layout) return json(res, 422, { error: `${template.id} has no layout for ${size}` });
+
+        // Which brand role is behind the logo on THIS size. A layout that
+        // drops a panel under the mark means the panel's fill is what the
+        // logo has to read against, and proposing a fix for the canvas
+        // colour instead would change something nobody is looking at.
+        const lb = layout.logo;
+        let behind: string = String(layout.background ?? 'light');
+        if (lb) {
+          for (const panel of layout.panels ?? []) {
+            const overlaps = lb.x < panel.x + panel.w && panel.x < lb.x + lb.w &&
+                             lb.y < panel.y + panel.h && panel.y < lb.y + lb.h;
+            if (overlaps) { behind = String(panel.fill); break; }
+          }
+        }
+        // A hex straight off a template is not a role we can rewrite. Say so
+        // rather than proposing a palette change that would not be applied.
+        if (!['primary', 'secondary', 'accent', 'light', 'dark'].includes(behind)) {
+          return json(res, 200, {
+            ratio: null, verdict: 'not measured', variants: [],
+            reason: `On ${size} the logo sits on a fixed colour in the layout rather than a ` +
+              `brand colour, so changing the palette would not move it.`,
+          });
+        }
+
+        const logoFile = concept.useReverseLogo && campaign.brand.logos.reverse
+          ? campaign.brand.logos.reverse
+          : campaign.brand.logos.primary;
+        const abs = logoFile && path.isAbsolute(logoFile)
+          ? logoFile : path.resolve(ROOT, String(logoFile ?? ''));
+        const ink = logoFile ? await logoInkLuminance(abs) : null;
+        if (ink === null) {
+          return json(res, 200, {
+            ratio: null, verdict: 'not measured', variants: [],
+            reason: 'The logo file could not be read, so nothing here is measured. ' +
+              'A palette proposed without measuring it would be a guess.',
+          });
+        }
+
+        const out = paletteVariants({
+          brand: campaign.brand,
+          logoLuminance: ink,
+          behind: behind as any,
+          observed: body.observed && typeof body.observed === 'object' ? body.observed : undefined,
+        });
+        return json(res, 200, { ...out, behind, size });
+      } catch (e: any) {
+        return json(res, 200, { ratio: null, verdict: 'not measured', variants: [],
+                                reason: e?.message ?? 'Could not measure the logo.' });
+      }
+    }
+
     /* --------------------------------------------- one size, signed off */
     // Internal, unlike the customer approval below: this is the operator
     // saying "this one is finished, stop changing it", which is what makes it
@@ -1062,19 +1171,7 @@ const server = http.createServer(async (req, res) => {
       // open through a multi-minute render blocks the UI and trips proxies.
       project.autoJobId = job.id;
       projects.save(project);
-      void (async () => {
-        const started = Date.now();
-        const t = setInterval(() => {
-          const j = getJob(job.id);
-          if (!j || j.status === 'complete' || j.status === 'failed' || Date.now() - started > 300_000) {
-            clearInterval(t);
-            if (j?.status === 'complete' && j.results) {
-              const proofUrl = j.reports?.find((r) => r.includes('/proof_'));
-              projects.addBatch(project.projectId, j.results, { reportUrl: proofUrl });
-            }
-          }
-        }, 1500);
-      })();
+      fileJobOntoProject(job.id, project.projectId);
       return json(res, 200, { rebuilt: true, building: true, requestId: project.requestId, proofUrl: `/proof/${project.requestId}` });
     }
 
@@ -1716,10 +1813,28 @@ const server = http.createServer(async (req, res) => {
         // worst kind of control. So the screen is told, per size, what this
         // family will render, and says so beside the field.
         const drawn: Record<string, string[]> = {};
+        // ...and where each of them starts, so a nudge arrow moves a block
+        // from where the layout put it rather than from zero, and Advanced
+        // shows the number it is overriding rather than an empty box.
+        const boxes: Record<string, Record<string, { x: number; y: number; w: number; h: number }>> = {};
         for (const [sizeKey, sizeLayout] of Object.entries(t.sizes as Record<string, any>)) {
           if (!sizeLayout) continue;
           drawn[sizeKey] = ['headline', 'support', 'offer', 'trust', 'cta']
             .filter((role) => !!sizeLayout[role]);
+          const forSize: Record<string, any> = {};
+          for (const role of ['logo', 'headline', 'support', 'offer', 'trust', 'cta']) {
+            const b = sizeLayout[role];
+            if (b && typeof b.x === 'number') {
+              forSize[role] = { x: b.x, y: b.y, w: b.w, h: b.h };
+            }
+          }
+          boxes[sizeKey] = forSize;
+          // Whether this size draws a panel at all decides whether the panel
+          // colour control is offered — a control for something the layout
+          // does not draw is the proof-point mistake again.
+          if (Array.isArray(sizeLayout.panels) && sizeLayout.panels.length) {
+            drawn[sizeKey] = drawn[sizeKey].concat('panel');
+          }
         }
         return {
           id: t.id,
@@ -1727,6 +1842,7 @@ const server = http.createServer(async (req, res) => {
           description: t.description,
           sizes: sizeKeys,
           blocks: drawn,
+          boxes,
           // The field colour matters as much as the boxes: two families differ
           // mainly in whether the ad is a flat brand field or a white card.
           wire: canvas?.w && canvas?.h
@@ -1854,6 +1970,7 @@ const server = http.createServer(async (req, res) => {
         campaign: Campaign;
         platforms?: string[];
         upload?: boolean;
+        sizes?: string[];
       };
       if (!body?.campaign) return json(res, 400, { error: 'Body must include a `campaign` object' });
 
@@ -1872,7 +1989,17 @@ const server = http.createServer(async (req, res) => {
         upload: body.upload ?? false,
         outDir: OUT,
         assetRoot: ROOT,
+        // An operator who changed one headline on the 300x600 was waiting on
+        // seven renders they did not ask for. Absent still means all of them.
+        sizes: Array.isArray(body.sizes) && body.sizes.length
+          ? (body.sizes as SizeKey[])
+          : undefined,
       });
+      // File it onto the project when it lands, so the proof this render
+      // writes is one the build screen can actually link to. Without this the
+      // proof exists on disk and nothing points at it.
+      const forProject = projects.byRequest(body.campaign.requestId);
+      if (forProject) fileJobOntoProject(job.id, forProject.projectId);
       return json(res, 202, {
         jobId: job.id,
         status: job.status,

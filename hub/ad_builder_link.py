@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 import requests
+
 from flask import (Blueprint, jsonify, redirect, render_template, request)
 
 from hub import ad_builder_proxy
@@ -775,6 +777,86 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
             actor=_user() or "",
         )
         return jsonify(res), (200 if res.get("ok") else 400)
+
+    @bp.route("/site-brand", methods=["GET"])
+    def site_brand_route():
+        """What the client's own website says its brand is.
+
+        Their latest Insites scan reads the live pages and reports the palette
+        it found there, the logo it detected and a screenshot of the site. All
+        three are better evidence than anything the builder can derive:
+
+          * The palette is **observed**, not labelled. Brandfetch returns a
+            list and frequently does not say which entry is the brand colour —
+            that is the note the intake has to print. A scan says what the
+            site actually paints behind its content and on its buttons.
+          * The logo is the mark in use today, which is not always the one in
+            a brand pack from two years ago.
+          * The screenshot is what the client sees when they think "our
+            brand", which is the thing a proof gets compared against.
+
+        Returns ``{}``-shaped absence rather than an error: a client with no
+        scan is the ordinary case, and the builder shows the option only when
+        there is something behind it.
+        """
+        domain = str(request.args.get("domain") or "").strip()
+        client = str(request.args.get("client") or "").strip()
+
+        # The URL is the join key, not the name -- hub/client_key.py at length.
+        # A name is only used to look a domain up, never to match a scan.
+        if not domain and client:
+            try:
+                from hub import clients_registry
+                row = clients_registry.find_client(client)
+                domain = str((row or {}).get("url") or (row or {}).get("domain") or "")
+            except Exception:                          # noqa: BLE001
+                domain = ""
+        if not domain:
+            return jsonify({"found": False,
+                            "reason": "No website on file for this client, so there is "
+                                      "no scan to read."})
+
+        try:
+            from modules.scans.app import latest_payload_for_domain
+            payload = latest_payload_for_domain(domain) or {}
+        except Exception as exc:                       # noqa: BLE001
+            # "The scans module is unavailable" and "they have never been
+            # scanned" are different answers and must not look alike.
+            return jsonify({"found": False,
+                            "reason": f"Their site scan could not be read ({exc})."})
+        if not payload:
+            return jsonify({"found": False, "domain": domain,
+                            "reason": f"No completed site scan for {domain} yet."})
+
+        def _sec(name):
+            v = payload.get(name)
+            return v if isinstance(v, dict) else {}
+
+        def _hex(v):
+            v = str(v or "").strip()
+            return v if re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", v) else ""
+
+        scheme = _sec("colour_scheme")
+        colors = {
+            "background": _hex(scheme.get("primary_background_colour")),
+            "background2": _hex(scheme.get("secondary_background_colour")),
+            "text": _hex(scheme.get("primary_text_colour")),
+            "text2": _hex(scheme.get("secondary_text_colour")),
+            "accent": _hex(scheme.get("primary_accent_colour")),
+            "accent2": _hex(scheme.get("secondary_accent_colour")),
+        }
+        colors = {k: v for k, v in colors.items() if v}
+
+        logo = _sec("logo")
+        shot = _sec("website_screenshot")
+        return jsonify({
+            "found": bool(colors or logo.get("logo_url")),
+            "domain": domain,
+            "colors": colors,
+            "logo": str(logo.get("logo_url") or "") if logo.get("has_detected_logo") else "",
+            "screenshot": str(shot.get("desktop_screenshot_url") or ""),
+            "scannedAt": str(payload.get("completed_at") or payload.get("created_at") or ""),
+        })
 
     @bp.route("/clients", methods=["GET"])
     def client_search():

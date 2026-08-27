@@ -48,6 +48,19 @@ interface JobInput {
   upload: boolean;
   outDir: string;
   assetRoot: string;
+  /**
+   * Render only these sizes.
+   *
+   * Absent means every size the template and platform have in common, which
+   * is what "Render all sizes" has always done and stays the default. A
+   * package of eight takes a couple of minutes, and an operator who has
+   * changed one headline on the 300x600 is waiting on seven renders they did
+   * not ask for — so they may now name the ones they want.
+   *
+   * A size the template or the platform does not carry is simply not in the
+   * intersection and drops out; asking for one is not an error.
+   */
+  sizes?: SizeKey[];
 }
 
 const jobs = new Map<string, Job>();
@@ -117,6 +130,9 @@ export function recoverJobs(outDir: string): { recovered: number; discarded: num
 
 export function enqueue(input: JobInput): Job {
   const id = randomUUID().slice(0, 8);
+  // Counted over exactly the set runJob will render, or the progress bar
+  // reports a denominator the job can never reach.
+  const wanted = input.sizes?.length ? new Set<string>(input.sizes) : null;
   const total = input.platforms.reduce((n, p) => {
     try {
       const cfg = getPlatform(p);
@@ -125,7 +141,9 @@ export function enqueue(input: JobInput): Job {
         input.campaign.concepts.reduce((m, c) => {
           try {
             const t = getTemplate(c.layoutFamily);
-            return m + Object.keys(t.sizes).filter((s) => (cfg.sizes as any)[s]).length;
+            return m + Object.keys(t.sizes)
+              .filter((s) => (cfg.sizes as any)[s] && (!wanted || wanted.has(s)))
+              .length;
           } catch {
             return m;
           }
@@ -181,8 +199,10 @@ async function runJob(id: string): Promise<void> {
       const doneKeys = new Set<string>();
       for (const platform of platforms) {
         const rule = getPlatform(platform);
+        const only = input.sizes?.length ? new Set<string>(input.sizes) : null;
         const sizes = (Object.keys(getTemplate(concept.layoutFamily).sizes) as SizeKey[])
           .filter((s) => {
+            if (only && !only.has(s)) return false;
             const sr = rule.sizes[s];
             if (!sr) return false;
             return !doneKeys.has(`${s}@${sr.deliverScale}`);

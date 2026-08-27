@@ -48,7 +48,7 @@ const TEXT_ROLES = ['headline', 'support', 'offer', 'trust'] as const;
  * or a white mark on a transparent canvas would average out to "grey" and
  * sneak past the check.
  */
-async function logoInkLuminance(file: string): Promise<number | null> {
+export async function logoInkLuminance(file: string): Promise<number | null> {
   try {
     const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     let sum = 0;
@@ -206,6 +206,37 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     pass('safe-area', `all elements inside the ${label}`);
   } else {
     warn('safe-area', `outside the ${label}: ${offenders.join(', ')}`);
+  }
+
+  /* ---------------------------------------------------------- collisions
+     Two blocks sharing space is invisible to every other check here, because
+     each one measures a box on its own: the contrast pass samples what is
+     behind the ink and finds the other block's fill, the fit pass finds
+     copy that fits its own box perfectly, and the safe-area pass finds both
+     boxes inside the margin. The ad has a headline printed through a button.
+
+     Newly worth checking because blocks can now be MOVED. Until the button
+     and the logo gained a nudge, every box came from a hand-authored template
+     that the diagnostics page already checks for overlaps at boot; an arrow
+     pad is how the two get put on top of each other one press at a time. */
+  const placed = Object.entries(composed.rects)
+    .filter(([role]) => role !== 'hero');       // deliberately full-bleed
+  const collisions: string[] = [];
+  for (let i = 0; i < placed.length; i++) {
+    for (let j = i + 1; j < placed.length; j++) {
+      const [an, a] = placed[i];
+      const [bn, b] = placed[j];
+      // A couple of pixels of touching is kerning, not a collision. The
+      // template check uses the same tolerance.
+      const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+      const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+      if (ox > 1 && oy > 1) collisions.push(`${an} over ${bn}`);
+    }
+  }
+  if (collisions.length) {
+    fail('collision', `${collisions.join(', ')} — these are printed on top of each other`);
+  } else {
+    pass('collision', 'no two elements share space');
   }
 
   /* ------------------------------------------------------------ branding */
