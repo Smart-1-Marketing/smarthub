@@ -171,5 +171,19 @@ tr:hover td{background:#f8fafd}
 .tool-tile .t-ico{font-size:26px}
 .tool-tile h3{margin:10px 0 6px;color:var(--navy);font-size:16px}
 .tool-tile p{color:var(--muted);font-size:13px;line-height:1.5}
+
+/* Headline-only tiles, four across. Creative and Client Tools list forty-odd
+   tools between them; a paragraph on each turned both pages into a scroll
+   nobody read to the bottom of, and the description is on the tool's own
+   page anyway. The three-column tile above still carries prose -- QA Reports
+   is a page where the description IS the finding -- so both shapes exist
+   rather than one being converted into a worse version of the other. */
+.tool-tiles.compact{grid-template-columns:repeat(4,1fr);gap:12px}
+@media(max-width:1250px){.tool-tiles.compact{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:950px){.tool-tiles.compact{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.tool-tiles.compact{grid-template-columns:1fr}}
+.tool-tiles.compact .tool-tile{padding:15px 16px;display:flex;align-items:center;gap:11px}
+.tool-tiles.compact .tool-tile .t-ico{font-size:21px;line-height:1;flex:none}
+.tool-tiles.compact .tool-tile h3{margin:0;font-size:14.5px;line-height:1.3}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}

@@ -1,0 +1,300 @@
+<!doctype html>
+{#
+  The internal calculator. Same fields, same compute function, same numbers as
+  the public page at /c/<slug> -- and no gate: metrics and the full plan come
+  back in one response and nothing is stored. The public page withholds the
+  plan until a name, email and phone are captured, which is right in front of a
+  prospect and is pure friction on our own screen. Worse than friction, in
+  fact: a rep sizing a buy for an existing client had to type *some* contact
+  into that form, and whatever they typed landed in the leads panel looking
+  exactly like a real prospect.
+
+  Standalone HTML rather than {% extends "base.html" %} -- the two pages beside
+  it in this module are written the same way, and the hub app's after_request
+  injects the sidebar, help layer and feedback tab into any HTML reply it
+  returns. Sharing the stylesheet with calculators_calculator.html is what keeps
+  the two versions of one calculator looking like one tool.
+#}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ calc.short_title }} Calculator | Smart 1 Hub</title>
+<style>
+:root{
+  --navy:#0f2747; --blue:#1f6feb; --sky:#eaf3ff; --text:#172033;
+  --muted:#667085; --line:#d9e2ef; --bg:#f7f9fc; --white:#fff;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,-apple-system,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}
+.s1-wrap{max-width:1080px;margin:0 auto;padding:26px 18px 60px}
+.crumb{font-size:13px;margin:0 0 14px}
+.crumb a{color:var(--blue);text-decoration:none;font-weight:600}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}
+.chip{padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:#fff;
+      color:var(--navy);text-decoration:none;font-size:13px;font-weight:700}
+.chip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.s1-card{background:var(--white);border:1px solid var(--line);border-radius:18px;
+         box-shadow:0 12px 35px rgba(15,39,71,.08);overflow:hidden}
+.s1-head{padding:24px 26px;background:linear-gradient(135deg,var(--navy),#183f73);color:#fff}
+.s1-head h1{margin:0 0 6px;font-size:clamp(21px,3vw,29px);line-height:1.1}
+.s1-head p{margin:0;opacity:.92;max-width:760px;font-size:14px}
+.internal-flag{display:inline-block;margin-top:12px;padding:5px 10px;border-radius:999px;
+  background:rgba(255,255,255,.16);font-size:12px;font-weight:700;letter-spacing:.02em}
+.s1-body{padding:24px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.full{grid-column:1/-1}
+label{display:block;font-weight:700;font-size:14px;margin-bottom:7px}
+input,select{width:100%;padding:12px 13px;border:1px solid #c9d5e5;border-radius:10px;background:#fff;font:inherit;color:var(--text)}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid rgba(31,111,235,.35);outline-offset:2px}
+input[type=range]{padding:0}
+.prefixed{position:relative}
+.prefixed span.pfx{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);font-weight:700}
+.prefixed input{padding-left:26px}
+.range-line{display:flex;gap:12px;align-items:center}
+.small{font-size:12px;color:var(--muted)}
+.help{font-size:12px;color:var(--muted);margin:-2px 0 8px}
+.checks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.check{border:1px solid var(--line);border-radius:10px;padding:11px;background:#fff;font-weight:600;font-size:14px;display:flex;gap:8px;align-items:center;cursor:pointer}
+.check:hover{border-color:var(--blue)}
+.check input{width:auto;margin:0;flex:none}
+.btn{appearance:none;border:0;border-radius:11px;padding:13px 18px;font-weight:800;cursor:pointer;background:var(--blue);color:#fff;font-size:15px}
+.btn:hover{background:#1a5fd0}
+.btn.ghost{background:#eaf1fb;color:var(--navy)}
+.btn[disabled]{opacity:.6;cursor:progress}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;align-items:center}
+.results{margin-top:24px;border-top:1px solid var(--line);padding-top:22px}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.metric{background:var(--sky);border-radius:13px;padding:16px}
+.metric b{display:block;font-size:clamp(19px,2.6vw,25px);color:var(--navy);margin-top:4px;line-height:1.15}
+.metric span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.note{margin-top:14px;padding:12px 14px;background:#fff7e8;border:1px solid #f4d49c;border-radius:10px;color:#7a4a00;font-size:13px}
+.note.good{background:#eefaf5;border-color:#b8e4d0;color:#0f6847}
+.note.bad{background:#fdf1f0;border-color:#f0bdb6;color:#a12f1e}
+.plan{border:1px solid var(--line);border-radius:14px;padding:20px;background:#fff;margin-top:20px}
+.plan h3{margin:0 0 6px;color:var(--navy)}
+.plan>p{margin:0 0 4px;color:var(--muted);font-size:14px}
+.hidden{display:none!important}
+table{width:100%;border-collapse:collapse;margin-top:12px}
+th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px;font-size:14px}
+th{background:#f5f8fc;color:var(--navy)}
+tbody tr.total td{font-weight:800;background:#f8fbff;color:var(--navy)}
+.steps{margin:14px 0 0;padding-left:20px;font-size:14px;color:var(--text)}
+.steps li{margin-bottom:6px}
+.loader{display:flex;gap:12px;align-items:center;color:var(--navy);font-weight:700;font-size:14px}
+.sweep{transform-origin:22px 22px;animation:spin 1.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.sweep{animation:none}}
+@media(max-width:760px){
+  .grid,.metrics,.checks{grid-template-columns:1fr}
+  .s1-body{padding:18px}
+  .s1-head{padding:20px}
+}
+</style>
+</head>
+<body data-module="calculators">
+<div class="s1-wrap">
+
+  <p class="crumb"><a href="/tools">&larr; Client Tools</a></p>
+
+  <div class="bar">
+    {% for item in nav %}
+      <a class="chip {{ 'on' if item.slug == calc.slug else '' }}"
+         href="{{ mount }}/internal/{{ item.slug }}">{{ item.title }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="s1-card">
+    <div class="s1-head">
+      <h1>{{ calc.title }}</h1>
+      <p>{{ calc.tagline }}</p>
+      {#
+        Said on the page, not only in the code. The public copy of this exact
+        calculator is one URL away and looks almost identical; somebody has to
+        be able to tell at a glance which one is in front of them before they
+        send a link to a client.
+      #}
+      <span class="internal-flag">Internal &middot; full plan, no contact form, no lead created</span>
+    </div>
+    <div class="s1-body">
+
+      <form id="calcForm" novalidate>
+      <div class="grid">
+        {% for f in calc.fields %}
+          {% set wide = f.width == 'full' or f.type in ('checkgroup','range') %}
+          <div class="{{ 'full' if wide else '' }}">
+            {% if f.type == 'checkbox' %}
+              <label class="check" for="{{ f.id }}">
+                <input type="checkbox" id="{{ f.id }}" name="{{ f.id }}"> {{ f.label }}
+              </label>
+            {% elif f.type == 'checkgroup' %}
+              <label id="lbl-{{ f.id }}">{{ f.label }}</label>
+              {% if f.help %}<p class="help">{{ f.help }}</p>{% endif %}
+              <div class="checks" role="group" aria-labelledby="lbl-{{ f.id }}" data-group="{{ f.id }}">
+                {% for opt in f.options %}
+                  <label class="check">
+                    <input type="checkbox" name="{{ f.id }}" value="{{ opt.value }}"> {{ opt.label }}
+                  </label>
+                {% endfor %}
+              </div>
+            {% elif f.type == 'select' %}
+              <label for="{{ f.id }}">{{ f.label }}</label>
+              <select id="{{ f.id }}" name="{{ f.id }}">
+                {% for opt in f.options %}
+                  <option value="{{ opt.value }}" {{ 'selected' if opt.value|string == f.default|string else '' }}>{{ opt.label }}</option>
+                {% endfor %}
+              </select>
+            {% elif f.type == 'range' %}
+              <label for="{{ f.id }}">{{ f.label }}: <span id="{{ f.id }}Out">{{ f.default }}</span>{{ f.suffix or 'x' }}</label>
+              <div class="range-line">
+                <input type="range" id="{{ f.id }}" name="{{ f.id }}" min="{{ f.min }}" max="{{ f.max }}"
+                       step="{{ f.step or 1 }}" value="{{ f.default }}"
+                       oninput="document.getElementById('{{ f.id }}Out').textContent=this.value">
+              </div>
+            {% elif f.type == 'number' %}
+              <label for="{{ f.id }}">{{ f.label }}</label>
+              <div class="{{ 'prefixed' if f.prefix else '' }}">
+                {% if f.prefix %}<span class="pfx">{{ f.prefix }}</span>{% endif %}
+                <input type="number" id="{{ f.id }}" name="{{ f.id }}" value="{{ f.default }}"
+                       {% if f.min is not none %}min="{{ f.min }}"{% endif %}
+                       {% if f.max %}max="{{ f.max }}"{% endif %} step="{{ f.step or 1 }}" inputmode="numeric">
+              </div>
+              {% if f.suffix %}<p class="help">{{ f.suffix }}</p>{% endif %}
+            {% else %}
+              <label for="{{ f.id }}">{{ f.label }}</label>
+              <input type="text" id="{{ f.id }}" name="{{ f.id }}" placeholder="{{ f.placeholder or '' }}">
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn" id="runBtn">Calculate</button>
+        <a class="btn ghost" href="{{ mount }}/c/{{ calc.slug }}" target="_blank" rel="noopener">Open the client-facing version</a>
+        <div id="busy" class="loader hidden" role="status" aria-live="polite">
+          <svg width="30" height="30" viewBox="0 0 44 44" aria-hidden="true">
+            <circle cx="22" cy="22" r="18" fill="none" stroke="#d9e2ef" stroke-width="4"/>
+            <path class="sweep" d="M22 4a18 18 0 0 1 18 18" fill="none" stroke="#1f6feb"
+                  stroke-width="4" stroke-linecap="round"/>
+          </svg>
+          <span>Building the plan&hellip;</span>
+        </div>
+      </div>
+      </form>
+
+      <div id="calcError" class="note bad hidden" role="alert"></div>
+
+      <div id="results" class="results hidden">
+        <div class="metrics" id="metrics"></div>
+        <div class="note good hidden" id="teaserNote"></div>
+        <div class="plan" id="detail">
+          <h3>The plan</h3>
+          <p id="detailSummary"></p>
+          <div id="detailTable"></div>
+          <div id="detailSteps"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var MOUNT  = {{ mount|tojson }};
+  var SLUG   = {{ calc.slug|tojson }};
+  var FIELDS = {{ calc.fields|map(attribute='id')|list|tojson }};
+  var TYPES  = {{ calc.fields|map(attribute='type')|list|tojson }};
+
+  var $ = function(id){ return document.getElementById(id); };
+
+  function readInputs(){
+    var out = {};
+    for (var i = 0; i < FIELDS.length; i++){
+      var id = FIELDS[i], type = TYPES[i];
+      if (type === 'checkgroup'){
+        var picked = [];
+        var boxes = document.querySelectorAll('input[name="' + id + '"]:checked');
+        for (var j = 0; j < boxes.length; j++) picked.push(boxes[j].value);
+        out[id] = picked;
+      } else if (type === 'checkbox'){
+        out[id] = !!$(id).checked;
+      } else {
+        out[id] = $(id).value;
+      }
+    }
+    return out;
+  }
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function showError(msg){
+    var el = $('calcError');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+
+  $('calcForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    $('calcError').classList.add('hidden');
+    $('runBtn').disabled = true;
+    $('busy').classList.remove('hidden');
+
+    fetch(MOUNT + '/internal/' + SLUG + '/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({inputs: readInputs()})
+    }).then(function(r){
+      return r.json().catch(function(){ return {ok:false, error:'Something went wrong. Try again.'}; });
+    }).then(function(d){
+      if (!d.ok){ showError(d.error || 'That estimate could not be built.'); return; }
+
+      $('metrics').innerHTML = (d.metrics || []).map(function(m){
+        return '<div class="metric"><span>' + esc(m.label) + '</span><b>' + esc(m.value) + '</b></div>';
+      }).join('');
+
+      var note = $('teaserNote');
+      // Hidden when there is nothing to say, rather than left as an empty
+      // green box -- an empty panel reads as a result that failed to load.
+      if (d.teaser_note){ note.textContent = d.teaser_note; note.classList.remove('hidden'); }
+      else { note.classList.add('hidden'); }
+
+      var detail = d.detail || {};
+      $('detailSummary').textContent = detail.summary || '';
+
+      var t = detail.table;
+      if (t && t.rows && t.rows.length){
+        $('detailTable').innerHTML =
+          '<table><thead><tr>' +
+          t.headers.map(function(h){ return '<th>' + esc(h) + '</th>'; }).join('') +
+          '</tr></thead><tbody>' +
+          t.rows.map(function(r){
+            var isTotal = String(r[0]).toLowerCase() === 'total';
+            return '<tr' + (isTotal ? ' class="total"' : '') + '>' +
+                   r.map(function(c){ return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>';
+          }).join('') + '</tbody></table>';
+      } else { $('detailTable').innerHTML = ''; }
+
+      if (detail.next_steps && detail.next_steps.length){
+        $('detailSteps').innerHTML = '<ul class="steps">' +
+          detail.next_steps.map(function(s){ return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>';
+      } else { $('detailSteps').innerHTML = ''; }
+
+      $('results').classList.remove('hidden');
+      $('results').scrollIntoView({behavior:'smooth', block:'nearest'});
+    }).catch(function(){
+      showError("We couldn't reach the calculator. Check your connection and try again.");
+    }).then(function(){
+      // Always tear the loader down. A spinner left running reads as a frozen page.
+      $('runBtn').disabled = false;
+      $('busy').classList.add('hidden');
+    });
+  });
+})();
+</script>
+</body>
+</html>
