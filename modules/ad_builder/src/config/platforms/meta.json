@@ -5,7 +5,7 @@
     "1080x1080": {
       "w": 1080,
       "h": 1080,
-      "maxFileBytes": 153600,
+      "maxFileBytes": 31457280,
       "formats": [
         "jpg",
         "png"
@@ -16,13 +16,13 @@
         18
       ],
       "minFontPx": 30,
-      "notes": "Feed square.",
+      "notes": "Square. The one shape that runs everywhere on Meta -- feed post, feed ad, and the safe fallback in a carousel.",
       "source": "doc"
     },
     "1200x628": {
       "w": 1200,
       "h": 628,
-      "maxFileBytes": 153600,
+      "maxFileBytes": 31457280,
       "formats": [
         "jpg",
         "png"
@@ -33,13 +33,13 @@
         16
       ],
       "minFontPx": 26,
-      "notes": "Feed landscape / link.",
+      "notes": "Landscape link ad, 1.91:1. Paid placements and link previews; a feed post is rarely this shape.",
       "source": "doc"
     },
     "1080x1350": {
       "w": 1080,
       "h": 1350,
-      "maxFileBytes": 153600,
+      "maxFileBytes": 31457280,
       "formats": [
         "jpg",
         "png"
@@ -50,13 +50,13 @@
         18
       ],
       "minFontPx": 30,
-      "notes": "Feed portrait 4:5.",
+      "notes": "Portrait 4:5. The tallest shape the feed will show without cropping, so it is the one that takes the most screen.",
       "source": "doc"
     },
     "1080x1920": {
       "w": 1080,
       "h": 1920,
-      "maxFileBytes": 153600,
+      "maxFileBytes": 31457280,
       "formats": [
         "jpg",
         "png"
@@ -67,7 +67,7 @@
         14
       ],
       "minFontPx": 34,
-      "notes": "Stories / Reels 9:16.",
+      "notes": "Stories and Reels, 9:16. Keep the copy out of the top and bottom 14% -- the interface sits over it.",
       "source": "doc"
     }
   }

@@ -40,6 +40,22 @@ export interface ProofOptions {
   perSizeCopy?: Record<string, { headline?: string; support?: string; cta?: string }>;
   /** Latest delivered package, when the project is already complete. */
   delivered?: { at: string; zipUrl: string; fileCount?: number };
+  /**
+   * Whether to draw the live editor -- the copy and colour fields, the
+   * background search, "Apply changes & rebuild" and the per-size editor.
+   *
+   * This page has two readers and only one of them is signing anything off.
+   * A client is here to say yes, no, or "here is what I would change", and
+   * those three are the whole of their job. The editor rebuilds the ads: it
+   * reaches endpoints that cost money and it changes creative for everyone
+   * looking at the same link. Staff reach this page through the Hub with an
+   * admin token; a client reaches it with nothing but the project id, which
+   * is the capability the link is built on.
+   *
+   * Defaults to true, so standalone -- where every reader is the operator --
+   * nothing changes. The decision is made by the route, from the request.
+   */
+  editor?: boolean;
 }
 
 const esc = (v: unknown) =>
@@ -58,6 +74,7 @@ function orderEntries(entries: ManifestEntry[]): ManifestEntry[] {
 
 export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
   const fileBase = opts.fileBase ?? '';
+  const editor = opts.editor !== false;
 
   const byConcept = new Map<string, ManifestEntry[]>();
   for (const e of m.entries) {
@@ -119,7 +136,7 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
             <span class="size">${esc(isScaled ? e.deliveredDimensions : e.size)}</span>
             <span class="spec">${isScaled ? `${esc(e.size)} placement @2x · ` : ''}${esc(e.format)} · ${kb(e.bytes)} · ${e.wordCount} words</span>
             <span class="dot ${esc(e.qaStatus)}" title="${esc(e.qaStatus)}"></span>
-            <button type="button" class="edit-size" data-size="${esc(e.size)}" data-concept="${esc(c.id)}" title="Edit just this size">Edit this size</button>
+            ${editor ? `<button type="button" class="edit-size" data-size="${esc(e.size)}" data-concept="${esc(c.id)}" title="Edit just this size">Edit this size</button>` : ''}
           </figcaption>
           <div class="frame" style="width:${w}px">
             <img src="${esc(src(e))}" width="${w}" height="${h}" alt="${esc(e.size)} advertisement" loading="lazy">
@@ -410,9 +427,11 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
 
   <div class="decide">
     <h2>Your decision</h2>
-    <p>Approve to move into production, or edit below and rebuild — your changes are applied to every size and the proof updates right here.</p>
+    <p>${editor
+      ? 'Approve to move into production, or edit below and rebuild — your changes are applied to every size and the proof updates right here.'
+      : 'Approve these to move into production, or tell us what to change and we will rebuild every size and update this same page.'}</p>
 
-    <div class="editor">
+    ${!editor ? '' : `<div class="editor">
       <div class="erow">
         <label>Headline</label>
         <input type="text" id="ed-headline" maxlength="60" placeholder="Headline">
@@ -459,12 +478,12 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
         Need to crop or edit an image first? Use the <a href="https://smart1marketing.com/image-optimizer" target="_blank" rel="noopener" style="color:var(--signal);font-weight:600">Smart 1 image optimizer</a>.</p>
       </div>
       <p class="hint" id="ed-status"></p>
-    </div>
+    </div>`}
 
     <textarea id="changes" placeholder="Anything else? For example: use a warmer background photo, or make the offer bigger on the tall sizes."></textarea>
     <div class="acts">
       <button class="act primary" id="approve">Approve concept <span id="pickLabel">A</span></button>
-      <button class="act" id="rebuild">Apply changes &amp; rebuild</button>
+      ${editor ? '<button class="act" id="rebuild">Apply changes &amp; rebuild</button>' : ''}
       <button class="act" id="request">Send notes to the team</button>
     </div>
   </div>
@@ -472,7 +491,7 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
   <footer>Sizes and file weights meet current Google Display and Amazon DSP requirements. Colours may vary slightly between screens.</footer>
 </div>
 
-<div class="size-editor" id="sizeEditor">
+${!editor ? '' : `<div class="size-editor" id="sizeEditor">
   <div class="box">
     <h3>Edit <span id="se-size">300x250</span> only</h3>
     <p class="sub">Change the copy for just this one size. Every other size stays as it is.</p>
@@ -496,7 +515,7 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
       <button class="primary" id="se-apply">Apply to this size</button>
     </div>
   </div>
-</div>
+</div>`}
 
 <script>
 window.PROOF_ENDPOINT = ${opts.actionBase ? JSON.stringify(opts.actionBase) : 'null'};
@@ -769,7 +788,14 @@ window.PROOF_DELIVERED = ${JSON.stringify(opts.delivered ?? null)};
       openSizeEditor(this.dataset.concept, this.dataset.size);
     });
   }
-  document.getElementById('se-cancel').addEventListener('click', function () {
+  // Guarded, because the per-size editor is not drawn for a client viewing
+  // this page. An unguarded addEventListener on an element that is not there
+  // throws, and this all runs inside one IIFE: the throw would take out every
+  // handler registered below it and leave a page that looks finished. The
+  // decision buttons happen to be wired further up and would survive, which
+  // is worse rather than better -- half a page working is how this ships
+  // broken.
+  if (sizeModal) document.getElementById('se-cancel').addEventListener('click', function () {
     sizeModal.classList.remove('on');
   });
   var seLogoInput = document.getElementById('se-logofile');
@@ -784,10 +810,10 @@ window.PROOF_DELIVERED = ${JSON.stringify(opts.delivered ?? null)};
       rd.readAsDataURL(f);
     });
   }
-  sizeModal.addEventListener('click', function (e) {
+  if (sizeModal) sizeModal.addEventListener('click', function (e) {
     if (e.target === sizeModal) sizeModal.classList.remove('on');
   });
-  document.getElementById('se-apply').addEventListener('click', function () {
+  if (sizeModal) document.getElementById('se-apply').addEventListener('click', function () {
     if (!window.PROOF_ENDPOINT) return;
     var btn = this; btn.disabled = true; btn.textContent = 'Rebuilding this size…';
     fetch(window.PROOF_ENDPOINT + '/rebuild', {

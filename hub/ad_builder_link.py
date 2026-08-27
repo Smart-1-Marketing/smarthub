@@ -436,6 +436,26 @@ def attach_ads(*, project: dict, client_name: str, sizes: list | None = None,
 
 # ------------------------------------------------------------------- starting
 
+def _looks_like_a_site(url: str) -> bool:
+    """A rough shape check, not a fetch.
+
+    Deliberately shallow: whether the page answers is the landing-page
+    analyser's question, and it has its own answer for a page that does not.
+    This one only stops a campaign name or a sentence being posted into the
+    website field, which is the mistake a required field actually produces.
+    """
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url if "://" in url else "https://" + url)
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").strip()
+    if not host or " " in host:
+        return False
+    labels = host.split(".")
+    return len(labels) >= 2 and all(labels) and len(labels[-1]) >= 2
+
+
 def _known_client(name: str) -> dict | None:
     """The registry row for this name, or None. Never raises."""
     try:
@@ -514,10 +534,17 @@ def _capture_prospect(*, business: str, website: str, campaign: str,
         return ""
 
 
+PLATFORM_CHOICES = (
+    ("google", "Google Display"),
+    ("meta", "Meta (Facebook & Instagram)"),
+    ("amazon", "Amazon DSP"),
+)
+
+
 def start_project(*, client_name: str, campaign: str, website: str = "",
                   promoting: str = "", contact: str = "", email: str = "",
                   phone: str = "", kind: str = "", proposal_id: str = "",
-                  actor: str = "") -> dict:
+                  platforms: list | None = None, actor: str = "") -> dict:
     """Create a build in the renderer, prefilled from what the Hub knows.
 
     The renderer's intake wants a business, a website, a contact and something
@@ -563,6 +590,26 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
     if website and not website.startswith(("http://", "https://")):
         website = "https://" + website
 
+    # A website is required, and it is required here rather than only on the
+    # form: a `required` attribute is a courtesy to somebody typing, not a
+    # rule -- the JSON caller does not see it and a browser is not the only
+    # thing that posts here.
+    #
+    # It is required because it is what the tool reads. The page is fetched,
+    # its conversion points are counted, and its own words become the first
+    # draft of every line of copy and the brief for the picture. A build
+    # started without one produces confident copy about a business nothing
+    # has looked at, which reads exactly like copy that was researched.
+    if not website:
+        return {"ok": False,
+                "error": "A website or landing page is required. It is what the "
+                         "AI reads to draft the copy and the picture — without "
+                         "one it is writing about a business it has never seen."}
+    if not _looks_like_a_site(website):
+        return {"ok": False,
+                "error": f"“{website}” does not look like a web address. "
+                         f"Use the client's site or the campaign's landing page."}
+
     lead_id = ""
     if kind == "prospect":
         lead_id = _capture_prospect(
@@ -576,7 +623,15 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
 
     payload = {
         "business": client_name,
-        "website": website or "https://smart1marketing.com",
+        "website": website,
+        # The renderer reads the landing page from `landingPage`, not from
+        # `website`, and this payload only ever sent the second -- so every
+        # build started from the Hub had no page analysis at all, while builds
+        # from the public form did. It is the same URL here; they are separate
+        # fields because a campaign often points at its own landing page
+        # rather than the client's home page, and the form above asks for
+        # exactly that.
+        "landingPage": website,
         "contact": str(contact or actor or "Smart 1 Marketing").strip(),
         "email": str(email or os.environ.get("ADBUILDER_DEFAULT_EMAIL")
                      or "creative@smart1marketing.com").strip(),
@@ -587,6 +642,13 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
         # a server-side submission is not read as a script.
         "honeypot": "",
         "elapsedMs": 5000,
+        # Which platforms decides which sizes get built, and the renderer
+        # keeps only the ones it has a config file for. Named here rather than
+        # left to default, or a Meta buy starts life as a set of Google
+        # banners and the only sign is a rail with no square in it.
+        "platforms": [p for p, _ in PLATFORM_CHOICES
+                      if p in {str(x).strip().lower() for x in (platforms or ["google"])}]
+                     or ["google"],
     }
     if saved_logo:
         payload["pickedLogoUrl"] = saved_logo["url"]
@@ -655,6 +717,8 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
                                kind="client" if client else "",
                                saved_logo=client_logo(client) if client else None,
                                form={}, proposals=proposals,
+                               platform_choices=PLATFORM_CHOICES,
+                               selected_platforms=["google"],
                                url_prefix=url_prefix, error="")
 
     @bp.route("/start", methods=["POST"])
@@ -675,6 +739,8 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
             phone=body.get("phone", ""),
             kind=kind,
             proposal_id=body.get("proposal", ""),
+            platforms=(request.form.getlist("platforms") if request.form
+                       else (body.get("platforms") or [])),
             actor=_user() or "",
         )
         if request.form:
@@ -686,6 +752,9 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
                                    client=body.get("client", ""),
                                    kind=kind, form=body, proposals=[],
                                    saved_logo=None,
+                                   platform_choices=PLATFORM_CHOICES,
+                                   selected_platforms=(
+                                       request.form.getlist("platforms") or ["google"]),
                                    url_prefix=url_prefix,
                                    error=res.get("error", "")), 400
         return jsonify(res), (200 if res.get("ok") else 400)

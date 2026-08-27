@@ -29,7 +29,7 @@ import { fontIsAvailable } from './fonts';
 import { validateCampaign, type Finding } from './validate';
 import { makeWordmark } from './wordmark';
 import { fitImageToBudget } from './image-budget';
-import { getTemplate } from './registry';
+import { getTemplate, acceptPlatforms } from './registry';
 import { generateCopy, type CopyBrief } from './copywriter';
 import type { LandingAnalysis } from './projects';
 
@@ -694,7 +694,7 @@ export async function buildCampaign(
 
   const findings = validateCampaign(campaign, {
     assetRoot: opts.assetRoot,
-    platforms: (sub.platforms ?? ['google']).filter((p) => p === 'google' || p === 'amazon'),
+    platforms: acceptPlatforms(sub.platforms).platforms,
   });
 
   return {

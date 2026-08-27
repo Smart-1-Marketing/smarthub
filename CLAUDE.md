@@ -3574,6 +3574,109 @@ a proof to disk that nothing linked to — and the screen told the operator to g
 and look at a proof with no way to reach it. `fileJobOntoProject()` is the one
 place that does it, and both routes call it.
 
+**A control that cannot do the thing its label says is worse than a missing
+one.** "Attach to client" and "Render all sizes" both stood on the toolbar
+from the moment the page opened, on a build that had never been written down —
+and both act on what is on the **server**, which on an unsaved build is the
+previous version. So attaching filed the ads somebody had just finished
+replacing, onto a client record, and reported a clean success for doing it.
+The toolbar is the order of the work now: Save is the only thing offered on
+arrival, Render appears once there is a saved build to render, and Attach once
+there are rendered files to attach. The gate lives in `saveCampaign()` rather
+than in the Save button's handler, because switching size with unsaved edits,
+duplicating a set and starting a render all leave the server holding what is on
+screen too — a gate only one of five doors opens is one people learn to resent.
+
+**Four jobs, one button.** Render, render-and-file, file, and package were
+spread across three places: a toolbar link that predated any render, a Deliver
+button that only appeared once a status had changed, and the render itself. So
+the ordinary job — build these and put them on the client's record — was two
+controls with a page in between. The render button asks now. **Filing waits for
+the files to exist**: started alongside the render it would copy the previous
+build onto the client record, which is the failure above wearing a different
+hat. And **a download is not a delivery** — `deliverProject` sets the project
+complete, writes a "Delivered" note and mails the team, so the ZIP button asks
+for `record: false`; the zip is byte-for-byte the same either way. A QA-failing
+size is still withheld, and now *named* rather than silently missing from the
+folder.
+
+**A link that lands on a staff login is not a link you can send a client.** The
+proof was behind the Hub session, so "here is the link, tell us what you think"
+put a client on a login form for an account they do not have — and the *static*
+`proof_<id>.html` the batch records is worse than that: it is rendered with no
+action endpoint behind it, so its Approve button rewrites the page to say
+"Approved" and posts nowhere. A client could sign a set off on it and no screen
+here would ever know. Everything points at the live `/proof/<requestId>` route
+now, `PUBLIC_PATTERNS` in `hub/ad_builder_proxy.py` lets a client reach that
+page and the two decisions on it, and the entry is in `CHROMELESS` so a
+prospect does not meet the staff sidebar. Two things fall out. **Our
+credentials must not travel with an anonymous request** — forwarding the admin
+token would tell the renderer a client is staff, which is the exact question it
+asks to decide whether to draw the live editor, so a public page would quietly
+gain an operator's controls. And **rebuild stays behind the login**: it
+re-renders the creative for everyone holding the link and reaches endpoints
+that are billed per call.
+
+**Approving is one event and two doors.** `recordDecision()` is shared, because
+approval is the trigger for packaging and two copies of that drift into two
+ideas of what "approved" delivers. What is *not* shared is the claim: a record
+saying "approved by the client" about a decision an account manager made in the
+office is the difference between a campaign that is signed off and one somebody
+expects to be. The client's route reads no name at all — it is reached with
+nothing but the project id, so a name claimed there is one anyone with the link
+could claim — and the staff route sits under `/api/project`, which the admin
+gate covers, so the name comes from the Hub proxy. A change request with no
+detail is refused by both.
+
+**Meta had a config file, every template drew its sizes, and one line dropped
+it.** `.filter(p => p === 'google' || p === 'amazon')`, written out three times
+— in the request route, the auto-render branch and the validator. A Meta buy
+came back as a set of Google banners with nothing anywhere saying so.
+`registry.acceptPlatforms()` is the one answer now, from the directory listing,
+and it **names what it refused** rather than quietly building something
+smaller. Two things had to be corrected with it: `meta.json` carried Google's
+150 KB ceiling, which makes the quality ladder step a 1080x1920 story frame
+down until it is mushy to satisfy a limit Meta does not impose; and the start
+form never offered the choice at all.
+
+**A URL is mandatory now, because it is what the tool reads.** The page is
+fetched, its conversion points counted, and its own words become the first
+draft of the headline, the supporting line, the offer, the call to action and
+the proof point — and the picture is drawn against it too. It is required in
+`start_project()` and not only on the form, because a `required` attribute is a
+courtesy to somebody typing rather than a rule. The bug underneath it: the Hub
+sent `website` and the renderer reads `landingPage`, so **every build started
+from the Hub had no page analysis at all** while builds from the public form
+did, and nothing on either screen said which kind you were looking at.
+
+**And the analysis nothing asked for.** It sat on the project record and the
+build screen's "write this for me" and "draw me a picture" both worked from a
+business name and a headline somebody had already typed. Both read it now.
+`suggestCopy()` also answered three of the five fields the screen offers, so a
+draft left the offer and the proof point empty on templates that draw both —
+and those two are exactly the ones that must never be invented. The prompt
+forbids it twice, the code tops neither up, and an empty answer is **reported**
+("their page says nothing about the offer, so it was left blank rather than
+invented") rather than hidden. The draft fills empty fields only and writes to
+every size: a drafted line is the set's copy, and landing it as a per-size
+override would leave the other seven empty with the panel insisting the field
+was filled.
+
+**A generated picture is a draft, and the sweep removes it.** So keeping one
+means moving it to Cloudinary first — `POST /api/imagery/keep`, which accepts
+only a path this service wrote, because a route that uploads whatever URL it is
+handed is an open relay into our own account. Filing it onto the client stays
+the Hub's job: the renderer does not know who our clients are, which is the
+line `hub/ad_builder_link.py` draws. Without that move, the gallery gains a row
+that opens today, 404s after the sweep, and was never openable by the client
+whose gallery it is in.
+
+**And a panel redrawn under a callback is a callback writing to nothing.**
+`drawControls()` replaces the whole left column, so an element captured before
+a fetch is detached by the time the answer arrives: the write succeeds, the
+screen does not change, and it reads as a button that did nothing. Re-read the
+node after any redraw.
+
 ## Everyone has their own login, and there are two levels of it
 
 Fourteen people, uploaded from the company census. `hub/user_directory.py`
