@@ -81,6 +81,18 @@ def static_ask_analytics_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/knack-form.js")
+def static_knack_form_js():
+    """The controls a form built from a live Knack object draws, shared by the
+    web ticket form and the campaign request form.
+
+    Root-level for the same reason as the scripts around it, and shared for
+    the reason CLAUDE.md gives twice over: the next fix to how a connection
+    picker or a dropdown is drawn should land once."""
+    return send_from_directory(_STATIC, "knack-form.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/campaign-request.js")
 def static_campaign_request_js():
     """The Campaign Change / Support / Ad Copy form, shared by Client 360 and
