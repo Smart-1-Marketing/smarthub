@@ -114,6 +114,13 @@ HUB_PAGES = [
     # page rather than one row, exactly like url_for('website_check_limits')
     # in Sites Admin.
     "/tools/video-backgrounds/",
+    # The internal calculator: a hub blueprint again, and a standalone HTML
+    # document rather than one extending base.html, so the sidebar arrives only
+    # if the hub app's after_request injector puts it there. It also renders the
+    # whole field set from the catalogue, which is where a page 500s while
+    # *rendering* if a field type gains an attribute the template does not
+    # guard -- the failure /tools/image-picker/c/<id> already had.
+    "/tools/calculators/internal/digital-audio",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:

@@ -300,8 +300,15 @@ try:
           composed.get("/tools/gpt-ads/").status_code == 200)
     check("and so does the list its page opens with",
           composed.get("/tools/gpt-ads/api/ads").status_code == 200)
-    check("the Creative page links to it",
-          b"/tools/gpt-ads/" in composed.get("/creative").data)
+    # Client Tools, not Creative: it writes ad copy and assembles a hand-off
+    # for ad operations rather than producing a finished asset, so it sits with
+    # the Social Content Planner under Content. The tile is the only thing that
+    # makes a tool visible -- CLAUDE.md counts six that were invisible for want
+    # of one -- so the page it moved to is asserted, not merely the move.
+    check("the Client Tools page links to it",
+          b"/tools/gpt-ads/" in composed.get("/tools").data)
+    check("and the Creative page no longer does, so there is one tile not two",
+          b"/tools/gpt-ads/" not in composed.get("/creative").data)
 except Exception as exc:                                          # noqa: BLE001
     check("the composed app boots with the module mounted", False, exc)
 

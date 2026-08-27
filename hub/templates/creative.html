@@ -1,107 +1,110 @@
 {% extends "base.html" %}
 {% block title %}Creative — Smart 1 Hub{% endblock %}
 {% block content %}
+{#
+  Headline-only tiles, four across, grouped by what you are making: images,
+  video, audio. The descriptions that used to sit under each one are on the
+  tool's own page -- fourteen paragraphs here made a page nobody scrolled to
+  the bottom of, which is the same failure as having no tile at all.
+
+  GPT Ads Builder and the Social Content Planner moved to Client Tools: both
+  produce copy and a plan rather than a finished asset. Display Ad Builder
+  came the other way, from Client Tools, because a display pack is creative a
+  client receives.
+#}
 <div class="page-head">
   <h2 data-tour="creative-tiles">Creative {{ help_dot('hub.creative.pick') if help_dot is defined else '' }}</h2>
-  <p>Everything for making things for clients &mdash; images, video, audio and ad copy.</p>
+  <p>Everything for making things for clients &mdash; images, video and audio.</p>
 </div>
-<div class="tool-tiles">
-  <a class="tool-tile" href="/tools/stock-photos/">
-    <div class="t-ico">&#128269;</div>
-    <h3>Stock Photo Search</h3>
-    <p>One search across Pexels, Pixabay, Unsplash <em>and our own library</em> &mdash; the
-      Cloudinary folders we have already filled (General Stock Photos, Smart 1 Ads) and
-      everything beneath them. Ours are listed first and badged, because a photo we already
-      own costs nothing and needs no attribution. A folder that does not exist yet says so
-      rather than reading as a search that found nothing.</p>
+
+<div class="qa-group-label">Images</div>
+<div class="tool-tiles compact">
+  <a class="tool-tile" href="/tools/display-ads/_hub/start">
+    <div class="t-ico">&#127917;</div>
+    <h3>Display Ad Builder</h3>
   </a>
   <a class="tool-tile" href="/tools/image-creator/">
     <div class="t-ico">&#127912;</div>
     <h3>Image Creator</h3>
-    <p>A full graphics editor built on Fabric.js. Stock photos from Pexels, Pixabay &amp; Unsplash in one
-      search, Brandfetch logos &amp; brand colours, Iconify icons, Google Fonts, AI generation, and your own
-      client gallery &amp; audit imagery. Projects save as editable canvases you can reopen.</p>
-  </a>
-  <a class="tool-tile" href="/tools/image-picker/">
-    <div class="t-ico">&#128444;</div>
-    <h3>Client Image Uploads</h3>
-    <p>Build a client's image library by industry. One search across Pexels, Pixabay and Unsplash, sized for the web on the way in, filed against the client and pushable to their GoHighLevel media.</p>
-  </a>
-  <a class="tool-tile" href="/tools/page-images/">
-    <div class="t-ico">&#128200;</div>
-    <h3>Page Image Optimizer</h3>
-    <p>Scan a live client page for oversized images, then fix the worst ones five at a time. Comes back with replacement &lt;img&gt; tags and the page weight you saved.</p>
   </a>
   <a class="tool-tile" href="/tools/image/">
     <div class="t-ico">&#128444;</div>
     <h3>Image Optimizer &amp; Resizer</h3>
-    <p>Crop, resize and compress a single image toward an exact pixel size and KB
-      budget. For naming a batch for SEO, use the SEO Image Pipeline instead.</p>
   </a>
   <a class="tool-tile" href="/tools/bg-remover/">
     <div class="t-ico">&#9986;</div>
     <h3>Background Remover</h3>
-    <p>Transparent PNG cut-outs via remove.bg. Resize before the cut to control credits and after it to
-      control the file, then save straight to the client gallery against a client.</p>
+  </a>
+  <a class="tool-tile" href="/tools/page-images/">
+    <div class="t-ico">&#128200;</div>
+    <h3>Page Image Optimizer</h3>
+  </a>
+  <a class="tool-tile" href="/tools/image-picker/">
+    <div class="t-ico">&#128444;</div>
+    <h3>Client Image Uploads</h3>
   </a>
   <a class="tool-tile" href="/tools/seo-images/">
     <div class="t-ico">&#127991;</div>
     <h3>SEO Image Pipeline</h3>
-    <p>Batch up to 5 images and let AI write the SEO filename &amp; alt text for that client&rsquo;s page.
-      Review and edit every one, then save as optimised WebP to the client gallery &mdash; with a searchable
-      archive kept per client and project.</p>
-  </a>
-  <a class="tool-tile" href="/tools/commercial-builder/">
-    <div class="t-ico">&#127916;</div>
-    <h3>Commercial Builder</h3>
-    <p>Full :05&ndash;:60 CTV and YouTube spots &mdash; concept, timed script, storyboard, voice, QR end card and render. Eleven automatic QC checks gate the render rather than advising on it.</p>
-  </a>
-  <a class="tool-tile" href="/tools/video-backgrounds/">
-    <div class="t-ico">&#127909;</div>
-    <h3>Video Backgrounds</h3>
-    <p>Search the footage we own by what is on screen rather than by filename, and copy a URL already
-      muted, trimmed and sized to sit behind a headline. Clips are described and tagged as they arrive
-      &mdash; footage already in the account is deliberately left alone.</p>
-  </a>
-  <a class="tool-tile" href="/tools/fan-radio/">
-    <div class="t-ico">&#127911;</div>
-    <h3>Fan Radio</h3>
-    <p>Football-themed :15 and :30 spots across three dayparts, voiced through ElevenLabs, on a share page the client can listen to and approve.</p>
-  </a>
-  <a class="tool-tile" href="/tools/radio-promo/">
-    <div class="t-ico">&#128266;</div>
-    <h3>Radio Promo</h3>
-    <p>Scripted radio spots with AI copy and ElevenLabs voicing, a voice library and a saved-spot archive.</p>
-  </a>
-  <a class="tool-tile" href="/tools/social/">
-    <div class="t-ico">&#128172;</div>
-    <h3>Social Content Planner</h3>
-    <p>Build a client&rsquo;s whole month of organic posts in one pass. The calendar is seeded from
-      what the Hub already knows &mdash; their services, their brand, their image gallery &mdash; and
-      every post is checked against what the client actually authorised before it can be approved:
-      a price, a deadline or a phone number nobody supplied is a blocking flag, not a suggestion.
-      Exports as a CSV for Social Planner&rsquo;s bulk upload.</p>
-  </a>
-  <a class="tool-tile" href="/tools/gpt-ads/">
-    <div class="t-ico">&#129302;</div>
-    <h3>GPT Ads Builder</h3>
-    <p>Assemble everything ad operations asks for on one screen and hand it over as a single
-      file &mdash; the 1:1 square, headline, body and call-to-action options, the destination URL,
-      the brand requirements and the offer. The image is measured rather than described, so a
-      1200&times;628 crop is refused here instead of by the platform, and the landing page is
-      actually fetched to confirm it is live and mobile-friendly. Copy quoting a price, a
-      deadline or a phone number nobody supplied is blocked before it leaves.</p>
   </a>
   <a class="tool-tile" href="/tools/landing-ads/">
     <div class="t-ico">&#128240;</div>
     <h3>Landing Page Ads</h3>
-    <p>Reads a Smart 1 Suite landing page and generates matching responsive search, social, display and audio ads.</p>
+  </a>
+  {#
+    Not in the reshuffle's list, and kept rather than dropped: it is where the
+    imagery every tool above starts from comes from, and a tool with no tile
+    is invisible -- this file counts six that were. test_stock_search.py
+    asserts the tile is here.
+  #}
+  <a class="tool-tile" href="/tools/stock-photos/">
+    <div class="t-ico">&#128269;</div>
+    <h3>Stock Photo Search</h3>
   </a>
 </div>
+
+<div class="qa-group-label">Videos</div>
+<div class="tool-tiles compact">
+  <a class="tool-tile" href="/tools/commercial-builder/">
+    <div class="t-ico">&#127916;</div>
+    <h3>Commercial Builder</h3>
+  </a>
+  {# Renamed from Video Backgrounds: the tool searches the footage library by
+     what is on screen, and "backgrounds" described one thing the clips get
+     used for. The mount is unchanged, so every existing link still works --
+     and the Cloudinary folder named "Video Backgrounds" in hub/video_library.py
+     is a folder on the account and is deliberately not renamed with it. #}
+  <a class="tool-tile" href="/tools/video-backgrounds/">
+    <div class="t-ico">&#127909;</div>
+    <h3>Video Search</h3>
+  </a>
+</div>
+
+<div class="qa-group-label">Audio</div>
+<div class="tool-tiles compact">
+  <a class="tool-tile" href="/tools/radio-promo/">
+    <div class="t-ico">&#128266;</div>
+    <h3>Radio Promo</h3>
+  </a>
+  <a class="tool-tile" href="/tools/fan-radio/">
+    <div class="t-ico">&#127911;</div>
+    <h3>Fan Radio</h3>
+  </a>
+</div>
+
 <div class="qa-group-label">Where the output goes</div>
 <p class="qa-group-blurb">
   Approved images land in the client's gallery, commercials and radio spots save to
   their library, and ad copy attaches to the campaign it was written for. Anything
   produced here appears on that client's 360 record under &ldquo;Work for this client&rdquo;.
 </p>
+
+<style>
+/* Same grouping treatment as Client Tools and QA Reports -- the three index
+   pages should read as one product, not three different designs. */
+.qa-group-label{margin:24px 2px 8px;font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:1px;color:#64748b}
+.qa-group-label:first-of-type{margin-top:4px}
+.qa-group-blurb{margin:0 2px 12px;font-size:12.5px;color:#94a3b8}
+</style>
 {% endblock %}

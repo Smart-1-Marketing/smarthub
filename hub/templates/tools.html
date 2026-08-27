@@ -2,144 +2,109 @@
 {% block title %}Tools — Smart 1 Hub{% endblock %}
 {% block content %}
 {#
-  Group order follows the work: make it, publish it, then the setup underneath.
-  Every landing page lives in Landing Pages and nowhere else — they were listed
-  twice, once here and once under Client Work, and the two lists had already
-  drifted apart (Stadium to Screen existed only in the Client Work copy). A
-  tile in two places is a tile that gets updated in one.
+  Headline-only tiles, four across, same treatment as Creative. The paragraph
+  each tile used to carry is on the tool's own page; forty of them here made a
+  page nobody read past Client Work.
+
+  Group order follows the work: sell it, buy the media, write the content,
+  then the public pages and the setup underneath. Every landing page lives in
+  Landing Pages and nowhere else -- they were listed twice, once here and once
+  under Client Work, and the two lists had already drifted apart. A tile in
+  two places is a tile that gets updated in one.
+
+  Client Work is gone as a group rather than left half empty: the audits and
+  the matching reports moved to QA Reports, which is where somebody goes to
+  find what needs doing, and the documents moved to Sales.
 #}
 <div class="page-head"><h2>Tools {{ help_dot('hub.dashboard.tiles') if help_dot is defined else '' }}</h2><p>Everyday utilities — same login, no separate URLs</p></div>
+
 <div class="qa-group-label">Creative</div>
-<p class="qa-group-blurb">Images, video, audio and ad copy live on their own page —
+<p class="qa-group-blurb">Images, video and audio live on their own page —
   <a href="/creative">open Creative &rarr;</a></p>
+
 <div class="qa-group-label">Sales</div>
-<p class="qa-group-blurb">Quoting the work and booking it. Both also sit in the
-  sidebar under Sales, which is where people look for them &mdash; a proposal
-  becoming an insertion order is the end of the sales flow, not a utility.</p>
-<div class="tool-tiles">
+<p class="qa-group-blurb">Reading the business, quoting the work, booking it
+  and the documents that go with it. The first three also sit in the sidebar
+  under Sales, which is where people look for them &mdash; a proposal becoming
+  an insertion order is the end of the sales flow, not a utility.</p>
+<div class="tool-tiles compact">
+  {#
+    First in the group because it is what happens before a proposal: the audit
+    is the evidence a proposal is written from, and the Proposal Builder offers
+    to run one anyway if nobody did. test_website_audit.py asserts it is in
+    this group.
+  #}
   <a class="tool-tile" href="/tools/website-audit">
     <div class="t-ico">&#128269;</div>
     <h3>Website Audit</h3>
-    <p>Everything one site audit already knows about a business, starting with what
-      they are already spending. Pull it for a customer we have or type any website;
-      every audit run here is filed as a lead, and a finished one opens a proposal
-      with the discovery answers already in it. It offers to rescan when the reading
-      is over 60 days old.</p>
   </a>
   <a class="tool-tile" href="/sales/builder/">
     <div class="t-ico">&#128196;</div>
     <h3>Proposal Builder</h3>
-    <p>Build a client proposal from the real rate card &mdash; goals, target areas, products,
-      three packages &mdash; then send it as a branded PDF, file it on the client's record and
-      open the opportunity in Smart 1 Suite. Converts straight to an insertion order.
-      This replaces the separate builder that used to live at /sales/proposals.</p>
-  </a>
-  {#
-    No link inside this tile. The tile IS an <a>, and an <a> inside an <a> is
-    not something a browser can parse: it closes the outer anchor at the inner
-    one, so the rest of the description was no longer inside the tile at all —
-    it rendered outside the box, overflowing the card next to it. The whole
-    tile already goes to the Landing Page Maker; the Leads panel has its own
-    tile and its own sidebar entry.
-  #}
-  <a class="tool-tile" href="/sales/landing">
-    <div class="t-ico">&#128187;</div>
-    <h3>Landing Page Maker</h3>
-    <p>Build a campaign landing page from a saved proposal &mdash; client, products and
-      brand carried through. It leaves a section out rather than invent a review or an
-      offer, and leads land in the Leads panel.</p>
   </a>
   <a class="tool-tile" href="/tools/io/">
     <div class="t-ico">&#128221;</div>
     <h3>IO Builder</h3>
-    <p>Build an insertion order and submit it into Smart 1 Suite. Now inside the Hub
-      rather than a separate site, so it can look up a client from the registry and
-      prefill what we already know about them. Its URL stays /tools/io, so every
-      existing link keeps working.</p>
   </a>
-</div>
-<div class="qa-group-label">Paid Media</div>
-<p class="qa-group-blurb">Operating the campaigns themselves, inside the client's
-  own ad account. Everything this group writes is created paused.</p>
-<div class="tool-tiles">
-  <a class="tool-tile" href="/tools/ads/">
-    <div class="t-ico">&#128227;</div>
-    <h3>Smart 1 Ads</h3>
-    <p>An AI strategist builds a full search campaign from a client, a budget and a sector,
-      it goes through the approval hub, then reaches the client account one of two ways:
-      deployed through the API as one atomic mutate Google rolls back whole if any part fails,
-      or exported as a <b>Google Ads Editor</b> import, which needs no API access at all.
-      Either way it arrives <b>paused</b>. Live spend, clicks and CPA per campaign, with pause
-      and enable, once the API is connected.</p>
-  </a>
-</div>
-<div class="qa-group-label">Client Work</div>
-<p class="qa-group-blurb">Audits, creative, documents and client websites.</p>
-<div class="tool-tiles">
-  <a class="tool-tile" href="/scans/bulk">
-    <div class="t-ico">&#9776;</div>
-    <h3>Scan All Clients</h3>
-    <p>Audit every client with a website on file. Previews the credit cost, skips anything scanned recently, and caps each run before anything is spent.</p>
-  </a>
-  <a class="tool-tile" href="/tools/display-ads/_hub/start">
-    <div class="t-ico">&#127917;</div>
-    <h3>Display Ad Builder</h3>
-    <p>Build a full display package from a brand and a brief &mdash; every Google, Meta and Amazon size,
-      with copy, logo and imagery laid out to each platform&rsquo;s spec and squeezed to its file-weight
-      limit. Finished creative attaches to the client and lands in their gallery.</p>
+  {#
+    No link inside this tile. The tile IS an <a>, and an <a> inside an <a> is
+    not something a browser can parse: it closes the outer anchor at the inner
+    one. The Leads panel has its own sidebar entry.
+  #}
+  <a class="tool-tile" href="/sales/landing">
+    <div class="t-ico">&#128187;</div>
+    <h3>Landing Page Maker</h3>
   </a>
   <a class="tool-tile" href="/msa/" target="_blank">
     <div class="t-ico">&#128220;</div>
     <h3>Master Services Agreement</h3>
-    <p>Client signs the MSA online. Company details fill the document as they read it, and the signed PDF is saved against them in the Leads panel.</p>
   </a>
   <a class="tool-tile" href="/tools/pdf/">
     <div class="t-ico">&#128462;</div>
     <h3>PDF Optimizer</h3>
-    <p>Ghostscript + qPDF compression with three profiles (web &middot; high &middot; maximum). Keeps text searchable and never returns a bigger file.</p>
   </a>
-  <a class="tool-tile" href="/tools/sites-match">
-    <div class="t-ico">&#128279;</div>
-    <h3>Match Sites to Clients</h3>
-    <p>Links a domain to a client &mdash; and writes it to the client registry, their
-      Client 360 record, the Simvoly project and the Knack website record at once.
-      Starts with the orphan URLs: every website we hold that nobody is attached to.
-      Proposes matches; you accept them, singly or in bulk.</p>
+</div>
+
+<div class="qa-group-label">Media Tools</div>
+<p class="qa-group-blurb">Operating the campaigns themselves, and sizing them
+  before they exist. The four calculators here are the internal versions: the
+  whole plan on one screen, no contact form and no lead written &mdash; the
+  gated, client-facing copies are under Landing Pages.</p>
+<div class="tool-tiles compact">
+  <a class="tool-tile" href="/tools/ads/">
+    <div class="t-ico">&#128227;</div>
+    <h3>Smart 1 Ads</h3>
   </a>
-  <a class="tool-tile" href="/tools/google-match">
-    <div class="t-ico">&#128202;</div>
-    <h3>Match Google Accounts</h3>
-    <p>Every Analytics property, Tag Manager container and Search Console property we
-      can reach that no client is attached to &mdash; searchable, with whoever it might
-      belong to and why. Attaching writes the client record, the account index and the
-      Knack website record.</p>
+  <a class="tool-tile" href="/tools/calculators/internal/digital-audio">
+    <div class="t-ico">&#127911;</div>
+    <h3>Digital Audio Calculator</h3>
   </a>
-  <a class="tool-tile" href="/tools/campaign-assets">
-    <div class="t-ico">&#128230;</div>
-    <h3>Campaign Assets Needed</h3>
-    <p>Every campaign on an insertion order still waiting on a clarification or on
-      additional assets, read live from object_135 and grouped by media partner then
-      internal sales &mdash; so the chase is one list per partner rather than opening
-      IOs one at a time.</p>
+  <a class="tool-tile" href="/tools/calculators/internal/ctv">
+    <div class="t-ico">&#128250;</div>
+    <h3>Connected TV Calculator</h3>
   </a>
-  <a class="tool-tile" href="/tools/domains">
-    <div class="t-ico">&#128197;</div>
-    <h3>Domain Renewals</h3>
-    <p>Every domain Smart 1 bought for a client, by the month its renewal is billed,
-      with the media partner, the registrar and the fee. This month says whether
-      QuickBooks actually invoiced it; later months ask whether it should renew at
-      all. Year to date reconciles both ways &mdash; renewals nobody billed, and
-      renewal charges with no record here.</p>
+  <a class="tool-tile" href="/tools/calculators/internal/dooh">
+    <div class="t-ico">&#128253;</div>
+    <h3>DOOH Calculator</h3>
   </a>
-  <a class="tool-tile" href="/tools/tickets/">
-    <div class="t-ico">&#127915;</div>
-    <h3>Web Tickets</h3>
-    <p>Website change requests from Knack, normalised and reportable — what's open, what's stale, and per-client history.</p>
+  <a class="tool-tile" href="/tools/calculators/internal/trade">
+    <div class="t-ico">&#129309;</div>
+    <h3>IMS Calculator</h3>
   </a>
-  <a class="tool-tile" href="/tools/calculators/">
-    <div class="t-ico">&#128425;</div>
-    <h3>Media Calculators</h3>
-    <p>Digital Audio, CTV, DOOH, IMS Trade and Female 18&ndash;34. Publishable on a client page with a real server-side gate: headline numbers first, full detail only after a validated name, email and phone.</p>
+</div>
+
+<div class="qa-group-label">Content</div>
+<p class="qa-group-blurb">Copy and posting plans built from what the client
+  actually authorised &mdash; a price, a deadline or a phone number nobody
+  supplied is a blocking flag in both, not a suggestion.</p>
+<div class="tool-tiles compact">
+  <a class="tool-tile" href="/tools/gpt-ads/">
+    <div class="t-ico">&#129302;</div>
+    <h3>GPT Ads Builder</h3>
+  </a>
+  <a class="tool-tile" href="/tools/social/">
+    <div class="t-ico">&#128172;</div>
+    <h3>Social Content Planner</h3>
   </a>
 </div>
 
@@ -147,81 +112,71 @@
 <p class="qa-group-blurb">Public lead-capture pages, one per industry. Each is
   live on its own URL for embedding or linking, and every submission lands in
   the <a href="/sales/leads">Leads panel</a> with its report attached. The
-  first two tiles build new ones: a section of HTML for our own site, and an
-  embeddable scanner to drop on a client's.</p>
-<div class="tool-tiles">
+  first three build new ones: a section of HTML for our own site, an
+  embeddable scanner to drop on a client's, and the gated media calculators.</p>
+<div class="tool-tiles compact">
   <a class="tool-tile" href="/tools/site-blocks/">
     <div class="t-ico">&#129513;</div>
     <h3>Website Blocks</h3>
-    <p>Builds a landing-page section for smart1marketing.com in the same house style
-      as the pages below — hero, channel cards, stat band, packages, CTA. Copy the
-      HTML into the website, or download the whole page.</p>
   </a>
   {#
     Lives inside the Scans module because the placements, their runs and the
     pages they serve are all there -- but it is a lead-capture page you paste
     on a client's site, so this is where somebody looks for it. It was
     reachable only from inside Site Scans, which is not where anybody thinks
-    to go for a landing page.
+    to go for a landing page. test_scan_widgets.py asserts it is in this group.
   #}
   <a class="tool-tile" href="/scans/widgets">
     <div class="t-ico">&#128269;</div>
     <h3>Scan Widgets</h3>
-    <p>The embeddable AI-visibility scanner &mdash; a free five-second check a visitor
-      runs on their own website, with the rest of the findings behind a name, business,
-      email and phone. Build a placement per site, see how many leads each one has
-      produced, and pause, edit or delete it. Placements come in two kinds now:
-      the five-second AI check, and the full website audit, which asks the
-      customer what they sell and where their customers come from before it
-      shows them what it found.</p>
+  </a>
+  {#
+    The gated, publishable calculators -- headline numbers first, the rest of
+    the plan only after a validated name, email and phone. They are a landing
+    page that happens to do arithmetic, which is why they sit here rather than
+    beside the internal copies under Media Tools.
+  #}
+  <a class="tool-tile" href="/tools/calculators/">
+    <div class="t-ico">&#128425;</div>
+    <h3>Media Calculators</h3>
   </a>
   <a class="tool-tile" href="/land/boat/" target="_blank">
     <div class="t-ico">&#128676;</div>
     <h3>Boat Dealer Landing Page</h3>
-    <p>The public weather-marketing page for boat dealers, now running inside the Hub.
-      Leads land in the Leads panel with their report attached, tagged with the page.</p>
   </a>
   <a class="tool-tile" href="/land/hvac/" target="_blank">
     <div class="t-ico">&#127777;</div>
     <h3>HVAC Landing Page</h3>
-    <p>Market plan page for HVAC contractors. Leads land in the Leads panel with their report.</p>
   </a>
   <a class="tool-tile" href="/land/legal/" target="_blank">
     <div class="t-ico">&#9878;</div>
     <h3>Legal Landing Page</h3>
-    <p>Market plan page for law firms. Leads land in the Leads panel with their report.</p>
   </a>
   <a class="tool-tile" href="/land/recruit/" target="_blank">
     <div class="t-ico">&#128188;</div>
     <h3>Recruitment Landing Page</h3>
-    <p>Public market-plan page. Leads land in the Leads panel with their report.</p>
   </a>
   <a class="tool-tile" href="/land/restaurant/" target="_blank">
     <div class="t-ico">&#127860;</div>
     <h3>Restaurant Landing Page</h3>
-    <p>Public market-plan page. Leads land in the Leads panel with their report.</p>
   </a>
   <a class="tool-tile" href="/land/rv/" target="_blank">
     <div class="t-ico">&#128656;</div>
     <h3>RV Dealer Landing Page</h3>
-    <p>Seasonal demand plan for RV dealers. Leads land in the Leads panel with their proposal.</p>
   </a>
   <a class="tool-tile" href="/land/ski/" target="_blank">
     <div class="t-ico">&#127954;</div>
     <h3>Ski Resort Landing Page</h3>
-    <p>Market plan page for ski resorts. Leads land in the Leads panel with their report.</p>
   </a>
   {# Existed only in the old Client Work copy of this list. Carried across
      rather than lost with it -- the page is live and takes leads. #}
   <a class="tool-tile" href="/land/stadium/" target="_blank">
     <div class="t-ico">&#127944;</div>
     <h3>Stadium to Screen</h3>
-    <p>Sports-fan targeting page. Leads land in the Leads panel with their playbook.</p>
   </a>
   <a class="tool-tile" href="/land/tourism/" target="_blank">
     <div class="t-ico">&#127796;</div>
     <h3>Tourism Landing Page</h3>
-    <p>Seasonal marketing plan for attractions and lodging. Leads land in the Leads panel.</p>
   </a>
 </div>
 
@@ -232,43 +187,30 @@
   from the stored account index, so the lookup is instant and needs no Google
   call. What it cannot map is listed under
   <a href="/qa/google-accounts">QA &rarr; Google Accounts &amp; Mapping</a>.</p>
-<div class="tool-tiles">
+<div class="tool-tiles compact">
   <a class="tool-tile" href="/google/">
     <div class="t-ico">&#128269;</div>
     <h3>Google Finder</h3>
-    <p>Search every connected Google login at once &mdash; GA4 properties, Tag
-      Manager containers, Search Console properties and Business Profiles &mdash;
-      and jump straight into the right account.</p>
   </a>
   <a class="tool-tile" href="/google/ga-tools">
     <div class="t-ico">&#128200;</div>
     <h3>GA4 Tools</h3>
-    <p>Traffic, channels and period-over-period comparison for a client&rsquo;s
-      Analytics property, with the anomaly check and the written monthly summary.</p>
   </a>
   <a class="tool-tile" href="/google/gtm-tools">
     <div class="t-ico">&#127991;</div>
     <h3>GTM Tools</h3>
-    <p>Inspect a container&rsquo;s tags, triggers and variables, generate the events
-      a site is missing, and deploy an event or a pixel without leaving the Hub.</p>
   </a>
   <a class="tool-tile" href="/google/webmaster-tools">
     <div class="t-ico">&#128421;</div>
     <h3>Webmaster Tools</h3>
-    <p>Search Console rows for a client&rsquo;s property, and the bulk add that
-      registers a batch of sites in one pass.</p>
   </a>
   <a class="tool-tile" href="/google/gmb-tools">
     <div class="t-ico">&#128205;</div>
     <h3>Business Profile</h3>
-    <p>The client&rsquo;s Google Business Profile listings, whether each is claimed
-      and verified, and what address Google is showing.</p>
   </a>
   <a class="tool-tile" href="/google/history">
     <div class="t-ico">&#128220;</div>
     <h3>Google History &amp; Logs</h3>
-    <p>What the Hub has deployed or changed in a client&rsquo;s Google properties,
-      and the saved reports it has written.</p>
   </a>
 </div>
 
@@ -276,31 +218,25 @@
 <p class="qa-group-blurb">Getting connected to a client's systems, and the
   house-keeping that decides what the rest of the Hub can see: which sites we
   run ourselves, and how campaign URLs are spelled.</p>
-<div class="tool-tiles">
+<div class="tool-tiles compact">
   <a class="tool-tile" href="/tools/google-access/">
     <div class="t-ico">&#128273;</div>
     <h3>Google Access</h3>
-    <p>Send a client one link. They sign in with Google once and Smart 1 lands on their Analytics, Tag Manager, Business Profile and Search Console &mdash; no password ever changes hands.</p>
   </a>
   <a class="tool-tile" href="/tools/seo-images/house">
     <div class="t-ico">&#127968;</div>
     <h3>House URLs</h3>
-    <p>The sites we run in house. No products on the books, but they get the same
-      tooling &mdash; adding one here makes it selectable anywhere the Hub asks which
-      client something belongs to.</p>
   </a>
   <a class="tool-tile" href="/tools/utm/">
     <div class="t-ico">&#128279;</div>
     <h3>UTM Builder</h3>
-    <p>Tagged campaign URLs filed against the client and the product they belong to. One editable list of
-      sources and mediums keeps spelling consistent, and bulk build makes every placement at once.</p>
   </a>
 </div>
 
 <style>
-/* Same grouping treatment as QA Reports — the two index pages should read as
-   one product, not two different designs. */
-.qa-group-label{grid-column:1 / -1;margin:24px 2px 2px;font-size:11px;font-weight:700;
+/* Same grouping treatment as QA Reports — the index pages should read as
+   one product, not three different designs. */
+.qa-group-label{grid-column:1 / -1;margin:24px 2px 8px;font-size:11px;font-weight:700;
   text-transform:uppercase;letter-spacing:1px;color:#64748b}
 .qa-group-label:first-of-type{margin-top:4px}
 .qa-group-blurb{grid-column:1 / -1;margin:0 2px 12px;font-size:12.5px;color:#94a3b8}
