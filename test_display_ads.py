@@ -500,14 +500,20 @@ def test_the_column_collapses_and_explains_itself_in_bubbles():
 
 
 def test_the_nav_starts_collapsed_on_the_builder():
-    """It is a three-column bench and the nav takes a fifth of it."""
+    """It is a three-column bench and the nav takes a fifth of it — and so is
+    every other creative tool, which is why the answer is one function rather
+    than a prefix test written out at each of the three renderers."""
+    from hub.sidebar import collapses_by_default
     sidebar = (ROOT / "hub" / "sidebar.py").read_text()
-    hub = (ROOT / "hub" / "__init__.py").read_text()
     check("the sidebar accepts a page default", "collapsed_default" in sidebar)
     check("a stored preference still wins",
           "sv==='1'||(sv===null&&window.__s1hubCollapseDefault)" in sidebar)
     check("and the builder asks for it",
-          'collapsed_default=path.startswith("/tools/display-ads")' in hub)
+          collapses_by_default("/tools/display-ads/_hub/start"))
+    check("...as does its front page",
+          collapses_by_default("/tools/display-ads"))
+    check("a page that is not a workbench does not",
+          not collapses_by_default("/client360"))
 
 
 def test_the_site_scan_is_read_for_what_it_knows():

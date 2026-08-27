@@ -16,7 +16,7 @@ later is covered by having been named in it rather than by somebody
 remembering a decorator.
 
 Prefix matching is on path segments, not on `startswith` alone: `/statuses`
-must not be gated because `/status` is. `_matches()` is what makes that true,
+must not be gated because `/status` is. `path_matches()` is what makes that true,
 and it is the whole reason this is a function rather than a `startswith`
 inline at the call site.
 
@@ -79,12 +79,17 @@ UTILITY_EXEMPT = (
 SECTION_LABEL = "Utilities"
 
 
-def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
+def path_matches(path: str, prefixes: tuple[str, ...]) -> bool:
     """True when ``path`` is one of ``prefixes`` or sits underneath one.
 
     Segment-aware on purpose: `/statuses` is not `/status`, and a plain
     `startswith` would gate a route nobody meant to gate — silently, and only
     for the half of the company that cannot then say what broke.
+
+    Public because it is not only the access rule any more: `hub/sidebar.py`
+    asks the same question of its own prefix list, and a second copy of
+    segment matching is how one of the two comes to accept `/toolsy` a year
+    from now with nothing on either screen saying which is right.
     """
     path = "/" + (path or "").strip("/")
     for prefix in prefixes:
@@ -94,9 +99,9 @@ def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
 
 
 def is_utility(path: str) -> bool:
-    if _matches(path, UTILITY_EXEMPT):
+    if path_matches(path, UTILITY_EXEMPT):
         return False
-    return _matches(path, UTILITY_PREFIXES)
+    return path_matches(path, UTILITY_PREFIXES)
 
 
 def may_view(path: str, is_admin: bool) -> bool:

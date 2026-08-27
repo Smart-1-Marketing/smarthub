@@ -165,7 +165,7 @@ def create_hub_app() -> Flask:
     @app.context_processor
     def _inject_sidebar():
         """Expose the one shared nav to hub templates."""
-        from .sidebar import render_sidebar
+        from .sidebar import render_sidebar, collapses_by_default
 
         def hub_sidebar(active=""):
             try:
@@ -181,7 +181,16 @@ def create_hub_app() -> Flask:
             except Exception:  # noqa: BLE001
                 pass
             try:
-                return render_sidebar(active or "", is_admin=viewer_is_admin()).decode()
+                # The same one decision the injector makes. base.html calls
+                # this global directly, so a hub page rendering its own nav
+                # has to reach the same answer or a tool would behave one way
+                # through its template and another through the injector.
+                try:
+                    collapsed = collapses_by_default(request.path)
+                except Exception:  # noqa: BLE001
+                    collapsed = False
+                return render_sidebar(active or "", is_admin=viewer_is_admin(),
+                                      collapsed_default=collapsed).decode()
             except Exception:  # noqa: BLE001 — nav must never break a page
                 return ""
         return {"hub_sidebar": hub_sidebar}
@@ -5172,16 +5181,19 @@ def create_hub_app() -> Flask:
                 return resp                      # already has one
             if b"</body>" not in body:
                 return resp                      # a fragment, not a page
-            from .sidebar import render_sidebar
-            # A tool that is itself a full-width workbench opens with the nav
-            # as an icon rail. The Display Ad Builder is a three-column bench
-            # -- controls, canvas, size rail -- and the nav takes a fifth of
-            # the screen it needs. A stored preference still wins, so this is
-            # a starting point rather than the page overruling anybody.
+            from .sidebar import render_sidebar, collapses_by_default
+            # A creative tool is itself a full-width workbench and opens with
+            # the nav as an icon rail. The Display Ad Builder is a
+            # three-column bench -- controls, canvas, size rail -- and every
+            # other creative tool wants the same room for the same reason,
+            # which is why the list lives in hub/sidebar.py and all three
+            # renderers of the nav read it. A stored preference still wins,
+            # so this is a starting point rather than the page overruling
+            # anybody.
             bar = render_sidebar(_MOUNT_ACTIVE_HUB.get(
                 "/" + path.strip("/").split("/")[0], ""),
                 is_admin=viewer_is_admin(),
-                collapsed_default=path.startswith("/tools/display-ads"))
+                collapsed_default=collapses_by_default(path))
             # The help/demo/autofill layer has to come with the sidebar. It
             # was injected by HubBar for dispatcher-mounted modules and by
             # base.html for hub pages, which left blueprint-registered pages
