@@ -23,11 +23,21 @@
   <a href="/creative">open Creative &rarr;</a></p>
 
 <div class="qa-group-label">Sales</div>
-<p class="qa-group-blurb">Quoting the work, booking it and the documents that
-  go with it. The first two also sit in the sidebar under Sales, which is where
-  people look for them &mdash; a proposal becoming an insertion order is the end
-  of the sales flow, not a utility.</p>
+<p class="qa-group-blurb">Reading the business, quoting the work, booking it
+  and the documents that go with it. The first three also sit in the sidebar
+  under Sales, which is where people look for them &mdash; a proposal becoming
+  an insertion order is the end of the sales flow, not a utility.</p>
 <div class="tool-tiles compact">
+  {#
+    First in the group because it is what happens before a proposal: the audit
+    is the evidence a proposal is written from, and the Proposal Builder offers
+    to run one anyway if nobody did. test_website_audit.py asserts it is in
+    this group.
+  #}
+  <a class="tool-tile" href="/tools/website-audit">
+    <div class="t-ico">&#128269;</div>
+    <h3>Website Audit</h3>
+  </a>
   <a class="tool-tile" href="/sales/builder/">
     <div class="t-ico">&#128196;</div>
     <h3>Proposal Builder</h3>

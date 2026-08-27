@@ -250,3 +250,60 @@ def match_quality(matched: list[dict], total_voices: int) -> str:
         return ("The closest voices matched nothing you asked for — preview them "
                 "before casting.")
     return "Ranked on " + ", ".join(top["match_reasons"]) + "."
+
+
+# ---------------------------------------------------------------------------
+# The question, with the scoring shown.
+#
+# A picker built from CHARACTERISTICS alone gives somebody five dropdowns and
+# no idea what any answer will do. What the ranking actually does is match
+# words against the description and use-case text ElevenLabs publishes on each
+# voice -- so the honest way to make that pickable is to show the words.
+# "Announcer" is not a mood here; it is a search for "announcer, commercial,
+# broadcast, promo" in the voice's own labels, and a screen that says so lets
+# somebody pick a different one when none of those words fit their client.
+#
+# Energy carries a number as well, because it is the one characteristic that
+# does more than rank: STYLE_BY_ENERGY is sent to ElevenLabs as the `style`
+# setting on the render, so the choice changes the read and not just the
+# shortlist. That is what makes an amplitude worth drawing for it -- and why
+# nothing is drawn for gender, age or accent, where a glyph would assert
+# something the tool does not know.
+# ---------------------------------------------------------------------------
+def characteristics_detail() -> list[dict]:
+    """CHARACTERISTICS, with what each option matches on and what it sends."""
+    out = []
+    for row in CHARACTERISTICS:
+        options = []
+        for option in row["options"]:
+            entry = dict(option)
+            if row["id"] == "energy":
+                entry["matches"] = list(ENERGY_WORDS.get(option["id"], []))
+                # 0..1, and it is literally the `style` value on the render.
+                entry["style"] = STYLE_BY_ENERGY.get(option["id"])
+            elif row["id"] == "delivery":
+                entry["matches"] = list(DELIVERY_WORDS.get(option["id"], []))
+            elif row["id"] == "accent" and option["id"] != "any":
+                entry["matches"] = list(ACCENT_ALIASES.get(option["id"], []))
+            else:
+                entry["matches"] = []
+            options.append(entry)
+        out.append({"id": row["id"], "label": row["label"], "help": row.get("help", ""),
+                    "options": options,
+                    # Only energy and delivery are scored from free text; the
+                    # rest read one published label field. Saying which is how
+                    # somebody understands why an unlabelled account ranks flat.
+                    "scored_on": ("description text" if row["id"] in ("energy", "delivery")
+                                  else "the voice's published labels")})
+    return out
+
+
+def asked_count(want: dict | None) -> int:
+    """How many characteristics were actually asked for.
+
+    "any" is not a question, so a voice that matched two things out of two
+    asked has matched everything -- and reporting it as "2 of 5" would read as
+    a poor result. This is the denominator a screen should print.
+    """
+    want = normalise_want(want)
+    return sum(1 for key in CHARACTERISTIC_IDS if want.get(key) not in (None, "", "any"))

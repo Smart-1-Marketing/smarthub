@@ -63,6 +63,13 @@ WORK_KINDS = {
     # a client nobody has done any work for. That is the `display_ads`
     # failure above, one tool later.
     "ad_copy":              ("Ad copy request", "Ad Copy Request"),
+    # A website audit run for a client is work filed against them: somebody
+    # spent a credit reading their site and the answer is what the next
+    # proposal is written from. Named here as well as declared to the activity
+    # log, because `work_log()` skips a module its own table cannot name and a
+    # skipped module reads on the record as a client nobody has done any work
+    # for -- the `display_ads` failure, two tools later.
+    "website_audit":        ("Website audit", "Website Audit"),
 }
 
 

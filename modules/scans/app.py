@@ -187,6 +187,48 @@ for _metadata in (Base.metadata,
     if _err and not DB_BOOT_ERROR:
         DB_BOOT_ERROR = _err
 
+# Columns added to the widget tables after they first shipped. `create_all()`
+# creates missing tables and never adds a column to an existing one, so on the
+# live Postgres these would be silently absent while every local test passed --
+# the trap CLAUDE.md names at length. Asked-then-added rather than fired
+# blindly, because the columns are declared on the models too: on a fresh
+# database create_all() has already put them there, and firing unconditionally
+# means two workers printing a Postgres ERROR per column on every deploy, which
+# is how a log stops being one anybody finds the real error in. The inspector
+# answers the same on SQLite and Postgres, which `ADD COLUMN IF NOT EXISTS`
+# does not.
+_LATE_WIDGET_COLUMNS = [
+    ("scan_widgets", "kind", "VARCHAR(16)"),
+    ("scan_widget_runs", "kind", "VARCHAR(16)"),
+    ("scan_widget_runs", "intake_json", "TEXT"),
+]
+
+
+def _add_missing_columns() -> None:
+    from sqlalchemy import inspect as _inspect, text as _text
+    engine = shared_engine()
+    inspector = _inspect(engine)
+    for table, column, coltype in _LATE_WIDGET_COLUMNS:
+        try:
+            have = {c["name"] for c in inspector.get_columns(table)}
+        except Exception:                               # noqa: BLE001
+            continue                                    # no table: nothing to alter
+        if column in have:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(_text(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
+        except Exception:                               # noqa: BLE001
+            pass                                        # raced by the other worker
+
+
+if not DB_BOOT_ERROR:
+    try:
+        _add_missing_columns()
+    except Exception as _mc_exc:                        # noqa: BLE001
+        DB_BOOT_ERROR = DB_BOOT_ERROR or f"{type(_mc_exc).__name__}: {_mc_exc}"
+
 # Serialises the duplicate-check-then-insert in api_new_scan so a double-click
 # can't spend two Insites credits on the same domain.
 _LOCK = threading.Lock()
@@ -1377,6 +1419,36 @@ def _widget_config(db, slug: str):
     return w.as_row(PUBLIC_BASE_URL)
 
 
+def _widget_template(cfg: dict) -> str:
+    """Which page a placement serves. Two kinds, two templates.
+
+    Not one template with a branch in it: the two ask the visitor for
+    different things in a different order, and a page that is half one form
+    and half the other is how a required question ends up rendered but never
+    read.
+    """
+    return ("widget_audit.html" if cfg.get("kind") == "audit"
+            else "widget.html")
+
+
+def _intake_questions(cfg: dict) -> list:
+    """The questions an audit placement asks, straight from the one list.
+
+    `hub/website_audit.py` owns them, so the customer form, the staff form and
+    the proposal prefill cannot disagree about what was asked. An import that
+    fails costs the extra questions and not the widget — the contact fields
+    are what makes it a lead.
+    """
+    if cfg.get("kind") != "audit":
+        return []
+    try:
+        from hub.website_audit import questions
+        return questions("customer")
+    except Exception:                                   # noqa: BLE001
+        app.logger.exception("audit intake questions unavailable")
+        return []
+
+
 def _base_url() -> str:
     return PUBLIC_BASE_URL or request.url_root.rstrip("/")
 
@@ -1398,7 +1470,8 @@ def widget_page(slug):
         db.close()
     if cfg is None:
         return "This scan isn't available.", 404
-    return render_template("widget.html", w=cfg, embedded=False,
+    return render_template(_widget_template(cfg), w=cfg, embedded=False,
+                           intake=_intake_questions(cfg),
                            source=request.args.get("src", ""))
 
 
@@ -1412,7 +1485,9 @@ def widget_embed(slug):
         db.close()
     if cfg is None:
         return "This scan isn't available.", 404
-    resp = make_response(render_template("widget.html", w=cfg, embedded=True,
+    resp = make_response(render_template(_widget_template(cfg), w=cfg,
+                                         embedded=True,
+                                         intake=_intake_questions(cfg),
                                          source=request.args.get("src", "")))
     # Framed on other people's domains by design, so the default SAMEORIGIN
     # rules have to be relaxed for this route and no other.
@@ -1575,7 +1650,11 @@ def _capture_lead(row, cfg) -> None:
     if hub_leads is None:
         return
     pdf_url = ""
-    if row.scan_public_id:
+    # Only the AI-visibility placement has a PDF. The audit report is a page,
+    # and pointing a lead at `/r/<token>.pdf` for an audit run would hand
+    # somebody the SEO & AEO document instead -- a different report under the
+    # link that promises this one, which is worse than no link at all.
+    if row.scan_public_id and widget_state.kind_of(getattr(row, "kind", "")) != "audit":
         pdf_url = f"{_base_url()}/scans/r/{row.token}.pdf"
     try:
         pre = json.loads(row.precheck_json or "{}")
@@ -1583,21 +1662,39 @@ def _capture_lead(row, cfg) -> None:
         pre = {}
     issues = [f["label"] for f in pre.get("findings", [])
               if f.get("state") == "bad"][:5]
+    fields = {
+        "name": row.name, "email": row.email, "phone": row.phone,
+        "company": row.company,
+        "website": row.site_url or row.domain,
+        "ai_visibility_score": row.precheck_score,
+        "top_issues": "; ".join(issues),
+        "source_page": row.source or "",
+    }
+    # What the business itself answered on an audit placement. Flat strings,
+    # because hub.leads cleans and truncates every value and a nested one
+    # would arrive in the Suite as the repr of a dict. Only what was actually
+    # answered goes on: a key written empty reads in the CRM as a question
+    # asked and answered "nothing".
+    if widget_state.kind_of(getattr(row, "kind", "")) == "audit":
+        fields.pop("ai_visibility_score", None)
+        fields.pop("top_issues", None)
+        try:
+            for key, value in (json.loads(row.intake_json or "{}") or {}).items():
+                if value:
+                    fields[key] = value
+        except (TypeError, ValueError):
+            pass
     try:
         result = hub_leads.capture_and_deliver(
-            source="scan_widget",
+            source=("website_audit"
+                    if widget_state.kind_of(getattr(row, "kind", "")) == "audit"
+                    else "scan_widget"),
             page=row.tag or row.widget_slug or "scan",
-            fields={
-                "name": row.name, "email": row.email, "phone": row.phone,
-                "company": row.company,
-                "website": row.site_url or row.domain,
-                "ai_visibility_score": row.precheck_score,
-                "top_issues": "; ".join(issues),
-                "source_page": row.source or "",
-            },
+            fields=fields,
             pdf_url=pdf_url,
             client=row.company or "",
             meta={"widget": row.widget_slug or "", "tag": row.tag or "",
+                  "kind": widget_state.kind_of(getattr(row, "kind", "")),
                   "domain": row.domain or "",
                   "scan_public_id": row.scan_public_id or "",
                   "report_url": (f"{_base_url()}/scans/r/{row.token}"
@@ -1679,6 +1776,97 @@ def api_widget_unlock(slug):
         db.close()
 
 
+@app.route("/api/w/<slug>/audit", methods=["POST"])
+def api_widget_audit(slug):
+    """The full-audit placement, in one step.
+
+    The AI-visibility widget is two steps because the first one is free and
+    instant: a five-second pre-check earns the right to ask for a name. A full
+    audit has no such teaser — there is nothing to show a stranger before an
+    Insites credit has been spent — so this asks once, for the contact *and*
+    the handful of answers a crawler cannot get at, and starts the audit
+    behind it.
+
+    The order is deliberate and is the same one the other widget uses: the
+    **lead is filed first**, because a lead is a lead whether or not Insites
+    ever answers, and a business that has just told us what they sell must not
+    be lost to a provider timeout. The audit attaches to the row when it
+    lands.
+    """
+    if DB_BOOT_ERROR:
+        return jsonify({"ok": False, "error": "The audit is temporarily "
+                                              "unavailable."}), 503
+    body = request.get_json(silent=True) or {}
+    # Honeypot, answered 200 so a bot learns nothing from the difference.
+    if (body.get("company_url") or "").strip():
+        return jsonify({"ok": True, "token": "", "scan": {"status": "queued"}})
+
+    if not _precheck_allowed():
+        return jsonify({"ok": False, "error": "That's a lot of audits from one "
+                                              "place. Give it a few minutes."}), 429
+
+    db = SessionLocal()
+    try:
+        cfg = _widget_config(db, slug)
+        if cfg is None or cfg.get("kind") != "audit":
+            return jsonify({"ok": False,
+                            "error": "This audit isn't available."}), 404
+
+        domain = widget.normalise_domain(body.get("domain") or "")
+        contact, intake, errors = widget_state.validate_audit(body)
+        if not domain:
+            errors["domain"] = ("Enter the address of the website, like "
+                                "example.com.")
+        if errors:
+            return jsonify({"ok": False, "errors": errors,
+                            "error": "Check the highlighted fields."}), 400
+
+        if hub_leads is not None:
+            allowed, wait = hub_leads.rate_check(client_ip())
+            if not allowed:
+                return jsonify({"ok": False, "error":
+                                "Too many submissions from one place. Try "
+                                f"again in about {max(1, wait // 60)} "
+                                "minutes."}), 429
+
+        row = widget_state.ScanRun(
+            token=widget_state.new_token(),
+            widget_slug=slug, tag=cfg["tag"], kind="audit",
+            created_at=_now(), unlocked_at=_now(),
+            name=contact["name"], email=contact["email"],
+            phone=contact["phone"], company=contact["company"],
+            domain=domain[:255], site_url=f"https://{domain}"[:500],
+            source=_text(body.get("source") or request.referrer or "", 300),
+            ip=client_ip(),
+            user_agent=_text(request.headers.get("User-Agent", ""), 300),
+            intake_json=json.dumps(intake),
+            scan_status="pending")
+        db.add(row)
+        db.commit()
+        _log("widget_audit_request", detail=domain, widget=slug,
+             client=row.company or None)
+
+        # The credit is spent here and nowhere earlier, and the lead is filed
+        # after the audit is started so the filed lead can carry its link.
+        _start_widget_scan(db, row)
+        db.refresh(row)
+        _capture_lead(row, cfg)
+        db.commit()
+
+        return jsonify({
+            "ok": True, "token": row.token, "domain": domain,
+            "scan": {"status": row.scan_status or "pending",
+                     "reused": bool(row.scan_reused)},
+            "report_url": f"/scans/r/{row.token}",
+            "note": ("We already had a recent audit of this website, so yours "
+                     "is ready now." if row.scan_reused else
+                     "We are reading the website now — it usually takes a "
+                     "minute or two."),
+        })
+    finally:
+        db.close()
+
+
 @app.route("/api/w/<slug>/status")
 def api_widget_status(slug):
     """Step 3 — has the paid audit landed yet? Polled by the widget."""
@@ -1726,11 +1914,59 @@ def _lead_report(db, token: str):
         return None, row
 
 
+def _audit_view(row):
+    """The audit as a customer reads it, or None if it is not ready.
+
+    Built through `hub/website_audit.py` — the same reading of the same audit
+    the Hub's own Website Audit tool and Client 360 show, so a prospect and a
+    rep cannot be looking at two different answers about one website. What is
+    on the customer's page is a *subset* decided here rather than a second
+    description of the audit: the spend block, what is worth fixing and the
+    reference groups. The discovery mapping and the proposal prefill stay on
+    our side of the wall — they are the reason to call, and handing them over
+    for an email address gives that away, which is the same line
+    `_lead_report` draws for the other placement.
+    """
+    if not row.scan_public_id:
+        return None
+    try:
+        from hub import website_audit
+        intake = json.loads(row.intake_json or "{}") or {}
+    except Exception:                                   # noqa: BLE001
+        app.logger.exception("audit view unavailable")
+        return None
+    try:
+        payload = website_audit.audit(row.domain or "", intake=intake)
+    except Exception:                                   # noqa: BLE001
+        app.logger.exception("audit view build failed")
+        return None
+    if not payload.get("found"):
+        return None
+    # Stripped here rather than left to the template. A subset a renderer
+    # merely happens not to print is one the next renderer prints: the
+    # discovery mapping and the prefill are the reason to call, and handing
+    # them over for an email address gives that away.
+    payload.pop("discovery", None)
+    payload.pop("discovery_note", None)
+    return payload
+
+
 @app.route("/r/<token>")
 def widget_report(token):
     """The converted lead's own report, on an unguessable link."""
     db = SessionLocal()
     try:
+        row = _run_by_token(db, token)
+        if row is None or row.unlocked_at is None:
+            return "That report link isn't valid.", 404
+        if widget_state.kind_of(getattr(row, "kind", "")) == "audit":
+            payload = _audit_view(row)
+            if payload is None:
+                return render_template("widget_waiting.html",
+                                       lead=row.as_row(),
+                                       status=row.scan_status or "pending")
+            return render_template("widget_audit_report.html", a=payload,
+                                   token=token, lead=row.as_row())
         r, row = _lead_report(db, token)
         if row is None:
             return "That report link isn't valid.", 404
@@ -1748,6 +1984,12 @@ def widget_report_pdf(token):
     """The same report as a PDF the lead can keep or forward."""
     db = SessionLocal()
     try:
+        run = _run_by_token(db, token)
+        if run is not None and widget_state.kind_of(getattr(run, "kind", "")) == "audit":
+            # Said rather than 404'd: the audit is a page, and somebody who
+            # guessed this address should be told where the document is.
+            return ("The website audit is a page rather than a PDF — open "
+                    f"/scans/r/{token} and print it from there."), 404
         r, row = _lead_report(db, token)
         if r is None:
             return "That report isn't ready yet.", 404
@@ -1806,6 +2048,7 @@ def widgets_page():
             "widgets.html",
             widgets=widgets, stats_error=stats_error,
             base_url=_base_url(), defaults=widget_state.DEFAULTS,
+            kinds=widget_state.KINDS,
             reuse_days=REUSE_DAYS,
             # The Hub picks the route; the widget has none of its own. Ask what
             # it resolved to rather than for a webhook URL that no longer
@@ -1856,9 +2099,24 @@ def api_widget_save():
                              f"address /{slug}. Open it and press Edit, or "
                              f"give this one a different name.",
                     "slug": slug}), 409
-            w = widget_state.ScanWidget(slug=slug, created_at=_now(),
-                                        created_by=actor_name()[:120])
+            w = widget_state.ScanWidget(
+                slug=slug, created_at=_now(),
+                kind=widget_state.kind_of(body.get("kind")),
+                created_by=actor_name()[:120])
             db.add(w)
+
+        # The kind is fixed at creation, for the same reason the address is:
+        # both are in the three lines of embed code already pasted on somebody
+        # else's website. Changing the kind swaps what a live placement serves
+        # a visitor -- an AI check becomes a form asking what they sell -- and
+        # reads here as a successful save.
+        if editing and body.get("kind") \
+                and widget_state.kind_of(body["kind"]) != widget_state.kind_of(w.kind):
+            return jsonify({
+                "error": "A placement's kind cannot be changed. The embed on "
+                         "the client's site would start serving a different "
+                         "form to the same visitors. Create a new placement "
+                         "and pause this one."}), 409
 
         tag = widget_state.slugify(body.get("tag") or slug)
         w.name = name[:200]

@@ -179,7 +179,11 @@ def voice(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     return render_template(
         "commercial_voice.html", project=project, client=project.client,
-        music_moods=MUSIC_MOODS, music_levels=list(MUSIC_LEVELS.keys()),
+        music_moods=MUSIC_MOODS,
+        # The dB pair, not just the label. The level picker draws what ducking
+        # actually does -- bed level and ducked level -- and it can only draw
+        # the real numbers if it is given them.
+        music_levels=MUSIC_LEVELS,
         voice_styles=VOICE_STYLES, wizard=_wizard(project, "voice"),
     )
 

@@ -206,6 +206,50 @@ class RenderJob(db.Model):
         }
 
 
+class RenderApproval(db.Model):
+    """A human said this rendered cut is good, and where it was filed.
+
+    Its own table rather than columns on `cb_render_jobs`, because
+    `create_all()` creates missing TABLES and never adds a column to an
+    existing one — an `approved_by` column here would exist on every local
+    SQLite run and be silently absent on the live Postgres, with every test
+    green and every read of it None. `hub_user_profiles` and the presence
+    table are here for the same reason.
+
+    What it records is deliberately more than a boolean. Approving files the
+    finished video in two places — the client's Cloudinary library and the
+    Hub's activity log, which is what puts it on Client 360 — and those can
+    succeed separately. `hub/domain_links.py` says at length why one tick over
+    two writes is how somebody learns not to trust the tick, so each is
+    recorded and each is reported.
+    """
+    __tablename__ = "cb_render_approvals"
+
+    id = db.Column(db.Integer, primary_key=True)
+    render_job_id = db.Column(db.Integer, db.ForeignKey("cb_render_jobs.id"),
+                              nullable=False, unique=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id"), nullable=False)
+    approved_by = db.Column(db.String(200))
+    approved_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Where it landed. Empty means that write did not happen, which is a
+    # different answer from "it was never approved".
+    stored_url = db.Column(db.String(600))
+    stored_public_id = db.Column(db.String(300))
+    filed_to_client = db.Column(db.Boolean, default=False)
+    filing_error = db.Column(db.Text)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "render_job_id": self.render_job_id,
+            "project_id": self.project_id, "approved_by": self.approved_by,
+            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+            "stored_url": self.stored_url, "stored_public_id": self.stored_public_id,
+            "filed_to_client": bool(self.filed_to_client),
+            "filing_error": self.filing_error or "",
+        }
+
+
 class Campaign(db.Model):
     """Groups multiple length/aspect-ratio commercials under one master concept (spec section 15)."""
     __tablename__ = "cb_campaigns"
