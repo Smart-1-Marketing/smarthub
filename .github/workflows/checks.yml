@@ -928,5 +928,13 @@ jobs:
       # a client, a push failure that read as scheduled, a client-facing page
       # behind the staff login, or the copy checks blocking the client's own
       # offer because nobody told them the client had supplied it.
+      #
+      # Safe to run twice: it *sets* DATABASE_URL, HUB_DATA_DIR and
+      # AUDIT_LOG_PATH rather than setdefault-ing them, so it never inherits
+      # this job's Postgres. That is the trap named beside test_target_areas.py
+      # above -- jsonstore mirrors every write into the database and restores
+      # on a miss, so a second run would find the first run's requests and
+      # ideas restored into its fresh temporary directory and fail on the
+      # counts. Reproduced before it was fixed, and both runs are green now.
       - name: Content requests, ideas and the Suite push
         run: python3 test_social_content.py

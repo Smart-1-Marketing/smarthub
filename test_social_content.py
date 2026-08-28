@@ -51,10 +51,21 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
 _TMP = tempfile.mkdtemp(prefix="s1-social-content-")
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(_TMP, "t.db"))
-os.environ.setdefault("SECRET_KEY", "social-content-test")
-os.environ.setdefault("PANEL_PASSWORD", "test")
-os.environ.setdefault("HUB_DATA_DIR", _TMP)
+# SET rather than setdefault, deliberately, so this file is safe to run twice.
+# `hub/jsonstore.py` mirrors every write into the database and restores on a
+# miss, so a run that inherited CI's shared Postgres would find the *previous*
+# run's requests, locations and ideas restored into its fresh temporary
+# directory — and the counts here ("both of this client's requests are in
+# their queue") would fail with somebody else's rows in them. That is the
+# hazard `.github/workflows/checks.yml` spells out beside test_target_areas.py
+# after two lineages each added a step for it and git merged both cleanly.
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
+os.environ["SECRET_KEY"] = "social-content-test"
+os.environ["PANEL_PASSWORD"] = "test"
+os.environ["HUB_DATA_DIR"] = _TMP
+# The activity log is append-only JSONL outside jsonstore; left pointing at a
+# shared path it would grow a line per run of this file in somebody else's log.
+os.environ["AUDIT_LOG_PATH"] = os.path.join(_TMP, "audit.jsonl")
 
 PASS = FAIL = 0
 
