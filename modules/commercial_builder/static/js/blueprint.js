@@ -207,7 +207,7 @@
 
     const note = node.querySelector(".spokesperson-note");
     if (pending) {
-      note.innerHTML = '<span class="cb-spinner"></span> Presenter clip is rendering at HeyGen. '
+      note.innerHTML = '<span class="cb-spinner" data-s1-think="ai"></span> Presenter clip is rendering at HeyGen. '
         + 'This takes a few minutes — you can leave this page and come back.';
     } else if (job && job.status === "failed") {
       note.textContent = `Presenter clip failed: ${job.error || "HeyGen reported no reason."}`;
@@ -228,7 +228,7 @@
     const vjob = (scene.asset_meta || {}).runway_job;
     if (runwayPending(scene)) {
       badge.textContent = "Video generating…";
-      note.innerHTML = '<span class="cb-spinner"></span> Runway is animating this frame. '
+      note.innerHTML = '<span class="cb-spinner" data-s1-think="ai"></span> Runway is animating this frame. '
         + 'A few minutes — you can leave this page and come back.';
       watchVideo(scene.id);
     } else if (vjob && vjob.status === "failed" && !(scene.asset_meta || {}).runway_url) {
@@ -520,7 +520,7 @@
         }
         cell.addEventListener("click", async () => {
           picker.innerHTML = '<div class="cb-card" style="margin-top:10px;padding:12px;">'
-            + '<span class="cb-spinner"></span> Sending the narration to HeyGen…</div>';
+            + '<span class="cb-spinner" data-s1-think="ai"></span> Sending the narration to HeyGen…</div>';
           try {
             await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/spokesperson`, {
               method: "POST",
@@ -655,7 +655,10 @@
 
   async function expandNarration(sceneIndex, btn) {
     const label = btn ? btn.textContent : "";
-    if (btn) { btn.disabled = true; btn.textContent = "Writing…"; }
+    var wBusy = (btn && window.S1Think)
+      ? window.S1Think.busy(btn, {kind: "ai", label: "Writing…"})
+      : {done: function () { if (btn) { btn.disabled = false; btn.textContent = label; } }};
+    if (btn && !window.S1Think) { btn.disabled = true; btn.textContent = "Writing…"; }
     const noteBox = document.getElementById("narration-note");
     try {
       const body = {};
@@ -678,7 +681,7 @@
     } catch (e) {
       /* CB.api has already surfaced the reason */
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = label; }
+      wBusy.done();
     }
   }
 

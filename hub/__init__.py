@@ -5307,6 +5307,7 @@ def create_hub_app() -> Flask:
                 extra = (b'<script defer src="/hub-help.js"></script>'
                          b'<script defer src="/hub-demo.js"></script>'
                     b'<script defer src="/hub-crumbs.js"></script>'
+                         b'<script defer src="/hub-thinking.js"></script>'
                          b'<script defer src="/hub-autofill.js"></script>'
                          b'<script defer src="/hub-accordion.js"></script>')
             if b"hub-help.css" not in body and b"</head>" in body:

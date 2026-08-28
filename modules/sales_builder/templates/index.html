@@ -1805,7 +1805,7 @@ function findTargetsHtml(){
   <div class="fld" style="margin-top:9px"><label>What do they sell, in a few words? <span style="font-weight:400;color:var(--muted)">— optional, but it sharpens the answer</span></label>
    <input id="findSells" value="${esc(FINDT.sells||S.sells||'')}" placeholder="e.g. dental implants and cosmetic dentistry" oninput="FINDT.sells=this.value"></div>
   <div class="addrow" style="margin-top:9px">
-   <button class="btn btn-primary" ${(!areas.length||FINDT.busy)?'disabled':''} onclick="runFindTargets()">${FINDT.busy?'<span class="spin"></span>Researching…':'🔎 Research this market'}</button>
+   <button class="btn btn-primary" ${(!areas.length||FINDT.busy)?'disabled':''} onclick="runFindTargets()">${FINDT.busy?'<span class="spin" data-s1-think="ai"></span>Researching the market…':'🔎 Research this market'}</button>
    <button class="btn btn-ghost" onclick="FINDT.open=false;drawCompetitors()">Close</button></div>
   ${FINDT.error?'<div class="warnbox" style="margin-top:9px">'+esc(FINDT.error)+'</div>':''}
   ${FINDT.rows?findResultsHtml():''}</div>`;}
@@ -1984,7 +1984,7 @@ function drawMapPanel(){
     the fold -- and the map is reference here, not the deliverable. */
  box.innerHTML=`<img src="${mapUrl()}" alt="Map of the campaign's target areas"
    style="width:100%;max-width:560px;display:block;border:1px solid var(--line);border-radius:10px"
-   onerror="this.style.display='none'"><div class="note" id="mapPanelNote" style="margin-top:7px"><span class="spin"></span>Checking what the map can show…</div>`;
+   onerror="this.style.display='none'"><div class="note" id="mapPanelNote" style="margin-top:7px"><span class="spin" data-s1-think="scan"></span>Checking what the map can show…</div>`;
  mapStatus().then(st=>{
   const n=document.getElementById('mapPanelNote');if(!n)return;
   const bits=[];
@@ -2139,7 +2139,7 @@ function areaListStep(){
   ${pasteBox()}
   <div class="bpanel" style="margin-top:16px"><div class="ttl">🗺 Where this campaign runs</div>
    <div class="note" style="margin-top:3px">This map goes on the proposal. A DMA, a state or a national buy is covered by the campaign and is not drawn — the table on the document names those underneath it. If it doesn't look right on the document, it can be removed there without changing any of these areas.</div>
-   <div id="mapPanel" style="margin-top:9px"><div class="note"><span class="spin"></span>Drawing…</div></div></div>
+   <div id="mapPanel" style="margin-top:9px"><div class="note"><span class="spin" data-s1-think="scan"></span>Drawing the coverage map…</div></div></div>
   <div class="bpanel" style="margin-top:20px"><div class="ttl">Who we're targeting inside these areas</div>
    <div class="two" style="margin-top:8px"><div class="fld"><label>Gender</label>
     <select onchange="S.gender=this.value;S.aiEst=null;saveSoon();drawEst()">${opt(["Both","Male","Female"],S.gender)}</select></div><div></div></div>
@@ -2188,7 +2188,7 @@ function drawAreaEst(){
 async function lookupZips(){
  const a=currentArea();
  if(!a.origin||!a.radius){toast("Enter the origin city or ZIP and a radius first.");return;}
- const b=document.getElementById('zipBtn');if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Looking up ZIP Codes…';}
+ const b=document.getElementById('zipBtn');if(b){b.disabled=true;b.innerHTML='<span class="spin" data-s1-think="scan"></span>Looking up ZIP Codes…';}
  try{
   const d=await api('/sales/builder/api/zipcodes-in-radius',{method:'POST',
    body:JSON.stringify({origin:a.origin,radius:a.radius})});
@@ -2867,7 +2867,7 @@ function drawEst(){const e=estimates();const g=document.getElementById('estGrid'
   +col(e.hh,"Households","hh")+col(e.dev,"Devices","dev");
  const n=document.getElementById('popNote');
  if(n){
-  if(S._aiLoading)n.innerHTML='<span class="spin"></span>Smart 1 is sizing '+((S.targetAreas||[]).length>1?'each target area':'this area')+'…';
+  if(S._aiLoading)n.innerHTML='<span class="spin" data-s1-think="ai"></span>Smart 1 is sizing '+((S.targetAreas||[]).length>1?'each target area':'this area')+'…';
   else{
    const bits=[];
    bits.push(e.ai?"✨ Smart 1 AI estimate, per area."
@@ -3471,7 +3471,7 @@ function drawDraftProgress(){
  if(!d){host.innerHTML='';return;}
  const pct=Math.round(100*d.done/Math.max(1,d.total));
  host.innerHTML=`<div class="bpanel" style="margin-bottom:14px">
-  <div class="ttl"><span class="spin"></span> Writing the proposal — ${d.done} of ${d.total} sections</div>
+  <div class="ttl"><span class="spin" data-s1-think="ai"></span> Writing the proposal — ${d.done} of ${d.total} sections</div>
   <div class="progress" style="margin-top:9px"><div class="bar" style="width:${pct}%"></div></div>
   <div class="note" style="margin-top:7px">${d.now?'Now writing: <b>'+esc(d.now)+'</b>':'Starting…'}</div>
   ${d.failed.length?`<div class="note" style="color:#8a6410">Needs another go: ${d.failed.map(esc).join(', ')}</div>`:''}</div>`;}

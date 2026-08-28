@@ -1223,8 +1223,33 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('btnScan').textContent='Check again';
     $('cardBuilder').style.display='block';
   }
+
+  /* One reading of "this is running" for the whole SEO client page.
+     Five things on this screen wait on a model — blog copy, alt text, an
+     extra FAQ question, a schema answer — and every one of them said so as a
+     bare line of text, which is indistinguishable from a label somebody left
+     behind. hub-thinking.js is loaded by base.html; this is guarded, because
+     a mark that takes the message down with it is worse than no mark. */
+  function seoBusy(id, label, kind){
+    var el = (typeof id === 'string') ? document.getElementById(id) : id;
+    if (!el) return { done: function(){}, stage: function(){} };
+    if (el._s1think) { el._s1think.done(); el._s1think = null; }
+    if (window.S1Think) {
+      el._s1think = window.S1Think.attach(el, {kind: kind || 'ai', label: label});
+      return el._s1think;
+    }
+    el.textContent = label;
+    return { done: function(){ el.textContent = ''; }, stage: function(){} };
+  }
+  function seoSay(id, text){
+    var el = (typeof id === 'string') ? document.getElementById(id) : id;
+    if (!el) return;
+    if (el._s1think) { el._s1think.done(); el._s1think = null; }
+    el.textContent = text;
+  }
+
   $('btnScan').onclick=function(){
-    $('scanBody').innerHTML='Scanning '+esc(siteUrl)+' &hellip;';
+    seoBusy('scanBody', 'Scanning '+siteUrl+'…', 'scan');
     post('/api/seo/scan',{url:siteUrl,client:CLIENT}).then(function(d){
       if(d.error){$('scanBody').innerHTML='<span class="seoc-bad">'+esc(d.error)+'</span>';return;}
       renderScan(d,false);
@@ -2020,11 +2045,11 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   };
   function writeNext(ids,doneSoFar,total){
     if(!ids.length){
-      $('blogWriteMsg').textContent='Done — '+total+' post(s) written.';
+      seoSay('blogWriteMsg', 'Done — '+total+' post(s) written.');
       loadBlogs();
       return;
     }
-    $('blogWriteMsg').textContent='Writing… '+doneSoFar+' of '+total+' done';
+    seoBusy('blogWriteMsg', 'Writing — '+doneSoFar+' of '+total+' done', 'ai');
     post('/api/seo/blogs/write',{client:CLIENT,ids:ids}).then(function(d){
       if(d.error){$('blogWriteMsg').textContent=d.error;return;}
       (d.written||[]).forEach(function(w){
@@ -2251,11 +2276,11 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   }
   $('btnAltScan').onclick=function(){
     $('btnAltScan').disabled=true;
-    $('altMsg').textContent='Reading the sitemap and the pages…';
+    seoBusy('altMsg', 'Reading the sitemap and the pages…', 'scan');
     post('/api/seo/alt/scan',{client:CLIENT,pages:parseInt($('altPages').value,10)||5})
       .then(function(d){
         $('btnAltScan').disabled=false;
-        if(d.error){ $('altMsg').textContent=d.error; return; }
+        if(d.error){ seoSay('altMsg', d.error); return; }
         altPages=d.pages||[];
         $('altMsg').textContent=d.total_images+' image(s) found across '+altPages.length
           +' page(s) — '+d.missing_alt+' with no alt text.';
@@ -2274,12 +2299,12 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     var urls=selectedUrls('altRows');
     if(!urls.length){ alert('Tick the pages you want rewritten first.'); return; }
     $('btnAltWrite').disabled=true;
-    $('altMsg').textContent='Writing alt text for '+urls.length+' page(s)…';
+    seoBusy('altMsg', 'Writing alt text for '+urls.length+' page(s)…', 'ai');
     post('/api/seo/alt/write',{client:CLIENT,urls:urls}).then(function(d){
       $('btnAltWrite').disabled=false;
       if(d.error){ $('altMsg').textContent=d.error; return; }
-      $('altMsg').textContent=d.written+' image(s) rewritten'
-        +(d.ai?'.':' (template mode'+(d.ai_error?' — AI error: '+d.ai_error:'')+').');
+      seoSay('altMsg', d.written+' image(s) rewritten'
+        +(d.ai?'.':' (template mode'+(d.ai_error?' — AI error: '+d.ai_error:'')+').'));
       urls.forEach(function(u){ altOpen[u]=true; });
       loadAlt();
     });
@@ -2755,16 +2780,21 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       renderDraft(); return;
     }
     if(act==='another'){
-      btn.disabled=true; btn.textContent='Thinking…';
+      var faqBusy = window.S1Think
+        ? window.S1Think.busy(btn, {kind:'ai', label:'Thinking…'})
+        : (function(){ btn.disabled=true; btn.textContent='Thinking…';
+                       return {done:function(){}}; })();
       post('/api/seo/faq/generate',{client:CLIENT,url:draft.url,count:1,
         avoid:draft.items.map(function(x){return x.question;})}).then(function(d){
-        if(d.error){ btn.disabled=false; btn.textContent='↻ Another question'; $('faqMsg').textContent=d.error; return; }
+        if(d.error){ faqBusy.done(); $('faqMsg').textContent=d.error; return; }
         var fresh=(d.faqs||[])[0];
-        if(!fresh){ btn.disabled=false; btn.textContent='↻ Another question';
+        if(!fresh){ faqBusy.done();
           $('faqMsg').textContent='No new question came back — try again.'; return; }
+        faqBusy.done();
         draft.items[i]={question:fresh.question,answer:fresh.answer,state:'pending',editing:false};
         renderDraft();
-      });
+      }).catch(function(){ faqBusy.done();
+        $('faqMsg').textContent='That did not come back — try again.'; });
     }
   }
 
@@ -3427,18 +3457,21 @@ function sqRemove(btn){
 }
 function sqRegen(btn){
   var r=sqRow(btn), note=r.querySelector('.sq-note');
-  note.textContent='Asking again…';
+  var sqBusy = window.S1Think
+    ? window.S1Think.attach(note, {kind:'ai', label:'Asking again…'})
+    : (function(){ note.textContent='Asking again…'; return {done:function(){}}; })();
   fetch('/api/seo/schema-questions/regenerate',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({client:schemaClient(), key:r.dataset.key})})
    .then(function(x){return x.json();}).then(function(d){
+     sqBusy.done();
      if(d.error){ note.textContent=d.error; return; }
      var t=r.querySelector('.sq-ans');
      t.value=d.answer; t.readOnly=false;
      var need = d.confidence==='needed';
      t.style.background=need?'#fff7f6':''; t.style.borderColor=need?'#fca5a5':'#cfd7df';
      note.textContent=d.source||'';
-   }).catch(function(){ note.textContent='Could not regenerate.'; });
+   }).catch(function(){ sqBusy.done(); note.textContent='Could not regenerate.'; });
 }
 function saveSchemaQ(){
   var answers={};

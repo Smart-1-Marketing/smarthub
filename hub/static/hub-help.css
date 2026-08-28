@@ -151,3 +151,73 @@ body.s1-tour-open{overflow:hidden}
 .card-h .src-tag{font-size:10px;font-weight:700;text-transform:uppercase;
   letter-spacing:.05em;padding:2px 7px;border-radius:20px}
 @media (prefers-reduced-motion:reduce){.s1-acc-caret{transition:none}}
+
+
+/* ---- something is running (hub-thinking.js) ----
+   One implementation of a mark that was drawn nine times: hub.css,
+   sales_builder, page_image_optimizer, stock_photos, ads_base, the two scan
+   widgets and the two ad-builder pages each carried their own 2px border
+   arc. This stylesheet is already injected into every hub page and every
+   mounted module, so putting the animation here is what makes the next
+   change to it land once.
+
+   Everything is currentColor. There is no shared palette across forty
+   modules, and inheriting the surrounding text color is the only way one
+   glyph reads on a white card, a navy button and a dark landing page
+   without any of them being edited. */
+
+.s1-think{border:0 !important;animation:none !important;background:none !important;
+  display:inline-flex !important;align-items:center;justify-content:center;
+  vertical-align:-.18em;line-height:0}
+.s1-think > .s1-think-svg{width:100%;height:100%}
+
+.s1-think-svg{width:1.05em;height:1.05em;display:inline-block;vertical-align:-.18em;
+  flex:0 0 auto;color:inherit;overflow:visible}
+
+/* ai — the sparkle turns and breathes while two smaller ones twinkle
+   off-beat, so the mark is never momentarily still. */
+@keyframes s1-think-star{
+  0%{transform:rotate(0deg) scale(.82)}
+  50%{transform:rotate(180deg) scale(1)}
+  100%{transform:rotate(360deg) scale(.82)}}
+@keyframes s1-think-tw{0%,100%{opacity:.15;transform:scale(.5)}
+  45%{opacity:1;transform:scale(1)}}
+.s1-think-star{transform-origin:12px 12px;animation:s1-think-star 2.6s ease-in-out infinite}
+.s1-think-tw{transform-box:fill-box;transform-origin:center;
+  animation:s1-think-tw 1.7s ease-in-out infinite}
+.s1-think-tw1{animation-delay:.25s}
+.s1-think-tw2{animation-delay:1.05s}
+
+/* scan — the wedge sweeps the dish and the contact pings once a turn. */
+@keyframes s1-think-sweep{to{transform:rotate(360deg)}}
+@keyframes s1-think-ping{0%{opacity:0;transform:scale(.4)}
+  12%{opacity:1;transform:scale(1)}
+  55%,100%{opacity:0;transform:scale(1.5)}}
+.s1-think-sweep{transform-origin:12px 12px;animation:s1-think-sweep 1.9s linear infinite}
+.s1-think-ping{transform-box:fill-box;transform-origin:center;
+  animation:s1-think-ping 1.9s ease-out infinite}
+
+/* wait — the arc every one of the nine already drew, kept because for a
+   two-second read it is right and anything livelier is a distraction. */
+@keyframes s1-think-arc{to{transform:rotate(360deg)}}
+.s1-think-arc{transform-origin:12px 12px;animation:s1-think-arc .9s linear infinite}
+
+/* The row: mark, what is running, and how long it has been. */
+.s1-thinking{display:inline-flex;align-items:center;gap:.5em;
+  font:inherit;color:inherit;max-width:100%}
+.s1-thinking-label{min-width:0}
+.s1-thinking-clock{opacity:.62;font-variant-numeric:tabular-nums;font-size:.9em;
+  white-space:nowrap}
+.s1-thinking-clock:empty{display:none}
+.s1-thinking-btn{display:inline-flex !important;align-items:center;gap:.45em}
+
+/* prefers-reduced-motion asks for less movement, not less information. The
+   mark stays drawn, the label stays, the elapsed line stays — a wait that
+   became invisible for these readers would be the feature failing exactly
+   where it was needed. Only the motion goes. */
+@media (prefers-reduced-motion:reduce){
+  .s1-think-star,.s1-think-tw,.s1-think-sweep,.s1-think-ping,.s1-think-arc{
+    animation:none !important}
+  .s1-think-tw,.s1-think-ping{opacity:.55}
+  .s1-think-star{transform:rotate(20deg)}
+}

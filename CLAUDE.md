@@ -113,6 +113,94 @@ of the toggle records a preference now (`coll(on, persist)`), and a stored one
 still wins in both directions — a tool that starts collapsed can be opened for
 good.
 
+**A spinner says something is happening and cannot say what.** `.spin` was
+defined seven times across this repo and `.spinner` and `.cb-spinner` twice
+more — hub.css, sales_builder, page_image_optimizer, stock_photos, ads_base,
+the two scan widgets, the Commercial Builder and the two Node-served ad
+builder pages — each a 2px border arc at a slightly different size in a
+slightly different gray. That is the drift `hub/storage.py` and
+`hub/images.py` exist to stop, wearing a spinner: the next improvement to it
+would have had to land ten times and would have landed in one.
+
+`hub/static/hub-thinking.js` is the one implementation, loaded the way
+hub-crumbs.js is — base.html on hub pages, injected by `HubBar` into the
+twenty mounted modules and by the hub app's own injector into the
+blueprint-registered ones, which is **three** code paths and the reason a
+script wired into only the first works on the screen it was tested on and on
+none of the twenty it was not. The animation lives in `hub-help.css`, which
+is already injected everywhere the script is; the glyph is drawn by the
+script. Two files on purpose — a page that failed to run the script still
+gets a static mark rather than an empty box — and therefore two files that
+can come to disagree, which `test_thinking.py` asserts they have not.
+
+**It upgrades what is already on the page.** Every `.spin`, `.spinner` and
+`.cb-spinner` becomes the glyph, on a debounced `MutationObserver` because
+Client 360, the SEO client page and half the tools draw their panels from a
+fetch and a single pass at load upgrades the shell and misses everything
+drawn after it. Fifty call sites needed no edit. The class list is
+`hub/config.py`'s ALIASES rule for the same reason — **only spellings
+actually in use**: `.search-spinner` is Google Finder's own SVG and
+`.spin-cap` is stadium's caption, so neither is listed on the chance it might
+one day mean this.
+
+**Three glyphs, because the three waits are not alike.** `ai` is a model
+writing — tens of seconds, billed, and the answer is prose somebody reads; it
+draws the ✨ Client 360 already puts on its own AI control, so the two read as
+the same thing happening. `scan` is us reading somebody else's website or
+sweeping an account — minutes, and the wait is their server; it draws a dish.
+`wait` is our own database, and it draws the arc all ten copies already drew.
+A bare `.spin` upgrades to `wait`, because that is what it meant; a screen
+asks for the other two with `data-s1-think` on the element or
+`data-s1-thinking` on any ancestor — one attribute on a panel rather than one
+per call site, so a button added to that panel next month is right by
+default.
+
+**A spinner for a minute reads as a hung page.**
+`modules/ads_builder/templates/ads_generator.html` had worked that out and had
+its own copy of the stage timer; both halves move here so nothing else has to
+discover it again. `attach()` takes **stages**, timed rather than reported —
+the server does this in one request and streams nothing back, so the wording
+says what is being worked on and never that a step has finished — and it draws
+an **elapsed line past six seconds**. Not from the first second: a stopwatch
+on a two-second read is noise and a screen that counts at you teaches people
+to expect a wait. Past six it is the only thing separating a slow answer from
+a dead one, which is why the QA reports have it: a first run of the day there
+is a year of QuickBooks invoices and a name match per row, and it used to say
+"Running report…" in two words with no mark and no sign it was still going.
+
+Four rules on it. **Nothing in it may raise** — an indicator that breaks the
+page it is reporting on is worse than none, so `attach()` returns a handle
+with a `.done()` even when it found nothing to attach to, and every caller
+guards on `window.S1Think` so a missing script costs the mark and never the
+message. **It never claims what it does not know**: `.done()` stops the
+animation and does not write "Done" or draw a tick, because whether the call
+succeeded is the caller's answer and a tick over a failed one is the
+confident wrong answer this codebase keeps undoing. **`currentColor`, never a
+palette** — forty modules with no shared stylesheet, and inheriting the
+surrounding text color is the only way one glyph reads on a white card, a
+navy button and a dark landing page without any of them being edited. And
+**`prefers-reduced-motion` drops the motion and keeps the mark**: that setting
+asks for less movement, not less information, and a wait that goes invisible
+for those readers is the feature failing in exactly the place it was needed.
+
+The elapsed timer **stops itself when its box leaves the page**
+(`isConnected`). Half this Hub ends a wait by assigning `innerHTML` over
+whatever was there, and a caller that does so has not done anything wrong;
+requiring fifty call sites to remember `.done()` is how one of them forgets
+and leaves a timer running for the life of the tab.
+
+**The three pages a prospect sees carry it inline instead.**
+`/scans/w/<slug>`, the audit widget and the waiting page are served to a
+stranger on somebody else's website, where a Hub script is a new outbound
+dependency on a page whose whole job is to load. So the dish is inlined —
+**once**, as `modules/scans/templates/_scan_mark.html`, a macro all three
+import rather than the fourth, fifth and sixth copy of the border spinner
+they each carried. Same path, same speed, same reduced-motion rule as the
+Hub's own, and `test_thinking.py` holds the two in step rather than memory: a
+prospect who starts a scan on a client's site and a rep who starts one from
+Site Scans are waiting on the identical thing and it must not look like two
+features.
+
 **Bubbles mount on late-rendered content.** Client 360, the SEO client page
 and Image Creator draw panels from a fetch. `hub-help.js` runs a debounced
 MutationObserver for this. A bubble added to a JS-rendered panel works; one
@@ -4535,6 +4623,9 @@ python3 test_client_prefill.py     # one client reader: what a form is offered,
                                    #   model is told about the client
 python3 test_client_logos.py       # a logo we found reaches the client's gallery,
                                    #   once, labeled with where it came from
+python3 test_thinking.py           # the mark that says a scan or a model is running:
+                                   #   one implementation, three kinds, both halves
+                                   #   of the app, and nothing claiming a result
 python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from

@@ -277,6 +277,7 @@ class HubBar:
         _scripts = (b'<script defer src="/hub-help.js"></script>'
                     b'<script defer src="/hub-demo.js"></script>'
                     b'<script defer src="/hub-crumbs.js"></script>'
+                    b'<script defer src="/hub-thinking.js"></script>'
                     b'<script defer src="/hub-autofill.js"></script>'
                     b'<script defer src="/hub-accordion.js"></script>')
         # The LAST </body>, not the first. A module page that builds a printable

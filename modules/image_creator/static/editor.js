@@ -971,23 +971,29 @@ PANELS.ai = host => {
     const prompt = $('aiPrompt').value.trim();
     if(!prompt){ $('aiMsg').textContent = 'Describe what you want first.'; return; }
     const asBg = $('aiBg').checked;
-    $('aiGo').disabled = true; $('aiMsg').textContent = 'Generating… this takes a moment.';
+    const genBusy = window.S1Think
+      ? window.S1Think.busy($('aiGo'), {kind:'ai', label:'Drawing…'})
+      : {done: () => { $('aiGo').disabled = false; }};
+    if(!window.S1Think) $('aiGo').disabled = true;
+    $('aiMsg').textContent = '';
     try{
       const w = canvas.getWidth(), h = canvas.getHeight();
       const size = w>h*1.2 ? '1536x1024' : (h>w*1.2 ? '1024x1536' : '1024x1024');
       const d = await fetch('api/ai/image', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({prompt, style, background:asBg,
                               transparent:$('aiTrans').checked, size})}).then(r=>r.json());
-      $('aiGo').disabled = false;
+      genBusy.done();
       if(d.error){ $('aiMsg').textContent = d.error; return; }
       $('aiMsg').textContent = '';
       await placeImage(d.image, {name:'AI image', source:'openai'}, asBg);
-    }catch(e){ $('aiGo').disabled=false; $('aiMsg').textContent = 'Generation failed: '+e; }
+    }catch(e){ genBusy.done(); $('aiMsg').textContent = 'Generation failed: '+e; }
   };
   host.querySelectorAll('[data-c]').forEach(b => b.onclick = async () => {
     const o = canvas.getActiveObject();
     if(!o || !o.type || !o.type.includes('text')){ $('aiCopy').innerHTML='<div class="err">Select a text layer first.</div>'; return; }
-    $('aiCopy').innerHTML = '<div class="loading">Writing…</div>';
+    $('aiCopy').innerHTML = '<div class="loading" id="aiCopyBusy"></div>';
+    if(window.S1Think) window.S1Think.attach('aiCopyBusy', {kind:'ai', label:'Writing…'});
+    else $('aiCopy').innerHTML = '<div class="loading">Writing…</div>';
     try{
       const d = await fetch('api/ai/copy', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({text:o.text, mode:b.dataset.c})}).then(r=>r.json());

@@ -1791,7 +1791,7 @@ function c360Traffic(propertyId,googleLogin){
      name match, or a manual attach a moment ago. */
   window.__c360GA={property:propertyId,login:googleLogin};
   c360AskReady();
-  $('c-traffic').innerHTML='<div class="empty">Pulling last month vs the previous period… <span class="spin"></span></div>';
+  $('c-traffic').innerHTML='<div class="empty">Pulling last month vs the previous period… <span class="spin" data-s1-think="scan"></span></div>';
   fetch('/google/api/ga4/monthly-summary',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({property_id:propertyId,google_login:googleLogin})})
     .then(r=>r.json()).then(d=>{
@@ -2534,7 +2534,10 @@ function loadBrand(name){
 function lookupBrand(){
   var el=document.getElementById('c-brand'); if(!el) return;
   var acts=document.getElementById('c-brand-acts');
-  if(acts) acts.innerHTML='<span class="muted" style="font-size:12px">Looking…</span>';
+  /* A billed lookup against somebody else's service, so it gets the dish
+     rather than the arc: this one is a wait on Brandfetch, not on us. */
+  if(acts) acts.innerHTML='<span class="muted" style="font-size:12px">'
+    + '<span class="spin" data-s1-think="scan"></span> Looking up their brand…</span>';
   fetch('/api/client/brand/lookup',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({name:window.CURRENT_CLIENT||'', domain:window.__c360domain||''})})

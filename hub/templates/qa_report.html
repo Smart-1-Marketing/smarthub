@@ -19,7 +19,7 @@
 </div>
 <div class="card qa-card">
   <div class="qa-tablewrap" id="qaWrap">
-    <div class="qa-loading" id="qaLoading">Running report&hellip;</div>
+    <div class="qa-loading" id="qaLoading" data-s1-thinking="scan">Running report&hellip;</div>
   </div>
 </div>
 <style>
@@ -566,17 +566,47 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
      a POST deliberately: a GET that rebuilds is one a reload, a prefetch or a
      link preview fires without anybody asking, and rebuilding is the cost
      this whole arrangement exists to stop paying on every open. */
+  /* A first run of the day is a year of QuickBooks invoices, a full Knack
+     pull and a name match per row — the longest wait anywhere in this Hub,
+     and until now the one with the least on screen: two words, no mark, no
+     sign of whether it was still going. So it gets the dish (this is a wait
+     on somebody else's service, not on us), the elapsed line past six
+     seconds, and stages.
+
+     The stages are TIMED, not reported — the server does this in one request
+     and streams nothing back — so the wording says what is being worked on
+     and never that a step has finished, the rule
+     modules/ads_builder/templates/ads_generator.html already works to. A
+     read of what has already been run says none of that, because there is
+     nothing to narrate: it is a file. */
+  var REPORT_STAGES = [
+    {at: 0,     note: 'Running the report\u2026'},
+    {at: 5000,  note: 'Reading the sources this report joins\u2026'},
+    {at: 15000, note: 'Still going \u2014 matching rows to clients\u2026'},
+    {at: 40000, note: 'Nearly there. Nothing has failed; this one is just long\u2026'}
+  ];
+  var loadMark = null;
   function load(force){
-    wrap.innerHTML = '<div class="qa-loading">' +
+    if (loadMark) { loadMark.done(); loadMark = null; }
+    wrap.innerHTML = '<div class="qa-loading" id="qaLoadingLive">' +
       (force ? 'Running report&hellip;' : 'Loading&hellip;') + '</div>';
+    if (window.S1Think) {
+      loadMark = window.S1Think.attach('qaLoadingLive', {
+        kind: 'scan',
+        label: force ? 'Running the report…' : 'Loading…',
+        stages: force ? REPORT_STAGES : []
+      });
+    }
     csvBtn.disabled = true;
     var msel = document.getElementById('qaMonth');
     var qs = (msel.style.display!=='none' && msel.value) ? '?month='+encodeURIComponent(msel.value) : '';
     var url = force ? ('/api/qa/'+KEY+'/refresh'+qs) : ('/api/qa/'+KEY+qs);
     fetch(url, force ? {method:'POST', credentials:'same-origin'}
                      : {credentials:'same-origin'})
-      .then(function(r){return r.json();}).then(render)
-      .catch(function(e){ wrap.innerHTML='<div class="qa-err">'+esc(e)+'</div>'; });
+      .then(function(r){return r.json();})
+      .then(function(d){ if(loadMark){loadMark.done(); loadMark=null;} render(d); })
+      .catch(function(e){ if(loadMark){loadMark.done(); loadMark=null;}
+                          wrap.innerHTML='<div class="qa-err">'+esc(e)+'</div>'; });
   }
   document.getElementById('qaMonth').onchange = function(){ load(false); };
   document.getElementById('qaCompare').onclick = function(){

@@ -136,6 +136,19 @@ def static_cheers_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/hub-thinking.js")
+def static_thinking_js():
+    """The one mark that says something is running.
+
+    Root-level and served here rather than from any module's own static
+    folder, for the reason hub-crumbs.js gives: it is loaded by base.html on
+    hub pages and injected by HubBar into every mounted module, so a tool
+    added next month gets it without being edited. Nine separate copies of a
+    border spinner is what it replaces."""
+    return send_from_directory(_STATIC, "hub-thinking.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-crumbs.js")
 def static_crumbs_js():
     return send_from_directory(_STATIC, "hub-crumbs.js",

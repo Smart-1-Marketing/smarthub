@@ -1,3 +1,4 @@
+{% import "_scan_mark.html" as mark with context %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -44,11 +45,7 @@
   .note { color:var(--muted); font-size:12.5px; margin-top:14px; text-align:center; }
   .brand { text-align:center; margin-top:14px; font-size:12px; color:var(--muted); }
   .brand a { color:var(--muted); }
-  .spin { display:inline-block; width:15px; height:15px;
-    border:2px solid var(--accent); border-top-color:transparent;
-    border-radius:50%; animation:sp .7s linear infinite;
-    vertical-align:-2px; margin-right:7px; }
-  @keyframes sp { to { transform:rotate(360deg); } }
+{{ mark.scan_mark_css() }}
   .done { border:1.5px dashed var(--line); border-radius:12px; padding:18px;
     text-align:center; background:#FAFCFE; }
   .done b { color:var(--navy); font-size:17px; display:block; margin-bottom:4px; }
@@ -148,7 +145,7 @@
       <h1>Reading your website now</h1>
       <p class="sub" id="waitSub"></p>
       <div class="done" id="waitBox">
-        <b><span class="spin"></span>Working…</b>
+        <b style="display:flex;align-items:center;gap:7px"><span style="color:var(--accent);display:flex">{{ mark.scan_mark("16px", "Working") }}</span>Working…</b>
         <p>We are checking your Google listing, your reviews, what your
           competitors are running, how your site is built and about seventy
           other things. It usually takes a minute or two. You can leave this
@@ -170,6 +167,11 @@
 <script>
 (function(){
   "use strict";
+  // The dish, rendered once by the shared macro and held as a string:
+  // these two buttons are rebuilt with innerHTML, and a second copy of
+  // the markup written out longhand here is the drift the macro exists
+  // to stop.
+  var MARK = {{ mark.scan_mark("15px", "Working")|string|tojson }};
   var CFG = {};
   try { CFG = JSON.parse(document.getElementById('cfg').textContent || '{}') || {}; }
   catch (e) { CFG = {}; }
@@ -231,7 +233,7 @@
     clearErrors();
     var btn = $('goBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spin" style="border-color:#fff;border-top-color:transparent"></span>Starting…';
+    btn.innerHTML = MARK + ' Starting…';
     fetch(api('audit'), {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({

@@ -236,9 +236,23 @@
     return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
       return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; });
   }
+  // A message that is a *wait* is drawn with the running mark; one that is a
+  // result is not. A bare "Writing…" is indistinguishable from a label
+  // somebody left on the screen, so a model that is thinking and a model that
+  // has died read identically — and only the second is worth knowing about.
+  // hub-thinking.js is injected into every mounted module by HubBar, so
+  // nothing is loaded here; it is still guarded, because a mark that takes
+  // the message down with it is worse than no mark.
   function say(id, text, kind){
     var n = $(id); if(!n) return;
-    n.className = "msg" + (kind ? " " + kind : ""); n.textContent = text || "";
+    if(n._s1think){ n._s1think.done(); n._s1think = null; }
+    n.className = "msg" + (kind ? " " + kind : "");
+    if(["ai","scan","wait"].indexOf(kind) >= 0 && window.S1Think){
+      n.className = "msg";
+      n._s1think = window.S1Think.attach(n, {kind: kind, label: text});
+      return;
+    }
+    n.textContent = text || "";
   }
   function lines(v){ return String(v||"").split("\n").map(function(s){return s.trim();})
                        .filter(Boolean); }
@@ -328,7 +342,7 @@
       team_context: $("team").value.trim(), tone: $("tone").value
     };
     if(!body.company){ say("startmsg","Enter the business name.","err"); return; }
-    this.disabled = true; say("startmsg","Reading the site…");
+    this.disabled = true; say("startmsg","Reading the site…","scan");
     api("/api/projects", {method:"POST", body:body}).then(function(j){
       $("start").disabled = false;
       P = j.project; banned = j.banned || [];
@@ -383,7 +397,7 @@
     var slots = chosenSlots();
     if(!slots.length){ say("writemsg","Pick at least one spot.","err"); return; }
     this.disabled = true;
-    say("writemsg","Writing " + slots.length + " spot(s)… this takes a moment.");
+    say("writemsg","Writing " + slots.length + " spot(s)…","ai");
     api("/api/projects/" + P.id + "/write", {method:"POST",
       body:{slots:slots, tone:$("tone").value, steer:$("steer").value.trim(),
             replace:true}}).then(function(j){
@@ -499,7 +513,7 @@
 
   /* ------------------------------------------------------------ voice */
   $("cast").onclick = function(){
-    this.disabled = true; say("castmsg","Asking…");
+    this.disabled = true; say("castmsg","Casting the read…","ai");
     api("/api/projects/"+P.id+"/cast", {method:"POST", body:{tone:$("tone").value}})
       .then(function(j){
         $("cast").disabled = false; say("castmsg", (j.profile||{}).why || "", "ok");

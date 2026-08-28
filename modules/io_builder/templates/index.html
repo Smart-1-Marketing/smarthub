@@ -1118,7 +1118,7 @@ function buildBusinessDescription(){
 }
 
 async function fetchZipcodesForRadius(){
- addMsg(`Looking up ZIP Codes touched by the ${state.geoRadius}-mile radius around ${state.geoOrigin}…`);
+ const zipWork=addWorking(`Looking up ZIP Codes touched by the ${state.geoRadius}-mile radius around ${state.geoOrigin}…`,"scan");
  try{
   const res=await fetch("{{ request.script_root }}/api/zipcodes-in-radius",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({origin:state.geoOrigin,radius:state.geoRadius})});
   const data=await res.json().catch(()=>({}));
@@ -1126,14 +1126,16 @@ async function fetchZipcodesForRadius(){
   state.geoZipcodes=data.zipcodes||"";
   refreshCombinedGeo();
   if(data.warning&&!state.internalWarnings.includes(data.warning))state.internalWarnings.push(data.warning);
+  zipWork.done();
   addMsg(`${data.count||0} ZIP Codes found:\n${state.geoZipcodes}`);
  }catch(err){
+  zipWork.done();
   addMsg(`ZIP lookup warning: ${err.message}. Enter or edit the ZIP Code list manually.`);
  }
 }
 async function reviewLandingPage(url,product){
  if(!url)return;
- addMsg(`Reviewing the landing page for ${product||"the campaign"} in the background — you can keep going; the result will be added to the internal report when it's ready.`);
+ const lpWork=addWorking(`Reviewing the landing page for ${product||"the campaign"} — keep going, the result lands in the internal report.`,"ai");
  try{
   const res=await fetch("{{ request.script_root }}/api/review-landing-page",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url,client:state.client,product,objectives:state.objectives})});
   const data=await res.json().catch(()=>({}));
@@ -1141,8 +1143,10 @@ async function reviewLandingPage(url,product){
   const item={url,product:product||"Shared campaign landing page",review:data.review||""};
   state.landingPageReviews=state.landingPageReviews.filter(x=>!(x.url===url&&x.product===item.product));
   state.landingPageReviews.push(item);
+  lpWork.done();
   render();
  }catch(err){
+  lpWork.done();
   const warning=`Landing-page review warning for ${url}: ${err.message}`;
   if(!state.internalWarnings.includes(warning))state.internalWarnings.push(warning);
   addMsg(warning);
@@ -1292,6 +1296,29 @@ async function allocateOrderNumber(){
 
 function addMsg(text,who="bot"){
  const d=document.createElement("div");d.className="msg "+who;d.textContent=text;messages.appendChild(d);messages.scrollTop=messages.scrollHeight
+}
+/* A bubble that says it is still working, and takes itself back down.
+
+   This interview is a transcript, so `addMsg` appends and leaves the line
+   there for ever — which is right for an answer and wrong for a wait. Three
+   things here run for tens of seconds (a billed ZIP lookup, a landing-page
+   review, reading a proposal) and each wrote a sentence that then sat in the
+   log unchanged whether the call landed, failed or never came back.
+
+   `addWorking` returns a handle: `.done()` removes the bubble, and the real
+   answer is added in the ordinary way. Guarded — a missing hub-thinking.js
+   costs the mark and leaves the sentence exactly as it was. */
+function addWorking(text, kind){
+ const d=document.createElement("div");
+ d.className="msg bot";
+ messages.appendChild(d);
+ messages.scrollTop=messages.scrollHeight;
+ if(window.S1Think){
+  const h=window.S1Think.attach(d,{kind:kind||"wait",label:text});
+  return {done:()=>{h.done(); if(d.parentNode) d.parentNode.removeChild(d);}};
+ }
+ d.textContent=text;
+ return {done:()=>{ if(d.parentNode) d.parentNode.removeChild(d); }};
 }
 function showOptions(opts){
  document.querySelectorAll(".quick").forEach(x=>x.remove());
@@ -3215,7 +3242,7 @@ function prefillFromProposal(){
  const src=q.get("from_proposal");
  if(!src)return false;
  const client=q.get("client")||"";
- addMsg("Reading that proposal…");
+ const readWork=addWorking("Reading that proposal…","ai");
  /* client + the proposal's id. The server looks it up among that client's
     stored proposals and reads it there, so no URL is fetched on our say-so.
 
@@ -3230,8 +3257,8 @@ function prefillFromProposal(){
    credentials:"same-origin",
    body:JSON.stringify({client:client,filename:src})})
   .then(r=>r.json())
-  .then(d=>applyReadPayload(d,client))
-  .catch(()=>{addMsg("Couldn't reach the proposal reader. Filling this in by hand.");ask()});
+  .then(d=>{readWork.done();applyReadPayload(d,client);})
+  .catch(()=>{readWork.done();addMsg("Couldn't reach the proposal reader. Filling this in by hand.");ask()});
  return true;
 }
 
