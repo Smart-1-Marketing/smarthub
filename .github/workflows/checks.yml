@@ -921,3 +921,12 @@ jobs:
       # answered with only the pages.
       - name: The search box finds clients first, and finds the Hub
         run: python3 test_search.py
+
+      # The layer above the month plan: multi-location intake, the client's
+      # four signed pages, the idea weighting and the Suite push. Every one of
+      # these fails quietly rather than loudly -- a duplicate flag that crossed
+      # a client, a push failure that read as scheduled, a client-facing page
+      # behind the staff login, or the copy checks blocking the client's own
+      # offer because nobody told them the client had supplied it.
+      - name: Content requests, ideas and the Suite push
+        run: python3 test_social_content.py

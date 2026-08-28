@@ -670,6 +670,19 @@ def validate_slot(slot: dict, facts: dict | None = None) -> list[dict]:
     """validate_copy plus the things that are about the slot, not the words."""
     slot = slot or {}
     channels = slot.get("channels") or []
+    # A slot built from a client's own request carries what they typed, and
+    # what they typed is authorization: a location manager who writes "$50 off
+    # through Friday" into the request form has supplied exactly the fact the
+    # money and deadline checks look for. Without this the tool blocks the
+    # client's own offer on the client's own request and reads as broken
+    # rather than as careful. It is merged here, in the one place both
+    # validate_batch and every direct caller pass through — a rule two of
+    # three callers keep is not a rule.
+    supplied = str(slot.get("supplied") or "").strip()
+    if supplied:
+        facts = dict(facts or {})
+        facts["notes"] = "\n".join(
+            part for part in (str(facts.get("notes") or ""), supplied) if part)
     flags = validate_copy(slot.get("copy", ""), channels=channels, facts=facts)
     if slot.get("copy", "").strip() and not slot.get("image_url"):
         for key in channels:
