@@ -20,7 +20,9 @@ import json
 import os
 import re
 
-from ..config import VO_WORD_TARGETS, get_structure, DEFAULT_QR_AUDIO_CUE
+from ..config import (VO_WORD_TARGETS, get_structure, DEFAULT_QR_AUDIO_CUE,
+                      DEFAULT_SHOT_GRAMMAR, SHOT_SIZES, SHOT_ANGLES, SHOT_MOVES)
+from . import abcd_service
 
 _MODEL = os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o-mini")
 _IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
@@ -205,22 +207,37 @@ def generate_script(concept, length_seconds, brief, client_profile, platform="bo
                 " Do not mention a phone number or QR code anywhere — this length doesn't carry them."
                 if length_seconds == 5 else ""
             )
+            targets = abcd_service.shot_targets(length_seconds)
+            sizes = "/".join(x["id"] for x in SHOT_SIZES)
+            angles = "/".join(x["id"] for x in SHOT_ANGLES)
+            moves = "/".join(x["id"] for x in SHOT_MOVES)
             result = _chat_json(
                 system=(
                     "You write timed video-commercial scripts for a digital marketing agency "
-                    "producing CTV and YouTube spots. You are given a selected creative concept, "
-                    f"a commercial brief, a target duration of {length_seconds} seconds, a target "
-                    f"platform of '{platform}', and a REQUIRED structural blueprint of beats "
-                    f"(each with a start/end percentage of the total duration and creative "
-                    f"guidance for what that beat must accomplish): {json.dumps(beat_spec)}. "
-                    f"Produce exactly one scene per beat, using the beat's start_pct/end_pct "
-                    f"(of {length_seconds}s) to compute start/end in seconds — contiguous, no "
-                    f"gaps or overlaps, first scene starts at 0, last scene ends at exactly "
-                    f"{length_seconds}. Total voiceover across all scenes must land in "
-                    f"{lo}-{hi} words — do NOT wildly exceed it.{audio_cue_instruction} Respond "
-                    'as JSON: {"scenes":[{"beat":"<the beat label>","start":0,"end":5,"visual":'
-                    '"one-sentence shot description, no text overlays described here",'
-                    '"voiceover":"narration line for this beat, or empty string if silent"}]}.'
+                    "producing CTV, YouTube and social spots. You are given a selected creative "
+                    f"concept, a commercial brief, a target duration of {length_seconds} "
+                    f"seconds, a target platform of '{platform}', and a REQUIRED structural "
+                    f"blueprint of beats (each with a start/end percentage of the total "
+                    f"duration and creative guidance for what that beat must accomplish): "
+                    f"{json.dumps(beat_spec)}. "
+                    # The change that fixes the pacing. One scene per beat gave a :30 three
+                    # shots averaging ten seconds; Google's own detector wants two.
+                    f"Produce exactly one BEAT object per beat, and inside each beat produce "
+                    f"2-6 SHOTS. Across the whole spot aim for {targets['low']}-"
+                    f"{targets['high']} shots in total, because a shot should average about "
+                    "2 seconds. Shots inside a beat are contiguous and together exactly fill "
+                    "that beat's span; the first shot of the spot starts at 0 and the last "
+                    f"ends at exactly {length_seconds}. "
+                    "NARRATION IS PER BEAT, not per shot — one line of voiceover for the "
+                    "whole beat, so the read is one thought over several pictures. "
+                    f"Every shot carries shot grammar: size ({sizes}), angle ({angles}) and "
+                    f"move ({moves}). "
+                    f"Total voiceover across all beats must land in {lo}-{hi} words — do NOT "
+                    f"exceed it.{audio_cue_instruction} Respond as JSON: "
+                    '{"beats":[{"beat":"<the beat label>",'
+                    '"voiceover":"the narration line for this whole beat, or empty if silent",'
+                    '"shots":[{"visual":"one-sentence shot description, no on-screen text '
+                    'described here","seconds":2.0,"size":"ms","angle":"eye","move":"static"}]}]}.'
                 ),
                 user=json.dumps({
                     "concept": concept, "brief": brief, "client": client_profile,
@@ -228,8 +245,7 @@ def generate_script(concept, length_seconds, brief, client_profile, platform="bo
                 }),
                 max_tokens=1200,
             )
-            scenes = result.get("scenes", [])
-            scenes = _normalize_scene_timing(scenes, length_seconds, beats)
+            scenes = _shots_from_beats(result, length_seconds, beats)
             script = {"duration": length_seconds, "scenes": scenes}
         except Exception:
             script = _mock_script(concept, length_seconds, brief, client_profile, beats, include_audio_cue)
@@ -239,6 +255,97 @@ def generate_script(concept, length_seconds, brief, client_profile, platform="bo
     script["target_range"] = [lo, hi]
     script["within_target"] = lo <= wc <= hi
     return script
+
+
+def _shots_from_beats(result, length_seconds, beats):
+    """Flatten the model's beats-with-shots into the flat scene list.
+
+    A `Scene` row is a SHOT now, not a beat. That is deliberately a change of
+    what the row means rather than a new table: the row already carries a
+    start, an end, a visual, an asset and `asset_meta["beat"]`, so a shot fits
+    it exactly and every screen, picker and QC check downstream keeps working
+    on rows rather than being taught about a second level.
+
+    What holds the beat together is `asset_meta`: every shot in a beat carries
+    the same `beat` label and `beat_index`, and the Blueprint groups on it. The
+    NARRATION sits on the first shot of each beat and the rest are silent —
+    that is what "narration is per beat" means once it is on a flat row, and
+    it is why the word count still measures the spot and not the shots.
+
+    Timing is recomputed here rather than trusted. The model is asked for
+    contiguous shots that fill each beat exactly and it will sometimes hand
+    back nine shots that add up to 31.4 seconds; the beat spans are the
+    authority, and the shots are laid inside them in proportion to the
+    durations asked for.
+    """
+    raw_beats = result.get("beats") or []
+    if not raw_beats:
+        # Older shape, or a model that ignored the instruction. Fall back to
+        # the flat scene list rather than returning nothing.
+        flat = result.get("scenes") or []
+        return _normalize_scene_timing(flat, length_seconds, beats)
+
+    scenes = []
+    for index, beat in enumerate(beats):
+        source = raw_beats[index] if index < len(raw_beats) else {}
+        start = round(length_seconds * beat["start_pct"] / 100, 2)
+        end = (round(length_seconds * beat["end_pct"] / 100, 2)
+               if index < len(beats) - 1 else float(length_seconds))
+        span = max(0.1, end - start)
+
+        shots = [sh for sh in (source.get("shots") or []) if isinstance(sh, dict)]
+        if not shots:
+            # A beat the model gave no shots for is still a beat: one shot
+            # filling it beats dropping the beat out of the spot.
+            shots = [{"visual": (source.get("visual") or "").strip()}]
+
+        weights = []
+        for shot in shots:
+            try:
+                weights.append(max(0.1, float(shot.get("seconds") or 0)))
+            except (TypeError, ValueError):
+                weights.append(1.0)
+        total = sum(weights) or float(len(shots))
+
+        cursor = start
+        for position, (shot, weight) in enumerate(zip(shots, weights)):
+            share = span * (weight / total)
+            shot_end = end if position == len(shots) - 1 else round(cursor + share, 2)
+            scenes.append({
+                "start": round(cursor, 2),
+                "end": shot_end,
+                "beat": beat["label"],
+                "beat_index": index,
+                # One line of narration for the beat, carried on its first
+                # shot. The others are silent by design, not by omission.
+                "voiceover": ((source.get("voiceover") or "").strip()
+                              if position == 0 else ""),
+                "visual": (shot.get("visual") or "").strip(),
+                "grammar": _clean_grammar(shot),
+            })
+            cursor = shot_end
+    return scenes
+
+
+_VALID = {"size": {x["id"] for x in SHOT_SIZES},
+          "angle": {x["id"] for x in SHOT_ANGLES},
+          "move": {x["id"] for x in SHOT_MOVES}}
+
+
+def _clean_grammar(shot):
+    """Shot grammar, with anything the vocabulary does not know defaulted.
+
+    The lists are closed because a `<select>` and a stock query both read them,
+    so a model inventing "medium-wide-ish" has to land somewhere rather than
+    reaching either. Defaulting is right here and reporting would not be: this
+    is a starting point a person edits, not a measurement.
+    """
+    out = dict(DEFAULT_SHOT_GRAMMAR)
+    for field, allowed in _VALID.items():
+        value = str(shot.get(field) or "").strip().lower()
+        if value in allowed:
+            out[field] = value
+    return out
 
 
 def _normalize_scene_timing(scenes, length_seconds, beats):
@@ -283,6 +390,11 @@ def _mock_script(concept, length_seconds, brief, client_profile, beats, include_
     if length_seconds == 5:
         # Pure brand recall — no story, no phone, no QR, per the brief.
         lines = [f"{business} — {what}."]
+    elif length_seconds == 6:
+        lines = [
+            f"{business}.",
+            f"{what}." + (f" {site}." if site else ""),
+        ]
     elif length_seconds == 15:
         lines = [
             f"Still putting off {what.lower()}?",
@@ -305,25 +417,57 @@ def _mock_script(concept, length_seconds, brief, client_profile, beats, include_
             f"{business}. {site or phone}." + (f" {DEFAULT_QR_AUDIO_CUE}" if include_audio_cue else ""),
         ]
 
-    n = min(len(beats), len(lines)) or 1
+    # Mock mode builds the same SHAPE as the live path, shots and all. A mock
+    # that returned three fat scenes would make every downstream check —
+    # pacing, the ABCD panel, the shot grammar controls — untestable without a
+    # key, which is exactly the thing this module's mock mode exists to avoid.
+    # Enough shots to satisfy the pacing threshold, distributed across the
+    # beats that are not the end card. A mock that failed the pacing check it
+    # exists to demonstrate would be worse than no mock.
+    targets = abcd_service.shot_targets(length_seconds)
+    body_beats = max(1, len(beats) - 1)
+    per_beat = max(1, -(-max(0, targets["high"] - 1) // body_beats))   # ceil
+    grammar_cycle = [
+        {"size": "ews", "angle": "eye", "move": "static"},
+        {"size": "ms", "angle": "eye", "move": "push"},
+        {"size": "cu", "angle": "low", "move": "static"},
+        {"size": "ecu", "angle": "eye", "move": "static"},
+        {"size": "ws", "angle": "high", "move": "pan"},
+    ]
+
     scenes = []
-    for i in range(len(beats)):
-        beat = beats[i]
-        start = round(length_seconds * beat["start_pct"] / 100, 1)
-        end = round(length_seconds * beat["end_pct"] / 100, 1) if i < len(beats) - 1 else float(length_seconds)
+    shot_no = 0
+    for i, beat in enumerate(beats):
+        start_s = round(length_seconds * beat["start_pct"] / 100, 2)
+        end_s = (round(length_seconds * beat["end_pct"] / 100, 2)
+                 if i < len(beats) - 1 else float(length_seconds))
         line = lines[i] if i < len(lines) else ""
         is_close = i == len(beats) - 1
-        if length_seconds == 5:
-            visual = "Hero shot on the product/service with the logo prominent — brand recall, not a story."
-        elif is_close:
-            visual = "CTA end card"
-        else:
-            visual = f"Supporting b-roll for: {line}"
-        scenes.append({
-            "start": start, "end": end, "beat": beat["label"],
-            "visual": visual,
-            "voiceover": line,
-        })
+        # The end card is one held shot: the QR rule needs 8 seconds on screen
+        # and cutting through it would defeat the only response mechanism the
+        # spot has.
+        count = 1 if (is_close or length_seconds in abcd_service.BUMPER_LENGTHS) \
+            else max(1, per_beat)
+        span = max(0.1, end_s - start_s)
+        cursor = start_s
+        for k in range(count):
+            shot_end = end_s if k == count - 1 else round(cursor + span / count, 2)
+            if length_seconds == 5:
+                visual = ("Hero shot on the product/service with the logo prominent — "
+                          "brand recall, not a story.")
+            elif is_close:
+                visual = "CTA end card with the logo held still"
+            else:
+                visual = f"Supporting shot {k + 1} for: {line}" if line else "Supporting shot"
+            scenes.append({
+                "start": round(cursor, 2), "end": shot_end,
+                "beat": beat["label"], "beat_index": i,
+                "voiceover": line if k == 0 else "",
+                "visual": visual,
+                "grammar": grammar_cycle[shot_no % len(grammar_cycle)],
+            })
+            shot_no += 1
+            cursor = shot_end
     return {"duration": length_seconds, "scenes": scenes}
 
 

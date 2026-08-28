@@ -14,7 +14,14 @@ from one source of truth instead of drifting apart.
 # wildly exceed these ranges, and the QC service (services/qc_service.py)
 # flags a project if the generated VO falls outside them.
 # ---------------------------------------------------------------------------
-COMMERCIAL_LENGTHS = [5, 15, 30, 60]
+COMMERCIAL_LENGTHS = [5, 6, 15, 30, 60]
+
+# The :06 is the YouTube bumper, and it is a real unit rather than a rounding
+# of the :05. Google Ads caps a bumper at 6 seconds and the spec kit already
+# carries that as `youtube_bumper` with a (0, 6) duration — so a :06 is the
+# longest cut that still buys bumper inventory, where a :05 leaves a second of
+# it unbought. Both are offered: the :05 is what some CTV and social bumper
+# slots are sold at, and neither is a substitute for the other.
 
 # What each length costs to make and how it tends to perform, said at the
 # moment somebody picks it rather than after they have built it.
@@ -30,6 +37,11 @@ LENGTH_NOTES = {
         "note": "Pure brand recall — hero shot, logo, one value prop. No story, no "
                 "phone number, no QR code: it flies past too fast to act on.",
         "cost": "Cheapest to produce — usually one or two scenes."},
+    6: {"label": "YouTube bumper",
+        "note": "Six seconds, unskippable, one idea. The longest cut that still buys "
+                "bumper inventory — a :05 leaves a second of it unbought. Brand and one "
+                "line, nothing else.",
+        "cost": "Cheapest to produce — one or two shots."},
     15: {"label": "Standard",
          "note": "One message, one CTA. Hook, benefit, end card. Script under 35 words.",
          "cost": "Low — around three scenes."},
@@ -75,11 +87,11 @@ MAX_LENGTHS_PER_BUILD = len(COMMERCIAL_LENGTHS)
 # parallel and a note on the first one applying to all three after they have
 # been paid for.
 #
-# Then :15, then the :05 bumper, which are trims of that same storyboard. The
-# :60 is last: it is the most expensive to generate (roughly twice a :30 in
+# Then :15, then the two bumpers — :06 before :05, because the :06 is the
+# YouTube bumper unit and the :05 is the shorter trim of it. The :60 is last: it is the most expensive to generate (roughly twice a :30 in
 # credits, characters and render time) and the one most likely to be dropped
 # when the budget lands, so it is the one to build when the rest are done.
-BUILD_ORDER = [30, 15, 5, 60]
+BUILD_ORDER = [30, 15, 6, 5, 60]
 
 
 def build_sort_key(length_seconds):
@@ -100,10 +112,16 @@ def in_build_order(lengths):
 
 VO_WORD_TARGETS = {
     5: (8, 12),
+    # One second more than a :05 is about three more words at a comfortable
+    # commercial pace, not a different kind of script.
+    6: (10, 15),
     # Tightened from 30-38 to 25-35 per the CTV/YouTube best-practices brief:
     # "Keep the script under 35 words to ensure clear comprehension."
     15: (25, 35),
-    30: (65, 75),
+    # Tightened from 65-75. A :30 slot carries about 28.5 seconds of usable
+    # air, so 75 words is 2.6 words a second -- radio density read over
+    # picture, with no room for the visual to land or the end card to breathe.
+    30: (60, 70),
     60: (135, 150),
 }
 
@@ -154,6 +172,14 @@ STRUCTURE_TEMPLATES = {
                      "proposition. No story, no phone number, no QR code — it flies by too fast and "
                      "just frustrates the viewer. This is pure brand recall: a flashing logo/URL."},
     ],
+    6: [
+        {"label": "Hook", "start_pct": 0, "end_pct": 50,
+         "guidance": "One arresting image or one spoken line. A bumper is unskippable, so "
+                     "it does not have to earn the next second — it has to be remembered."},
+        {"label": "Brand", "start_pct": 50, "end_pct": 100,
+         "guidance": "Logo, name and one value prop, held still. No phone number, no QR "
+                     "code, no second idea — six seconds cannot carry a response mechanism."},
+    ],
     15: [
         {"label": "Hook", "start_pct": 0, "end_pct": 20,
          "guidance": "Hook the viewer instantly with a relatable pain point or a stunning visual."},
@@ -191,6 +217,8 @@ STRUCTURE_TEMPLATES = {
 # override STRUCTURE_TEMPLATES for a social spot of the same length.
 SOCIAL_STRUCTURE_TEMPLATES = {
     5: STRUCTURE_TEMPLATES[5],
+    # A bumper is already all hook; a feed does not change that.
+    6: STRUCTURE_TEMPLATES[6],
     15: [
         {"label": "Thumb-stop", "start_pct": 0, "end_pct": 13,
          "guidance": "One arresting frame or a spoken hook in under two seconds. The viewer "
@@ -246,7 +274,122 @@ SOCIAL_RULES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Shot grammar.
+#
+# Three fields, straight from standard shot-list practice, and they exist for
+# a reason beyond looking professional: the two things downstream of a scene
+# are a stock search and a Runway prompt, and both are the difference between
+# "technician working" and "close-up, low angle, slow push — technician's
+# hands on a gauge". One is a description; the other is a shot.
+#
+# The vocabularies are closed lists because they are read by a model and by a
+# `<select>`, and a free-text "medium-ish wide" is neither searchable nor
+# renderable.
+# ---------------------------------------------------------------------------
+SHOT_SIZES = [
+    {"id": "ecu", "label": "Extreme close-up", "hint": "A detail filling the frame — hands, a dial, an eye."},
+    {"id": "cu", "label": "Close-up", "hint": "A face or a product, little else in frame."},
+    {"id": "ms", "label": "Medium", "hint": "Waist up, or a product in its setting."},
+    {"id": "ws", "label": "Wide", "hint": "The whole subject and where it is."},
+    {"id": "ews", "label": "Extreme wide", "hint": "Establishing — the place, not the subject."},
+]
+SHOT_ANGLES = [
+    {"id": "eye", "label": "Eye level", "hint": "Neutral. The default unless there is a reason."},
+    {"id": "low", "label": "Low", "hint": "Looking up — makes the subject dominant."},
+    {"id": "high", "label": "High", "hint": "Looking down — makes the subject smaller."},
+    {"id": "ots", "label": "Over the shoulder", "hint": "Puts the viewer with somebody."},
+    {"id": "pov", "label": "Point of view", "hint": "The viewer is the subject."},
+]
+SHOT_MOVES = [
+    {"id": "static", "label": "Static", "hint": "Locked off. Cheapest, and right more often than not."},
+    {"id": "push", "label": "Push in", "hint": "Slow move toward the subject — builds."},
+    {"id": "pull", "label": "Pull out", "hint": "Reveals context."},
+    {"id": "pan", "label": "Pan", "hint": "Horizontal sweep."},
+    {"id": "tilt", "label": "Tilt", "hint": "Vertical sweep."},
+    {"id": "handheld", "label": "Handheld", "hint": "Documentary feel. Reads as real, or as amateur."},
+]
+
+DEFAULT_SHOT_GRAMMAR = {"size": "ms", "angle": "eye", "move": "static"}
+
+# Shots are numbered in tens, the way a storyboard is, so a shot can be
+# inserted between 20 and 30 without renumbering the board.
+SHOT_NUMBER_STEP = 10
+
+
+def shot_label(grammar):
+    """The grammar as the phrase that goes into a stock query or a prompt."""
+    grammar = grammar or {}
+    sizes = {x["id"]: x["label"] for x in SHOT_SIZES}
+    angles = {x["id"]: x["label"] for x in SHOT_ANGLES}
+    moves = {x["id"]: x["label"] for x in SHOT_MOVES}
+    parts = [sizes.get(grammar.get("size", ""), ""),
+             angles.get(grammar.get("angle", ""), ""),
+             moves.get(grammar.get("move", ""), "")]
+    return ", ".join(p.lower() for p in parts if p)
+
+
 DEFAULT_QR_AUDIO_CUE = "Scan the code on your screen or call us today."
+
+
+# ---------------------------------------------------------------------------
+# Where a CTV spot is actually running.
+#
+# The smallest possible version of the publisher question, and it exists for
+# exactly one reason: Amazon Streaming TV rejects the two things a CTV spot
+# would otherwise reach for. Optional is not the same as silent — a rep who
+# switches a QR code on for an Amazon buy has built something Amazon will
+# refuse, and until now nothing in this tool said so.
+#
+# This is NOT publisher targeting. It drives one warning. Whether we sell CTV
+# by publisher or as one bucket is still open, and this field is designed to
+# be thrown away or grown into that without either being a migration: it is a
+# list on the brief, not a column.
+# ---------------------------------------------------------------------------
+CTV_PUBLISHERS = [
+    {"id": "roku", "label": "Roku"},
+    {"id": "samsung", "label": "Samsung TV Plus"},
+    {"id": "vizio", "label": "Vizio"},
+    {"id": "hulu", "label": "Hulu"},
+    {"id": "amazon", "label": "Amazon Streaming TV"},
+    {"id": "other", "label": "Other / mixed"},
+]
+
+# What a publisher refuses, and the words to say about it. Only what is
+# actually published by the platform: nothing is inferred for the publishers
+# whose specs say nothing on the point, and their absence here means "not
+# measured", never "allowed".
+PUBLISHER_RULES = {
+    "amazon": {
+        "label": "Amazon Streaming TV",
+        "no_qr": True,
+        "no_click_cta": True,
+        "note": ("Amazon Streaming TV does not support QR codes, and its specs say ads "
+                 "should not include call-to-action elements that encourage clicking. "
+                 "Turn the code off for this cut, or run it somewhere else."),
+    },
+}
+
+
+def publisher_labels(ids):
+    known = {p["id"]: p["label"] for p in CTV_PUBLISHERS}
+    return [known.get(i, i) for i in (ids or [])]
+
+
+def publishers_refusing_qr(ids):
+    """Which of the chosen publishers will not take a QR code.
+
+    A list, not a boolean: "Amazon and Hulu refuse this" and "somebody refuses
+    this" are different sentences, and the first is the one a rep can act on.
+    """
+    return [PUBLISHER_RULES[i]["label"] for i in (ids or [])
+            if PUBLISHER_RULES.get(i, {}).get("no_qr")]
+
+
+def publisher_qr_note(ids):
+    refusing = [PUBLISHER_RULES[i] for i in (ids or [])
+                if PUBLISHER_RULES.get(i, {}).get("no_qr")]
+    return refusing[0]["note"] if refusing else ""
 
 
 # ---------------------------------------------------------------------------
@@ -321,12 +464,29 @@ def spec_channels(platform, format_id):
 # elsewhere. Not used at all on :05 bumpers (spec: it flies by too fast).
 # ---------------------------------------------------------------------------
 QR_CODE_RULES = {
+    # A bumper is too short to scan: :05 and :06 carry no code by design.
     "eligible_lengths": [15, 30, 60],
-    # Which platforms a QR code is *required* on, as opposed to merely
-    # offered. CTV is the only one where it is the sole response mechanism.
-    # Social is deliberately absent: a feed ad is already tappable, and a QR
-    # code on a phone screen asks somebody to scan the device they are holding.
-    "required_platforms": ["ctv", "both"],
+
+    # Nothing requires a QR code any more, and the list is deliberately left
+    # here rather than deleted.
+    #
+    # It used to be ["ctv", "both"], and the qc check blocked the render
+    # without one. That made a spot built for **Amazon Streaming TV**
+    # non-compliant by our own rule: Amazon's ad specs say QR interactivity is
+    # not supported on non-interactive Streaming TV, and that ads "should not
+    # include call-to-action elements that encourage clicking". Roku takes
+    # interactive overlays; Amazon does not. So the tool was requiring the one
+    # element a whole class of the buy will reject.
+    #
+    # Empty means the check is advisory. It does not mean the code stopped
+    # mattering — see `default_on_platforms`.
+    "required_platforms": [],
+
+    # Where the toggle starts switched ON. A CTV viewer cannot click, so the
+    # code is still the only response mechanism there worth defaulting to; it
+    # is now a default rather than a requirement, which is the difference
+    # between helping and refusing.
+    "default_on_platforms": ["ctv", "both"],
     "min_screen_pct": 15,        # QR code must occupy >=15% of the frame's shorter dimension
     "min_duration_seconds": 8,   # must hold on screen at least 8-10s to be scannable
     "recommended_min_duration_seconds": 10,
@@ -367,14 +527,27 @@ def qr_eligible(length_seconds):
 
 
 def qr_required(length_seconds, platform):
-    """Whether a spot of this length on this platform must carry a QR code.
+    """Whether a QR code is REQUIRED. Nothing requires one any more.
 
-    Offered and required are different, and collapsing them is how a warning
-    stops being read: a social spot without one is correct, a CTV spot without
-    one has no response mechanism at all.
+    Kept as a function rather than deleted because four call sites ask it and
+    the answer is what changed, not the question. `required_platforms` is now
+    empty — see the note on it — so this returns False everywhere, and QC
+    treats a missing code as advice rather than as a blocked render.
     """
     return (qr_eligible(length_seconds)
             and platform in QR_CODE_RULES["required_platforms"])
+
+
+def qr_default_on(length_seconds, platform):
+    """Whether the toggle starts switched on for this spot.
+
+    This is what "required" used to be, minus the refusal. A CTV viewer still
+    cannot click, so the code is still the right default there — it is simply
+    no longer something the tool insists on, because a whole class of the CTV
+    buy (Amazon Streaming TV) refuses it.
+    """
+    return (qr_eligible(length_seconds)
+            and platform in QR_CODE_RULES["default_on_platforms"])
 
 
 def logo_persistence_eligible(length_seconds):

@@ -6,11 +6,14 @@ from flask import Blueprint, jsonify, request
 from .. import client_link
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
                       PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
-                      qr_eligible, qr_required, get_structure, length_warning,
-                      in_build_order)
+                      qr_eligible, qr_required, qr_default_on, get_structure,
+                      length_warning, in_build_order, DEFAULT_SHOT_GRAMMAR,
+                      SHOT_NUMBER_STEP, SHOT_SIZES, SHOT_ANGLES, SHOT_MOVES,
+                      CTV_PUBLISHERS, publisher_qr_note, shot_label)
 from ..db import db
 from ..models import Client, CommercialProject, Scene, Campaign, Variation
-from ..services import openai_service, qrcode_service, cloudinary_service, qc_service
+from ..services import (openai_service, qrcode_service, cloudinary_service,
+                        qc_service, abcd_service)
 
 # Where a QR code points and whose account the scan is filed under. In hub/
 # rather than here because the answer is the same for anything this Hub puts a
@@ -94,6 +97,15 @@ def start_commercial():
     client = Client.query.get(client_id)
     title = (data.get("title") or "").strip()
 
+    # Where the spot is running. On the brief rather than in a new column,
+    # because `create_all()` adds no column to an existing table — and because
+    # this is deliberately the smallest possible version of the publisher
+    # question. It drives one warning today (Amazon takes no QR code) and is
+    # shaped so that growing it into real publisher targeting, or dropping it,
+    # is neither a migration.
+    publishers = [p for p in (data.get("publishers") or [])
+                  if p in {x["id"] for x in CTV_PUBLISHERS}]
+
     # More than one length is a campaign, so they share a concept rather than
     # being quoted three different ways.
     campaign_id = data.get("campaign_id")
@@ -115,6 +127,8 @@ def start_commercial():
             campaign_id=campaign_id, status="draft",
         )
         project.formats = formats
+        if publishers:
+            project.brief = {"publishers": publishers}
         db.session.add(project)
         projects.append(project)
     db.session.commit()
@@ -131,6 +145,9 @@ def start_commercial():
         if not verdict["passed"]:
             notes.append({"length": project.length_seconds, "kind": "spec",
                           "message": verdict["message"]})
+    publisher_note = publisher_qr_note(publishers)
+    if publisher_note:
+        notes.append({"length": 0, "kind": "publisher", "message": publisher_note})
 
     return jsonify({"ok": True,
                     "project": projects[0].to_dict(),
@@ -192,6 +209,8 @@ def get_structure_guide(project_id):
         "beats": get_structure(project.length_seconds, project.platform),
         "qr_eligible": qr_eligible(project.length_seconds),
         "qr_required": qr_required(project.length_seconds, project.platform),
+        "qr_default_on": qr_default_on(project.length_seconds, project.platform),
+        "shot_targets": abcd_service.shot_targets(project.length_seconds),
         "platform": project.platform,
     })
 
@@ -211,14 +230,23 @@ def delete_project(project_id):
 def save_brief(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     data = request.get_json(force=True) or {}
-    brief = {
+    # Merged, not replaced — the same trap `set_music` had. The Start page
+    # writes `publishers` onto the brief before this screen is ever opened, so
+    # an assignment here would silently wipe the answer to "where is this
+    # running?" the first time somebody saved the brief, and the Amazon
+    # warning would go quiet with nothing saying why.
+    brief = dict(project.brief or {})
+    brief.update({
         "what_advertising": data.get("what_advertising", ""),
         "primary_cta": data.get("primary_cta", ""),
         "landing_page": data.get("landing_page", ""),
         "phone": data.get("phone", ""),
         "target_audience": data.get("target_audience", ""),
         "tone": data.get("tone") if data.get("tone") in TONE_OPTIONS else (data.get("tone") or ""),
-    }
+    })
+    if "publishers" in data:
+        brief["publishers"] = [p for p in (data.get("publishers") or [])
+                               if p in {x["id"] for x in CTV_PUBLISHERS}]
     project.brief = brief
     if project.status == "draft":
         project.status = "brief"
@@ -322,7 +350,17 @@ def generate_script(project_id):
         scene.visual_description = sc["visual"]
         scene.is_cta = is_last
         meta = scene.asset_meta or {}
+        # A Scene row is a SHOT now, not a beat. What holds a beat together is
+        # this metadata: every shot in a beat carries the same label and index,
+        # and the Blueprint groups on it. Written here rather than inferred
+        # later, because the beat is the model's answer and re-deriving it from
+        # timings would be guessing at an argument we were told.
         meta["beat"] = sc.get("beat")
+        meta["beat_index"] = sc.get("beat_index")
+        meta["grammar"] = sc.get("grammar") or dict(DEFAULT_SHOT_GRAMMAR)
+        # Numbered in tens, the way a storyboard is, so a shot inserted between
+        # 20 and 30 does not renumber the board.
+        meta["shot_no"] = (idx + 1) * SHOT_NUMBER_STEP
         scene.asset_meta = meta
         if is_last:
             scene.asset_type = "cta"
@@ -402,6 +440,10 @@ def set_cta(project_id):
         "phone": data.get("phone") or client.phone or "",
         "qr_enabled": qr_enabled,
         "qr_required": qr_required(project.length_seconds, project.platform),
+        "qr_default_on": qr_default_on(project.length_seconds, project.platform),
+        # Which of the named publishers refuse a code, so the CTA step can say
+        # so the moment one is chosen rather than at the render.
+        "qr_publisher_note": publisher_qr_note((project.brief or {}).get("publishers")),
         "qr_corner": data.get("qr_corner") or "bottom-right",
         "qr_target_url": qr_target,
         # What the code actually points at before the tracking was added, and
@@ -479,7 +521,10 @@ def get_qr_plan(project_id):
     plan = _qr_plan(project, client, cta.get("website") or client.website or "", "")
     return jsonify({"ok": True, "plan": plan,
                     "eligible": qr_eligible(project.length_seconds),
-                    "required": qr_required(project.length_seconds, project.platform)})
+                    "required": qr_required(project.length_seconds, project.platform),
+                    "default_on": qr_default_on(project.length_seconds, project.platform),
+                    "publisher_note": publisher_qr_note(
+                        (project.brief or {}).get("publishers"))})
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +575,30 @@ def expand_narration(project_id):
     return jsonify({"ok": True, "written": written, "note": result.get("note", ""),
                     "budget": budget, "scenes": refreshed,
                     "live": openai_service.is_live()})
+
+
+@bp.get("/<int:project_id>/abcd")
+def get_abcd(project_id):
+    """How this plan scores against the published thresholds.
+
+    Its own route rather than a slice of /qc, because the Blueprint panel
+    updates as shots are edited and re-running the whole QC set — which makes
+    an OpenAI call for the spelling pass — on every camera-angle change would
+    be a model call per keystroke.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    scenes = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
+    # to_dict() gives the row's own field names; the scorer reads shot shape.
+    shots = [{"start": s["start"], "end": s["end"],
+              "visual": s.get("visual_description") or "",
+              "grammar_note": shot_label((s.get("asset_meta") or {}).get("grammar")),
+              "is_cta": s.get("is_cta")}
+             for s in scenes]
+    return jsonify({"ok": True,
+                    "abcd": abcd_service.score(shots, project.length_seconds,
+                                               project.platform),
+                    "targets": abcd_service.shot_targets(project.length_seconds),
+                    "lift": abcd_service.MEASURED_LIFT})
 
 
 @bp.get("/<int:project_id>/narration/budget")

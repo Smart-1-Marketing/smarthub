@@ -47,6 +47,37 @@
    narration outside the word budget. Finding out on the last step meant
    coming back — and pressing Render then re-ran the identical checks, so the
    tool answered a question it had just been asked. #}
+{# The published thresholds, scored against the plan.
+   A :30 built one scene per beat came out as three shots averaging ten
+   seconds; Google's own open-source detector wants two. Scoring the PLAN is
+   the point — a pacing problem found on a rendered file is a re-render. #}
+<div class="cb-card" style="margin-bottom:16px;">
+  <div class="cb-flex-between" style="margin-bottom:6px;">
+    <h3 style="margin:0;">How it scores
+      {{ help_dot('commercial_builder.blueprint.abcd') if help_dot is defined else '' }}
+    </h3>
+    <span class="cb-hint" id="abcd-headline"></span>
+  </div>
+  <p class="cb-hint" style="margin-top:0;">
+    {{ shot_targets.note }}
+  </p>
+  <div id="abcd-rows"></div>
+  <details style="margin-top:10px;">
+    <summary style="cursor:pointer;font-size:12.5px;font-weight:640;">What Amazon measured</summary>
+    <table class="cb-table" style="margin-top:8px;">
+      <thead><tr><th>Element</th><th>Lift</th><th>What it means here</th></tr></thead>
+      <tbody>
+      {% for row in lift %}
+        <tr><td>{{ row.element }}</td><td><strong>{{ row.lift }}</strong></td>
+            <td class="cb-muted">{{ row.means }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="cb-hint">Amazon Ads, measured across streaming TV creative. Guidance for
+      building and for the proposal — nothing here fails a spot.</p>
+  </details>
+</div>
+
 <div class="cb-card" style="margin-bottom:16px;">
   <div class="cb-flex-between" style="margin-bottom:6px;">
     <h3 style="margin:0;">Checks
@@ -83,10 +114,26 @@
     </div>
     <div>
       <div class="cb-scene-meta">
-        <span class="cb-scene-drag" title="Drag to reorder">⠿ Scene <span class="scene-num"></span></span>
+        <span class="cb-scene-drag" title="Drag to reorder">⠿ Shot <span class="scene-num"></span></span>
+        <span class="cb-badge cb-badge-owned beat-badge"></span>
         <span class="cb-badge cb-badge-mock asset-type-badge"></span>
       </div>
       <div class="cb-field"><label class="cb-label">Visual</label><input type="text" class="visual-input"></div>
+      {# Shot grammar. Three fields, and they are not decoration: the two
+         things downstream of a shot are a stock query and a Runway prompt,
+         and both are the difference between "technician working" and
+         "close-up, low angle, slow push — hands on a gauge". #}
+      <div class="cb-grammar">
+        <select class="grammar-size" title="Shot size">
+          {% for o in shot_sizes %}<option value="{{ o.id }}" title="{{ o.hint }}">{{ o.label }}</option>{% endfor %}
+        </select>
+        <select class="grammar-angle" title="Camera angle">
+          {% for o in shot_angles %}<option value="{{ o.id }}" title="{{ o.hint }}">{{ o.label }}</option>{% endfor %}
+        </select>
+        <select class="grammar-move" title="Camera move">
+          {% for o in shot_moves %}<option value="{{ o.id }}" title="{{ o.hint }}">{{ o.label }}</option>{% endfor %}
+        </select>
+      </div>
       <div class="cb-field"><label class="cb-label">Narration</label><textarea class="narration-input" rows="2"></textarea></div>
       <p class="cb-hint spokesperson-note"></p>
       <div class="asset-picker"></div>

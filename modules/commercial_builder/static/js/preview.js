@@ -13,11 +13,16 @@
     text_safe_area: "Text safe area", spelling: "Spelling", qr_code: "QR code",
     logo_persistence: "Persistent logo", youtube_hook: "YouTube hook",
     creative_spec: "Published spec", social_hook: "Feed hook", sound_off: "Sound off",
+    abcd_pacing: "Pacing", abcd_brand_window: "Brand window",
+    publisher_rules: "Publisher rules",
   };
 
   /* A recommendation and a refusal are not the same finding, and painting
-     both red is how a panel of red teaches people to scroll past it. */
-  const ADVISORY = new Set(["logo_persistence", "brand", "aspect_ratio", "text_safe_area"]);
+     both red is how a panel of red teaches people to scroll past it. The
+     severity comes off the server: this file and blueprint.js each kept an
+     ADVISORY set by hand, which is two copies of a decision qc_service
+     already had every fact to make, and the fastest way to have one panel
+     draw a finding red while the other drew the same finding amber. */
 
   document.getElementById("run-qc-btn").addEventListener("click", runQc);
 
@@ -26,14 +31,13 @@
     list.innerHTML = '<span class="cb-spinner"></span>';
     const { qc_results } = await CB.api(`/api/projects/${projectId}/qc`, { method: "POST" });
     list.innerHTML = "";
+    let blocking = 0;
     Object.entries(qc_results).forEach(([key, result]) => {
       if (key === "_all_passed" || !QC_LABELS[key]) return;
-      let tone = "pass", mark = "✓";
-      if (!result.passed) {
-        const advisory = ADVISORY.has(key);
-        tone = advisory ? "warn" : "fail";
-        mark = advisory ? "!" : "✕";
-      }
+      const level = result.level || (result.passed ? "pass" : "fail");
+      const tone = level === "pass" ? "pass" : level;
+      const mark = level === "pass" ? "✓" : (level === "warn" ? "!" : "✕");
+      if (level === "fail") blocking += 1;
       const item = CB.el(`<div class="cb-qc-item">
         <div class="cb-qc-icon ${tone}">${mark}</div>
         <div class="cb-qc-text"><strong>${QC_LABELS[key]}</strong>
@@ -41,7 +45,11 @@
       </div>`);
       list.appendChild(item);
     });
-    if (qc_results._all_passed) CB.toast("All checks passed — ready to render.");
+    if (qc_results._all_passed && !(qc_results._warnings || []).length) {
+      CB.toast("All checks passed — ready to render.");
+    } else if (!blocking) {
+      CB.toast("Nothing blocking — the rest are recommendations.");
+    }
   }
 
   // ------------------------------------------------------------ one size
@@ -305,7 +313,7 @@
     offer: "New offer text", location: "New target audience / location",
     weather: "New weather-triggered copy", cta: "New CTA line",
     voice: "New ElevenLabs voice ID", footage: "(no input needed — unlocks all footage)",
-    duration: "New length in seconds (5/15/30/60)",
+    duration: "New length in seconds (5/6/15/30/60)",
   };
   varTypeSelect.addEventListener("change", () => (varLabel.textContent = VAR_LABELS[varTypeSelect.value]));
   varLabel.textContent = VAR_LABELS[varTypeSelect.value];

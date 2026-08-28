@@ -96,6 +96,24 @@
     <div id="length-notes"></div>
   </div>
 
+  <div class="cb-field" id="publisher-field" style="display:none;">
+    <label class="cb-label">Which streaming platforms? <span class="cb-muted" style="font-weight:400;">(optional)</span>
+      {{ help_dot('commercial_builder.start.publishers') if help_dot is defined else '' }}
+    </label>
+    {# The smallest possible version of the publisher question, and it exists
+       for one reason: Amazon Streaming TV takes neither a QR code nor a
+       click-encouraging CTA, and until now nothing told a rep that. Not
+       publisher targeting — it drives one warning. #}
+    <div class="cb-choice-grid" id="publisher-choices">
+      {% for pub in publishers %}
+        <div class="cb-choice" data-value="{{ pub.id }}"><div class="cb-choice-title">{{ pub.label }}</div></div>
+      {% endfor %}
+    </div>
+    <p class="cb-hint">Optional, and it changes nothing about the build — it just lets the
+      tool warn you when a publisher refuses something you have switched on.</p>
+    <div id="publisher-notes"></div>
+  </div>
+
   <div class="cb-field">
     <label class="cb-label">Output format (select one or more)</label>
     <div class="cb-choice-grid" id="format-choices">

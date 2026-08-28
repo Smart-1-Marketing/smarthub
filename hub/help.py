@@ -622,9 +622,22 @@ REGISTRY: list[Help] = [
        "twice a :30 in AI video credits, voiceover characters and render time, "
        "and on skippable inventory it is the length viewers skip most; the note "
        "under the picker says so when you tick it. Watch for the red note too: "
-       "the published spec sells Connected TV at 15\u201330 seconds, so a :05 or a "
-       ":60 CTV cut is outside what that buy takes.",
+       "the published spec sells Connected TV at 15\u201330 seconds, so a :05, a "
+       ":06 or a :60 CTV cut is outside what that buy takes. The :06 is a "
+       "YouTube bumper \u2014 one idea, unskippable, and scored on none of the "
+       "pacing rules the longer lengths are.",
        step=3, selector="#length-choices"),
+    _h("commercial_builder.start.publishers", "Which streaming platforms, and why it is asked",
+       "Optional, and it changes nothing about how the spot is built \u2014 it "
+       "exists so the tool can warn you when a publisher refuses something you "
+       "have switched on. The one that matters today is Amazon: Amazon Streaming "
+       "TV supports no QR code at all, and its own creative guidance says an ad "
+       "should not carry call-to-action elements that encourage clicking, "
+       "because there is nothing there to click. Tick Amazon and the CTA step "
+       "says so while the end card is still being built, rather than at "
+       "trafficking. Leave it blank and nothing is assumed \u2014 no warning is "
+       "not the same as a publisher that allows it.",
+       step=4, selector="#publisher-choices"),
 
     _h("commercial_builder.brief.what", "This is what the whole spot is built from",
        "Everything downstream reads this: the three concepts, the timed script, "
@@ -646,6 +659,19 @@ REGISTRY: list[Help] = [
        "social buy the first beat is different again: the hook is at zero, "
        "because the thumb is already moving.",
        step=1, selector="[data-tour='cb-beats']"),
+    _h("commercial_builder.blueprint.abcd", "Somebody else\u2019s numbers, not ours",
+       "Google open-sources the evaluator it machine-scores YouTube creative "
+       "with, and every threshold on this card carries the name of whoever set "
+       "it \u2014 which is the whole point: \u201cyour average shot is ten seconds "
+       "and Google\u2019s own detector wants two\u201d is an argument a client "
+       "cannot talk you out of, where \u201cour tool thinks this is slow\u201d is "
+       "an opinion. It scores the plan rather than a finished file, so a pacing "
+       "problem is found while it is still free to fix. A row that says "
+       "\u201cnot measured\u201d needs the rendered frame and is never a tick. A "
+       ":06 bumper is scored on none of the pacing rules \u2014 cutting one to a "
+       "two-second average would be three cuts a second, which is a strobe, not "
+       "a bumper.",
+       step=2, selector="#abcd-rows"),
     _h("commercial_builder.blueprint.checks", "The same checks Render runs",
        "They were only on the last step, and every one of them is about "
        "something on this screen: a scene with no footage, a clip shorter than "
@@ -655,7 +681,7 @@ REGISTRY: list[Help] = [
        "buying this inventory work from \u2014 and it is checked on the plan, before "
        "a frame exists, because length and aspect ratio are what a platform "
        "refuses creative over and both are decided here.",
-       step=2, selector="#run-checks-btn"),
+       step=3, selector="#run-checks-btn"),
     _h("commercial_builder.blueprint.narration", "A longer spot needs more script, not longer pauses",
        "The script writer sizes the read once, against the word budget for this "
        "length, and stops \u2014 which is why a :60 can come back reading like a :30 "
@@ -663,7 +689,7 @@ REGISTRY: list[Help] = [
        "has, and re-measures. When there is no room left it says so rather than "
        "quietly doing nothing: shorten a line first, or build a longer cut. A "
        "scene you have locked is never rewritten under you.",
-       step=3, selector="#expand-narration-btn"),
+       step=4, selector="#expand-narration-btn"),
     _h("commercial_builder.blueprint.assets", "Make a frame, then animate it",
        "The two AI buttons are one job in order, not two ways of doing the same "
        "thing. Runway animates a starting image and has no usable text-only "
@@ -673,7 +699,7 @@ REGISTRY: list[Help] = [
        "than 10 seconds is refused rather than handed a clip that stops early. "
        "Footage we already own is listed first and badged OWNED: it costs "
        "nothing and needs no license check.",
-       step=4, selector=".cb-step-pair"),
+       step=5, selector=".cb-step-pair"),
 
     _h("commercial_builder.voice.cast", "Say what it should sound like, then listen",
        "Ranked against the account\u2019s own voices by the same casting rules the "
@@ -708,13 +734,20 @@ REGISTRY: list[Help] = [
     _h("commercial_builder.cta.qr", "On CTV this is the whole response mechanism",
        "There is nothing to click on a television, so a Connected TV spot "
        "without a code asks for a response it has given nobody a way to make. "
-       "It has to be high-contrast, big enough, and held long enough to pull "
-       "out a phone \u2014 all three are checked. On social it is optional: the ad "
-       "is already tappable, and a code asks somebody to scan the phone they "
-       "are holding. The panel underneath says exactly where scanning it goes "
-       "and which Smart 1 Suite account will count the scan; a client with "
-       "their own sub-account gets their own, and a business we are pitching is "
-       "filed to Smart 1 Marketing, which is where prospects live.",
+       "It is switched on by default on a CTV buy for that reason \u2014 but it "
+       "is a recommendation, not a requirement: several publishers take no code "
+       "at all, and a check that refuses to render a spot for one of them would "
+       "be this tool insisting on something the platform forbids. Amazon "
+       "Streaming TV is the case that matters today; tick it on the Start page "
+       "and this step warns you. Where a code is on, it has to be "
+       "high-contrast, big enough, and held long enough to pull out a phone "
+       "\u2014 all three are checked. On social it is off: the ad is already "
+       "tappable, and a code asks somebody to scan the phone they are holding. "
+       "A :05 or :06 is too short to scan at all. The panel underneath says "
+       "exactly where scanning it goes and which Smart 1 Suite account will "
+       "count the scan; a client with their own sub-account gets their own, and "
+       "a business we are pitching is filed to Smart 1 Marketing, which is "
+       "where prospects live.",
        step=2, selector="#cta-qr-enabled"),
     _h("commercial_builder.cta.logo", "For the viewer who looked away",
        "A small corner bug keeps the brand on screen for the whole spot rather "
@@ -732,8 +765,10 @@ REGISTRY: list[Help] = [
        "says which of those two actually happened rather than showing one tick "
        "for both. Nothing is filed before you approve it. Where several "
        "lengths were started together they are built :30 first \u2014 the others "
-       "are cut down from its storyboard \u2014 then :15, the :05, and the :60 "
-       "last, and approving one hands you the next one\u2019s Blueprint."),
+       "are cut down from its storyboard \u2014 then :15, the :06, the :05, "
+       "and the :60 last, because the :60 is the most expensive and the "
+       "first to be dropped when the budget lands. Approving one hands you "
+       "the next one\u2019s Blueprint."),
 
 ]
 

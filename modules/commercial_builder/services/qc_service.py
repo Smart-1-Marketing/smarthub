@@ -2,10 +2,37 @@
 allowed to render. Each check returns {"passed": bool, "message": str} so
 the storyboard/review UI can render a simple pass/warn list."""
 
-from . import openai_service
+from . import openai_service, abcd_service
 from ..config import (VO_WORD_TARGETS, QR_CODE_RULES, OUTPUT_FORMATS, SOCIAL_RULES,
-                      qr_eligible, qr_required, is_social, spec_channels,
-                      spec_channel_mode)
+                      qr_eligible, qr_required, qr_default_on, is_social,
+                      spec_channels, spec_channel_mode, publishers_refusing_qr,
+                      publisher_qr_note)
+
+# ---------------------------------------------------------------------------
+# What blocks a render, and what only warns.
+#
+# This lived in TWO JavaScript files, each with its own hand-kept `ADVISORY`
+# set — a second and third copy of a decision the server already had all the
+# information to make. Two panels drawing the same finding in different
+# colours is the thing `hub/jsonstore.unmirrored_json_writers()` exists to
+# stop, one screen along.
+#
+# Every check carries a `level` now. `_all_passed` means "nothing FAILED", so
+# an advisory finding is shown, coloured amber, and does not refuse the
+# render — which is what let the QR code become optional without the panel
+# quietly reporting it as fine.
+# ---------------------------------------------------------------------------
+LEVEL_FAIL = "fail"
+LEVEL_WARN = "warn"
+LEVEL_PASS = "pass"
+
+# Checks that can only ever advise. A recommendation drawn in an open
+# finding's colour is how a page of red teaches people to scroll past it.
+ADVISORY_CHECKS = {
+    "logo_persistence", "brand", "aspect_ratio", "text_safe_area",
+    "qr_code", "abcd_pacing", "abcd_brand_window", "publisher_rules",
+    "sound_off",
+}
 
 # The published creative specification. Imported defensively because this
 # module has to keep working when the Hub is not around it (db.py's STANDALONE
@@ -40,8 +67,27 @@ def run_qc(project_dict, client_dict, scenes):
     checks["creative_spec"] = _check_creative_spec(project_dict)
     checks["social_hook"] = _check_social_hook(project_dict, scenes)
     checks["sound_off"] = _check_sound_off(project_dict, scenes)
+    checks["abcd_pacing"] = _check_pacing(project_dict, scenes)
+    checks["abcd_brand_window"] = _check_brand_window(project_dict, scenes)
+    checks["publisher_rules"] = _check_publisher_rules(project_dict)
 
-    checks["_all_passed"] = all(c["passed"] for k, c in checks.items() if k != "_all_passed")
+    for key, result in checks.items():
+        if key.startswith("_"):
+            continue
+        result.setdefault(
+            "level",
+            LEVEL_PASS if result["passed"]
+            else (LEVEL_WARN if key in ADVISORY_CHECKS else LEVEL_FAIL))
+
+    # "Nothing failed", not "everything passed". An advisory finding is a
+    # finding somebody should read, not a reason to refuse the render.
+    checks["_all_passed"] = not any(
+        c.get("level") == LEVEL_FAIL for k, c in checks.items() if not k.startswith("_"))
+    checks["_warnings"] = sorted(
+        k for k, c in checks.items()
+        if not k.startswith("_") and c.get("level") == LEVEL_WARN)
+    checks["_abcd"] = abcd_service.score(scenes, project_dict.get("length_seconds"),
+                                          project_dict.get("platform", "both"))
     return checks
 
 
@@ -213,38 +259,56 @@ def _check_spelling(project_dict, client_dict, scenes):
 
 
 def _check_qr_code(project_dict, scenes):
-    """QR is 'essential for CTV where clicks aren't possible' per the
-    best-practices brief — required for CTV/Both platforms on 15/30/60s
-    spots, held on screen long enough to actually scan. Not applicable to
-    :05 bumpers (excluded from qr_eligible)."""
+    """The QR code: optional everywhere, and still checked properly when on.
+
+    It used to be REQUIRED on CTV and the check blocked the render without
+    one — which made a spot built for Amazon Streaming TV non-compliant by our
+    own rule. Amazon supports neither QR interactivity nor click-encouraging
+    CTAs; Roku takes interactive overlays and Amazon does not. So the tool was
+    insisting on the one element a whole class of the buy will reject.
+
+    Nothing requires one now (`QR_CODE_RULES["required_platforms"]` is empty).
+    A missing code is advice; a code that is switched ON and broken is still a
+    block, because "optional to include" is not "optional to do properly" — a
+    code too small or held too briefly renders on the end card looking exactly
+    like one that works.
+    """
     length = project_dict.get("length_seconds")
     platform = project_dict.get("platform", "both")
     if not qr_eligible(length):
-        return {"passed": True, "message": ":05 bumpers don't carry a QR code by design."}
+        return {"passed": True,
+                "message": (f"A :{int(length or 0):02d} carries no QR code by design — "
+                            "it is too short to scan.")}
 
     cta = project_dict.get("cta") or {}
-    if not qr_required(length, platform):
-        # Somewhere the viewer can already tap or click. A QR code is still
-        # allowed — a Reel that gets shared to a television is a real thing —
-        # but its absence is not a finding, and reporting it as one on every
-        # social spot is how a warning stops being read.
-        if cta.get("qr_enabled"):
-            return {"passed": True, "message": "QR code enabled."}
+
+    if not cta.get("qr_enabled"):
+        # Where a code would have been the default, its absence is worth a
+        # note. Where it would not, saying nothing is right: a warning that
+        # fires on every social spot is a warning nobody reads.
+        if qr_default_on(length, platform):
+            return {"passed": False, "level": LEVEL_WARN,
+                    "message": ("No QR code on this cut. A CTV viewer cannot click, so "
+                                "the only response paths left are the spoken phone "
+                                "number and the domain on the end card. That is a "
+                                "choice, not a fault — and it is the right choice on "
+                                "an Amazon Streaming TV buy, which does not take one.")}
         if is_social(platform):
             return {"passed": True,
                     "message": ("Social spot — no QR code needed. The ad is already "
                                 "tappable, and a code asks somebody to scan the phone "
                                 "they are holding.")}
         return {"passed": True,
-                "message": ("YouTube-only spot — QR optional (a clickable end screen "
-                            "covers the same job).")}
+                "message": ("YouTube-only spot — no QR code, and none needed: a "
+                            "clickable end screen covers the same job.")}
 
-    if not cta.get("qr_enabled"):
-        return {"passed": False,
-                "message": "No QR code enabled — required for CTV since viewers can't click the ad. "
-                           "Turn it on in the CTA Builder."}
+    # Enabled and broken is a different thing from absent, and stays a block.
+    # "Optional to include" is not "optional to do properly": a code too small
+    # or held too briefly is a code nobody can scan, printed on the end card as
+    # though it worked.
     if not (cta.get("qr_image_url") or cta.get("qr_data_url")):
-        return {"passed": False, "message": "QR code is enabled but hasn't been generated yet."}
+        return {"passed": False, "level": LEVEL_FAIL,
+                "message": "QR code is enabled but hasn't been generated yet."}
     if not cta.get("qr_target_url"):
         # A code with nothing behind it renders as a perfectly scannable
         # square that opens nothing. hub/qr_codes.destination() refuses to
@@ -523,3 +587,101 @@ def spec_preview(platform, length_seconds, formats):
     return _check_creative_spec({"platform": platform,
                                  "length_seconds": length_seconds,
                                  "formats": list(formats or ["16:9"])})
+
+
+# ---------------------------------------------------------------------------
+# The published thresholds, as checks.
+#
+# services/abcd_service.py holds the numbers and names whose they are. These
+# two turn the ones that can be measured from a PLAN into QC rows, because
+# that is the moment they are still free to fix — a pacing problem found on a
+# rendered file is a re-render.
+#
+# Both are advisory. Google's detector is how YouTube machine-scores a spot,
+# not a delivery requirement, and a tool that refused to render a slow :30
+# would be inventing a rule nobody publishes.
+# ---------------------------------------------------------------------------
+def _check_pacing(project_dict, scenes):
+    length = project_dict.get("length_seconds") or 0
+    if not scenes:
+        return {"passed": False, "level": LEVEL_WARN,
+                "message": "No shots to measure yet."}
+    if int(length) in abcd_service.BUMPER_LENGTHS:
+        return {"passed": True,
+                "message": (f"A :{int(length):02d} is one or two shots by design — "
+                            "pacing thresholds do not apply to a bumper.")}
+
+    result = abcd_service.score(scenes, length, project_dict.get("platform", "both"))
+    rows = {r["key"]: r for r in result["rows"]}
+    avg = rows.get("avg_shot_seconds") or {}
+    cut = rows.get("first_cut_ms") or {}
+    targets = abcd_service.shot_targets(length)
+
+    problems = [r["message"] for r in (avg, cut) if r and r.get("measured") and not r["passed"]]
+    if problems:
+        return {"passed": False, "level": LEVEL_WARN,
+                "message": (" ".join(problems)
+                            + f" A :{int(length):02d} wants about {targets['low']}-"
+                              f"{targets['high']} shots. Source: {avg.get('source', '')}.")}
+    return {"passed": True,
+            "message": (avg.get("message", "") + " " + cut.get("message", "")).strip()}
+
+
+def _check_brand_window(project_dict, scenes):
+    """How soon the brand or product is described as being on screen.
+
+    Amazon's window (3.0s) is tighter than Google's (5.0s) and a CTV spot is
+    judged against the tighter one — passing the looser rule and being refused
+    by the buy is the failure mode worth avoiding.
+
+    Measured from what the shots SAY, which is honest about what it is: this
+    reads shot descriptions, not pixels. A spot whose shots mention neither
+    the brand nor the product is reported as **not measured**, never as a
+    pass, because a green tick over a rule nothing could check is the
+    confident wrong answer.
+    """
+    if not scenes:
+        return {"passed": False, "level": LEVEL_WARN, "message": "No shots to measure yet."}
+    result = abcd_service.score(scenes, project_dict.get("length_seconds"),
+                                 project_dict.get("platform", "both"))
+    row = next((r for r in result["rows"] if r["key"].startswith("brand_by_seconds")), None)
+    if not row:
+        return {"passed": True, "message": "Not measured."}
+    if not row["measured"]:
+        return {"passed": True, "level": LEVEL_WARN,
+                "message": (row["message"] + " Name the brand, the product or the "
+                            "storefront in an early shot's description and this can "
+                            "be checked.")}
+    return {"passed": row["passed"],
+            "level": LEVEL_PASS if row["passed"] else LEVEL_WARN,
+            "message": row["message"] + f" Source: {row['source']}."}
+
+
+def _check_publisher_rules(project_dict):
+    """What the chosen publishers refuse.
+
+    Exists for one case and says so: Amazon Streaming TV supports neither QR
+    interactivity nor click-encouraging CTAs, and a rep who switched a code on
+    for an Amazon buy had built something Amazon will reject with nothing in
+    the tool saying so. Optional is not the same as silent.
+
+    A publisher whose specs say nothing on the point is not evidence of
+    permission — it is simply absent here, and absence is reported as nothing
+    to say rather than as an all-clear.
+    """
+    publishers = (project_dict.get("brief") or {}).get("publishers") or []
+    if not publishers:
+        return {"passed": True,
+                "message": ("No publishers named on this buy, so nothing platform-specific "
+                            "was checked.")}
+    refusing = publishers_refusing_qr(publishers)
+    cta = project_dict.get("cta") or {}
+    if refusing and cta.get("qr_enabled"):
+        return {"passed": False, "level": LEVEL_WARN,
+                "message": publisher_qr_note(publishers)}
+    if refusing:
+        return {"passed": True,
+                "message": (", ".join(refusing) + " does not take a QR code, and this cut "
+                            "does not carry one.")}
+    return {"passed": True,
+            "message": "Nothing the named publishers refuse is on this cut."}

@@ -116,15 +116,77 @@ check("a CTV :30 does not",
 check("no platform given keeps the old structure",
       cb_config.get_structure(30), cb_config.STRUCTURE_TEMPLATES[30])
 
-section("A QR code is required where nothing can be clicked, and nowhere else")
-check("required on CTV", cb_config.qr_required(30, "ctv"), True)
-check("required on a CTV+YouTube buy", cb_config.qr_required(30, "both"), True)
+section("A QR code is offered where nothing can be clicked, and required nowhere")
+# It used to be REQUIRED on CTV, and that was this tool insisting on something
+# several publishers forbid: Amazon Streaming TV supports no code at all. A
+# check that refuses to render a perfectly correct Amazon spot is a check
+# somebody switches off. So it is a default now, and an advisory.
+check("nothing is required any more", cb_config.QR_CODE_RULES["required_platforms"], [])
+check("not required on CTV", cb_config.qr_required(30, "ctv"), False)
+check("nor on a CTV+YouTube buy", cb_config.qr_required(30, "both"), False)
+check("on by default on CTV", cb_config.qr_default_on(30, "ctv"), True)
+check("and on a CTV+YouTube buy", cb_config.qr_default_on(30, "both"), True)
 # A feed ad is already tappable, and a code there asks somebody to scan the
-# phone they are holding. Reporting its absence as a finding on every social
-# spot is how a warning stops being read.
-check("not required on social", cb_config.qr_required(30, "social"), False)
-check("not required on YouTube alone", cb_config.qr_required(30, "youtube"), False)
-check("never on a :05, whatever the platform", cb_config.qr_required(5, "ctv"), False)
+# phone they are holding. Defaulting it on there is how a control stops being
+# a decision.
+check("off by default on social", cb_config.qr_default_on(30, "social"), False)
+check("off by default on YouTube alone", cb_config.qr_default_on(30, "youtube"), False)
+check("never on a :05, whatever the platform", cb_config.qr_eligible(5), False)
+check("nor on a :06 — too short to pull out a phone", cb_config.qr_eligible(6), False)
+check("and the default follows the eligibility", cb_config.qr_default_on(6, "ctv"), False)
+
+
+section("The publisher question exists for one reason, and it is Amazon")
+# The smallest possible version of a publisher field. It drives no targeting,
+# no spec, no beat structure -- one warning, said while the end card is still
+# being built rather than at trafficking.
+check("Amazon is offered", any(p["id"] == "amazon" for p in cb_config.CTV_PUBLISHERS), True)
+check("so is other/mixed, because most buys are",
+      any(p["id"] == "other" for p in cb_config.CTV_PUBLISHERS), True)
+check("Amazon refuses a QR code",
+      cb_config.publishers_refusing_qr(["roku", "amazon"]), ["Amazon Streaming TV"])
+check("Roku alone refuses nothing", cb_config.publishers_refusing_qr(["roku"]), [])
+check("and an unknown id is not treated as a refusal",
+      cb_config.publishers_refusing_qr(["madeup"]), [])
+note = cb_config.publisher_qr_note(["amazon"])
+check("the note names the publisher", "Amazon" in note, True)
+check("and says what it actually forbids", "QR" in note, True)
+# Nothing ticked is not the same as a publisher that allows it. A silent pass
+# over an unanswered question is the confident wrong answer this file exists
+# to keep undoing.
+check("nothing ticked says nothing", cb_config.publisher_qr_note([]), "")
+check("labels resolve for the screen",
+      cb_config.publisher_labels(["hulu"]), ["Hulu"])
+
+section("The :06 is a real length, not a rounding of the :05")
+check("it is offered", 6 in cb_config.COMMERCIAL_LENGTHS, True)
+check("and it is a YouTube bumper", "bumper" in cb_config.LENGTH_NOTES[6]["label"].lower()
+      or "bumper" in cb_config.LENGTH_NOTES[6].get("note", "").lower(), True)
+# A :06 has room for one idea. Sized against the :05's budget it comes back a
+# word short of a brand mention; sized against the :15's it cannot be read.
+lo6, hi6 = cb_config.VO_WORD_TARGETS[6]
+lo5, hi5 = cb_config.VO_WORD_TARGETS[5]
+lo15, _ = cb_config.VO_WORD_TARGETS[15]
+check("it has its own word budget", (lo6, hi6) != (lo5, hi5), True)
+check("bigger than the :05's", lo6 >= lo5, True)
+check("and smaller than the :15's", hi6 < lo15, True)
+beats6 = [b["label"] for b in cb_config.get_structure(6, "ctv")]
+check("two beats, not three", len(beats6), 2)
+check("it opens on the hook", beats6[0], "Hook")
+check("and ends on the brand", beats6[-1], "Brand")
+check("social has its own :06 shape too", bool(cb_config.SOCIAL_STRUCTURE_TEMPLATES.get(6)), True)
+
+
+section("Several lengths are built in the order they are cut down in")
+# :30 first, because the others are cut down from its storyboard, and :60 last
+# because it is the most expensive and the first dropped when the budget lands.
+check("the order is fixed", cb_config.BUILD_ORDER, [30, 15, 6, 5, 60])
+check("the :06 sits between the :15 and the :05",
+      cb_config.BUILD_ORDER.index(6) > cb_config.BUILD_ORDER.index(15)
+      and cb_config.BUILD_ORDER.index(6) < cb_config.BUILD_ORDER.index(5), True)
+check("and sorting a set uses it",
+      sorted([60, 5, 30, 6, 15], key=cb_config.build_sort_key), [30, 15, 6, 5, 60])
+
 
 section("The :60 warning is said at the moment somebody picks it")
 warning = cb_config.length_warning(60)
@@ -246,8 +308,9 @@ scenes = [{"narration": "one two three four five", "start": 0, "end": 10},
           {"narration": "six seven eight", "start": 10, "end": 30}]
 budget = openai_service.narration_budget(scenes, 30)
 check("the words are counted", budget["used"], 8)
-check("against this length's target", (budget["target_low"], budget["target_high"]), (65, 75))
-check("and the room is what is left", budget["room"], 67)
+check("against this length's target", (budget["target_low"], budget["target_high"]),
+      cb_config.VO_WORD_TARGETS[30])
+check("and the room is what is left", budget["room"], cb_config.VO_WORD_TARGETS[30][1] - 8)
 check("under target is reported", budget["under"], True)
 
 # Floors at zero rather than going negative: a spot already over target has no
@@ -266,7 +329,8 @@ check("with no scenes at all it says that instead",
 # Mock mode must not read as "nothing to add".
 mocked = openai_service.expand_narration(scenes, 30, {}, {})
 check("mock mode is named, not silent", "Mock mode" in mocked["note"], True)
-check("and still reports the room", "67" in mocked["note"], True)
+check("and still reports the room",
+      str(cb_config.VO_WORD_TARGETS[30][1] - 8) in mocked["note"], True)
 
 
 # ---------------------------------------------------------------------------
@@ -484,7 +548,11 @@ post_json(MOUNT + f"/api/projects/{pid}/brief",
           {"what_advertising": "$79 tune-up", "landing_page": "wizardtest.example/ac"},
           method="put")
 qr = get_json(MOUNT + f"/api/projects/{pid}/qr-plan")
-check("it is required on this CTV spot", qr["required"], True)
+# Required nowhere now — several publishers take no code at all, so a check
+# that blocked a render over its absence would insist on something Amazon
+# forbids. On by default on CTV, and advisory.
+check("it is not required on this CTV spot", qr["required"], False)
+check("but it is on by default", qr["default_on"], True)
 check("the destination is the landing page", qr["plan"]["destination_source"], "landing_page")
 check("tracked", "utm_medium=qr" in qr["plan"]["target_url"], True)
 
@@ -497,6 +565,181 @@ check("the code is generated", cta["qr_data_url"].startswith("data:image/png;bas
 check("the destination is recorded on it", bool(cta["qr_destination_url"]), True)
 check("so is the attribution", cta["qr_attribution"]["state"] in ("own", "agency", "unknown"), True)
 
+section("Severity is the server's answer, not each screen's")
+# Two JS files each kept an ADVISORY set by hand — two copies of a decision
+# qc_service has every fact to make, and the fastest way to have one panel
+# draw a finding red while the other drew the same finding amber.
+for js_file in ("blueprint.js", "preview.js"):
+    text = (ROOT / "modules/commercial_builder/static/js" / js_file).read_text()
+    check(f"{js_file} keeps no advisory list of its own", "ADVISORY = new Set" in text, False)
+    check(f"{js_file} reads the level off the result", "result.level" in text, True)
+qc_lv = post_json(MOUNT + f"/api/projects/{pid}/qc").get_json()["qc_results"]
+levels = {v.get("level") for k, v in qc_lv.items()
+          if not k.startswith("_") and isinstance(v, dict)}
+check("every check carries one", None in levels, False)
+check("and only the three we draw", levels - {"pass", "warn", "fail"}, set())
+# A recommendation must not block a render. _all_passed used to mean "nothing
+# is amber either", which made a page of red out of a page of advice.
+check("a recommendation does not block", set(cb_config.__dict__) and
+      all(qc_lv[k].get("level") != "fail" for k in qc_service.ADVISORY_CHECKS
+          if k in qc_lv), True)
+check("warnings are listed apart from failures", isinstance(qc_lv.get("_warnings"), list), True)
+
+
+section("Amazon takes no QR code, and the tool says so before the render")
+# The one thing the publisher field exists for. Switching a code on for an
+# Amazon buy builds something Amazon rejects, and nothing anywhere said so.
+post_json(MOUNT + f"/api/projects/{pid}/brief", {"publishers": ["amazon"]}, method="put")
+post_json(MOUNT + f"/api/projects/{pid}/cta",
+          {"style": "logo_centered", "qr_enabled": True}, method="put")
+amz = post_json(MOUNT + f"/api/projects/{pid}/qc").get_json()["qc_results"]["publisher_rules"]
+check("the check fails", amz["passed"], False)
+check("as a warning, not a refusal", amz["level"], "warn")
+check("and it names Amazon", "Amazon" in amz["message"], True)
+# It must not block: the spot may be perfectly correct and the rep may have a
+# reason. A check that refuses to render is a check somebody switches off.
+check("it does not block the render",
+      "publisher_rules" in qc_service.ADVISORY_CHECKS, True)
+
+# Saving a brief must MERGE. It used to assign, so the publishers picked on
+# the Start page were wiped by the first save on the Brief step -- and the
+# Amazon warning then silently stopped firing, with every screen healthy.
+post_json(MOUNT + f"/api/projects/{pid}/brief", {"what_advertising": "$79 tune-up"},
+          method="put")
+still = post_json(MOUNT + f"/api/projects/{pid}/qc").get_json()["qc_results"]["publisher_rules"]
+check("and it survives the next save of the brief", "Amazon" in still["message"], True)
+
+# Turn the code off and the same buy is clean. A warning that cannot be
+# cleared is a warning people learn to scroll past.
+post_json(MOUNT + f"/api/projects/{pid}/cta",
+          {"style": "logo_centered", "qr_enabled": False}, method="put")
+off = post_json(MOUNT + f"/api/projects/{pid}/qc").get_json()["qc_results"]["publisher_rules"]
+check("with no code it passes", off["passed"], True)
+
+
+section("The plan is scored against somebody else's published numbers")
+from modules.commercial_builder.services import abcd_service            # noqa: E402
+
+check("every threshold names its source",
+      sorted({v["source"] for v in abcd_service.THRESHOLDS.values()} - set(abcd_service.SOURCES)),
+      [])
+# The one number nobody publishes. Attributing a type size to a platform that
+# has never stated one is the exact failure this module exists to avoid, so
+# ours is kept apart and labelled as ours.
+check("the house standard says it is ours",
+      "not a platform rule" in abcd_service.HOUSE_LEGIBILITY["note"], True)
+check("and is not in the platform table",
+      "cap_height_pct" in abcd_service.THRESHOLDS, False)
+
+# A :30 built one scene per beat is three shots averaging ten seconds. That is
+# the case this whole section is about.
+three = [{"start": 0, "end": 10, "visual": "wide shot of the shop"},
+         {"start": 10, "end": 20, "visual": "technician working"},
+         {"start": 20, "end": 30, "visual": "logo and phone number"}]
+slow = abcd_service.score(three, 30, "ctv")
+check("three shots in a :30 fails the pacing threshold",
+      next(r["passed"] for r in slow["rows"] if r["key"] == "avg_shot_seconds"), False)
+check("and the headline counts what it met", slow["score"] < slow["of"], True)
+
+quick = [{"start": i * 2.0, "end": i * 2.0 + 2.0,
+          "visual": "logo on the van" if i == 0 else "technician working"}
+         for i in range(15)]
+fast = abcd_service.score(quick, 30, "ctv")
+check("fifteen two-second shots meets all of them", fast["score"], fast["of"])
+check("and says so", "all" in fast["headline"], True)
+
+# Not measured is its own answer and is never a pass. Face and logo size need
+# the rendered frame, and a green tick over a rule nothing checked is exactly
+# the confident wrong answer this codebase keeps undoing.
+unmeasurable = {r["key"] for r in fast["rows"] if not r["measured"]}
+check("face size cannot be read off a plan", "face_frame_pct" in unmeasurable, True)
+check("nor logo size", "logo_frame_pct" in unmeasurable, True)
+check("and neither counts toward the score", fast["of"], len(fast["rows"]) - len(unmeasurable))
+
+# Amazon's brand window is tighter than Google's, and a CTV spot is judged
+# against the one that will actually refuse it.
+ctv_keys = {r["key"] for r in abcd_service.score(quick, 30, "ctv")["rows"]}
+yt_keys = {r["key"] for r in abcd_service.score(quick, 30, "youtube")["rows"]}
+check("CTV is held to Amazon's window", "brand_by_seconds_ctv" in ctv_keys, True)
+check("YouTube to Google's", "brand_by_seconds" in yt_keys, True)
+check("and Amazon's is the tighter of the two",
+      abcd_service.THRESHOLDS["brand_by_seconds_ctv"]["value"]
+      < abcd_service.THRESHOLDS["brand_by_seconds"]["value"], True)
+
+# A brand window measured off shots that mention neither the brand nor the
+# product is not a window, it is a guess.
+mute = abcd_service.score([{"start": 0, "end": 2, "visual": "a road at dawn"}], 30, "ctv")
+brand_row = next(r for r in mute["rows"] if r["key"].startswith("brand_by_seconds"))
+check("nothing describing the brand is not measured", brand_row["measured"], False)
+check("and never a pass", brand_row["passed"], False)
+
+# A bumper is one idea held still. Cutting a :06 to a two-second average is
+# three cuts a second, which is a strobe.
+bump = abcd_service.score([{"start": 0, "end": 6, "visual": "logo"}], 6, "youtube")
+check("a bumper is not scored on pacing",
+      next(r["measured"] for r in bump["rows"] if r["key"] == "avg_shot_seconds"), False)
+check("and the shot target says so", "bumper" in abcd_service.shot_targets(6)["note"], True)
+check("a :30 wants about fifteen shots",
+      abcd_service.shot_targets(30)["low"] <= 15 <= abcd_service.shot_targets(30)["high"], True)
+
+# Never raises: this runs inside QC, and a scoring bug must not take the panel
+# down on a screen somebody is working on.
+check("garbage in does not raise", abcd_service.score([None, {}], 30, "ctv")["measured"] in (True, False), True)
+check("and no shots at all is an answer", abcd_service.score([], 30, "ctv")["score"], 0)
+
+
+section("A scene is a shot now, and it carries the grammar")
+# Mock mode writes the shots, which is the point: a :30 that came back as
+# three ten-second scenes is the case the whole shot layer is about.
+_cons = post_json(MOUNT + f"/api/projects/{pid}/concepts").get_json()["concepts"]
+post_json(MOUNT + f"/api/projects/{pid}/select-concept", {"concept_id": _cons[0]["id"]})
+post_json(MOUNT + f"/api/projects/{pid}/script")
+scene_rows = get_json(MOUNT + f"/api/projects/{pid}/scenes")["scenes"]
+check("there are shots to look at", bool(scene_rows), True)
+first = scene_rows[0]
+meta = first.get("asset_meta") or {}
+check("each knows which beat it belongs to", "beat_index" in meta, True)
+# Numbered in tens, the way an edit list is: a shot inserted between 20 and 30
+# becomes 25 rather than renumbering everything after it.
+check("and carries a shot number", meta.get("shot_no"), cb_config.SHOT_NUMBER_STEP)
+check("the numbering leaves room to insert",
+      [((s.get("asset_meta") or {}).get("shot_no")) for s in scene_rows[:2]],
+      [cb_config.SHOT_NUMBER_STEP, cb_config.SHOT_NUMBER_STEP * 2])
+
+# The grammar is three fields and they are not decoration: what sits
+# downstream of a shot is a stock query and a Runway prompt, and both are the
+# difference between "technician working" and "close-up, low angle, slow push".
+put = post_json(MOUNT + f"/api/projects/{pid}/scenes/{first['id']}",
+                {"grammar": {"size": "cu", "angle": "low", "move": "push"}}, method="put")
+check("it saves", put.status_code, 200)
+saved_meta = put.get_json()["scene"]["asset_meta"]["grammar"]
+check("the size sticks", saved_meta["size"], "cu")
+check("the angle sticks", saved_meta["angle"], "low")
+check("the move sticks", saved_meta["move"], "push")
+# A value not in the vocabulary is refused rather than written through: these
+# reach a stock search and an AI prompt, and "size: banana" is a query.
+bad = post_json(MOUNT + f"/api/projects/{pid}/scenes/{first['id']}",
+                {"grammar": {"size": "banana", "angle": "low", "move": "push"}}, method="put")
+check("a made-up size falls back to the default",
+      bad.get_json()["scene"]["asset_meta"]["grammar"]["size"],
+      cb_config.DEFAULT_SHOT_GRAMMAR["size"])
+check("the label reads as a shot line",
+      cb_config.shot_label({"size": "cu", "angle": "low", "move": "push"}).count(",") >= 1, True)
+check("and an empty grammar labels nothing", cb_config.shot_label({}), "")
+
+
+section("The scoring panel is its own route, not a slice of QC")
+# QC makes an OpenAI call for the spelling pass. Re-running the whole set on
+# every camera-angle change would be a model call per keystroke.
+scored = get_json(MOUNT + f"/api/projects/{pid}/abcd")
+check("it answers", scored["ok"], True)
+check("with rows", isinstance(scored["abcd"]["rows"], list), True)
+check("the shot target travels with it", "low" in scored["targets"], True)
+check("so does the measured lift", bool(scored["lift"]), True)
+check("and every lift row says what it means here",
+      all(r.get("means") for r in scored["lift"]), True)
+
+
 section("The checks run where the work is, and cover every key")
 qc = post_json(MOUNT + f"/api/projects/{pid}/qc").get_json()["qc_results"]
 check("the spec check ran", "creative_spec" in qc, True)
@@ -506,7 +749,10 @@ check("the sound-off check ran", "sound_off" in qc, True)
 # A check absent from a screen's label map is skipped silently by the render
 # loop — which is how `scene_assets`, the check that catches an unfinished
 # scene, never appeared on the panel it was written for.
-keys = {k for k in qc if k != "_all_passed"}
+# Keys beginning with an underscore are the panel's own payload — the
+# all-passed flag, the warning list, the ABCD block — rather than checks,
+# and neither screen draws them as rows.
+keys = {k for k in qc if not k.startswith("_")}
 for js_file in ("blueprint.js", "preview.js"):
     text = (ROOT / "modules/commercial_builder/static/js" / js_file).read_text()
     block_start = text.index("QC_LABELS = {")
