@@ -25,6 +25,8 @@ import { loadPlatforms, loadTemplates, acceptPlatforms } from './registry';
 import { logoInkLuminance } from './qa';
 import { paletteVariants } from './palette';
 import { ProjectStore, type Project } from './projects';
+import { PresetStore, presetFromConcept, conceptFromPreset, FIELD_ROLES } from './presets';
+import { readBatch, campaignFromBatch, BATCH_MAX_ROWS } from './batch';
 import { analyzeLandingPage } from './landing';
 import { landingImages } from './landing-images';
 import { checkAuth, denied, rateLimit, sessionCookie, configuredToken, sweepBuckets, intakeCodeOk, intakeAllowed } from './auth';
@@ -61,6 +63,7 @@ const BUILD_STAMP: { builtAt?: string; node?: string } = (() => {
 /** Base URL for links inside notifications. Set on Render to the public host. */
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? `http://localhost:${PORT}`).replace(/\/$/, '');
 const projects = new ProjectStore(OUT);
+const presets = new PresetStore(OUT);
 function newRequestIdFor(): string {
   // Same alphabet and entropy as intake ids: unguessable, no confusable chars.
   return `AD-${new Date().getFullYear()}-` +
@@ -306,6 +309,10 @@ const server = http.createServer(async (req, res) => {
     url.pathname.startsWith('/api/campaigns') ||
     url.pathname.startsWith('/api/project') ||
     url.pathname.startsWith('/api/build/') ||
+    // Presets carry a client's brand and their finished creative, and a batch
+    // renders against a client record. Both are staff work, never a public
+    // route -- the split PUBLIC_PATTERNS draws for the proof page.
+    url.pathname.startsWith('/api/presets') ||
     // Both are editor-only: they fetch a picture on the server's behalf and
     // write it into a campaign's cache directory. The SSRF guard and the rate
     // limiter already stood behind them, but the only caller is build.html,
@@ -2116,6 +2123,212 @@ const server = http.createServer(async (req, res) => {
       } catch (e: any) {
         return json(res, 422, { error: e?.message ?? 'Preview failed' });
       }
+    }
+
+    /* ------------------------------------------------------------- presets
+       A client's settled setup, so the next ad for them is a form fill rather
+       than a rebuild. Called presets and not templates because
+       `src/templates/*.json` are the layout families -- see presets.ts. */
+
+    if (route === 'GET /api/presets') {
+      // Matched exactly on name or domain inside the store, never a substring:
+      // a preset offered under the wrong client renders another company's
+      // brand onto this one's ad.
+      const client = url.searchParams.get('client') ?? undefined;
+      const list = presets.list(client).map((p) => ({
+        id: p.id, name: p.name, client: p.client, domain: p.domain,
+        layoutFamily: p.layoutFamily, platforms: p.platforms,
+        fields: p.fields, createdAt: p.createdAt, createdBy: p.createdBy,
+      }));
+      return json(res, 200, { presets: list, roles: FIELD_ROLES, maxBatchRows: BATCH_MAX_ROWS });
+    }
+
+    if (route === 'POST /api/presets') {
+      const body = JSON.parse(await readBody(req, 500_000)) as {
+        name?: string; requestId?: string; conceptId?: string;
+        fields?: { role: string; label?: string; fallback?: string }[];
+        createdBy?: string;
+      };
+      const name = String(body.name ?? '').trim();
+      if (!name) return json(res, 400, { error: 'A preset needs a name.' });
+      if (!body.requestId) return json(res, 400, { error: 'Which build is this cut from?' });
+
+      const file = path.join(OUT, 'campaigns', `${body.requestId}.json`);
+      if (!fs.existsSync(file)) return json(res, 404, { error: 'No such campaign' });
+      const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const campaign: Campaign | undefined = doc.campaign;
+      const concept = campaign?.concepts?.find(
+        (c) => !body.conceptId || c.conceptId === body.conceptId,
+      );
+      if (!campaign || !concept) return json(res, 404, { error: 'No such concept on that build' });
+
+      const project = projects.byRequest(body.requestId);
+      const { preset, refused } = presetFromConcept({
+        name,
+        client: project?.client ?? campaign.brand.name,
+        domain: project?.domain,
+        brand: campaign.brand,
+        concept,
+        fields: Array.isArray(body.fields) && body.fields.length
+          ? body.fields
+          // Nothing named means every role this family draws, which is the
+          // ordinary case: somebody saving a finished build wants the copy
+          // editable and the brand fixed.
+          : FIELD_ROLES.map((role) => ({ role })),
+        // The campaign file records what the build was bought on; a project
+        // record does not carry platforms at all.
+        platforms: Array.isArray(doc.platforms) && doc.platforms.length ? doc.platforms : ['google'],
+        createdBy: body.createdBy,
+        sourceRequestId: body.requestId,
+      });
+      presets.save(preset);
+      // Refusals are returned rather than swallowed: a slot dropped in silence
+      // is a form field that renders nowhere, which is the proof-point failure
+      // this module already carries once.
+      return json(res, 201, { preset, refused });
+    }
+
+    const presetMatch = url.pathname.match(/^\/api\/presets\/([\w-]+)$/);
+    if (presetMatch && req.method === 'GET') {
+      const preset = presets.get(presetMatch[1]);
+      if (!preset) return json(res, 404, { error: 'No such preset' });
+      return json(res, 200, { preset });
+    }
+    if (presetMatch && req.method === 'DELETE') {
+      // Once. The first draft called remove() in the condition and again in
+      // the body, so the second call always answered false about a file the
+      // first had already deleted.
+      const removed = presets.remove(presetMatch[1]);
+      return removed
+        ? json(res, 200, { deleted: true })
+        : json(res, 404, { error: 'No such preset' });
+    }
+
+    /* One ad from a preset: the slots, filled in. Returns the campaign rather
+       than rendering it, so the build screen opens on it and somebody sees the
+       ad before eight renders are paid for. */
+    const genMatch = url.pathname.match(/^\/api\/presets\/([\w-]+)\/generate$/);
+    if (genMatch && req.method === 'POST') {
+      const preset = presets.get(genMatch[1]);
+      if (!preset) return json(res, 404, { error: 'No such preset' });
+      const body = JSON.parse(await readBody(req, 500_000)) as {
+        values?: Record<string, string>;
+        campaignName?: string;
+      };
+      const requestId = newRequestIdFor();
+      const campaignName = String(body.campaignName ?? '').trim() || `${preset.name} — new ad`;
+      const concept = conceptFromPreset(preset, (body.values ?? {}) as never, {
+        conceptId: 'A', name: campaignName,
+      });
+      const campaign: Campaign = {
+        requestId, campaignName, brand: preset.brand, concepts: [concept],
+      };
+      fs.mkdirSync(path.join(OUT, 'campaigns'), { recursive: true });
+      fs.writeFileSync(
+        path.join(OUT, 'campaigns', `${requestId}.json`),
+        JSON.stringify({ campaign, platforms: preset.platforms, fromPreset: preset.id }, null, 2),
+      );
+      projects.create({
+        projectName: campaignName, client: preset.client,
+        domain: preset.domain ?? '', campaignName, requestId,
+        brand: preset.brand,
+        notes: [`Built from preset "${preset.name}".`],
+      });
+      return json(res, 201, { requestId, campaign, platforms: preset.platforms });
+    }
+
+    /* The CSV data merge. One row per ad, one concept per row, one job. */
+    const batchMatch = url.pathname.match(/^\/api\/presets\/([\w-]+)\/batch$/);
+    if (batchMatch && req.method === 'POST') {
+      const preset = presets.get(batchMatch[1]);
+      if (!preset) return json(res, 404, { error: 'No such preset' });
+      const body = JSON.parse(await readBody(req, 2_000_000)) as {
+        csv?: string; campaignName?: string; platforms?: string[];
+        sizes?: string[]; render?: boolean;
+      };
+      if (!body?.csv) return json(res, 400, { error: 'Body must include the CSV text as `csv`.' });
+
+      const parsed = readBatch(preset, body.csv);
+      // A file-level failure -- no matching column, or over the row cap -- is
+      // reported before anything is written. Every row is wrong in the same
+      // way, and rendering fifty ads to discover it is expensive in a way one
+      // bad row is not.
+      if (parsed.error) {
+        return json(res, 422, {
+          error: parsed.error, rejected: parsed.rejected, ignoredColumns: parsed.ignoredColumns,
+        });
+      }
+      if (!parsed.rows.length) {
+        return json(res, 422, {
+          error: 'No usable rows in that file.',
+          rejected: parsed.rejected, ignoredColumns: parsed.ignoredColumns,
+        });
+      }
+
+      const requestId = newRequestIdFor();
+      const campaignName =
+        String(body.campaignName ?? '').trim() || `${preset.name} — batch`;
+      const campaign = campaignFromBatch({ preset, rows: parsed.rows, requestId, campaignName });
+
+      const { platforms, refused: refusedPlatforms } = acceptPlatforms(
+        body.platforms ?? preset.platforms, preset.platforms,
+      );
+
+      // Validated before the queue, so a bad brand font is a 422 here rather
+      // than a job that fails in the worker ten seconds later -- the rule
+      // POST /api/render already works to.
+      const findings = validateCampaign(campaign, { assetRoot: ROOT, platforms });
+      const errors = findings.filter((f) => f.level === 'error');
+      if (errors.length) {
+        return json(res, 422, { error: 'The batch failed validation', findings: errors });
+      }
+
+      fs.mkdirSync(path.join(OUT, 'campaigns'), { recursive: true });
+      fs.writeFileSync(
+        path.join(OUT, 'campaigns', `${requestId}.json`),
+        JSON.stringify({ campaign, platforms, fromPreset: preset.id }, null, 2),
+      );
+      const project = projects.create({
+        projectName: campaignName, client: preset.client,
+        domain: preset.domain ?? '', campaignName, requestId,
+        brand: preset.brand,
+        notes: [
+          `Batch of ${parsed.rows.length} from preset "${preset.name}".`,
+          ...(parsed.rejected.length
+            // On the record, not only in the response: the response is read
+            // once by whoever pressed the button, and "why is this batch three
+            // ads short" is asked later by somebody else.
+            ? [`${parsed.rejected.length} row(s) rejected: ` +
+               parsed.rejected.map((r) => `row ${r.line} (${r.reason})`).join('; ')]
+            : []),
+        ],
+      });
+
+      let jobId: string | undefined;
+      if (body.render !== false) {
+        const job = enqueue({
+          campaign, platforms, upload: false, outDir: OUT, assetRoot: ROOT,
+          sizes: Array.isArray(body.sizes) && body.sizes.length
+            ? (body.sizes as SizeKey[]) : undefined,
+        });
+        jobId = job.id;
+        fileJobOntoProject(job.id, project.projectId);
+      }
+
+      return json(res, 202, {
+        requestId,
+        projectId: project.projectId,
+        built: parsed.rows.length,
+        // Named, never a silent skip: twelve rows producing nine ads with no
+        // word about the other three is a folder nobody counts.
+        rejected: parsed.rejected,
+        ignoredColumns: parsed.ignoredColumns,
+        refusedPlatforms,
+        platforms,
+        jobId,
+        poll: jobId ? `/api/render/${jobId}` : undefined,
+        warnings: findings.filter((f) => f.level === 'warning'),
+      });
     }
 
     if (route === 'POST /api/render') {

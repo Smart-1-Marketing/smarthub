@@ -537,6 +537,12 @@
        the label is the question rather than one of its answers. -->
   <button class="btn primary" id="renderAll" style="display:none"
     title="Build the finished files for this set. The preview is a live sketch; these are what the proof, the delivery ZIP and the client gallery all read.">Render…</button>
+  <!-- Saved, so it acts on the build that is written down. A preset cut from
+       an unsaved build would capture the previous version and every ad made
+       from it afterwards would carry it -- the same reason Render and Attach
+       wait for a save. -->
+  <button class="btn" id="savePreset" style="display:none"
+    title="Keep this client's brand, layout and design as a starting point, so the next ad for them is a form fill rather than a rebuild.">Save as preset…</button>
 </div>
 
 <div class="nextstep" id="nextStep" hidden>
@@ -3059,6 +3065,119 @@
     });
   }
 
+  /* -------------------------------------------------- save this as a preset
+     The second ad for a client is this ad with a different offer on it. What
+     took the time -- the brand, the layout family, where the picture sits --
+     is settled here, and a preset keeps it so the next one is a form fill.
+
+     The dialog asks which copy blocks are the SLOTS rather than assuming all
+     of them: a standing tagline or a disclaimer is copy that should travel
+     unchanged, and a preset that made everything editable would put it on the
+     form to be retyped every time. It offers only the blocks this layout
+     family actually draws for the size on screen -- offering one it does not
+     is a field that renders nowhere, and the server refuses it anyway, so
+     asking would be a question with a wrong answer in it. */
+  function askPreset() {
+    var c = concept();
+    // Which blocks this family draws on ANY of its sizes, not just the one on
+    // screen: a slot is a property of the family, and the offer flash the
+    // 300x250 carries does not exist on the leaderboard. Reading the size on
+    // screen would drop a real slot depending on which size happened to be
+    // selected when somebody pressed the button.
+    var t = state.templates.filter(function (x) {
+      return c && x.id === c.layoutFamily;
+    })[0];
+    var all = {};
+    Object.keys((t && t.blocks) || {}).forEach(function (sz) {
+      ((t.blocks[sz]) || []).forEach(function (b) { all[b] = true; });
+    });
+    var roles = ['headline', 'support', 'offer', 'trust', 'cta']
+      .filter(function (r) { return all[r]; });
+    // An older server sends no block map. Offering the full set is better than
+    // offering one line: the server refuses a slot this family cannot draw and
+    // says which, so the worst case is a named refusal rather than a preset
+    // missing the slot somebody wanted.
+    if (!roles.length) roles = ['headline', 'support', 'offer', 'trust', 'cta'];
+
+    var LABEL = {
+      headline: 'Headline', support: 'Supporting line', offer: 'Offer',
+      trust: 'Proof point', cta: 'Call to action'
+    };
+    return new Promise(function (resolve) {
+      var wrap = document.createElement('div');
+      wrap.className = 'ask';
+      wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
+        '<h4>Save this as a preset</h4>' +
+        '<p>The brand, the layout and the design are kept as they are. Tick the ' +
+        'lines the next ad fills in — anything left unticked travels unchanged, ' +
+        'which is what you want for a standing tagline or a disclaimer.</p>' +
+        '<label style="display:block;margin-bottom:12px;font-size:13px">Name this preset' +
+        '<input id="pName" type="text" style="width:100%;margin-top:4px;padding:7px 9px;' +
+        'border:1px solid var(--line);border-radius:6px;font:inherit" ' +
+        'value="' + esc((state.doc && state.doc.campaign && state.doc.campaign.campaignName) || 'Preset') + '"></label>' +
+        '<div style="margin-bottom:14px">' + roles.map(function (r) {
+          return '<label style="display:block;font-size:13px;margin-bottom:4px">' +
+            '<input type="checkbox" data-role="' + r + '" checked> ' + esc(LABEL[r] || r) +
+            '</label>';
+        }).join('') + '</div>' +
+        '<div class="askacts">' +
+        '<button type="button" class="btn primary" data-pick="ok">Save preset</button>' +
+        '<button type="button" class="btn" data-pick="cancel">Cancel</button>' +
+        '</div></div>';
+      function done(v) {
+        document.removeEventListener('keydown', onKey);
+        wrap.remove();
+        resolve(v);
+      }
+      function onKey(e) { if (e.key === 'Escape') done(null); }
+      wrap.addEventListener('click', function (e) { if (e.target === wrap) done(null); });
+      wrap.querySelector('[data-pick="cancel"]').addEventListener('click', function () { done(null); });
+      wrap.querySelector('[data-pick="ok"]').addEventListener('click', function () {
+        var name = (wrap.querySelector('#pName').value || '').trim();
+        // A preset with no name is one nobody can pick out of a list later.
+        if (!name) { wrap.querySelector('#pName').focus(); return; }
+        var fields = [];
+        Array.prototype.forEach.call(wrap.querySelectorAll('[data-role]'), function (b) {
+          if (b.checked) fields.push({ role: b.getAttribute('data-role') });
+        });
+        done({ name: name, fields: fields });
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(wrap);
+      wrap.querySelector('#pName').select();
+    });
+  }
+
+  $('savePreset').addEventListener('click', function () {
+    askPreset().then(function (answer) {
+      if (!answer) return;
+      return post('/api/presets', {
+        name: answer.name,
+        requestId: state.requestId,
+        conceptId: state.conceptId,
+        fields: answer.fields
+      }).then(function (d) {
+        if (!d || !d.preset) {
+          showNextSteps((d && d.error) || 'That preset did not save.', true);
+          return;
+        }
+        // What the server refused is said out loud. A slot dropped in silence
+        // is a form field that renders nowhere, which is the whole reason the
+        // server returns the list rather than swallowing it.
+        var msg = 'Preset "' + d.preset.name + '" saved for ' + d.preset.client + '. ' +
+          d.preset.fields.length + ' line(s) will be asked for on the next ad.';
+        if (d.refused && d.refused.length) {
+          msg += ' Left out: ' + d.refused.map(function (r) {
+            return r.role + ' (' + r.reason + ')';
+          }).join('; ') + '.';
+        }
+        showNextSteps(msg, false);
+      }).catch(function () {
+        showNextSteps('That preset did not save. Nothing has changed.', true);
+      });
+    });
+  });
+
   $('renderAll').addEventListener('click', function () {
     askRenderAction().then(function (act) {
       if (!act) return;
@@ -3453,6 +3572,9 @@
     var pid = projectIdOf();
 
     $('renderAll').style.display = state.saved ? '' : 'none';
+    // Same gate as Render: it reads the saved build, not what is on screen.
+    var presetBtn = $('savePreset');
+    if (presetBtn) presetBtn.style.display = state.saved ? '' : 'none';
     $('save').classList.toggle('primary', !state.saved);
     $('renderAll').classList.toggle('primary', state.saved);
     $('saveHint').style.display = state.saved ? 'none' : '';

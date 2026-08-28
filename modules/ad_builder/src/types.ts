@@ -13,6 +13,7 @@ export type SizeKey =
   | '250x250'
   | '1080x1080'
   | '1200x628'
+  | '1200x1200'
   | '1080x1350'
   | '1080x1920'
   | '336x280'
@@ -278,6 +279,16 @@ export interface PlatformSizeRule {
   minFontPx?: number;
   /** Platform inserts its own CTA — do not bake one in. */
   noBakedCta?: boolean;
+  /**
+   * Warn when text covers more than this share of the canvas.
+   *
+   * Set only where a platform publishes such a guideline, which today is Meta
+   * and only Meta. Absent means the question is not asked for this size at
+   * all, rather than asked with a lenient number: a display banner is mostly
+   * type by design, and a threshold generous enough never to fire on one is a
+   * threshold that would not catch anything on a Meta feed image either.
+   */
+  textCoverageWarnPct?: number;
   notes?: string;
   /** 'doc' = specified in the background research; 'verify' = needs confirming. */
   source: 'doc' | 'verify';

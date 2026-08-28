@@ -17,7 +17,9 @@
       ],
       "minFontPx": 30,
       "notes": "Square. The one shape that runs everywhere on Meta -- feed post, feed ad, and the safe fallback in a carousel.",
-      "source": "doc"
+      "source": "doc",
+      "textCoverageWarnPct": 20,
+      "_textCoverageSource": "Meta's 20% text guideline. It stopped being a rejection rule in September 2020 and is now a delivery signal: a text-heavy image is served less, not refused. Checked 2026-08-28."
     },
     "1200x628": {
       "w": 1200,
@@ -34,7 +36,9 @@
       ],
       "minFontPx": 26,
       "notes": "Landscape link ad, 1.91:1. Paid placements and link previews; a feed post is rarely this shape.",
-      "source": "doc"
+      "source": "doc",
+      "textCoverageWarnPct": 20,
+      "_textCoverageSource": "Meta's 20% text guideline. It stopped being a rejection rule in September 2020 and is now a delivery signal: a text-heavy image is served less, not refused. Checked 2026-08-28."
     },
     "1080x1350": {
       "w": 1080,
@@ -51,7 +55,9 @@
       ],
       "minFontPx": 30,
       "notes": "Portrait 4:5. The tallest shape the feed will show without cropping, so it is the one that takes the most screen.",
-      "source": "doc"
+      "source": "doc",
+      "textCoverageWarnPct": 20,
+      "_textCoverageSource": "Meta's 20% text guideline. It stopped being a rejection rule in September 2020 and is now a delivery signal: a text-heavy image is served less, not refused. Checked 2026-08-28."
     },
     "1080x1920": {
       "w": 1080,
@@ -68,7 +74,9 @@
       ],
       "minFontPx": 34,
       "notes": "Stories and Reels, 9:16. Keep the copy out of the top and bottom 14% -- the interface sits over it.",
-      "source": "doc"
+      "source": "doc",
+      "textCoverageWarnPct": 20,
+      "_textCoverageSource": "Meta's 20% text guideline. It stopped being a rejection rule in September 2020 and is now a delivery signal: a text-heavy image is served less, not refused. Checked 2026-08-28."
     }
   }
 }

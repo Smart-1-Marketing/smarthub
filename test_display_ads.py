@@ -346,13 +346,31 @@ def test_the_rail_only_lists_sizes_this_campaign_builds():
     amazon = set(_json.loads((cfg / "amazon.json").read_text())["sizes"])
     meta = set(_json.loads((cfg / "meta.json").read_text())["sizes"])
     family = set(_json.loads((TEMPLATES / "T01.json").read_text())["sizes"])
-    check("a Google campaign builds 8 of the family's 13",
-          len(family & google) == 8 and len(family) == 13,
+    check("a Google campaign builds a subset of the family, not all of it",
+          (family & google) == google and len(family & google) < len(family),
           f"{len(family & google)} of {len(family)}")
+    check("every size a platform buys, some family can draw",
+          (google | amazon | meta) <= family,
+          f"undrawable: {sorted((google | amazon | meta) - family)}")
     check("414x125 is Amazon's and not Google's",
           "414x125" in amazon and "414x125" not in google)
-    check("the social sizes belong to Meta alone",
+    check("the feed sizes belong to Meta alone",
           {"1080x1080", "1080x1920"} <= meta and not ({"1080x1080"} & google))
+
+    # Responsive display is what a Google display buy actually serves now, and
+    # its two image assets are a different animal from an uploaded banner: they
+    # are composed into an ad by Google rather than delivered finished, so the
+    # 150 KB ceiling does not apply to them and 5 MB does.
+    check("Google buys the responsive display image assets",
+          {"1200x628", "1200x1200"} <= google,
+          f"google has {sorted(google)}")
+    gsz = _json.loads((cfg / "google.json").read_text())["sizes"]
+    check("and they carry the 5 MB asset ceiling, not the banner's 150 KB",
+          all(gsz[k]["maxFileBytes"] == 5242880 for k in ("1200x628", "1200x1200")))
+    check("while an uploaded banner still carries 150 KB",
+          gsz["300x250"]["maxFileBytes"] == 153600)
+    check("1200x628 is one shape sold by two platforms, filed under both",
+          "1200x628" in google and "1200x628" in meta)
 
 
 def test_no_platform_picker_and_a_render_button_that_explains_itself():
@@ -891,6 +909,169 @@ def test_a_generated_picture_can_be_kept():
           "does not know who our clients are" in server)
     check("asking for a change is still there, not replaced",
           "id=\"aiRevise\"" in screen)
+
+
+def test_softness_and_text_weight_are_checked():
+    """Two defects that pass every other check, then arrive on the proof.
+
+    A photograph stretched past its own pixels sits inside the safe area,
+    collides with nothing, has fine contrast, and lands well under the file cap
+    because a blurry JPEG compresses well. Text weight on a Meta image is the
+    same shape of problem from the other direction: nothing is wrong with the
+    ad, it is simply served to fewer people. Neither had a check.
+    """
+    qa = (MODULE / "src" / "qa.ts").read_text()
+    svg = (MODULE / "src" / "svg.ts").read_text()
+
+    check("the composer reports what it actually painted", "images: PlacedImage[]" in svg)
+    check("including the pixels the source had", "naturalW: bgImg.w" in svg)
+    check("and the hero's cover fit, not the hole it went in", "const heroCover" in svg)
+    check("QA reads that rather than recomputing the placement",
+          "composed.images" in qa and "coverRect" not in qa)
+    check("the ask is measured at delivery scale, not canvas scale",
+          "(i.drawnW * scale) / i.naturalW" in qa)
+    check("vector artwork is a real answer, not an unmeasured one",
+          "no resolution to outrun" in qa)
+    check("softness never blocks a delivery", "Never a fail." in qa)
+
+    check("text coverage is asked where a platform publishes a number",
+          "rule.textCoverageWarnPct" in qa)
+    check("and it says the rule was retired rather than implying a rejection",
+          "Meta dropped that rule in 2020" in qa)
+    check("the printed number and the verdict are decided together",
+          "export function coverageVerdict" in qa)
+
+
+def test_the_meta_guideline_is_meta_s_alone():
+    """A 300x250 is mostly type by design and always will be.
+
+    Asking it the Meta question would put an amber chip on every display size
+    in every campaign, which is how amber comes to mean nothing -- the same
+    reason the word-count check was taken out.
+    """
+    import json as _json
+    cfg = MODULE / "src" / "config" / "platforms"
+    meta = _json.loads((cfg / "meta.json").read_text())["sizes"]
+    check("every Meta size carries the guideline",
+          all(r.get("textCoverageWarnPct") == 20 for r in meta.values()),
+          f"{[k for k, r in meta.items() if r.get('textCoverageWarnPct') != 20]}")
+    check("and each says when it was last checked",
+          all("_textCoverageSource" in r for r in meta.values()))
+    for name in ("google", "amazon"):
+        sizes = _json.loads((cfg / f"{name}.json").read_text())["sizes"]
+        check(f"{name} is not asked it",
+              all("textCoverageWarnPct" not in r for r in sizes.values()),
+              f"{[k for k, r in sizes.items() if 'textCoverageWarnPct' in r]}")
+
+
+def test_the_delivery_zip_describes_itself_to_a_machine():
+    """README.txt is for whoever opens it; ad ops reads twenty a week.
+
+    Platform, size and weight were being inferred from filenames. The risk in
+    adding a second document is that the two disagree about one delivery, so
+    both are built from the same shipped/skipped arrays in the same call.
+    """
+    deliver = (MODULE / "src" / "deliver.ts").read_text()
+    check("the zip carries a machine-readable manifest",
+          "campaign-manifest.json" in deliver)
+    check("built from the same arrays as the README",
+          "campaignManifest(project, concept, clientSlug, root, shipped, skipped)" in deliver)
+    check("the unit is a file in the zip, not a render",
+          "for (const platform of targets) {" in deliver)
+    check("a shared creative names the other platforms carrying it",
+          "sharedWith" in deliver)
+    check("the size bought and the pixels delivered are separate claims",
+          '"delivered"' in deliver or "delivered: e.deliveredDimensions" in deliver)
+    check("a withheld size is named rather than merely absent",
+          "withheld: skipped.map" in deliver)
+    check("and counted, so a short delivery cannot read as a complete one",
+          "withheld: skipped.length" in deliver)
+    check("no path from our render disk travels to the client",
+          "localFile" not in deliver.split("function campaignManifest")[1].split("export async function")[0])
+    check("the header tree says what is in the zip",
+          "campaign-manifest.json               (the same delivery for a machine" in deliver)
+
+
+def test_a_client_s_setup_is_saved_and_refilled():
+    """The second ad for a client is the same ad with a different offer.
+
+    Everything that took the time -- the brand, the family, where the picture
+    sits -- is settled, and settling it again from the intake form is how a
+    seasonal promo for an eleven-year client costs what a new client costs.
+    """
+    presets = (MODULE / "src" / "presets.ts").read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+
+    check("there is a store for a client's settled setup", "export class PresetStore" in presets)
+    check("and it is not called a template, because that name is taken",
+          "Why this is not called a template" in presets and "TemplateSpec" in presets)
+    check("a preset carries the design and drops the campaign",
+          "A preset carries the design, never the campaign" in presets)
+    check("the client is a name and a domain, never a derived key",
+          "never a derived key" in presets)
+    check("a client is matched exactly, never by substring",
+          "never a substring" in presets)
+    check("a slot the family draws nowhere is refused by name",
+          "draws no ${role} on any size" in presets)
+    check("and the refusal is returned rather than swallowed",
+          "refused: { role: string; reason: string }[]" in presets)
+    check("a blank slot falls back rather than rendering an empty box",
+          "falls back to what the preset saved" in presets)
+    check("a stale per-size override never outranks the copy just typed",
+          "would quietly outrank the one somebody just typed" in presets)
+    check("the routes are staff-only", "url.pathname.startsWith('/api/presets')" in server)
+    check("saving reports what it refused", "return json(res, 201, { preset, refused });" in server)
+
+    # A feature with no control is a feature nobody can reach — this file
+    # counts six tools that were invisible for weeks for exactly that reason.
+    screen = BUILD_HTML.read_text()
+    check("the build screen offers it", 'id="savePreset"' in screen)
+    check("gated behind Save, like Render and Attach",
+          "presetBtn.style.display = state.saved ? '' : 'none';" in screen)
+    check("and the gate lives in the one function that decides the toolbar",
+          "var presetBtn = $('savePreset');" in screen)
+    check("it asks which lines are slots rather than assuming all of them",
+          "anything left unticked travels unchanged" in screen)
+    check("the slots offered are the ones this family actually draws",
+          "a slot is a property of the family" in screen)
+    check("read across every size, not the one on screen",
+          "Object.keys((t && t.blocks) || {})" in screen)
+    check("what the server refused is said out loud, not swallowed",
+          "msg += ' Left out: '" in screen)
+
+
+def test_one_ad_structure_many_offers():
+    """The list already exists, in the email it arrived in.
+
+    Retyping nine cities into the build screen is where the fourth city gets
+    missed. A row becomes a concept, so the existing job queue renders the
+    batch and counts its own progress.
+    """
+    batch = (MODULE / "src" / "batch.ts").read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+
+    check("a row becomes a concept, so jobs.ts renders the batch",
+          "A row becomes a CONCEPT on one campaign" in batch)
+    check("a bad row is named and the rest still build",
+          "A bad row is named and the rest still build" in batch)
+    check("rows are numbered as the spreadsheet numbers them",
+          "header is row 1" in batch)
+    check("a missing column fails the file before anything renders",
+          "A missing column fails the whole file" in batch)
+    check("a column that is not an ad field is ignored, not fatal",
+          "ignoredColumns" in batch)
+    check("the row cap refuses rather than truncating",
+          "never truncated" in batch or "not truncated" in batch)
+    check("and states the cap in the refusal", "BATCH_MAX_ROWS}-row limit" in batch)
+    check("the CSV reader handles a quoted comma", "if (c === '\"') { quoted = true" in batch)
+    check("and a spreadsheet's byte order mark", "BOM from Excel" in batch)
+    check("concept ids stay unique past twenty-six rows",
+          "export function conceptLetter" in batch)
+    check("the batch is validated before the queue, not in the worker",
+          "The batch failed validation" in server)
+    check("rejected rows reach the project record, not only the response",
+          "row(s) rejected: " in server)
+    check("nothing is invented for a blank cell", "Nothing is invented" in batch)
 
 
 def main():
