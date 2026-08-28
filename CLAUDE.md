@@ -2576,6 +2576,65 @@ slider offering 37 implies we can size 37. The bucket lists are still written
 alongside, because the IO, the Suite webhook and `/api/estimate-audience` all
 read those.
 
+### A form bound to a throwaway object is a form that reports nothing
+
+Three reports came off the floor about "Where should we run this?" on one
+afternoon, and two of them were one bug. **Pressing Back off a half-typed
+target area emptied the list while `S._areaView` still said `"edit"`** — the
+one state the step's own seeding skipped, because it seeded only when the view
+was *not* edit. The editor renders `currentArea() || blankArea()`, so from then
+on every control on the step was bound to a throwaway object: picking DMA set a
+property on it, the redraw read the list, and the select snapped back to
+City/ZIP + Radius with the radius at 10. Nothing threw. No console error, no
+failed request, no toast — the step simply could not be filled in, and
+`_areaView` rides in the saved quote, so it stayed dead across reloads and for
+every later visit.
+
+Two halves, because either alone leaves a route in. The step seeds **whenever
+the list is empty**, whatever the view says; and `setArea()` **seeds rather
+than returning** when there is no current area, so no route into that state can
+leave the controls writing into nothing. `onBack` also clears the view it can
+no longer honor: leaving `"edit"` standing over an empty list is what got
+written into the quote. `test_proposal_targeting.py` runs the step's own source
+in node — the seeding block and the `onBack` body are lifted out of the page
+rather than restated — and asserts that picking DMA sticks.
+
+### A model cannot visit a page, and asking it to is how it says so
+
+The landing-page review handed a URL to a model with the word "Visit". No model
+here can, so the answer was either a confident review of a page nobody had
+looked at — fiction, quoted to a client — or, once the model was honest about
+it, the criteria it *would* have used followed by a sentence about not being
+able to reach the site. That is what the third report described. It is the
+failure `modules/ads_builder/landing_page.py` was written to undo, in the
+module next door: it **fetches** the page and counts the conversion points off
+the markup, each carrying the evidence found. It is read here rather than
+copied, and the response carries `observed` beside `review` so the screen keeps
+the fact and the judgment apart. A page that could not be fetched is **refused
+rather than reviewed anyway**, and a model that fails costs the judgment and
+not the reading.
+
+### The hosted tool that was meant to help is what stopped the button
+
+`_openai_response` attached `{"type": "web_search"}` to **every** call in the
+Proposal Builder, including the rewrites and JSON drafts that have nothing to
+look up. Whether a hosted tool is available depends on the model, and the model
+is `OPENAI_MODEL` — set to a 4o-class model on this deployment, not the
+`gpt-5-mini` the default in that function assumes. A model that refuses the
+tool refuses the whole request, so the search that was meant to help the ZIP
+lookup was what stopped it, and stopped seven other buttons with it.
+
+It is opt-in now, and the one caller that asks for it **falls back without it**
+rather than losing the answer: a list assembled with no live lookup is worth
+having and is labelled; no list at all is a button that does nothing. Two other
+ways of failing are named rather than guessed at. `raise_for_status()` was
+discarding the API's own sentence, so every button reported a different
+invented diagnosis of one shared failure — "the AI returned no description",
+"No ZIP Codes were returned" — and none of them was checkable; the body carries
+the reason now. And an **incomplete** response is said to be that: reasoning and
+tool tokens count against `max_output_tokens`, so a truncated answer arrives
+with an empty text body, which every caller read as its own kind of nothing.
+
 ### Generated copy is cleaned, not trusted
 
 The models write Markdown by habit and nothing downstream renders it: the

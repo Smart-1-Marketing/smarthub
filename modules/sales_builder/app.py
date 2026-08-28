@@ -2350,27 +2350,90 @@ def _creative_section_body(state):
 # =====================================================================
 # AI routes (optional — need OPENAI_API_KEY; same pattern as the IO app)
 # =====================================================================
-def _openai_response(prompt, max_output_tokens=6000):
+def _openai_error(resp):
+    """What the API actually said, rather than the status line.
+
+    ``raise_for_status()`` raises "400 Client Error: Bad Request for url:
+    https://api.openai.com/v1/responses", which names neither the model nor
+    the thing it refused -- so every button in this module reported a
+    different invented diagnosis of one shared failure, and none of them was
+    checkable. The body carries the sentence somebody can act on.
+    """
+    try:
+        detail = (resp.json().get("error") or {}).get("message") or ""
+    except (ValueError, AttributeError):
+        detail = ""
+    if not detail:
+        detail = (resp.text or "")[:400].strip()
+    return f"OpenAI returned HTTP {resp.status_code}" + (f": {detail}" if detail else ".")
+
+
+def _openai_call(payload, api_key):
+    return requests.post("https://api.openai.com/v1/responses",
+                         headers={"Authorization": f"Bearer {api_key}",
+                                  "Content-Type": "application/json"},
+                         json=payload, timeout=120)
+
+
+def _openai_response(prompt, max_output_tokens=6000, search=False):
+    """One call to the Responses API, with three ways of failing named.
+
+    ``search`` is opt-in. The hosted web-search tool used to ride on **every**
+    call in this module, including the rewrites and the JSON drafts that have
+    nothing to look up -- and whether a hosted tool is available depends on
+    the model, which is ``OPENAI_MODEL`` and is set to a 4o-class model on
+    this deployment rather than the ``gpt-5-mini`` default written here. A
+    model that refuses the tool refuses the whole request, so the tool that
+    was meant to help the ZIP lookup was what stopped it, and stopped the
+    other seven buttons with it. Where a caller genuinely wants live search
+    we ask for it and **fall back without it** rather than losing the answer:
+    a list assembled without a live lookup is worth having and is labelled;
+    no list at all is a button that does nothing.
+
+    An **incomplete** response is named too. Reasoning and tool tokens count
+    against ``max_output_tokens``, so a truncated answer arrives with an empty
+    text body -- which every caller here read as its own kind of nothing
+    ("the AI returned no description", "No ZIP Codes were returned") and none
+    of them as the one thing it was.
+    """
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OpenAI is not configured. Add OPENAI_API_KEY.")
     payload = {"model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "input": prompt,
-               "tools": [{"type": "web_search"}], "max_output_tokens": max_output_tokens}
-    r = requests.post("https://api.openai.com/v1/responses",
-                      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                      json=payload, timeout=120)
-    r.raise_for_status()
-    parts = []
+               "max_output_tokens": max_output_tokens}
+    if search:
+        payload["tools"] = [{"type": "web_search"}]
+
+    r = _openai_call(payload, api_key)
+    if r.status_code >= 400 and search:
+        # The model would not take the tool. The question is still answerable.
+        payload.pop("tools", None)
+        r = _openai_call(payload, api_key)
+    if r.status_code >= 400:
+        raise RuntimeError(_openai_error(r))
+
+    try:
+        data = r.json()
+    except ValueError:
+        raise RuntimeError("OpenAI returned a response that could not be read as JSON.")
     try:  # record spend so /diagnostics doesn't under-report
         from hub import ai as _hub_ai
-        _hub_ai.note_usage("sales_builder", r.json(), purpose="quote")
+        _hub_ai.note_usage("sales_builder", data, purpose="quote")
     except Exception:  # noqa: BLE001
         pass
-    for item in r.json().get("output") or []:
+
+    parts = []
+    for item in data.get("output") or []:
         for content in item.get("content") or []:
             if content.get("type") in ("output_text", "text") and content.get("text"):
                 parts.append(content["text"])
-    return "\n".join(parts).strip()
+    text = "\n".join(parts).strip()
+    if not text and data.get("status") == "incomplete":
+        why = ((data.get("incomplete_details") or {}).get("reason") or "").replace("_", " ")
+        raise RuntimeError("The model stopped before it answered"
+                           + (f" ({why})" if why else "")
+                           + ". Nothing was returned to show.")
+    return text
 
 
 def _json_from_ai(text):
@@ -2675,25 +2738,86 @@ def api_business_description():
                     "warnings": hub_desc.check(description)})
 
 
+def _headings_line(observed):
+    """The page's headings as one line, each with the level it was set at.
+
+    ``landing_page.observe`` returns ``{"level": "h1", "text": ...}`` rows, and
+    the level is half the fact: one h1 and nine h2s is a different page from
+    nine h1s, and "is the headline clear" cannot be judged without knowing
+    which of them is the headline.
+    """
+    out = []
+    for h in (observed or {}).get("headings") or []:
+        text = str(h.get("text") or "").strip() if isinstance(h, dict) else str(h).strip()
+        if not text:
+            continue
+        level = str(h.get("level") or "").strip() if isinstance(h, dict) else ""
+        out.append(f"{level}: {text}" if level else text)
+    return " | ".join(out)
+
+
 @app.post("/api/review-landing-page")
 def api_review_landing_page():
-    """Conversion review of the landing page, before the campaign is priced."""
+    """Conversion review of the landing page, before the campaign is priced.
+
+    **The page is fetched.** It used to be a URL handed to a model with the
+    word "Visit", which no model here can do -- so the answer was either a
+    confident review of a page nobody had looked at, or, once the model was
+    honest about it, the criteria it would have used followed by a sentence
+    saying it could not reach the site. Both read to a rep as a broken
+    button, and the first is worse than broken: it is fiction quoted to a
+    client.
+
+    ``modules.ads_builder.landing_page`` already does this properly for Smart
+    1 Ads -- it requests the page and counts the conversion points off the
+    markup, each carrying the evidence found -- so it is read here rather
+    than copied. The observed half is fact and the model is given the facts
+    and asked only for judgment, and the two are kept apart in the response
+    so the screen can say which is which.
+    """
     body = request.get_json(force=True) or {}
     url = str(body.get("url") or "").strip()
     if not url:
         return jsonify({"ok": False, "error": "A landing-page URL is required."}), 400
+
+    try:
+        from modules.ads_builder import landing_page as _lp
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "error": "The page reader is unavailable",
+                        "detail": str(exc)}), 502
+
+    observed = _lp.observe(url)
+    if not observed.get("measured"):
+        # A page we could not fetch is reported as a page we could not fetch,
+        # with the status behind it. Asking the model anyway is how a review
+        # of a 404 gets written and pasted into a proposal.
+        return jsonify({"ok": False, "url": url, "observed": observed,
+                        "error": "That page could not be read.",
+                        "detail": observed.get("error")
+                                  or "The site did not answer."}), 502
+
+    points = observed.get("conversion_points") or []
+    facts = "\n".join(f"- {p['label']}: {p['evidence']}" for p in points[:25]) \
+        or "- none found on the page"
     prompt = (
-        f"Review this campaign landing page: {url}\n"
+        "Review a campaign landing page as a conversion-focused page. Everything below was read "
+        "off the live page just now -- treat it as fact, do not contradict it, and do not describe "
+        "anything that is not in it.\n\n"
+        f"URL: {observed.get('url') or url}\n"
         f"Client: {str(body.get('client') or '')}\n"
         f"Product or use: {str(body.get('product') or 'Campaign landing page')}\n"
         f"Campaign goals: {', '.join(str(o) for o in (body.get('objectives') or []))}\n"
-        "Visit the page and evaluate it as a conversion-focused landing page. Determine whether it has "
-        "a clear primary call to action above the fold and throughout the page. Review message match, "
-        "headline clarity, offer clarity, forms, phone calls, buttons, mobile usability, page speed "
-        "signals, trust indicators, testimonials, privacy language, tracking readiness, distractions, "
-        "and whether the conversion action is easy to complete. Return a concise internal note with "
-        "these headings: CTA Status, Strengths, Required Fixes Before Launch, Recommended Improvements, "
-        "Tracking Checks. Be specific and practical. If the page cannot be accessed, say so clearly.\n"
+        f"Page title: {observed.get('title') or '(none)'}\n"
+        f"Meta description: {observed.get('meta_description') or '(none)'}\n"
+        f"Declares a mobile viewport: "
+        f"{'yes' if observed.get('mobile_viewport') else 'no' if observed.get('mobile_viewport') is False else 'not measured'}\n"
+        f"Headings, in order: {_headings_line(observed) or '(none)'}\n"
+        f"Conversion points found on the page:\n{facts}\n\n"
+        f"Page text:\n{observed.get('text') or '(no readable text)'}\n\n"
+        "Return a concise internal note with these headings: CTA Status, Strengths, Required Fixes "
+        "Before Launch, Recommended Improvements, Tracking Checks. Be specific and practical, and "
+        "quote what is actually on the page. Page speed and anything else not listed above was not "
+        "measured -- say so rather than estimating it.\n"
         # The review is read on screen and pasted into the proposal's landing
         # section, and neither renders Markdown -- so a heading written as
         # "## CTA Status" arrived as literally that. Asked for here, and
@@ -2701,12 +2825,16 @@ def api_review_landing_page():
         # exclusion is checked rather than merely requested.
         + hub_spec.FORMATTING_DIRECTIVE)
     try:
-        return jsonify({"ok": True,
-                        "review": hub_spec.clean_ai_text(_openai_response(prompt, 5000)),
-                        "url": url})
+        review = hub_spec.clean_ai_text(_openai_response(prompt, 5000))
     except Exception as exc:                            # noqa: BLE001
-        return jsonify({"ok": False, "error": "Landing-page review failed",
+        logger.exception("Landing-page review failed")
+        # The reading survives the model failing: what was found on the page
+        # is the checkable half, and it is worth showing on its own.
+        return jsonify({"ok": False, "url": url, "observed": observed,
+                        "error": "The page was read, but the AI review failed",
                         "detail": str(exc)}), 502
+    return jsonify({"ok": True, "review": review, "url": observed.get("url") or url,
+                    "observed": observed, "summary": _lp.summary_line(observed)})
 
 
 @app.post("/api/zipcodes-in-radius")
@@ -2730,13 +2858,23 @@ def api_zipcodes_in_radius():
         "Use current authoritative geographic sources where possible. Return only five-digit ZIP Codes, "
         "comma-separated, sorted ascending, with no commentary. Be exhaustive and do not intentionally "
         "omit any matching ZIP Code.")
+    # `search=True`, and the call falls back without the tool rather than
+    # failing: the tool riding on this request is what stopped the button.
     try:
-        zips = hub_areas.zip_list(_openai_response(prompt, 12000))
+        zips = hub_areas.zip_list(_openai_response(prompt, 12000, search=True))
     except Exception as exc:                            # noqa: BLE001
+        logger.exception("ZIP-radius lookup failed")
         return jsonify({"ok": False, "error": "ZIP-radius lookup failed",
                         "detail": str(exc)}), 502
     if not zips:
-        return jsonify({"ok": False, "error": "No ZIP Codes were returned."}), 502
+        # Said in the terms of the question that was asked. "No ZIP Codes were
+        # returned" reads as a radius with nothing in it, which is not a thing
+        # that happens -- it was always the call, never the geography.
+        return jsonify({"ok": False,
+                        "error": f"The lookup came back with no ZIP Codes for "
+                                 f"{radius} miles around {origin}. Check the "
+                                 f"origin is a real city or ZIP Code, or enter "
+                                 f"the list by hand."}), 502
     return jsonify({"ok": True, "zipcodes": ", ".join(zips), "count": len(zips),
                     "warning": "AI-assisted ZIP-radius results should be reviewed before "
                                "trafficking — ZIP boundaries and radius intersections change."})
