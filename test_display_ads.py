@@ -1022,6 +1022,23 @@ def test_a_client_s_setup_is_saved_and_refilled():
     check("the routes are staff-only", "url.pathname.startsWith('/api/presets')" in server)
     check("saving reports what it refused", "return json(res, 201, { preset, refused });" in server)
 
+    # A feature with no control is a feature nobody can reach — this file
+    # counts six tools that were invisible for weeks for exactly that reason.
+    screen = BUILD_HTML.read_text()
+    check("the build screen offers it", 'id="savePreset"' in screen)
+    check("gated behind Save, like Render and Attach",
+          "presetBtn.style.display = state.saved ? '' : 'none';" in screen)
+    check("and the gate lives in the one function that decides the toolbar",
+          "var presetBtn = $('savePreset');" in screen)
+    check("it asks which lines are slots rather than assuming all of them",
+          "anything left unticked travels unchanged" in screen)
+    check("the slots offered are the ones this family actually draws",
+          "a slot is a property of the family" in screen)
+    check("read across every size, not the one on screen",
+          "Object.keys((t && t.blocks) || {})" in screen)
+    check("what the server refused is said out loud, not swallowed",
+          "msg += ' Left out: '" in screen)
+
 
 def test_one_ad_structure_many_offers():
     """The list already exists, in the email it arrived in.
