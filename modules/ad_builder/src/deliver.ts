@@ -15,6 +15,10 @@
  *     README.txt                           (what each file is, its delivered
  *                                           pixel size, weight, and where it
  *                                           is allowed to run)
+ *     campaign-manifest.json               (the same delivery for a machine:
+ *                                           the ad ops person trafficking it
+ *                                           was inferring platform and size
+ *                                           from filenames)
  *
  * Two rules that matter:
  *
@@ -109,6 +113,101 @@ function readme(
   return lines.join('\n');
 }
 
+/**
+ * The same delivery, for a machine.
+ *
+ * README.txt answers "what am I looking at" for the person who opens the zip.
+ * This answers "what is in here" for the ad operations person trafficking it,
+ * who is reading twenty of these a week and pulling platform, size and weight
+ * into a sheet -- and, before this existed, was inferring all three from
+ * filenames. It is built from the same `shipped` and `skipped` arrays the
+ * README is built from, in the same function call, which is the only thing
+ * that stops the two documents in one zip disagreeing about what shipped.
+ *
+ * Three things it is careful about:
+ *
+ * The unit is a FILE IN THE ZIP, not a render. One creative that satisfies
+ * Google and Amazon is written into both platform folders -- deliverProject
+ * has always done that -- so a manifest listing it once would not account for
+ * the file count of the folder it describes. Each row carries the path it
+ * sits at, and `sharedWith` names the other platforms carrying the identical
+ * file, so nobody double-counts a buy either.
+ *
+ * `size` and `delivered` are both present and are not the same claim. Amazon
+ * takes 320x50 as a 640x100 file; a sheet keyed on the size a media plan was
+ * bought at needs the first, and anyone checking the pixels in front of them
+ * needs the second.
+ *
+ * Withheld sizes are in the file. A manifest listing only what shipped reads
+ * as a complete delivery that happens to be short, and "the 728x90 is missing"
+ * is then a question that comes back to us days later. Absent is not the same
+ * as failed, and each one says which it was.
+ *
+ * No local path is carried. This goes to a client and to a media partner, and
+ * `localFile` is a path on our render disk.
+ */
+function campaignManifest(
+  project: Project,
+  concept: string,
+  clientSlug: string,
+  root: string,
+  shipped: { entry: ManifestEntry; overridden: boolean; finalFile: string }[],
+  skipped: { size: string; reason: string }[],
+): string {
+  const assets = [];
+  for (const s of shipped) {
+    const e = s.entry;
+    const ext = path.extname(s.finalFile) || `.${e.format}`;
+    const targets = e.platforms && e.platforms.length ? e.platforms : [e.platform];
+    const bytes = fs.statSync(s.finalFile).size;
+    for (const platform of targets) {
+      assets.push({
+        file: `${root}/${platform}/${clientSlug}_${e.deliveredDimensions}${ext}`,
+        platform,
+        /** The size as bought and as the layout is named. */
+        size: e.size,
+        /** The pixels actually in the file, which differ wherever a platform
+         *  requires 2x. */
+        delivered: e.deliveredDimensions,
+        format: e.format,
+        bytes,
+        qa: e.qaStatus,
+        qaIssues: e.qaIssues,
+        /** Present only where the same file serves more than one platform. */
+        sharedWith: targets.filter((p) => p !== platform),
+        /** A hand-edited replacement shipped in place of the render. Named
+         *  because a tweaked file turning up in the package should never be a
+         *  surprise later. */
+        manuallyEdited: s.overridden,
+      });
+    }
+  }
+
+  return JSON.stringify(
+    {
+      client: project.client,
+      campaign: project.campaignName,
+      concept,
+      landingPage: project.landingPage ?? null,
+      preparedBy: 'Smart 1 Marketing',
+      deliveredAt: new Date().toISOString(),
+      totals: {
+        // Files in the zip, and the renders behind them. They differ whenever
+        // one creative serves two platforms, and reporting only one of them
+        // is how a count on a screen fails to match the folder.
+        files: assets.length,
+        creatives: shipped.length,
+        withheld: skipped.length,
+        bytes: assets.reduce((n, a) => n + a.bytes, 0),
+      },
+      assets,
+      withheld: skipped.map((s) => ({ size: s.size, reason: s.reason })),
+    },
+    null,
+    2,
+  );
+}
+
 export async function deliverProject(
   project: Project,
   opts: DeliverOptions,
@@ -179,6 +278,13 @@ export async function deliverProject(
   zipEntries.push({
     name: `${root}/README.txt`,
     data: Buffer.from(readme(project, concept, clientSlug, shipped, skipped), 'utf8'),
+  });
+  zipEntries.push({
+    name: `${root}/campaign-manifest.json`,
+    data: Buffer.from(
+      campaignManifest(project, concept, clientSlug, root, shipped, skipped),
+      'utf8',
+    ),
   });
   fs.writeFileSync(zipFile, buildZip(zipEntries));
 

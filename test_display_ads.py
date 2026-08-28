@@ -964,6 +964,34 @@ def test_the_meta_guideline_is_meta_s_alone():
               f"{[k for k, r in sizes.items() if 'textCoverageWarnPct' in r]}")
 
 
+def test_the_delivery_zip_describes_itself_to_a_machine():
+    """README.txt is for whoever opens it; ad ops reads twenty a week.
+
+    Platform, size and weight were being inferred from filenames. The risk in
+    adding a second document is that the two disagree about one delivery, so
+    both are built from the same shipped/skipped arrays in the same call.
+    """
+    deliver = (MODULE / "src" / "deliver.ts").read_text()
+    check("the zip carries a machine-readable manifest",
+          "campaign-manifest.json" in deliver)
+    check("built from the same arrays as the README",
+          "campaignManifest(project, concept, clientSlug, root, shipped, skipped)" in deliver)
+    check("the unit is a file in the zip, not a render",
+          "for (const platform of targets) {" in deliver)
+    check("a shared creative names the other platforms carrying it",
+          "sharedWith" in deliver)
+    check("the size bought and the pixels delivered are separate claims",
+          '"delivered"' in deliver or "delivered: e.deliveredDimensions" in deliver)
+    check("a withheld size is named rather than merely absent",
+          "withheld: skipped.map" in deliver)
+    check("and counted, so a short delivery cannot read as a complete one",
+          "withheld: skipped.length" in deliver)
+    check("no path from our render disk travels to the client",
+          "localFile" not in deliver.split("function campaignManifest")[1].split("export async function")[0])
+    check("the header tree says what is in the zip",
+          "campaign-manifest.json               (the same delivery for a machine" in deliver)
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()
