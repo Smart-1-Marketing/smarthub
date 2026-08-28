@@ -318,14 +318,36 @@ for rel, kinds in MARKED.items():
     for kind in kinds:
         ok(f"{rel} marks a {kind} wait", f'data-s1-think="{kind}"' in src)
 
-# These four call the model directly rather than through a `.spin`, so they
-# name the kind in the call.
+# Six modules shipped the same three-line say(id, text, kind) helper and the
+# same plain-text busy state. Teaching the helper the three kinds moved every
+# busy state in one edit each — and is why this list is the helper, not the
+# call sites: a seventh added to one of these screens is right by default.
 for rel in ("modules/social_planner/templates/index.html",
             "modules/gpt_ads/templates/index.html",
-            "hub/templates/seo_client.html",
-            "hub/static/ask-analytics.js"):
+            "modules/radio_promo/templates/index.html",
+            "modules/fan_radio/templates/index.html",
+            "modules/site_blocks/templates/index.html",
+            "modules/landing_ads/templates/index.html"):
     src = (ROOT / rel).read_text(encoding="utf-8")
-    ok(f"{rel} asks for the AI mark", '"ai"' in src or "'ai'" in src)
+    ok(f"{rel}'s say() knows the three kinds",
+       '"ai","scan","wait"' in src.replace(" ", "")
+       or "'ai','scan','wait'" in src.replace(" ", ""))
+    ok(f"{rel} hands the label to the mark", "window.S1Think.attach" in src)
+    # A wait that is a model and a wait that is somebody else's website are
+    # different waits, and a screen that says only "working" has told the
+    # reader nothing they could not already see.
+    ok(f"{rel} distinguishes at least two kinds",
+       len({k for k in ("'ai'", '"ai"', "'scan'", '"scan"') if k in src}) >= 2)
+
+# And the ones that reach the model without going through a `.spin` or a say().
+for rel in ("hub/templates/seo_client.html",
+            "hub/static/ask-analytics.js",
+            "modules/image_creator/static/editor.js",
+            "modules/commercial_builder/static/js/blueprint.js",
+            "hub/templates/qa_report.html"):
+    src = (ROOT / rel).read_text(encoding="utf-8")
+    ok(f"{rel} names the kind of wait it is",
+       any(k in src for k in ('"ai"', "'ai'", '"scan"', "'scan'")))
     # Guarded, every time: a mark that takes the message down with it is
     # worse than no mark.
     ok(f"{rel} degrades if the script is missing", "window.S1Think" in src)
