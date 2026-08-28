@@ -992,6 +992,71 @@ def test_the_delivery_zip_describes_itself_to_a_machine():
           "campaign-manifest.json               (the same delivery for a machine" in deliver)
 
 
+def test_a_client_s_setup_is_saved_and_refilled():
+    """The second ad for a client is the same ad with a different offer.
+
+    Everything that took the time -- the brand, the family, where the picture
+    sits -- is settled, and settling it again from the intake form is how a
+    seasonal promo for an eleven-year client costs what a new client costs.
+    """
+    presets = (MODULE / "src" / "presets.ts").read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+
+    check("there is a store for a client's settled setup", "export class PresetStore" in presets)
+    check("and it is not called a template, because that name is taken",
+          "Why this is not called a template" in presets and "TemplateSpec" in presets)
+    check("a preset carries the design and drops the campaign",
+          "A preset carries the design, never the campaign" in presets)
+    check("the client is a name and a domain, never a derived key",
+          "never a derived key" in presets)
+    check("a client is matched exactly, never by substring",
+          "never a substring" in presets)
+    check("a slot the family draws nowhere is refused by name",
+          "draws no ${role} on any size" in presets)
+    check("and the refusal is returned rather than swallowed",
+          "refused: { role: string; reason: string }[]" in presets)
+    check("a blank slot falls back rather than rendering an empty box",
+          "falls back to what the preset saved" in presets)
+    check("a stale per-size override never outranks the copy just typed",
+          "would quietly outrank the one somebody just typed" in presets)
+    check("the routes are staff-only", "url.pathname.startsWith('/api/presets')" in server)
+    check("saving reports what it refused", "return json(res, 201, { preset, refused });" in server)
+
+
+def test_one_ad_structure_many_offers():
+    """The list already exists, in the email it arrived in.
+
+    Retyping nine cities into the build screen is where the fourth city gets
+    missed. A row becomes a concept, so the existing job queue renders the
+    batch and counts its own progress.
+    """
+    batch = (MODULE / "src" / "batch.ts").read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+
+    check("a row becomes a concept, so jobs.ts renders the batch",
+          "A row becomes a CONCEPT on one campaign" in batch)
+    check("a bad row is named and the rest still build",
+          "A bad row is named and the rest still build" in batch)
+    check("rows are numbered as the spreadsheet numbers them",
+          "header is row 1" in batch)
+    check("a missing column fails the file before anything renders",
+          "A missing column fails the whole file" in batch)
+    check("a column that is not an ad field is ignored, not fatal",
+          "ignoredColumns" in batch)
+    check("the row cap refuses rather than truncating",
+          "never truncated" in batch or "not truncated" in batch)
+    check("and states the cap in the refusal", "BATCH_MAX_ROWS}-row limit" in batch)
+    check("the CSV reader handles a quoted comma", "if (c === '\"') { quoted = true" in batch)
+    check("and a spreadsheet's byte order mark", "BOM from Excel" in batch)
+    check("concept ids stay unique past twenty-six rows",
+          "export function conceptLetter" in batch)
+    check("the batch is validated before the queue, not in the worker",
+          "The batch failed validation" in server)
+    check("rejected rows reach the project record, not only the response",
+          "row(s) rejected: " in server)
+    check("nothing is invented for a blank cell", "Nothing is invented" in batch)
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()
