@@ -2591,6 +2591,65 @@ stray asterisk is not that. Bold survives, normalised to `<b>`, which
 reportlab reads natively, `rich_runs()` turns into a bold run for Word, and
 the preview un-escapes deliberately and alone.
 
+### The rate card is ours, and Expected Results is a framework
+
+Two things a client should never have read, on the document they decide from.
+
+**The rate card was named four times on a proposal a client receives** — the
+PDF's rate note, the seeded ROI copy, the preview's default and the growth
+note — while `DIRECTIVES` had been telling the model not to mention it since
+the day it was written. That is the shape this codebase keeps finding: a rule
+policed in the prompt and broken by our own strings, where no generated copy
+was involved at all. Naming it invites the one question the document cannot
+answer — *can I see it?* — and turns a quoted price into a list price somebody
+might have marked up. The strings are gone, the directive stays, and
+`proposal_spec.client_safe()` runs inside `clean_ai_text` so the rule cannot
+hold only until somebody pastes. It drops the **sentence**, not the phrase:
+swapping in "our rates" leaves copy that is grammatical about half the time
+("Rates follow our rates", "adding one starts at our rates minimum"), and a
+client reads the mangling rather than the intent — the Smart 1 Labs precedent,
+which discards rather than paraphrases into something nobody wrote.
+
+**"Expected Results & ROI" was a table of impressions**, which answers a
+different question from the one its own title asks. An impression count is a
+delivery figure: it says what the money bought, not what the business gets.
+The insertion order has carried a **KPI Framework** all along — a primary KPI,
+the secondary ones, what is reported monthly, and what each product is
+measured on with a normal result for it — so the two documents described one
+campaign two ways, and the client agreed to impressions while the campaign was
+run against KPIs.
+
+`hub/kpi_framework.py` is that one description now, and the proposal's ROI
+section renders it. Three rules in it. A benchmark is a **range labelled as an
+expectation**, said once in the client's own words ("what this inventory
+normally delivers … not guarantees"), because a single figure printed under a
+heading like that reads as a promise. A product the table does not know falls
+through to *track against the campaign objective* rather than to the
+nearest-looking row — a display benchmark against an audio buy is a number
+nobody can hit. And **"not measured" is an answer**: a campaign with no KPI
+chosen says which step chooses one instead of printing a confident framework
+built from an empty list.
+
+The IO builder still draws its screen from its own JavaScript copy of that
+table, so `test_proposal_targeting.py` parses `benchmarkFor` out of the
+template and requires the two to agree in **the same order** — the order is
+load-bearing, since "video" tested before OTT reads every Connected TV line as
+YouTube. `expected_results()` is kept and no longer rendered: it is the one
+place that knows the delivery arithmetic — the quoted rate rather than the
+listed one, a one-time line spread across the flight — and its docstring says
+why nothing draws it.
+
+**A list of things a client is meant to weigh is a list.** KPIs, success
+metrics and audience layers were each rendered as `", ".join(...)` into a
+sentence, so six KPIs arrived as a comma string and the fourth — the one they
+would have argued with — was skimmed past. `proposal_spec.bullets()` is the
+half of the bullet rule that covers the lists the *code* prints, the way
+`_one_bullet_per_line` covers the ones a model writes; it returns a string, so
+it goes through `blocks()` and each renderer draws the list it already knows
+how to draw. What is printed beneath the KPIs excludes the KPIs themselves —
+the metrics list repeated all four of them a line later, and a reader who sees
+the same four twice stops reading the second list.
+
 ### A bullet inside a sentence is not a list
 
 `clean_ai_text` normalised the markup and left the *shape* alone, and the

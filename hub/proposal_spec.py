@@ -26,8 +26,14 @@ way a generated proposal can hurt us:
     the winery to the marina is how you lose both. Anonymised vertical
     benchmarks instead.
   * **Expected Results & ROI is mandatory.** Every proposal ends with it, and
-    it is computed from the rate card rather than written by the model, so a
-    projection can never contradict the media plan printed above it.
+    it is computed rather than written by the model, so a projection can never
+    contradict the media plan printed above it.
+  * **The rate card is never mentioned to a client.** It is our internal
+    pricing, and naming it on a proposal invites the one question the document
+    cannot answer — "can I see it?" — while making a quoted price read as a
+    list price somebody might have marked up. `client_safe()` strips the
+    phrase from generated copy, because a directive is a request and this one
+    had been in the prompt while three of our own strings said it anyway.
 
 ## What is deliberately *not* here
 
@@ -164,10 +170,12 @@ OUTLINE = [
     {
         "id": "roi", "title": "Expected Results & ROI", "kind": "roi", "enabled": True,
         "purpose": "Connect the spend to the client's revenue. Mandatory.",
-        "guidance": "The delivery figures below are computed from the rate card. Above "
-                    "them, state which metrics we track and how the Smart 1 Suite is the "
-                    "single source of truth. Be conservative. Never state a conversion "
-                    "rate, a lead count or a revenue figure the intake does not support.",
+        "guidance": "The framework below sets out what this campaign is measured on "
+                    "and what a normal result looks like for each product. Above it, "
+                    "state how the Smart 1 Suite is the single source of truth for what "
+                    "the media produced. Be conservative. Never state a conversion rate, "
+                    "a lead count or a revenue figure the intake does not support, and "
+                    "never present a benchmark range as a promise.",
     },
     {
         "id": "next", "title": "Next Steps", "kind": "text", "enabled": True,
@@ -181,8 +189,8 @@ OUTLINE = [
         # was improvised on a call. It belongs on the document -- but only
         # with numbers that are already defensible, which is why neither route
         # invents one: raising a line quotes the Accelerated package printed
-        # two sections above, and adding one quotes the rate card's own
-        # minimum for that product.
+        # two sections above, and adding one quotes our own listed minimum for
+        # that product.
         "id": "growth", "title": "Recommended Budgets", "kind": "growth",
         "enabled": True,
         "purpose": "What more would look like: raise a budget, or add what "
@@ -256,9 +264,12 @@ DIRECTIVES = [
 
     "Use only the facts supplied. Do not invent statistics, client results, awards, "
     "years in business, service areas, conversion rates or capabilities. Every price, "
-    "product name and delivery figure comes from the rate card and is already in the "
-    "tables the client will read next to your copy; contradicting one is worse than "
-    "omitting it.",
+    "product name and delivery figure is already computed in the tables the client "
+    "will read next to your copy; contradicting one is worse than omitting it.",
+
+    "Never mention a rate card, a price list or any internal pricing document. The "
+    "client sees the prices quoted to them, and naming the sheet they came off "
+    "invites a question this document cannot answer.",
 
     "Write as a Smart 1 senior strategist: consultative, confident, specific. Never "
     "open with 'Based on the information provided' or 'It is important to note'. "
@@ -636,6 +647,27 @@ def _line_runs(line: str) -> list[tuple[str, bool]]:
     return runs or [("", False)]
 
 
+def bullets(items, lead: str = "") -> str:
+    """A list of things as bullet lines, for anywhere a document prints one.
+
+    Copy written by a model goes through `_one_bullet_per_line` above; this is
+    the other half — the lists the *code* prints. KPIs, success metrics, the
+    audience layers, the products left out of a total: each was rendered as
+    ", ".join(...) into a sentence, so a client read six KPIs as a comma
+    string and skimmed past four of them. A list of things a client is meant
+    to check off is a list.
+
+    Returns a string rather than markup, so it goes through `blocks()` like
+    every other piece of copy and the preview, the PDF and the Word export
+    each draw it as the list they already know how to draw.
+    """
+    rows = [str(i).strip() for i in (items or []) if str(i).strip()]
+    if not rows:
+        return ""
+    body = "\n".join(f"• {row}" for row in rows)
+    return f"{lead.strip()}\n{body}" if lead.strip() else body
+
+
 def blocks(text) -> list[dict]:
     """Cleaned copy as the blocks a renderer actually has to draw.
 
@@ -667,6 +699,56 @@ def blocks(text) -> list[dict]:
     return out
 
 
+# The internal pricing sheet, in the spellings copy actually uses.
+#
+# All four of the mentions this had to remove were *ours* — the PDF's rate
+# note, the seeded ROI copy, the preview's default and the growth note — which
+# is the point: the directive telling the model not to name the rate card had
+# been in the prompt the whole time, while the document said it anyway in
+# words nobody had generated. So the phrase is rewritten rather than
+# requested, and a price stays a quoted price rather than reading as a list
+# price somebody may have marked up.
+_RATE_CARD_RE = re.compile(
+    r"\b(?:the\s+|our\s+|a\s+)?(?:current\s+)?(?:Smart\s*1\s+)?rate[-\s]card\b",
+    re.I)
+
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def client_safe(text) -> str:
+    """Copy with anything the client should not read about our pricing removed.
+
+    The whole sentence goes, not the phrase. Swapping "the rate card" for
+    "our rates" leaves copy that is grammatical about half the time -- "Rates
+    follow our rates", "adding one starts at our rates minimum" -- and a
+    client reads the mangling, not the intent. A sentence whose subject is
+    our internal pricing sheet has nothing to say to a client in the first
+    place, so its neighbours are better off without it. The Smart 1 Labs
+    precedent: discard, rather than paraphrase into something nobody wrote.
+
+    A bullet item is a line rather than a sentence, so it is dropped whole.
+    """
+    if not _RATE_CARD_RE.search(str(text or "")):
+        return str(text or "")            # by far the common case
+    kept_lines = []
+    for line in str(text).split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("•"):
+            if not _RATE_CARD_RE.search(stripped):
+                kept_lines.append(line)
+            continue
+        sentences = [part for part in _SENTENCE_SPLIT.split(line)
+                     if not _RATE_CARD_RE.search(part)]
+        rebuilt = " ".join(part.strip() for part in sentences if part.strip())
+        # A line that was only that sentence is dropped rather than left as a
+        # blank one, and a paragraph that loses everything takes its own
+        # blank line with it.
+        if rebuilt or not stripped:
+            kept_lines.append(rebuilt if stripped else line)
+    return "\n".join(kept_lines)
+
+
 def clean_ai_text(text) -> str:
     """Generated or pasted copy, in the only shape the renderers agree on.
 
@@ -693,6 +775,12 @@ def clean_ai_text(text) -> str:
     out = re.sub(r"(?<!<)\*+(?!/?b>)", "", out)                 # stray asterisks
     out = re.sub(r"_{2,}", "", out)
     out = re.sub(r"^\s*[-–—_]{3,}\s*$", "", out, flags=re.M)    # rules
+
+    # The rate card is ours, not the client's. Applied here because this is
+    # the one function every renderer's copy already passes through -- the AI
+    # write, the section editor and anything pasted into it -- so the rule
+    # cannot hold only until somebody pastes.
+    out = client_safe(out)
 
     out = re.sub(r"[ \t]{2,}", " ", out)
     out = _one_bullet_per_line(out)

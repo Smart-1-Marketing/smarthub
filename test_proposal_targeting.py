@@ -38,6 +38,7 @@ Four things, each of which fails by producing something plausible:
 """
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -322,6 +323,7 @@ tmap._fetch_tile = _fake_tile
 # ---------------------------------------------------------------------------
 section("through the running app")
 # ---------------------------------------------------------------------------
+from io import BytesIO                                             # noqa: E402
 from werkzeug.test import Client                                   # noqa: E402
 import wsgi                                                        # noqa: E402
 from hub import auth                                               # noqa: E402
@@ -358,14 +360,21 @@ state = {
         {"kind": "competitor", "name": "Riverside Dental",
          "address": "1200 Main St, Carmel, IN 46032", "note": "their implants"},
     ],
+    "kpis": ["Cost per lead", "Cost per store visit"],
     "sections": [
         {"id": "areas", "title": "Audience & Market Strategy", "kind": "areas",
          "enabled": True,
          "body": "We will reach three areas: • Carmel • Fishers • Noblesville"},
+        {"id": "kpis", "title": "How We Measure Success", "kind": "kpis",
+         "enabled": True, "body": ""},
+        {"id": "roi", "title": "Expected Results & ROI", "kind": "roi",
+         "enabled": True, "body": ""},
     ],
     "selectedPackage": {"name": "Recommended", "monthly": 8000, "total": 48000},
     "items": [{"category": "DISPLAY", "product": "Category", "rate": "CPM",
-               "rateValue": 4.25, "dollars": 8000}],
+               "rateValue": 4.25, "dollars": 5000},
+              {"category": "OTT", "product": "Connected TV - Targeted",
+               "rate": "CPM", "rateValue": 35.0, "dollars": 3000}],
 }
 quote = api("post", "/sales/builder/api/quotes", json={"data": state})["quote"]
 
@@ -463,6 +472,41 @@ check("a campaign whose map crops tall still builds a PDF",
       tall_pdf.status_code == 200 and tall_pdf.data[:4] == b"%PDF",
       tall_pdf.status_code)
 
+# What the client actually reads. The rate card is our internal pricing: all
+# four mentions this had to remove were our own strings, not model output, so
+# the assertion is against the rendered document rather than against the
+# prompt that had been asking the model not to say it all along.
+from pypdf import PdfReader                                        # noqa: E402
+_pdf_text = "\n".join((page.extract_text() or "")
+                      for page in PdfReader(BytesIO(pdf.data)).pages)
+# Line-wrapped by the extractor, not by the document: a phrase that spans a
+# wrap is still a phrase the client reads.
+_pdf_flat = " ".join(_pdf_text.split())
+check("no rate card is named anywhere in the client's PDF",
+      "rate card" not in _pdf_flat.lower() and "rate-card" not in _pdf_flat.lower(),
+      [ln for ln in _pdf_text.splitlines() if "rate" in ln.lower()][:3])
+_seeded = builder._seeded_sections(state)
+check("and the seeded copy the rep starts from does not name one either",
+      not any("rate card" in str(sec.get("body") or "").lower()
+              for sec in _seeded),
+      [sec["id"] for sec in _seeded
+       if "rate card" in str(sec.get("body") or "").lower()])
+check("a model that writes it anyway loses the sentence, not the paragraph",
+      spec.clean_ai_text("Priced from the Smart 1 rate card. The Suite reports it.")
+      == "The Suite reports it.",
+      spec.clean_ai_text("Priced from the Smart 1 rate card. The Suite reports it."))
+
+# Expected Results & ROI is the KPI framework now, not a table of impressions.
+check("the ROI section states the primary KPI",
+      "Primary KPI" in _pdf_text, "")
+check("and what each product is measured on, with a normal result for it",
+      "Expected benchmark" in _pdf_text and "Video Completion Rate" in _pdf_text,
+      "")
+check("a benchmark range is labeled as an expectation, never a guarantee",
+      "not guarantees" in _pdf_flat, "")
+check("and the section no longer leads with an impressions table",
+      "Estimated delivery" not in _pdf_text, "")
+
 docx = http.get(f"/sales/builder/api/quotes/{quote['id']}/docx")
 check("the Word export builds with the same map",
       docx.status_code == 200 and len(docx.data) > 20000, len(docx.data))
@@ -477,6 +521,58 @@ body = ((stored.get("data") or {}).get("sections") or [{}])[0].get("body") \
     or state["sections"][0]["body"]
 check("the run-on list reaches the document as a list",
       [b["kind"] for b in spec.blocks(body)] == ["para", "list"], spec.blocks(body))
+
+# ---------------------------------------------------------------------------
+section("how the campaign will be judged")
+# ---------------------------------------------------------------------------
+from hub import kpi_framework as kpi                               # noqa: E402
+
+check("a Connected TV line is judged on completion, not clicks",
+      kpi.benchmark_for("OTT", "Connected TV - Targeted")["kpi"]
+      == "Video Completion Rate")
+check("and the order of the table is load-bearing — CTV is not YouTube",
+      kpi.benchmark_for("OTT", "Connected TV - Targeted")["expected"] == "95%–99%"
+      and kpi.benchmark_for("YOUTUBE", "YouTube Video")["expected"] == "70%–95%")
+check("a product the table does not know is not given the nearest benchmark",
+      kpi.benchmark_for("SPONSORSHIP", "Stadium Board") == {
+          "kpi": "Delivery / Completion",
+          "expected": "Track against campaign objective", "matched": False})
+
+# The mirror. The IO builder draws its own KPI Framework from a JavaScript
+# copy of this table, and a benchmark that says one thing on the quote and
+# another on the insertion order is the exact failure the shared module was
+# written to end. Parsed out of the template the same way test_target_areas
+# parses the area helpers.
+_IO_TEMPLATE = open(os.path.join(ROOT, "modules", "io_builder", "templates",
+                                 "index.html"), encoding="utf-8").read()
+_IO_RULES = re.findall(
+    r"if\(/([^/]+)/\.test\(s\)\)return\['([^']+)','([^']+)'\];", _IO_TEMPLATE)
+check("the IO builder's benchmark table was found to compare against",
+      len(_IO_RULES) == len(kpi.BENCHMARKS), (len(_IO_RULES), len(kpi.BENCHMARKS)))
+check("and it says exactly what the shared table says, in the same order",
+      [(a, b, c) for a, b, c in _IO_RULES]
+      == [(a, b, c) for a, b, c in kpi.BENCHMARKS],
+      [r for r, k in zip(_IO_RULES, kpi.BENCHMARKS) if tuple(r) != tuple(k)])
+_IO_FALLBACK = re.search(r"return\['([^']+)','([^']+)'\];\s*\n\}", _IO_TEMPLATE)
+check("including the row for a product neither of them knows",
+      _IO_FALLBACK and _IO_FALLBACK.groups() == kpi.FALLBACK,
+      _IO_FALLBACK.groups() if _IO_FALLBACK else None)
+
+_plan = kpi.framework({"kpis": ["Cost per lead", "Cost per store visit"],
+                       "items": [{"category": "OTT",
+                                  "product": "Connected TV - Targeted"}]})
+check("the first KPI is the primary one and the rest are secondary",
+      _plan["primary"] == "Cost per lead"
+      and _plan["secondary"] == ["Cost per store visit"])
+check("success metrics follow the media on the plan, not only the ticks",
+      "Video completion rate" in _plan["metrics"], _plan["metrics"])
+check("and what is printed beneath the KPIs excludes the KPIs themselves",
+      "Cost per lead" not in _plan["additional_metrics"]
+      and "Video completion rate" in _plan["additional_metrics"],
+      _plan["additional_metrics"])
+check("a campaign with no KPI says so rather than printing an empty framework",
+      kpi.framework({})["measured"] is False and "Measurement step"
+      in kpi.framework({})["note"])
 
 # ---------------------------------------------------------------------------
 section("researching who to target")
