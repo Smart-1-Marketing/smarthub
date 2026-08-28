@@ -263,8 +263,8 @@
     var dom=domain();
     $('loadErr').textContent='';
     if(!dom){ $('loadErr').textContent='Enter a website, or pick a customer.'; return; }
-    $('out').innerHTML='<div class="card"><div class="empty">Reading what we '
-      +'know about '+esc(dom)+'…</div></div>';
+    $('out').innerHTML='<div class="card"><div class="empty" id="auditBusy">'
+      +'<span class="spin"></span> Reading what we know about '+esc(dom)+'…</div></div>';
     fetch('/api/website-audit?domain='+encodeURIComponent(dom)
           +'&client='+encodeURIComponent(CLIENT),{credentials:'same-origin'})
       .then(function(r){ return r.json(); })
@@ -284,23 +284,29 @@
     if(!dom){ $('loadErr').textContent='Enter a website first.'; return; }
     if(!window.confirm('Run a fresh audit of '+dom+'? This spends one Insites '
         +'credit and takes a few minutes.')) return;
-    btn.disabled=true; btn.textContent='Starting…';
+    /* The dish, not the arc: this one is a wait on Insites, and it is
+       minutes rather than seconds. */
+    var scanBusy = window.S1Think
+      ? window.S1Think.busy(btn, {kind:'scan', label:'Starting the audit…'})
+      : {done:function(){ btn.disabled=false; btn.textContent='Run a new audit'; }};
+    if(!window.S1Think){ btn.disabled=true; btn.textContent='Starting…'; }
     fetch('/scans/api/scans',{method:'POST',credentials:'same-origin',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({url:dom,force:true,source:'audit',
                              business_name:CLIENT||$('lCompany').value||''})})
       .then(function(r){ return r.json().then(function(j){ return {s:r.status,j:j}; }); })
       .then(function(res){
-        btn.disabled=false; btn.textContent='Run a new audit';
+        scanBusy.done();
         if(res.j&&res.j.error){ $('loadErr').textContent=res.j.error; return; }
         $('loadErr').textContent='';
-        $('out').innerHTML='<div class="card"><div class="empty">The audit is '
+        $('out').innerHTML='<div class="card"><div class="empty" id="auditRunning">'
+          +'<span class="spin" data-s1-think="scan"></span> The audit is '
           +'running. It usually takes one to four minutes — this page will '
           +'check every fifteen seconds.</div></div>';
         poll(0);
       })
       .catch(function(){
-        btn.disabled=false; btn.textContent='Run a new audit';
+        scanBusy.done();
         $('loadErr').textContent='The scanner could not be reached, so nothing '
           +'was started — no credit was spent.';
       });

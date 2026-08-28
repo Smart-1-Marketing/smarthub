@@ -90,7 +90,8 @@
       </div>
     {% elif scan.status == "running" %}
       <span class="badge running">running</span>
-      <p class="sub" style="margin-top:10px" id="runmsg">This audit is still processing on Insites
+      <p class="sub" style="margin-top:10px" id="runmsg"><span class="spin"
+        data-s1-think="scan"></span> This audit is still processing on Insites
         (usually 1&ndash;4 minutes). This page checks for you &mdash; leave it open.</p>
       <p style="margin-top:8px"><a href="#" id="checkNow">Check now</a></p>
     {% else %}
@@ -300,8 +301,15 @@
     function render(d){
       if(d.status === "running"){
         btn.disabled = true; btn.textContent = "Checking…";
-        out.innerHTML = '<p class="muted">Walking the site — this takes a ' +
-          'minute or two on a big one. You can leave the page open.</p>';
+        out.innerHTML = '<p class="muted" id="lcBusy"></p>';
+        if(window.S1Think){
+          window.S1Think.attach('lcBusy', {kind: 'scan',
+            label: 'Walking the site — this takes a minute or two on a big ' +
+                   'one. You can leave the page open.'});
+        } else {
+          out.innerHTML = '<p class="muted">Walking the site — this takes a ' +
+            'minute or two on a big one. You can leave the page open.</p>';
+        }
         return;
       }
       btn.disabled = false;
@@ -348,7 +356,8 @@
 
     btn.onclick = function(){
       btn.disabled = true; btn.textContent = "Checking…";
-      out.innerHTML = '<p class="muted">Starting…</p>';
+      out.innerHTML = '<p class="muted"><span class="spin" ' +
+        'data-s1-think="scan"></span> Starting…</p>';
       fetch("../api/scans/" + encodeURIComponent(PID) + "/linkcheck",
             {method:"POST"})
         .then(function(r){ return r.json(); })

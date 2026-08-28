@@ -145,7 +145,7 @@ td.actions-cell a:last-child{margin-right:0}
       <button class="ghost" onclick="loadScans()">Refresh</button>
       <button class="ghost" id="recoverBtn" onclick="recoverErrored()">Recover errored scans</button>
     </div>
-    <div id="tableWrap"><div class="empty">Loading…</div></div>
+    <div id="tableWrap"><div class="empty"><span class="spin"></span> Loading…</div></div>
   </div>
 </div>
 
@@ -164,8 +164,14 @@ async function startScan(force){
   const url = $("url").value.trim();
   if(!url){ showNotice("err","Please enter a website URL."); return; }
   hideNotice();
-  $("runBtn").disabled = true;
-  $("runBtn").textContent = "Starting…";
+  const runBusy = window.S1Think
+    ? window.S1Think.busy($("runBtn"), {kind: "scan", label: "Starting…"})
+    : {done: function(){ $("runBtn").disabled = false;
+                         $("runBtn").textContent = "Run Scan"; }};
+  if (!window.S1Think) {
+    $("runBtn").disabled = true;
+    $("runBtn").textContent = "Starting…";
+  }
   const payload = {
     url,
     business_name: $("biz").value.trim(),
@@ -204,8 +210,9 @@ async function startScan(force){
   } catch(e){
     showNotice("err", "Network error starting the scan.");
   } finally {
-    $("runBtn").disabled = false;
-    $("runBtn").textContent = "Run Scan";
+    // done() puts back the button's own caption, so the restore cannot
+    // disagree with what was on it.
+    runBusy.done();
   }
 }
 
@@ -293,7 +300,12 @@ async function recheckAll(){
   if(!running.length){ alert("Nothing is running."); return; }
   if(!confirm(`Re-check ${running.length} running scan(s) against Insites?\n\n`+
               `This re-reads existing audits — it does not start new ones, so no credits are spent.`)) return;
-  btn.disabled=true;
+  const reBusy = window.S1Think
+    ? window.S1Think.busy(btn, {kind: "scan", label: "Checking…"})
+    : {stage: function(t){ btn.textContent = t; },
+       done: function(){ btn.disabled = false;
+                         btn.textContent = "Re-check all running"; }};
+  if (!window.S1Think) btn.disabled = true;
   let done=0, resolved=0;
   for(const r of running){
     try{
@@ -302,9 +314,9 @@ async function recheckAll(){
       if(j && j.status && j.status!=="running") resolved++;
     }catch(e){}
     done++;
-    btn.textContent=`Checking ${done}/${running.length}…`;
+    reBusy.stage(`Checking ${done}/${running.length}…`);
   }
-  btn.disabled=false; btn.textContent="Re-check all running";
+  reBusy.done();
   alert(`${done} checked · ${resolved} resolved.` +
         (resolved===0 ? "\n\nNone resolved. That usually means the callback token or PUBLIC_BASE_URL is wrong — check /login/health." : ""));
   load();

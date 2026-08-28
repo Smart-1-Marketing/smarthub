@@ -367,9 +367,19 @@ function lpCreate(){
     return;
   }
 
+  /* Writing a whole landing page from a proposal is a long model call, and
+     the panel said so as a line of text — indistinguishable from a label
+     somebody left on the screen. Guarded, so a missing hub-thinking.js
+     costs the mark and never the sentence. */
   btn.disabled = true;
   msg.style.color = '';
   msg.textContent = 'Reading the proposal and writing the page…';
+  if (window.S1Think) {
+    msg._s1think = window.S1Think.attach(msg, {
+      kind: 'ai', label: 'Reading the proposal and writing the page…',
+      stages: [{at: 12000, note: 'Still writing — a whole page takes a moment…'}]
+    });
+  }
 
   var send;
   if(pick === 'upload'){
@@ -457,6 +467,9 @@ function lpRevise(id, name){
   var msg = $('lpMsg');
   msg.style.color = '';
   msg.textContent = 'Rewriting the page…';
+  if (window.S1Think) {
+    msg._s1think = window.S1Think.attach(msg, {kind:'ai', label:'Rewriting the page…'});
+  }
   fetch('/api/landing/' + encodeURIComponent(id) + '/revise', {
     method:'POST', credentials:'same-origin',
     headers:{'Content-Type':'application/json'},
