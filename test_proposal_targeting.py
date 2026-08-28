@@ -562,6 +562,293 @@ check("and 'we could not look' is a different answer from 'there is nobody'",
 builder._openai_response = _real_ai
 
 # ---------------------------------------------------------------------------
+section("the target-area step writes into a real area, from every route in")
+# ---------------------------------------------------------------------------
+# Reported from the floor: "cannot select city/DMA/national, radius drop down
+# doesn't stay selected". Nothing errored anywhere -- the editor renders
+# `currentArea() || blankArea()`, so with an empty list every control on the
+# step was bound to a throwaway object that the next redraw threw away. The
+# route in was ordinary: press Back off a half-typed area, which spliced the
+# list empty while `S._areaView` still said "edit" -- the one state the step's
+# own seeding skipped. `_areaView` rides in the saved quote, so the step
+# stayed dead across reloads.
+#
+# The wizard's own source is run rather than a copy of it, the way the area
+# helpers above are, or this asserts a second description of the step.
+import re as _re                                                   # noqa: E402
+import subprocess as _sub                                          # noqa: E402
+
+_TPL = os.path.join(ROOT, "modules", "sales_builder", "templates", "index.html")
+_src = "\n".join(m.group(1) for m in _re.finditer(
+    r"<script>(.*?)</script>", open(_TPL, encoding="utf-8").read(), _re.S))
+
+
+def _lift(token):
+    """One top-level function or const, out of the page, as written."""
+    i = _src.index(token)
+    ends = [j for j in (_src.find("\nfunction ", i + 10),
+                        _src.find("\nconst ", i + 10),
+                        _src.find("\n/*", i + 10)) if j > 0]
+    return _src[i:min(ends)] + "\n"
+
+
+def _between(first, last):
+    """The lines of a step body, by the text either end of them."""
+    i = _src.index(first)
+    j = _src.index(last, i) + len(last)
+    return _src[i:j]
+
+
+# The seeding the step does on the way in, and what Back leaves behind, both
+# taken from the page itself so an edit to either is what this test reads.
+_seed = _between("if(!S.targetAreas)S.targetAreas=[];",
+                 'if(S._areaView!=="edit")S._areaView="list";')
+_back = _between("const a=currentArea();\n   if(a&&!areaComplete(a))",
+                 "S._areaView=null;syncLegacyGeo();saveSoon();")
+
+_harness = (
+    "".join(_lift(t) for t in ("function uid(", "function blankArea(",
+                               "function areaGeo(", "function areaLabel(",
+                               "function areaZipsAll(", "function areaZips(",
+                               "function areaComplete(", "function syncLegacyGeo(",
+                               "function currentArea(", "function setArea("))
+    + "function saveSoon(){}function saveNow(){}function renderStep(){}\n"
+    + "var S={targetAreas:[],geo:'',geoType:'',radius:0};\n"
+    + "function enterStep(){" + _seed + "}\n"
+    + "function pressBack(){" + _back + " return false;}\n"
+    + """
+const out={};
+enterStep();
+out.seeded=S.targetAreas.length;
+pressBack();                       // half-typed area, nothing saved
+out.afterBack={rows:S.targetAreas.length, view:S._areaView};
+enterStep();                       // the rep comes back to the step
+out.reentered=S.targetAreas.length;
+setArea('type','DMA');
+out.picked=(currentArea()||{}).type;
+setArea('type','City/ZIP + Radius');setArea('radius',25);setArea('origin','Carmel, IN');
+out.radius=(currentArea()||{}).radius;
+out.rowsAfterTyping=S.targetAreas.length;
+// A quote already saved in the dead state has to come back to life on its
+// own: nobody is going to know to press anything in particular.
+S={targetAreas:[],_areaView:'edit',geo:'',geoType:'',radius:0};
+enterStep();
+out.stored={rows:S.targetAreas.length,current:!!currentArea()};
+// And the write path seeds on its own, whatever route emptied the list.
+S={targetAreas:[],_areaView:'edit',geo:'',geoType:'',radius:0};
+setArea('type','National');
+out.blindWrite=(currentArea()||{}).type;
+console.log(JSON.stringify(out));
+""")
+_js_path = os.path.join(_TMP, "areastep.js")
+open(_js_path, "w", encoding="utf-8").write(_harness)
+try:
+    _r = json.loads(_sub.run(["node", _js_path], capture_output=True, text=True,
+                             timeout=30, check=True).stdout)
+    check("opening the step seeds an area to type into", _r["seeded"] == 1, _r)
+    check("Back off a half-typed area drops it", _r["afterBack"]["rows"] == 0, _r)
+    check("and does not leave the view claiming an editor over nothing",
+          _r["afterBack"]["view"] != "edit", _r["afterBack"])
+    check("coming back to the step seeds again", _r["reentered"] == 1, _r)
+    check("picking DMA sticks — the reported failure",
+          _r["picked"] == "DMA", _r)
+    check("and the radius holds what was typed", _r["radius"] == 25, _r)
+    check("one area, not one per keystroke", _r["rowsAfterTyping"] == 1, _r)
+    check("a quote saved in the dead state recovers on its own",
+          _r["stored"]["rows"] == 1 and _r["stored"]["current"], _r["stored"])
+    check("and a write with no area seeds rather than being discarded",
+          _r["blindWrite"] == "National", _r)
+except FileNotFoundError:
+    print("  skip node is not installed — the area step is unchecked")
+except _sub.CalledProcessError as exc:
+    check("the target-area step runs", False, exc.stderr[:400])
+
+# ---------------------------------------------------------------------------
+section("the landing page is read before it is reviewed")
+# ---------------------------------------------------------------------------
+# Reported from the floor: "doesn't seem to have a web crawling function, when
+# it failed it showed its criteria to look for, but failed to gain permission
+# to the webpage". It had none: the URL went into a prompt with the word
+# "Visit", which no model here can do. The page is fetched now, through the
+# reader Smart 1 Ads already uses, and the model is handed the facts.
+from modules.ads_builder import landing_page as _lp                # noqa: E402
+
+_PAGE = {
+    "ok": True, "url": "https://carmelsolar.example/lp", "status": 200,
+    "redirected": False, "error": "",
+    "html": ('<html><head><title>Carmel Solar</title>'
+             '<meta name="viewport" content="width=device-width"></head><body>'
+             '<h1>Solar for Carmel homes</h1>'
+             '<a href="tel:+13175550142">Call (317) 555-0142</a>'
+                          # An absolute action, so tools/linkcheck.py does not read this
+             # fixture's markup as a Hub route that ought to resolve.
+             '<form method="post" action="https://carmelsolar.example/lead">'
+             '<input name="email" required>'
+             '<button>Get a free quote</button></form></body></html>'),
+}
+_real_fetch = _lp.fetch
+_ASKED_LP = {}
+
+
+def _fake_lp_ai(prompt, max_output_tokens=6000, search=False):
+    _ASKED_LP["prompt"] = prompt
+    return "CTA Status: one form and a click-to-call."
+
+
+_lp.fetch = lambda url: dict(_PAGE)
+builder._openai_response = _fake_lp_ai
+_rev = api("post", "/sales/builder/api/review-landing-page",
+           json={"url": "https://carmelsolar.example/lp", "client": "Carmel Solar"})
+check("the page is actually fetched", (_rev.get("observed") or {}).get("measured") is True, _rev)
+check("what a visitor can do on it is counted off the markup",
+      {p["kind"] for p in _rev["observed"]["conversion_points"]}
+      >= {"calls", "form_submissions"}, _rev["observed"]["conversion_points"])
+check("and each point carries the evidence, not just the claim",
+      any("(317) 555-0142" in p["evidence"] for p in _rev["observed"]["conversion_points"]),
+      _rev["observed"]["conversion_points"])
+check("the model is handed the page rather than its address",
+      "Solar for Carmel homes" in _ASKED_LP["prompt"], _ASKED_LP["prompt"][:300])
+check("and is told not to describe anything that is not in it",
+      "do not describe" in _ASKED_LP["prompt"].lower(), "")
+check("the reading is returned beside the judgment, not merged into it",
+      _rev["summary"] and _rev["review"] and "summary" in _rev, _rev.keys())
+
+_lp.fetch = lambda url: {"ok": False, "url": url, "status": 404,
+                         "error": "The page answered HTTP 404.", "html": ""}
+_dead = http.post("/sales/builder/api/review-landing-page",
+                  json={"url": "https://carmelsolar.example/gone"})
+check("a page that could not be read is refused, not reviewed anyway",
+      _dead.status_code == 502 and "404" in (_dead.get_json().get("detail") or ""),
+      _dead.get_json())
+check("and the model is never asked about it",
+      "gone" not in _ASKED_LP["prompt"], "")
+
+
+def _dead_ai(prompt, max_output_tokens=6000, search=False):
+    raise RuntimeError("upstream is down")
+
+
+_lp.fetch = lambda url: dict(_PAGE)
+builder._openai_response = _dead_ai
+_half = http.post("/sales/builder/api/review-landing-page",
+                  json={"url": "https://carmelsolar.example/lp"})
+check("the AI failing costs the judgment and not the reading",
+      _half.status_code == 502
+      and (_half.get_json().get("observed") or {}).get("measured") is True,
+      _half.get_json())
+_lp.fetch = _real_fetch
+builder._openai_response = _real_ai
+
+# ---------------------------------------------------------------------------
+section("one shared call to the model, and three ways of failing named")
+# ---------------------------------------------------------------------------
+# The hosted web-search tool rode on every call in this module. Whether it is
+# available depends on the model, which is OPENAI_MODEL and is not the default
+# written here -- so a model that refuses the tool refused the whole request,
+# and the ZIP button that the tool was meant to help was what it stopped.
+_CALLS = []
+
+
+class _Resp:
+    def __init__(self, code, body):
+        self.status_code, self._body = code, body
+        self.text = json.dumps(body)
+
+    def json(self):
+        return self._body
+
+
+_ANSWER = {"status": "completed",
+           "output": [{"content": [{"type": "output_text", "text": "46032, 46033"}]}]}
+
+
+def _capture(payload, api_key):
+    # A copy: the retry edits the payload it was handed, so a stub holding the
+    # live reference records what the call ended up as rather than what it was.
+    _CALLS.append(json.loads(json.dumps(payload)))
+    if "tools" in payload:
+        return _Resp(400, {"error": {"message": "Hosted tool 'web_search' is not supported."}})
+    return _Resp(200, _ANSWER)
+
+
+_real_call, _real_key = builder._openai_call, os.environ.get("OPENAI_API_KEY")
+builder._openai_call = _capture
+os.environ["OPENAI_API_KEY"] = "test-key"
+try:
+    _text = builder._openai_response("anything", 100)
+    check("an ordinary call carries no search tool at all",
+          "tools" not in _CALLS[0], _CALLS[0])
+    _CALLS.clear()
+    _text = builder._openai_response("anything", 100, search=True)
+    check("a call that asks for search asks for it", "tools" in _CALLS[0], _CALLS[0])
+    check("and falls back without it rather than losing the answer",
+          len(_CALLS) == 2 and "tools" not in _CALLS[1] and "46032" in _text, _CALLS)
+
+    _CALLS.clear()
+
+    def _unauthorised(payload, api_key):
+        _CALLS.append(json.loads(json.dumps(payload)))
+        return _Resp(401, {"error": {"message": "Incorrect API key provided."}})
+
+    builder._openai_call = _unauthorised
+    try:
+        builder._openai_response("anything", 100, search=True)
+        check("a refused call raises", False, "it did not")
+    except RuntimeError as exc:
+        check("and says what the API said, not just the status line",
+              "Incorrect API key" in str(exc), str(exc))
+    check("a bad key is not asked the same question twice — only a 400 is the tool",
+          len(_CALLS) == 1, _CALLS)
+
+    builder._openai_call = lambda p, k: _Resp(
+        200, {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"},
+              "output": []})
+    try:
+        builder._openai_response("anything", 100)
+        check("an answer cut short raises", False, "it did not")
+    except RuntimeError as exc:
+        check("and is named as that rather than as an empty answer",
+              "max output tokens" in str(exc), str(exc))
+finally:
+    builder._openai_call = _real_call
+    if _real_key is None:
+        os.environ.pop("OPENAI_API_KEY", None)
+    else:
+        os.environ["OPENAI_API_KEY"] = _real_key
+
+# ---------------------------------------------------------------------------
+section("the ZIP lookup says which thing went wrong")
+# ---------------------------------------------------------------------------
+_ZIP_ASKED = {}
+
+
+def _zip_ai(prompt, max_output_tokens=6000, search=False):
+    _ZIP_ASKED["search"] = search
+    return "46032, 46033, 46074"
+
+
+builder._openai_response = _zip_ai
+_z = api("post", "/sales/builder/api/zipcodes-in-radius",
+         json={"origin": "Carmel, IN", "radius": 10})
+check("the ZIP lookup returns the list", _z["count"] == 3, _z)
+check("and is the one call that asks for live search", _ZIP_ASKED["search"] is True)
+
+
+def _no_zips(prompt, max_output_tokens=6000, search=False):
+    return "I was unable to look that up."
+
+
+builder._openai_response = _no_zips
+_zz = http.post("/sales/builder/api/zipcodes-in-radius",
+                json={"origin": "Carmel, IN", "radius": 10})
+check("an empty answer names the origin and the radius it was asked about",
+      "Carmel, IN" in _zz.get_json()["error"] and "10" in _zz.get_json()["error"],
+      _zz.get_json())
+check("and offers the way round it rather than only reporting failure",
+      "by hand" in _zz.get_json()["error"], _zz.get_json())
+builder._openai_response = _real_ai
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

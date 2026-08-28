@@ -2064,7 +2064,19 @@ function currentArea(){
  if(!S.targetAreas||!S.targetAreas.length)return null;
  const i=Math.min(Math.max(0,S._areaIx|0),S.targetAreas.length-1);
  S._areaIx=i;return S.targetAreas[i];}
-function setArea(k,v){const a=currentArea();if(!a)return;a[k]=v;S.aiEst=null;syncLegacyGeo();saveSoon();}
+/* A control that writes into nothing is a control that does not work, and
+   this one said nothing while failing. The editor renders `currentArea() ||
+   blankArea()`, so with an empty list every field on the step was bound to a
+   throwaway object: picking DMA set a property on it, the redraw read the
+   list, and the select snapped back to City/ZIP + Radius with the radius at
+   10 and no error anywhere. Pressing Back off a half-typed area is how the
+   list came to be empty while `S._areaView` still said "edit" -- which is
+   the one state the step's own seeding skipped. Seed here rather than
+   return, so no route into that state can leave the step dead. */
+function setArea(k,v){
+ let a=currentArea();
+ if(!a){S.targetAreas=[blankArea()];S._areaIx=0;S._areaView="edit";a=S.targetAreas[0];}
+ a[k]=v;S.aiEst=null;syncLegacyGeo();saveSoon();}
 function areaEditorStep(){
  const a=currentArea()||blankArea();
  const n=S.targetAreas.length,ix=(S._areaIx|0)+1;
@@ -2120,7 +2132,12 @@ function areaEditorStep(){
    const a=currentArea();
    if(a&&!areaComplete(a))S.targetAreas.splice(S._areaIx,1);
    if(S.targetAreas.length){S._areaView="list";syncLegacyGeo();saveSoon();renderStep();return true;}
-   return false;   // nothing saved yet — fall through to the previous step
+   // Nothing saved yet — fall through to the previous step. The view is
+   // cleared with it: left saying "edit" over an empty list it rides in the
+   // quote, so coming back to this step later found it dead, and so did
+   // every later visit and every reload.
+   S._areaView=null;syncLegacyGeo();saveSoon();
+   return false;
   }};}
 function areaListStep(){
  const rows=S.targetAreas||[];
@@ -2674,7 +2691,11 @@ const STEPS=[
     wizard, so leaving a half-typed area never costs the ones already saved. */
  ()=>{
   if(!S.targetAreas)S.targetAreas=[];
-  if(!S.targetAreas.length&&S._areaView!=="edit"){S.targetAreas=[blankArea()];S._areaIx=0;S._areaView="edit";}
+  /* Seeded whenever the list is empty, and not only when the view says
+     something other than "edit". That exception left exactly one state
+     unseeded -- no areas, view still "edit" -- which every control on the
+     editor then wrote into a throwaway object and lost. */
+  if(!S.targetAreas.length){S.targetAreas=[blankArea()];S._areaIx=0;S._areaView="edit";}
   if(S._areaView!=="edit")S._areaView="list";
   if(S._areaView==="edit")return areaEditorStep();
   return areaListStep();
@@ -3149,19 +3170,33 @@ async function generateDesc(){
   renderStep();toast("Couldn't reach the AI ("+e.message+"). Used a placeholder you can edit.");}}
 async function reviewLandingAI(){
  if(!S.landingUrl){toast("Enter a landing page URL first.");return;}
- S._lpLoading=true;drawLanding();
+ S._lpLoading=true;S.landingRead=null;drawLanding();
  try{const d=await api('/sales/builder/api/review-landing-page',{method:'POST',
    body:JSON.stringify({url:S.landingUrl,client:S.client,product:"Campaign landing page",objectives:S.objectives})});
-  if(d&&d.review){S.landingReview=d.review;S._lpLoading=false;drawLanding();saveSoon();toast("✨ Landing page reviewed.");return;}
+  if(d&&d.review){
+   S.landingReview=d.review;
+   // What was read off the page is kept apart from what the model made of
+   // it. One is checkable and the other is judgment, and a rep quoting this
+   // to a client needs to be able to tell them apart.
+   S.landingRead=d.summary?{summary:d.summary,points:(d.observed&&d.observed.conversion_points)||[],
+                            url:d.url||S.landingUrl}:null;
+   S._lpLoading=false;drawLanding();saveSoon();toast("✨ Landing page read and reviewed.");return;}
   throw new Error((d&&(d.error||d.detail))||"the AI returned nothing");
  }catch(e){S._lpLoading=false;drawLanding();toast("Couldn't review the page ("+e.message+").");}}
 function drawLanding(){
  const b=document.getElementById('lpBtn');if(b){b.disabled=!!S._lpLoading;b.innerHTML=S._lpLoading?'<span class="spin"></span>Reviewing…':'🔍 Review landing page';}
  const box=document.getElementById('lpReview');if(!box)return;
  if(S._lpLoading){box.innerHTML='<div class="note" style="margin-top:10px"><span class="spin"></span>Smart 1 is reviewing the landing page…</div>';return;}
- box.innerHTML=S.landingReview
-  ? `<div style="margin-top:12px;background:#f6faff;border:1px solid var(--line);border-radius:10px;padding:14px;white-space:pre-wrap;font-size:13px;color:#33415C">${esc(S.landingReview)}</div>`
-  : '<div class="note" style="margin-top:8px">Add a URL and click Review — Smart 1 checks the CTA and conversion readiness before launch.</div>';}
+ if(!S.landingReview){
+  box.innerHTML='<div class="note" style="margin-top:8px">Add a URL and click Review — Smart 1 requests the page, counts what a visitor can actually do on it, and reviews the result.</div>';return;}
+ const read=S.landingRead;
+ box.innerHTML=(read?`<div style="margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:13px 14px">
+   <div style="font-weight:800;color:var(--navy);font-size:12.5px">📄 Read on the page</div>
+   <div class="note" style="margin-top:4px">${esc(read.summary)}</div>
+   ${read.points.length?`<div class="note" style="margin-top:7px">${read.points.slice(0,12).map(pt=>'<div>· <b>'+esc(pt.label)+'</b> — '+esc(pt.evidence)+'</div>').join('')}</div>`:''}
+   <div class="note" style="margin-top:7px;font-style:italic">Measured off ${esc(read.url)}. Everything below is Smart 1's reading of it.</div>
+  </div>`:'')
+  +`<div style="margin-top:12px;background:#f6faff;border:1px solid var(--line);border-radius:10px;padding:14px;white-space:pre-wrap;font-size:13px;color:#33415C">${esc(S.landingReview)}</div>`;}
 function drawItems(){const host=document.getElementById('prodList');if(!host)return;
  host.innerHTML=S.items.map((i,ix)=>{
   const sr=sellRateOf(i);
