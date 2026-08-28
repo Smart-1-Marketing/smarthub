@@ -597,7 +597,7 @@ async function generate() {
 
   const btn = document.getElementById('go');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spin"></span> Generating…';
+  btn.innerHTML = '<span class="spin" data-s1-think="ai"></span> Generating…';
   document.getElementById('genHint').style.display = 'block';
   document.getElementById('genError').innerHTML = '';
   startBuild();

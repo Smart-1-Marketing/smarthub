@@ -172,7 +172,17 @@
       }
 
       btn.disabled = true;
-      say('<div class="s1ask-card">Working that out…</div>');
+      // The question goes to GA4 and then to a model, which is tens of
+      // seconds. `attach` carries the mark, the sentence and — past six
+      // seconds — how long it has been running, which is the only thing that
+      // separates a slow answer from a dead one. Guarded: if hub-thinking.js
+      // is missing the sentence is still written, plainly.
+      say('<div class="s1ask-card" id="s1ask-busy">Working that out…</div>');
+      if (window.S1Think) {
+        window.S1Think.attach("#s1ask-busy", {
+          kind: "ai", label: "Reading the numbers, then working that out…"
+        });
+      }
 
       fetch("/google/api/ga4/ask", {
         method: "POST", credentials: "same-origin",

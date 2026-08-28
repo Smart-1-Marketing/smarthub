@@ -228,10 +228,28 @@ function esc(s){
     return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
   });
 }
+// A message that is a *wait* is drawn with the running mark; one that is a
+// result is not. "Writing…" as a bare line of text is indistinguishable from
+// a label somebody left on the screen, which is how a model that is thinking
+// and a model that has died read identically — and the second is the one
+// worth knowing about. `attach` also carries the elapsed line, which is the
+// only thing that separates a slow answer from a hung one on a call that
+// routinely runs half a minute.
+//
+// hub-thinking.js is injected into every mounted module by HubBar, so nothing
+// is loaded here. It is still guarded: if it is missing, the sentence is
+// written plainly and the panel behaves exactly as it did before. A mark that
+// takes the message down with it is worse than no mark.
 function say(el, text, kind){
   var node = $(el);
-  node.textContent = text || "";
+  if (node._s1think) { node._s1think.done(); node._s1think = null; }
   node.className = "msg" + (kind ? " " + kind : "");
+  if (["ai", "scan", "wait"].indexOf(kind) >= 0 && window.S1Think) {
+    node.className = "msg";
+    node._s1think = window.S1Think.attach(node, { kind: kind, label: text });
+    return;
+  }
+  node.textContent = text || "";
 }
 
 // Relative, never rooted. This app is mounted under /tools/social, so a
@@ -386,7 +404,7 @@ $("build").addEventListener("click", function(){
   if (!$("month").value) { say("buildmsg", "Pick a month.", "err"); return; }
   if (!state.channels.length) { say("buildmsg", "Pick at least one channel.", "err"); return; }
   $("build").disabled = true;
-  say("buildmsg", "Building…");
+  say("buildmsg", "Building the month — the model is planning the mix…", "ai");
   var wantHolidays = $("useHolidays").checked;
   post("batches", {
     client: state.client, url: state.url, month: $("month").value,
@@ -549,13 +567,21 @@ function toggleApprove(id){
 
 function draftOne(id, button){
   var slot = findSlot(id);
-  if (button) { button.disabled = true; button.textContent = "Writing…"; }
+  // busy() keeps the button's own label to put back, so the restore cannot
+  // disagree with what was there — the hand-written version above restored a
+  // hard-coded "Write" on the failure path and would have relabelled any
+  // button whose caption was ever changed.
+  var busy = window.S1Think
+    ? window.S1Think.busy(button, {kind: "ai", label: "Writing…"})
+    : {done: function(){ if (button) { button.disabled = false; } }};
+  if (!window.S1Think && button) { button.disabled = true; }
   return post("batches/" + state.batch.id + "/draft", {slot: id}).then(function(d){
     if (!d.ok) {
       say("planmsg", slot.date + ": " + d.error, "err");
-      if (button) { button.disabled = false; button.textContent = "Write"; }
+      busy.done();
       return false;
     }
+    busy.done();
     for (var i = 0; i < state.batch.slots.length; i++) {
       if (state.batch.slots[i].id === id) { state.batch.slots[i] = d.slot; }
     }
@@ -580,7 +606,7 @@ $("draftAll").addEventListener("click", function(){
     }
     var slot = pending.shift();
     say("planmsg", "Writing " + typeLabel(slot.type).toLowerCase() + " post for " +
-        slot.date + " (" + (done + failed + 1) + " of " + (done + failed + 1 + pending.length) + ")…");
+        slot.date + " (" + (done + failed + 1) + " of " + (done + failed + 1 + pending.length) + ")…", "ai");
     draftOne(slot.id, null).then(function(ok){
       if (ok) { done++; } else { failed++; }
       next();
@@ -591,7 +617,7 @@ $("draftAll").addEventListener("click", function(){
 
 $("fillImages").addEventListener("click", function(){
   $("fillImages").disabled = true;
-  say("planmsg", "Looking through the gallery…");
+  say("planmsg", "Looking through the gallery…", "scan");
   post("batches/" + state.batch.id + "/images", {}).then(function(d){
     $("fillImages").disabled = false;
     if (!d.ok) { say("planmsg", d.error, "err"); return; }
