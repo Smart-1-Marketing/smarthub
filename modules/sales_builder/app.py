@@ -2405,8 +2405,12 @@ def _openai_response(prompt, max_output_tokens=6000, search=False):
         payload["tools"] = [{"type": "web_search"}]
 
     r = _openai_call(payload, api_key)
-    if r.status_code >= 400 and search:
+    if r.status_code == 400 and search:
         # The model would not take the tool. The question is still answerable.
+        # Only on a 400: that is "this request is not something I can accept",
+        # which is the tool refusal. A 401 is a key, a 429 is a rate limit and
+        # a 5xx is theirs -- asking the identical question again costs a second
+        # call and cannot change any of those answers.
         payload.pop("tools", None)
         r = _openai_call(payload, api_key)
     if r.status_code >= 400:
@@ -2415,7 +2419,8 @@ def _openai_response(prompt, max_output_tokens=6000, search=False):
     try:
         data = r.json()
     except ValueError:
-        raise RuntimeError("OpenAI returned a response that could not be read as JSON.")
+        raise RuntimeError(
+            "OpenAI returned a response that could not be read as JSON.") from None
     try:  # record spend so /diagnostics doesn't under-report
         from hub import ai as _hub_ai
         _hub_ai.note_usage("sales_builder", data, purpose="quote")

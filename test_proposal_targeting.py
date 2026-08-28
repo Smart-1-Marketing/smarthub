@@ -785,14 +785,20 @@ try:
           len(_CALLS) == 2 and "tools" not in _CALLS[1] and "46032" in _text, _CALLS)
 
     _CALLS.clear()
-    builder._openai_call = lambda p, k: _Resp(
-        401, {"error": {"message": "Incorrect API key provided."}})
+
+    def _unauthorised(payload, api_key):
+        _CALLS.append(json.loads(json.dumps(payload)))
+        return _Resp(401, {"error": {"message": "Incorrect API key provided."}})
+
+    builder._openai_call = _unauthorised
     try:
-        builder._openai_response("anything", 100)
+        builder._openai_response("anything", 100, search=True)
         check("a refused call raises", False, "it did not")
     except RuntimeError as exc:
         check("and says what the API said, not just the status line",
               "Incorrect API key" in str(exc), str(exc))
+    check("a bad key is not asked the same question twice — only a 400 is the tool",
+          len(_CALLS) == 1, _CALLS)
 
     builder._openai_call = lambda p, k: _Resp(
         200, {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"},
