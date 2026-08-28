@@ -191,35 +191,24 @@ def hub_client_context(name: str, url: str = "") -> dict:
 def suite_location_id(name: str, url: str = "") -> str:
     """This client's Smart 1 Suite sub-account id, where one is on file.
 
-    The mapping lives on the image picker's client table — `ghl_location_id`,
-    the one place in this Hub that records which Suite sub-account a client
-    is. It is read rather than duplicated: a second copy of that mapping is a
-    second thing to keep in step, and posting to the wrong sub-account is the
-    worst outcome any tool here can produce (hub/social_plan.py says so).
+    `hub/suite_accounts.location_for()` is the mapping now — the Social
+    Content Planner needs the identical answer to know which Social Planner a
+    post belongs to, and two readings of "which sub-account is this client"
+    is how one of them comes to publish onto another client's page. The name
+    is kept so every caller here is unchanged, the way
+    `modules/radio_promo/voices.py` re-exports `hub/voice_casting.py`.
 
-    That table carries no URL column, so the join is on an exact normalised
-    name and nothing else. `hub/social_plan.py` asks for a domain match here
-    for good reason, and the honest position is that this mapping cannot offer
-    one — so the match is made stricter rather than looser, and a business the
-    name does not match exactly comes back with no location and is filed to
-    Smart 1 Marketing, which is a wrong *account* rather than a wrong client.
-
-    Empty string on any failure. This is called while saving a CTA and must
-    never raise or block.
+    Empty string on any failure, and on the two answers that are not a
+    location: no sub-account recorded, and a mapping that could not be read.
+    They are different situations and `location_for()` keeps them apart — this
+    signature cannot, which is exactly why the shared one returns a state.
+    This is called while saving a CTA and must never raise or block.
     """
     try:
-        from modules.image_picker.models import PickerClient
+        from hub.suite_accounts import location_for
     except Exception:  # noqa: BLE001
         return ""
     try:
-        rows = PickerClient.query.all()
-    except Exception:  # noqa: BLE001 — no app context, or the table is absent
+        return location_for(name, url).get("location_id", "") or ""
+    except Exception:  # noqa: BLE001
         return ""
-    for row in rows:
-        location = (getattr(row, "ghl_location_id", None) or "").strip()
-        if not location:
-            continue
-        if same_client(name, url, getattr(row, "name", "") or "",
-                       getattr(row, "website", "") or getattr(row, "url", "") or ""):
-            return location
-    return ""

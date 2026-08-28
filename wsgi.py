@@ -661,6 +661,15 @@ _SCANS_PUBLIC = tuple(getattr(scans, "PUBLIC_PREFIXES", ("/api/callback",))) \
 _ADS_PUBLIC = tuple(getattr(adsb, "PUBLIC_PREFIXES", ("/estimate/",))) \
     if adsb else ("/estimate/",)
 
+# And for the Social Content Planner: /tools/social/c/<token>/… is the four
+# pages a CLIENT opens — send us something to post, swipe on ideas, approve a
+# post, say what to write about — and a client has no Hub login. Read from the
+# module so the mount and the module cannot drift, and handed to both
+# AuthGuard (reachable) and HubBar (no sidebar, help layer or feedback tab on
+# a page a client reads).
+_SOCIAL_PUBLIC = tuple(getattr(social, "PUBLIC_PREFIXES", ("/c/",))) \
+    if social else ("/c/",)
+
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
@@ -683,7 +692,8 @@ application = DispatcherMiddleware(hub_app, {
                            if stockp else stockp_fb,
     "/tools/site-blocks": _mount(siteblk.app, "/tools/site-blocks")
                           if siteblk else siteblk_fb,
-    "/tools/social": _mount(social.app, "/tools/social") if social else social_fb,
+    "/tools/social": _mount(social.app, "/tools/social",
+                            public_prefixes=_SOCIAL_PUBLIC) if social else social_fb,
     "/tools/gpt-ads": _mount(gptads.app, "/tools/gpt-ads") if gptads else gptads_fb,
     # Google Ads campaign operations. With no GOOGLE_ADS_* credentials it
     # still serves its own settings page naming each variable it is

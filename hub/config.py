@@ -287,6 +287,9 @@ class Settings:
             # or their last site scan -- hub/client_logos.py.
             "client_logos": "smart1-client-logos",
             "backups": "smart1-backups",
+            # Photographs a client's own location manager attaches to a
+            # content request -- modules/social_planner/intake.py.
+            "social_requests": "smart1-social-requests",
         }
         return defaults.get(kind, f"smart1-{kind}")
 

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+{% include "_client_head.html" %}
+<title>Posts waiting for you</title>
+</head>
+<body>
+{#
+  One post at a time, and three answers rather than two. "Yes", "yes with my
+  changes" and "not this one" are the three real replies; an approve/reject
+  pair forces the middle one into whichever end is nearest, which is the rule
+  modules/ads_builder/spec.py arrived at for the client estimate.
+
+  A change request needs the words. "The client wants it different" is not
+  actionable and puts an account manager back on the phone, which is the
+  conversation this page exists to save.
+#}
+<div class="wrap">
+  <h1>Posts waiting for you</h1>
+  <p class="who">{{ client }}</p>
+
+  <div id="deck"></div>
+
+  <div class="card done" id="empty" style="display:none">
+    <div class="tick">&#9989;</div>
+    <h1>Nothing waiting</h1>
+    <p class="hint">We'll send the next batch through when it's written.</p>
+  </div>
+
+  <div class="nav">
+    <a href="request">Send us something to post</a>
+    <a href="ideas">Ideas to swipe through</a>
+    <a href="preferences">What to write about</a>
+  </div>
+</div>
+
+<script type="application/json" id="boot">{{ boot|tojson }}</script>
+<script>
+var B = JSON.parse(document.getElementById("boot").textContent);
+var posts = (B.posts || []).slice();
+
+function el(id){ return document.getElementById(id); }
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+
+function stateLine(p){
+  if (p.state === "approved") { return "You approved this."; }
+  if (p.state === "changes_requested") {
+    return "You asked for a change: " + p.note;
+  }
+  return "";
+}
+
+function draw(){
+  var waiting = posts.filter(function(p){ return p.state === "pending_client_approval"; });
+  var answered = posts.filter(function(p){ return p.state !== "pending_client_approval"; });
+  var html = [];
+
+  waiting.forEach(function(p){
+    html.push('<div class="card" data-b="' + esc(p.batch) + '" data-s="' + esc(p.slot) + '">');
+    html.push('<p class="hint">' + esc(p.date) + " &middot; " +
+              esc((p.channels || []).join(", ")) +
+              (p.from_request ? " &middot; from " + esc(p.location || "your request") : "") +
+              "</p>");
+    if (p.image_url) {
+      html.push('<img src="' + esc(p.image_url) + '" alt="" ' +
+                'style="width:100%;border-radius:10px;margin:10px 0">');
+    }
+    html.push('<p style="white-space:pre-wrap;margin:10px 0 0">' + esc(p.copy) + "</p>");
+    html.push('<div class="row" style="margin-top:18px">');
+    html.push('<button class="btn sec" data-do="rejected">Skip this one</button>');
+    html.push('<button class="btn sec" data-do="changes">Ask for a change</button>');
+    html.push('<button class="btn" data-do="approved">Approve</button>');
+    html.push("</div>");
+    html.push('<div class="changebox" style="display:none;margin-top:12px">');
+    html.push('<textarea placeholder="What should we change? One line is plenty."></textarea>');
+    html.push('<p style="margin:10px 0 0"><button class="btn" data-do="changes_send">' +
+              "Send that back</button></p></div>");
+    html.push('<div class="msg"></div>');
+    html.push("</div>");
+  });
+
+  // What has already been answered stays on the page, quietly. A list that
+  // gets shorter with nothing saying why cannot be told from one that failed
+  // to load.
+  answered.forEach(function(p){
+    html.push('<div class="card" style="opacity:.72"><p class="hint">' +
+              esc(p.date) + " &middot; " + esc(stateLine(p)) + "</p>" +
+              '<p style="white-space:pre-wrap;margin:8px 0 0">' +
+              esc((p.copy || "").slice(0, 180)) + "</p></div>");
+  });
+
+  el("deck").innerHTML = html.join("");
+  el("empty").style.display = posts.length ? "none" : "block";
+}
+
+el("deck").addEventListener("click", function(ev){
+  var btn = ev.target.closest("button[data-do]");
+  if (!btn) { return; }
+  var card = btn.closest(".card");
+  var what = btn.getAttribute("data-do");
+  if (what === "changes") {
+    card.querySelector(".changebox").style.display = "block";
+    card.querySelector(".changebox textarea").focus();
+    return;
+  }
+  var note = "";
+  if (what === "changes_send") {
+    note = card.querySelector(".changebox textarea").value.trim();
+    if (!note) {
+      card.querySelector(".msg").className = "msg err";
+      card.querySelector(".msg").textContent =
+        "Tell us what to change — without it we'd be guessing.";
+      return;
+    }
+    what = "changes_requested";
+  }
+  send(card, what, note);
+});
+
+function send(card, decision, note){
+  var msg = card.querySelector(".msg");
+  msg.className = "msg";
+  msg.textContent = "Sending…";
+  fetch("approve/" + encodeURIComponent(card.getAttribute("data-b")) + "/" +
+        encodeURIComponent(card.getAttribute("data-s")),
+        {method:"POST", headers:{"Content-Type":"application/json"},
+         body:JSON.stringify({decision:decision, note:note})})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.ok) { msg.className = "msg err"; msg.textContent = d.error || "That didn't send."; return; }
+      posts = d.posts || posts;
+      draw();
+    })
+    .catch(function(){
+      msg.className = "msg err";
+      msg.textContent = "That didn't send. Check your connection and try again.";
+    });
+}
+
+draw();
+</script>
+</body>
+</html>
