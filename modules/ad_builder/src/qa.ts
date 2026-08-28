@@ -43,6 +43,33 @@ export interface QaInput {
 const TEXT_ROLES = ['headline', 'support', 'offer', 'trust'] as const;
 
 /**
+ * How far past its own pixels a photograph may be painted before it is worth
+ * saying so. Chosen to be quiet in the ordinary case and loud in the one that
+ * matters: stock photography comes back at 3000px and never trips it, while a
+ * 1024px generated still asked to fill Amazon's 1940x500 billboard is painted
+ * at nearly twice its own width and does.
+ */
+const UPSCALE_LIMIT = 1.25;
+
+/**
+ * What the proof prints, and the verdict taken on it — decided together.
+ *
+ * These are one function because separating them is how they disagree: round
+ * to whole percent for the screen while judging the unrounded value and the
+ * proof reads "20% of the canvas, over the 20% Meta recommends", which looks
+ * like a broken check rather than a fact about the ad. The verdict is taken on
+ * the number as printed, so whatever a reader can see is what was decided.
+ *
+ * Exported so the boundary can be asserted directly. Left inside runQa it was
+ * only ever exercised by whatever coverage the fixtures happened to land on,
+ * and neither fixture lands on 20.
+ */
+export function coverageVerdict(pct: number, limitPct: number): { shown: string; over: boolean } {
+  const rounded = Number(pct.toFixed(1));
+  return { shown: `${rounded.toFixed(1)}%`, over: rounded > limitPct };
+}
+
+/**
  * Mean luminance of a logo's visible (non-transparent) pixels. This is what
  * the eye compares against the backdrop — transparent padding must not count,
  * or a white mark on a transparent canvas would average out to "grey" and
@@ -369,6 +396,95 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     warn('contrast', `below 4.5:1 — ${lowContrast.join(', ')}`);
   } else {
     pass('contrast', 'all text at or above 4.5:1 against what sits behind it');
+  }
+
+  /* ------------------------------------------------------ source resolution
+     A photograph stretched past its own pixels goes soft, and soft is the one
+     defect that survives every other check here: it sits inside the safe area,
+     it collides with nothing, its contrast is fine, and the file is comfortably
+     under the cap because a blurry JPEG compresses well. It is found by
+     somebody looking at the proof, which is late.
+
+     The comparison is against the pixels actually PAINTED at delivery scale,
+     not against the canvas. A `cover` fit paints a wide photo much wider than
+     a tall canvas and crops the overflow, so measuring the canvas would report
+     a 1024px source filling a 300px slot as a comfortable fit while most of
+     its width was being thrown away — and Amazon's 2x sizes double the ask
+     again, which is exactly where a stock photo runs out.
+
+     Never a fail. A slightly soft photograph is a judgement call somebody may
+     well ship on a deadline, and blocking delivery over it would mean the
+     override click gets learned as routine — which is what makes it useless on
+     the checks that genuinely must stop a delivery. */
+  const measurable = composed.images.filter((i) => i.naturalW > 0 && i.naturalH > 0);
+  if (composed.images.length) {
+    if (!measurable.length) {
+      // Every source is vector. That is not an unmeasured case: an SVG has no
+      // resolution to outrun, so this is a real answer rather than a gap.
+      pass('source-resolution', 'vector artwork — no resolution to outrun');
+    } else {
+      const stretched = measurable
+        .map((i) => ({ ...i, factor: (i.drawnW * scale) / i.naturalW }))
+        .filter((i) => i.factor > UPSCALE_LIMIT)
+        .sort((a, b) => b.factor - a.factor);
+      if (stretched.length) {
+        const worst = stretched[0];
+        warn(
+          'source-resolution',
+          `the ${worst.role} image is ${worst.naturalW}x${worst.naturalH} and is painted at ` +
+          `${Math.round(worst.drawnW * scale)}x${Math.round(worst.drawnH * scale)} — ` +
+          `${worst.factor.toFixed(1)}x its own pixels, which will show as softness. ` +
+          `Use a larger source.`,
+        );
+      } else {
+        const tightest = measurable
+          .map((i) => (i.drawnW * scale) / i.naturalW)
+          .sort((a, b) => b - a)[0];
+        pass(
+          'source-resolution',
+          `every image has the pixels for the size it is drawn at (largest ask ${tightest.toFixed(2)}x)`,
+        );
+      }
+    }
+  }
+
+  /* --------------------------------------------------- text coverage (Meta)
+     Meta retired the 20% text rule as a rejection in September 2020. It is a
+     DELIVERY guideline now: a text-heavy image is not refused, it is served
+     less. So this is a warning that says which of those two it is, and it can
+     never fail a render — reporting a retired rule as a hard failure would
+     block a delivery Meta itself would accept.
+
+     It is scoped to Meta and to nothing else on purpose. A 300x250 banner is
+     mostly type by design and always will be; running this check against one
+     would put an amber chip on every display size in the campaign, and an
+     amber chip on everything is read as amber meaning nothing — which is the
+     state the word-count check was removed for a few sections up.
+
+     The number is an estimate and says so. Meta scored a 5x5 grid; this is the
+     area of the ink boxes over the area of the canvas, which is the same
+     question asked more coarsely. */
+  if (rule.textCoverageWarnPct != null) {
+    const canvasArea = layout.canvas.w * layout.canvas.h;
+    let inkArea = 0;
+    for (const role of [...TEXT_ROLES, 'cta'] as const) {
+      const box = composed.rects[role];
+      if (!box) continue;
+      inkArea += box.w * box.h;
+    }
+    const pct = canvasArea > 0 ? (inkArea / canvasArea) * 100 : 0;
+    const { shown, over } = coverageVerdict(pct, rule.textCoverageWarnPct);
+    if (over) {
+      warn(
+        'text-coverage',
+        `text covers roughly ${shown} of the canvas, over the ${rule.textCoverageWarnPct}% Meta ` +
+        `recommends. Not a rejection — Meta dropped that rule in 2020 — but text-heavy images ` +
+        `are served less, so this one may reach fewer people. A layout that gives the photo ` +
+        `more of the canvas is the fix if the reach matters more than the copy.`,
+      );
+    } else {
+      pass('text-coverage', `text covers roughly ${shown} of the canvas`);
+    }
   }
 
   return findings;

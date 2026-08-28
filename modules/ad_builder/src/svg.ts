@@ -44,6 +44,31 @@ export interface ComposeOutput {
   wordCount: number;
   minFontSize: number;
   missingAssets: string[];
+  /** Every photograph this pass actually painted, with the pixels it had and
+   *  the pixels it was asked to fill. QA reads these to say whether a source
+   *  is being stretched past its own resolution; it is reported from here
+   *  rather than recomputed there because the placement arithmetic --
+   *  cover, zoom, offset, and the preserveAspectRatio fallback -- lives in
+   *  this file, and a second description of it would drift from the render. */
+  images: PlacedImage[];
+}
+
+/**
+ * One photograph, as painted.
+ *
+ * `naturalW/H` is 0 for a source with no intrinsic pixel size, which in
+ * practice means an SVG: sharp reports 0x0 for one. That is not a missing
+ * measurement to warn about -- vector artwork has no resolution to outrun --
+ * so it is carried as a fact and read as one.
+ */
+export interface PlacedImage {
+  role: 'background' | 'hero';
+  src: string;
+  naturalW: number;
+  naturalH: number;
+  /** The extent it was painted at, in 1x canvas pixels. */
+  drawnW: number;
+  drawnH: number;
 }
 
 /** Horizontal padding inside a CTA button, total across both sides. */
@@ -256,6 +281,7 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
   const fits: Record<string, FitResult> = {};
   const rects: Record<string, Box> = {};
   const missingAssets: string[] = [];
+  const images: PlacedImage[] = [];
   let minFontSize = Infinity;
 
   const abs = (p: string) => (path.isAbsolute(p) ? p : path.resolve(assetRoot, p));
@@ -300,11 +326,23 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
         ` width="${place.w.toFixed(2)}" height="${place.h.toFixed(2)}"` +
         ` preserveAspectRatio="none" href="${bgImg.uri}"/></g>`,
       );
+      images.push({
+        role: 'background', src: input.backgroundImage!,
+        naturalW: bgImg.w, naturalH: bgImg.h, drawnW: place.w, drawnH: place.h,
+      });
     } else {
       const bgPos = resolveBgPosition(input.backgroundPosition ?? (copy as any).__bgPos);
       body.push(
         `<image x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="${bgPos} slice" href="${bgImg.uri}"/>`,
       );
+      // This branch is reached precisely when the source had no intrinsic
+      // size, so naturalW/H are 0 and stay 0 -- reporting the canvas as the
+      // natural size would read as a perfect 1:1 fit for a source nobody
+      // measured.
+      images.push({
+        role: 'background', src: input.backgroundImage!,
+        naturalW: bgImg.w, naturalH: bgImg.h, drawnW: W, drawnH: H,
+      });
     }
     const strength = Math.max(0, Math.min(1, input.backgroundOverlay ?? 0.42));
     const wash = normaliseHex(input.backgroundOverlayColor);
@@ -353,6 +391,17 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
       body.push(
         `<g clip-path="url(#${clip})"><image x="${hb.x}" y="${hb.y}" width="${hb.w}" height="${hb.h}" preserveAspectRatio="${par}" href="${img.uri}"/></g>`,
       );
+      // `slice` covers the box and crops the overflow, so the painted extent
+      // is the cover fit rather than the box itself: a wide photo in a tall
+      // hole is drawn much wider than the hole and cut, and measuring the
+      // hole would under-report how far the source was stretched.
+      const heroCover = img.w > 0 && img.h > 0 ? Math.max(hb.w / img.w, hb.h / img.h) : 0;
+      images.push({
+        // Non-null: `img` is only truthy when `src` was, three lines above.
+        role: 'hero', src: src!,
+        naturalW: img.w, naturalH: img.h,
+        drawnW: img.w * heroCover, drawnH: img.h * heroCover,
+      });
       if (hb.scrim) {
         defs.push(scrimGradient('heroScrim', hb.scrim.direction, hb.scrim.from, hb.scrim.to));
         body.push(
@@ -526,5 +575,6 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
     wordCount,
     minFontSize: Number.isFinite(minFontSize) ? minFontSize : 0,
     missingAssets,
+    images,
   };
 }

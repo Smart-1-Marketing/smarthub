@@ -911,6 +911,59 @@ def test_a_generated_picture_can_be_kept():
           "id=\"aiRevise\"" in screen)
 
 
+def test_softness_and_text_weight_are_checked():
+    """Two defects that pass every other check, then arrive on the proof.
+
+    A photograph stretched past its own pixels sits inside the safe area,
+    collides with nothing, has fine contrast, and lands well under the file cap
+    because a blurry JPEG compresses well. Text weight on a Meta image is the
+    same shape of problem from the other direction: nothing is wrong with the
+    ad, it is simply served to fewer people. Neither had a check.
+    """
+    qa = (MODULE / "src" / "qa.ts").read_text()
+    svg = (MODULE / "src" / "svg.ts").read_text()
+
+    check("the composer reports what it actually painted", "images: PlacedImage[]" in svg)
+    check("including the pixels the source had", "naturalW: bgImg.w" in svg)
+    check("and the hero's cover fit, not the hole it went in", "const heroCover" in svg)
+    check("QA reads that rather than recomputing the placement",
+          "composed.images" in qa and "coverRect" not in qa)
+    check("the ask is measured at delivery scale, not canvas scale",
+          "(i.drawnW * scale) / i.naturalW" in qa)
+    check("vector artwork is a real answer, not an unmeasured one",
+          "no resolution to outrun" in qa)
+    check("softness never blocks a delivery", "Never a fail." in qa)
+
+    check("text coverage is asked where a platform publishes a number",
+          "rule.textCoverageWarnPct" in qa)
+    check("and it says the rule was retired rather than implying a rejection",
+          "Meta dropped that rule in 2020" in qa)
+    check("the printed number and the verdict are decided together",
+          "export function coverageVerdict" in qa)
+
+
+def test_the_meta_guideline_is_meta_s_alone():
+    """A 300x250 is mostly type by design and always will be.
+
+    Asking it the Meta question would put an amber chip on every display size
+    in every campaign, which is how amber comes to mean nothing -- the same
+    reason the word-count check was taken out.
+    """
+    import json as _json
+    cfg = MODULE / "src" / "config" / "platforms"
+    meta = _json.loads((cfg / "meta.json").read_text())["sizes"]
+    check("every Meta size carries the guideline",
+          all(r.get("textCoverageWarnPct") == 20 for r in meta.values()),
+          f"{[k for k, r in meta.items() if r.get('textCoverageWarnPct') != 20]}")
+    check("and each says when it was last checked",
+          all("_textCoverageSource" in r for r in meta.values()))
+    for name in ("google", "amazon"):
+        sizes = _json.loads((cfg / f"{name}.json").read_text())["sizes"]
+        check(f"{name} is not asked it",
+              all("textCoverageWarnPct" not in r for r in sizes.values()),
+              f"{[k for k, r in sizes.items() if 'textCoverageWarnPct' in r]}")
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()
