@@ -11,6 +11,7 @@
 
   const selectedLengths = new Set();
   const selectedFormats = new Set();
+  const selectedPublishers = new Set();
   let selectedType = null;
   let selectedPlatform =
     document.querySelector("#platform-choices .selected")?.dataset.value || "both";
@@ -153,8 +154,47 @@
     [...container.children].forEach((c) => c.classList.remove("selected"));
     choice.classList.add("selected");
     selectedPlatform = choice.dataset.value;
+    syncPublisherField();
     refreshLengthNotes();
   });
+
+  // The publisher question only means anything on a CTV buy — asking a
+  // YouTube-only spot which streaming platform it runs on is a field nobody
+  // can answer, and a form full of those is a form people stop reading.
+  function syncPublisherField() {
+    const field = document.getElementById("publisher-field");
+    const relevant = selectedPlatform === "ctv" || selectedPlatform === "both";
+    field.style.display = relevant ? "" : "none";
+    if (!relevant) {
+      selectedPublishers.clear();
+      document.querySelectorAll("#publisher-choices .cb-choice")
+        .forEach((c) => c.classList.remove("selected"));
+      document.getElementById("publisher-notes").innerHTML = "";
+    }
+  }
+
+  wireChoices("publisher-choices", (choice) => {
+    toggle(selectedPublishers, choice);
+    paintPublisherNotes();
+  });
+
+  // Said the moment it is picked, not at the render. A rep who switches a QR
+  // code on for an Amazon buy has built something Amazon will reject.
+  const PUBLISHER_NOTES = {
+    amazon: "Amazon Streaming TV doesn't support QR codes, and its specs say ads "
+          + "shouldn't include call-to-action elements that encourage clicking. "
+          + "The CTA step will warn you if a code is switched on.",
+  };
+
+  function paintPublisherNotes() {
+    const box = document.getElementById("publisher-notes");
+    box.innerHTML = "";
+    [...selectedPublishers].forEach((id) => {
+      if (!PUBLISHER_NOTES[id]) return;
+      box.appendChild(CB.el('<div class="cb-note"><strong>Worth knowing</strong><p>'
+        + CB.escapeHtml(PUBLISHER_NOTES[id]) + "</p></div>"));
+    });
+  }
 
   wireChoices("format-choices", (choice) => {
     toggle(selectedFormats, choice);
@@ -224,6 +264,7 @@
           formats: [...selectedFormats],
           commercial_type: selectedType,
           platform: selectedPlatform,
+          publishers: [...selectedPublishers],
         },
       });
       if (projects.length > 1) {
@@ -261,6 +302,8 @@
   // Arriving from the dashboard's "New commercial" link on a client row: that
   // client already has a brand profile, so open on the profile list with it
   // chosen rather than making somebody search for it again.
+  syncPublisherField();
+
   const params = new URLSearchParams(location.search);
   if (params.get("client_id")) {
     setMode("profile");

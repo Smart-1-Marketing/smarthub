@@ -33,7 +33,10 @@ from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE
                        MUSIC_MOODS, MUSIC_LEVELS, VOICE_STYLES, CTA_STYLES,
                        V2_PROVIDERS, PLATFORMS, QR_CODE_RULES, LENGTH_NOTES,
                        LOGO_PERSISTENCE_RULES, SOCIAL_RULES, get_structure,
-                       qr_eligible, qr_required, is_social, length_warning)
+                       qr_eligible, qr_required, qr_default_on, is_social,
+                       length_warning, CTV_PUBLISHERS, SHOT_SIZES, SHOT_ANGLES,
+                       SHOT_MOVES)
+from ..services import abcd_service
 from ..models import Client, CommercialProject
 from ..services import provider_check
 
@@ -119,7 +122,7 @@ def new_commercial():
     return render_template(
         "commercial_new.html", clients=clients, lengths=COMMERCIAL_LENGTHS,
         formats=OUTPUT_FORMATS, types=COMMERCIAL_TYPES, platforms=PLATFORMS,
-        length_notes=LENGTH_NOTES,
+        length_notes=LENGTH_NOTES, publishers=CTV_PUBLISHERS,
         wizard=[{"label": s["label"], "state": "active" if s["key"] == "start" else "",
                  "url": ""} for s in STEPS],
     )
@@ -159,6 +162,9 @@ def blueprint(project_id):
         social=is_social(project.platform), social_rules=SOCIAL_RULES,
         length_note=LENGTH_NOTES.get(project.length_seconds, {}),
         length_warning=length_warning(project.length_seconds),
+        shot_sizes=SHOT_SIZES, shot_angles=SHOT_ANGLES, shot_moves=SHOT_MOVES,
+        shot_targets=abcd_service.shot_targets(project.length_seconds),
+        lift=abcd_service.MEASURED_LIFT,
         wizard=_wizard(project, "blueprint"),
     )
 
@@ -196,6 +202,7 @@ def cta(project_id):
         cta_styles=CTA_STYLES,
         qr_eligible=qr_eligible(project.length_seconds),
         qr_required=qr_required(project.length_seconds, project.platform),
+        qr_default_on=qr_default_on(project.length_seconds, project.platform),
         qr_rules=QR_CODE_RULES, logo_rules=LOGO_PERSISTENCE_RULES,
         social=is_social(project.platform),
         wizard=_wizard(project, "cta"),

@@ -1079,13 +1079,96 @@ creates missing tables and never adds a column to an existing one, so an
 Postgres with every local test green.
 
 **Several lengths are built :30 first, not shortest first.**
-`config.BUILD_ORDER` is `[30, 15, 5, 60]`. The :30 is the length the others are
+`config.BUILD_ORDER` is `[30, 15, 6, 5, 60]`. The :30 is the length the others are
 cut down from, so getting it approved first means every later cut starts from
 creative somebody has signed off; the :60 is last because it is the most
 expensive and the first to be dropped when the budget lands. Approving one
 hands back the **next spot's Blueprint** rather than leaving somebody on a
 finished Preview screen — `_next_in_campaign()` — because a campaign of three
 lengths where two never get built is the ordinary outcome otherwise.
+
+**A :06 is a unit, not a rounding of the :05.** Google Ads caps a bumper at
+six seconds, and the spec kit already carried `youtube_bumper` at `(0, 6)` —
+so a :06 is the longest cut that still buys bumper inventory and a :05 leaves a
+second of it unbought. Both are offered because some CTV and social bumper
+slots are sold at :05, and neither substitutes for the other. It is its own
+row everywhere the lengths are data: `VO_WORD_TARGETS[6]`, two beats rather
+than three (`Hook`, `Brand` — there is no room for a middle), its own social
+structure, and a place in `BUILD_ORDER` between the :15 and the :05.
+
+**Shots sit inside beats, and a Scene row is a shot.** A :30 built one scene
+per beat is three shots averaging ten seconds; Google open-sources the
+evaluator it machine-scores YouTube creative with, and that detector's own
+quick-pacing threshold is **two**. So the script model is asked for beats each
+carrying several shots, `_shots_from_beats()` recomputes the timing from the
+beat spans rather than trusting what comes back, and the narration lands on the
+first shot of its beat. Every shot carries `beat`, `beat_index` and a
+`shot_no` numbered in **tens**, the way an edit list is — a shot inserted
+between 20 and 30 becomes 25 rather than renumbering the board.
+
+Each also carries **grammar**: a size, an angle and a move, from closed
+vocabularies (`SHOT_SIZES`, `SHOT_ANGLES`, `SHOT_MOVES`). Not decoration — the
+two things downstream of a shot are a stock query and a Runway prompt, and both
+are the difference between "technician working" and "close-up, low angle, slow
+push". The lists are closed because a value from neither reaches a search box:
+`_clean_grammar()` replaces an unknown one with the default rather than writing
+it through, and the merge is into `asset_meta` rather than over it, or changing
+a camera angle drops the shot out of its beat — the `set_music` trap again.
+
+**A threshold with no name on it is an opinion.**
+`services/abcd_service.py` holds the published numbers as data and every row
+carries **whose** it is, because "your average shot is ten seconds and Google's
+own detector wants two" is an argument a client cannot talk us out of, where
+"our tool thinks this is slow" is not. Four sources, named in `SOURCES`: the
+ABCDs Detector's `configuration.py`, Amazon's Streaming TV guidance, Roku's
+windows, and **`house`** for the one thing nobody publishes.
+
+That last one is the rule the module exists for. No platform states a minimum
+type size for 10-foot viewing — the guidance stops at "minimize text, prioritize
+voiceover" — so a number there would be ours wearing somebody else's name.
+`HOUSE_LEGIBILITY` is kept out of `THRESHOLDS` entirely and says in its own note
+that it is not a platform rule.
+
+Three more rules. It scores the **plan**, not a rendered file, because a pacing
+problem found on an MP4 is a re-render and one found on the Blueprint is free.
+A rule a plan cannot answer — face size, logo size, both of which need pixels —
+is **not measured** and never a tick. And **a bumper is scored on none of the
+pacing rules**: cutting a :06 to a two-second average is three cuts a second,
+which is a strobe. The CTV brand window is judged against **Amazon's** 3s
+rather than Google's 5s, because passing the looser rule and being refused by
+the buy is the failure worth avoiding. `MEASURED_LIFT` sits beside it as
+guidance and fails nothing — it is a sales table, not a gate.
+
+It is its **own route** (`/<id>/abcd`) rather than a slice of `/qc`: the panel
+updates as shots are edited, and QC makes an OpenAI call for the spelling pass,
+so re-running the set on every camera-angle change would be a model call per
+keystroke.
+
+**A QR code is required nowhere now, and that is the fix rather than a
+loosening.** `QR_CODE_RULES["required_platforms"]` is empty and
+`default_on_platforms` is `["ctv", "both"]`; the QC check is advisory. The
+reason is Amazon: **Amazon Streaming TV supports no QR code at all**, and its
+own creative guidance says an ad should not carry call-to-action elements that
+encourage clicking, because there is nothing there to click. A check that
+refused to render a perfectly correct Amazon spot is a check somebody switches
+off — and switching it off costs the CTV default too.
+
+So the requirement became a default and gained the one thing that makes a
+default safe: **something that says when it is wrong.** `CTV_PUBLISHERS` is the
+smallest possible publisher field — a "Which streaming platforms?" multi-select
+on the Start page, shown only on a CTV buy, driving no targeting and no spec.
+It drives one warning, and `PUBLISHER_RULES` is where a publisher's refusals
+are data. Nothing ticked says **nothing**, rather than reading as an all-clear:
+absence of a publisher is not evidence of permission, and a rep who named none
+has told us nothing about Amazon either way.
+
+**Severity is the server's, and it was two JavaScript files' before.**
+`blueprint.js` and `preview.js` each kept an `ADVISORY = new Set([...])` by
+hand — two copies of a decision `qc_service` has every fact to make, and the
+fastest way to have one panel draw a finding red while the other draws the same
+finding amber. `ADVISORY_CHECKS` is the list, every check result carries a
+`level`, `_all_passed` counts only failures and `_warnings` carries the rest.
+`test_commercial_wizard.py` asserts neither screen keeps a set of its own.
 
 **A voiceover generated and thrown away is a silent commercial.**
 `routes/render.py` reads `project.music["voice_track_url"]` to put narration on
@@ -4911,7 +4994,9 @@ python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads 
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_wizard.py  # the seven steps, the client join, the spec check,
-                                   #   the QR destination and who owns the scan
+                                   #   the QR destination and who owns the scan; the :06,
+                                   #   shots inside beats with their grammar, the published
+                                   #   thresholds and whose each is, and the Amazon warning
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 python3 test_landing_spec.py       # what a landing page is for, and what it sells
 python3 test_client_groups.py      # grouped clients: what merges, what must not double

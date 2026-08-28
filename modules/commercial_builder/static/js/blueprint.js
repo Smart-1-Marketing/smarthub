@@ -151,6 +151,7 @@
     renderWordCount(project.script);
     renderScenes(project.scenes);
     loadBudget();
+    loadAbcd();
   }
 
   function renderWordCount(script) {
@@ -176,7 +177,11 @@
     node.draggable = true;
     if (scene.is_cta) node.classList.add("cta-scene");
 
-    node.querySelector(".scene-num").textContent = `${idx + 1} of ${total}${scene.is_cta ? " — CTA" : ""}`;
+    // Numbered in tens the way a storyboard is, so a shot inserted between 20
+    // and 30 does not renumber the board.
+    const shotNo = (scene.asset_meta || {}).shot_no || (idx + 1) * 10;
+    node.querySelector(".scene-num").textContent =
+      `${shotNo} · ${idx + 1} of ${total}${scene.is_cta ? " — CTA" : ""}`;
     node.querySelector(".cb-scene-time").textContent = `${CB.fmtTime(scene.start)} – ${CB.fmtTime(scene.end)}`;
     const job = heygenJob(scene);
     const pending = spokespersonPending(scene);
@@ -240,6 +245,31 @@
         + "library — it will stop working when the link expires.";
       note.classList.add("cb-word-count", "warn");
     }
+
+    // Which beat this shot belongs to. A Scene row is a shot now, and without
+    // the badge a board of fifteen rows loses the argument the beats carry.
+    const meta = scene.asset_meta || {};
+    const beatBadge = node.querySelector(".beat-badge");
+    if (beatBadge) {
+      beatBadge.textContent = meta.beat || "";
+      beatBadge.style.display = meta.beat ? "" : "none";
+    }
+
+    const grammar = meta.grammar || {};
+    [["size", ".grammar-size"], ["angle", ".grammar-angle"], ["move", ".grammar-move"]]
+      .forEach(([field, sel]) => {
+        const el = node.querySelector(sel);
+        if (!el) return;
+        if (grammar[field]) el.value = grammar[field];
+        el.addEventListener("change", () => {
+          const next = {
+            size: node.querySelector(".grammar-size").value,
+            angle: node.querySelector(".grammar-angle").value,
+            move: node.querySelector(".grammar-move").value,
+          };
+          updateScene(scene.id, { grammar: next }).then(loadAbcd);
+        });
+      });
 
     node.querySelector(".visual-input").value = scene.visual_description || "";
     node.querySelector(".narration-input").value = scene.narration || "";
@@ -701,11 +731,14 @@
     text_safe_area: "Text safe area", spelling: "Spelling", qr_code: "QR code",
     logo_persistence: "Persistent logo", youtube_hook: "YouTube hook",
     creative_spec: "Published spec", social_hook: "Feed hook", sound_off: "Sound off",
+    abcd_pacing: "Pacing", abcd_brand_window: "Brand window",
+    publisher_rules: "Publisher rules",
   };
 
-  // Which findings are worth stopping for and which are advice. Both used to
-  // paint red, and a page of red teaches people to scroll past it.
-  const ADVISORY = new Set(["logo_persistence", "brand", "aspect_ratio", "text_safe_area"]);
+  // Severity comes off the server now. It used to be an ADVISORY set kept by
+  // hand in THIS file and again in preview.js — two copies of a decision
+  // qc_service already had all the information to make, and the fastest way
+  // to have one panel draw a finding red while the other drew it amber.
 
   async function runChecks() {
     const list = document.getElementById("qc-list");
@@ -723,25 +756,61 @@
     let blocking = 0;
     Object.entries(qc).forEach(([key, result]) => {
       if (key === "_all_passed" || !QC_LABELS[key]) return;
-      let tone = "pass", mark = "✓";
-      if (!result.passed) {
-        const advisory = ADVISORY.has(key);
-        tone = advisory ? "warn" : "fail";
-        mark = advisory ? "!" : "✕";
-        if (!advisory) blocking += 1;
-      }
+      const level = result.level || (result.passed ? "pass" : "fail");
+      const tone = level === "pass" ? "pass" : level;
+      const mark = level === "pass" ? "✓" : (level === "warn" ? "!" : "✕");
+      if (level === "fail") blocking += 1;
       list.appendChild(CB.el(`<div class="cb-qc-item">
         <div class="cb-qc-icon ${tone}">${mark}</div>
         <div class="cb-qc-text"><strong>${QC_LABELS[key]}</strong>
         <span>${CB.escapeHtml(result.message)}</span></div>
       </div>`));
     });
-    if (qc._all_passed) CB.toast("Everything checks out.");
+    renderAbcd(qc._abcd);
+    if (qc._all_passed && !(qc._warnings || []).length) CB.toast("Everything checks out.");
     else if (!blocking) CB.toast("Nothing blocking — the rest are recommendations.");
   }
 
   const checksBtn = document.getElementById("run-checks-btn");
   if (checksBtn) checksBtn.addEventListener("click", runChecks);
 
-  loadCastVoice().then(loadScenes);
+  // ---------------------------------------------------------------- scoring
+  //
+  // The published thresholds, drawn from the plan. Every row names whose
+  // number it is, because "your average shot is 10 seconds and Google's own
+  // detector wants 2" is an argument a client cannot talk us out of, where
+  // "our tool thinks this is slow" is an opinion.
+  function renderAbcd(abcd) {
+    const box = document.getElementById("abcd-rows");
+    const headline = document.getElementById("abcd-headline");
+    if (!box) return;
+    if (!abcd || !abcd.rows.length) {
+      box.innerHTML = '<div class="cb-empty">Nothing to score yet.</div>';
+      if (headline) headline.textContent = "";
+      return;
+    }
+    if (headline) headline.textContent = abcd.headline;
+    box.innerHTML = "";
+    abcd.rows.forEach((row) => {
+      // Not measured is its own state and never a tick. A green mark over a
+      // rule nothing could check is the confident wrong answer.
+      const tone = !row.measured ? "info" : (row.passed ? "pass" : "warn");
+      const mark = !row.measured ? "–" : (row.passed ? "✓" : "!");
+      box.appendChild(CB.el(`<div class="cb-qc-item">
+        <div class="cb-qc-icon ${tone}">${mark}</div>
+        <div class="cb-qc-text"><strong>${CB.escapeHtml(row.label)}</strong>
+        <span>${CB.escapeHtml(row.message)}</span>
+        <span class="cb-source">${CB.escapeHtml(row.source || "")}</span></div>
+      </div>`));
+    });
+  }
+
+  async function loadAbcd() {
+    try {
+      const data = await CB.api(`/api/projects/${projectId}/abcd`);
+      renderAbcd(data.abcd);
+    } catch (e) { /* the panel simply stays empty */ }
+  }
+
+  loadCastVoice().then(loadScenes).then(loadAbcd);
 })();
