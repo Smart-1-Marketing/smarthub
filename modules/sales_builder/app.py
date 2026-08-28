@@ -81,6 +81,7 @@ from hub import business_description as hub_desc
 from hub import creative_needs as hub_creative
 from hub import current_marketing as hub_discovery
 from hub import industries as hub_industries
+from hub import kpi_framework as hub_kpi
 from hub import proposal_spec as hub_spec
 from hub import rate_card as hub_rate_card
 from hub import target_areas as hub_areas
@@ -395,6 +396,10 @@ def quote_json(q, include_data=False):
         "gaps": compute_gaps(state),
         "growth": growth_options(state),
         "guardrails": compute_guardrails(state),
+        # Computed here rather than stored, exactly like `growth` above: it is
+        # derived from the KPIs and the media mix, and a stale copy of it is a
+        # measurement framework that no longer matches the plan under it.
+        "kpi_framework": hub_kpi.framework(state),
         "target_areas": campaign_areas(state),
         "targets_of_interest": targets_of_interest(state),
         "zip_exceptions": hub_areas.zip_exceptions(campaign_areas(state)),
@@ -1412,7 +1417,10 @@ def build_proposal_pdf(q, state):
     areas = campaign_areas(state)
     meta = [["Client", q.client or ""],
             ["Website", q.website or ""],
-            ["Campaign Goals", ", ".join(state.get("objectives") or [])],
+            # One per line, the way the target-area cell beside it already
+            # reads. Three goals joined by commas in a two-inch cell wraps
+            # into a paragraph and stops looking like a list of three things.
+            ["Campaign Goals", "\n".join(state.get("objectives") or [])],
             ["Target Area" if len(areas) < 2 else f"Target Areas ({len(areas)})",
              "\n".join(hub_areas.names(areas)) or q.geo_summary or ""],
             ["Term", f"{q.months} months"],
@@ -1521,7 +1529,8 @@ def build_proposal_pdf(q, state):
                 story.append(rt)
             auds = state.get("audiences") or []
             if auds:
-                story.append(_p("Audience layers: " + ", ".join(auds), st_small))
+                story += _body_flowables(
+                    hub_spec.bullets(auds, "Audience layers"), st_body)
         elif kind == "mediaplan":
             items = state.get("items") or []
             if items:
@@ -1583,9 +1592,12 @@ def build_proposal_pdf(q, state):
                 story.append(pt)
                 story.append(_p("★ recommended package", st_small))
         elif kind == "kpis":
+            # A list of things the campaign will be judged on is a list. Six
+            # KPIs joined by commas is a sentence a client skims, and the
+            # fourth one is the one they would have argued with.
             kpis = state.get("kpis") or []
             if kpis:
-                story.append(_p("KPIs: " + ", ".join(kpis), st_body))
+                story += _body_flowables(hub_spec.bullets(kpis), st_body)
         elif kind == "friction":
             picks = hub_discovery.suggestions(state)
             if picks:
@@ -1636,44 +1648,51 @@ def build_proposal_pdf(q, state):
             tt.setStyle(_head_style())
             story.append(tt)
         elif kind == "roi":
-            results = expected_results(state)
-            rows = [["Product", "Monthly", f"Campaign ({results['months']} mo)",
-                     "Rate", "Estimated delivery"]]
-            for row in results["rows"]:
-                # "Not impression-based" rather than a blank or a zero: a
-                # management fee has no impressions, and either alternative
-                # reads as a product that delivers nothing.
-                delivery = (f"{row['units']:,} {row['unit_label']}" if row["units"]
-                            else "Not impression-based")
-                rows.append([_p(row["product"], st_small), _money(row["monthly"]),
-                             _money(row["campaign"]), _p(row["rate"], st_small),
-                             _p(delivery, st_small)])
-            totals = results["totals"]
-            summary = []
-            if totals["impressions"]:
-                summary.append(f"{totals['impressions']:,} impressions")
-            if totals["views"]:
-                summary.append(f"{totals['views']:,} video views")
-            rows.append(["Campaign total", _money(totals["monthly"]),
-                         _money(totals["campaign"]), "",
-                         _p(" · ".join(summary) or "—", st_small)])
-            rt = Table(rows, colWidths=[2.0 * inch, 1.0 * inch, 1.15 * inch,
-                                        1.25 * inch, 2.0 * inch], repeatRows=1)
-            style = _head_style_rows()
-            style.append(("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), SOFT))
-            style.append(("FONTNAME", (0, len(rows) - 1), (-1, len(rows) - 1),
-                          "Helvetica-Bold"))
-            rt.setStyle(TableStyle(style))
-            story.append(rt)
-            if results["unpriced"]:
-                story.append(_p("Not included in the delivery totals (no "
-                                "impression-based rate): "
-                                + ", ".join(results["unpriced"]) + ".", st_small))
-            if results["metrics"]:
-                story.append(_p("Tracked and reported monthly in the Smart 1 Suite: "
-                                + ", ".join(results["metrics"]) + ".", st_body))
-            if results.get("traditional_note"):
-                story.append(_p(results["traditional_note"], st_body))
+            # The KPI framework, not a table of impressions.
+            #
+            # "Expected Results & ROI" asks what counts as this campaign
+            # working, and an impression count answers a different question:
+            # it says what the money bought, not what the business gets. The
+            # insertion order has carried a KPI framework all along, so the
+            # two documents described one campaign two ways — the client
+            # agreed to impressions and the campaign was run against KPIs.
+            # `hub/kpi_framework.py` is the one description now, and the IO's
+            # own copy is asserted against it.
+            plan = hub_kpi.framework(state)
+            if plan["measured"]:
+                story += _body_flowables(
+                    hub_spec.bullets([plan["primary"]], "<b>Primary KPI</b>"), st_body)
+                if plan["secondary"]:
+                    story += _body_flowables(
+                        hub_spec.bullets(plan["secondary"], "<b>Secondary KPIs</b>"),
+                        st_body)
+            else:
+                story.append(_p(plan["note"], st_small))
+            if plan["additional_metrics"]:
+                story += _body_flowables(
+                    hub_spec.bullets(plan["additional_metrics"],
+                                     "<b>Also tracked and reported monthly</b>"),
+                    st_body)
+            if plan["rows"]:
+                rows = [["Product", "Key KPI", "Expected benchmark"]]
+                for row in plan["rows"]:
+                    rows.append([_p(row["product"], st_small),
+                                 _p(row["kpi"], st_small),
+                                 _p(row["expected"], st_small)])
+                kt = Table(rows, colWidths=[2.9 * inch, 2.2 * inch, 2.3 * inch],
+                           repeatRows=1)
+                kt.setStyle(_head_style())
+                story += [Spacer(1, 4), kt]
+                # A range is what this inventory normally delivers. Said once,
+                # in the client's own document, because a benchmark printed
+                # without it reads as a number we have promised to hit.
+                story.append(_p("Benchmark ranges are what this inventory "
+                                "normally delivers for campaigns of this "
+                                "shape. They are expectations to measure "
+                                "against, not guarantees.", st_small))
+            traditional = hub_discovery.roi_note(state)
+            if traditional:
+                story.append(_p(traditional, st_body))
         elif kind == "growth":
             growth = growth_options(state)
             if not growth["any"]:
@@ -1713,7 +1732,8 @@ def build_proposal_pdf(q, state):
                     story.append(_p("Add what the discovery answers pointed at", st_small))
                     story.append(at2)
                 story.append(_p("Raising a line uses the Accelerated option above; "
-                                "adding one starts at the rate-card minimum.", st_small))
+                                "adding one starts at our listed minimum for "
+                                "that product.", st_small))
         elif kind == "zips":
             # The trafficking reference, at the back. Monospaced and small on
             # purpose: it is a list to be checked against, not read.
@@ -1754,7 +1774,7 @@ def build_proposal_pdf(q, state):
     # Footer
     story += [Spacer(1, 16),
               _p("Smart 1 Marketing  ·  smart1marketing.com  ·  This proposal is valid for 30 days. "
-                 "Rates follow the current Smart 1 rate card; final schedules are confirmed on the insertion order.", st_small)]
+                 "Final rates and schedules are confirmed on the insertion order.", st_small)]
     doc.build(story)
     return buf.getvalue(), title
 
@@ -1829,7 +1849,7 @@ def build_proposal_docx(q, state):
     table = d.add_table(rows=0, cols=2)
     table.style = "Light Grid Accent 1"
     for label, val in [("Client", q.client), ("Website", q.website),
-                       ("Campaign Goals", ", ".join(state.get("objectives") or [])),
+                       ("Campaign Goals", "\n".join(state.get("objectives") or [])),
                        ("Target Area" if len(areas) < 2 else f"Target Areas ({len(areas)})",
                         "\n".join(hub_areas.names(areas)) or q.geo_summary),
                        ("Term", f"{q.months} months"),
@@ -1923,7 +1943,7 @@ def build_proposal_docx(q, state):
                 for i, pkg in enumerate(pkgs):
                     row[i + 1].text = _money(pkg.get(key))
         elif kind == "kpis" and state.get("kpis"):
-            d.add_paragraph("KPIs: " + ", ".join(state.get("kpis") or []))
+            _docx_body(d, hub_spec.bullets(state.get("kpis") or []))
         elif kind == "friction":
             for pick in hub_discovery.suggestions(state):
                 d.add_paragraph(f"We suggest they should {pick['title'][0].lower()}"
@@ -1941,35 +1961,31 @@ def build_proposal_docx(q, state):
             for phase in hub_spec.TIMELINE:
                 d.add_paragraph(f"{phase['phase']} · {phase['title']} — {phase['detail']}")
         elif kind == "roi":
-            results = expected_results(state)
-            t4 = d.add_table(rows=1, cols=4)
-            t4.style = "Light Grid Accent 1"
-            hdr = t4.rows[0].cells
-            for i, htxt in enumerate(["Product", "Monthly",
-                                      f"Campaign ({results['months']} mo)",
-                                      "Estimated delivery"]):
-                hdr[i].text = htxt
-                hdr[i].paragraphs[0].runs[0].font.bold = True
-            for row in results["rows"]:
-                cells = t4.add_row().cells
-                cells[0].text = row["product"]
-                cells[1].text = _money(row["monthly"])
-                cells[2].text = _money(row["campaign"])
-                cells[3].text = (f"{row['units']:,} {row['unit_label']}" if row["units"]
-                                 else "Not impression-based")
-            totals = results["totals"]
-            bits = []
-            if totals["impressions"]:
-                bits.append(f"{totals['impressions']:,} impressions")
-            if totals["views"]:
-                bits.append(f"{totals['views']:,} video views")
-            if bits:
-                d.add_paragraph("Campaign delivery: " + " · ".join(bits))
-            if results["metrics"]:
-                d.add_paragraph("Tracked in the Smart 1 Suite: "
-                                + ", ".join(results["metrics"]) + ".")
-            if results.get("traditional_note"):
-                d.add_paragraph(results["traditional_note"])
+            plan = hub_kpi.framework(state)
+            if plan["measured"]:
+                _docx_body(d, hub_spec.bullets([plan["primary"]], "Primary KPI"))
+                if plan["secondary"]:
+                    _docx_body(d, hub_spec.bullets(plan["secondary"], "Secondary KPIs"))
+            else:
+                d.add_paragraph(plan["note"])
+            if plan["additional_metrics"]:
+                _docx_body(d, hub_spec.bullets(plan["additional_metrics"],
+                                               "Also tracked and reported monthly"))
+            if plan["rows"]:
+                kt = d.add_table(rows=1, cols=3)
+                kt.style = "Light Grid Accent 1"
+                head = kt.rows[0].cells
+                for i, htxt in enumerate(["Product", "Key KPI", "Expected benchmark"]):
+                    head[i].text = htxt
+                    head[i].paragraphs[0].runs[0].font.bold = True
+                for row in plan["rows"]:
+                    cells = kt.add_row().cells
+                    cells[0].text = row["product"]
+                    cells[1].text = row["kpi"]
+                    cells[2].text = row["expected"]
+                d.add_paragraph("Benchmark ranges are what this inventory normally "
+                                "delivers for campaigns of this shape. They are "
+                                "expectations to measure against, not guarantees.")
         elif kind == "reach" and state.get("estimates"):
             est = state.get("estimates") or {}
             d.add_paragraph(f"Estimated population {int(est.get('pop') or 0):,} · addressable audience "
@@ -2076,7 +2092,16 @@ def industry_template(state):
 # Expected Results & ROI — computed, never written
 # =====================================================================
 def expected_results(state):
-    """What the money actually buys, product by product, from the rate card.
+    """What the money buys, product by product, at the rates the client is quoted.
+
+    No longer printed on the client's document: "Expected Results & ROI" is
+    the KPI framework now, because an impression count says what the money
+    bought rather than what the business gets, and the insertion order was
+    already describing the campaign the second way. This stays because it is
+    the one place that knows the delivery arithmetic — the quoted rate rather
+    than the listed one, a one-time line spread across the flight rather than
+    charged monthly, and a management fee reporting no units at all — and
+    that arithmetic is what any future delivery figure has to come from.
 
     Directive: every proposal ends with this section. It is calculated here
     rather than asked of the model, because a projection written next to a
@@ -2187,23 +2212,14 @@ def expected_results(state):
 
 
 def _tracked_metrics(state):
-    """What we will report on, drawn from the campaign's own KPIs and media."""
-    metrics = list((state or {}).get("kpis") or [])
-    media = {hub_creative.medium_of(i) for i in (state or {}).get("items") or []}
-    if hub_creative.VIDEO in media:
-        metrics += ["Completed video views", "Video completion rate"]
-    if hub_creative.AUDIO in media:
-        metrics += ["Audio listen-through rate"]
-    if any(m in media for m in (hub_creative.DISPLAY, hub_creative.SOCIAL)):
-        metrics += ["Click-through rate", "Cost per click"]
-    metrics += ["Cost per lead", "Lead-to-close rate (from the Smart 1 Suite)"]
-    seen, out = set(), []
-    for m in metrics:
-        key = str(m).strip().lower()
-        if key and key not in seen:
-            seen.add(key)
-            out.append(str(m).strip())
-    return out[:10]
+    """What we will report on — the shared reading, not a second copy.
+
+    This was its own list until the ROI section became the KPI framework, and
+    two answers to "what do we report on" is how the proposal and the
+    insertion order came to describe one campaign differently in the first
+    place.
+    """
+    return hub_kpi.success_metrics(state)
 
 
 # =====================================================================
@@ -2314,11 +2330,11 @@ def _seeded_sections(state):
         "separately below so it is clear what recurs and what does not.")
 
     body["roi"] = (
-        "The delivery figures below are calculated from the Smart 1 rate card at the "
-        "budgets in this plan — they are what the money buys, not a forecast. The "
-        "Smart 1 Suite is the single source of truth for what those impressions "
-        "produced: every lead is attributed to the channel that created it, so the "
-        "spend can be judged against the business, not against a click count.")
+        "This is what the campaign will be judged on, product by product, with the "
+        "result each one normally delivers. The Smart 1 Suite is the single source "
+        "of truth for what the media produced: every lead is attributed to the "
+        "channel that created it, so the spend can be judged against the business "
+        "rather than against a click count.")
 
     body["next"] = "\n".join(f"{i}. {step}" for i, step in
                               enumerate(hub_spec.NEXT_STEPS, 1))

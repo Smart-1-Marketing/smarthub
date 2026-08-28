@@ -1025,6 +1025,7 @@ async function editQuote(id){
 }
 function editLoaded(q){
  S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;step=0;_lastStep=-1;
+ S._kpiPlan=q.kpi_framework||null;
  S.growth=q.growth||null;
  // A quote saved before multi-area targeting has its geography only in
  // geoType/geo/radius. The server already converted it (hub/target_areas
@@ -1051,6 +1052,16 @@ async function saveNow(extra){
   if(!QUOTE_ID){saved=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});QUOTE_ID=saved.quote.id;QUOTE_NUMBER=saved.quote.quote_number;}
   else saved=await api('/sales/builder/api/quotes/'+QUOTE_ID,{method:'PUT',body:JSON.stringify(Object.assign({data:S},extra||{}))});
   if(saved&&saved.quote&&saved.quote.growth)S.growth=saved.quote.growth;
+  /* The measurement framework is the server's, like growth above. Repainted
+     only when it actually changed and only when nothing is being edited:
+     drawPreview() rebuilds the whole document, and a rebuild 900ms after a
+     keystroke takes the caret out of the section somebody is typing in. */
+  if(saved&&saved.quote&&saved.quote.kpi_framework){
+   const before=JSON.stringify(S._kpiPlan||null);
+   S._kpiPlan=saved.quote.kpi_framework;
+   if(before!==JSON.stringify(S._kpiPlan)&&!S._editSec&&!S._tableEdit
+      &&document.getElementById('docPreview'))drawPreview();
+  }
   setSave("✓ Saved "+(QUOTE_NUMBER||""));drawQuoteTag((QUOTE_NUMBER?QUOTE_NUMBER+" · ":"")+"autosaving");
  }catch(e){setSave("⚠ Not saved: "+e.message);}
 }
@@ -1601,7 +1612,7 @@ const PROPOSAL_OUTLINE=[
  {id:"timeline",title:"Implementation Timeline",kind:"timeline",purpose:"The 30-day blueprint."},
  {id:"packages",title:"Investment Summary",kind:"packages",purpose:"Platform, media and one-time, kept apart."},
  {id:"kpis",title:"How We Measure Success",kind:"kpis",purpose:"The metrics we are judged on."},
- {id:"roi",title:"Expected Results & ROI",kind:"roi",purpose:"What the money buys, computed from the rate card. Required."},
+ {id:"roi",title:"Expected Results & ROI",kind:"roi",purpose:"How the campaign will be judged, product by product. Required."},
  {id:"next",title:"Next Steps",kind:"text",purpose:"Sign, onboard, kick off."},
  {id:"zips",title:"ZIP Codes Targeted",kind:"zips",purpose:"The trafficking reference — every ZIP each area covers. Generated, and last on purpose."},
 ];
@@ -1638,7 +1649,7 @@ function defaultSections(){
   technology:"The Smart 1 Suite is the central nervous system of this campaign. Every call, form, chat and message the media generates lands in one inbox, and the Suite goes to work immediately: Missed Call Text Back so a missed call becomes a conversation instead of a lost lead, automated text and email follow-up, online scheduling, and automated review requests that compound into local search visibility. The media creates the opportunity; the Suite is what turns it into revenue you can trace.",
   reporting:"Optimization is a routine, not a promise: bids adjusted against delivery and cost per action, negative keywords and placement exclusions updated, creative checked against performance and rotated before it fatigues. Everything reports into one live dashboard inside the Smart 1 Suite that you can open whenever you want, rather than waiting for a monthly PDF.",
   packages:"Platform licensing, media spend and any one-time production are listed separately below so it is clear what recurs and what does not.",
-  roi:"The delivery figures below are calculated from the Smart 1 rate card at the budgets in this plan — they are what the money buys, not a forecast. The Smart 1 Suite is the single source of truth for what those impressions produced: every lead is attributed to the channel that created it, so the spend can be judged against the business, not against a click count.",
+  roi:"This is what the campaign will be judged on, product by product, with the result each one normally delivers. The Smart 1 Suite is the single source of truth for what the media produced: every lead is attributed to the channel that created it, so the spend can be judged against the business rather than against a click count.",
   next:"1. Approve this proposal and sign the digital agreement.\n2. Complete the Smart 1 onboarding questionnaire — access, tracking and creative.\n3. Book the 30-minute campaign kickoff call.",
   creative:"Three messaging themes carry the campaign, rotated so no one execution fatigues:\n"
    +"• Problem / Agitate / Solution — name the frustration the customer already has, make it concrete, then resolve it.\n"
@@ -2390,7 +2401,11 @@ function generatedTable(sec,e){
    esc(r.label),money(r.spend),esc(creativePhrase(r)),
    r.sizes&&r.sizes.line?esc(r.sizes.line):"<b>Not measured</b>"]));}
  if(k==="timeline")return dtable(["Phase","What happens"],TIMELINE_PHASES.map(t=>[esc(t[0])+"<br>"+esc(t[1]),esc(t[2])]));
- if(k==="kpis")return S.kpis.length?`<div class="dnote">KPIs: ${esc(S.kpis.join(', '))}</div>`:'';
+ /* A list of things the campaign is judged on is a list. Six KPIs joined by
+    commas is a sentence a client skims, and the fourth is the one they would
+    have argued with. */
+ if(k==="kpis")return S.kpis.length
+   ?`<div class="dbody"><ul class="dlist">${S.kpis.map(x=>'<li>'+esc(x)+'</li>').join('')}</ul></div>`:'';
  if(k==="mediaplan")return mediaPlanEditor();
  if(k==="packages")return investmentTable();
  if(k==="roi")return roiTable();
@@ -2454,7 +2469,7 @@ function growthTable(){
  }
  const dropped=(S.growthDropped||[]).length;
  if(dropped)html+=`<div class="dnote" style="margin-top:8px">${dropped} option${dropped===1?'':'s'} removed. <a onclick="S.growthDropped=[];saveNow();refreshGrowth()" style="cursor:pointer;color:var(--blue);font-weight:700">Restore</a></div>`;
- html+='<div class="dnote" style="margin-top:8px">Figures a client can act on without a new proposal. Raising a line uses the Accelerated option above; adding one starts at the rate card minimum.</div>';
+ html+='<div class="dnote" style="margin-top:8px">Figures a client can act on without a new proposal. Raising a line uses the Accelerated option above; adding one starts at our listed minimum for that product.</div>';
  return html;}
 function setGrowth(key,value){
  S.growthEdits=Object.assign({},S.growthEdits,{[key]:value});
@@ -2563,26 +2578,41 @@ function investmentTable(){
     ["Total ("+months+" mo)",...pk.map(p=>money(p.total))],
     ["Est. impressions / mo",...pk.map(p=>fmt(p.impr))]]);}
  return html;}
+/* Expected Results & ROI is the KPI framework, not a table of impressions.
+
+   The section's own title asks what counts as this campaign working, and an
+   impression count answers a different question — what the money bought.
+   The insertion order has carried a KPI framework all along, so the two
+   documents described one campaign two ways: the client agreed to
+   impressions and the campaign was run against KPIs.
+
+   The benchmark table is the server's (hub/kpi_framework.py), handed to the
+   page with the quote, because a third copy of it would be a third answer.
+   test_proposal_targeting.py asserts this page, the Python and the IO
+   builder's own JavaScript still say the same thing. */
+function kpiPlan(){return (S._kpiPlan||null);}
 function roiTable(){
- const months=Math.max(1,+S.months||1);
- let impr=0,views=0;const unpriced=[];
- const rows=S.items.map(it=>{
-  const d=+it.dollars||0;let units=null,label="";
-  const sr=sellRateOf(it);
-  if(it.rate==="CPM"&&sr>0){units=Math.round(d/sr*1000);label="impressions/month";impr+=units*months;}
-  else if(it.rate==="CPV"&&sr>0){units=Math.round(d/sr);label="views/month";views+=units*months;}
-  else unpriced.push(itemLabel(it));
-  return [esc(itemLabel(it)),money(d),money(d*months),units?fmt(units)+" "+label:"Not impression-based"];});
- if(!rows.length)return '';
- const bits=[];if(impr)bits.push(fmt(impr)+" impressions");if(views)bits.push(fmt(views)+" video views");
- rows.push(["<b>Campaign total</b>","<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))+"</b>",
-            "<b>"+money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)+"</b>","<b>"+(bits.join(" · ")||"—")+"</b>"]);
- let h=dtable(["Product","Monthly","Campaign ("+months+" mo)","Estimated delivery"],rows);
- if(unpriced.length)h+=`<div class="dnote">Not in the delivery totals (no impression-based rate): ${esc(unpriced.join(', '))}.</div>`;
+ const plan=kpiPlan();
+ if(!plan)return '<div class="dnote">The measurement framework loads with the quote.</div>';
+ let h='';
+ if(plan.measured){
+  h+=`<div class="dbody"><p><b>Primary KPI</b></p><ul class="dlist"><li>${esc(plan.primary)}</li></ul></div>`;
+  if((plan.secondary||[]).length)
+   h+=`<div class="dbody"><p><b>Secondary KPIs</b></p><ul class="dlist">${
+     plan.secondary.map(k=>'<li>'+esc(k)+'</li>').join('')}</ul></div>`;
+ }else h+=`<div class="dnote">${esc(plan.note||'')}</div>`;
+ if((plan.additional_metrics||[]).length)
+  h+=`<div class="dbody"><p><b>Also tracked and reported monthly</b></p><ul class="dlist">${
+    plan.additional_metrics.map(m=>'<li>'+esc(m)+'</li>').join('')}</ul></div>`;
+ if((plan.rows||[]).length){
+  h+=dtable(["Product","Key KPI","Expected benchmark"],
+    plan.rows.map(r=>[esc(r.product),esc(r.kpi),esc(r.expected)]));
+  h+='<div class="dnote">Benchmark ranges are what this inventory normally delivers for campaigns of this shape. They are expectations to measure against, not guarantees.</div>';
+ }
  const t=(S.traditional||{});
  if(t.running==="Yes"&&t.posture)h+=`<div class="dnote">${t.posture==="shift"
-   ?"Every figure above is attributable to the channel that produced it. That is the difference worth weighing against the traditional spend."
-   :"These figures cover the digital portion of the plan; they sit alongside the traditional buy rather than replacing it."}</div>`;
+   ?"Every result above is attributable to the channel that produced it. That is the difference worth weighing against the traditional spend."
+   :"These measures cover the digital portion of the plan; they sit alongside the traditional buy rather than replacing it."}</div>`;
  return h;}
 function toggleEditSec(id){S._editSec=S._editSec===id?null:id;saveNow();drawPreview();}
 function toggleSec(id){
