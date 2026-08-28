@@ -346,13 +346,31 @@ def test_the_rail_only_lists_sizes_this_campaign_builds():
     amazon = set(_json.loads((cfg / "amazon.json").read_text())["sizes"])
     meta = set(_json.loads((cfg / "meta.json").read_text())["sizes"])
     family = set(_json.loads((TEMPLATES / "T01.json").read_text())["sizes"])
-    check("a Google campaign builds 8 of the family's 13",
-          len(family & google) == 8 and len(family) == 13,
+    check("a Google campaign builds a subset of the family, not all of it",
+          (family & google) == google and len(family & google) < len(family),
           f"{len(family & google)} of {len(family)}")
+    check("every size a platform buys, some family can draw",
+          (google | amazon | meta) <= family,
+          f"undrawable: {sorted((google | amazon | meta) - family)}")
     check("414x125 is Amazon's and not Google's",
           "414x125" in amazon and "414x125" not in google)
-    check("the social sizes belong to Meta alone",
+    check("the feed sizes belong to Meta alone",
           {"1080x1080", "1080x1920"} <= meta and not ({"1080x1080"} & google))
+
+    # Responsive display is what a Google display buy actually serves now, and
+    # its two image assets are a different animal from an uploaded banner: they
+    # are composed into an ad by Google rather than delivered finished, so the
+    # 150 KB ceiling does not apply to them and 5 MB does.
+    check("Google buys the responsive display image assets",
+          {"1200x628", "1200x1200"} <= google,
+          f"google has {sorted(google)}")
+    gsz = _json.loads((cfg / "google.json").read_text())["sizes"]
+    check("and they carry the 5 MB asset ceiling, not the banner's 150 KB",
+          all(gsz[k]["maxFileBytes"] == 5242880 for k in ("1200x628", "1200x1200")))
+    check("while an uploaded banner still carries 150 KB",
+          gsz["300x250"]["maxFileBytes"] == 153600)
+    check("1200x628 is one shape sold by two platforms, filed under both",
+          "1200x628" in google and "1200x628" in meta)
 
 
 def test_no_platform_picker_and_a_render_button_that_explains_itself():
