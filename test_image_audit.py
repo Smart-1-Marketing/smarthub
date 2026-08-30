@@ -321,6 +321,155 @@ check("nothing matching reads differently from nothing saved",
       "Nothing matches" in GALLERY and "Nothing saved yet" in GALLERY, True)
 
 
+# =====================================================================
+section("The other direction: in Cloudinary, known to nothing")
+# =====================================================================
+
+from hub import storage                                       # noqa: E402
+
+# hub/storage.manifest() was written for exactly this and had no caller: its
+# docstring says it "feeds the orphaned-asset audit", and that audit did not
+# exist. The third declared-but-unwired integration point here.
+check("the manifest carries a URL, not just an id",
+      "secure_url" in (ROOT / "hub" / "storage.py").read_text(), True)
+
+# Unconfigured is NOT MEASURED. Reporting an account nobody can list as a
+# clean bill is the confident wrong answer this whole file is about.
+_real_ready = storage.ready
+storage.ready = lambda: False
+try:
+    unconfigured = image_audit.reconcile()
+finally:
+    storage.ready = _real_ready
+check("an unlistable account is not measured", unconfigured["measured"], False)
+check("and says which kind of not-measured", unconfigured["configured"], False)
+check("with no folders invented", unconfigured["folders"], [])
+
+save_archive([
+    {"id": "a1", "company": "Icon Solar", "public_id": "smart1-seo-images/known",
+     "url": "https://res.cloudinary.com/x/known.webp", "filename": "k.webp"},
+])
+
+FAKE = {
+    "seo_images": [
+        {"public_id": "smart1-seo-images/known", "bytes": 10,
+         "secure_url": "https://c/k.webp"},
+        {"public_id": "smart1-seo-images/orphan", "bytes": 20,
+         "secure_url": "https://c/o.webp"},
+    ],
+    "cutouts": [
+        {"public_id": "smart1-cutouts/icon-solar/van", "bytes": 5,
+         "secure_url": "https://c/v.png"},
+        {"public_id": "smart1-cutouts/unfiled/x", "bytes": 5,
+         "secure_url": "https://c/x.png"},
+    ],
+}
+
+_real_manifest = storage.manifest
+storage.ready = lambda: True
+storage.manifest = lambda kind, max_results=500: FAKE.get(kind, [])
+try:
+    rec = image_audit.reconcile()
+finally:
+    storage.ready, storage.manifest = _real_ready, _real_manifest
+
+check("everything listed is counted", rec["total"], 4)
+# The one the archive has a row for is not an orphan -- that is the whole join.
+check("an asset a store knows about is not an orphan", rec["orphans"], 3)
+seo_f = next(f for f in rec["folders"] if f["key"] == "seo_images")
+check("the known one is excluded by public_id",
+      [r["public_id"] for r in seo_f["rows"]], ["smart1-seo-images/orphan"])
+
+cut = next(f for f in rec["folders"] if f["key"] == "cutouts")
+by_pid = {r["public_id"]: r for r in cut["rows"]}
+# A folder path is evidence, and it says so. Nothing is applied on it.
+check("a client folder proposes its client",
+      by_pid["smart1-cutouts/icon-solar/van"]["proposed"], "Icon Solar")
+check("and says how it was arrived at",
+      "folder" in by_pid["smart1-cutouts/icon-solar/van"]["proposed_how"], True)
+# bg_remover puts a cut-out with no client under unfiled/, which names nobody.
+check("an unfiled folder proposes nobody",
+      by_pid["smart1-cutouts/unfiled/x"]["proposed"], "")
+
+# A folder left out of a completeness report silently is the same failure the
+# report is about, so the ones that are skipped are named with the reason.
+check("what is deliberately not listed is named",
+      sorted(x["key"] for x in rec["not_reconciled"]), ["backups", "proposals"])
+
+# A store that will not answer makes everything it knows about look orphaned.
+_broken = image_audit.STORES[1]["reader"]
+
+
+def _bang():
+    raise RuntimeError("gallery down")
+    yield  # pragma: no cover
+
+
+image_audit.STORES[1]["reader"] = _bang
+storage.ready = lambda: True
+storage.manifest = lambda kind, max_results=500: FAKE.get(kind, [])
+try:
+    shaky = image_audit.reconcile()
+finally:
+    image_audit.STORES[1]["reader"] = _broken
+    storage.ready, storage.manifest = _real_ready, _real_manifest
+check("an unreadable store makes the answer not measured", shaky["measured"], False)
+check("and is named, so its assets are not read as orphans",
+      bool(shaky["stores_unread"]), True)
+
+
+# =====================================================================
+section("Forty orphans is not forty presses")
+# =====================================================================
+
+save_archive([
+    {"id": "b1", "company": "", "public_id": "smart1-seo-images/b1",
+     "url": "https://res.cloudinary.com/x/b1.webp", "filename": "b1.webp"},
+    {"id": "b2", "company": "", "public_id": "smart1-seo-images/b2",
+     "url": "https://res.cloudinary.com/x/b2.webp", "filename": "b2.webp"},
+    {"id": "b3", "company": "", "public_id": "", "filename": "b3.webp",
+     "url": "https://res.cloudinary.com/x/b3.webp"},
+])
+bulk = image_audit.attach_many([
+    {"store": "seo_images", "id": "b1", "client": "Icon Solar"},
+    {"store": "seo_images", "id": "b2", "client": "Icon Solar"},
+    {"store": "seo_images", "id": "gone", "client": "Icon Solar"},
+], actor="todd")
+check("the ones that worked are counted", bulk["attached"], 2)
+# A bulk action that reports one number hides the two that failed.
+check("and the one that did not is counted apart", bulk["failed"], 1)
+check("with its own reason", bool(bulk["failures"][0]["error"]), True)
+# "Attached" and "attached in both places" are different outcomes.
+check("reaching a gallery is counted separately", bulk["gallery_filed"], 2)
+
+check("an empty selection is refused",
+      http.post("/api/image-audit/attach-many",
+                json={"items": []}).status_code, 400)
+
+# Filing a Cloudinary orphan is a different job from attaching a store row:
+# there is no store row, and its absence is the finding.
+check("an orphan with no client is refused",
+      image_audit.file_orphan("smart1-cutouts/x", "https://c/x.png", " ")["ok"],
+      False)
+check("an orphan with no stored URL is refused",
+      image_audit.file_orphan("smart1-cutouts/x", "notaurl", "Icon Solar")["ok"],
+      False)
+filed = image_audit.file_orphan("smart1-cutouts/icon/van",
+                                "https://res.cloudinary.com/x/van.png",
+                                "Icon Solar", "cutouts", actor="todd")
+check("a real one is filed into the gallery", filed["ok"], True)
+check("and reports the gallery write", filed["gallery_filed"], True)
+
+# Both write, so both are POSTs a prefetch cannot fire.
+for path in ("/api/image-audit/attach-many", "/api/image-audit/reconcile",
+             "/api/image-audit/file-orphan"):
+    check(f"{path} is a POST", http.get(path).status_code, 405)
+check("and the page offers the bulk bar and the account listing",
+      'id="bulkBar"' in (ROOT / "hub" / "templates" / "image_audit.html").read_text()
+      and 'id="reconGo"' in (ROOT / "hub" / "templates" / "image_audit.html").read_text(),
+      True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

@@ -207,6 +207,7 @@ def _seo_images():
     from modules.seo_images.app import load_archive
     for r in load_archive():
         yield {"id": r.get("id", ""), "client": r.get("company", ""),
+               "public_id": r.get("public_id", ""),
                "label": r.get("filename") or r.get("seo_filename") or "image",
                "url": r.get("url", ""), "when": r.get("saved_at", ""),
                "where": r.get("project", "")}
@@ -222,6 +223,7 @@ def _image_picker():
         for img in db.execute(select(SavedImage)).scalars().all():
             name, kind = names.get(img.client_id, ("", ""))
             yield {"id": str(img.id), "client": name,
+                   "public_id": img.cloudinary_public_id or "",
                    "kind_of_client": kind or "prospect",
                    "label": img.filename or img.alt_text or "image",
                    "url": img.cloudinary_url or "",
@@ -235,15 +237,32 @@ def _image_creator():
     from modules.image_creator.projects import load_index
     for r in load_index():
         yield {"id": r.get("id", ""), "client": r.get("client", ""),
+               "public_id": (f"{_creator_folder()}/previews/{r.get('id')}"
+                             if r.get("id") else ""),
                "label": r.get("name") or "project",
                "url": r.get("preview_url", ""), "when": r.get("updated", ""),
                "where": ", ".join(r.get("tags") or [])}
+
+
+def _creator_folder() -> str:
+    """Image Creator's Cloudinary folder, so a preview's id can be derived.
+
+    The project index does not store the public_id -- it stores the URL -- and
+    the id is deterministic from the folder and the project id, which is how
+    the gallery filing already builds it.
+    """
+    try:
+        from modules.image_creator.projects import FOLDER
+        return FOLDER
+    except Exception:                                     # noqa: BLE001
+        return "smart1-image-projects"
 
 
 def _page_images():
     from modules.page_image_optimizer import archive
     for r in archive.recent(limit=2000):
         yield {"id": r.get("public_id", ""), "client": r.get("company", ""),
+               "public_id": r.get("public_id", ""),
                "label": r.get("filename") or "image", "url": r.get("url", ""),
                "when": r.get("saved_at", ""), "where": r.get("page_name", "")}
 
@@ -252,6 +271,7 @@ def _gpt_ads():
     from modules.gpt_ads.app import _read_index
     for r in _read_index():
         yield {"id": r.get("id", ""), "client": r.get("client", ""),
+               "public_id": r.get("image_public_id", ""),
                "label": r.get("headline") or r.get("offer") or "ad pack",
                "url": r.get("image_url", ""),
                "when": r.get("updated") or r.get("created", ""), "where": ""}
@@ -279,6 +299,7 @@ def _prospect_assets():
         for r in rows or []:
             yield {"id": r.get("id", ""),
                    "client": names.get(str(lead_id)) or f"prospect {lead_id}",
+                   "public_id": r.get("public_id", ""),
                    "kind_of_client": "prospect",
                    "label": r.get("label") or r.get("filename") or "file",
                    "url": r.get("url", ""), "when": r.get("added", ""),
@@ -361,6 +382,167 @@ def audit(limit_unfiled: int = 200) -> dict:
                  "Cloudinary that no tool wrote a record for is outside this "
                  "report — walking the account costs a paged call per thousand "
                  "assets, which is not something a triage page should do."),
+    }
+
+
+# -------------------------------------------------------------- reconcile
+# The other direction. Everything above audits what the Hub RECORDED; the
+# account is the ground truth for what EXISTS, and an asset sitting in
+# Cloudinary that no store has a row for is invisible to all of it -- which is
+# most of what the six tools that filed nothing produced before they were
+# fixed.
+#
+# `hub/storage.manifest()` was written for exactly this and had no caller: its
+# docstring says it "feeds the orphaned-asset audit", and that audit has never
+# existed. The third declared-but-unwired integration point in this corner of
+# the codebase, after page_image_optimizer's RECORD_HOOK and io_creative's
+# missing writer.
+
+# Which Cloudinary folder trees belong to an image-producing tool. Only these:
+# the account also holds backups and a raw order counter, and reporting those
+# as unattached images would be a page of findings nobody can act on.
+RECONCILE_KINDS = [
+    ("seo_images", "SEO Image Pipeline"),
+    ("image_projects", "Image Creator"),
+    ("cutouts", "Background Remover"),
+    ("client_logos", "Client logos"),
+    ("stock_photos", "Stock photos"),
+    ("social_requests", "Social content requests"),
+    ("prospects", "Prospect 360 files"),
+    ("commercials", "Commercial Builder"),
+    ("ads_logos", "Smart 1 Ads logos"),
+]
+
+# Deliberately NOT reconciled, each for its own reason. Named rather than
+# omitted: a folder silently left out of a completeness report is the same
+# failure the report is about.
+NOT_RECONCILED = {
+    "proposals": "Proposal PDFs, not images.",
+    "backups": "The jsonstore mirror. Nothing here is client creative.",
+}
+
+
+def known_public_ids() -> tuple[set, list]:
+    """(every public_id any store has a row for, stores that would not answer).
+
+    A store that fails is carried as an error rather than as an empty set,
+    because an unreadable store makes every asset it knows about look
+    orphaned -- which would turn one outage into a page of false findings.
+    """
+    known, failed = set(), []
+    for store in STORES:
+        rows, err = _read(store["reader"])
+        if err:
+            failed.append({"label": store["label"], "error": err})
+            continue
+        for r in rows:
+            pid = str(r.get("public_id") or "").strip()
+            if pid:
+                known.add(pid)
+    return known, failed
+
+
+def _client_from_public_id(public_id: str, kind: str) -> dict:
+    """A proposed owner for an orphan, and how it was arrived at.
+
+    Never applied on its own. Every one of these is a guess from a path, and
+    filing one client's creative into another's gallery is the mistake this
+    whole area of the Hub is arranged to prevent -- so it is a proposal a
+    person confirms, and it says which of the three ways it was derived.
+    """
+    parts = [p for p in str(public_id or "").split("/") if p]
+    # <folder>/<client-slug>/... is the shape bg_remover, stock_photos and
+    # the commercial builder all use.
+    if len(parts) >= 3:
+        slug = parts[1]
+        if slug and slug not in ("previews", "unfiled", "documents"):
+            try:
+                from hub import clients_registry
+                for row in clients_registry.all_clients():
+                    from hub.clients_registry import slugify
+                    if slugify(row.get("name", "")) == slug:
+                        return {"client": row["name"], "how": "the folder it is in",
+                                "confident": True}
+            except Exception:                             # noqa: BLE001
+                pass
+            return {"client": slug.replace("-", " ").title(),
+                    "how": "the folder it is in, but no client of that name",
+                    "confident": False}
+    return {"client": "", "how": "", "confident": False}
+
+
+def reconcile(kinds: list | None = None, max_per_kind: int = 500) -> dict:
+    """What is in Cloudinary that no store has a record for.
+
+    Billed and slow -- a paged Admin API call per folder tree -- so this is
+    behind a button and never a page load, the rule `/tools/domains` settled
+    for its own registry pull. Nothing is written and nothing is deleted: an
+    orphan here is a file somebody made for somebody, and the answer is to
+    attach it, not to bin it.
+    """
+    try:
+        from hub import storage
+    except Exception as exc:                              # noqa: BLE001
+        return {"measured": False, "error": f"storage is unavailable: {exc}",
+                "folders": []}
+    if not storage.ready():
+        # Not measured, not "nothing found". Reporting an unconfigured account
+        # as a clean bill is the confident wrong answer this file is about.
+        return {"measured": False, "configured": False,
+                "error": "Cloudinary is not configured, so the account could "
+                         "not be listed.",
+                "folders": []}
+
+    known, failed_stores = known_public_ids()
+    wanted = [(k, label) for k, label in RECONCILE_KINDS
+              if not kinds or k in kinds]
+
+    folders, total, orphans = [], 0, 0
+    for key, label in wanted:
+        try:
+            rows = storage.manifest(key, max_results=max_per_kind)
+        except Exception as exc:                          # noqa: BLE001
+            folders.append({"key": key, "label": label, "measured": False,
+                            "error": f"{type(exc).__name__}: {exc}",
+                            "count": None, "orphans": None, "rows": []})
+            continue
+        loose = []
+        for r in rows:
+            pid = str(r.get("public_id") or "")
+            if not pid or pid in known:
+                continue
+            proposed = _client_from_public_id(pid, key)
+            loose.append({"public_id": pid, "bytes": r.get("bytes"),
+                          "created_at": r.get("created_at", ""),
+                          "resource_type": r.get("resource_type", "image"),
+                          "url": r.get("secure_url", ""),
+                          "kind": key,
+                          "proposed": proposed["client"],
+                          "proposed_how": proposed["how"],
+                          "confident": proposed["confident"]})
+        total += len(rows)
+        orphans += len(loose)
+        folders.append({"key": key, "label": label, "measured": True,
+                        "error": "", "count": len(rows),
+                        "orphans": len(loose),
+                        # A folder listing that hit the cap has not been fully
+                        # read, and saying so beats an undercount that looks
+                        # like good news.
+                        "truncated": len(rows) >= max_per_kind,
+                        "rows": loose[:200]})
+
+    unread = [f for f in folders if not f["measured"]]
+    return {
+        "measured": not unread and not failed_stores,
+        "configured": True,
+        "folders": folders,
+        "total": total,
+        "orphans": orphans,
+        "stores_unread": failed_stores,
+        "not_reconciled": [{"key": k, "why": v} for k, v in NOT_RECONCILED.items()],
+        "note": ("Counted against every public_id the Hub has a record for. A "
+                 "store that could not be read is named above rather than "
+                 "letting the assets it knows about read as orphans."),
     }
 
 
@@ -495,6 +677,80 @@ _KIND_FOR = {
 }
 
 
+# --------------------------------------------------------------- bulk work
+def attach_many(items, *, actor: str = "") -> dict:
+    """Attach several unfiled rows at once, and say what each one did.
+
+    The report offers this because a client with forty unattached images is
+    forty presses, and forty confirm dialogs is how somebody stops reading
+    them. Every result carries its own outcome — a bulk action that reports
+    one number hides the two that failed, the rule
+    `hub/client_urls.accept_many()` already works to.
+    """
+    done, failed = [], []
+    for item in items or []:
+        store = str((item or {}).get("store") or "")
+        row_id = str((item or {}).get("id") or "")
+        client = str((item or {}).get("client") or "").strip()
+        out = attach(store, row_id, client, actor=actor)
+        if out.get("ok"):
+            done.append({"store": store, "id": row_id, "client": client,
+                         "gallery_filed": bool(out.get("gallery_filed")),
+                         "gallery_error": out.get("gallery_error", "")})
+        else:
+            failed.append({"store": store, "id": row_id, "client": client,
+                           "error": out.get("error", "could not be attached")})
+    return {
+        "ok": True,
+        "attached": len(done),
+        "failed": len(failed),
+        # Counted apart, because "attached" and "attached in one of two
+        # places" are different outcomes and a single tick over both is how
+        # somebody learns not to trust the tick.
+        "gallery_filed": sum(1 for d in done if d["gallery_filed"]),
+        "results": done, "failures": failed,
+    }
+
+
+def file_orphan(public_id: str, url: str, client: str, kind: str = "",
+                *, actor: str = "") -> dict:
+    """Give a Cloudinary asset nobody has a record for a client and a row.
+
+    This is the reconciliation's own action, and it is a different job from
+    `attach()`: there is no store row to update, because the absence of one is
+    the finding. It creates the gallery row, which is what makes the asset
+    findable from the client's page.
+    """
+    client = str(client or "").strip()
+    if not client:
+        return {"ok": False, "error": "Pick a client — an image filed to a "
+                                      "guess is worse than one filed to nobody."}
+    public_id = str(public_id or "").strip()
+    if not public_id:
+        return {"ok": False, "error": "That asset has no id to file."}
+    if not str(url or "").startswith("https://"):
+        return {"ok": False, "error": "That asset has no stored URL to file."}
+    try:
+        from modules.image_picker.filing import file_asset
+        out = file_asset(client_name=client, public_id=public_id, url=url,
+                         kind=_KIND_FOR.get(kind, "upload"),
+                         filename=public_id.split("/")[-1],
+                         provider=kind or "cloudinary",
+                         saved_by=actor or "system")
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    if not out.get("ok"):
+        return {"ok": False, "error": out.get("error", "It could not be filed.")}
+    try:
+        from hub import audit as _audit
+        _audit.log("image_picker", "orphan_filed", client=client,
+                   actor=actor or "", ref=public_id, kind=kind or "")
+    except Exception:                                     # noqa: BLE001
+        pass
+    return {"ok": True, "client": client, "gallery_filed": True,
+            "gallery_url": out.get("gallery_url", "")}
+
+
 # ------------------------------------------------------------------- routes
 from flask import Blueprint, jsonify, redirect, render_template, request  # noqa: E402
 
@@ -542,6 +798,40 @@ def api_image_attach():
     body = request.get_json(silent=True) or {}
     out = attach(str(body.get("store") or ""), str(body.get("id") or ""),
                  str(body.get("client") or ""), actor=_actor())
+    return jsonify(out), (200 if out.get("ok") else 400)
+
+
+@bp.route("/api/image-audit/attach-many", methods=["POST"])
+def api_image_attach_many():
+    """Attach a selection at once. Every row reports its own outcome."""
+    body = request.get_json(silent=True) or {}
+    items = body.get("items")
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "error": "Nothing was selected."}), 400
+    return jsonify(attach_many(items[:200], actor=_actor()))
+
+
+@bp.route("/api/image-audit/reconcile", methods=["POST"])
+def api_image_reconcile():
+    """List the account and report what no store has a record for.
+
+    A POST because it is a paged Admin API call per folder tree — billed and
+    slow — and a GET that costs money is one a reload or a prefetch fires
+    without anybody asking.
+    """
+    body = request.get_json(silent=True) or {}
+    kinds = body.get("kinds")
+    return jsonify(reconcile(kinds if isinstance(kinds, list) else None))
+
+
+@bp.route("/api/image-audit/file-orphan", methods=["POST"])
+def api_file_orphan():
+    """File one Cloudinary asset that no store knows about."""
+    body = request.get_json(silent=True) or {}
+    out = file_orphan(str(body.get("public_id") or ""),
+                      str(body.get("url") or ""),
+                      str(body.get("client") or ""),
+                      str(body.get("kind") or ""), actor=_actor())
     return jsonify(out), (200 if out.get("ok") else 400)
 
 

@@ -382,7 +382,14 @@ def bundle_zip(items, *, bucket: str = "", timeout: int = 25) -> tuple[bytes, li
 
 
 def manifest(kind: str, max_results: int = 500) -> list[dict]:
-    """Inventory of what is actually stored — feeds the orphaned-asset audit."""
+    """Inventory of what is actually stored — feeds the orphaned-asset audit.
+
+    Carries `secure_url` and `format` as well as the id. Without the URL the
+    audit can list an orphan and neither show it nor file it, which makes the
+    report a list of ids somebody has to go and look up by hand — and this
+    function had no caller at all until that audit was built, so nothing
+    depended on the narrower shape.
+    """
     if not ready():
         root = _disk_root(kind)
         return [{"public_id": f, "bytes": os.path.getsize(os.path.join(root, f))}
@@ -397,7 +404,9 @@ def manifest(kind: str, max_results: int = 500) -> list[dict]:
         for r in res.get("resources", []):
             out.append({"public_id": r.get("public_id"), "bytes": r.get("bytes"),
                         "created_at": r.get("created_at"),
-                        "resource_type": r.get("resource_type")})
+                        "resource_type": r.get("resource_type"),
+                        "format": r.get("format", ""),
+                        "secure_url": r.get("secure_url", "")})
         cursor = res.get("next_cursor")
         if not cursor or len(out) >= max_results:
             return out[:max_results]
