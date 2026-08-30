@@ -874,7 +874,7 @@ function clearStuck(){
 function renderHelpAudit(d){
   var el=document.getElementById("diag-help-audit"); if(!el) return;
   d=d||{};
-  var b=d.bubbles||{}, w=d.walkthroughs||{}, out=[];
+  var b=d.bubbles||{}, w=d.walkthroughs||{}, c=d.coverage||{}, out=[];
 
   function row(state,pill,name,detail){
     return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+
@@ -934,6 +934,49 @@ function renderHelpAudit(d){
         '</em>'));
     });
   }
+  /* The same question, asked of a third mechanism. Bubbles and walkthroughs
+     ask whether an explanation works; this asks whether one was ever written
+     -- and its own surface answered "nothing is missing" for as long as it
+     was measured against a list nobody had touched. That is why `measured`
+     is checked before anything is drawn from it: nothing to measure and
+     nothing missing must never render alike. */
+  if(c.measured===false){
+    out.push(row("error","?","Coverage",
+      "Could not be read: "+esc(c.reason||"no reason given")));
+  }else{
+    var miss=c.missing||[], stray=c.stray||[];
+    out.push(row(miss.length?"warn":"ok", miss.length?String(miss.length):"ok",
+      "Coverage",
+      miss.length
+        ? "of "+esc(String(c.tools||0))+" tiled tools have no help written "+
+          "at all: "+miss.map(function(t){
+              return "<code>"+esc(t.name||t.prefix)+"</code>";}).join(", ")+
+          '<em class="diag-fix">Measured against the tiles on Creative and '+
+          'Client Tools, so a tool added there is asked about without '+
+          'anybody widening a list. Writing the copy is the fix.</em>'
+        : esc(String(c.tools||0))+" tiled tools, every one of them explained."));
+    /* Reported apart, because it fails the other way and in silence: help
+       written under a prefix no tile maps to leaves the tool reading as
+       missing while its copy sits there written. */
+    if(stray.length){
+      out.push(row("warn",String(stray.length),"Written but unmapped",
+        "help is registered under "+stray.map(function(k){
+            return "<code>"+esc(k)+"</code>";}).join(", ")+
+        ", which no tile points at, so those tools read as unexplained"+
+        '<em class="diag-fix">Either map the tile in '+
+        'hub/help_coverage.PREFIXES or correct the key prefix.</em>'));
+    }
+    /* Named rather than silently excused: these are tiled for staff and
+       served to a prospect, so a bubble on one is an internal note in front
+       of somebody we are selling to. */
+    var cf=(c.client_facing||[]).length;
+    if(cf){
+      out.push(row("off",String(cf),"Client-facing",
+        "tiled for staff and read by a client, so no staff help is expected "+
+        "on them"));
+    }
+  }
+
   el.innerHTML=out.join("");
 }
 
