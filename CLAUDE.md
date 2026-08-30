@@ -2967,6 +2967,34 @@ it used — before that, a client's insertion orders showed the last export's
 line-up while the Knack pull reported success, because the two are different
 sources and only one was live.
 
+**And the SEO section was the half still on the export.** That fix went into
+`search_client()`, and `hub/seo.py` kept its own `knack_data.products()` read
+— so Client 360 and the SEO list read the *same object* two different ways,
+and the screen that decides who is on the SEO book at all took the stale one.
+Nothing errored: a short list looks exactly like a complete one, so a client
+whose SEO product was written last week read as a client we do not do SEO for,
+and one whose product ended read as still on the book. `seo_clients_result()`
+and `_client_base()` go through `_product_source()` now, which is the same
+live-first, export-as-named-fallback shape, and **both** screens print which
+source answered from **one** `products_note()` — two descriptions of one
+staleness is how the list and the record come to disagree about whether a
+number can be trusted.
+
+The fallback is the load-bearing half and it is inherited rather than
+rewritten: a live pull that raises **and** one that answers with nothing both
+fall back to the export, because a client list that came back empty would read
+as *we have no SEO clients* rather than as an outage. `test_seo_page.py`
+drives both of those with the pull stubbed, since what is worth asserting is
+what the section does when Knack says no.
+
+**What is deliberately not taken from the live rows is the matching.** They
+carry an `organization` beside the `client` where the export only ever had
+one, and `search_client()` matches either — but the SEO section keys on
+`client` alone, and widening it here would quietly pull one company's products
+onto a sibling's record through a shared parent, which is what
+`hub/client_groups.py` exists to do **on purpose and by opt-in**. The rows
+came live; the rule that decides whose they are did not move.
+
 **Websites now read live too, and the split between the two readers is the
 point.** `clients_registry.all_clients()` — which feeds client search, every
 client picker, Client 360's lookup and the social content link — built its
@@ -9021,8 +9049,11 @@ python3 test_housekeeping.py       # warnings moved off pages nobody can act on,
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   answers, a name nobody gave, a failed
-                                   #   record that is not an empty one, and SEO
-                                   #   work reaching the client's own page
+                                   #   record that is not an empty one, SEO
+                                   #   work reaching the client's own page,
+                                   #   two editors that keep what was typed,
+                                   #   and the book read live with the source
+                                   #   named on both screens
 python3 test_image_download.py     # image downloads, the shared zip builder, and the
                                    #   preview every gallery draws instead of the original
 python3 test_image_audit.py        # every image attached to a client or a lead,

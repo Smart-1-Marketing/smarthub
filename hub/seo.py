@@ -657,7 +657,38 @@ def _parse_mdY(s):
         return None
 
 
+# Which source answered, in one sentence, so no screen words it its own way.
+# The wording is knack_data's — the products card on Client 360 has said this
+# about the same two sources since it was fixed, and two descriptions of one
+# staleness is how the SEO list and the client record come to disagree about
+# whether a number can be trusted.
+def products_note(source: str, age_minutes: int | None) -> str:
+    return (f"Live from Knack, {age_minutes} min old." if source == "knack"
+            else "From the committed export in clients_app/data — nothing "
+                 "refreshes it, so this may be out of date.")
+
+
+def seo_clients_result() -> tuple[list[dict], str, int | None]:
+    """The SEO client list, with which source answered beside it.
+
+    The `(rows, source, age)` shape rather than a bare list, for the reason
+    `connected_accounts_result()` gives in Google Finder: a stale export looks
+    exactly like live data on screen, and this list decides who is on the SEO
+    book at all. It read `knack_data.products()` — the hand-committed export
+    that nothing refreshes — while Client 360 read the same object live, so
+    the Hub held a current answer and a stale one to "who are our SEO clients"
+    and this screen took the stale one.
+    """
+    rows, source, age = knack_data._product_source()
+    return _seo_clients_from(rows), source, age
+
+
 def seo_clients() -> list[dict]:
+    """The list alone, for the callers that do not draw a staleness note."""
+    return seo_clients_result()[0]
+
+
+def _seo_clients_from(product_rows: list[dict]) -> list[dict]:
     """Clients with a live SEO product: url, billing, blog flag.
 
     Knack pre-creates renewal IOs marked Live (future start dates), so billing
@@ -665,7 +696,7 @@ def seo_clients() -> list[dict]:
     import datetime as _dt
     today = _dt.date.today()
     live_rows: dict[str, list[dict]] = {}
-    for r in knack_data.products():
+    for r in product_rows:
         pname = str(r.get("product", "")).lower()
         if "seo" not in pname:
             continue
@@ -780,7 +811,8 @@ def _client_base(client: str) -> dict:
     keeps /api/seo/detail fast."""
     import datetime as _dt
     today = _dt.date.today()
-    rows = [r for r in knack_data.products()
+    all_rows, psource, page = knack_data._product_source()
+    rows = [r for r in all_rows
             if str(r.get("client", "")).strip().lower() == client.lower()
             and "seo" in str(r.get("product", "")).lower()
             and knack_data.is_running(r)]
@@ -812,7 +844,11 @@ def _client_base(client: str) -> dict:
             "url": _site_url(primary) if primary else "",
             "platform": (primary or {}).get("platform", "") if primary else "",
             "products": sorted(products), "billing": round(billing),
-            "blogs": blogs}
+            "blogs": blogs,
+            # The record says which source answered, exactly as the products
+            # card on Client 360 does — the same two sources, the same risk.
+            "products_source": psource, "products_age_minutes": page,
+            "products_note": products_note(psource, page)}
 
 
 def sells_blogs(client: str) -> bool:
