@@ -50,6 +50,7 @@ healthy:
 """
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -236,6 +237,23 @@ r = http.get(f"/tools/image-picker/pick/{token}")
 check("so does the client's own link", r.status_code, 200)
 check("the client page carries the upload panel", 'id="uploadPanel"' in r.data.decode(), True)
 check("the admin page answers", http.get("/tools/image-picker/").status_code, 200)
+
+# The panel builds every upload URL by concatenation, so the base has to be an
+# origin-and-mount with no trailing slash. It used to strip "/admin" -- a path
+# this blueprint does not have -- so the slash stayed on and each signed upload
+# went to "//api/upload-signature". Werkzeug 308s that, which a browser replays
+# as a POST, so it worked; a proxy that answers 302 instead turns the client's
+# upload into a bodyless GET, and nothing on the page says so.
+panel = http.get(f"/tools/image-picker/pick/{token}").data.decode()
+m = re.search(r'var BASE = ("(?:[^"\\]|\\.)*")(\.replace\([^;]*\))?;', panel)
+check("the panel declares a base", bool(m), True)
+base = json.loads(m.group(1))
+if m.group(2):
+    base = base.rstrip("/")
+check("with no trailing slash on it", base.endswith("/"), False)
+# and the URL it therefore builds is served without a redirect
+r = http.post(base + "/api/upload-signature", json={})
+check("the signature URL routes directly", r.status_code in (301, 302, 307, 308), False)
 
 
 # =====================================================================
