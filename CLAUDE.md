@@ -363,6 +363,20 @@ the three. `test_client_images.py` now asserts that **every name
 exists precisely because the directory and the log disagree, which makes it
 exactly the case where a second table gets keyed on the wrong one.
 
+**And a base read twice is a base with two answers.** `modules/sales_builder`
+read `IO_API_BASE` in two places with **different defaults**: `_io_api_base()`
+returned the `/tools/io` mount and carries a docstring explaining at length
+that the old external default made every conversion call 404 — while
+`/api/config` still returned that external default. `/api/config` is the read
+that counts, because `index.html` seeds `CFG` with the mount and then assigns
+this route's answer over the top. So `/health` reported the mount and looked
+healthy while every proposal-to-IO conversion — the order number, both PDFs,
+the Suite submit — posted to a **different Render service**: a cold start, a
+different login, and "The IO API did not return an order number." in the
+conversion log with nothing saying where the request had gone. It is one
+reader now, the rule this codebase applies to rate cards, client keys and
+gallery labels alike, and `test_io_start.py` fails if the two disagree.
+
 **A URL built by concatenation is a URL nothing checks.** `tools/linkcheck.py`
 only sees a path literal that sits directly inside `fetch("…")`. Written as
 `fetch(BASE + "/api/thing")` it is invisible, which is how three of the
