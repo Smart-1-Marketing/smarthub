@@ -78,6 +78,44 @@ export interface AnimationRecord {
    *  to say what is wrong with a file it is listing. */
   issues: string[];
   renderedAt: string;
+
+  /**
+   * When this one animation was approved, and by whom.
+   *
+   * Per animation, not per project and not per concept. A set of eight moving
+   * ads is eight separate decisions: somebody watches one, likes it, and sends
+   * it -- and the next one may need its second slide rewritten. A single
+   * project-wide flag would deliver the seven nobody has watched on the
+   * strength of the one they did.
+   *
+   * Approval is what makes an animation deliverable, and it is the ONLY thing
+   * that does: the delivery zip does not carry these, so an animation that is
+   * never approved is never sent, rather than riding out inside a package the
+   * static set's approval covered.
+   */
+  approvedAt?: string;
+  approvedBy?: string;
+  /**
+   * Where the approved file was stored so a client can be given it.
+   *
+   * Written at approval and not at render: an animation nobody approves is
+   * never uploaded, so the account is not paying to store drafts. Absent on an
+   * approved row means the approval landed and the upload did not, which is a
+   * real state and a different one from not approved -- the two are reported
+   * separately for the reason `hub/domain_links.py` gives at length.
+   */
+  cloudinaryPublicId?: string;
+  cloudinaryUrl?: string;
+  /**
+   * When a previous version of THIS size was approved, if one was.
+   *
+   * Re-animating a size replaces its row, and the approval goes with it,
+   * because a sign-off is about the file as it was -- the rule
+   * `modules/commercial_builder/review_spec.py` works to. Carrying the old
+   * date lets a screen say "approved on the 3rd, and rebuilt since", which is
+   * a different thing to tell somebody than "nobody has approved this".
+   */
+  previouslyApprovedAt?: string;
 }
 
 export interface CreativeOverride {
@@ -286,12 +324,89 @@ export class ProjectStore {
     const key = (a: { conceptId: string; platform: string; size: string }) =>
       `${a.conceptId}\u0000${a.platform}\u0000${a.size}`;
     const incoming = new Set(records.map(key));
+    const previous = new Map(
+      (project.animations ?? []).map((a) => [key(a), a] as const),
+    );
+    // A rebuilt size arrives unapproved, which is correct -- the approval was
+    // about the file it replaces. What is carried across is the FACT that one
+    // existed, so the panel can say it was superseded rather than reading as a
+    // size nobody ever looked at.
+    for (const r of records) {
+      const was = previous.get(key(r));
+      const stamp = was?.approvedAt ?? was?.previouslyApprovedAt;
+      if (stamp) r.previouslyApprovedAt = stamp;
+    }
     const kept = (project.animations ?? []).filter((a) => !incoming.has(key(a)));
     project.animations = [...kept, ...records].sort(
       (a, b) => a.conceptId.localeCompare(b.conceptId) || a.size.localeCompare(b.size),
     );
     this.save(project);
     return project.animations;
+  }
+
+  /**
+   * Sign one animation off, or take the sign-off back.
+   *
+   * One animation, never a set. Eight moving ads are eight decisions: somebody
+   * watches one, likes it and sends it, and the next may need its second slide
+   * rewritten. A project-wide flag would deliver the seven nobody has watched
+   * on the strength of the one they did.
+   *
+   * A QA-failing animation cannot be approved at all. The delivery zip used to
+   * be the thing that withheld those; it no longer carries animations, so this
+   * is the only gate left between a clipped second slide and a client's asset
+   * library. It refuses BY NAME rather than silently doing nothing, because a
+   * button that appears to work and changes nothing is how somebody concludes
+   * the file was sent.
+   */
+  approveAnimation(
+    project: Project,
+    key: { conceptId: string; platform: string; size: string },
+    approved: boolean,
+    by?: string,
+  ): { ok: boolean; error?: string; row?: AnimationRecord } {
+    const row = (project.animations ?? []).find(
+      (a) => a.conceptId === key.conceptId && a.platform === key.platform && a.size === key.size,
+    );
+    if (!row) {
+      return { ok: false, error: `There is no animated ${key.size} on concept ${key.conceptId}.` };
+    }
+    if (approved && row.status === 'fail') {
+      return {
+        ok: false,
+        error:
+          `The animated ${key.size} did not pass its checks, so it cannot be approved: ` +
+          (row.issues[0] ?? 'see the findings on the build screen') +
+          '. Fix it and animate that size again.',
+      };
+    }
+    if (approved) {
+      row.approvedAt = new Date().toISOString();
+      row.approvedBy = (by ?? '').trim() || undefined;
+    } else {
+      // The upload is left where it is. Un-approving is "do not send this
+      // yet", not "delete what was stored" -- and a Cloudinary id thrown away
+      // here is one the next approval pays to create again.
+      delete row.approvedAt;
+      delete row.approvedBy;
+    }
+    this.save(project);
+    return { ok: true, row };
+  }
+
+  /** Record where an approved animation was stored, so the Hub can file it. */
+  noteAnimationUpload(
+    project: Project,
+    key: { conceptId: string; platform: string; size: string },
+    upload: { publicId: string; url: string },
+  ): void {
+    const row = (project.animations ?? []).find(
+      (a) => a.conceptId === key.conceptId && a.platform === key.platform && a.size === key.size,
+    );
+    if (!row) return;
+    row.cloudinaryPublicId = upload.publicId;
+    row.cloudinaryUrl = upload.url;
+    this.save(project);
   }
 
   /**

@@ -34,10 +34,19 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
 _TMP = tempfile.mkdtemp(prefix="s1-salesboard-")
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(_TMP, "t.db"))
+# Assigned, never setdefault. A fresh directory is not isolation on its
+# own: jsonstore keys its mirror *relative to the data root* by design,
+# so an inherited DATABASE_URL refills this run's empty directory with
+# the last run's rows. Both were setdefault here, which is right when
+# neither is set and wrong the moment only the database is -- which is
+# what a session-start hook exporting DATABASE_URL now gives every web
+# session. This file writes durable rows, so it failed on the second
+# run and passed on the first, and CI never saw it because every CI run
+# gets a new Postgres.
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
 os.environ.setdefault("SECRET_KEY", "salesboard-test")
 os.environ.setdefault("PANEL_PASSWORD", "test")
-os.environ.setdefault("HUB_DATA_DIR", _TMP)
+os.environ["HUB_DATA_DIR"] = _TMP
 
 PASS = FAIL = 0
 

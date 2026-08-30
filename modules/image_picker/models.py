@@ -20,13 +20,19 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship
 
-from hub.extensions import create_all_metadata, session_factory, shared_engine
+from hub.extensions import (BootProbe, create_all_metadata, session_factory,
+                            shared_engine)
 
 Base = declarative_base()
 
 _ENGINE = None
 _Session = None
 DB_BOOT_ERROR: str | None = None
+# Re-asks a boot verdict that came from a failure to *connect*. Without it,
+# session() raised for the life of the worker -- and the link this module
+# hands a client to upload their own photographs is on the far side of it, so
+# a six-second blip during a deploy read to the client as a broken page.
+_PROBE = None
 
 
 def init_db(app=None) -> None:
@@ -36,16 +42,33 @@ def init_db(app=None) -> None:
     slow to wake must not take the whole module offline for the life of the
     worker. The error is captured and surfaced per request instead.
     """
-    global _ENGINE, _Session, DB_BOOT_ERROR
+    global _ENGINE, _Session, DB_BOOT_ERROR, _PROBE
     try:
         _ENGINE = shared_engine()
         _Session = session_factory(scoped=True)
-        # Advisory-locked so the two gunicorn workers don't race the DDL.
-        DB_BOOT_ERROR = create_all_metadata(Base.metadata) or None
-        if not DB_BOOT_ERROR:
-            _add_missing_columns()
+        if _PROBE is None:
+            _PROBE = BootProbe(_create_tables, label="image_picker")
+        DB_BOOT_ERROR = _PROBE.record(_create_tables()) or None
     except Exception as exc:  # noqa: BLE001
         DB_BOOT_ERROR = str(exc)
+
+
+def _create_tables() -> str:
+    """This module's whole boot DDL, as one answer.
+
+    One function rather than two statements, because BootProbe re-runs it and
+    the late columns have to be inside that: a module which recovers from a
+    database that was briefly unreachable must not come back missing them.
+    """
+    # Advisory-locked so the two gunicorn workers don't race the DDL.
+    err = create_all_metadata(Base.metadata)
+    if err:
+        return err
+    try:
+        _add_missing_columns()
+    except Exception as exc:  # noqa: BLE001
+        return f"{type(exc).__name__}: {exc}"
+    return ""
 
 
 # Columns added after their table was first created, as
@@ -105,11 +128,20 @@ def _add_missing_columns() -> None:
             pass                                        # raced by the other worker
 
 
+def db_error() -> str | None:
+    """The verdict as it stands, re-asking a transient one on a cooldown."""
+    global DB_BOOT_ERROR
+    if _PROBE is not None:
+        DB_BOOT_ERROR = _PROBE.error() or None
+    return DB_BOOT_ERROR
+
+
 def session():
     if _Session is None:
         init_db()
-    if DB_BOOT_ERROR:
-        raise RuntimeError(f"database unavailable: {DB_BOOT_ERROR}")
+    err = db_error()
+    if err:
+        raise RuntimeError(f"database unavailable: {err}")
     return _Session()
 
 

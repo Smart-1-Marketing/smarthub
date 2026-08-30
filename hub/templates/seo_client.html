@@ -6,6 +6,7 @@
     <div class="seoc-crumb"><a href="/seo">SEO Clients</a> / {{ client }}</div>
     <h2>{{ client }}</h2>
     <p id="seocSub">Loading&hellip;</p>
+    <p id="seocSrc" class="seoc-muted" style="margin:-6px 0 0;font-size:12px"></p>
   </div>
   <div class="seoc-actions">
     <button class="seoc-btn" id="btnSetup">&#9881; Client Setup</button>
@@ -733,6 +734,7 @@ table.seoc-blogt input[type=checkbox]{width:auto}
 .seoc-check{display:flex;gap:7px;align-items:center;font-size:13.5px;font-weight:600;color:#1e293b;cursor:pointer}
 .seoc-check input{width:16px;height:16px;accent-color:#16a34a;cursor:pointer}
 .seoc-check-ro{cursor:default}
+.seoc-stale{color:#854d0e;font-weight:600}
 .seoc-dot{width:12px;height:12px;border-radius:50%;display:inline-block;background:#dc2626}
 .seoc-dot.on{background:#16a34a}
 /* The four blogs states. `not_sold` is gray rather than red: a client who
@@ -882,12 +884,31 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;padding:11px;
       border:1px solid #cfd7df;border-radius:8px" placeholder="Click Build to draft one."></textarea>
     <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
-      <button class="seoc-btn" onclick="saveLlms()">Save &amp; publish</button>
+      <button class="seoc-btn" onclick="saveLlms()">Save draft</button>
+      <button class="seoc-btn" onclick="publishLive()">Publish live</button>
       <button class="seoc-btn" onclick="copyLlms()">Copy</button>
       <button class="seoc-btn" onclick="publishLlms()">Publish to Smart 1 Suite</button>
-      <a class="seoc-btn" id="llmsPublic" href="#" target="_blank" style="display:none">View public file &#8599;</a>
       <a class="seoc-btn" id="llmsSuite" href="#" target="_blank" style="display:none">View on Suite &#8599;</a>
       <span id="llmsMsg" class="muted" style="font-size:12px"></span>
+    </div>
+
+    <!-- Hosting, the redirect and the check. Saving and publishing are
+         deliberately two buttons: a half-written file must never be live. -->
+    <div id="llmsHost" style="margin-top:16px;border-top:1px solid #e6ebf0;padding-top:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <b style="font-size:13px">Hosting &amp; verification</b>
+        <span id="llmsVerdict" style="display:none;padding:2px 9px;
+              border-radius:999px;font-size:11.5px;font-weight:600"></span>
+        <span id="llmsChecked" class="muted" style="font-size:12px"></span>
+        <div class="right" style="margin-left:auto;display:flex;gap:8px">
+          <button class="seoc-btn" onclick="verifyLlms()">Verify now</button>
+          <button class="seoc-btn" id="llmsOffBtn" onclick="unpublishLlms()"
+                  style="display:none">Take off the air</button>
+        </div>
+      </div>
+      <div id="llmsHostBody" class="muted" style="font-size:12.5px;margin-top:10px">
+        Loading&hellip;
+      </div>
     </div>
   </div>
 </div>
@@ -1017,6 +1038,14 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     }
     detail=d; slug=d.slug||''; siteUrl=d.url||'';
     $('seocSub').textContent=(d.products||[]).join(' · ')+(d.billing?'  —  $'+Number(d.billing).toLocaleString()+'/mo':'');
+    /* Where the products and the billing above came from. The record read the
+       committed export while Client 360 read the same object live, so the two
+       screens could quote a client different products and nothing said why. */
+    var sn=$('seocSrc');
+    if(sn){
+      sn.textContent=d.products_note||'';
+      sn.className='seoc-muted'+(d.products_source==='export'?' seoc-stale':'');
+    }
     if(siteUrl){var b=$('btnSite');b.href=siteUrl;b.style.display='inline-block';}
 
     safe('accounts', function(){ renderAccounts(d); });
@@ -3427,6 +3456,12 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
      buttons in the cards above that call loadSchemaQ / buildLlms / imgAction
      were calling functions that did not exist. -->
 <script>
+/* Set from the server rather than left to the fallback below. Parsing the
+   client's name out of the browser tab worked for as long as the <title>
+   happened to be "<client> — …"; every fetch on this card is keyed on that
+   string, so an em dash in a business name quietly asked about a different
+   client. */
+window.CURRENT_SEO_CLIENT = window.CURRENT_SEO_CLIENT || {{ client|tojson }};
 function llmsClient(){ return (window.CURRENT_SEO_CLIENT || document.title.split(" — ")[0] || "").trim(); }
 function buildLlms(){
   var st=document.getElementById('llmsStatus'); st.textContent='Building from client record, last scan and brand data…';
@@ -3448,11 +3483,214 @@ function saveLlms(){
     body:JSON.stringify({client:llmsClient(),text:t})})
    .then(function(r){return r.json();}).then(function(d){
      if(d.error){ m.textContent=d.error; m.style.color='#b42318'; return; }
-     m.style.color='#147d52'; m.textContent='Saved ('+d.bytes+' bytes).';
-     var slug=llmsClient().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-     var a=document.getElementById('llmsPublic');
-     a.href='/llms/'+slug+'.txt'; a.style.display='inline-block';
+     m.style.color='#147d52';
+     m.textContent='Draft saved ('+d.bytes+' bytes). It is not live until you publish.';
+     loadLlmsHost();
    }).catch(function(){ m.textContent='Could not save.'; });
+}
+
+/* ---------------- hosting, the redirect and the check ----------------
+   The URL is never built here. An earlier version slugified the client name
+   in the browser, which is a second reading of a rule the server owns -- and
+   this particular string ends up inside a redirect rule on the client's own
+   website, so the two disagreeing takes the file off the air with this screen
+   still reporting a clean save. Everything below renders what the server
+   hands back. */
+var LLMS_HOST = null;
+
+function llmsPill(v){
+  var m={pass:['#e7f6ef','#11633f','Pass'], warn:['#fff4d7','#a06a00','Warn'],
+         fail:['#feeceb','#b42318','Fail'],
+         not_measured:['#eef1f4','#5b6b7b','Not measured']};
+  return m[v] || m.not_measured;
+}
+function esc(v){ return String(v==null?'':v)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;'); }
+
+function loadLlmsHost(){
+  fetch('/api/seo/llms-txt/status?client='+encodeURIComponent(llmsClient()),
+        {credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){ if(d.error){ throw new Error(d.error); }
+                       LLMS_HOST=d; drawLlmsHost(); })
+    .catch(function(){
+      document.getElementById('llmsHostBody').textContent =
+        'Could not read the hosting status, which is not the same as nothing '+
+        'being published.';
+    });
+}
+
+function drawLlmsHost(){
+  var d=LLMS_HOST; if(!d) return;
+  var body=document.getElementById('llmsHostBody');
+  var pill=document.getElementById('llmsVerdict');
+  var chk=document.getElementById('llmsChecked');
+  var off=document.getElementById('llmsOffBtn');
+
+  /* "Not checked yet" and "checked and fine" must never render alike -- the
+     pill is only drawn once something has actually been asked. */
+  if(d.checked_at){
+    var p=llmsPill(d.verdict);
+    pill.style.display='inline-block';
+    pill.style.background=p[0]; pill.style.color=p[1];
+    pill.textContent=p[2];
+    chk.textContent='checked '+esc(d.checked_at);
+  } else {
+    pill.style.display='none';
+    chk.textContent = d.published ? 'never checked' : '';
+  }
+  off.style.display = d.published ? 'inline-block' : 'none';
+
+  var h='';
+  if(!d.published){
+    h += '<div style="padding:9px 12px;border-radius:8px;background:#eef1f4;'+
+         'color:#3d4b59">Nothing is live for this client. '+
+         (d.has_draft ? 'There is a saved draft — press <b>Publish live</b> '+
+                        'to put it on the air.'
+                      : 'Build and save a draft first.')+'</div>';
+  } else {
+    h += '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
+      row('Served at', d.public_url
+          ? '<a href="'+esc(d.public_url)+'" target="_blank"><code>'+
+            esc(d.public_url)+'</code></a>' : '<i>no address recorded</i>')+
+      row('Reached from', d.client_url
+          ? '<a href="'+esc(d.client_url)+'" target="_blank"><code>'+
+            esc(d.client_url)+'</code></a>'
+          : '<i>this client has no website on file, so there is nowhere to '+
+            'redirect from</i>')+
+      row('Published', esc(d.published_at||'—')+
+          (d.adopted_from_draft
+            ? ' <span class="muted">(adopted from the saved draft, which was '+
+              'already being served)</span>' : ''))+
+      '</table>';
+  }
+
+  var c=d.last_check;
+  if(c){
+    if(c.measured===false){
+      h += '<div style="margin-top:10px;padding:9px 12px;border-radius:8px;'+
+           'background:#eef1f4;color:#3d4b59"><b>Not measured.</b> '+
+           esc((c.notes||[]).join(' '))+' That is not the same as the file '+
+           'being wrong.</div>';
+    }
+    if((c.fails||[]).length){
+      h += list('What is broken', c.fails, '#feeceb', '#b42318');
+    }
+    if((c.warns||[]).length){
+      /* Amber, not red. A page of red is a page people scroll past, and a
+         302 that works today is a different job from a 404. */
+      h += list('What will cost reach', c.warns, '#fff4d7', '#7a4f00');
+    }
+    if((c.notes||[]).length){
+      h += list('Worth knowing', c.notes, '#f4f7fa', '#3d4b59');
+    }
+    if((c.hops||[]).length){
+      h += '<details style="margin-top:10px"><summary class="muted" '+
+           'style="cursor:pointer">The status chain '+
+           '('+esc(c.hop_count!=null?c.hop_count:'?')+' hop(s))</summary>'+
+           '<table style="width:100%;border-collapse:collapse;font-size:12px;'+
+           'margin-top:6px">';
+      c.hops.forEach(function(hp){
+        h += '<tr><td style="padding:3px 8px 3px 0;white-space:nowrap"><b>'+
+             esc(hp.status==null?(hp.error||'no answer'):hp.status)+
+             '</b></td><td style="padding:3px 0;word-break:break-all">'+
+             '<code>'+esc(hp.url)+'</code>'+
+             (hp.location?' <span class="muted">&rarr; '+esc(hp.location)+
+                          '</span>':'')+'</td></tr>';
+      });
+      h += '</table></details>';
+    }
+  }
+
+  if(d.runbook && d.runbook.length){
+    h += '<details style="margin-top:10px"><summary class="muted" '+
+         'style="cursor:pointer">How to point the client\'s domain at this'+
+         '</summary><ol style="margin:8px 0 0 18px;padding:0;line-height:1.7">';
+    d.runbook.forEach(function(step){ h += '<li>'+esc(step)+'</li>'; });
+    h += '</ol></details>';
+  }
+  if(d.caveat){
+    h += '<p class="muted" style="font-size:12px;margin:12px 0 0;'+
+         'line-height:1.6"><b>Worth saying out loud:</b> '+esc(d.caveat)+'</p>';
+  }
+  body.innerHTML=h;
+
+  function row(k,v){
+    return '<tr><td style="padding:3px 12px 3px 0;white-space:nowrap;'+
+           'color:#5b6b7b">'+esc(k)+'</td><td style="padding:3px 0;'+
+           'word-break:break-all">'+v+'</td></tr>';
+  }
+  function list(title, items, bg, fg){
+    var out='<div style="margin-top:10px;padding:9px 12px;border-radius:8px;'+
+            'background:'+bg+';color:'+fg+'"><b>'+esc(title)+'</b>'+
+            '<ul style="margin:6px 0 0 16px;padding:0;line-height:1.6">';
+    items.forEach(function(i){ out += '<li>'+esc(i)+'</li>'; });
+    return out+'</ul></div>';
+  }
+}
+
+function publishLive(){
+  var m=document.getElementById('llmsMsg');
+  m.style.color=''; m.textContent='Publishing…';
+  fetch('/api/seo/llms-txt/publish',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:llmsClient(),
+                         text:document.getElementById('llmsTxt').value})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(d.error){ m.style.color='#b42318'; m.textContent=d.error; return; }
+     /* Two writes, reported apart: storing the file and recording the address
+        it is served at can succeed separately, and one tick over both is how
+        somebody learns not to trust the tick. */
+     m.style.color = d.slug_recorded ? '#147d52' : '#a06a00';
+     m.textContent = d.slug_recorded
+       ? 'Live ('+d.bytes+' bytes).'
+       : 'The file is stored, but its address could not be recorded'+
+         (d.slug_error?' ('+d.slug_error+')':'')+' — so it is not '+
+         'reachable yet. Try again.';
+     if(d.status){ LLMS_HOST=d.status; drawLlmsHost(); } else { loadLlmsHost(); }
+   }).catch(function(){ m.style.color='#b42318';
+                        m.textContent='Could not publish.'; });
+}
+
+function unpublishLlms(){
+  if(!confirm('Take this client\'s llms.txt off the air?\n\nAnything '+
+              'redirecting to it — including the rule on their own '+
+              'website — will start answering 404. The draft and the '+
+              'address are kept, so republishing re-uses the same URL.')) return;
+  var m=document.getElementById('llmsMsg');
+  m.style.color=''; m.textContent='Taking it off…';
+  fetch('/api/seo/llms-txt/publish',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:llmsClient(),unpublish:true})})
+   .then(function(r){return r.json();}).then(function(d){
+     m.textContent=d.note||'Off the air.'; loadLlmsHost();
+   }).catch(function(){ m.style.color='#b42318';
+                        m.textContent='Could not take it off.'; });
+}
+
+function verifyLlms(){
+  var body=document.getElementById('llmsHostBody');
+  var t=(window.S1Think && window.S1Think.attach)
+        ? window.S1Think.attach(body,{kind:'scan',
+            stages:['Following the redirect from their domain…',
+                    'Reading robots.txt at both ends…',
+                    'Comparing what is served against what we published…']})
+        : null;
+  fetch('/api/seo/llms-txt/verify',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:llmsClient()})})
+   .then(function(r){return r.json();}).then(function(c){
+     if(t&&t.done) t.done();
+     if(!LLMS_HOST) LLMS_HOST={};
+     LLMS_HOST.last_check=c; LLMS_HOST.verdict=c.verdict;
+     LLMS_HOST.checked_at=c.checked_at;
+     drawLlmsHost();
+   }).catch(function(){
+     if(t&&t.done) t.done();
+     document.getElementById('llmsMsg').style.color='#b42318';
+     document.getElementById('llmsMsg').textContent='The check could not run.';
+   });
 }
 function publishLlms(){
   var m=document.getElementById('llmsMsg');
@@ -3467,6 +3705,8 @@ function publishLlms(){
      if(d.url){ var a=document.getElementById('llmsSuite'); a.href=d.url; a.style.display='inline-block'; }
    }).catch(function(){ m.style.color='#b42318'; m.textContent='Could not publish.'; });
 }
+
+document.addEventListener('DOMContentLoaded', loadLlmsHost);
 
 function copyLlms(){
   var t=document.getElementById('llmsTxt');
