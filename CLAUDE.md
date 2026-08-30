@@ -816,6 +816,81 @@ read counts as **known**, because refusing to register beats inventing a
 duplicate of a client Knack holds and was briefly unable to answer for.
 `test_client_uploads.py` asserts all of it.
 
+**Twelve tools make an image and six of them recorded nobody.** Each wrote to
+Cloudinary and filed a record of its own, and the question anybody actually
+asks — *what have we made for this client?* — was answerable only from the
+ones that named a client. `hub/image_audit.py` and **QA → Unattached Images**
+audit both halves, and the second half is why a row count alone misleads.
+
+**The stores** are counted and split into filed, unfiled and *not measured*.
+**The producers** — the code paths that create, upload or let somebody choose
+an image — are checked for whether they reach a client gallery at all: a tool
+that has never filed anything has no unfiled rows to count, so it is invisible
+to a data audit and reads as the cleanest tool in the building.
+
+Two of the six were invisible in the worst way. **Page Image Optimizer**
+shipped an ">>> INTEGRATION POINT <<<" naming three candidate writers —
+`modules.seo_images.store.add_record` and two more — and not one of those names
+has ever existed, so `_resolve_hook()` returned `None` from the day it was
+written and every image it saved went to a private JSON file nothing reads,
+with `archive_backend()` reporting *local* to a screen nobody read it on.
+`modules/seo_images.add_archive_record` is the real name now. And
+**`io_creative`** sat in `filing.KIND_LABELS` with no writer at all — the
+`display_ads` failure this file already describes, one tool later.
+
+The producer check reads the **AST**, not the text: several files here explain
+this trap by naming `file_asset` in prose, and a text match reports the
+explanation as the defect — the rule `hub/config.py`'s drift check gives at
+length. It also accepts filing done **over the route**, because the IO Builder
+uploads straight from the browser and files through
+`/tools/image-picker/api/staff/file`; an AST-only check called the one tool
+that does file its worst offender, and the module that *defines* `file_asset`
+its second.
+
+**A stock photo chosen for a client is copied, not linked.** A gallery row
+pointing at somebody else's CDN empties itself the day that provider
+reorganises, with nothing saying why — so `modules/stock_photos` stores the
+file first and files the stored copy. Our own library is already in Cloudinary
+and is filed as it stands.
+
+**A video is not filed into an image gallery.** `SavedImage` models an image or
+a raw file, so the Commercial Builder files stills and logos and deliberately
+leaves the commercial, the spokesperson clip and the voice track in the
+client's Cloudinary tree: a row whose thumbnail can never render is worse than
+an absent one. And it files by client **name**, never by that module's own
+slug — resolving a slug back to a client is a guess, and filing one client's
+creative into another's gallery is the single mistake here that cannot be
+undone by editing a row. No name, no filing, and the audit reports it.
+
+**"A client or a lead" is two right answers, not one.** A client's work goes
+to a gallery through `filing.file_asset`; a prospect's goes to that prospect's
+own record through `hub/prospect.add_asset`, keyed on the lead id. A producer
+check that demanded `file_asset` of everything would report the lead half as
+unfiled — which is the exact thing this audit exists to find — so the filing
+call is per producer. The `prospect` heading is in `SOURCE_LABELS` even though
+those files sit outside a gallery today, because a conversion carries them
+across and they would otherwise arrive in the new client's gallery as a bare
+key under nothing.
+
+**A report that cannot fix the row it names is a signpost.** Each unattached
+image carries a client picker and one press writes both the tool's own record
+and the gallery — reported **separately**, because "attached" and "attached in
+one of two places" are different outcomes and one tick for both is how
+somebody learns not to trust the tick.
+
+**And the gallery's labels are a table, read by whatever renders one.** The
+gallery template kept its own hand-typed copy, so a kind added since arrived
+in a client's gallery as a bare key under no heading, sorted in with stock.
+`filing.SOURCE_LABELS` and `source_tiers()` are the one source now; the page
+gained a search and per-group chips with counts, and a filtered view says *N
+of M shown* rather than reporting the whole as the part.
+
+**A QA report is named for its finding, not its process.** "Image Audit" tied
+with Image Creator on the bare query `image` and took the top slot off it —
+`search_index` breaks an equal score alphabetically, so a name is a ranking
+decision. It is **Unattached Images**, beside "No Dashboards" and "Stale
+Creative". `test_image_audit.py` asserts all of it.
+
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
@@ -6011,6 +6086,8 @@ python3 test_celebrations.py       # birthdays and anniversaries: what is still 
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
+python3 test_image_audit.py        # every image attached to a client or a lead,
+                                   #   and a gallery you can search
 python3 test_client_images.py      # deleting a client image, the count, the one brand
                                    #   card, the contact details offered into the strip,
                                    #   the display-ads work log, and the way back

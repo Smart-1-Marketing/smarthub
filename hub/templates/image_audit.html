@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unattached Images — Smart 1 Hub</title>
+<style>
+  :root{--ink:#0a2240;--ink-2:#33507a;--muted:#6b7d99;--line:#dfe6f0;
+        --bg:#f6f8fb;--card:#fff;--red:#c0392b;--amber:#d18b1f;
+        --blue:#2f80ed;--green:#1e8e5a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:17px;margin:26px 0 8px}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .crumb{font-size:13px;margin:0 0 12px}
+  .crumb a{color:var(--blue);text-decoration:none}
+  .tiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:22px}
+  .tile{background:var(--card);border:1px solid var(--line);border-left-width:4px;
+        border-radius:9px;padding:12px 14px}
+  .tile b{display:block;font-size:22px;line-height:1.2}
+  .tile span{font-size:12.5px;color:var(--muted)}
+  .tile.ok{border-left-color:var(--green)}
+  .tile.bad{border-left-color:var(--red)}
+  .tile.warn{border-left-color:var(--amber)}
+  .tile.neutral{border-left-color:var(--line)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+        padding:14px 16px;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600}
+  .pill.ok{background:#e6f4ec;color:var(--green)}
+  .pill.bad{background:#fbeae8;color:var(--red)}
+  .pill.warn{background:#fdf3e3;color:var(--amber)}
+  .pill.neutral{background:#eef2f7;color:var(--ink-2)}
+  .muted{color:var(--muted)}
+  .why{font-size:12.5px;color:var(--muted);margin:2px 0 0}
+  input[type=search],input[type=text]{padding:8px 11px;border:1px solid var(--line);
+       border-radius:7px;font:14px inherit;width:100%}
+  .bar{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .bar input[type=search]{flex:1;min-width:230px}
+  .btn{display:inline-block;padding:6px 12px;border:1px solid var(--line);
+       border-radius:7px;background:var(--card);color:var(--ink-2);
+       text-decoration:none;font-size:13px;cursor:pointer}
+  .btn:hover{border-color:var(--ink-2)}
+  .btn.go{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .empty{color:var(--muted);padding:18px;text-align:center}
+  .thumb{width:52px;height:40px;object-fit:cover;border-radius:5px;border:1px solid var(--line);background:#eef2f7}
+  .note{font-size:12.5px;color:var(--muted);margin-top:14px;line-height:1.55}
+  .res{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .res input{min-width:150px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><a href="/qa">&larr; QA Reports</a></div>
+  <h1>Unattached Images</h1>
+  <p class="sub">Every image this Hub creates, uploads or lets somebody choose —
+     and whether anybody can say whose it is.</p>
+
+  <div id="tiles" class="tiles"></div>
+
+  <h2>Where images come from</h2>
+  <p class="sub" style="margin-bottom:10px">A tool that files nothing has no
+     unfiled rows to count, so it reads as the cleanest tool here. This asks the
+     other question: does it reach the client gallery at all?</p>
+  <div class="card"><div id="producers"><div class="empty">Loading…</div></div></div>
+
+  <h2>Images with nobody attached</h2>
+  <div class="bar">
+    <input type="search" id="q" placeholder="Search by file, client, tool or project…">
+    <label class="muted" style="font-size:13px">
+      <input type="checkbox" id="onlyUnfiled" checked> Only unattached
+    </label>
+  </div>
+  <div id="stores"><div class="empty">Loading…</div></div>
+
+  <p class="note" id="scopeNote"></p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let DATA = null;
+
+function pill(ok, good, bad){ return '<span class="pill '+(ok?'ok':'bad')+'">'+(ok?good:bad)+'</span>'; }
+
+function drawTiles(d){
+  const notFiling = d.not_filing.length;
+  const t = [];
+  t.push('<div class="tile '+(notFiling?'bad':'ok')+'"><b>'+(d.producers.length-notFiling)
+    +' of '+d.producers.length+'</b><span>tools file what they make</span></div>');
+  /* An unreadable store makes every total a guess, so the headline says so
+     rather than printing a confident number over a hole. */
+  t.push('<div class="tile '+(d.measured?'neutral':'warn')+'"><b>'
+    + (d.measured ? Number(d.total).toLocaleString() : '—')
+    +'</b><span>'+(d.measured?'image records held':'not measured — a store would not answer')+'</span></div>');
+  t.push('<div class="tile '+(d.unfiled?'bad':'ok')+'"><b>'
+    + (d.measured ? Number(d.unfiled).toLocaleString() : '—')
+    +'</b><span>with no client or lead</span></div>');
+  $('tiles').innerHTML = t.join('');
+}
+
+function drawProducers(d){
+  const rows = d.producers.slice().sort((a,b)=>(a.files?1:0)-(b.files?1:0));
+  $('producers').innerHTML = '<table><thead><tr><th>Tool</th><th>Makes</th>'
+    + '<th>Files to a client gallery</th><th>Evidence</th></tr></thead><tbody>'
+    + rows.map(p=>'<tr><td><b>'+esc(p.label)+'</b><div class="why">'+esc(p.why)+'</div>'
+        + (p.cost?'<div class="why" style="color:#c0392b">'+esc(p.cost)+'</div>':'')+'</td>'
+        + '<td><span class="pill neutral">'+esc(p.makes)+'</span></td>'
+        + '<td>'+pill(p.files,'Yes','No')+'</td>'
+        + '<td class="muted" style="font-size:12px">'+esc(p.evidence)+'</td></tr>').join('')
+    + '</tbody></table>';
+}
+
+function drawStores(d){
+  const q = $('q').value.trim().toLowerCase();
+  const onlyUnfiled = $('onlyUnfiled').checked;
+  const out = [];
+  d.stores.forEach(s=>{
+    if(!s.measured){
+      // "We could not look" is not "nothing to fix".
+      out.push('<div class="card"><b>'+esc(s.label)+'</b> '
+        + '<span class="pill warn">not measured</span>'
+        + '<div class="why">'+esc(s.error)+'</div></div>');
+      return;
+    }
+    let rows = s.rows || [];
+    if(!onlyUnfiled) rows = rows;          // the payload carries the unfiled only
+    if(q) rows = rows.filter(r=>[r.label,r.client,r.where,r.id]
+      .some(v=>String(v||'').toLowerCase().includes(q)));
+    const head = '<b>'+esc(s.label)+'</b> '
+      + '<span class="pill '+(s.unfiled?'bad':'ok')+'">'
+      + (s.unfiled? s.unfiled+' unattached' : 'all attached')+'</span> '
+      + '<span class="muted" style="font-size:12.5px">'+Number(s.filed).toLocaleString()
+      + ' of '+Number(s.total).toLocaleString()+' filed</span> '
+      + '<a class="btn" style="float:right" href="'+esc(s.fix)+'">Open the tool</a>';
+    if(!rows.length){
+      out.push('<div class="card">'+head+'<div class="empty">'
+        + (s.unfiled? 'Nothing matches that search.' : 'Every image here names a client or a lead.')
+        + '</div></div>');
+      return;
+    }
+    out.push('<div class="card">'+head
+      + '<table><thead><tr><th></th><th>Image</th><th>Where</th><th>When</th>'
+      + '<th>Attach to</th></tr></thead><tbody>'
+      + rows.map(r=>'<tr>'
+          + '<td>'+(r.url?'<img class="thumb" loading="lazy" src="'+esc(r.url)+'" alt="">':'')+'</td>'
+          + '<td>'+esc(r.label)+'</td>'
+          + '<td class="muted">'+esc(r.where||'—')+'</td>'
+          + '<td class="muted">'+esc(String(r.when||'').slice(0,16))+'</td>'
+          + '<td><div class="res" data-store="'+esc(s.key)+'" data-id="'+esc(r.id)+'">'
+          + '<input type="text" list="clientList" placeholder="Client or lead…">'
+          + '<button type="button" class="btn go">Attach</button>'
+          + '<span class="msg muted" style="font-size:12px"></span></div></td>'
+          + '</tr>').join('')
+      + '</tbody></table></div>');
+  });
+  $('stores').innerHTML = out.join('') || '<div class="empty">No stores to read.</div>';
+  wireAttach();
+}
+
+/* A searchable list of real clients, never a free text box that accepts
+   anything: a typo'd name files the image under a client nothing joins to and
+   reads as a clean success — the rule hub/client_key.py argues at length. The
+   datalist suggests; the server still refuses a blank. */
+function loadClients(){
+  fetch('/api/clients/search?q=', {credentials:'same-origin'})
+    .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+      const names = (d.clients||d.results||[]).map(c=>c.name||c).filter(Boolean);
+      const dl = document.createElement('datalist');
+      dl.id = 'clientList';
+      dl.innerHTML = names.map(n=>'<option value="'+esc(n)+'">').join('');
+      document.body.appendChild(dl);
+    }).catch(()=>{});
+}
+
+function wireAttach(){
+  document.querySelectorAll('.res').forEach(box=>{
+    const btn = box.querySelector('button'), inp = box.querySelector('input'),
+          msg = box.querySelector('.msg');
+    btn.onclick = () => {
+      const client = inp.value.trim();
+      if(!client){ msg.textContent = 'Pick a client first.'; return; }
+      btn.disabled = true; msg.textContent = 'Attaching…';
+      fetch('/api/image-audit/attach',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({store:box.dataset.store,id:box.dataset.id,client})})
+        .then(r=>r.json()).then(d=>{
+          if(!d.ok){ msg.textContent = d.error||'That did not work.'; btn.disabled=false; return; }
+          /* Two writes, reported separately: "attached" and "attached in one
+             of two places" are different outcomes, and one tick for both is
+             how somebody learns not to trust the tick. */
+          msg.innerHTML = d.gallery_filed
+            ? '<span class="pill ok">filed</span>'
+            : '<span class="pill warn">tool updated, gallery not</span> '
+              + esc(d.gallery_error||'');
+          box.closest('tr').style.opacity = .55;
+        }).catch(()=>{ msg.textContent='That did not work.'; btn.disabled=false; });
+    };
+  });
+}
+
+function load(){
+  fetch('/api/image-audit',{credentials:'same-origin'})
+    .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+      DATA = d;
+      drawTiles(d); drawProducers(d); drawStores(d);
+      $('scopeNote').textContent = d.note
+        + (d.unmeasured.length ? ' Not measured: '
+            + d.unmeasured.map(u=>u.label+' ('+u.error+')').join('; ') : '');
+    }).catch(()=>{
+      $('producers').innerHTML = '<div class="empty">The audit could not be read.</div>';
+      $('stores').innerHTML = '';
+    });
+}
+let t; $('q').oninput = () => { clearTimeout(t); t = setTimeout(()=>DATA&&drawStores(DATA), 200); };
+$('onlyUnfiled').onchange = () => DATA && drawStores(DATA);
+loadClients();
+load();
+</script>
+</body>
+</html>

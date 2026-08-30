@@ -76,7 +76,16 @@ def client_folder(client_slug, category):
     return f"{client_slug}/{sub}"
 
 
-def upload_asset(file_path_or_url, client_slug, category, public_id=None, resource_type="auto"):
+# Which categories hold a still. The gallery models an image or a raw file and
+# not a video, so a commercial, a spokesperson clip and a voice track are
+# deliberately NOT filed there -- a row whose thumbnail can never render is
+# worse than an absent one. They stay in the client's Cloudinary tree, which is
+# what `client_folder()` has always organised them into.
+GALLERY_CATEGORIES = {"logo", "logos", "photo", "photos", "image", "images"}
+
+
+def upload_asset(file_path_or_url, client_slug, category, public_id=None,
+                 resource_type="auto", client_name=""):
     if not is_live():
         return {"secure_url": file_path_or_url if str(file_path_or_url).startswith("http") else None,
                 "public_id": public_id or f"mock_{int(time.time())}",
@@ -102,10 +111,41 @@ def upload_asset(file_path_or_url, client_slug, category, public_id=None, resour
                                     folder=folder,
                                     public_id=f"{folder}/{public_id}",
                                     overwrite=True)
-        return {"secure_url": asset.url, "public_id": asset.public_id,
-                "folder": folder}
+        out = {"secure_url": asset.url, "public_id": asset.public_id,
+               "folder": folder}
+        _file_in_gallery(client_name, category, out, name)
+        return out
     except Exception as e:
         return {"secure_url": None, "public_id": None, "error": str(e)}
+
+
+def _file_in_gallery(client_name, category, asset, filename):
+    """A still made for a client belongs in that client's gallery too.
+
+    The folder tree here has always been per client, which is organised and is
+    not the same as findable: nothing outside this module reads a Cloudinary
+    folder, so a logo or a still produced for a client was absent from the one
+    page somebody opens to see what has been made for them.
+
+    Filed by client NAME, never by the slug this module carries: the slug is
+    this module's own and resolving one back to a client is a guess, and
+    filing one client's creative into another client's gallery is the single
+    mistake here that cannot be undone by editing a row. No name, no filing —
+    and hub/image_audit.py reports what went unfiled.
+    """
+    if not client_name or str(category or "").lower() not in GALLERY_CATEGORIES:
+        return
+    if not asset.get("secure_url") or not asset.get("public_id"):
+        return
+    try:
+        from modules.image_picker.filing import file_asset
+        file_asset(client_name=client_name, public_id=asset["public_id"],
+                   url=asset["secure_url"], kind="commercial",
+                   filename=filename or "", provider="commercial_builder",
+                   alt=f"Commercial Builder still for {client_name}",
+                   saved_by="system")
+    except Exception:  # noqa: BLE001 — the asset itself is stored
+        pass
 
 
 def list_client_assets(client_slug, category):
