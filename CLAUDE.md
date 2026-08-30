@@ -2814,6 +2814,71 @@ stray asterisk is not that. Bold survives, normalised to `<b>`, which
 reportlab reads natively, `rich_runs()` turns into a bold run for Word, and
 the preview un-escapes deliberately and alone.
 
+### The proposal a client can answer, and a count that means what it says
+
+A proposal reached a client as a PDF and stopped there. Nothing knew whether
+it had been opened, and the status was a pill a rep clicked from memory —
+`sales_builder` declared no `PUBLIC_PREFIXES` at all, so unlike Scans, Smart 1
+Ads, Calculators and Social, none of it was reachable by a client.
+`/sales/builder/p/<token>` is the document they open, and the one thing on it
+is **accept**.
+
+**No edits from the client, deliberately.** Smart 1 Ads offers three answers
+because an estimate is negotiated line by line; a proposal is a document
+somebody says yes to, and a change request arriving here would be a second
+inbox for a conversation the rep is already having. A client who wants
+something different says so, the rep edits the quote, and the same link shows
+the new version.
+
+**The page embeds the PDF rather than re-rendering the proposal in HTML.**
+That is why it is cheap: the PDF, the Word export and the preview are already
+three renderers of one document, and a fourth would be the drift this codebase
+has paid for twice. The client reads exactly what was signed off, and there is
+nothing to keep in step.
+
+**"Opened 3 times" is a sentence a rep acts on**, so `hub/view_tracking.py`
+holds what an open is. Four ways that number quietly comes to mean something
+else, and each is closed:
+
+- **A mail security gateway opens every link in the message.** Mimecast,
+  Proofpoint and the rest fetch a URL within seconds of delivery, before any
+  human sees it — so an open is recorded by the **page reporting itself**,
+  which a scanner fetching HTML never does because it runs no JavaScript.
+  Counted on the request instead, every proposal reads as opened the moment it
+  is sent: a confident wrong answer that stops somebody chasing a client who
+  has never seen it.
+- **The rep opens it to check the link works.** A signed-in Hub session is
+  never counted, and the client page *says so on itself* rather than leaving
+  the rep to trust it. This is the rule the feature was asked for with, and it
+  is the one that would break silently — the count would simply be one too
+  high, with no way to tell which one.
+- **A reload is not a second read**, so a visitor is collapsed inside a
+  thirty-minute window — **per revision**, because the first sight of a
+  version the rep has just sent is a new read whatever the clock says. That
+  scoping was a defect the test caught: a client opening a revision five
+  minutes after it was sent counted as nothing.
+- **Nothing stores an address.** `visitor_hash` is a keyed digest used for the
+  window check and for nothing else; the panel shows counts, times and whether
+  it was a phone. The rule `hub/auth.py` already applies to its lockout table.
+
+**An acceptance is a statement about one revision**, so it is a row rather
+than a flag. A quote revised after a client said yes does not carry that yes
+forward onto a document nobody agreed to — the panel says revision 1 was
+accepted and is now superseded, and the client can accept the new one. The
+share token is minted once and kept for the same reason a revision does not
+mint a new one: a link is already in somebody's inbox.
+
+Three smaller rules it inherits. A rep cannot press Accept on the client's
+page — an acceptance filed in a client's name that the client never gave is
+worse than none. A name and an email are required, because an acceptance
+nobody can attribute is not one. And **revoked, deleted and never-existed all
+answer the same 404**, because a client-facing URL that says "this one
+expired" tells somebody probing which tokens are real.
+
+`test_proposal_share.py` asserts all of it, including that a client with no
+Hub login can open the page, that the Hub's chrome is not injected into it,
+and that a rep can read the PDF without marking it read.
+
 ### The rate card is ours, and Expected Results is a framework
 
 Two things a client should never have read, on the document they decide from.
@@ -5029,6 +5094,8 @@ python3 test_website_audit.py      # the spend block that leads the audit, the c
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
                                    #   only once, and the internal calculator that
                                    #   computes the same plan and captures nothing
+python3 test_proposal_share.py     # the client's copy: who opened it, how often,
+                                   #   and an acceptance tied to one revision
 python3 test_proposal_targeting.py # the coverage map, the pasted location list,
                                    #   the competitor research, and a bulleted
                                    #   list that reaches the client as a list

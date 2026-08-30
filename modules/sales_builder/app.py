@@ -43,6 +43,7 @@ order number and the two IO PDFs, because those belong to the IO.
 import json
 import os
 import re
+import secrets
 import threading
 import logging
 from datetime import datetime, timezone
@@ -86,6 +87,7 @@ from hub import proposal_spec as hub_spec
 from hub import rate_card as hub_rate_card
 from hub import target_areas as hub_areas
 from hub import target_map as hub_map
+from hub import view_tracking as hub_views
 from hub.config import settings as hub_config
 
 # Activity logging. Guarded so this module still runs standalone, but
@@ -174,6 +176,65 @@ class Quote(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
+
+
+# ---------------------------------------------------------------------------
+# The client's copy: one link, what it was opened by, and whether they said yes
+#
+# Three tables rather than columns on `quotes`, because `create_all()` creates
+# missing tables and never adds a column to an existing one -- six columns
+# added to the live Postgres would be silently absent there while every local
+# test passed, which is the trap `hub_user_profiles` and `cb_render_approvals`
+# were each made their own table to avoid.
+#
+# They are also genuinely three things. A share is an address that outlives
+# the revisions sent to it. A view is an event. An acceptance is a statement
+# about **one specific revision**, so it is a row rather than a flag -- an
+# edit does not delete what a client agreed to last week, it supersedes it,
+# and both facts have to survive for the panel to say so.
+# ---------------------------------------------------------------------------
+class QuoteShare(Base):
+    __tablename__ = "quote_shares"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    quote_id = Column(Integer, index=True, nullable=False)
+    # One token per quote, minted once and kept. A second token would mean a
+    # link already in a client's inbox stops working the day somebody presses
+    # the button again.
+    token = Column(String(64), unique=True, index=True, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_by = Column(String(120), default="")
+    revoked_at = Column(DateTime, nullable=True)
+    # The revision the rep last deliberately sent. The page always shows the
+    # current one; this is how the panel can say "you have edited it since".
+    sent_revision = Column(Integer, default=1)
+    sent_at = Column(DateTime, nullable=True)
+
+
+class QuoteView(Base):
+    __tablename__ = "quote_views"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    quote_id = Column(Integer, index=True, nullable=False)
+    token = Column(String(64), index=True, nullable=False)
+    at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    # Which revision they were reading. A count with no revision on it cannot
+    # answer "did they ever open the one I sent on Tuesday".
+    revision = Column(Integer, default=1)
+    # A keyed digest, never an address -- see hub/view_tracking.py. Used to
+    # recognise a reload inside the window and for nothing else.
+    visitor = Column(String(64), default="", index=True)
+    device = Column(String(20), default="")
+
+
+class QuoteAcceptance(Base):
+    __tablename__ = "quote_acceptances"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    quote_id = Column(Integer, index=True, nullable=False)
+    token = Column(String(64), index=True, default="")
+    revision = Column(Integer, default=1)
+    at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    name = Column(String(200), default="")
+    email = Column(String(200), default="")
+    visitor = Column(String(64), default="")
 
 
 class Activity(Base):
@@ -3252,6 +3313,380 @@ def _upload_proposal_pdf(quote_number, client, pdf_bytes, revision):
     except Exception as exc:                            # noqa: BLE001
         logger.warning("proposal PDF upload failed: %s", exc)
         return ""
+
+
+# =====================================================================
+# The client's copy of the proposal
+#
+# Until now a proposal reached a client as a PDF and stopped there: nothing
+# knew whether it had been opened, and the status was a pill a rep clicked
+# from memory. `/sales/builder/p/<token>` is the document a client opens, and
+# the one thing they can do on it is accept it.
+#
+# Deliberately **no edits from the client**. Smart 1 Ads offers three answers
+# because a campaign estimate is a thing to negotiate line by line; a proposal
+# is a document somebody says yes to, and a change request arriving here would
+# be a second inbox for something the rep is already having a conversation
+# about. A client who wants something different says so to the rep, who edits
+# the quote and sends the same link again.
+#
+# The page **embeds the PDF** rather than re-rendering the proposal in HTML.
+# That is the whole reason it is cheap: the PDF, the Word export and the
+# preview are already three renderers of one document, and a fourth would be
+# the drift this codebase pays for twice already. The client reads exactly the
+# document that was signed off, and there is nothing to keep in step.
+# =====================================================================
+# wsgi.py hands this to BOTH the AuthGuard (so a client with no Hub login can
+# reach it) and HubBar (so the sidebar, help layer and feedback tab are not
+# injected into a document a client reads). One list, so the mount and the
+# module cannot disagree about what is public -- the arrangement
+# modules/scans and modules/ads_builder already use.
+PUBLIC_PREFIXES = ("/p/", "/api/p/")
+
+_TOKEN_BYTES = 16       # 128 bits: the token is the whole security model
+
+
+def _client_base() -> str:
+    """The origin a client-facing link is built from.
+
+    `PUBLIC_BASE_URL` first, because a link is pasted into an email and has to
+    work from outside; `request.host_url` only as the fallback. Trimmed to an
+    origin for the reason `modules/image_picker/provisioning.py` gives: a
+    dispatcher-mounted module's url_root carries its own mount, and pasting a
+    path onto it builds /sales/builder/sales/builder/p/… -- a 404 the client
+    meets and nobody else does.
+    """
+    base = (hub_config.public_base_url or "").strip()
+    if not base:
+        try:
+            base = request.host_url
+        except Exception:                       # noqa: BLE001
+            base = ""
+    base = (base or "").rstrip("/")
+    # PUBLIC_BASE_URL has held a whole callback URL before now, so trim to the
+    # origin rather than trusting it.
+    match = re.match(r"^(https?://[^/]+)", base)
+    return match.group(1) if match else base
+
+
+def share_url(token: str) -> str:
+    return f"{_client_base()}/sales/builder/p/{token}"
+
+
+def _get_or_make_share(db, q, sending: bool = False) -> "QuoteShare":
+    """This quote's client link, minted once and kept.
+
+    `sending` marks the revision the rep deliberately sent, which is what lets
+    the panel say "you have edited this since you sent it" rather than leaving
+    a rep to remember.
+    """
+    share = (db.query(QuoteShare)
+             .filter(QuoteShare.quote_id == q.id)
+             .order_by(QuoteShare.id.desc()).first())
+    if share is None:
+        share = QuoteShare(quote_id=q.id, token=secrets.token_urlsafe(_TOKEN_BYTES),
+                           created_by=_signed_in_as(), sent_revision=q.revision or 1)
+        db.add(share)
+        db.flush()
+    if sending:
+        share.revoked_at = None
+        share.sent_revision = q.revision or 1
+        share.sent_at = datetime.now(timezone.utc)
+    return share
+
+
+def _staff_reader() -> str:
+    """The signed-in Hub user, or "" for a client.
+
+    The rule the whole feature was asked for with: a rep has to be able to
+    open the client's link and read the document without marking it read. A
+    session cookie is what tells the two apart, and it costs the rep nothing
+    to remember.
+    """
+    try:
+        from hub import auth as hub_auth
+        return hub_auth.verify_cookie_value(
+            request.cookies.get(hub_auth.COOKIE_NAME)) or ""
+    except Exception:                           # noqa: BLE001
+        return ""
+
+
+def _share_state(db, q) -> dict:
+    """Everything the builder's panel says about the client's copy."""
+    share = (db.query(QuoteShare)
+             .filter(QuoteShare.quote_id == q.id)
+             .order_by(QuoteShare.id.desc()).first())
+    if share is None:
+        return {"shared": False, "url": "", "views": 0, "opens": [],
+                "accepted": None, "superseded": None, "revision": q.revision or 1}
+    views = (db.query(QuoteView)
+             .filter(QuoteView.quote_id == q.id)
+             .order_by(QuoteView.at.desc()).limit(50).all())
+    accepts = (db.query(QuoteAcceptance)
+               .filter(QuoteAcceptance.quote_id == q.id)
+               .order_by(QuoteAcceptance.id.desc()).all())
+    current = q.revision or 1
+    live = next((a for a in accepts if (a.revision or 1) == current), None)
+    superseded = next((a for a in accepts if (a.revision or 1) != current), None)
+
+    def _acc(row):
+        if not row:
+            return None
+        return {"name": row.name, "email": row.email,
+                "revision": row.revision or 1,
+                "at": row.at.isoformat() if row.at else ""}
+
+    return {
+        "shared": True,
+        "revoked": bool(share.revoked_at),
+        "url": share_url(share.token),
+        "token": share.token,
+        "revision": current,
+        "sent_revision": share.sent_revision or 1,
+        # "You have edited it since you sent it" is the thing a rep cannot
+        # know from a list of opens, and the reason to re-send the link.
+        "edited_since_sent": bool(share.sent_at) and (share.sent_revision or 1) != current,
+        "sent_at": share.sent_at.isoformat() if share.sent_at else "",
+        "views": len(views),
+        "views_this_revision": sum(1 for v in views if (v.revision or 1) == current),
+        "first_view": views[-1].at.isoformat() if views else "",
+        "last_view": views[0].at.isoformat() if views else "",
+        "opens": [{"at": v.at.isoformat() if v.at else "",
+                   "revision": v.revision or 1, "device": v.device or ""}
+                  for v in views[:12]],
+        "accepted": _acc(live),
+        "superseded": _acc(superseded) if not live else None,
+    }
+
+
+@app.get("/api/quotes/<int:qid>/share")
+def api_share_state(qid):
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        return jsonify({"ok": True, "share": _share_state(db, q)})
+    finally:
+        db.close()
+
+
+@app.post("/api/quotes/<int:qid>/share")
+def api_share_create(qid):
+    """Mint (or re-send) the client link for this quote."""
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        share = _get_or_make_share(db, q, sending=True)
+        if q.status == "Draft":
+            q.status = "Sent"
+        log_activity(db, q.id, "🔗", f"Client link sent — revision {q.revision or 1}")
+        db.commit()
+        # `actor` is the wrapper's own keyword -- audit.for_module passes it
+        # from its actor_fn -- so who did this travels under its own name. The
+        # first-positional trap this file's own docstring names, one keyword on.
+        _audit("quote_shared", client=q.client, quote=q.quote_number,
+               sent_by=_signed_in_as(), revision=q.revision or 1)
+        return jsonify({"ok": True, "share": _share_state(db, q)})
+    finally:
+        db.close()
+
+
+@app.post("/api/quotes/<int:qid>/share/revoke")
+def api_share_revoke(qid):
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        share = (db.query(QuoteShare).filter(QuoteShare.quote_id == q.id)
+                 .order_by(QuoteShare.id.desc()).first())
+        if share:
+            share.revoked_at = datetime.now(timezone.utc)
+            log_activity(db, q.id, "🔒", "Client link revoked")
+            db.commit()
+        return jsonify({"ok": True, "share": _share_state(db, q)})
+    finally:
+        db.close()
+
+
+# ------------------------------------------------------------------ public
+def _open_share(db, token):
+    """The quote behind a token, or (None, None).
+
+    Revoked, deleted and never-existed all answer the same 404, because a
+    client-facing URL that says "this one expired" tells somebody probing
+    which tokens are real -- the rule `modules/ads_builder` settled.
+    """
+    share = db.query(QuoteShare).filter(QuoteShare.token == str(token or "")).first()
+    if not share or share.revoked_at:
+        return None, None
+    q = db.get(Quote, share.quote_id)
+    if not q:
+        return None, None
+    return share, q
+
+
+@app.get("/p/<token>")
+def page_client_proposal(token):
+    db = SessionLocal()
+    try:
+        share, q = _open_share(db, token)
+        if not share:
+            return render_template("client_gone.html"), 404
+        staff = _staff_reader()
+        return render_template(
+            "client_proposal.html", q=q, token=token, staff=staff,
+            revision=q.revision or 1,
+            accepted=_share_state(db, q)["accepted"])
+    finally:
+        db.close()
+
+
+@app.get("/p/<token>.pdf")
+def page_client_pdf(token):
+    """The document itself, for the embed and for the download button.
+
+    Deliberately no view recorded here. The page reports its own open once,
+    and counting this too would report every client as having read it twice --
+    and would count the rep's own check of the link, which is the one thing
+    the feature was asked not to do.
+    """
+    db = SessionLocal()
+    try:
+        share, q = _open_share(db, token)
+        if not share:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        state = json.loads(q.data or "{}")
+        ensure_sections(state)
+        pdf_bytes, title = build_proposal_pdf(q, state)
+    except Exception as exc:                    # noqa: BLE001
+        logger.warning("client PDF failed for %s: %s", token, exc)
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    finally:
+        db.close()
+    resp = send_file(BytesIO(pdf_bytes), mimetype="application/pdf",
+                     as_attachment=request.args.get("download") == "1",
+                     download_name=title + ".pdf")
+    resp.headers["Cache-Control"] = "private, max-age=60"
+    return resp
+
+
+@app.post("/api/p/<token>/opened")
+def api_client_opened(token):
+    """The page reporting that a browser actually rendered it.
+
+    Called from the page rather than recorded on the HTML request, because a
+    mail security gateway fetches every link in a message within seconds of
+    delivery and runs no JavaScript. Counted there, every proposal reads as
+    opened the moment it is sent -- a confident wrong answer that stops a rep
+    chasing a client who has never seen it.
+
+    Answers 200 whatever it decides. This is a beacon: a client's page must
+    not show an error because we chose not to count their visit.
+    """
+    db = SessionLocal()
+    try:
+        share, q = _open_share(db, token)
+        if not share:
+            return jsonify({"ok": True, "counted": False, "reason": "unknown link"})
+        staff = _staff_reader()
+        if staff:
+            return jsonify({"ok": True, "counted": False,
+                            "reason": "staff preview — not counted"})
+        agent = request.headers.get("User-Agent", "")
+        automated, why = hub_views.looks_automated(agent, request.headers)
+        if automated:
+            return jsonify({"ok": True, "counted": False, "reason": why})
+        visitor = hub_views.visitor_hash(
+            _client_ip(), hub_config.secret_key)
+        # The window is per visitor **per revision**. A reload of the same
+        # document is one read; the first sight of a revision the rep has just
+        # sent is a new one, whatever the clock says -- and "have they opened
+        # the version I sent this morning" is the whole question a revised
+        # quote asks.
+        last = (db.query(QuoteView)
+                .filter(QuoteView.quote_id == q.id,
+                        QuoteView.visitor == visitor,
+                        QuoteView.revision == (q.revision or 1))
+                .order_by(QuoteView.at.desc()).first())
+        last_seen = last.at.replace(tzinfo=timezone.utc).timestamp() if last and last.at else None
+        now = datetime.now(timezone.utc)
+        if not hub_views.counts_as_new_view(last_seen, now.timestamp()):
+            return jsonify({"ok": True, "counted": False,
+                            "reason": "already counted this visit"})
+        db.add(QuoteView(quote_id=q.id, token=share.token, at=now,
+                         revision=q.revision or 1, visitor=visitor,
+                         device=hub_views.device_kind(agent)))
+        log_activity(db, q.id, "👁", f"Client opened revision {q.revision or 1}")
+        db.commit()
+        return jsonify({"ok": True, "counted": True})
+    except Exception as exc:                    # noqa: BLE001
+        logger.warning("view beacon failed for %s: %s", token, exc)
+        return jsonify({"ok": True, "counted": False, "reason": "not recorded"})
+    finally:
+        db.close()
+
+
+@app.post("/api/p/<token>/accept")
+def api_client_accept(token):
+    """The client says yes, to one specific revision.
+
+    Name and email are required and are the whole of it: an acceptance nobody
+    can attribute is not an acceptance, and anything more is a form standing
+    between a client and the word yes. Stamped with the revision, because
+    approving is a statement about a specific document -- if the quote is
+    revised afterwards the panel says the acceptance was superseded rather
+    than quietly carrying it forward onto a document nobody agreed to.
+    """
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("name") or "").strip()[:200]
+    email = str(body.get("email") or "").strip()[:200]
+    if not name or "@" not in email:
+        return jsonify({"ok": False,
+                        "error": "Please give your name and an email address so "
+                                 "we know who accepted."}), 400
+    db = SessionLocal()
+    try:
+        share, q = _open_share(db, token)
+        if not share:
+            return jsonify({"ok": False, "error": "This link is no longer active."}), 404
+        if _staff_reader():
+            # A rep pressing Accept on the client's page would file an
+            # acceptance in a client's name that the client never gave.
+            return jsonify({"ok": False,
+                            "error": "You are signed in to the Hub — a proposal is "
+                                     "accepted by the client, on their own copy."}), 403
+        revision = q.revision or 1
+        existing = (db.query(QuoteAcceptance)
+                    .filter(QuoteAcceptance.quote_id == q.id,
+                            QuoteAcceptance.revision == revision).first())
+        if existing:
+            return jsonify({"ok": True, "already": True,
+                            "accepted": {"name": existing.name,
+                                         "at": existing.at.isoformat() if existing.at else ""}})
+        db.add(QuoteAcceptance(
+            quote_id=q.id, token=share.token, revision=revision,
+            name=name, email=email,
+            visitor=hub_views.visitor_hash(_client_ip(), hub_config.secret_key)))
+        q.status = "Approved"
+        log_activity(db, q.id, "✅", f"Accepted by {name} — revision {revision}")
+        db.commit()
+        _audit("quote_accepted", client=q.client, quote=q.quote_number,
+               accepted_by=f"{name} <{email}>", revision=revision)
+        return jsonify({"ok": True, "accepted": {"name": name, "revision": revision}})
+    finally:
+        db.close()
+
+
+def _client_ip() -> str:
+    try:
+        from hub import auth as hub_auth
+        return hub_auth.client_ip(request.headers, request.remote_addr or "")
+    except Exception:                           # noqa: BLE001
+        return request.remote_addr or ""
 
 
 @app.post("/api/quotes/<int:qid>/deliver")

@@ -945,6 +945,8 @@ async function openDrawer(id){
   </ul>
   <div class="dsec">Status</div>
   <div style="display:flex;gap:6px;flex-wrap:wrap">${["Draft","Sent","Approved","Lost"].map(s=>`<span class="pill ${x.status===s?'on':''}" style="margin:0" onclick="setStatus(${x.id},'${s}')">${s}</span>`).join("")}</div>
+  <div class="dsec">The client's copy</div>
+  <div id="shareBox"><div class="note"><span class="spin"></span>Checking…</div></div>
   <div class="dsec">Documents</div><ul class="kv2">
    <li><span>Branded PDF</span><b><a href="/sales/builder/api/quotes/${x.id}/pdf" target="_blank">Generate / open PDF</a>${x.has_pdf?` · <a href="/sales/builder/api/quotes/${x.id}/pdf/archived" target="_blank">last saved copy</a>`:""}</b></li>
    <li><span>Word copy</span><b><a href="/sales/builder/api/quotes/${x.id}/docx">Export .docx</a></b></li>
@@ -963,7 +965,91 @@ async function openDrawer(id){
   ${x.status!=='Converted'?`<button class="btn btn-gold" onclick="closeDrawer();openConvert(${x.id})">🔁 Convert to IO</button>`:""}`;
  document.getElementById('ov').style.display="block";
  document.getElementById('dr').classList.add("open");
+ drawShare(x.id);
 }
+
+/* ============================================================
+   THE CLIENT'S COPY
+
+   One link per quote, minted once and kept, so a link already in a client's
+   inbox goes on working when the quote is revised. What the panel is for is
+   the two things a rep cannot otherwise know: whether it was opened, and
+   whether the client has seen THIS revision or the one before it.
+
+   "Opens" counts browsers that actually rendered the page, never staff and
+   never a link scanner — hub/view_tracking.py carries the rules, and the
+   panel says so rather than presenting a bare number.
+   ============================================================ */
+let SHARE={};
+async function drawShare(id){
+ const box=document.getElementById('shareBox');if(!box)return;
+ let d;
+ try{d=await api('/sales/builder/api/quotes/'+id+'/share');}
+ catch(e){box.innerHTML='<div class="note">Could not read the client link ('+esc(e.message)+').</div>';return;}
+ const s=SHARE[id]=d.share||{};
+ if(!s.shared){
+  box.innerHTML=`<div class="note">No client link yet. Creating one gives the client a page
+   showing this proposal, with one thing on it: accept.</div>
+   <div class="addrow" style="margin-top:9px"><button class="btn btn-primary" onclick="makeShare(${id})">🔗 Create the client link</button></div>`;
+  return;}
+ if(s.revoked){
+  box.innerHTML=`<div class="note">The client link is <b>switched off</b> — anyone opening it sees
+   the same page as a link that never existed.</div>
+   <div class="addrow" style="margin-top:9px"><button class="btn btn-line" onclick="makeShare(${id})">Turn it back on</button></div>`;
+  return;}
+ const acc=s.accepted,sup=s.superseded;
+ const opens=s.views||0;
+ box.innerHTML=`
+  <div class="fld" style="margin-top:0"><label>Send this to the client</label>
+   <input id="shareUrl" readonly value="${esc(s.url)}" onclick="this.select()"></div>
+  <div class="addrow" style="margin-top:8px">
+   <button class="btn btn-line" onclick="copyShare()">📋 Copy link</button>
+   <button class="btn btn-ghost" onclick="window.open('${esc(s.url)}','_blank')">Open it yourself</button>
+   <button class="btn btn-ghost" onclick="revokeShare(${id})">Switch it off</button></div>
+  <div class="note" style="margin-top:7px">Opening it yourself does not count as the client
+   reading it — you are signed in, and the page says so.</div>
+  ${s.edited_since_sent?`<div class="warnbox" style="margin-top:9px">You have edited this proposal
+    since you sent revision ${s.sent_revision}. The link already shows revision ${s.revision} —
+    tell the client there is a new version, or
+    <a onclick="makeShare(${id})" style="cursor:pointer;color:var(--blue);font-weight:700">mark it as sent</a>.</div>`:''}
+  <div class="dsec" style="margin-top:14px">Opened</div>
+  ${opens?`<div class="note"><b>${opens}</b> time${opens===1?'':'s'}${
+     s.views_this_revision!==opens?` · <b>${s.views_this_revision}</b> since revision ${s.revision}`:''}
+    ${s.last_view?` · last on ${new Date(s.last_view).toLocaleString()}`:''}</div>
+   <div class="note" style="margin-top:5px">${s.opens.map(o=>
+     new Date(o.at).toLocaleString()+' · rev '+o.revision+' · '+esc(o.device)).join('<br>')}</div>`
+   :`<div class="note">Not opened yet. An open is counted when a browser actually shows the page —
+     a link scanner in the client's mail system does not count, and neither do you.</div>`}
+  <div class="dsec" style="margin-top:14px">Accepted</div>
+  ${acc?`<div class="note" style="color:#1c6b32"><b>✓ Accepted by ${esc(acc.name)}</b>
+      ${acc.email?' ('+esc(acc.email)+')':''}${acc.at?' on '+new Date(acc.at).toLocaleString():''}
+      — revision ${acc.revision}.</div>`
+   :(sup?`<div class="note">Revision ${sup.revision} was accepted by <b>${esc(sup.name)}</b>${
+        sup.at?' on '+new Date(sup.at).toLocaleString():''}. This proposal is now revision
+        ${s.revision}, so that acceptance is <b>superseded</b> — the client has not agreed to the
+        current version.</div>`
+      :`<div class="note">Not yet.</div>`)}`;}
+async function makeShare(id){
+ try{await api('/sales/builder/api/quotes/'+id+'/share',{method:'POST'});
+  toast("Client link ready — copy it to the client.");drawShare(id);refreshLists();}
+ catch(e){toast(e.message);}}
+async function revokeShare(id){
+ if(!confirm("Switch the client link off? Anyone who already has it will see the same page as a link that never existed."))return;
+ try{await api('/sales/builder/api/quotes/'+id+'/share/revoke',{method:'POST'});
+  toast("Client link switched off.");drawShare(id);}
+ catch(e){toast(e.message);}}
+/* navigator.clipboard is unavailable on http and refusing is allowed, so the
+   fallback selects the text and says so rather than reporting a copy that
+   never happened -- the rule modules/ads_builder settled. */
+function copyShare(){
+ const el=document.getElementById('shareUrl');if(!el)return;
+ el.select();
+ if(navigator.clipboard&&navigator.clipboard.writeText){
+  navigator.clipboard.writeText(el.value).then(()=>toast("Link copied."),
+    ()=>toast("Select the link above and press Ctrl-C."));
+  return;}
+ try{document.execCommand('copy');toast("Link copied.");}
+ catch(e){toast("Select the link above and press Ctrl-C.");}}
 function closeDrawer(){document.getElementById('ov').style.display="none";document.getElementById('dr').classList.remove("open");}
 async function setStatus(id,s){try{await api('/sales/builder/api/quotes/'+id,{method:'PUT',body:JSON.stringify({status:s})});toast("Status → "+s);openDrawer(id);refreshLists();}catch(e){toast(e.message);}}
 async function dupQuote(id){try{const d=await api('/sales/builder/api/quotes/'+id+'/duplicate',{method:'POST'});toast("Created "+d.quote.quote_number+" from the original.");closeDrawer();editLoaded(d.quote);}catch(e){toast(e.message);}}

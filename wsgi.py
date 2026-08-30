@@ -661,6 +661,14 @@ _SCANS_PUBLIC = tuple(getattr(scans, "PUBLIC_PREFIXES", ("/api/callback",))) \
 _ADS_PUBLIC = tuple(getattr(adsb, "PUBLIC_PREFIXES", ("/estimate/",))) \
     if adsb else ("/estimate/",)
 
+# And for the Proposal Builder: /sales/builder/p/<token> is the proposal a
+# CLIENT opens and accepts, and a client has no Hub login. Read from the module
+# so the mount and the module cannot drift, and handed to both AuthGuard
+# (reachable) and HubBar (no sidebar, help layer or feedback tab on a document
+# a client reads).
+_SALESB_PUBLIC = tuple(getattr(salesb, "PUBLIC_PREFIXES", ("/p/", "/api/p/"))) \
+    if salesb else ("/p/", "/api/p/")
+
 # And for the Social Content Planner: /tools/social/c/<token>/… is the four
 # pages a CLIENT opens — send us something to post, swipe on ideas, approve a
 # post, say what to write about — and a client has no Hub login. Read from the
@@ -679,7 +687,8 @@ application = DispatcherMiddleware(hub_app, {
     # unguessable link a converted lead opens their own report on.
     "/scans": _mount(scans.app, "/scans",
                      public_prefixes=_SCANS_PUBLIC) if scans else scans_fb,
-    "/sales/builder": _mount(salesb.app, "/sales/builder") if salesb else salesb_fb,
+    "/sales/builder": _mount(salesb.app, "/sales/builder",
+                             public_prefixes=_SALESB_PUBLIC) if salesb else salesb_fb,
     "/sales/proposals": _mount(propb.app, "/sales/proposals") if propb else propb_fb,
     "/tools/seo-images": _mount(seoimg.app, "/tools/seo-images") if seoimg else seoimg_fb,
     "/tools/image-creator": _mount(imgcreator.app, "/tools/image-creator") if imgcreator else imgcreator_fb,

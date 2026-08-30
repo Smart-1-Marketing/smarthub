@@ -367,6 +367,17 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: Proposal share tests
+        # The client's copy, and what counts as somebody having read it.
+        # Guarded like the steps around it. Nothing in it reaches a third
+        # party: the "client" is a second test client with no Hub cookie.
+        run: |
+          if [ -f test_proposal_share.py ]; then
+            python test_proposal_share.py
+          else
+            echo "test_proposal_share.py not on this branch — nothing to run."
+          fi
+
       - name: Proposal targeting tests — the map, the pastes, the research
         # Guarded like the steps around it so this workflow stays mergeable on
         # a branch that predates the file. Nothing in it reaches a third party:
