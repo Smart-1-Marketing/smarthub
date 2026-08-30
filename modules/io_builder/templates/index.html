@@ -197,6 +197,14 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
      loaded is shown to you and confirmed in the interview &mdash; a proposal
      quotes a price, an insertion order bills it, so nothing reaches the IO
      unchecked.</p>
+  <!-- Unfinished insertion orders. Hidden until there is one, because a
+       permanently empty panel is furniture people stop reading. -->
+  <div class="start-panel" id="startDraftsPanel" hidden style="margin-bottom:14px">
+    <div style="font-size:12.5px;color:var(--navy);font-weight:600" id="startDraftsHead">Unfinished insertion orders</div>
+    <div class="start-list" id="startDraftsList"></div>
+    <div class="tiny" id="startDraftsNote" style="margin-top:6px"></div>
+  </div>
+
   <div class="start-options">
     <button type="button" class="start-opt" id="optClient" onclick="startChoose('client')">
       <b>An existing client</b>
@@ -3017,7 +3025,16 @@ function downloadJSON(){
  const blob=new Blob([JSON.stringify(exportData,null,2)],{type:"application/json"}),a=document.createElement("a");
  a.href=URL.createObjectURL(blob);a.download=(state.client||"client").replace(/[^a-z0-9]/gi,"_")+"_SMART1_Campaign_Plan.json";a.click();URL.revokeObjectURL(a.href)
 }
-function restart(){if(!window.confirm("Start over? This clears the current IO and your saved draft."))return;try{localStorage.removeItem("smart1_io_draft_v2");localStorage.removeItem("smart1_io_draft_v1");}catch(e){}location.reload()}
+function restart(){
+ /* The sentence has to stay true: the draft is on the server as well as in
+    this browser now, so Reset clears both. Left to localStorage alone, a
+    reset IO would come straight back on the start screen's list. */
+ if(!window.confirm("Start over? This clears the current IO and your saved draft."))return;
+ try{localStorage.removeItem("smart1_io_draft_v1");}catch(e){}
+ if(typeof clearDraft==="function")clearDraft();
+ else{try{localStorage.removeItem("smart1_io_draft_v2");}catch(e){}}
+ location.reload();
+}
 
 // --- Load / duplicate an IO from an exported JSON (#15) ---
 function importIO(file){
@@ -3091,12 +3108,95 @@ async function checkReachability(){
 }
 
 // --- Draft autosave / recovery (survives refreshes and timeouts) ---
+/* Two copies on purpose, and they answer different questions.
+   localStorage is instant, costs nothing and survives a refresh or a crash
+   -- but it survives exactly one browser, so somebody who is interrupted on
+   their laptop and picks the IO up on a different machine had nothing at
+   all. The server copy is the one that travels, and it is what puts an
+   unfinished IO on the start screen where somebody can find it without
+   having to remember it exists. See hub/drafts.py. */
 const DRAFT_KEY="smart1_io_draft_v2";
-let _saveTimer=null;
-function saveDraft(){try{localStorage.setItem(DRAFT_KEY,JSON.stringify({state:state,index:index,currentProduct:currentProduct,tempItem:tempItem,savedAt:new Date().toISOString()}));}catch(e){}}
-function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(saveDraft,600);}
-function clearDraft(){try{localStorage.removeItem(DRAFT_KEY);}catch(e){}}
+const DRAFT_ID_KEY="smart1_io_draft_id_v2";
+let _saveTimer=null,_serverTimer=null,_serverBusy=false,_serverAgain=false;
+let DRAFT_ID=(function(){try{return localStorage.getItem(DRAFT_ID_KEY)||"";}catch(e){return "";}})();
+function setDraftId(id){DRAFT_ID=id||"";try{if(DRAFT_ID)localStorage.setItem(DRAFT_ID_KEY,DRAFT_ID);else localStorage.removeItem(DRAFT_ID_KEY);}catch(e){}}
+function draftTitle(){
+ /* What the row on the start screen says. The ordinary case for a draft is
+    that neither the client nor the order number has been asked yet, so this
+    degrades rather than refusing: a row somebody cannot place is still far
+    better than an unfinished IO nobody knows about. */
+ var c=String(state.client||"").trim(),o=String(state.orderNumber||"").trim();
+ if(c&&o)return c+" — IO "+o;
+ return c||(o?("IO "+o):"");
+}
+function draftHasProgress(){
+ return !!(state&&(state.client||state.orderNumber||(state.selected&&state.selected.length)));
+}
+function saveDraft(){try{localStorage.setItem(DRAFT_KEY,JSON.stringify({state:state,index:index,currentProduct:currentProduct,tempItem:tempItem,draftId:DRAFT_ID,savedAt:new Date().toISOString()}));}catch(e){}}
+function saveDraftServer(){
+ /* Never two writes in the air at once: the second could land first and put
+    an older state back over a newer one. A save asked for while one is
+    running is remembered and run after it. */
+ if(_serverBusy){_serverAgain=true;return;}
+ if(!draftHasProgress())return;   // nothing anybody would come back for
+ _serverBusy=true;
+ var body={id:DRAFT_ID,title:draftTitle(),step:index,
+           state:{state:state,index:index,currentProduct:currentProduct,tempItem:tempItem,
+                  savedAt:new Date().toISOString()}};
+ fetch("{{ request.script_root }}/api/draft",{method:"POST",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d&&d.ok&&d.id){setDraftId(d.id);saveDraft();}
+    /* A cap that drops somebody's oldest draft says so. A draft that goes
+       missing in silence is the thing this whole feature exists to stop. */
+    if(d&&d.dropped&&d.dropped.length&&typeof showBanner==="function"){
+      showBanner("Your oldest unfinished IO ("+d.dropped.join(", ")+") was cleared to make room for this one.","warn");
+    }
+  })
+  .catch(function(){/* the browser copy still has it; never block the form */})
+  .then(function(){_serverBusy=false;if(_serverAgain){_serverAgain=false;scheduleServerSave();}});
+}
+function scheduleServerSave(){if(_serverTimer)clearTimeout(_serverTimer);_serverTimer=setTimeout(saveDraftServer,4000);}
+function scheduleSave(){
+ if(_saveTimer)clearTimeout(_saveTimer);
+ _saveTimer=setTimeout(saveDraft,600);
+ scheduleServerSave();
+}
+function clearDraft(){
+ try{localStorage.removeItem(DRAFT_KEY);}catch(e){}
+ if(_saveTimer)clearTimeout(_saveTimer);
+ if(_serverTimer)clearTimeout(_serverTimer);
+ _serverAgain=false;
+ var id=DRAFT_ID;setDraftId("");
+ /* keepalive, because both callers -- submitting the IO and Reset -- can be
+    followed immediately by a reload or a navigation, and a plain fetch is
+    cancelled with the page. A delete that is dropped leaves the finished IO
+    on the unfinished list. */
+ if(id){try{fetch("{{ request.script_root }}/api/draft/"+encodeURIComponent(id),
+   {method:"DELETE",credentials:"same-origin",keepalive:true}).catch(function(){});}catch(e){}}
+}
 function loadDraft(){try{const raw=localStorage.getItem(DRAFT_KEY);return raw?JSON.parse(raw):null;}catch(e){return null;}}
+/* Starting a new IO is not the same statement as throwing the old one away.
+   This drops only this browser's copy; the server draft stays, listed on the
+   start screen, where discarding it is a deliberate press. */
+function forgetLocalDraft(){try{localStorage.removeItem(DRAFT_KEY);}catch(e){}if(_saveTimer)clearTimeout(_saveTimer);if(_serverTimer)clearTimeout(_serverTimer);_serverAgain=false;setDraftId("");}
+/* A tab being closed is exactly the interruption this is for, and a 4-second
+   debounce has usually not fired yet. sendBeacon survives the unload where a
+   fetch does not, and the path carries the mount -- a root-absolute one would
+   leave this module and 404 on the hub app, with nothing anywhere saying so. */
+window.addEventListener("pagehide",function(){
+ try{
+  if(!draftHasProgress())return;
+  saveDraft();
+  if(!navigator.sendBeacon)return;
+  var body=JSON.stringify({id:DRAFT_ID,title:draftTitle(),step:index,
+    state:{state:state,index:index,currentProduct:currentProduct,tempItem:tempItem,
+           savedAt:new Date().toISOString()}});
+  navigator.sendBeacon("{{ request.script_root }}/api/draft",
+    new Blob([body],{type:"application/json"}));
+ }catch(e){}
+});
 
 // --- Inline validation (#9) ---
 function validateAnswer(q,val){
@@ -3463,6 +3563,116 @@ function showStartScreen(){
      yet. Leaving it live invites a rep to type into nothing. */
   var row = startEl("inputRow");
   if(row) row.style.display = "none";
+  startDraftsLoad();
+}
+
+/* ---- unfinished insertion orders ------------------------------------
+   The browser's own copy is offered first, at boot, because it is instant
+   and it is nearly always the right one. This list is the other half: a
+   draft written by this rep on a different machine, or by a colleague
+   somebody is covering for. Whose it is is on the row -- a draft hidden
+   from everyone but its author is how the same IO gets built twice. */
+
+function startDraftAge(seconds){
+  if(!seconds) return "";
+  var mins = Math.round((Date.now()/1000 - seconds) / 60);
+  if(mins < 2) return "just now";
+  if(mins < 60) return mins + " minutes ago";
+  var hrs = Math.round(mins/60);
+  if(hrs < 24) return hrs + (hrs === 1 ? " hour ago" : " hours ago");
+  var days = Math.round(hrs/24);
+  return days + (days === 1 ? " day ago" : " days ago");
+}
+
+function startDraftsLoad(){
+  var panel = startEl("startDraftsPanel");
+  var list  = startEl("startDraftsList");
+  var note  = startEl("startDraftsNote");
+  if(!panel || !list) return;
+  fetch("{{ request.script_root }}/api/drafts", {credentials:"same-origin"})
+   .then(function(r){ return r.json(); })
+   .then(function(d){
+     var rows = (d && d.drafts) || [];
+     /* "nobody has one" and "we could not look" are different answers, and
+        only the first means there is nothing to pick up. An unreadable
+        store says so rather than drawing a clean empty panel. */
+     if(d && d.measured === false){
+       panel.hidden = false;
+       list.innerHTML = '';
+       note.textContent = "We couldn't check for unfinished insertion orders just now.";
+       return;
+     }
+     if(!rows.length){ panel.hidden = true; return; }
+     panel.hidden = false;
+     note.textContent = "";
+     list.innerHTML = "";
+     rows.forEach(function(row){
+       var wrap = document.createElement("div");
+       wrap.style.cssText = "display:flex;gap:8px;align-items:stretch;margin-bottom:6px";
+       var btn = document.createElement("button");
+       btn.type = "button";
+       btn.className = "start-row";
+       btn.style.margin = "0";
+       btn.style.flex = "1";
+       var who = row.mine ? "yours" : (row.owner ? row.owner : "not recorded");
+       var b = document.createElement("b");
+       b.textContent = row.title || "Untitled insertion order";
+       var sp = document.createElement("span");
+       sp.textContent = "Saved " + (startDraftAge(row.updated_at) || "earlier") + " — " + who;
+       btn.appendChild(b); btn.appendChild(sp);
+       btn.onclick = function(){ startResumeDraft(row.id); };
+       var del = document.createElement("button");
+       del.type = "button";
+       del.className = "start-row";
+       del.style.cssText = "margin:0;flex:0 0 auto;width:auto;color:var(--muted)";
+       del.title = "Discard this unfinished IO";
+       del.textContent = "Discard";
+       del.onclick = function(){ startDiscardDraft(row.id, row.title || "this unfinished IO"); };
+       wrap.appendChild(btn); wrap.appendChild(del);
+       list.appendChild(wrap);
+     });
+   })
+   .catch(function(){
+     panel.hidden = false;
+     if(list) list.innerHTML = '';
+     if(note) note.textContent = "We couldn't check for unfinished insertion orders just now.";
+   });
+}
+
+function startResumeDraft(id){
+  startSay("Opening that insertion order\u2026");
+  fetch("{{ request.script_root }}/api/draft/" + encodeURIComponent(id), {credentials:"same-origin"})
+   .then(function(r){ return r.json(); })
+   .then(function(d){
+     if(!d || !d.ok || !d.draft){ startSay("That draft is no longer there.", true); startDraftsLoad(); return; }
+     var payload = d.draft.state || {};
+     if(!payload.state){ startSay("That draft could not be read.", true); return; }
+     hideStartScreen();
+     setDraftId(d.draft.id || id);
+     Object.keys(state).forEach(function(k){ delete state[k]; });
+     Object.assign(state, payload.state);
+     if(typeof payload.index === "number") index = payload.index;
+     if(typeof payload.currentProduct === "number") currentProduct = payload.currentProduct;
+     tempItem = payload.tempItem || null;
+     saveDraft();          // this browser now holds the same draft
+     render();
+     addMsg("Resumed an unfinished insertion order — continuing where it left off. (Use Reset to start over.)");
+     ask();
+   })
+   .catch(function(){ startSay("That draft could not be opened.", true); });
+}
+
+function startDiscardDraft(id, label){
+  if(!window.confirm("Discard " + label + "?\n\nThe unfinished answers are deleted and cannot be recovered.")) return;
+  fetch("{{ request.script_root }}/api/draft/" + encodeURIComponent(id),
+        {method:"DELETE", credentials:"same-origin"})
+   .then(function(){
+     /* Discarding the draft this browser is holding must clear the local
+        copy too, or the boot prompt offers back what was just deleted. */
+     if(id === DRAFT_ID){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} setDraftId(""); }
+     startDraftsLoad();
+   })
+   .catch(function(){ startSay("That draft could not be discarded.", true); });
 }
 
 function hideStartScreen(){
@@ -3736,12 +3946,16 @@ function startWireClientSearch(){
     if(typeof draft.index==="number")index=draft.index;
     if(typeof draft.currentProduct==="number")currentProduct=draft.currentProduct;
     tempItem=draft.tempItem||null;
+    /* Keep writing to the same server draft rather than minting a second
+       one, or resuming twice leaves two rows on the start screen for one
+       insertion order and nobody can tell which is current. */
+    if(draft.draftId)setDraftId(draft.draftId);
     render();
     addMsg("Resumed your saved IO — continuing where you left off. (Use Reset to start over.)");
     ask();
     return;
-   }catch(e){clearDraft();}
-  }else{clearDraft();}
+   }catch(e){forgetLocalDraft();}
+  }else{forgetLocalDraft();}
  }
  /* Not straight into question one. Ask where the campaign comes from
     first -- the answer decides how many of the questions still need
