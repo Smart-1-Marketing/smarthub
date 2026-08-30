@@ -884,7 +884,24 @@ REGISTRY: list[Help] = [
        "are cut down from its storyboard \u2014 then :15, the :06, the :05, "
        "and the :60 last, because the :60 is the most expensive and the "
        "first to be dropped when the budget lands. Approving one hands you "
-       "the next one\u2019s Blueprint."),
+       "the next one\u2019s Blueprint. Once one cut of a spot has been "
+       "approved the rest come off a storyboard somebody has watched, so "
+       "they can be sent together \u2014 that is what \u201cRender the "
+       "other\u201d does, and it is not offered before the first approval."),
+
+    _h("commercial_builder.dashboard.reviews", "What has come back from clients",
+       "A client answering a review link used to reach the activity log and "
+       "nothing else, so the only way to find out was to open the spot and "
+       "look. There is no mail sender in the Hub, so the answers are put "
+       "here instead. A round counts as answered if somebody pressed one of "
+       "the three buttons \u2014 or left notes and pressed none, which is "
+       "still a reply. A spot with a filed cut leaves the list, because the "
+       "answer has been acted on. Rounds still out with the client are "
+       "counted separately, in the corner, since nobody here is holding "
+       "those up. And an empty list says which kind of empty it is: nothing "
+       "waiting, nothing yet sent, and a table that could not be read are "
+       "three different situations and only two of them mean there is "
+       "nothing to do."),
 
 ]
 

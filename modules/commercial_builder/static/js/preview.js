@@ -58,6 +58,12 @@
   // Single-select, not a set of tickboxes. Rendering three sizes at once
   // means the second and third come off a storyboard nobody has watched: a
   // note on the first applies to two cuts already paid for.
+  //
+  // Once one cut IS approved that stops being true, and the rest render
+  // together from the "Render the other N" button below. Whether that button
+  // appears is the server's answer (`can_batch`), never worked out here: the
+  // route enforces the rule, and a second reading of it in this file is the
+  // copy that drifts.
   let selectedFormat = null;
 
   document.getElementById("render-format-choices").addEventListener("click", (e) => {
@@ -76,11 +82,25 @@
     btn.disabled = !selectedFormat || done;
     btn.textContent = !selectedFormat ? "Pick a size"
       : (done ? `${selectedFormat} is approved` : `Render ${selectedFormat}`);
+
+    // The rest, together — offered only where the server says the batch is
+    // open, and naming the sizes it would send so a press is never a surprise.
+    const rest = document.getElementById("render-rest-btn");
+    if (!rest) return;
+    // `remaining_formats` is already "asked for and not approved" — a size
+    // that rendered and was never approved is still outstanding, because the
+    // cut exists and nobody has said it is good.
+    const left = state.remaining || [];
+    rest.hidden = !state.canBatch || left.length < 2;
+    if (!rest.hidden) {
+      rest.textContent = `Render the other ${left.length} (${left.join(", ")})`;
+    }
   }
 
   // What has already happened, per size. Read back from the server rather than
   // held in this tab: a render takes minutes and somebody will close the page.
-  const state = { jobs: [], approved: new Set(), byFormat: {} };
+  const state = { jobs: [], approved: new Set(), byFormat: {},
+                  canBatch: false, remaining: [] };
 
   async function loadJobs() {
     let data;
@@ -89,6 +109,8 @@
     } catch (e) { return; }
     state.jobs = data.render_jobs || [];
     state.approved = new Set((data.approved_formats || []));
+    state.canBatch = !!data.can_batch;
+    state.remaining = data.remaining_formats || [];
     state.byFormat = {};
     state.jobs.forEach((j) => { state.byFormat[j.format] = j; });
     paintFormatStates();
@@ -121,30 +143,51 @@
     syncRenderButton();
   }
 
-  document.getElementById("render-btn").addEventListener("click", async () => {
+  document.getElementById("render-btn").addEventListener("click", () => {
     if (!selectedFormat) return CB.toast("Pick a size first.", true);
-    const btn = document.getElementById("render-btn");
+    send([selectedFormat], document.getElementById("render-btn"));
+  });
+
+  const restBtn = document.getElementById("render-rest-btn");
+  if (restBtn) {
+    restBtn.addEventListener("click", () => {
+      const left = state.remaining || [];
+      if (left.length < 2) return;
+      send(left, restBtn);
+    });
+  }
+
+  // One send path for both buttons. Two would be two descriptions of what
+  // pressing Render does, and only one of them would gain the next fix.
+  async function send(formats, btn) {
     const wrap = document.getElementById("render-jobs");
     btn.disabled = true;
+    const naming = formats.join(", ");
 
     // Pressing Render used to show nothing at all: the route 500'd on an
     // attribute the model does not have, CB.api could not parse the HTML that
     // came back, and a three-second toast said "Bad response from server".
     // Whatever happens now, this panel says what it was.
     wrap.innerHTML = '<div class="cb-card" style="padding:14px;">'
-      + CB.working("video", `Sending ${selectedFormat} to the renderer\u2026`,
+      + CB.working("video", `Sending ${naming} to the renderer\u2026`,
                    "Building the timeline from your scenes, narration and end card.")
       + "</div>";
 
     let data;
     try {
       data = await CB.api(`/api/projects/${projectId}/render`, {
-        method: "POST", body: { format: selectedFormat },
+        method: "POST",
+        // Always the plural field. The route takes one or several and decides
+        // for itself whether several are allowed, so this file does not have
+        // to carry a second reading of that rule.
+        body: { formats: formats },
       });
     } catch (e) {
-      // QC refused it, or the renderer did. Either way it belongs on the
-      // panel, not only in a toast that has already faded.
-      wrap.innerHTML = `<div class="cb-note bad"><strong>${selectedFormat} was not sent</strong>`
+      // QC refused it, or the renderer did, or nothing has been approved yet
+      // and a batch is not open. Either way it belongs on the panel, not only
+      // in a toast that has already faded.
+      wrap.innerHTML = `<div class="cb-note bad"><strong>${naming} ${
+          formats.length > 1 ? "were" : "was"} not sent</strong>`
         + `<p>${CB.escapeHtml(e.message || "The renderer refused it.")}</p></div>`;
       runQc();
       btn.disabled = false;
@@ -154,7 +197,7 @@
     await loadJobs();
     (data.render_jobs || []).forEach((j) => pollJob(j.id));
     btn.disabled = false;
-  });
+  }
 
   function renderJobList() {
     const wrap = document.getElementById("render-jobs");
@@ -268,9 +311,15 @@
     const left = data.remaining_formats || [];
     const box = CB.el('<div class="cb-note good" style="margin-top:12px;"></div>');
     let html = "<strong>Approved and filed.</strong>";
-    if (left.length) {
+    if (left.length > 1) {
+      // The first approval is what opens the batch, so this is the moment to
+      // say so — the button above has just appeared and nobody was watching it.
       html += `<p>Still to render for this spot: ${left.join(", ")}. `
-            + "Pick one above.</p>";
+            + "They come off the storyboard you have just approved, so they can "
+            + "go together — Render the other " + left.length + " above.</p>";
+    } else if (left.length) {
+      html += `<p>Still to render for this spot: ${left.join(", ")}. `
+            + "Pick it above.</p>";
     }
     if (next) {
       html += `<p>Next spot in this campaign is the :${

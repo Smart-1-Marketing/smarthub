@@ -786,16 +786,30 @@ check("mock mode is named rather than passed off as success",
       "mock" in (render_payload.get("note") or "").lower(), True)
 job_id = render_payload["render_jobs"][0]["id"]
 
-section("One size at a time")
+section("One size at a time, until one of them has been approved")
 # Three renders at once means the second and third come off a storyboard
 # nobody has watched: a note on the first applies to two cuts already paid for.
+# That is a statement about UNWATCHED creative, so the gate is an approval on
+# the spot rather than a count — and before one exists a batch is refused by
+# name, with what would lift the refusal.
 many = post_json(MOUNT + f"/api/projects/{pid}/render",
                  {"formats": ["16:9", "9:16"], "force_despite_qc_failures": True})
-check("two sizes in one press is refused", many.status_code, 400)
-check("and says why", "one size at a time" in many.get_json()["error"].lower(), True)
+check("two sizes before anything is approved is refused", many.status_code, 409)
+check("and says what would open it",
+      "approved" in many.get_json()["error"].lower(), True)
+check("named as a state rather than a generic refusal",
+      many.get_json().get("needs_approval_first"), True)
 bad_fmt = post_json(MOUNT + f"/api/projects/{pid}/render",
                     {"format": "4:3", "force_despite_qc_failures": True})
 check("an unknown size is refused", bad_fmt.status_code, 400)
+# A size ticked twice is one render, not two — and it must not read as a
+# batch and be refused for it.
+dupe = post_json(MOUNT + f"/api/projects/{pid}/render",
+                 {"formats": ["16:9", "16:9"], "force_despite_qc_failures": True})
+check("the same size twice is one render", dupe.status_code, 200)
+check("and one job", len(dupe.get_json()["render_jobs"]), 1)
+check("no size at all is refused", post_json(
+    MOUNT + f"/api/projects/{pid}/render", {"formats": []}).status_code, 400)
 
 section("Approving is what files it, and only a real file can be approved")
 # Approving a mock would file nothing into the client's library and log it as
@@ -831,6 +845,47 @@ check("approving twice does not file twice",
 listed = get_json(MOUNT + f"/api/projects/{pid}/render-jobs")
 check("the job list carries its approval", bool(listed["render_jobs"][0]["approval"]), True)
 check("and which formats are approved", listed["approved_formats"], ["16:9"])
+check("and a one-size spot never offers a batch", listed["can_batch"], False)
+
+
+section("Once one cut is approved, the rest go together")
+# The remaining formats come off a storyboard somebody has watched, which is
+# exactly the condition the one-at-a-time rule was protecting. Whether the
+# batch is open is the server's answer, so the panel does not carry a second
+# reading of the rule.
+three = post_json(MOUNT + "/api/projects", {
+    "client_id": client_id, "lengths": [30], "formats": ["16:9", "9:16", "1:1"],
+    "commercial_type": "stock_vo", "platform": "social"}).get_json()["projects"][0]["id"]
+first = post_json(MOUNT + f"/api/projects/{three}/render",
+                  {"format": "16:9", "force_despite_qc_failures": True}).get_json()
+first_job = first["render_jobs"][0]["id"]
+with hub_app.app_context():
+    _j = RenderJob_cls.query.get(first_job)
+    _j.output_url = "https://cdn.example/three-16x9.mp4"
+    cb_db.session.commit()
+early = get_json(MOUNT + f"/api/projects/{three}/render-jobs")
+check("nothing rendered is not enough to open it", early["can_batch"], False)
+post_json(MOUNT + f"/api/projects/{three}/render-jobs/{first_job}/approve")
+opened = get_json(MOUNT + f"/api/projects/{three}/render-jobs")
+check("an approval opens it", opened["can_batch"], True)
+check("and what is left is what is not approved",
+      sorted(opened["remaining_formats"]), ["1:1", "9:16"])
+batch = post_json(MOUNT + f"/api/projects/{three}/render",
+                  {"formats": ["9:16", "1:1"], "force_despite_qc_failures": True})
+check("the rest render together", batch.status_code, 200)
+check("one job per size", len(batch.get_json()["render_jobs"]), 2)
+check("and it says it was a batch", batch.get_json()["batched"], True)
+# Silently dropping an already-approved size from a batch is how an approved
+# cut is quietly replaced, or quietly not replaced, with the panel reporting
+# the same success either way.
+clash = post_json(MOUNT + f"/api/projects/{three}/render",
+                  {"formats": ["16:9", "9:16"], "force_despite_qc_failures": True})
+check("an approved size inside a batch is refused", clash.status_code, 409)
+check("and named", "16:9" in clash.get_json()["error"], True)
+# Re-rendering one deliberately is still a thing somebody may want to do.
+check("but that size on its own still renders", post_json(
+    MOUNT + f"/api/projects/{three}/render",
+    {"format": "16:9", "force_despite_qc_failures": True}).status_code, 200)
 
 section("The voice and music selections survive to the render")
 # `set_music` assigned a fresh two-key dict, which wiped `voice_track_url` —
