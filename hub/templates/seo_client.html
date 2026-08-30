@@ -111,10 +111,11 @@
 <div class="card seoc-card" id="cardBuilder" style="display:none">
   <div class="seoc-cardhead"><h3>Schema Builder {{ help_dot('seo.schema.known_first') if help_dot is defined else '' }}</h3><div id="buildProgress" class="seoc-muted"></div></div>
 
-  <div id="bizPanel" class="seoc-biz">
+  <div id="bizPanel" class="seoc-biz" data-demo="schema-known">
     <div class="seoc-biz-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <span>Business information <span class="seoc-muted">(used in every schema — fill what you know, the AI will ask for the rest)</span></span>
-      <button class="seoc-btn seoc-small" id="btnBrandSearch">&#128269; Search client info</button>
+      <button class="seoc-btn seoc-small" id="btnBrandSearch"
+              data-demo="schema-lookup">&#128269; Search client info</button>
     </div>
     <div class="seoc-biz-grid">
       <input id="bi_name" placeholder="Business name">
@@ -190,7 +191,8 @@
     <p style="margin:2px 0 10px;font-size:13.5px">Enter a page URL. The AI reads that page and the rest of the
       site, then drafts the questions real customers ask &mdash; with answers written to earn FAQ rich results.</p>
     <div class="seoc-faqbar">
-      <input id="faqUrl" placeholder="https://clientsite.com/services/ac-repair">
+      <input id="faqUrl" data-demo="faq-url"
+             placeholder="https://clientsite.com/services/ac-repair">
       <select id="faqCount">
         <option value="5">5 questions</option>
         <option value="6" selected>6 questions</option>
@@ -208,7 +210,7 @@
       <button class="seoc-btn seoc-sec seoc-small" id="btnFaqCancel">Start over</button>
     </div>
     <p id="faqPaletteNote" class="seoc-muted" style="font-size:11.5px;margin:0 0 8px"></p>
-    <div id="faqList"></div>
+    <div id="faqList" data-demo="faq-review"></div>
     <div id="faqSavePrompt" class="seoc-next" style="display:none">
       <b>Every question has been handled. Save this page to this account?</b>
       <div class="seoc-saverow">
@@ -216,7 +218,8 @@
           <input type="date" id="faqAddedDate">
           <span class="seoc-muted">(leave blank until it goes live)</span></label>
       </div>
-      <button class="seoc-btn seoc-small" id="btnFaqSave">Save this page</button>
+      <button class="seoc-btn seoc-small" id="btnFaqSave"
+              data-demo="faq-save">Save this page</button>
       <button class="seoc-btn seoc-sec seoc-small" id="btnFaqSaveLater">Not yet</button>
       <span id="faqSaveMsg" class="seoc-muted"></span>
     </div>
@@ -237,7 +240,7 @@
     <div style="overflow-x:auto">
       <table class="seoc-t"><thead><tr>
         <th style="width:28px"><input type="checkbox" id="faqSelAll" title="Select all"></th>
-        <th>Date created</th><th>Date added to site</th><th>Site URL</th>
+        <th>Date created</th><th data-demo="faq-date">Date added to site</th><th>Site URL</th>
         <th style="text-align:center">Questions</th><th style="text-align:right">Actions</th>
       </tr></thead><tbody id="faqRows"></tbody></table>
     </div>
@@ -2835,7 +2838,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         +'<td style="text-align:center"><span class="seoc-pill">'+(r.count||0)+'</span></td>'
         +'<td style="text-align:right;white-space:nowrap">'
         +'<button class="seoc-icon fview" data-url="'+esc(r.url)+'" title="Display, edit and re-save the questions">&#128065;</button>'
-        +'<a class="seoc-icon" href="/seo/faq/'+esc(slug)+'/download.html?urls='+u+'" title="Download the accordion code block for the site">&#60;/&#62;</a>'
+        +'<a class="seoc-icon" data-demo="faq-export" href="/seo/faq/'+esc(slug)+'/download.html?urls='+u+'" title="Download the accordion code block for the site">&#60;/&#62;</a>'
         +'<a class="seoc-icon" href="/seo/faq/'+esc(slug)+'/download.doc?urls='+u+'" title="Download the customer review document">&#8681;</a>'
         +'<button class="seoc-icon danger fdel" data-url="'+esc(r.url)+'" title="Delete this FAQ page">&#128465;</button>'
         +'</td></tr>';

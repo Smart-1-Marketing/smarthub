@@ -2357,15 +2357,47 @@ driving cannot happen — and the button that could only do nothing is not
 drawn, because a button pressed once with no effect makes the whole
 walkthrough read as broken rather than one step of it.
 
-**Fifty-five of the 165 steps that name an element name one that is in no
-template**, across eighteen of the twenty-eight scenarios; five drive nothing
-at all. That is a **backlog, not a regression**, and it is deliberately not an
-integrity finding: a check switched on red is a check somebody turns off, and
-it would take the bubble check down with it. `help_audit.demo_targets()`
-gathers it and the **help layer** panel on `/diagnostics` lists it, so the
-scenarios written against a screen that has since been rebuilt are a list
-somebody works down rather than something a learner meets one step at a time.
-Placing the hooks is separate work and needs whoever knows each tool.
+**Fifty-five of the 165 steps that name an element named one that is in no
+template**, across eighteen of the twenty-eight scenarios. That is a
+**backlog, not a regression**, and it is deliberately not an integrity
+finding: a check switched on red is a check somebody turns off, and it would
+take the bubble check down with it. `help_audit.demo_targets()` gathers it and
+the **help layer** panel on `/diagnostics` lists it, so the scenarios written
+against a screen that has since been rebuilt are a list somebody works down
+rather than something a learner meets one step at a time.
+
+**Five of them drove nothing at all, and that half is not a backlog.** A
+scenario with one step out of date is a walkthrough with a gap in it; one
+where *every* driving step names an element that is not there is a button
+somebody presses nine times for nothing, which is the Smart 1 Ads failure
+verbatim. Those five are placed — the SEO client page's schema and FAQ
+builders, the two Suite billing reports, Stale Creative, Landing Page Ads and
+the ticket queue — and `test_help_layer.py` asserts the floor rather than the
+backlog: **no scenario may drive none of its steps.** The rest of the list
+stays a list.
+
+**And one step described a control that is not there rather than one that
+moved.** Web Tickets' *"Sort by age"* — nothing on that page sorts, and the
+filter does the same job better because it names the SLA instead of leaving
+somebody to judge which ages matter. A walkthrough describing a tool that
+does not exist is worse than one describing none, because a rep believes it,
+so the step is rewritten rather than anchored to the nearest thing.
+
+**A hook can be derived, and a substring search calls a derived hook dead.**
+The QA index writes `data-demo="qa-report-{{ key }}"` once for every report it
+lists, so a scenario naming a report added next month is anchored without that
+template being edited again — the reason `card()` on the prospect record takes
+one key rather than nine call sites doing it. Nothing then contains
+`qa-report-ghl-billing-no-products` whole, which is the guess `tools/linkcheck.py`
+refuses to make about a concatenated URL and the one `placements()` already
+refuses to make about a help key. What is knowable from the source is the
+**literal prefix** in front of the interpolation, so a target starting with one
+is *accepted and not verified* — named on the panel under the pill that state
+already has, never folded into the anchored count. At least three characters,
+because a bare `data-demo="{{ x }}"` names no prefix and one that matched
+everything would switch the check off.
+
+Placing the rest is separate work and needs whoever knows each tool.
 
 It asks whether the element exists **anywhere**, not on the scenario's own
 page — a walkthrough drives a screen whose markup half a dozen scripts write,

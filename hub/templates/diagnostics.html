@@ -924,6 +924,19 @@ function renderHelpAudit(d){
           '<em class="diag-fix">Each one says so on the step now, rather '+
           'than the button doing nothing. Placing the hooks is the fix.</em>'
         : esc(String(w.steps||0))+" steps, every one of them anchored."));
+    /* A hook a template derives cannot be found whole in any source, so it is
+       accepted on its literal prefix and said so rather than counted as
+       verified — the rule this panel already applies to a help key built at
+       runtime one row up. */
+    if((w.runtime||[]).length){
+      out.push(row("unverified","built","Built at runtime",
+        esc(String(w.runtime.length))+" target"+(w.runtime.length===1?"":"s")+
+        " matched a prefix a template assembles &mdash; "+
+        esc((w.runtime_prefixes||[]).join(", "))+
+        " &mdash; rather than a hook found whole, so they are accepted here "+
+        "and not verified."+
+        '<em class="diag-fix">'+esc(w.runtime.join("  "))+'</em>'));
+    }
     rows.forEach(function(r){
       out.push(row(r.dead?"warn":"off", r.dead?"none":"some", r.key,
         esc(r.title||"")+" &mdash; "+esc(String((r.unanchored||[]).length))+

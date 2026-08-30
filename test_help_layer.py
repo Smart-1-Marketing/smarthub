@@ -271,6 +271,37 @@ _anchored = [r for r in DEMO["clean"]]
 ok("some walkthroughs are clean, so this is not reporting everything",
    len(_anchored) >= 5, str(len(_anchored)))
 
+# A scenario that drives NONE of its steps is the one worth retiring rather
+# than repairing: the learner presses "Do it for me" on every step and nothing
+# happens, which is the Smart 1 Ads failure. The backlog above stays a
+# backlog; this is the floor under it.
+check("no walkthrough drives none of the steps it names",
+      [r["key"] for r in DEMO["rows"] if r["dead"]], [])
+
+# The five that did. Named rather than merely counted: the point is that these
+# screens can now be walked, not that a number went down.
+for _key in ("seo.faq_and_schema", "qa.stale_creative", "landing_ads.from_page",
+             "tickets.triage", "qa.billing_audit"):
+    ok(f"{_key} drives every step it names", _key in DEMO["clean"],
+       str([r["key"] for r in DEMO["rows"] if r["key"] == _key]))
+
+# A hook a template DERIVES cannot be found whole in any source. The QA index
+# writes data-demo="qa-report-{{ key }}" once for every report it lists, so a
+# scenario naming a report added next month is anchored without that template
+# being edited -- and a plain substring search calls it dead, which is the
+# guess linkcheck refuses to make about a concatenated URL.
+ok("a derived hook is accepted on its literal prefix",
+   "qa-report-" in DEMO["runtime_prefixes"], str(DEMO["runtime_prefixes"]))
+ok("and the targets it covers are named rather than folded into the count",
+   all(t.startswith("qa-report-") for t in DEMO["runtime"]) and bool(DEMO["runtime"]),
+   str(DEMO["runtime"]))
+# Three characters at least: a bare data-demo="{{ x }}" names no prefix, and
+# one that matched everything would switch the check off.
+check("a prefix short enough to match anything is not collected",
+      help_audit._runtime_demo_prefixes('data-demo="a{{ k }}"'), [])
+check("but a real one is",
+      help_audit._runtime_demo_prefixes('data-demo="thing-{{ k }}"'), ["thing-"])
+
 
 print("\nThe panel that shows it")
 print("-" * 62)
