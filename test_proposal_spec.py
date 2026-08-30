@@ -1701,6 +1701,79 @@ check("a number put back the way it was is reported",
 check("and a kit that cannot be read is not measured, never a clean answer",
       _kit_unreadable(), "reported no drift for an unreadable page")
 
+
+# ---------------------------------------------------------------------------
+section("every section of the published kit is accounted for")
+# ---------------------------------------------------------------------------
+# kit_drift() read three sections of twenty-three and answered "no drift",
+# which is a clean bill of health about seven per cent of what it audits. The
+# page in the repo is the 2026 kit and says on itself that twenty formats were
+# updated and three added, against a transcription taken from 2025 — so a
+# section outside the parser is not hypothetical, and a section the *next*
+# rebuild adds would be silently outside every check here for ever.
+_cov = cs.kit_coverage()
+check("the coverage of the published kit is measured",
+      _cov["measured"] is True, _cov.get("error"))
+check("every published section is declared one way or the other",
+      _cov["undeclared"] == [], _cov["undeclared"])
+check("and no declaration outlives the section it described",
+      _cov["stale"] == [], _cov["stale"])
+check("the three the numbers are checked against are still checked",
+      set(_cov["checked"]) == set(cs._KIT_SECTIONS), _cov["checked"])
+check("and the count is the whole page, not the part that parses",
+      _cov["sections"] == len(_cov["checked"]) + len(_cov["unread"])
+      + len(_cov["not_modelled"]), _cov["sections"])
+
+# ...and it goes red on a section nobody has declared, or it is furniture.
+_saved_unread = dict(cs._KIT_UNREAD)
+try:
+    cs._KIT_UNREAD.pop("tiktok", None)
+    _bit_cov = cs.kit_coverage()
+finally:
+    cs._KIT_UNREAD.clear()
+    cs._KIT_UNREAD.update(_saved_unread)
+check("an undeclared section is reported rather than passing quietly",
+      _bit_cov["undeclared"] == ["tiktok"], _bit_cov["undeclared"])
+
+# Three published sections are a different kind of gap: the kit sells them and
+# this module holds no unit for them at all. A Meta requirement that lists
+# Stories and never Reels reads as complete, and the page itself says the two
+# are not interchangeable.
+check("a Meta buy is told the kit also sells both Reels",
+      cs.unmodelled_for(["facebook", "instagram", "stories"]) ==
+      ["Instagram Reels", "Facebook Reels"],
+      cs.unmodelled_for(["facebook", "instagram", "stories"]))
+check("a CTV buy is told about the interactive formats",
+      len(cs.unmodelled_for(["ctv"])) == 1, cs.unmodelled_for(["ctv"]))
+check("and a display buy is told nothing, because nothing is missing",
+      cs.unmodelled_for(["desktop_display", "mobile_display"]) == [],
+      cs.unmodelled_for(["desktop_display", "mobile_display"]))
+
+# It has to reach the line the client document prints, not only the payload:
+# left in the note alone the requirement a client reads still looks complete.
+_meta_row = next(p for p in _rc_for_media.products()
+                 if p["product"].startswith("Facebook | Instagram - Awareness"))
+_meta_st = {"items": [dict(_meta_row, dollars=4000)], "months": 3}
+_meta_req = cn.required_units(_meta_st, cn.medium_of(_meta_row))
+check("the requirement payload names what it cannot size",
+      _meta_req["not_measured_formats"] == ["Instagram Reels", "Facebook Reels"],
+      _meta_req["not_measured_formats"])
+check("...and says so without claiming to have measured it",
+      "not measured" not in _meta_req["note"].lower()
+      and "no unit here to measure" in _meta_req["note"], _meta_req["note"])
+check("and the one-line requirement carries it too",
+      "Instagram Reels and Facebook Reels" in
+      cn.units_line(_meta_st, cn.medium_of(_meta_row)),
+      cn.units_line(_meta_st, cn.medium_of(_meta_row)))
+check("but the gate still measures the units it does have",
+      _meta_req["measured"] is True)
+
+_disp_row = next(p for p in _rc_for_media.products() if p["category"] == "DISPLAY")
+_disp_st = {"items": [dict(_disp_row, dollars=4000)], "months": 3}
+check("a display requirement gains no such clause",
+      "the kit also sells" not in cn.units_line(_disp_st, cn.medium_of(_disp_row)),
+      cn.units_line(_disp_st, cn.medium_of(_disp_row)))
+
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")

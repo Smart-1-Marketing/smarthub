@@ -658,6 +658,59 @@ def check_creative_kit_drift() -> list[dict]:
     } for r in rows]
 
 
+def check_creative_kit_coverage() -> list[dict]:
+    """Sections of the published kit nobody has declared one way or the other.
+
+    `check_creative_kit_drift` compares the numbers; this asks the question one
+    step earlier — is every section of the page one somebody has looked at. It
+    was covering three sections of twenty-three and answering "no drift", which
+    is a clean bill of health about seven per cent of the thing it audits. The
+    page in the repo is now the 2026 kit and says on itself that twenty formats
+    were updated and three added, against a transcription taken from 2025.
+
+    The twenty are declared with their reasons, so this starts empty. What it
+    catches is the next rebuild: a section added to the page is otherwise
+    silently outside every check here, for ever, with the panel green — which
+    is the failure the report itself is about.
+    """
+    try:
+        from . import creative_specs
+        cov = creative_specs.kit_coverage()
+    except Exception:                                   # noqa: BLE001
+        return []
+    if not cov.get("measured"):
+        # A page that cannot be read is not a page with nothing new in it.
+        return [{
+            "file": "hub/creative_specs.py", "module": "io_builder",
+            "detail": f"The published kit could not be read, so its coverage "
+                      f"is not measured ({cov.get('error')}).",
+            "fix": "Restore hub/partner_pages/creative-specs.html, which is "
+                   "the kit the client is sent and what this check reads.",
+        }]
+    out = []
+    for sid in cov.get("undeclared", []):
+        out.append({
+            "file": "hub/creative_specs.py", "module": "io_builder",
+            "detail": f"The published kit carries a section \"{sid}\" that "
+                      f"nothing in the transcription accounts for.",
+            "fix": "Transcribe it into UNITS and add it to _KIT_SECTIONS, or "
+                   "declare it in _KIT_UNREAD (the table shape cannot be "
+                   "parsed) or _KIT_NOT_MODELLED (we sell it and hold no unit "
+                   "for it) with the reason. A section nobody has declared is "
+                   "one no check here can see.",
+        })
+    for sid in cov.get("stale", []):
+        out.append({
+            "file": "hub/creative_specs.py", "module": "io_builder",
+            "detail": f"\"{sid}\" is declared here and is no longer a section "
+                      f"of the published kit.",
+            "fix": "Drop the declaration. An exemption that outlives what it "
+                   "exempted goes on excusing whatever is published under that "
+                   "id next.",
+        })
+    return out
+
+
 def check_creative_spec_disagreement() -> list[dict]:
     """Products the creative gate and the spec kit read as different mediums.
 
@@ -863,6 +916,9 @@ CHECKS = [
      check_creative_spec_disagreement),
     ("creative_kit_drift", "Spec numbers differ from the kit we publish", "high",
      check_creative_kit_drift),
+    ("creative_kit_coverage",
+     "A section of the published kit nobody has declared", "high",
+     check_creative_kit_coverage),
     # High, as the note that stood here asked for once the list was empty. It
     # went in at medium with seven pre-existing findings it did not cause,
     # because a check switched on red is a check somebody turns off; the list
