@@ -8478,6 +8478,23 @@ because a kind nothing names arrives in a gallery as a bare key under no
 heading, and it is filed in the same change that declares it: a label declared
 and written by nothing is the `io_creative` failure.
 
+**And the check for that only ran in one direction.** `test_image_audit.py`
+has always required every provider `PRODUCERS` *declares* to have a heading —
+which catches a label somebody forgot to write, and cannot catch a value
+somebody forgot to declare. Those are different failures and only the second
+is silent: the file is filed, every count on every screen stays correct, and
+the gallery draws it under a bare key. It had already happened twice.
+`social_request` was found by somebody opening a client's gallery and is
+recorded in that test as one assertion about one string; `animated_ad` arrived
+the same way one release later. A list of the two we fixed proves nothing
+about the third, so `image_audit.undeclared_providers()` asks every producer
+module instead, through the **AST** — prose naming a provider is not a call
+site, the rule `hub/config.py`'s drift check gives. It resolves a literal and
+a module-level constant holding one (which is how `ANIMATION_KIND` is actually
+written) and **names a runtime value as unknowable rather than guessing at
+it**, the answer `tools/linkcheck.py` gives about a concatenated URL. It
+started green, which is the only way it was worth adding.
+
 **The weight ladder is `raster.ts`'s in GIF terms, and it is cheap for a
 reason worth knowing.** A GIF has no quality setting: it has a palette, a
 dither, and how different two frames must be before the second re-encodes a
@@ -9512,7 +9529,8 @@ python3 test_image_pdf_optimizers.py  # the two file tools: what they refuse,
 python3 test_image_download.py     # image downloads, the shared zip builder, and the
                                    #   preview every gallery draws instead of the original
 python3 test_image_audit.py        # every image attached to a client or a lead,
-                                   #   and a gallery you can search
+                                   #   a gallery you can search, and nothing
+                                   #   filed under a provider nobody declared
 python3 test_client_images.py      # every module that logs client work is one the
                                    #   record can name; deleting a client image, the
                                    #   count, the one brand
