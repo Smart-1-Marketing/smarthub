@@ -4826,12 +4826,12 @@ tag; leaving them in would go on asking.
 
 `kit_name_drift()` is the check, at **high**, and it covers only the channels
 declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x`,
-`linkedin` and `tiktok` today. The three still on the 2025 transcription are
-named in `_KIT_NAMES_PENDING` with what is known to have moved (YouTube's
-*TrueView* is now *Skippable in-stream*), and `kit_coverage()` carries them. A
-backlog named rather than left as an absence — a check listing every platform
-on the day it is written is red on the day it is written, and gets switched
-off.
+`linkedin`, `tiktok` and `snapchat` today. The two still on the 2025
+transcription are named in `_KIT_NAMES_PENDING` with what is known to have
+moved (YouTube's *TrueView* is now *Skippable in-stream*), and
+`kit_coverage()` carries them. A backlog named rather than left as an absence
+— a check listing every platform on the day it is written is red on the day
+it is written, and gets switched off.
 
 **And a name check cannot see a number, which is how LinkedIn was refusing
 files the kit told the client to send.** Its 2025 model held five formats to
@@ -4893,6 +4893,47 @@ kit publishes *"100 KB suggested per image"*, which is `target_bytes` and not
 `max_bytes` — carried as `min_bytes` once already, in DOOH, where a clean 30 KB
 billboard was refused against a number nobody published as a minimum. Read as a
 maximum here it would refuse a 140 KB card the kit is perfectly happy with.
+
+**And Snapchat is the case where the names were right all along.** It is the
+one platform of the four whose two format names the kit still sells, so the
+name pass would never have raised it and `_KIT_NAMES_PENDING` recorded it as a
+count — *seven formats against our two*. Both of the two were nonetheless
+refusing creative the kit allows, which is the third transcription in a row
+where the numbers were worse than the names and the whole argument for working
+the list down rather than waiting for a check to raise its hand. Video was
+capped at **:30** against a published **:03 to 3:00** — the kit's own update
+note says *"the 30-second cap is gone"* — so a :45 spot was refused outright.
+
+**One fact, three numbers, and collapsing them is what refused the file.** The
+kit publishes *"9:16, 1080x1920"* as the media spec and says beside it that
+**720x1280 is the stated minimum, not the target**. Carried as one fixed
+`size`, a perfectly legal 720x1280 file failed on dimensions. It is the
+`gpt_ads_square` rule: a **required** ratio is a `ratios` entry and a fail, a
+**recommended** build size is `min_size` and a warn — it runs, it just runs
+soft — and the floor is `min_width` and a fail under it. Three answers,
+because there are three questions.
+
+**A unit specified by ratio still has to say what it is.** `units_line()`
+already knew an image unit with no size of its own must be *named* rather than
+folded into the run of sizes, because folded in it vanishes. Named alone it
+reached the client document as **"or Single Image Ads"** — nothing saying
+9:16, nothing saying 1080x1920, nothing saying JPG — which is the same silence
+one step less complete. `_shape_of()` is what a unit carries when it has no
+fixed size, and every social unit is in that position.
+
+**And an optional extra must not lead.** The companion rule was keyed on
+`radio_companion` deliberately, after firing on a *count* once and announcing
+Snapchat's and TikTok's primary images as optional companions. There are two
+of them now: an AR filter is the same shape as the radio companion — a sized
+extra beside a buy whose ask is a 9:16 spot — and being the only sized image
+unit there, it led the requirement, announcing an AR filter as the whole of
+what the client owed us. `ADDITIONS` maps each to **its own words**, because
+"a companion banner" is a true sentence about one of them and not the other.
+
+**AR Filters stays one unit carrying two shapes** — a static 945x2048 PNG and
+a moving 720x1560 GIF. Splitting it would invent two names the kit does not
+publish, which is exactly what `kit_name_drift()` exists to catch. No file
+weight is published for it, so none is invented.
 
 **Three of the twenty are a different kind of gap, and it reaches the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive
