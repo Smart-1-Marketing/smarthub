@@ -202,6 +202,24 @@ jobs:
             echo "test_report_cache.py not on this branch — nothing to run."
           fi
 
+      - name: QA report tests
+        # Every report on /qa answers, returns a table the page can draw, and
+        # is JSON-encodable -- run with no Knack, no QuickBooks and no
+        # GoHighLevel, which is the state that produces a confident empty.
+        # Then the half that matters: a report which could not look must never
+        # render as "Nothing to report - all clear". That is swept by AST over
+        # every module a report is built from, rather than asserted about the
+        # four returns that were wrong, and the page's own decision block is
+        # lifted out of qa_report.html and run in node. Reaches no provider.
+        # Guarded like the steps around it so this workflow stays mergeable on
+        # a branch that predates the file.
+        run: |
+          if [ -f test_qa_reports.py ]; then
+            python test_qa_reports.py
+          else
+            echo "test_qa_reports.py not on this branch — nothing to run."
+          fi
+
       - name: Landing page maker tests
         run: python test_landing_maker.py
 

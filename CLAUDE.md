@@ -6380,6 +6380,57 @@ out from under a report between assertions — a Knack that answers, then one
 that times out — which is the one thing a report held for the day cannot see.
 They assert the report; `test_report_cache.py` asserts the holding.
 
+**And `measured: False` was read by the cache and by nothing on the page.**
+That flag is the whole reason a refused run is not frozen into the day's
+answer — and `qa_report.html` never looked at it. Its branch order was
+`error`, then `needs_qb`, then `unavailable`, then an all-clear, so a report
+that carried its refusal in `note` alone fell through to **"Nothing to
+report — all clear ✓"**. Four returns are in that shape:
+`upsell._unmeasured()` when the client list or the site audits refuse,
+`prospect_queue._unmeasured()` when the lead store does, and the two
+uploads-gallery refusals in `qa.uploads_not_in_suite()`. So a Knack timeout
+drew a green tick directly above the report's own sentence reading *"which is
+not the same as nobody"*, and *"Couldn't read the uploads database"* was
+rendered as every client's files being safely in Suite — the page contradicting
+the line printed beneath it, which is worse than either half alone. The
+page's own comment had said exactly this for three years: *"'We looked and it
+is fine' and 'we could not look' are different answers, and rendering both as
+a green tick is how a page ends up confidently telling you the opposite of the
+truth."* It said it about `unavailable`, and `unavailable` was the one case
+that already worked.
+
+`cannotLook(d)` is the one reading now — `unavailable` keeps its action button
+because it has one, and `measured: false` becomes the same panel with the note
+as its message. A report that genuinely found nothing **keeps its green tick**,
+because crying wolf on every clean run is its own failure and is the one that
+gets a page ignored. `campaign_assets.html` had this right all along and was
+the only one of the QA screens that did.
+
+**And `is_answer()` did not read `needs_qb` either, which is the same gap on
+the other side of the wire.** This module's own docstring names it — *"it is
+also what stops 'QuickBooks isn't connected yet' being cached for a day by
+whoever opened the report before anyone connected it"* — and `serve()`'s
+comment three hundred lines down calls the connect call-to-action a payload
+that "ran and could not measure". `is_answer()` tested `error`, `unavailable`
+and `measured is False` and never `needs_qb`, so all three billing reports
+stored it: somebody who opened Invoice Off at 08:50, before the QuickBooks
+connect at 09:10, left *"QuickBooks isn't configured"* and an Open System
+Status button on Customer Billing Comparison, Invoice Off and Sites Billing
+for everybody for the rest of the day — and the person who had just connected
+it read that as the connection having failed. A POST-Refresh cleared it; a GET
+never could.
+
+`test_qa_reports.py` asserts both directions, and it is **a sweep rather than
+the four that were wrong** — a test naming those four proves nothing about the
+fifth. It reads the **AST** of every module a report is built from and fails
+any return of no rows carrying nothing the page draws, because three of those
+modules explain this very trap in prose and a check that matches text reports
+the explanation as the defect. The decision block is **lifted out of the page**
+between its own markers and run in node, the arrangement `test_menu_layout.py`
+uses over `hub-crumbs.js`: a copy restated in the test is a third thing to keep
+in step, and a regex pinned to one line's formatting fails the day somebody
+reindents it, which is how a check gets switched off.
+
 ## An ad copy request is fourteen fields, and the form asked four
 
 `hub/ad_copy.py`, `/api/client/ad-copy`, and the button on Client 360 and on
@@ -7792,6 +7843,9 @@ python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   that cannot see the timings
 python3 test_report_cache.py       # one run per report per day; a failed run is never
                                    #   the answer, and a write drops what it changed
+python3 test_qa_reports.py         # every report on /qa answers and is drawable,
+                                   #   and one that could not look never renders
+                                   #   as "all clear"
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
 python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
