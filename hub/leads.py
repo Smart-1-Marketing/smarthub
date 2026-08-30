@@ -163,9 +163,19 @@ def _path() -> str:
     if override:
         os.makedirs(os.path.dirname(override) or ".", exist_ok=True)
         return override
-    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-    os.makedirs(base, exist_ok=True)
+    # data_root() rather than a sixth copy of the expression: HUB_LEADS_FILE
+    # still wins above, because naming one file is more specific than naming a
+    # root. Nothing moves on Render, where HUB_DATA_DIR is unset.
+    try:
+        from . import jsonstore
+        base = jsonstore.data_root()
+    except Exception:  # noqa: BLE001 — the lead store must not fail to resolve
+        base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    try:
+        os.makedirs(base, exist_ok=True)
+    except OSError:
+        pass
     return os.path.join(base, STORE_NAME)
 
 

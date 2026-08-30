@@ -907,6 +907,35 @@ a comparison can come back without inventing anything.
 `test_dashboard_trends.py` holds both halves: the readings accumulate, and
 nothing on the page claims a comparison.
 
+**And eleven reports read that export without ever asking whether it could
+be read.** `knack_data._load()` swallows `OSError` and returns `None`, so a
+missing, unreadable or malformed `products.json` yields `[]` — and to a caller
+that is indistinguishable from a client base with nobody on it. Six client
+reports and both Scorecards rendered a clean empty table saying **every client
+has a dashboard, nobody has lapsed, nobody is missing Analytics and nobody
+churned**, and `report_cache.is_answer()` stored it as the day's answer, frozen
+until tomorrow, on a source that was never read. The three billing reports
+behind it were worse than quiet: an unreadable export makes every Suite
+sub-account look like one with no live product, which is
+`ghl_billing_no_products`' own finding, so it would have *invented* rows
+rather than merely missed them.
+
+`knack_data.products_error()` is the question, and it is a **sentence rather
+than a bool** so the report can print why it is not measured. It tells the two
+empties apart — the file could not be read, or it was read and holds no rows —
+because they are different things to do about it.
+
+**The sweep is what found the last three.** `test_qa_reports.py` reads the
+**AST** of `hub/qa.py`, takes the transitive closure of every report function's
+own calls, and asks which of them reach `_client_groups()` or `_month_rollup()`
+— so a report added next month is swept without anybody remembering. Written
+against the six that were obvious, it immediately named `invoice_off` and both
+Suite billing reports as well. And the assertion is **"never a green tick"
+rather than "always `measured: False`"**: two of the eleven reach a provider
+before they reach the export and say *that* first, which is a true statement
+about why they could not look — asserting the flag would pass or fail on which
+providers the environment happens to have configured.
+
 **And the two Scorecards were measuring "running" a third way, on the same
 page as the reports that do not.** `qa._active_in_month()` was written beside
 the scorecard rather than beside `is_running()`, and it tested `status in
@@ -2899,6 +2928,29 @@ that the overrides still beat it, and that neither file goes back to deciding
 for itself — beside the section already there about a fresh data directory not
 being isolation on its own, which is the same trap one layer up.
 
+**And it was seven copies, not two.** The logs were the pair that was
+provably biting; the same expression sat in `hub/leads.py` (the lead book),
+`hub/extensions.py` (the SQLite fallback), `hub/scheduler.py` (the leader
+lock), `modules/landing_ads/store.py` and `modules/google_finder/app.py` (the
+OAuth refresh tokens — one of the files this page counts as having no second
+copy). All five skipped `HUB_DATA_DIR` too, so naming a root moved the
+jsonstore files and left those five on the shared disk.
+
+The scheduler had a spelling of its own: its fallback was **`"."`**, the
+current working directory — the one answer that depends on where somebody
+happened to start the process, and it drops a lock file into a developer's
+checkout. And the token database had no fallback at all: a machine with no
+`/var/data` got a path nothing could create.
+
+All seven defer to `data_root()` now, each keeping the override that names
+one *file* — `AUDIT_LOG_PATH`, `ERROR_LOG_PATH`, `HUB_LEADS_FILE`,
+`TOKEN_DB_PATH`, `DATABASE_URL` — because naming a file is more specific than
+naming a root, and several test files already rely on exactly that. None may
+raise: each falls back to the expression it replaced, since a store that
+cannot resolve a path is worse than one in the wrong place. Nothing moves on
+Render. `test_jsonstore.py` asserts a named root moves all seven, that the
+overrides still beat it, and that no file goes back to deciding for itself.
+
 **Deleting a mirrored file needs `jsonstore.delete_json`, not `os.remove`.**
 Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one
@@ -4609,6 +4661,42 @@ oversight and a decision. A page that cannot be read is **not measured**,
 never "nothing undeclared" — that is the one state where a clean answer would
 be a lie. It started empty, which is the only way it was worth adding.
 
+**And the names were the half that reaches the client fastest.** `kit_drift()`
+compares numbers and can only read the three sections whose table is Unit /
+Dimensions / weight. The social sections publish a different table — but its
+first column is a **format name**, and a name is what the requirement line
+prints at the client. **X** is the case that shows the cost: its 2025 model
+named eight formats and **not one of them is a format X still sells**. "Website
+Card" and "Direct Message Card" are retired, and the two mobile/desktop pairs
+modeled a split the kit says in as many words is gone — *"the
+mobile-versus-desktop creative split is gone. one asset set serves both."* So a
+client was asked to supply four things that do not exist, and two of them
+twice, on the line the client document prints. Silent from both ends: every
+name was a real format's name once, the sizes were real sizes, and nothing
+errored.
+
+X is transcribed against the 2026 kit now — Image Ads, Video Ads, Vertical
+Video Ads, Carousel Ads, Conversation Button, Amplify Pre-roll, Spotlight
+Takeover and Polls — and the old `text: {final: 256}` went with it, because the
+page says media no longer consumes characters. **The ids are kept wherever the
+format survives in substance**, the rule `billboard` already follows from when
+the IAB retired the Rising Stars name: `tags_for()` has written `unit_<id>`
+onto delivered creative and a gallery filters on it. The four with no 2026
+equivalent are in `RETIRED_UNITS` rather than deleted — **out of `UNITS`, so
+nothing asks a client for one, and still in `BY_ID`, so a row carrying the tag
+resolves to a unit that says what replaced it.** Deleting them would orphan the
+tag; leaving them in would go on asking.
+
+`kit_name_drift()` is the check, at **high**, and it covers only the channels
+declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x` today.
+The five still on the 2025 transcription are named in `_KIT_NAMES_PENDING` with
+what is known to have moved (LinkedIn sells 11 formats to our 5 and calls
+Sponsored InMail *Message Ads*; TikTok's six names include none of our three;
+YouTube's *TrueView* is now *Skippable in-stream*), and `kit_coverage()`
+carries them. A backlog named rather than left as an absence — a check listing
+every platform on the day it is written is red on the day it is written, and
+gets switched off.
+
 **Three of the twenty are a different kind of gap, and it reaches the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive
 formats are sold by the kit and this module holds **no unit** for any of them
@@ -5892,6 +5980,134 @@ The wizard carries a JavaScript mirror of the classifier and both constants so
 the Creative step reacts as a rep edits the plan; `test_proposal_spec.py`
 asserts the two agree on every product, exactly as `test_target_areas.py` does
 for the area helpers.
+
+## A client's llms.txt is hosted here and reached from their own domain
+
+`hub/llms_txt.py` builds one; `hub/llms_hosting.py` is everything after that.
+The file is served at `/llms/<slug>/llms.txt` on this host and reached by a
+**301** from `<clientdomain>/llms.txt`, which is a redirect rule in the
+client's own site builder. No DNS change, no CDN, and no dependency on Smart 1
+Sites ever supporting root-file uploads.
+
+**One dedicated prefix, not a slug at the root.** `smart1.agency/<slug>/llms.txt`
+was the obvious shape and is one path to allow in robots.txt, one to exempt
+from the crawler header, one entry in the guard allowlist — and no chance of a
+client slug shadowing a Hub route. A client called "status" or "activity" at
+the root would have taken a staff page down, and the only sign would have been
+a 404 nobody could explain.
+
+**The brief named one layer that had to be opened and there were three.** Each
+of the other two would have defeated the whole feature silently, with every
+screen in the Hub reporting a clean publish while a crawler read nothing:
+
+* **robots.txt.** `smart1.agency` refuses everything, correctly, and both the
+  crawlers this is for honour it. `no_crawl.LLMS_READERS` is the eight agents
+  that may read the prefix, and each gets `Allow:` **inside its own group**:
+  robots.txt is matched by **user-agent group, never by substring**, so a
+  group naming GPTBot says nothing whatever about ClaudeBot — and a bare
+  `Allow:` under `User-agent: *` is not a fix either, since the original
+  standard has no `Allow` directive and parser behaviour still varies.
+  Deliberately a subset of `AI_CRAWLERS`: `Google-Extended` and
+  `Applebot-Extended` are AI-**training** opt-outs and stay refused, because
+  these files are for retrieval at answer time and nothing on this host is for
+  a training set.
+* **`X-Robots-Tag`.** `no_crawl.NoIndex` stamps `noindex, nofollow, …, noai,
+  noimageai` onto *every* response in the composed app. `noai` on a file whose
+  entire purpose is to be read by AI is the flattest contradiction available,
+  and it is in no template and no route — it is added by middleware three
+  layers out in `wsgi.py`, so it is invisible from the route that serves the
+  file. That middleware already declined to overwrite a header a response set
+  for itself, and its docstring said no route in the Hub had a reason to.
+  One does now, and it says `noindex` alone: keep a raw text file out of
+  search results, say nothing that tells its actual readers to leave it alone.
+  **The 301 needs it too** — left to the default, a crawler that honours
+  `noai` may not follow the redirect, closing the migration path for exactly
+  the clients still on the old address. Found by requesting the route rather
+  than by reading it.
+* **The chrome.** `text/plain`, so the injector skips it on the mimetype —
+  and `/llms/` is in `CHROMELESS` anyway, so it is a decision rather than a
+  coincidence of that check.
+
+**The slug is stored, which is the opposite of the rule everywhere else.**
+`hub/client_key.py` refuses to store a derived key so a client renamed in
+Knack re-joins on the next request. Here the same reasoning inverts: the slug
+is written into a redirect rule **on somebody else's website**, so it has to
+outlive the rename. Derived, a rename would 404 every request the client's own
+site sends us, in silence. The registry is also the only place uniqueness can
+be enforced — two businesses whose names slugify alike would otherwise share
+one address, which is a third party's redirect quietly pointing at another
+client's file — and it makes the public route a dict lookup rather than a walk
+of the whole client book on every crawler request. Unpublishing **keeps** the
+slug: a rule on their site still points here, and re-issuing a different
+address later leaves it aimed at a 404 nobody is watching.
+
+**Publishing is a separate act from saving, and saving used to undo it.**
+`llms_txt.save()` assigned a fresh `{"text", "updated"}` over the whole record
+— destroying the `published` copy beside it, so saving a draft took the live
+file down and the next read adopted the half-written draft in its place, with
+the screen reporting a clean save either way. The Commercial Builder's
+`set_music` trap, one module over. **Every write to that record merges now.**
+
+**The one migration is written down rather than assumed.** A record saved
+before publishing existed has been served publicly all along, so refusing to
+serve it now would take a live file off the air to satisfy a rule introduced
+afterwards. Such a draft is adopted as published, once, and says
+`from_draft` so the screen can tell it from a deliberate publish. Safe rather
+than lenient: `save()` has always refused text containing a `NEED`
+placeholder, which is the same gate publishing applies.
+
+**The verifier is the point of the whole build.** The redirect is on a site we
+do not control, the file is on a host whose crawler policy other work here
+edits, and every failure is silent. `verify()` follows the chain **one hop at
+a time** — `allow_redirects=True` collapses it into a final answer and throws
+away the status codes, which is the entire question, since 301 and 302 both
+end at the same 200 and only one of them is stored. It records the hop count,
+the final status, content type, bytes and sha against the published copy, TLS
+per hop, and robots at **both** ends per agent.
+
+Three verdicts and a fourth state. **Pass** is one hop, a 301, a 200,
+`text/plain`, bytes matching, robots allowing all three. **Warn** is reachable
+and losing reach: a 302 (a crawler treats it as temporary), extra hops, a
+landing host that is neither theirs nor ours — which is what "still on the
+retired S3 bucket" looks like — or content that has drifted from what we
+published. **Fail** is not reachable as a text file at all: a non-200, an HTML
+content type, robots refusing at either end, or **a redirect landing on the
+sign-in page**, which is the quietest of them: 200, a body, and a crawler
+recording our login form as the client's llms.txt. And a robots.txt that 404s
+means nothing is restricted, which is a real answer, while one we could not
+**reach** is `measured: False` — reading a network failure as permission is a
+green tick over a question nobody asked.
+
+**One divergence from the written brief, stated rather than buried.** The
+brief lists "final host is not the client's domain" as a Warn. Under this
+design the final host is never the client's domain — that is what hosting in
+the Hub means — so applied literally, Pass is unreachable and the column is a
+wall of amber nobody reads. The actionable question is whether it landed
+somewhere **unexpected**; the off-domain caveat is carried as a note on every
+result instead, because it is a property of the architecture rather than a
+finding about any one client.
+
+**And the claim is kept honest in one place.** `CAVEAT` is the sentence, read
+by the screen rather than restated in it: no major provider has confirmed it
+reads llms.txt at inference time, a bot requesting the file proves access
+rather than influence, and Google has said it does not use the file. It is a
+low-cost, well-executed deliverable and must not be sold as a ranking lever.
+`RUNBOOK` is the five Simvoly steps, likewise data, so the screen and the test
+read one list.
+
+**A nightly job asks, because nothing else will.** `llms_verify` re-checks
+only the **published** clients — one with nothing live has nothing that can
+have broken — writes each result against the client, and logs a row only when
+something is failing: a clean sweep is a *state*, and writing one every night
+for ever is the noise `hub/google_index.py` had to learn to stop making.
+
+**`test_blueprint_guards.py` cannot see this route, and that is worth knowing
+rather than working around.** Its sweep probes every route **with no variable
+in it**, so `/llms/<slug>/llms.txt` is never requested and an allowlist entry
+for it would be reported stale by that file's own staleness check. The
+openness is asserted directly in `test_llms_hosting.py` instead — anonymous,
+through the composed app, headers included. Any future dynamic public route
+has the same blind spot.
 
 ## A placement is judged by its leads, so the page counts them
 
@@ -9178,6 +9394,9 @@ python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
 python3 test_jsonstore.py          # the mirror restores, and one answer on who is outside it
+python3 test_db_boot.py            # a database blip at boot is not a verdict for
+                                   #   the life of the worker, and sign-in says
+                                   #   so in words rather than answering 500
 python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   overdue, failure streaks, and the worker
                                    #   that cannot see the timings
@@ -9383,6 +9602,11 @@ python3 test_thinking.py           # the mark that says a scan or a model is run
                                    #   one implementation, three kinds, both halves
                                    #   of the app, nothing claiming a result, and
                                    #   the three inline copies held in step
+python3 test_llms_hosting.py       # a client's llms.txt: robots per user-agent
+                                   #   group, the header that would have said
+                                   #   noai, the 301 the redirect has to be,
+                                   #   and a robots we could not reach that is
+                                   #   never read as permission
 python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from

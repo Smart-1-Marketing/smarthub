@@ -95,13 +95,27 @@ app.config.update(
 
 # Hub integration: don't crash the whole Hub at boot if the Sites database
 # isn't configured/reachable yet — surface the problem on the page instead.
+# Retried while the failure is a *connection* one: a deploy races the database
+# awake, and giving up on the first "SSL connection has been closed
+# unexpectedly" leaves this module's schema unensured for the life of the
+# worker. Nothing here reads DB_BOOT_ERROR -- connection() opens a fresh
+# psycopg2 connection per call, so the pages recover by themselves -- but the
+# schema step does not get a second chance without this.
 try:
-    init_db()
-    DB_BOOT_ERROR = None
-except Exception as _db_exc:  # noqa: BLE001
-    DB_BOOT_ERROR = str(_db_exc)
+    from hub.extensions import boot_retry as _boot_retry
+except Exception:  # noqa: BLE001 - standalone, outside the Hub
+    def _boot_retry(run, *, label=""):
+        try:
+            run()
+            return ""
+        except Exception as exc:  # noqa: BLE001
+            return f"{type(exc).__name__}: {exc}"
+
+DB_BOOT_ERROR = _boot_retry(init_db, label="sites_admin") or None
+if DB_BOOT_ERROR:
     import logging as _logging
-    _logging.getLogger(__name__).warning("Sites DB unavailable at boot: %s", _db_exc)
+    _logging.getLogger(__name__).warning(
+        "Sites DB unavailable at boot: %s", DB_BOOT_ERROR)
 client = SimvolyClient()
 
 
