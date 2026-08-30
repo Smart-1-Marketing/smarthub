@@ -7948,7 +7948,32 @@ way, because that direction is silent — help written under a prefix no tile
 maps to leaves the tool reading as *missing* while its copy sits there
 written, and somebody writes it twice.
 
-It **reports rather than gates**. Twenty-four of the forty-seven tiles have
+**And the third side, which `stray_prefixes()` structurally cannot see.** It
+reduces every screen to its **first segment**, so help written as
+`hub.website_audit.*` reduces to `hub`, which `NOT_A_TOOL` exempts as the
+dashboard and Client 360 — an exemption that has to be broad, since the Hub's
+own pages genuinely are not tiled tools. So the forward direction is the only
+one that can catch a tile mapped to a prefix naming the wrong screen, and it
+fails in the **safe-looking** way: the tool reads as never explained, which
+is a backlog entry rather than a defect, so nobody looks. That is what
+happened to the Website Audit tool the release after it was given six bubbles
+and a six-step tour — declared as bare `website_audit` against keys filed
+under `hub.website_audit`, matching nothing, reported as carrying no help at
+all. A prefix may name two segments now, because `hub.website_audit` is a
+tool and `hub.prospect` is a record page and the bare `hub` they share names
+neither.
+
+`mislabeled_prefixes()` is the check, and it is deliberately **narrower than
+"this prefix backs nothing"** — twenty-three tiled tools have genuinely never
+had help written, and reporting those here would be a list somebody
+re-triages on every run. The finding is a prefix that resolves to no screen
+*while the registry holds one whose name contains it*: the only case where
+"no help written" is a wrong answer rather than a true one. It is one line to
+fix and a paragraph to write, so the two are counted apart. `test_help_layer.py`
+feeds it the bug it was written for and requires it to say so, because a
+check that reads green either way is one nobody can trust.
+
+It **reports rather than gates**. Twenty-three of the forty-seven tiles have
 no help behind them; that is all real, none of it breaks a page, and a build
 failing on it is a check switched off within a week. `env_report()`'s shape —
 the thing that stands beside a check and says what the check cannot see.
