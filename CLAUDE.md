@@ -3772,6 +3772,31 @@ IO's product list is the whole card rather than what survived a collision, and
 that the names we publish are the names we quote from — the partner pages ship
 in this repo, so that last one is checkable rather than remembered.
 
+**And a rename for the reader is not a rename of the join.** The IO template
+carries a `PRODUCT_RENAME` that turns `Select Tactics - Comes with Retargeting`
+into the friendlier `Programmatic Campaign with Retargeting` — and it ran over
+the very array `cardLabelFor()` searches, so after that line **no row answered
+to the name the card actually uses**. A proposal quotes the card, so the
+lookup returned `""` for the go-to display product: the one
+`rate_card.CATEGORY_GOTO` names and every awareness and traffic goal
+recommends first.
+
+It failed differently at each of the two doors, and neither errored. An
+**uploaded** proposal pushed it onto `unmatched` and dropped the line. A
+**converted** one fell back to the raw product name — which is not a
+`productConfig` key, since the labels are built after the rename — so the line
+reached the insertion order with no rate, no benchmark, no requirements and no
+timeline, looking like a product nobody had filled in.
+
+The rename stays, because somebody chose that wording for the screen; what is
+kept beside it is `originalProduct`, and `cardLabelFor()` matches both. The
+refusals had to survive gaining a second name to match on, so
+`test_io_start.py` asserts them in the same breath: a product four headings
+share still resolves to none of them, and Google Grant's setup fee is still
+not confused with its management fee. It lifts the functions out of the page
+and runs them in node rather than restating them, or the test is a second
+description of the join.
+
 ### A transcription is only as good as the day it was taken
 
 `hub/creative_specs.py` transcribes the S1M CREATIVE SPEC KIT rather than

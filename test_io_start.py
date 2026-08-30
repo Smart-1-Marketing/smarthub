@@ -511,6 +511,93 @@ check("the page does assign the route's answer over its own default",
       "CFG=Object.assign(CFG,c)" in _page.replace(" ", ""), True)
 
 
+# ---------------------------------------------------------------------------
+section("the IO can find the product a proposal quoted")
+# ---------------------------------------------------------------------------
+# The IO template renames one product for the reader -- PRODUCT_RENAME turns
+# "Select Tactics - Comes with Retargeting" into "Programmatic Campaign with
+# Retargeting" -- and the rename ran over the array `cardLabelFor()` searches.
+# A proposal quotes the card's own name, so after that line no row answered to
+# it: the go-to display product, the one every awareness and traffic goal
+# recommends first, resolved to "". Dropped as unmatched on an uploaded
+# proposal; on a converted one, committed under a bare name that is not a
+# productConfig key, so the line reached the IO with no rate, no benchmark and
+# no requirements. Nothing errored at either end.
+#
+# The functions are lifted out of the page rather than restated, or this
+# asserts a second copy of the join.
+import json as _json                                               # noqa: E402
+import subprocess as _sub                                          # noqa: E402
+
+_io_tpl = (ROOT / "modules" / "io_builder" / "templates" / "index.html").read_text(
+    encoding="utf-8")
+
+
+def _io_grp(pat, group=0):
+    m = re.search(pat, _io_tpl, re.S)
+    if not m:
+        raise AssertionError(f"not found in the IO template: {pat[:40]}")
+    return m.group(group)
+
+
+try:
+    _harness = "\n".join([
+        "const rateCard=" + _io_grp(r"const rateCard=(\[.*?\]);", 1) + ";",
+        "const CATEGORY_RENAME=" + _io_grp(r"const CATEGORY_RENAME\s*=\s*(\{.*?\});", 1) + ";",
+        "const PRODUCT_RENAME=" + _io_grp(r"const PRODUCT_RENAME=(\{.*?\});", 1) + ";",
+        _io_grp(r"rateCard\.forEach\(x=>\{\n const origCat.*?\n\}\);"),
+        _io_grp(r"function benchmarkFor\(category,product,rateType\)\{.*?\n\}"),
+        _io_grp(r"const productConfig=\{\};\nrateCard\.forEach\(x=>\{.*?\n\}\);"),
+        _io_grp(r"function cardLabelFor\(name,category\)\{.*?\n\}"),
+        """
+const out={};
+function look(n,c){const L=cardLabelFor(n,c);return {label:L, configured:!!(L&&productConfig[L])};}
+out.renamedByCardName = look("Select Tactics - Comes with Retargeting",
+                             "DATA TARGETED DISPLAY");
+out.renamedNoCategory = look("Select Tactics - Comes with Retargeting","");
+out.renamedByNewName  = look("Programmatic Campaign with Retargeting",
+                             "DATA TARGETED DISPLAY");
+out.ordinary          = look("Website Retargeting","RETARGETING");
+out.ambiguous         = look("Behavioral","");
+out.googleGrant       = look("Google Grant","");
+out.unknown           = look("Not A Real Product","");
+out.renamedRowKeeps   = rateCard.filter(x=>x.originalProduct).map(x=>x.originalProduct);
+console.log(JSON.stringify(out));
+""",
+    ])
+    _js = os.path.join(TMP, "cardlabel.js")
+    open(_js, "w", encoding="utf-8").write(_harness)
+    _r = _json.loads(_sub.run(["node", _js], capture_output=True, text=True,
+                             timeout=30, check=True).stdout)
+
+    check("a proposal quoting the card's own name finds the renamed product",
+          _r["renamedByCardName"]["label"],
+          "DATA TARGETED DISPLAY \u2014 Programmatic Campaign with Retargeting")
+    check("and the label it returns is one productConfig actually has",
+          _r["renamedByCardName"]["configured"], True)
+    check("with no category to narrow on, it still resolves",
+          _r["renamedNoCategory"]["configured"], True)
+    check("the friendlier name the screen shows still resolves too",
+          _r["renamedByNewName"]["configured"], True)
+    check("the original name is kept on the row rather than overwritten",
+          _r["renamedRowKeeps"], ["Select Tactics - Comes with Retargeting"])
+    check("a product nobody renamed is unaffected",
+          _r["ordinary"]["configured"], True)
+    # The refusals have to survive it: matching more names must not turn an
+    # ambiguous product into a confident wrong answer, which is the whole
+    # reason cardLabelFor refuses rather than taking the first.
+    check("a name four headings carry still resolves to none of them",
+          _r["ambiguous"]["label"], "")
+    check("and a setup fee is still not confused with a management fee",
+          _r["googleGrant"]["label"], "")
+    check("a name on no card row is still refused",
+          _r["unknown"]["label"], "")
+except FileNotFoundError:
+    print("  skip  node is not installed — the IO product join is unchecked")
+except _sub.CalledProcessError as _exc:
+    check("the IO product join runs", _exc.stderr[:300], "")
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")
