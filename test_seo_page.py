@@ -388,7 +388,89 @@ check("and the caret is put back after a rebuild",
 
 
 # ------------------------------------------------------------------------
-section("8. The two pages pagecheck could not reach")
+section("8. The SEO book is read live, and says which source answered")
+
+from hub import knack_data, knack_products                     # noqa: E402
+
+LIVE_ROW = {"client": "Zeta Live Only", "product": "Website SEO and Blogs",
+            "status": "Live", "start": "01/01/2026", "end": "12/31/2026",
+            "monthly": "900", "partner": "Smart 1 Marketing", "sales": "Todd"}
+_real_rows = knack_products.rows
+
+
+def with_live(payload):
+    knack_products.rows = lambda *a, **k: payload
+    try:
+        return seo.seo_clients_result()
+    finally:
+        knack_products.rows = _real_rows
+
+
+rows, source, age = with_live({"source": "knack", "rows": [LIVE_ROW],
+                               "age_minutes": 4})
+check("a live pull is what the SEO list is built from", source, "knack")
+check("and the client on it is the live one",
+      [r["client"] for r in rows], ["Zeta Live Only"])
+check("its age travels with the rows", age, 4)
+check("the note says live", seo.products_note(source, age),
+      "Live from Knack, 4 min old.")
+
+# The two ways a live pull must never empty a good export -- the knack_products
+# rule. A client list that came back empty would read as "we have no SEO
+# clients", which is a confident wrong answer rather than an error.
+_, s_empty, _ = with_live({"source": "knack", "rows": [], "age_minutes": 1})
+check("a live pull that answers with nothing falls back", s_empty, "export")
+
+
+def _boom(*a, **k):
+    raise RuntimeError("knack down")
+
+
+knack_products.rows = _boom
+try:
+    r_err, s_err, _ = seo.seo_clients_result()
+finally:
+    knack_products.rows = _real_rows
+check("and one that raises falls back too", s_err, "export")
+check("with the export's rows still on it", len(r_err) > 0)
+check("the export note says it may be out of date",
+      "may be out of date" in seo.products_note("export", None))
+
+check("seo_clients() keeps its list-only signature for the other callers",
+      isinstance(seo.seo_clients(), list))
+check("and the webmaster roster still builds off it",
+      isinstance(seo.webmaster_roster(), list))
+
+# The record reads the same source as the list, or the two screens quote one
+# client different products with nothing saying why.
+knack_products.rows = lambda *a, **k: {"source": "knack", "rows": [LIVE_ROW],
+                                       "age_minutes": 4}
+try:
+    rec = seo.client_detail("Zeta Live Only")
+finally:
+    knack_products.rows = _real_rows
+check("the client record is built from the live pull too",
+      rec["products_source"], "knack")
+check("and carries the same one sentence about it",
+      rec["products_note"], seo.products_note("knack", 4))
+check("with the live product on it", rec["products"], ["Website SEO and Blogs"])
+check("and its billing", rec["billing"], 900)
+
+r = signed_in.get("/api/seo/clients")
+body = r.get_json() or {}
+check("the route hands the source to the page", "products_source" in body)
+check("and the sentence to print", bool(body.get("products_note")))
+
+check("the list draws it", "products_source" in LIST and "seo-srcnote" in LIST)
+check("and says nothing at all rather than 'live' when it cannot tell",
+      "not measured -- say nothing" in LIST)
+check("the record draws it", "seocSrc" in REC and "products_note" in REC)
+check("one sentence, written once, read by both",
+      LIST.count("Committed export") + REC.count("Committed export"), 1)
+
+
+# ------------------------------------------------------------------------
+section("9. The two pages pagecheck could not reach")
 
 PC = (ROOT / "tools" / "pagecheck.py").read_text(encoding="utf-8")
 check("the client record is named in pagecheck, with a ?name=",
