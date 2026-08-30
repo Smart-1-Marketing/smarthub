@@ -74,21 +74,24 @@
   .wrapover{overflow-x:auto}
 </style>
 </head>
-<body data-screen="website_audit" data-module="website_audit">
+<body{% if has_tour is not defined or has_tour('hub.website_audit') %} data-screen="hub.website_audit"{% endif %} data-module="website_audit">
 <div class="wrap">
   <h1>Website Audit {{ help_dot('hub.website_audit.intro') if help_dot is defined else '' }}</h1>
   <p class="sub">Everything one audit already knows about a business, starting
     with what they are spending. Pull it for a customer we have, or type any
     website. Every audit run here is filed as a lead, and a finished one can
-    open a proposal with the answers already in it.</p>
+    open a proposal with the answers already in it.
+    {%- if has_tour is not defined or has_tour('hub.website_audit') %}
+    &middot; <a href="#" data-tour-start="hub.website_audit">How this works</a>
+    {%- endif %}</p>
 
   <!-- Server-supplied values, handed over as data rather than interpolated
        into a script block: tools/jscheck.py can then run node --check over
        the real JavaScript instead of skipping it for Jinja it cannot parse. -->
   <script type="application/json" id="boot">{{ {'client': client, 'domain': domain}|tojson }}</script>
 
-  <div class="card">
-    <h2>What are we auditing?</h2>
+  <div class="card" id="askCard">
+    <h2>What are we auditing? {{ help_dot('hub.website_audit.ask') if help_dot is defined else '' }}</h2>
     <p class="small muted" style="margin:2px 0 12px">A customer is searched
       rather than typed: a name that matches nothing files the work under a
       client nothing joins to and still reads as a success.</p>
@@ -132,7 +135,7 @@
   </div>
 
   <div class="card" id="leadCard" style="display:none">
-    <h2>File this as a lead</h2>
+    <h2>File this as a lead {{ help_dot('hub.website_audit.lead') if help_dot is defined else '' }}</h2>
     <p class="small muted" style="margin:2px 0 12px">Somebody looked this
       business up, which makes them a prospect. The lead goes to the one
       Leads panel with the audit attached — an email address or a phone
@@ -152,7 +155,7 @@
   </div>
 
   <div class="card" id="nextCard" style="display:none">
-    <h2>Turn this into a proposal</h2>
+    <h2>Turn this into a proposal {{ help_dot('hub.website_audit.proposal') if help_dot is defined else '' }}</h2>
     <p class="small muted" id="nextNote" style="margin:2px 0 12px"></p>
     <div class="flow">
       <a class="btn pri" id="btnProposal" href="#">Start a proposal from this audit →</a>
@@ -364,7 +367,8 @@
   }
 
   function spendHtml(sp){
-    var h='<div class="card spend"><h2>'+esc(sp.title)+'</h2>'
+    var h='<div class="card spend"><h2>'+esc(sp.title)
+      +' <span data-help="hub.website_audit.spend"></span></h2>'
       +'<p class="small muted" style="margin:2px 0 12px">'+esc(sp.why)+'</p>';
     if(!sp.measured&&!sp.observed.length){
       return h+'<div class="empty">'+esc(sp.note)+'</div></div>';
@@ -420,7 +424,9 @@
         +d.headline.rows.map(figHtml).join('')+'</div></div>';
     }
 
-    h+='<div class="card"><h2>What this audit says we could fix</h2>'
+    h+='<div class="card" data-block="opportunities">'
+      +'<h2>What this audit says we could fix '
+      +'<span data-help="hub.website_audit.opportunities"></span></h2>'
       +'<p class="small muted" style="margin:2px 0 12px">Each is what was '
       +'measured and what it costs them — never a product name on its own, '
       +'because the finding is the half that survives being read out to the '
@@ -564,8 +570,27 @@
       .then(function(r){ return r.json(); })
       .then(function(d){
         btn.disabled=false;
-        msg.className=d.ok?'small muted':'small err';
-        msg.textContent=d.ok?(d.note||'Filed.'):(d.error||'That could not be filed.');
+        if(!d.ok){
+          msg.className='small err';
+          msg.textContent=d.error||'That could not be filed.';
+          return;
+        }
+        /* Filed, and where it went. textContent for the sentence and one
+           appended link for the record, so nothing the store returns is ever
+           written into the page as markup. */
+        msg.className='small muted';
+        msg.textContent=(d.note||'Filed.')+' ';
+        if(d.record_url){
+          var a=document.createElement('a');
+          a.href=d.record_url;
+          a.textContent='Open the prospect record \u2192';
+          msg.appendChild(a);
+        }else{
+          /* An older worker answering mid-deploy has never heard of this key.
+             Say where the row is rather than nothing at all. */
+          msg.appendChild(document.createTextNode(
+            'It is in the Leads panel.'));
+        }
       })
       .catch(function(){
         btn.disabled=false;

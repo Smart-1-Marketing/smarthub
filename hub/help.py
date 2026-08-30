@@ -226,6 +226,119 @@ REGISTRY: list[Help] = [
        "the other destroys the only evidence of it. Every question here "
        "changes something in the proposal downstream, and each one says what."),
 
+    _h("hub.website_audit.ask", "Reading one and running one",
+       "Reading the last audit costs nothing and spends no credit — it is a "
+       "reading somebody already paid for, and the date it was taken is "
+       "printed on it. Running a new one spends a credit and takes minutes, "
+       "so it confirms first. A client is searched rather than typed: a name "
+       "that matches nothing is refused rather than filed against a client "
+       "nothing joins to.", step=2, selector="#askCard"),
+    _h("hub.website_audit.spend", "What they are already spending",
+       "This leads, because a business putting $2,400 a month into Google Ads "
+       "is a different sale from one putting in nothing. The total covers "
+       "only what carries a number — Meta publishes the ads and never the "
+       "spend — and whatever was left out of it is named beside it in words, "
+       "or a five-figure understatement gets quoted confidently. The "
+       "arithmetic says which two figures it divided and whose they were.",
+       step=3, selector=".card.spend"),
+    _h("hub.website_audit.opportunities", "What we could fix",
+       "Each row is what was measured and what it costs them, with the "
+       "product as the consequence rather than the headline: the finding is "
+       "the half that survives being read out to the client, and the product "
+       "is what a rep gets argued with over. A check the plan did not run "
+       "raises nothing at all — absent is never a clean bill.",
+       step=4, selector="[data-block='opportunities']"),
+    _h("hub.website_audit.lead", "Every audit is a lead",
+       "Somebody typed a business and a website into this Hub, which makes "
+       "them a prospect whatever else they are. The row goes to the one lead "
+       "store and on to Smart 1 Suite, and the two writes are reported apart "
+       "— saved here and created there are different outcomes. A lead with "
+       "neither an email nor a phone number is refused by name rather than "
+       "created: a contactless lead reads as a live prospect on every count "
+       "that follows. Once it is filed the prospect record is one click away, "
+       "and that is where the audit, the proposal and the files live "
+       "together.", step=5, selector="#leadCard"),
+    _h("hub.website_audit.proposal", "Turning it into a proposal",
+       "The builder opens with the discovery answers, the target areas and "
+       "the findings already in it, so the quote is written from what was "
+       "measured rather than from memory. A reading over sixty days old says "
+       "so first: a proposal written from an older one describes a site that "
+       "may have been rebuilt since.", step=6, selector="#nextCard"),
+
+    # ---------------- Prospect record ----------------
+    _h("hub.prospect.intro", "What this record is for",
+       "Everything the Hub knows about one prospect, in one place: what they "
+       "are spending, what the audit found, what has been quoted, the files "
+       "collected for them and what has happened. Smart 1 Suite owns the "
+       "working state and the Hub owns the evidence — the stage, the owner "
+       "and the conversation are in the CRM, which is where the calls and the "
+       "texts already are, and a stage stored here as well would be two "
+       "systems answering one question with nothing saying which to believe. "
+       "So this record reads the stage and never writes one.",
+       step=1, selector=".strip"),
+    _h("hub.prospect.spend", "What they are already spending",
+       "The same reading the Website Audit tool shows, and deliberately not a "
+       "second description of it — two screens describing a business's own "
+       "money differently is how a reader learns to believe neither. What was "
+       "left out of the total is named rather than counted as nothing.",
+       step=2, selector="[data-card='spend']"),
+    _h("hub.prospect.suite", "Where this has got to",
+       "Read from Smart 1 Suite, never decided here. Four kinds of empty, "
+       "and only one of them means chase this: the Suite is not configured, "
+       "the lead never reached it, the Suite refused the read, or the Suite "
+       "answered fine and no deal is open. The first three say so; the fourth "
+       "is the one that means somebody should open a deal. A note typed here "
+       "is posted to the Suite contact, so it lands where the next person to "
+       "pick this up will look, rather than in a second notebook.",
+       step=3, selector="[data-card='suite']"),
+    _h("hub.prospect.audit", "What the audit found",
+       "The same audit the tool and the client record read. Over sixty days "
+       "old it says so and offers the rescan, because a quote written from an "
+       "older reading describes a site that may have been rebuilt since. "
+       "Running one spends a credit and takes minutes, so the row does not "
+       "vanish on success — it would be claiming a result that does not exist "
+       "yet.", step=4, selector="[data-card='audit']"),
+    _h("hub.prospect.proposals", "What has been quoted",
+       "Proposals filed against this business. Audited and nothing quoted "
+       "is the band the whole audit pipeline exists to fill, and it is the "
+       "third thing the prospect queue sorts on — so Start a proposal at the "
+       "top of this record opens the builder with the audit already read into "
+       "it.", step=5, selector="[data-card='proposals']"),
+    _h("hub.prospect.assets", "Files on this prospect",
+       "The mock-up they were sent, the screenshot of the competitor they "
+       "complained about, the rate sheet they emailed over — the things that "
+       "otherwise live in somebody's inbox. They sit in a folder of their "
+       "own rather than a client gallery, because a prospect has no client "
+       "key yet and filing them together is how one company's assets land on "
+       "another's record. Deleting reports the record row and the stored copy "
+       "apart: one tick covering both is how somebody learns not to trust the "
+       "tick. Converting re-files them under the client by naming them, not "
+       "by uploading a second copy.", step=6, selector="[data-card='assets']"),
+    _h("hub.prospect.duplicates", "The same prospect, twice",
+       "The same business reaches the panel more than once and always will — "
+       "the widget on a client's site in March, an audit in May, a landing "
+       "page in between. Rows grouped on the same email address or the same "
+       "website are near enough proof; an exact company name on its own is "
+       "worth an eyeball and nothing more, since two franchises of one brand "
+       "carry one name and are two businesses with two owners. Merging is "
+       "done on the Leads panel and not here, because it is a decision made "
+       "with every row on screen: which one survives keeps its own details "
+       "and fills its blanks from the rest.",
+       step=7, selector="[data-card='duplicates']"),
+    _h("hub.prospect.timeline", "Everything that has happened",
+       "Assembled from the sections that were actually measured, and the ones "
+       "that were not are named on it rather than shortening it in silence — "
+       "a history missing exactly the fortnight somebody is asking about, "
+       "with nothing saying so, is worse than no history.",
+       step=8, selector="[data-card='timeline']"),
+    _h("hub.prospect.convert", "Convert to a client",
+       "A link, never a creation. A client in this Hub is a business with "
+       "a product in Knack — that is what billing reads — so this refuses a "
+       "name the registry does not know rather than inventing an account the "
+       "Hub shows and no invoice ever mentions. What it adds is the "
+       "carry-across: the files are re-filed under the client, and the "
+       "history of who came in and from which tool survives."),
+
     # ---------------- SEO Image Pipeline ----------------
     _h("seo_images.upload.details", "Fill these in first",
        "Company, page URL and project name are sent to the AI along with the "

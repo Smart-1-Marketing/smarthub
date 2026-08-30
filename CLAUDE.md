@@ -4900,6 +4900,47 @@ row's name now opens the record.
 
 `test_prospect_record.py` asserts all of it.
 
+**And both screens shipped with no explanation on them, which is how Smart 1
+Ads shipped.** `hub/help.py`, `hub/help_routes.py` and `hub/static/hub-help.js`
+were all working; the Website Audit tool opted in with two bubbles and the
+prospect record with none, and each declared a `data-screen` naming a screen
+the registry had never heard of — `website_audit` and `prospect` against keys
+filed as `hub.website_audit.*` and `hub.prospect.*`. So the attribute was a
+claim nothing backed: `offer()` guards on the tour's length, which is the only
+reason a mis-named screen drew nothing rather than drawing four other screens'
+steps over elements that are not on the page. Both name the registry's own
+screen now and both ask `has_tour()` rather than drawing the attribute on the
+truth of a name.
+
+**The record is drawn entirely from a fetch, so its bubbles and its tour
+anchors are one argument to `card()`.** `data-help` and `data-card` come off
+the same key, decided in the one place that draws a card rather than at the
+nine call sites — the reason `hub-thinking.js` upgrades a spinner rather than
+fifty call sites being edited, wearing a help layer. A card added next month is
+explained by naming itself and cannot end up with a ring pointing at nothing.
+`hub-help.js` mounts on a debounced `MutationObserver` for exactly this page's
+shape, so the spans it writes are upgraded like any other.
+
+**A tool that files a lead has to say where it went.** Filing ended at the word
+*"Filed."* — and the record built two releases later is where a prospect is
+actually worked, so a rep went to `/sales/leads`, found the row and clicked the
+name, which is the signpost failure `hub/stale_creative.py` names. The response
+carries `record_url` now, and it is a *third* fact rather than being folded
+into the saved-here/created-in-Suite note the two writes are already reported
+apart by. The **empty** branch is deliberately not written server-side —
+`capture()` allocates a uuid4 hex, so an id is always there on this path, and a
+state nothing can reach reads as one the code handles. The page still guards,
+because two gunicorn workers mean a rolling deploy can answer from a version
+that has never heard of the key.
+
+**None of it reaches the page a prospect reads.** The customer-facing audit
+widget and its report are served to a stranger on somebody else's website, and
+a staff note in one is an internal note in front of a client — the rule
+`test_ads_explainer.py` already holds the public estimate to.
+`test_prospect_explainer.py` asserts every half: every key placed resolves,
+every tour step rings something its own screen actually draws, and the two
+client-facing templates place none of it.
+
 ### The customer-facing half is a second kind of placement, not a second widget
 
 `modules/scans` owns placements, and a second table describing one would be a
@@ -7107,6 +7148,9 @@ python3 test_prospect_record.py    # the record a scan produces: four kinds of e
 python3 test_website_audit.py      # the spend block that leads the audit, the customer
                                    #   placement, the lead every scan files, merging two
                                    #   rows that are one prospect
+python3 test_prospect_explainer.py # the two screens explain themselves: every key
+                                   #   resolves, every tour step rings a card the
+                                   #   page draws, and none of it reaches a prospect
 python3 test_detail_ui.py          # one description of the record-page look, and the
                                    #   three module screens that read from it
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
