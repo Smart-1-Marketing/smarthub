@@ -468,6 +468,300 @@ for rel in ("hub/templates/seo_client.html",
     ok(f"{rel} degrades if the script is missing", "window.S1Think" in src)
 
 
+# ------------------------------- the fifth surface: the pages a client opens
+section("The pages a client opens carry the mark too, inlined")
+
+# Every client-facing surface in this Hub is chrome-free by design — CHROMELESS
+# in hub/__init__.py and the PUBLIC_PREFIXES each mounted module declares —
+# because injecting the staff sidebar, help layer and feedback tab into a
+# document a client reads is the failure those lists exist to prevent.
+# hub-thinking.js rides in with that chrome, so switching the chrome off
+# switched the mark off with it, and nothing anywhere said so: a client
+# approving a finished TV cut pressed a button that greyed out and said
+# nothing, and a client swiping an idea on a phone got no visible change at
+# all. hub/thinking.py is the inline block those pages carry instead.
+import importlib
+_thinking = importlib.import_module("hub.thinking")
+BLOCK = str(_thinking.assets())
+
+ok("the block defines the small sibling and not a second S1Think",
+   "window.S1Wait" in BLOCK and "window.S1Think" not in BLOCK)
+ok("and refuses to run twice on one page", "if (window.S1Wait) { return; }" in BLOCK)
+
+# Inline is not licence to draw a different thing. A client waiting on a model
+# and a rep waiting on the same model are waiting on one thing.
+for kind, shape in (
+    ("scan", "M12 12 L12 2.8 A9.2 9.2 0 0 1 20.5 8.6 Z"),
+    ("ai", "M12 3.2 13.6 9.1 19.4 10.7 13.6 12.3 12 18.2 10.4 12.3 4.6 10.7 10.4 9.1Z"),
+):
+    ok(f"the {kind} glyph is the Hub's own path",
+       shape in _thinking.mark_svg(kind) and shape in SCRIPT)
+ok("the wait arc is the same dash pattern",
+   'stroke-dasharray="16 38"' in _thinking.mark_svg("wait")
+   and '"16 38"' in SCRIPT)
+ok("and each sweeps at the speed hub-help.css sets",
+   "1.9s linear infinite" in BLOCK and "1.9s linear infinite" in CSS
+   and ".9s linear infinite" in BLOCK)
+ok("it knows the same three kinds", list(_thinking.KINDS) == ["ai", "scan", "wait"])
+
+# The four rules, which are the script's own and are not relaxed by being
+# inlined.
+ok("nothing in it may raise", BLOCK.count("catch (e)") >= 4)
+ok("busy() returns a handle even when the button is not there",
+   "if (!btn) { return handle; }" in BLOCK)
+ok("and note() does the same for a status line",
+   "if (!host) { return handle; }" in BLOCK)
+# done() restores; it writes no word and draws no tick. Whether the call
+# succeeded is the caller's answer, and a tick over a failed one is the
+# confident wrong answer this codebase keeps undoing.
+# Read with the comments taken out, or the check reports the sentence
+# explaining the rule as a breach of it — the "prose is not a call site" trap
+# tools/spellcheck.py reads the AST to avoid.
+CODE = re.sub(r"/\*.*?\*/", " ", BLOCK, flags=re.S)
+CODE = re.sub(r"(?m)^\s*//.*$", "", CODE)
+ok("done() puts the button back and claims nothing",
+   "btn.innerHTML = was;" in CODE
+   and "Done" not in CODE and "\u2713" not in CODE and "\u2714" not in CODE)
+ok("currentColor, never a palette",
+   BLOCK.count("currentColor") >= 6
+   and not re.search(r"(?<!&)#[0-9a-fA-F]{3,6}\b", BLOCK))
+ok("reduced motion drops the movement and keeps the mark",
+   "prefers-reduced-motion" in BLOCK and "animation:none !important" in BLOCK)
+ok("and a screen reader is told what is running",
+   'aria-live="polite"' in BLOCK or "aria-live" in BLOCK)
+ok("a static mark tells one what it is",
+   'role="img"' in _thinking.mark_svg("scan")
+   and "aria-label" in _thinking.mark_svg("scan"))
+# </script> inside a string literal would close the block the script sits in.
+ok("the glyph markup cannot close its own script tag", "</script>" not in _thinking.js())
+
+# The global has to be on the environment that renders the page, and a module's
+# environment is its own — the first trap this repo names. Both registration
+# paths carry it: install_template_helpers() for every mounted module, and
+# register_help() for the hub app, where the blueprint-registered Commercial
+# Builder renders.
+HELPR = (ROOT / "hub" / "help_routes.py").read_text(encoding="utf-8")
+ok("every mounted module's environment gets it",
+   HELPR.count("_thinking.install(app)") == 2)
+
+# The call sites. Guarded every time, so a module whose environment never
+# received the registration loses the mark rather than the page.
+CLIENT_PAGES = {
+    # the four Social Content pages share one head partial rather than four
+    "modules/social_planner/templates/_client_head.html": None,
+    "modules/commercial_builder/templates/commercial_review.html": ("c-send", "d-send"),
+    "modules/ads_builder/templates/ads_estimate.html": ("modalSend", "respondBtn"),
+    "modules/sales_builder/templates/client_proposal.html": ("go",),
+}
+for rel in CLIENT_PAGES:
+    src = (ROOT / rel).read_text(encoding="utf-8")
+    ok(f"{rel} asks for the block",
+       "s1_wait_assets()" in src)
+    ok(f"{rel} guards the call",
+       "if s1_wait_assets is defined" in src)
+
+def _code_only(src):
+    """The file with its comments taken out.
+
+    Every one of these call sites explains in a comment that it is guarded on
+    window.S1Wait, so a check reading the raw text is satisfied by the
+    sentence describing the rule and says nothing when the rule goes. That is
+    the trap tools/spellcheck.py reads the AST to avoid, and it caught this
+    check being silent on a deliberately drifted file before it shipped.
+    """
+    out = re.sub(r"\{#.*?#\}", " ", src, flags=re.S)          # Jinja
+    out = re.sub(r"/\*.*?\*/", " ", out, flags=re.S)          # /* … */
+    out = re.sub(r"(?m)^\s*//.*$", "", out)                   # a whole line
+    return re.sub(r"(?m)\s//[^\n]*$", "", out)                # a trailing one
+
+
+for rel in ("modules/social_planner/templates/client_ideas.html",
+            "modules/social_planner/templates/client_approve.html",
+            "modules/social_planner/templates/client_preferences.html",
+            "modules/social_planner/templates/client_request.html",
+            "modules/commercial_builder/templates/commercial_review.html",
+            "modules/ads_builder/templates/ads_estimate.html",
+            "modules/sales_builder/templates/client_proposal.html"):
+    src = _code_only((ROOT / rel).read_text(encoding="utf-8"))
+    ok(f"{rel} marks its wait", "S1Wait." in src)
+    # A mark that takes the answer down with it is worse than no mark.
+    ok(f"{rel} degrades if the block did not run", "window.S1Wait" in src)
+    # done() is what puts the control back. A wait started and never ended is
+    # a button disabled for the life of the page.
+    ok(f"{rel} ends every wait it starts",
+       src.count(".done()") >= src.count("S1Wait.busy(") + src.count("S1Wait.note("))
+
+# The swipe is the one that had nothing at all: the double-tap guard returned,
+# so the second tap was met by a function doing nothing, which reads as broken.
+IDEAS = (ROOT / "modules" / "social_planner" / "templates" / "client_ideas.html").read_text()
+ok("the swipe holds the other choice while the tap is in flight",
+   "other.disabled = true" in IDEAS and "other.disabled = false" in IDEAS)
+
+
+# ------------------------------------ and the sweep that finds the ninth page
+section("Every public page that runs a wait carries a mark")
+
+# The seven above were found by reading, which is how the eighth was missed:
+# modules/fan_radio/templates/share.html is the page a rep mails a client to
+# approve a radio spot, and approving said one word and grayed a button out
+# with nothing moving. A list of the seven we fixed proves nothing about the
+# ninth, so this asks the question of every public route instead — the rule
+# test_blueprint_guards.py works to, wearing a spinner.
+
+import ast as _ast
+
+def _public_lists(mod):
+    """PUBLIC_PREFIXES / PUBLIC_PATHS as the module itself declares them."""
+    out = []
+    for py in mod.rglob("*.py"):
+        try:
+            tree = _ast.parse(py.read_text(encoding="utf-8", errors="ignore"))
+        except SyntaxError:
+            continue
+        for n in _ast.walk(tree):
+            if isinstance(n, _ast.Assign):
+                for t in n.targets:
+                    if isinstance(t, _ast.Name) and t.id in ("PUBLIC_PREFIXES",
+                                                             "PUBLIC_PATHS"):
+                        try:
+                            out += [v for v in _ast.literal_eval(n.value)
+                                    if isinstance(v, str)]
+                        except Exception:
+                            pass
+    return out
+
+
+def _route_paths(fn):
+    out = []
+    for d in fn.decorator_list:
+        if isinstance(d, _ast.Call) and d.args and isinstance(d.args[0], _ast.Constant):
+            f = d.func
+            if (getattr(f, "attr", None) or getattr(f, "id", None)) in ("route", "get", "post"):
+                out.append(d.args[0].value)
+    return out
+
+
+def _strings(node):
+    return [n.value for n in _ast.walk(node)
+            if isinstance(n, _ast.Constant) and isinstance(n.value, str)
+            and n.value.endswith(".html")]
+
+
+def _templates(fn, helpers):
+    """The templates a route function renders.
+
+    A computed name is still a render — modules/scans picks between
+    widget.html and widget_audit.html inside a helper and passes the result,
+    so reading only the literal arguments would skip the three pages a
+    prospect actually meets. Where the argument is a call to a helper in the
+    same file, that helper's own string constants are read, which is the
+    looser reading integrity.check_orphan_templates() settled on for the same
+    reason: missing one costs a page nobody checked, and guessing wrongly
+    costs nothing but a name in a list.
+    """
+    out = []
+    for n in _ast.walk(fn):
+        if not isinstance(n, _ast.Call):
+            continue
+        f = n.func
+        if (getattr(f, "id", None) or getattr(f, "attr", None)) != "render_template":
+            continue
+        for a in n.args:
+            if isinstance(a, _ast.Constant) and isinstance(a.value, str):
+                out.append(a.value)
+            elif isinstance(a, _ast.IfExp):
+                out += _strings(a)
+            elif isinstance(a, _ast.Call):
+                name = getattr(a.func, "id", None) or getattr(a.func, "attr", None)
+                if name in helpers:
+                    out += _strings(helpers[name])
+    return [t for t in out if t.endswith(".html")]
+
+
+# Named with the reason, so an absence here is never ambiguous between a
+# decision and an oversight — the rule compliance_spec.NOT_ENFORCED and
+# ghl_scopes.NOT_REQUESTED both work to.
+MARK_EXEMPT = {
+    "modules/calculators/templates/calculators_calculator.html":
+        "already draws a complete inline mark of its own — its own SVG, "
+        "role=status, aria-live and a reduced-motion rule, torn down in a "
+        "finally. It is framed on smart1marketing.com, where the shared "
+        "block would be several kilobytes on a page whose whole job is to "
+        "load, to replace six working lines. Converging what it draws with "
+        "the Hub's own arc is separate work.",
+}
+
+_swept, _unmarked = [], []
+for _mod in sorted((ROOT / "modules").iterdir()):
+    if not _mod.is_dir():
+        continue
+    _pubs = tuple(_public_lists(_mod))
+    if not _pubs:
+        continue
+    for _py in _mod.rglob("*.py"):
+        try:
+            _tree = _ast.parse(_py.read_text(encoding="utf-8", errors="ignore"))
+        except SyntaxError:
+            continue
+        _helpers = {n.name: n for n in _ast.walk(_tree)
+                    if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))}
+        for _fn in _helpers.values():
+            if not any(p.startswith(_pubs) for p in _route_paths(_fn)):
+                continue
+            for _name in _templates(_fn, _helpers):
+                for _t in _mod.rglob(_name):
+                    _src = _t.read_text(encoding="utf-8", errors="ignore")
+                    if not re.search(r"\b(?:fetch|sendBeacon)\s*\(", _src):
+                        continue      # nothing to wait on, nothing to mark
+                    _full = _src
+                    for _inc in re.findall(r'\{%-?\s*(?:include|import)\s+"([^"]+)"',
+                                           _src):
+                        for _c in _mod.rglob(_inc):
+                            _full += _c.read_text(encoding="utf-8", errors="ignore")
+                    _rel = str(_t.relative_to(ROOT))
+                    _swept.append(_rel)
+                    _marked = ("s1_wait_assets" in _full or "scan_mark" in _full
+                               or "S1Think" in _src)
+                    if not _marked and _rel not in MARK_EXEMPT:
+                        _unmarked.append(_rel)
+
+_swept = sorted(set(_swept))
+# A sweep that quietly stops sweeping is worse than not having one — the
+# failure test_blueprint_guards.py had when its mount walk found no mounts and
+# reported a clean bill of health over 199 routes instead of 415.
+ok("the sweep found public pages to look at", len(_swept) >= 8, str(len(_swept)))
+ok("every public page that runs a wait marks it", not _unmarked,
+   ", ".join(_unmarked))
+# An exemption that outlives what it exempted goes on covering whatever is
+# written at that path next — check_stale_json_exemptions()'s rule.
+_stale = [k for k in MARK_EXEMPT if k not in _swept]
+ok("no exemption names a page that is no longer swept", not _stale,
+   ", ".join(_stale))
+ok("and none names a page that now carries the mark",
+   not [k for k in MARK_EXEMPT
+        if "s1_wait_assets" in (ROOT / k).read_text(encoding="utf-8")],
+   "an exemption is not a preference")
+# A set of the right size and the wrong contents is the same failure one step
+# on, so the families are named as well as counted — the arrangement
+# test_blueprint_guards.py uses on its mount table. The radio approval page is
+# the eighth, and the reason this is a sweep rather than an eighth entry in the
+# list above; the two scan widgets are reached only by resolving a template
+# name computed inside a helper, so naming them is what keeps that half alive.
+for _named in ("modules/fan_radio/templates/share.html",
+               "modules/scans/templates/widget.html",
+               "modules/scans/templates/widget_audit.html",
+               "modules/sales_builder/templates/client_proposal.html"):
+    ok(f"the sweep reaches {_named.split('/')[-1]}", _named in _swept)
+
+# What this cannot see, said rather than left implied: the display-ad proof is
+# served straight off the Node renderer through hub/ad_builder_proxy.py, so no
+# Flask route renders it and no Jinja global exists on it — the same position
+# modules/ad_builder/public/embed.html is in, and it carries its own inlined
+# glyphs for that reason.
+ok("and it says what it cannot reach",
+   "ad_builder" not in " ".join(_swept))
+
+
 print()
 if _failed:
     print(f"{_failed} FAILED, {_passed} passed")

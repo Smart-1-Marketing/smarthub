@@ -166,7 +166,7 @@ def scoreboard(limit: int = 6) -> dict:
                     gaps = len(mod.compute_gaps(_state(row)))
                 except Exception:                       # noqa: BLE001
                     gaps = None
-                buckets["to_convert"].append(dict(card, gaps=gaps))
+                buckets["to_convert"].append(dict(card, gaps=gaps, signal="to_convert"))
                 continue
 
             if (row.status or "") != "Sent":
@@ -188,12 +188,14 @@ def scoreboard(limit: int = 6) -> dict:
             except Exception:                           # noqa: BLE001
                 win = {}
             if win.get("expired"):
-                buckets["expired"].append(dict(card, expires_on=win.get("expires_on", "")))
+                buckets["expired"].append(dict(card, expires_on=win.get("expires_on", ""),
+                                              signal="expired"))
                 continue
             days_left = win.get("days_left")
             if isinstance(days_left, int) and days_left <= EXPIRING_WITHIN_DAYS:
                 buckets["expiring"].append(dict(card, days_left=days_left,
-                                                expires_on=win.get("expires_on", "")))
+                                                expires_on=win.get("expires_on", ""),
+                                                signal="expiring"))
                 continue
             # Sent and never opened is a different job from sent and ignored:
             # the first means the link never reached them, and a rep who
@@ -205,9 +207,11 @@ def scoreboard(limit: int = 6) -> dict:
                 continue
             if opened:
                 buckets["waiting"].append(dict(card, opens=opened,
-                                               sent_at=_iso(share.sent_at)))
+                                               sent_at=_iso(share.sent_at),
+                                               signal="waiting"))
             else:
-                buckets["unopened"].append(dict(card, sent_at=_iso(share.sent_at)))
+                buckets["unopened"].append(dict(card, sent_at=_iso(share.sent_at),
+                                                signal="unopened"))
 
         counts = {k: len(v) for k, v in buckets.items()}
         # The ids behind each figure, so the list a count links to can show
@@ -278,3 +282,42 @@ def _line(counts: dict, open_count: int, live_sent: int, shared_any: bool) -> st
         return (f"{open_count} open, and nothing needs chasing today — every "
                 "proposal that is out has been read and is still in date.")
     return "Needs attention: " + ", ".join(bits) + "."
+
+
+# The pipeline, per client, for the client-health report ---------------------
+#
+# `scoreboard()` answers "what is waiting" for the whole book; this answers it
+# for one client at a time. It is the *same* reading rather than a second one
+# — a page saying a client has two unopened proposals while the dashboard
+# counts three is the /api/db/structure versus /api/integrity trap wearing a
+# pipeline — so it calls `scoreboard()` with the cap lifted and groups what
+# comes back by the client on each card.
+#
+# Every card carries `signal`, which is the bucket it landed in. Without it
+# `rows` is one concatenated list and the reader has to guess which of the
+# five each row is, which is precisely the collapse `scoreboard()`'s own
+# docstring refuses: *they have not opened it* and *the price has lapsed* send
+# somebody to two different actions.
+ALL_ROWS = 100000
+
+
+def by_client() -> dict:
+    """`{"measured", "error", "clients": {client name: [cards]}}`.
+
+    A failed read is `measured: False` with the reason, never an empty book:
+    "this client has nothing quoted" and "the proposal store would not answer"
+    are different answers, and only the first means there is nothing to chase.
+    """
+    board = scoreboard(limit=ALL_ROWS)
+    out: dict[str, list] = {}
+    for row in board.get("rows") or ():
+        name = str(row.get("client") or "").strip()
+        if not name:
+            continue
+        out.setdefault(name, []).append(row)
+    return {
+        "measured": bool(board.get("measured")),
+        "error": str(board.get("error") or ""),
+        "clients": out,
+        "open_count": int(board.get("open_count") or 0),
+    }

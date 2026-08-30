@@ -438,6 +438,12 @@ if client is not None:
     check("no staff sidebar is injected into it",
           "s1hub-sidebar" not in body and "hub-help" not in body)
     check("crawlers are told to stay out", "noindex" in body)
+    # hub-thinking.js is part of the chrome that is deliberately absent, which
+    # left a client tapping Like on a phone with no visible change at all.
+    # hub/thinking.py inlines the mark into _client_head.html, so all four of
+    # these pages carry it; test_thinking.py owns the rules it is held to.
+    check("the mark that says something is running is inlined instead",
+          ".s1w-mark{" in body and "window.S1Wait = {" in body)
 
     for page in ("ideas", "approve", "preferences"):
         code = client.get(f"/tools/social/c/{token}/{page}").status_code

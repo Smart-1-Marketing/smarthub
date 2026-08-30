@@ -258,6 +258,12 @@ body = r.get_data(as_text=True)
 
 check("no sidebar reaches the client", "s1hub-sb" in body, False)
 check("no help layer reaches the client", "hub-help.js" in body, False)
+# hub-thinking.js is part of that chrome, so leaving it out left a client
+# asking for a change with a grayed-out button and nothing else. The mark is
+# inlined here instead — hub/thinking.py, with test_thinking.py holding it in
+# step with the Hub's own.
+check("the mark that says something is running does",
+      ".s1w-mark{" in body and "window.S1Wait = {" in body, True)
 check("no feedback tab reaches the client", "hub-feedback" in body, False)
 check("no module tab bar reaches the client", "Live campaigns" in body, False)
 check("no internal version tag reaches the client", "vtag" in body, False)
