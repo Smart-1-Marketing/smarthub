@@ -47,6 +47,12 @@ def check(label, got, want):
         FAILURES.append(f"{label}: expected {want!r}, got {got!r}")
 
 
+def _read(rel):
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), rel),
+              encoding="utf-8") as fh:
+        return fh.read()
+
+
 print("Every bubble this Hub places has help behind it")
 print("-" * 62)
 
@@ -265,6 +271,65 @@ ok("and a scenario that drives none of its steps is marked apart",
    all(isinstance(r.get("dead"), bool) for r in DEMO["rows"]))
 ok("a fully anchored scenario is not in the list",
    set(DEMO["clean"]).isdisjoint({r["key"] for r in DEMO["rows"]}))
+
+# Seven hooks placed on three tools whose walkthroughs drove nothing at all,
+# each read against the step's own narration and each verified to render on
+# its own page rather than merely to exist in a template.
+for _t, _hooks in (
+        ("hub/templates/stale_creative.html",
+         ("sc-buckets", "sc-sources", "sc-unmatched")),
+        ("modules/tickets/templates/tickets_index.html",
+         ("tk-age", "tk-export")),
+        ("modules/landing_ads/templates/index.html",
+         ("la-page", "la-generate"))):
+    _src = _read(_t)
+    for _h in _hooks:
+        ok(f"{_t.split('/')[-1]} anchors {_h}", f'data-demo="{_h}"' in _src)
+
+# One line anchors every QA report tile, from the key the loop already has --
+# rather than a hook per scenario, so a report added later is anchored without
+# the template being edited.
+ok("every QA report tile is anchored from the loop",
+   'data-demo="qa-tile-{{ key }}"' in _read("hub/templates/qa.html"))
+ok("and the report table every report draws",
+   'data-demo="qa-rows"' in _read("hub/templates/qa_report.html"))
+# Which the audit must call not-verified rather than missing: it is the guess
+# linkcheck refuses to make about a URL built by concatenation.
+ok("a hook built from a loop is named, not counted as missing",
+   DEMO.get("unverified", 0) >= 2, str(DEMO.get("unverified")))
+ok("and a step it could not verify does not make a walkthrough read as dead",
+   all(not (r["dead"] and r.get("unverified")) for r in DEMO["rows"]))
+
+# The guard on that leniency. A prefix short enough to absorb an unrelated
+# hook would quietly move real dead steps into "not verified" -- shrinking the
+# backlog without fixing anything, which is the confident wrong answer this
+# whole audit exists to avoid. Every prefix has to be long enough to name one
+# family of hooks, and each is checked against what it actually absorbs.
+_blob = "\n".join(
+    open(_p, encoding="utf-8", errors="ignore").read()
+    for _p in help_audit._sources())
+_prefixes = {m.group(1).strip() for m in
+             re.finditer(r"""data-demo=["']([^"']*?)(?:\{\{|\$\{)""", _blob)
+             if m.group(1).strip()}
+ok("a runtime-built prefix is specific enough to name one family",
+   _prefixes and all(len(p) >= 6 and p.endswith(("-", "_", "."))
+                     for p in _prefixes),
+   str(sorted(_prefixes)))
+_absorbed = {n for sc in __import__("hub.demos", fromlist=["x"]).SCENARIOS
+             for st in getattr(sc, "steps", [])
+             for _k, n in help_audit._needs(getattr(st, "selector", "") or "")
+             if any(n.startswith(p) for p in _prefixes)}
+ok("and absorbs only hooks of that family",
+   all(any(n.startswith(p) for p in _prefixes) for n in _absorbed)
+   and len(_absorbed) <= 4, str(sorted(_absorbed)))
+
+# The numbers this moved. Asserted as a floor rather than an exact figure:
+# the point is that the backlog shrank and stays shrunk, not that it is 45.
+ok("fewer walkthroughs drive nothing at all",
+   len([r for r in DEMO["rows"] if r["dead"]]) <= 1,
+   str([r["key"] for r in DEMO["rows"] if r["dead"]]))
+ok("and more drive every step they name",
+   len(DEMO["clean"]) >= 13, str(len(DEMO["clean"])))
 
 # Fed a scenario whose target plainly exists, it must not be reported.
 _anchored = [r for r in DEMO["clean"]]

@@ -230,9 +230,21 @@ def demo_targets(root: str | None = None) -> dict:
             continue
     everything = "\n".join(blob)
 
-    rows, steps, missing = [], 0, 0
+    # A hook written from a loop -- `data-demo="qa-tile-{{ key }}"` anchors
+    # all 27 QA report tiles from one line -- cannot be resolved from the
+    # source, and calling it missing is the guess `tools/linkcheck.py` refuses
+    # to make about a URL built by concatenation. The prefix in front of the
+    # interpolation is what a step target can match on: it is *not verified*
+    # rather than missing, which is the same answer the bubble half gives.
+    built = set()
+    for m in re.finditer(r"""data-demo=["']([^"']*?)(?:\{\{|\$\{)""", everything):
+        head = m.group(1).strip()
+        if head:
+            built.add(head)
+
+    rows, steps, missing, unverified = [], 0, 0, 0
     for scenario in demos.SCENARIOS:
-        gone = []
+        gone, loose = [], []
         for i, step in enumerate(getattr(scenario, "steps", []), 1):
             selector = getattr(step, "selector", "") or ""
             if not selector:
@@ -240,6 +252,13 @@ def demo_targets(root: str | None = None) -> dict:
             steps += 1
             absent = [f"{kind} {name!r}" for kind, name in _needs(selector)
                       if name not in everything]
+            if absent and any(
+                    any(name.startswith(pfx) for pfx in built)
+                    for _kind, name in _needs(selector)):
+                unverified += 1
+                loose.append({"step": i, "title": getattr(step, "title", ""),
+                              "selector": selector})
+                continue
             if absent:
                 missing += 1
                 gone.append({"step": i, "title": getattr(step, "title", ""),
@@ -250,11 +269,16 @@ def demo_targets(root: str | None = None) -> dict:
             "title": getattr(scenario, "title", ""),
             "steps": len(getattr(scenario, "steps", [])),
             "unanchored": gone,
+            # Anchored by a hook a template builds from a loop. Named, not
+            # resolved, and never counted as missing.
+            "unverified": loose,
             # A scenario every one of whose driving steps is missing does not
             # drive anything at all -- a different thing from one with a step
             # or two out of date, and the only one worth retiring rather than
             # repairing.
-            "dead": bool(gone) and len(gone) == len(
+            # A step it could not verify is not a step that is missing, so
+            # it does not count towards "this drives nothing".
+            "dead": bool(gone) and not loose and len(gone) == len(
                 [s for s in getattr(scenario, "steps", [])
                  if getattr(s, "selector", "")]),
         })
@@ -262,6 +286,7 @@ def demo_targets(root: str | None = None) -> dict:
         "scenarios": len(rows),
         "steps": steps,
         "unanchored": missing,
+        "unverified": unverified,
         "rows": [r for r in rows if r["unanchored"]],
         "clean": [r["key"] for r in rows if not r["unanchored"]],
         "measured": True,

@@ -468,7 +468,7 @@ SCENARIOS: list[Scenario] = [
                  "Under the Suite (GoHighLevel) group.",
                  "Compares live Suite billing in GoHighLevel against products on "
                  "file in Knack.",
-                 action="click", selector="[data-demo='qa-billing']"),
+                 action="click", selector="[data-demo='qa-tile-ghl-billing-no-products']"),
             Step("Read the rows, don't just count them",
                  "Each row is a sub-account we're billing with nothing on file.",
                  "Two very different things land in this list: a data gap where "
@@ -485,7 +485,7 @@ SCENARIOS: list[Scenario] = [
                  "Suite Billing This Month shows what's actually being billed.",
                  "The reverse case — a live product with no billing — is lost "
                  "revenue, and it's the report worth building next.",
-                 action="click", selector="[data-demo='qa-thismonth']"),
+                 action="click", selector="[data-demo='qa-tile-ghl-billing-this-month']"),
         ]),
 
     # ------------------------------------------------------------------
@@ -1535,7 +1535,7 @@ SCENARIOS: list[Scenario] = [
         minutes=4, path="/tools/tickets/",
         steps=[
             Step("Start with what's stale, not what's newest",
-                 "Sort by age.",
+                 "Filter to the customers past the SLA window.",
                  "A new request has someone's attention already. A three-week-"
                  "old one has a client wondering whether we forgot, and that's "
                  "the one that costs you the relationship.",

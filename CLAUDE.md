@@ -2403,6 +2403,34 @@ scenarios written against a screen that has since been rebuilt are a list
 somebody works down rather than something a learner meets one step at a time.
 Placing the hooks is separate work and needs whoever knows each tool.
 
+**Seven of them are placed, and the shape of the fix matters more than the
+seven.** Three walkthroughs that drove *nothing* — Stale Creative, Web Tickets
+and Landing Ads — now drive every step they name, each hook read against the
+step's own narration and each verified to **render on its own page** rather
+than merely to exist in a template. Where the narration and the screen had
+genuinely diverged the narration was repaired too: the tickets step said *sort
+by age* and that screen offers a filter past the SLA, so pointing the ring at
+the nearest thing would have been the confident wrong answer the amber line
+exists to avoid.
+
+The QA reports are the shape worth copying. `qa.html` draws one tile per
+report in a loop, so **one line anchors all twenty-seven** —
+`data-demo="qa-tile-{{ key }}"` — and a report added next month is anchored
+without the template being edited, which is the same reason the help layer is
+drawn from a registry rather than hard-coded. `qa_report.html` builds every
+report's table, so one hook there anchors *read the rows* for any walkthrough
+that reaches any report. Fifty-five unanchored steps became forty-five, and
+five walkthroughs that drove nothing became one.
+
+A hook built from a loop is **named, never resolved**: it cannot be matched
+from the source, and calling it missing is the guess `tools/linkcheck.py`
+refuses to make about a URL built by concatenation — so it is counted apart
+and a step it could not verify never makes a walkthrough read as dead. The
+one step left deliberately unanchored is *watch for "no Knack match at all"*,
+which is a **value in a cell** rather than an element that template can
+anchor; the walkthrough says so on the step, which is the honest answer and
+the reason that line was added.
+
 It asks whether the element exists **anywhere**, not on the scenario's own
 page — a walkthrough drives a screen whose markup half a dozen scripts write,
 so tying a target to one template would report a hook drawn at runtime as

@@ -109,7 +109,7 @@
     client currently running a product.</p>
   {% set _left_out = (data.totals.inactive or 0) + (data.totals.unmatched or 0) %}
   {% if _left_out %}
-  <p class="sub" style="font-size:13px">Not listed:
+  <p class="sub" style="font-size:13px" data-demo="sc-unmatched">Not listed:
     {% if data.totals.inactive %}{{ data.totals.inactive }} client{{ '' if data.totals.inactive == 1 else 's' }}
       with no product delivering today{% endif %}{% if data.totals.inactive and data.totals.unmatched %};
     {% endif %}{% if data.totals.unmatched %}{{ data.totals.unmatched }} creative
@@ -124,7 +124,7 @@
   {# Tile order mirrors the section order below: worst elapsed time first,
      then the clients with nothing on file. A tile row that disagrees with the
      list underneath it makes the page read as two different reports. #}
-  <div class="tiles">
+  <div class="tiles" data-demo="sc-buckets">
     <div class="tile t-hi"><div class="n">{{ g.get('over_' ~ e[2], 0) }}</div>
       <div class="l">{{ e[2] }}+ days</div></div>
     <div class="tile t-mid"><div class="n">{{ g.get('d' ~ e[1] ~ '_' ~ e[2], 0) }}</div>
@@ -262,7 +262,7 @@
   </section>
   {% endfor %}
 
-  <p class="foot">
+  <p class="foot" data-demo="sc-sources">
     {{ data.totals.creatives }} creatives across {{ data.totals.clients }} clients.
     Generated {{ data.generated_at[:16].replace('T', ' ') }} UTC.
     Sources read: {{ data.sources.live|join(', ') if data.sources.live else 'none' }}.

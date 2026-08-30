@@ -15,7 +15,13 @@
 {% if blurbs.get(group) %}<p class="qa-group-blurb">{{ blurbs[group] }}</p>{% endif %}
 <div class="tool-tiles">
   {% for key, meta in items %}
-  <a class="tool-tile" href="{{ meta.href or ("/qa/" ~ key) }}">
+  {# One hook per report, from the key the loop already has. A walkthrough
+     that wants to open a named report can point at it without this template
+     growing a hook per scenario -- and a report added later is anchored
+     without being edited, which is the whole reason the help layer is drawn
+     from a registry rather than hard-coded. #}
+  <a class="tool-tile" data-demo="qa-tile-{{ key }}"
+     href="{{ meta.href or ("/qa/" ~ key) }}">
     <div class="t-ico">{{ meta.ico|safe }}</div>
     <h3>{{ meta.title }}</h3>
     <p>{{ meta.desc }}</p>

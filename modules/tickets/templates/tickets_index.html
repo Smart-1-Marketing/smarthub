@@ -16,7 +16,7 @@
   <span class="spacer"></span>
   <span class="sub" id="tkt-stamp"></span>
   <button class="tkt-btn ghost" id="tkt-refresh" type="button">Refresh from Knack</button>
-  <a class="tkt-btn ghost" href="{{ url_for('tickets.api_export') }}">Export CSV</a>
+  <a class="tkt-btn ghost" data-demo="tk-export" href="{{ url_for('tickets.api_export') }}">Export CSV</a>
   <a class="tkt-btn ghost" href="{{ url_for('tickets.setup_page') }}">Setup</a>
 </div>
 
@@ -43,7 +43,7 @@
   <section id="panel-customers" role="tabpanel" aria-labelledby="tab-customers">
     <div class="tkt-search">
       <input type="search" id="tkt-q" placeholder="Find a customer" aria-label="Find a customer">
-      <select id="tkt-filter" aria-label="Filter customers">
+      <select id="tkt-filter" data-demo="tk-age" aria-label="Filter customers">
         <option value="">Everyone</option>
         <option value="open">Has open tickets</option>
         <option value="breach">Past {{ sla_days }} days</option>

@@ -477,7 +477,10 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
       return;
     }
     var styles = d.row_styles || [];
-    var h = '<table class="qa-t"><thead><tr>';
+    // Every report draws its rows here, so one hook anchors "read the rows"
+    // for any walkthrough that reaches any report — rather than a hook per
+    // scenario on a table this template builds generically.
+    var h = '<table class="qa-t" data-demo="qa-rows"><thead><tr>';
     d.columns.forEach(function(c){ h += '<th>'+esc(c)+'</th>'; });
     h += '</tr></thead><tbody>';
     d.rows.forEach(function(row, i){

@@ -102,7 +102,7 @@
     <div class="grid" style="margin-top:14px">
       <div>
         <label class="f">…or paste any URL</label>
-        <input type="url" id="url" placeholder="https://smart1marketing.com/…" oninput="clearPage()">
+        <input type="url" id="url" data-demo="la-page" placeholder="https://smart1marketing.com/…" oninput="clearPage()">
       </div>
       <div>
         <label class="f">Objective</label>
@@ -137,7 +137,7 @@
       {% endfor %}
     </div>
     <div class="rowbar">
-      <button class="btn" onclick="generate()">Write the ads</button>
+      <button class="btn" data-demo="la-generate" onclick="generate()">Write the ads</button>
       <span class="msg" id="genMsg"></span>
     </div>
   </div>

@@ -924,7 +924,16 @@ function renderHelpAudit(d){
           '<em class="diag-fix">Each one says so on the step now, rather '+
           'than the button doing nothing. Placing the hooks is the fix.</em>'
         : esc(String(w.steps||0))+" steps, every one of them anchored."));
+    if(w.unverified){
+      out.push(row("unverified","built","Built from a loop",
+        esc(String(w.unverified))+" step"+(w.unverified===1?"":"s")+
+        " point at a hook a template writes from a loop &mdash; "+
+        "<code>data-demo=\"qa-tile-{{ key }}\"</code> anchors every QA "+
+        "report from one line. Not resolvable from the source, so named "+
+        "rather than counted as missing."));
+    }
     rows.forEach(function(r){
+      if(!(r.unanchored||[]).length) return;
       out.push(row(r.dead?"warn":"off", r.dead?"none":"some", r.key,
         esc(r.title||"")+" &mdash; "+esc(String((r.unanchored||[]).length))+
         " of "+esc(String(r.steps||0))+" step"+(r.steps===1?"":"s")+
