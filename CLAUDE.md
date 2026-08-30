@@ -3227,6 +3227,51 @@ IO's product list is the whole card rather than what survived a collision, and
 that the names we publish are the names we quote from — the partner pages ship
 in this repo, so that last one is checkable rather than remembered.
 
+### A transcription is only as good as the day it was taken
+
+`hub/creative_specs.py` transcribes the S1M CREATIVE SPEC KIT rather than
+fetching it, and that is still right: a spec table pulled live changes what a
+check says with no diff to point at. What the argument never covered is the
+transcription going stale, and it had — in **both** directions, silently,
+because the kit and the verdict are each internally consistent on their own.
+
+The kit says in as many words that **"the flat 150 KB rule is gone"**, that
+**970x250 is called Billboard** because the IAB retired the Rising Stars
+programme, that **SVG is now accepted**, and that **"15 seconds or 3 loops" is
+no longer a universal rule**. The code was enforcing every one of the retired
+versions. Half Page and 970x250 were judged at 150 KB against a published
+250 KB, so the checker **refused files the client had been told to send**; a
+smartphone banner was allowed 150 KB against a published 50 KB, the same fault
+running the other way; and the mobile interstitial was sized 320x480, which is
+on none of the three rows the kit sells it at.
+
+**A target is not a floor.** DOOH publishes "40 KB target / 750 KB max", and
+that 40 was carried as `min_bytes` — which `check()` treats as a **fail**. A
+clean 30 KB billboard was refused for being too small against a number nobody
+published as a minimum. It is `target_bytes` now, and the parser that reads the
+page takes the figure labelled *max* rather than the first one it finds,
+because taking the first is the same confusion one level up.
+
+**The names changed and the ids did not.** `tags_for()` writes `unit_<id>` onto
+every file delivered through the upload manager, so renaming `rising_star`
+would orphan the tags already on a year of creative in Cloudinary to correct a
+label — `hub/audit.LOG_NAMES`' rule, wearing a spec. The id stays; the name is
+what a person reads.
+
+**The page ships in this repo, so the transcription is checkable rather than
+remembered.** `kit_drift()` reads the unit tables out of
+`hub/partner_pages/creative-specs.html` and compares; `/api/integrity` runs it
+at **high**. It stays a *check* rather than becoming the source, for the reason
+the transcription exists. And a page it cannot read is **not measured** rather
+than no drift: that is the one state where a clean answer would be a lie. Only
+the three sections whose table is Unit / Dimensions / weight are read — the
+social sections publish prose per format, and a parser guessing at those would
+report drift that is not there.
+
+**Tablet display is ours.** The kit publishes no tablet section at all, so
+those four units carry `source: "house"` rather than reading as transcribed —
+the rule `HOUSE_LEGIBILITY` in `services/abcd_service.py` already works to.
+
 ### A category heading is not a word about the product
 
 `creative_needs.medium_of()` read a blob of `category + product + label +
