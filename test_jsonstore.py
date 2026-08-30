@@ -428,6 +428,12 @@ for _f in sorted(_ROOT.glob("test_*.py")):
 # staleness check below is what requires that pruning rather than leaving an
 # exemption standing over a file it no longer describes.
 _RERUNS_CLEAN = (
+    # Left in the shape deliberately, and measured rather than assumed:
+    # 215 assertions with DATABASE_URL inherited, 211 with SQLite
+    # pinned. Sites Admin refuses to start on SQLite and takes its four
+    # assertions out of this file with it -- which is the loss the note
+    # above predicts, so this one keeps setdefault and is listed here.
+    "test_detail_ui.py",
     "test_prospect_explainer.py",
 )
 
