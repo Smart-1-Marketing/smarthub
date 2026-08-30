@@ -3977,6 +3977,50 @@ Only invoices are read: sales receipts and recurring templates are not, and the
 note says so rather than letting a site billed either way read as unbilled.
 `test_sites_billing.py` asserts all of it.
 
+## Wiring four call sites is not wiring the module
+
+`/api/integrity`'s silent-module check reads a **call** now rather than an
+import, and seven modules that had bound `hub.audit` and never used it were
+fixed. `modules/sites_admin` was one of them, and what it got was four call
+sites: suspend/cancel/reactivate, connect domain, disconnect domain, delete
+website. Four more writes on the same screens stayed silent, and every one of
+them changes something a client would notice.
+
+**The create half of a destroy/create pair was the one left out.**
+`delete_website` has been attributable since that fix and `add_site` — which
+creates a client's website and can activate a paid plan — was not, so the
+record showed sites being deleted by somebody and appearing from nowhere.
+`personalization` writes brand colors and tags onto a client's live pages.
+`pricing` sets `client_price`, which is what they are billed, **and**
+`internal_client_name`, which is the join `hub/domain_links.py` writes and
+every domain-keyed report reads — changing it moves a website onto a different
+client's record, which is precisely the attribution nobody can reconstruct
+afterwards. And `project_sso` mints a builder session into the site: not a
+change, but the door the changes are made through, and an unexplained edit to
+a client's pages is answerable only if somebody can say who was let in.
+
+**Nothing could see it, because the check one level up is satisfied by one
+call site.** `test_activity_logging.py` asks whether a module logs *at all* —
+which is the same shape as the check that read the string `for_module(` and
+counted the binding, one level finer. A module can be loudly attributable
+about a quarter of its work and pass.
+
+`HOUSEKEEPING_ROUTES` is the other side, written down rather than left as an
+absence: the reads, the imports of our own tables, and the question-asking
+route, each with its reason, so a silent write is a decision somebody made
+rather than one nobody noticed. `test_sites_admin.py` holds it in **both**
+directions — a write route in neither list fails, and an entry naming a route
+that is gone or one that has since started logging fails too — reads the
+**AST** rather than the text, because this module's own comments name `_audit`
+while explaining why it went uncalled, and is handed a silent route and
+required to name it, because a check that has only ever been green is one
+nobody can trust.
+
+**And every one of the four logs after the provider answered**, inside the
+try, which is the shape `project_action`'s own comment already describes and
+the shape `approve_render` uses in the Commercial Builder: a change Simvoly
+refused is not written down as a change that was made.
+
 ## Two guards on one client account, and both worked about half the time
 
 `modules/suite_panel` creates and deletes clients' Smart 1 Suite sub-accounts.
@@ -9220,6 +9264,10 @@ python3 test_client_owners.py      # whose client is this, and what is outstandi
                                    #   not be read named rather than counted
                                    #   as nothing
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
+python3 test_sites_admin.py        # every write on a client's website has a
+                                   #   name against it: creating one was silent
+                                   #   while deleting one was logged, and the
+                                   #   remainder is declared rather than absent
 python3 test_suite_panel.py        # creating and deleting Suite sub-accounts:
                                    #   a claim taken before the work and shared
                                    #   between workers, a duplicate check that
