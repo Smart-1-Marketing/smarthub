@@ -655,6 +655,47 @@ def create_hub_app() -> Flask:
         also = client_groups.member_names(name, request.args.get("url", ""))
         return jsonify(work_log(name, limit, also=also))
 
+    @app.route("/api/client/orders")
+    def api_client_orders():
+        """The insertion orders this Hub has sent for a client.
+
+        Not the campaigns Knack holds — those are the Products & IOs card
+        above. This is what we sent, which exists from the day the order goes
+        out rather than from the day somebody sets the campaign up, and is the
+        only answer there is for a client whose record is otherwise empty.
+
+        Under `/api/client/` deliberately: `hub/suite_embed.EMBEDDABLE`
+        allowlists that prefix, so the card works inside the Smart 1 Suite
+        frame. A route somewhere else renders on every screen except the one
+        the record is framed in, and fails silently there.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups, io_records
+        name = request.args.get("name", "") or request.args.get("client", "")
+        # A grouped client reads across the whole group, the way the work log
+        # and the invoices do: the bill is one relationship even when the
+        # orders were written under two names.
+        names = client_groups.member_names(name, request.args.get("url", "")) \
+            or [name]
+        rows, measured, error = [], True, ""
+        seen = set()
+        for member in [name] + [n for n in names if n != name]:
+            got = io_records.listing(member)
+            if not got.get("measured"):
+                measured, error = False, got.get("error", "")
+                continue
+            for row in got["rows"]:
+                if row.get("order") in seen:
+                    continue
+                seen.add(row.get("order"))
+                rows.append(dict(row, member=member))
+        rows.sort(key=lambda r: str(r.get("last_submitted_at")
+                                    or r.get("submitted_at") or ""),
+                  reverse=True)
+        return jsonify({"orders": rows, "measured": measured, "error": error})
+
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
     def api_brand_push():
         """Send the brand guide into the client's Smart 1 Suite sub-account."""

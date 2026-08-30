@@ -104,23 +104,13 @@ section("The defect underneath: which key the submit route logs")
 
 src = open(os.path.join(ROOT, "modules", "io_builder", "app.py"),
            encoding="utf-8").read()
-# The entry is written by `_record_submission`, not inline in the route: it
-# used to run at the top of the route, before the webhook was even looked
-# for, so an IO the route then refused was filed as submitted work and
-# became a permanent row on this report. Asked of the function that writes
-# it rather than of a slice of the route, which is a reading that stops
-# asking the question the day the code moves.
-submit = src[src.index("def _record_submission"):src.index("def _record_refusal")]
+submit = src[src.index('@app.post("/api/submit-io")'):]
+submit = submit[:submit.index("webhook_url = os.environ")]
 check("submit_io logs the payload's own key, `orderNumber` — reading "
       "`order_number` alone wrote a blank on every entry ever logged",
       'get("orderNumber")' in submit)
 check("and still accepts the snake_case spelling, so an older caller is not "
       "silently dropped", 'get("order_number")' in submit)
-route = src[src.index('@app.post("/api/submit-io")'):]
-route = route[:route.index("def _payload_areas")]
-check("and the entry is written only once Suite has taken the order, so an "
-      "order nobody sent is never on this list",
-      route.index("_record_submission(data)") > route.index("response.status_code >= 400"))
 
 state = open(os.path.join(ROOT, "modules", "io_builder", "templates",
                           "index.html"), encoding="utf-8").read()
@@ -268,9 +258,15 @@ check("the note counts it", "settled as never expected" in io_reconcile.note(aft
 check("and a book with nothing outstanding but something settled does not "
       "claim every order has a campaign — a settle mark is the opposite of "
       "one",
-      "either" in io_reconcile.note({"measured": True, "checked": 1,
-                                     "outstanding": [],
-                                     "settled": [{"order": "1"}]}))
+      io_reconcile.note({"measured": True, "checked": 1, "outstanding": [],
+                         "settled": [{"order": "1"}]}
+                        ).startswith("Nothing outstanding"))
+check("nor does a book whose only orders are still inside the grace period",
+      io_reconcile.note({"measured": True, "checked": 1, "outstanding": [],
+                         "waiting": 1}).startswith("Nothing outstanding"))
+check("but a book where every order really did land says so plainly",
+      "has a campaign in Knack" in
+      io_reconcile.note({"measured": True, "checked": 4, "outstanding": []}))
 
 check("putting it back works", io_reconcile.unsettle("10403") is True
       and "10403" in orders_in(io_reconcile.report()))

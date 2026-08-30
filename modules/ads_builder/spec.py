@@ -96,6 +96,77 @@ CPC_NOTE_LONG = (
     "only once the campaign runs."
 )
 
+# Where a CPC on this document came from, and what each one actually measures.
+#
+# There are three, and conflating any two of them overstates or understates a
+# number a client makes a spending decision from:
+#
+#   benchmark        our sector range. An opening number, nothing more.
+#   top_of_page_bid  Google's answer to "what would I have to BID to show at
+#                    the top of the page" — not what you pay per click, and
+#                    always the higher figure of the two Google returns.
+#   forecast         Google's forecast average cost per click for this keyword
+#                    set at the budget quoted. The only one of the three that
+#                    is genuinely a cost per click.
+#
+# ``modules/ads_builder/keyword_plan.py`` reads these rather than restating
+# them, so a label on a screen cannot drift from the call that produced the
+# number under it.
+CPC_SOURCES = {
+    "benchmark": {
+        "label": "Industry estimate",
+        "short": CPC_NOTE,
+        "long": CPC_NOTE_LONG,
+    },
+    "top_of_page_bid": {
+        "label": "Google top-of-page bid",
+        "short": "Google bid estimate",
+        "long": "This is Google's estimate of what you would need to bid to "
+                "show at the top of the page for these keywords in your target "
+                "areas. It is a bid, not a cost per click — what you actually "
+                "pay is usually lower, and is set at auction.",
+    },
+    "forecast": {
+        "label": "Google forecast",
+        "short": "Google forecast",
+        "long": "This is Google's own forecast of average cost per click for "
+                "this keyword set, in your target areas, at the budget shown. "
+                "A forecast is not a guarantee — actual cost per click is set "
+                "at auction once the campaign runs.",
+    },
+}
+
+CPC_SOURCE_KEYS = tuple(CPC_SOURCES)
+
+
+def cpc_provenance(campaign: dict) -> dict:
+    """Which of the three the CPC on this document is, with its caveat.
+
+    Always answers. A campaign nobody has measured is ``benchmark`` — the
+    honest description of the number that has been there all along — rather
+    than an empty block a template then has to decide what to do about.
+    """
+    measured = (campaign or {}).get("cpcMeasured") or {}
+    source = measured.get("source") if measured.get("measured") else "benchmark"
+    if source not in CPC_SOURCES:
+        source = "benchmark"
+    row = CPC_SOURCES[source]
+    return {
+        "source": source,
+        "measured": source != "benchmark",
+        "label": row["label"],
+        "short": row["short"],
+        "long": row["long"],
+        "value": measured.get("cpc") if source != "benchmark" else None,
+        "at": measured.get("at", ""),
+        "customer_id": measured.get("customer_id", ""),
+        # Named rather than counted: a CPC measured across three of a client's
+        # five counties is not this campaign's CPC, and nothing else on the
+        # page would say so.
+        "areas_unresolved": ((measured.get("geo") or {}).get("unresolved") or []),
+        "keywords_priced": len(((measured.get("ideas") or {}).get("keywords")) or []),
+    }
+
 
 # --------------------------------------------------------- review outcomes
 # What a client can answer on the estimate they are sent, and the colour it

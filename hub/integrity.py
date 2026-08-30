@@ -892,7 +892,62 @@ def check_provider_key_drift() -> list[dict]:
     return out
 
 
+def check_ghl_scope_coverage() -> list[dict]:
+    """A file that writes to HighLevel with no scope declared for it.
+
+    High, for the same reason `provider_key_drift` is: every finding it can
+    produce is silent by construction. The write runs on the agency Private
+    Integration Token today and works, so nothing looks wrong — right up until
+    that call moves onto a per-sub-account token, where the scope was never
+    consented to. Then it 401s for every client at once, looking exactly like
+    a bad token, and the fix is not a code change but an agency re-consent that
+    somebody has to sit through.
+
+    The check exists because the hand-written version could not work. The test
+    enumerated five known call sites, so it re-confirmed what somebody had
+    already thought of and could never find the sixth — and within a few months
+    two had slipped past it: hub/qa.py grew an opportunity-status write, and
+    the Social Planner's posting moved from app.py into suite_client.py while
+    the table went on naming app.py.
+
+    It asserts the weak invariant on purpose: the file must be named in *some*
+    scope's `needed_by`, not that the right scope was chosen. Inferring the
+    scope from an endpoint is where false positives come from, and a check
+    people learn to ignore is worse than no check. Being named is enough to
+    guarantee somebody looked at it.
+    """
+    try:
+        from . import ghl_scopes
+    except Exception:                               # noqa: BLE001
+        return []
+
+    out = []
+    for rel in ghl_scopes.undeclared_writes():
+        out.append({
+            "file": rel, "module": _module_of(rel),
+            "detail": "Writes to the HighLevel API but no scope in "
+                      "hub/ghl_scopes.py names it. On the agency token this "
+                      "works; on a per-sub-account token it 401s for every "
+                      "client, because the scope was never consented to.",
+            "fix": "Add the file to the `needed_by` of the scope its write "
+                   "needs, or to WRITE_EXEMPT with the reason it needs none.",
+        })
+    for rel in ghl_scopes.stale_declarations():
+        out.append({
+            "file": rel, "module": _module_of(rel),
+            "detail": "hub/ghl_scopes.py declares this file as a caller, but "
+                      "it no longer exists. A declaration pointing at a "
+                      "deleted file reads as coverage and is not.",
+            "fix": "Point the scope's `needed_by` at the file that took over "
+                   "the call, or drop the entry.",
+        })
+    return out
+
+
+
 CHECKS = [
+    ("ghl_scope_coverage", "A GHL write with no scope declared for it", "high",
+     check_ghl_scope_coverage),
     ("pdf_resource_type", "PDF uploaded as an image type", "high", check_pdf_resource_type),
     ("convert_without_resize", "Converts without resizing", "high", check_convert_without_resize),
     ("untracked_openai", "OpenAI spend not recorded", "medium", check_untracked_openai),

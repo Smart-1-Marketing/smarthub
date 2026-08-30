@@ -45,12 +45,14 @@ happened.
 
   4. **An IO the route refused was filed as submitted work.** The activity
      entry and the client registration ran at the *top* of the submit route,
-     before the webhook was even looked for. A rep who pressed Submit before
-     generating both PDFs got a 400 — and a client on the activity log, an
-     insertion order on that client's 360 record, and a new row in the Hub's
-     client overlay. `hub/io_reconcile.py` reads those entries to ask which
-     orders have no campaign behind them, so an order nobody ever sent became
-     a permanent row on somebody's chase list.
+     before the request was even validated, so a submit refused for missing
+     documents still logged an order and still registered the client —
+     `hub/io_reconcile.py` reads those entries, so an order nobody ever sent
+     became a row on somebody's chase list. `hub/io_records.py` closed that
+     independently while this sweep was running, and its `_keep()` is the
+     answer kept here: nothing is written before the documents gate, and past
+     it the order is recorded whether or not Suite took it, flagged either
+     way. What this file adds is the assertion that the line stays there.
 """
 import json
 import os
@@ -88,7 +90,8 @@ def section(title):
 
 
 import modules.io_builder.app as io                                # noqa: E402
-from hub import audit, io_clients, openai_responses as responses   # noqa: E402
+from hub import (audit, io_clients, io_records,                     # noqa: E402
+                 openai_responses as responses)
 
 client = io.app.test_client()
 IO_SRC = (ROOT / "modules" / "io_builder" / "app.py").read_text()
@@ -342,16 +345,19 @@ finally:
 
 
 # ---------------------------------------------------------------------------
-section("An order that did not reach Suite is not filed as an order")
+section("Where the line falls between an order and an attempt")
 # ---------------------------------------------------------------------------
+# `_keep()` is `main`'s answer to the half of this the QA sweep also found:
+# the activity entry, the client overlay and the order record all used to be
+# written at the *top* of the route, before the request was even validated.
+# What is asserted here is where the line now falls. Past the documents gate
+# the client has an order whatever Suite goes on to do with it, so a refusal
+# is recorded and flagged rather than dropped -- "delivered" and "built, and
+# Suite refused it" are two things to do, not one. Before that gate nothing
+# was built and nothing went, so there is nothing to record.
 def submitted():
     return [e for e in audit.tail(limit=200, module="io_builder")
             if e.get("type") == "io_submitted"]
-
-
-def refusals():
-    return [e for e in audit.tail(limit=200, module="io_builder")
-            if e.get("type") == "io_submit_failed"]
 
 
 def registered():
@@ -368,31 +374,39 @@ _real_env = os.environ.get("GHL_WEBHOOK_URL")
 _real_post_io = io.requests.post
 os.environ["GHL_WEBHOOK_URL"] = "https://hooks.example/io"
 try:
-    # 1. The rep pressed Submit before generating both PDFs.
+    # 1. The rep pressed Submit before generating both PDFs. Nothing was
+    #    built and nothing went, so nothing is written down -- otherwise
+    #    hub/io_reconcile.py chases a campaign for an order nobody placed.
     half = dict(COMPLETE)
     half.pop("internal_pdf_url")
     r = client.post("/api/submit-io", json=half)
     check("a submission with one PDF missing is refused", r.status_code, 400)
     check("  and files no order", submitted(), [])
     check("  and registers no client", registered(), [])
-    check("  but leaves a trace that somebody tried", len(refusals()), 1)
-    check("  which is not filed against the client as work",
-          "client" in (refusals()[0] or {}), False)
+    check("  and writes no order record",
+          io_records.get("99001") is None)
 
-    # 2. Suite is down. The submission may well be retried in a minute, so a
-    #    row on the reconciliation chase list is an order nobody placed.
+    # 2. The documents exist and Suite refuses. The client has an order.
     io.requests.post = lambda url, **kw: Resp(500, {"error": "down"})
     r = client.post("/api/submit-io", json=COMPLETE)
     check("a webhook that refuses is refused back", r.status_code, 502)
-    check("  and still files no order", submitted(), [])
-    check("  and still registers no client", registered(), [])
+    rec = io_records.get("99001") or {}
+    check("  but the order is written down anyway", rec.get("order"), "99001")
+    check("  marked as one Suite has never taken",
+          (rec.get("suite") or {}).get("ever_delivered"), False)
+    check("  and the activity entry says so rather than reading as delivered",
+          [e.get("delivered") for e in submitted()], [False])
 
     # 3. It went.
     io.requests.post = lambda url, **kw: Resp(200, {"ok": True})
     r = client.post("/api/submit-io", json=COMPLETE)
     check("an order Suite took is accepted", r.status_code, 200)
+    rec = io_records.get("99001") or {}
+    check("  and the same order is updated rather than filed twice",
+          (rec.get("suite") or {}).get("ever_delivered"), True)
     rows = submitted()
-    check("  and filed exactly once", len(rows), 1)
+    check("  the newest entry is the delivered one",
+          rows[0].get("delivered"), True)
     check("  under the key the browser actually posts",
           rows[0].get("order"), "99001")
     check("  with what a chase list needs beside the number",

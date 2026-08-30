@@ -673,6 +673,15 @@ def api_client_upload_link():
 def next_order_number():
     try:
         order_number, storage, warning = _next_order_number()
+        # The sequence hands a number out at the start of the wizard, so an
+        # abandoned IO burns one and leaves a gap in the numbering that
+        # nobody can explain months later. Recording the allocation is the
+        # only thing that makes that answerable; it is a note, not an order.
+        try:
+            from hub import io_records
+            io_records.note_allocated(order_number)
+        except Exception:  # noqa: BLE001
+            pass           # allocation must never fail over its own note
         return jsonify({
             "ok": True,
             "order_number": order_number,
@@ -1068,115 +1077,110 @@ def handle_unexpected_error(exc):
     return jsonify({'error': 'Internal server error', 'type': type(exc).__name__, 'message': str(exc)}), 500
 
 
-def _record_submission(body):
-    """Write the order into the Hub's own books. Called only once Smart 1
-    Suite has taken it.
+@app.post("/api/submit-io")
+def submit_io():
+    """Send a completed IO record to Smart 1 Suite / GoHighLevel."""
+    # The request is validated before the deployment's configuration is: an
+    # order missing its documents is something the rep can fix, and telling
+    # them about an environment variable they cannot set is the wrong first
+    # answer. Both still return before anything is sent.
+    data = request.get_json(silent=True) or {}
+    client_pdf_url = str(data.get("client_pdf_url") or "").strip()
+    internal_pdf_url = str(data.get("internal_pdf_url") or "").strip()
 
-    It used to run at the top of the route, before the webhook was even looked
-    for -- so an IO the route then **refused** was filed as submitted work
-    anyway. A rep who pressed Submit before generating both PDFs got a 400 and
-    a client on the activity log, on that client's 360 record as an insertion
-    order, and registered as a new client in the Hub's overlay; a Suite that
-    was down did the same with a 502. `hub/io_reconcile.py` reads exactly
-    those entries to ask which orders have no campaign set up behind them, so
-    an order nobody ever sent became a permanent row on the chase list, and
-    pressing Submit twice filed it twice.
+    if not client_pdf_url or not internal_pdf_url:
+        # Nothing was built and nothing went, so there is no order to record.
+        return jsonify({
+            "ok": False,
+            "error": "Both the client PDF URL and internal PDF URL are required before the IO can be submitted."
+        }), 400
 
-    Nothing in here may fail the submission: the order has already reached
-    Suite by the time this runs, and our own bookkeeping is not the rep's
-    problem.
-    """
-    try:
-        from hub import audit
+    def _keep(delivered=False, error="", status=None):
+        """Everything the Hub writes down about an order that went out.
+
+        One place, reached at every exit past this point, because these three
+        used to be written at the top of the route — *before* the request was
+        validated — so a submit refused for missing documents still wrote an
+        `io_submitted` entry and still registered the client. The activity log
+        then held orders that never left the building, and
+        `hub/io_reconcile.py` reads that log: it would have reported them as
+        campaigns nobody set up, which is a finding about a submit that never
+        happened.
+
+        Past this point the two documents exist and the client has an order,
+        whatever Smart 1 Suite goes on to do with it — and "delivered" and
+        "built, and Suite refused it" are different states that send somebody
+        to different places. Recording only the successes is how the orders
+        that need chasing become the ones nobody can see.
+
+        Nothing in here may raise: an IO must never fail to submit over its
+        own bookkeeping.
+        """
+        actor = str(data.get("salesContact") or data.get("sales_contact") or "")
 
         def _num(v):
             try:
                 return float(v or 0)
             except (TypeError, ValueError):
                 return 0.0
-        # The browser posts the wizard's own state, whose key is
-        # `orderNumber`. Reading `order_number` alone wrote an empty order on
-        # every entry this route had ever logged -- while the
-        # `client_registered` entry written below, through
-        # `io_clients.register_from_io`, read the real key and got it right.
-        # Two readers of one payload, and the wrong one is the record a
-        # reconciliation depends on.
-        audit.log(
-            "io_builder", "io_submitted",
-            actor=str(body.get("salesContact")
-                      or body.get("sales_contact") or "") or None,
-            client=str(body.get("client") or body.get("client_name") or ""),
-            order=str(body.get("orderNumber")
-                      or body.get("order_number") or ""),
-            # What a chase list needs beside the number: who to ask, and
-            # whether the flight has already begun. An order whose start date
-            # has passed with no campaign in Knack is running in nobody's
-            # system, which is a different urgency from one starting next
-            # month -- and neither is knowable from the number alone.
-            partner=str(body.get("partner") or "") or None,
-            start=str(body.get("start") or "") or None,
-            monthly=round(sum(_num(i.get("budget"))
-                              for i in (body.get("items") or [])
-                              if isinstance(i, dict)), 2) or None)
-    except Exception:  # noqa: BLE001
-        pass
 
-    # An IO for a business nobody has a record of leaves them invisible on
-    # Client 360 -- the page reads Knack products and website records, and a
-    # brand-new client has neither until the campaign is set up. So the order
-    # registers them, and ONLY when they are genuinely new: an IO for a client
-    # who already resolves writes nothing, because a second row under a name
-    # that already exists is how one company becomes two on every report keyed
-    # on a client. Hub-side overlay, never a write to Knack -- the day the real
-    # record appears it wins. See hub/io_clients.py.
-    try:
-        from hub import io_clients
-        io_clients.register_from_io(body)
-    except Exception:  # noqa: BLE001
-        pass           # an IO must never fail to submit over its own bookkeeping
+        # The Hub's own record of the order. See hub/io_records.py.
+        try:
+            from hub import io_records
+            io_records.record(data, delivered=delivered, error=error,
+                              status=status, actor=actor)
+        except Exception:  # noqa: BLE001
+            pass
 
+        # The activity log, so the order shows in "Work for this client".
+        try:
+            from hub import audit
+            # The browser posts the wizard's own state, whose key is
+            # `orderNumber`. Reading `order_number` alone wrote an empty order
+            # on every entry this route had ever logged — while the
+            # `client_registered` entry beside it, through
+            # `io_clients.register_from_io`, read the real key and got it
+            # right. Two readers of one payload, and the wrong one is the
+            # record a reconciliation depends on.
+            audit.log(
+                "io_builder", "io_submitted", actor=actor or None,
+                client=str(data.get("client") or data.get("client_name") or ""),
+                order=str(data.get("orderNumber")
+                          or data.get("order_number") or ""),
+                # What a chase list needs beside the number: who to ask, and
+                # whether the flight has already begun. An order whose start
+                # date has passed with no campaign in Knack is running in
+                # nobody's system, which is a different urgency from one
+                # starting next month — and neither is knowable from the
+                # number alone.
+                partner=str(data.get("partner") or "") or None,
+                start=str(data.get("start") or "") or None,
+                delivered=delivered,
+                monthly=round(sum(_num(i.get("budget"))
+                                  for i in (data.get("items") or [])
+                                  if isinstance(i, dict)), 2) or None)
+        except Exception:  # noqa: BLE001
+            pass
 
-def _record_refusal(body, reason):
-    """An order that did not reach Suite, recorded as that and nothing more.
-
-    No `client=`, deliberately: `hub/client_brand.work_log()` reads a module's
-    entries by client, and an order Suite never took is not work anybody did
-    for them. What it is instead is the only trace that a rep pressed Submit
-    and it did not go -- otherwise a failed submission and a submission nobody
-    attempted are the same silence.
-    """
-    try:
-        from hub import audit
-        audit.log("io_builder", "io_submit_failed",
-                  actor=str(body.get("salesContact")
-                            or body.get("sales_contact") or "") or None,
-                  order=str(body.get("orderNumber")
-                            or body.get("order_number") or "") or None,
-                  business=str(body.get("client") or "") or None,
-                  reason=str(reason)[:200] or None)
-    except Exception:  # noqa: BLE001
-        pass
-
-
-@app.post("/api/submit-io")
-def submit_io():
-    """Send a completed IO record to Smart 1 Suite / GoHighLevel."""
-    data = request.get_json(silent=True) or {}
+        # An IO for a business nobody has a record of leaves them invisible on
+        # Client 360 — the page reads Knack products and website records, and a
+        # brand-new client has neither until the campaign is set up. So the
+        # order registers them, and ONLY when they are genuinely new: an IO for
+        # a client who already resolves writes nothing, because a second row
+        # under a name that already exists is how one company becomes two on
+        # every report keyed on a client. Hub-side overlay, never a write to
+        # Knack — the day the real record appears it wins. See hub/io_clients.py.
+        try:
+            from hub import io_clients
+            io_clients.register_from_io(data)
+        except Exception:  # noqa: BLE001
+            pass
 
     webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
     if not webhook_url:
-        _record_refusal(data, "GHL_WEBHOOK_URL is not set")
+        _keep(error="GHL_WEBHOOK_URL is not configured on the server, so the "
+                    "order was never sent to Smart 1 Suite.")
         return jsonify({"ok": False, "error": "GHL_WEBHOOK_URL is not configured on the server."}), 500
-
-    client_pdf_url = str(data.get("client_pdf_url") or "").strip()
-    internal_pdf_url = str(data.get("internal_pdf_url") or "").strip()
-
-    if not client_pdf_url or not internal_pdf_url:
-        _record_refusal(data, "the client and internal PDFs were not both generated")
-        return jsonify({
-            "ok": False,
-            "error": "Both the client PDF URL and internal PDF URL are required before the IO can be submitted."
-        }), 400
 
     # Compute opportunity-friendly summary fields so GoHighLevel can map an
     # Opportunity Name and Lead Value without digging into nested campaign_data.
@@ -1258,11 +1262,12 @@ def submit_io():
     try:
         response = requests.post(webhook_url, json=payload, timeout=30)
     except requests.RequestException as exc:
-        _record_refusal(data, f"the webhook could not be reached: {exc}")
+        _keep(error=f"Smart 1 Suite could not be reached: {exc}")
         return jsonify({"ok": False, "error": f"Webhook request failed: {exc}"}), 502
 
     if response.status_code >= 400:
-        _record_refusal(data, f"Smart 1 Suite answered HTTP {response.status_code}")
+        _keep(error="Smart 1 Suite refused the order: " + response.text[:200],
+              status=response.status_code)
         return jsonify({
             "ok": False,
             "error": "Smart 1 Suite webhook returned an error.",
@@ -1270,9 +1275,7 @@ def submit_io():
             "response": response.text[:1000]
         }), 502
 
-    # Suite has it. Only now is this an order that was placed.
-    _record_submission(data)
-
+    _keep(delivered=True, status=response.status_code)
     return jsonify({
         "ok": True,
         "status_code": response.status_code,

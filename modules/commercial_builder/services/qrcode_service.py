@@ -23,9 +23,12 @@ except ImportError:
 def is_available():
     """Whether a real code can be generated at all.
 
-    Asked by the CTA route, so a deployment missing the dependency says so on
-    the panel rather than storing nothing and reading as a code somebody
-    forgot to press the button for.
+    Not asked by the CTA route, and it should not be: `generate_qr()` returns
+    the reason *with* the result, so the panel says why there is no code on
+    the one response that knows -- and a separate pre-check is a second
+    reading of one question, which is how the two come to disagree. Kept as
+    this module's own predicate for a screen that wants to say so before
+    anybody presses.
     """
     return _AVAILABLE
 

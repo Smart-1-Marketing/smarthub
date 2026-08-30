@@ -15,7 +15,14 @@
 {% if blurbs.get(group) %}<p class="qa-group-blurb">{{ blurbs[group] }}</p>{% endif %}
 <div class="tool-tiles">
   {% for key, meta in items %}
-  <a class="tool-tile" href="{{ meta.href or ("/qa/" ~ key) }}">
+  {# Every tile carries a walkthrough hook derived from its own key, rather
+     than the few a scenario happens to name being placed by hand. hub/demos.py
+     drives a real screen and a step whose element is not there says so and
+     draws no button, so a scenario naming a report added next month is right
+     without this template being edited again -- the reason card() on the
+     prospect record takes one key rather than nine call sites doing it. #}
+  <a class="tool-tile" data-demo="qa-report-{{ key }}"
+     href="{{ meta.href or ("/qa/" ~ key) }}">
     <div class="t-ico">{{ meta.ico|safe }}</div>
     <h3>{{ meta.title }}</h3>
     <p>{{ meta.desc }}</p>

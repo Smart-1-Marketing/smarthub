@@ -209,8 +209,47 @@ def submitted() -> dict:
         return out.setdefault(key, {
             "order": order, "client": "", "at": None, "sources": [],
             "actor": "", "partner": "", "start": None, "monthly": 0.0,
-            "quote": "", "quote_id": None,
+            "quote": "", "quote_id": None, "not_delivered": False,
         })
+
+    # The Hub's own record of every order it sent. This is the durable half:
+    # it does not rotate, it carries the flight and the money, and it knows
+    # whether Smart 1 Suite actually took the order. The activity log below is
+    # what answers for orders written before that store existed.
+    records = 0
+    try:
+        from hub import io_records
+        got = io_records.listing()
+        if not got.get("measured"):
+            errors.append(got.get("error") or
+                          "the insertion order records could not be read")
+        for rec in got.get("rows") or []:
+            order = str(rec.get("order") or "")
+            key = _norm_io(order)
+            if not key:
+                continue
+            records += 1
+            row = _row(key, order)
+            row["client"] = row["client"] or str(rec.get("client") or "")
+            row["actor"] = row["actor"] or str(rec.get("submitted_by") or "")
+            row["partner"] = row["partner"] or str(rec.get("partner") or "")
+            row["start"] = row["start"] or _day(rec.get("start"))
+            row["monthly"] = row["monthly"] or float(rec.get("monthly") or 0)
+            when = _aware(rec.get("submitted_at"))
+            if when and (row["at"] is None or when < row["at"]):
+                row["at"] = when
+            # An order Suite never took is still an order the client has,
+            # and it is a second thing to do about the same row. Asked of
+            # `ever_delivered`, not of the latest attempt: an order Suite
+            # holds an earlier version of has reached Suite, and calling that
+            # "in neither system" would be the confident wrong answer.
+            if not ((rec.get("suite") or {}).get("ever_delivered")):
+                row["not_delivered"] = True
+            if "order record" not in row["sources"]:
+                row["sources"].append("order record")
+    except Exception as exc:                            # noqa: BLE001
+        errors.append(f"the insertion order records could not be read "
+                      f"({type(exc).__name__})")
 
     try:
         from hub import audit
@@ -275,7 +314,7 @@ def submitted() -> dict:
                       f"({type(exc).__name__})")
 
     return {"orders": list(out.values()), "errors": errors,
-            "log_oldest": log_oldest, "blank": blank}
+            "log_oldest": log_oldest, "blank": blank, "records": records}
 
 
 def _quote_module():
@@ -360,15 +399,25 @@ def report(now=None) -> dict:
         return {"measured": False, "outstanding": [], "unreconcilable": [],
                 "settled": [], "checked": 0, "waiting": 0, "running": 0,
                 "error": knack["error"], "errors": sent["errors"],
-                "log_oldest": sent["log_oldest"]}
+                "log_oldest": sent["log_oldest"],
+                "has_records": bool(sent.get("records"))}
 
     io_only = _io_only_orders()
+    # Numbers the sequence handed out that never became an order. Not a
+    # finding — a rep who starts an IO and thinks better of it is doing
+    # nothing wrong — but it is the only answer there is to "why is there no
+    # order 10407", and the gap is otherwise unexplainable.
+    try:
+        from hub import io_records
+        unused = len(io_records.unused_allocations())
+    except Exception:                                   # noqa: BLE001
+        unused = 0
     marks = settled()
     grace = timedelta(days=GRACE_DAYS)
     read_at = knack.get("read_at")
 
     outstanding, unreconcilable, settled_rows = [], [], []
-    waiting = after_read = running = 0
+    waiting = after_read = running = undelivered = 0
 
     for row in sent["orders"]:
         key = _norm_io(row.get("order"))
@@ -396,6 +445,8 @@ def report(now=None) -> dict:
         out = dict(row)
         out["days"] = int((now - when).days) if when else None
         out["client_is_io_only"] = key in io_only
+        if out.get("not_delivered"):
+            undelivered += 1
         start = row.get("start")
         out["started"] = bool(start and start <= now)
         if out["started"]:
@@ -421,6 +472,9 @@ def report(now=None) -> dict:
         "knack_age_minutes": knack.get("age_minutes"),
         "errors": sent["errors"],
         "log_oldest": sent["log_oldest"],
+        "has_records": bool(sent.get("records")),
+        "not_delivered": undelivered,
+        "unused_numbers": unused,
         "error": "",
     }
 
@@ -444,18 +498,26 @@ def note(data: dict) -> str:
             bits.append(f"{which} should be running now — the flight has "
                         "started and nothing is trafficked against "
                         f"{'it' if run == 1 else 'them'}")
-    elif data.get("settled"):
-        # "Every order has a campaign" would be false: one of them has a
-        # settle mark instead, which is the opposite of a campaign.
-        bits.append("Nothing outstanding — every order this can see either "
-                    "has a campaign in Knack carrying its number or has been "
-                    "settled as one that never will")
     else:
+        # "Every order has a campaign" is only true when every order this saw
+        # actually landed. An order still inside its grace period, one newer
+        # than the product read, one settled and one with no number to look up
+        # are each a reason there is nothing outstanding that is *not* a
+        # campaign in Knack — and the bits below say which. Claiming the
+        # stronger sentence over them is the confident wrong answer.
+        accounted = (int(data.get("waiting") or 0)
+                     + int(data.get("after_read") or 0)
+                     + len(data.get("settled") or [])
+                     + len(data.get("unreconcilable") or []))
         c = data.get("checked", 0)
-        bits.append("The one order this can see has a campaign in Knack "
-                    "carrying its number" if c == 1 else
-                    f"Every one of the {c} orders this can see has a campaign "
-                    "in Knack carrying its number")
+        if accounted:
+            bits.append("Nothing outstanding")
+        elif c == 1:
+            bits.append("The one order this can see has a campaign in Knack "
+                        "carrying its number")
+        else:
+            bits.append(f"Every one of the {c} orders this can see has a "
+                        "campaign in Knack carrying its number")
     if data.get("waiting"):
         w = data["waiting"]
         bits.append(f"{w} submitted within the last {GRACE_DAYS} days "
@@ -473,10 +535,26 @@ def note(data: dict) -> str:
                     f"{'it' if u == 1 else 'them'}")
     if data.get("settled"):
         bits.append(f"{len(data['settled'])} settled as never expected in Knack")
+    if data.get("not_delivered"):
+        n = data["not_delivered"]
+        bits.append(f"{n} of {'them' if n > 1 else 'those'} "
+                    f"{'was' if n == 1 else 'were'} never taken by Smart 1 "
+                    "Suite either, so the order reached neither system")
+    if data.get("unused_numbers"):
+        u = data["unused_numbers"]
+        bits.append(f"{u} order number{'' if u == 1 else 's'} "
+                    f"{'was' if u == 1 else 'were'} handed out and never "
+                    "became an order, which is why the numbering has gaps in "
+                    "it")
     oldest = data.get("log_oldest")
-    if oldest:
-        bits.append("the activity log rotates, so this sees submitted orders "
-                    "back to " + oldest.strftime("%B %-d, %Y")
+    if oldest and not data.get("has_records"):
+        # Only said while the activity log is genuinely the horizon. Once the
+        # Hub keeps its own order records — which do not rotate — going on
+        # saying this would understate what the report can see.
+        bits.append("the Hub began keeping its own record of each order only "
+                    "recently, so before that this reads the activity log, "
+                    "which rotates: it sees orders back to "
+                    + oldest.strftime("%B %-d, %Y")
                     + " plus every converted proposal, which do not rotate")
     for err in data.get("errors") or []:
         bits.append(err)
