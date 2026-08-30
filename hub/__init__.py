@@ -2123,6 +2123,43 @@ def create_hub_app() -> Flask:
             return jsonify(out)
         return jsonify({"error": "Unknown action."}), 400
 
+    @app.route("/api/qa/io-reconcile/<action>", methods=["POST"])
+    def api_qa_io_reconcile(action):
+        """Settle an insertion order that is never going to appear in Knack.
+
+        A staff decision about a campaign, so it records who made it: a mark
+        nobody can attribute is one nobody can revisit. It writes a small Hub
+        overlay and nothing else — not Knack, not Smart 1 Suite, not the quote
+        the order came from.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import io_reconcile, qa
+        body = request.get_json(silent=True) or {}
+        order = str(body.get("order") or "").strip()
+        if not order:
+            return jsonify({"ok": False, "error": "order is required."}), 400
+        actor = current_user() or ""
+        if action == "settle":
+            out = io_reconcile.settle(
+                order, reason=str(body.get("reason") or "other"),
+                note=str(body.get("note") or ""), actor=actor)
+        elif action == "unsettle":
+            out = {"ok": bool(io_reconcile.unsettle(order)), "order": order}
+            if not out["ok"]:
+                out["error"] = "That order was not settled."
+        else:
+            return jsonify({"ok": False, "error": "Unknown action."}), 400
+        if out.get("ok"):
+            # The press takes a row off this report, so the day's stored copy
+            # goes with it — otherwise the row is still there on the next open
+            # and the button reads as having done nothing.
+            qa.forget("io-not-in-knack")
+            audit.log("qa", f"io_{action}", actor=actor, order=order,
+                      reason=str(body.get("reason") or "") or None)
+        return jsonify(out)
+
     @app.route("/api/qa/dashboard-skips")
     def api_qa_dashboard_skips():
         gate = _require_api()
