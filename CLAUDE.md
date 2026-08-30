@@ -8471,14 +8471,30 @@ access rule, in one expression that **both call sites read**" while neither
 did — a shared rule that nothing shares is worse than no shared rule, because
 the next reader believes it.
 
-**One entry is a finding rather than an exemption.**
-`modules/sites_admin/seed_boot.py` promises that a freshly-recreated database
-"repopulates itself on the next startup"; it is imported by nothing and there
-is no `seed/portfolio.json` for it to read, so it has never run and could not.
-Wiring it means a database write at boot in two gunicorn workers and a seed
-file exported from the live portfolio — neither is a decision a check should
-make quietly, so the allowlist says REPAIR THIS OR REMOVE IT and names both
-halves.
+**One entry was a finding rather than an exemption, and it has been
+removed.** `modules/sites_admin/seed_boot.py` promised that a freshly-recreated
+database *"repopulates itself on the next startup with no manual
+paste/upload"* — and it was imported by nothing, there is no
+`seed/portfolio.json` for it to read and there never has been, so it had never
+run and could not. The allowlist said REPAIR THIS OR REMOVE IT and named both
+halves; repairing it needs a seed file exported from the live portfolio, which
+is not a thing a check or a cleanup can conjure.
+
+So the promise is gone rather than left standing. It is the same failure as a
+report that answers zero when it could not look, in a docstring: **the Sites
+Admin portfolio does not repopulate itself, and the file saying otherwise was
+the only reason anybody would think it did.** That matters here more than most
+places, because this Hub's own backup rule is about exactly this — the Render
+disk is not backed up, and a plan change, region move or resize hands back an
+empty one. Recovering that table is a management-panel *list-projects* export
+imported through Sites Admin's own inventory import, by hand, and nothing in
+the boot path shortens that. Wiring a seed at boot would also be a database
+write in **two** gunicorn workers, which is the `create_all()` advisory-lock
+problem one layer up, so it is not a one-line restoration either.
+
+Removing it is checkable rather than remembered: the allowlist entry went with
+the file, and `test_unwired.py` fails on an entry naming a function that is
+gone — so the removal cannot be half-done.
 
 ## Conventions
 
