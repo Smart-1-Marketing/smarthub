@@ -372,6 +372,12 @@ def staff_gallery(client_id: int):
         client=client.to_dict(include_secrets=True),
         is_staff=True,
         share_token="",
+        # One table of source labels, from the module that files them. The
+        # template used to carry its own copy, so every kind added since went
+        # into a client's gallery as a bare key under no heading. NOT
+        # `sources`: _widget_ctx already uses that name for the upload
+        # widget's tabs, and the collision is a TypeError at render time.
+        gallery_sources=filing.source_tiers(),
         **_widget_ctx(client, token=""),
     )
 

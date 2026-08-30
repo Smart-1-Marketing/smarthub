@@ -290,6 +290,11 @@ class Settings:
             # Photographs a client's own location manager attaches to a
             # content request -- modules/social_planner/intake.py.
             "social_requests": "smart1-social-requests",
+            # A stock photo chosen for a client is copied here rather than
+            # linked: a gallery row pointing at somebody else's CDN empties
+            # itself the day that provider reorganises, with nothing saying
+            # why -- modules/stock_photos/app.py.
+            "stock_photos": "smart1-stock-photos",
         }
         return defaults.get(kind, f"smart1-{kind}")
 

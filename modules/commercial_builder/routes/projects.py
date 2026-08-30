@@ -429,7 +429,8 @@ def set_cta(project_id):
         qr_data_url = qr_result.get("data_url")
         if cloudinary_service.is_live():
             upload = cloudinary_service.upload_asset(qr_result["bytes_io"], client.slug, "logo",
-                                                       public_id=f"project-{project_id}-qr", resource_type="image")
+                                                       public_id=f"project-{project_id}-qr", resource_type="image",
+                                                       client_name=client.name)
             qr_image_url = upload.get("secure_url") or qr_image_url
 
     project.cta = {

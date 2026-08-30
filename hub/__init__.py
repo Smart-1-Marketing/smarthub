@@ -175,6 +175,7 @@ def create_hub_app() -> Flask:
         path = (request.path or "/").rstrip("/") or "/"
         mapping = {"/": "hub", "/client360": "hub", "/seo": "seo",
                    "/qa": "qa", "/qa/stale-creative": "qa",
+                   "/qa/unattached-images": "qa",
                    "/tools": "hub", "/diagnostics": "hub"}
         return {"hub_demo_module": mapping.get(path, "")}
 
@@ -5471,6 +5472,9 @@ def create_hub_app() -> Flask:
     try:
         from .stale_creative import register_stale_creative
         register_stale_creative(app)
+
+        from .image_audit import register_image_audit
+        register_image_audit(app)
     except Exception as _sc_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _sc_exc)

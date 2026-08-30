@@ -1926,6 +1926,13 @@ EXTRAS = [
             "desc": "How long since we last produced creative for each "
                     "active client — and who has never had any.",
             "ico": "&#9203;", "href": "/qa/stale-creative"}),
+        ("Data Quality", "unattached-images", {
+            "title": "Unattached Images",
+            "desc": "Every image the Hub creates, uploads or lets somebody "
+                    "choose \u2014 which tools file what they make into a "
+                    "client's gallery, and which images name nobody at all. "
+                    "Attach one to a client without leaving the row.",
+            "ico": "&#128444;", "href": "/qa/unattached-images"}),
         ("Data Quality", "web-tickets", {
             "title": "Web Tickets",
             "desc": "Website change requests from Knack: what's open, "

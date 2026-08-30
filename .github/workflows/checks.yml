@@ -589,6 +589,19 @@ jobs:
             echo "test_client_uploads.py not on this branch — nothing to run."
           fi
 
+      - name: Image attribution audit, and the gallery that reads it
+        # Every tool that creates, uploads or lets somebody choose an image
+        # files it against a client or a lead; the audit reports the ones that
+        # do not; and the gallery reads one label table rather than a second
+        # hand-typed copy. Guarded like the steps above so this workflow stays
+        # mergeable on a branch that predates the file. Needs no network.
+        run: |
+          if [ -f test_image_audit.py ]; then
+            python test_image_audit.py
+          else
+            echo "test_image_audit.py not on this branch — nothing to run."
+          fi
+
       - name: Alt text and Claude-in-Chrome publish prompts
         # The alt-text scan, its clamps, and the prompts handed to a browser
         # agent -- including that no stored credential can reach one. Guarded
