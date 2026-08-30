@@ -304,8 +304,15 @@ function render(g,q){
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
     <div class="right" style="display:flex;gap:10px"><a class="open-link" id="c-web-attach" style="cursor:pointer">+ Attach website record</a>
     <a class="open-link" href="${clientsLink}">Open in Websites →</a></div></div>
-    <div class="card-b"><div id="c-web-attachbox" style="display:none;margin-bottom:10px"></div>
-    <div style="display:flex;gap:36px;flex-wrap:wrap">`;
+    <div class="card-b"><div id="c-web-attachbox" style="display:none;margin-bottom:10px"></div>`;
+  // Which source these came from, exactly as the products card says it. A
+  // stale export looks identical to live data on screen, which is how a site
+  // added in Knack last week read as a client with no website at all.
+  if(g.websites&&g.websites.length&&g.websites_source==='export'){
+    html+='<div class="pill warn" style="margin-bottom:8px;display:inline-block">'
+      +'Committed export &mdash; may be out of date</div>';
+  }
+  html+=`<div style="display:flex;gap:36px;flex-wrap:wrap">`;
   if(g.websites&&g.websites.length){
     g.websites.slice(0,4).forEach(w=>{
       const PLATFORMS=['Smart1Sites','WordPress','Wix','Squarespace','Shopify','Other'];

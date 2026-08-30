@@ -1557,7 +1557,8 @@ where their saved jobs and field map were going. Use `jsonstore.data_dir()`.
 | Source | How it's read | Freshness |
 |---|---|---|
 | Knack products (IOs) | live API, `hub/knack_products.py` (object_135), export as fallback | current |
-| Knack campaigns / websites | static JSON in `clients_app/data/` | **stale — nothing refreshes these** |
+| Knack websites | live API via `hub/knack_websites.py` (object_153), export as fallback | current |
+| Knack campaigns | static JSON in `clients_app/data/campaigns.json` | **stale — and read by nothing** |
 | Knack object_153 (website registry) | live API, `hub/knack_websites.py` | current |
 | Knack tickets | live API, `hub/knack_api.py` | current |
 | Insites scans | own SQLite/Postgres tables | current |
@@ -1568,8 +1569,48 @@ read live: `hub/knack_data.search_client()` prefers `hub.knack_products`
 (object_135) and falls back to the export, and Client 360 labels which source
 it used — before that, a client's insertion orders showed the last export's
 line-up while the Knack pull reported success, because the two are different
-sources and only one was live. **Campaigns and websites still come from the
-export**, so the same trap remains for them; both need their Knack object IDs.
+sources and only one was live.
+
+**Websites now read live too, and the split between the two readers is the
+point.** `clients_registry.all_clients()` — which feeds client search, every
+client picker, Client 360's lookup and the social content link — built its
+domains from a 610-row `websites.json` committed to the repo and refreshed by
+hand, while `hub/knack_websites.py` had been reading *the same object* live
+for the domain record, the renewals calendar and the orphan list. The Hub held
+a live answer and a stale one to "what websites does this client have", and
+every load-bearing reader took the stale one — silently, because a short list
+looks exactly like a complete one, so a site added in Knack last week read as
+a client with no website at all.
+
+`knack_data.websites()` prefers the live pull and falls back to the export,
+the shape `_product_source()` already had. Four rules on it:
+
+- **A failed pull never empties a good export.** An outage that turned 610
+  sites into zero would take every domain-keyed join in the Hub apart with
+  nothing on any screen saying why. Stale beats empty, and the reason travels
+  with the rows.
+- **Live rows arrive in the export's own field names.** `website_row_from_live()`
+  is the one mapping — it was written inside `_attachment_only_websites()` for
+  the attachment path and is read from both now. Eight call sites needed no
+  edit, and none of them can tell which source answered.
+- **`summary()` deliberately keeps reading `export_websites()`.** It measures
+  the dashboard scorecard against the export's own period and its `active`
+  field, which object_153 does not publish. Pointed at the live list it
+  reports **2 active websites and no H&M billing** — `test_knack_websites_source.py`
+  asserts exactly that number, because it is a confident wrong answer on the
+  CEO's dashboard rather than an error.
+- **Nothing is invented in the mapping.** `active`, `hmFreq`, `notes`,
+  `created` and `domainCost` are absent from a live row rather than defaulted:
+  a `False` `active` would read as a dead site on every row.
+
+Client 360 and `/status` say which source answered, exactly as the products
+card already does — a stale export looks identical to live data on screen,
+which is the whole reason this went unnoticed.
+
+**`campaigns.json` is a different case: 7,854 rows, 2.1 MB, and nothing in the
+repo references it** — no `.py`, no `.html`, no `campaigns()` reader in
+`knack_data`. It is not stale, it is dead, and the row above says so rather
+than implying a refresh would fix anything.
 
 **The URL is the join key, not the name.** Eleven field names hold a URL
 across this codebase (`url`, `domain`, `website`, `web_url`, `site_url`…).
@@ -5093,6 +5134,9 @@ python3 test_display_ads.py        # the display layouts, and the build screen's
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
+python3 test_knack_websites_source.py # websites live where Knack answers, the
+                                   #   export where it will not, and a failed
+                                   #   pull that never empties a good one
 python3 test_spelling.py           # the spelling check still bites, and its
                                    #   exemptions still name real files
 python3 test_client_prefill.py     # one client reader: what a form is offered,

@@ -4996,7 +4996,15 @@ def create_hub_app() -> Flask:
         elif age > 48:
             add("Smart 1 Team data", "warn", f"Last refreshed {age / 24:.1f} days ago — run the refresh workflow.")
         else:
-            add("Smart 1 Team data", "ok", f"Refreshed {age:.0f}h ago · {len(knack_data.products())} product rows · {len(knack_data.websites())} sites.")
+            # The site count says which source answered. Products and websites
+            # each prefer the live Knack object and fall back to the committed
+            # export, and a count with no source on it reads as live whichever
+            # it was — which is the whole reason the export went unnoticed.
+            _wsrc = knack_data.websites_source()
+            add("Smart 1 Team data", "ok",
+                f"Refreshed {age:.0f}h ago · {len(knack_data.products())} "
+                f"product rows · {len(knack_data.websites())} sites "
+                f"({'live from Knack' if _wsrc == 'knack' else 'committed export'}).")
 
         # --- GHL ---
         token, company = _cfg.ghl_token, _cfg.ghl_company_id
