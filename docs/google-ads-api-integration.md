@@ -60,7 +60,7 @@ names `modules/ads_builder/google_ads.py` reads.
 | `GOOGLE_ADS_CLIENT_SECRET` | the Google sign-in cannot start |
 | `GOOGLE_ADS_REDIRECT_URI` | Google has nowhere to send you back to |
 | `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | the MCC to act through — needed for client accounts |
-| `GOOGLE_ADS_REFRESH_TOKEN` | optional; pins the authorisation across redeploys |
+| `GOOGLE_ADS_REFRESH_TOKEN` | optional; pins the authorization across redeploys |
 | `GOOGLE_ADS_ACCESS_LEVEL` | optional; records the tier so a page can say it before anyone probes |
 
 Two deployment-specific traps that have cost working features here before:
@@ -72,14 +72,14 @@ Two deployment-specific traps that have cost working features here before:
   placeholder strings for exactly this reason — a value like `YOUR_TOKEN_HERE`
   makes every "is it configured?" check answer yes.
 
-The redirect URI must be listed verbatim on the OAuth client's **Authorised
+The redirect URI must be listed verbatim on the OAuth client's **Authorized
 redirect URIs**, as `<PUBLIC_BASE_URL>/tools/ads/oauth/callback`. A green
 "configured" over the wrong OAuth client is a `redirect_uri_mismatch` in front
 of whoever is doing the connecting.
 
 ---
 
-## 3. Authorising, once, for the agency
+## 3. Authorizing, once, for the agency
 
 **Settings → Connect Google Ads** runs the OAuth consent and stores the refresh
 token. Sign in as the account that **owns or manages the MCC**, not as whoever
@@ -94,7 +94,7 @@ working.
 
 ## 4. Reaching the client's account is a separate act, and it is theirs
 
-This is the rung that surprises people. Authorising our side does not give us
+This is the rung that surprises people. Authorizing our side does not give us
 the client's account. There is no "add this email" call. We send a **manager
 account link invitation** from our MCC and **the client accepts it** in their
 own Google Ads account under **Admin → Access and security → Managers**.
@@ -167,8 +167,8 @@ every estimate this tool produces.
 `top_of_page_bid`, `forecast` — with the caveat each one must appear beside.
 The estimate reads that rather than hard-coding a caveat, so a label cannot
 drift from the call that produced the number under it. The forecast is
-preferred; the bid range is the fallback and is labelled as a bid; the sector
-benchmark is what you get when neither answered, labelled as it always was.
+preferred; the bid range is the fallback and is labeled as a bid; the sector
+benchmark is what you get when neither answered, labeled as it always was.
 
 Three things the measurement will not do:
 

@@ -1,7 +1,7 @@
 """Is the Google Ads API actually ready, and ready for *what*.
 
 ``google_ads.connection_status()`` answers whether the four environment
-variables are set and whether somebody has authorised a Google login. That is
+variables are set and whether somebody has authorized a Google login. That is
 the question a settings page asks. It is not the question a rep about to
 deploy a client's campaign asks, and the two have different answers far more
 often than is comfortable:
@@ -185,10 +185,10 @@ def preflight(store=None, customer_id=None, proposal=None) -> dict:
 
     # 2. Authorisation.
     if status["connected"]:
-        rows.append(_check("oauth", "Google account authorised", "ok",
+        rows.append(_check("oauth", "Google account authorized", "ok",
                            f"Refresh token from {status['refresh_token_source']}."))
     else:
-        rows.append(_check("oauth", "Google account authorised", "blocked",
+        rows.append(_check("oauth", "Google account authorized", "blocked",
                            "Nobody has connected a Google login yet.",
                            "Settings → Connect Google Ads."))
 
@@ -211,7 +211,7 @@ def preflight(store=None, customer_id=None, proposal=None) -> dict:
     #    cannot see — not as an error, and not as a bad token.
     if not status["connected"] or not status["configured"]:
         rows.append(_check("account", "Client account reachable", "not_measured",
-                           "Cannot check until the API is configured and authorised."))
+                           "Cannot check until the API is configured and authorized."))
     else:
         try:
             reachable = google_ads.list_accessible_customers(store)

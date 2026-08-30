@@ -740,7 +740,7 @@ REGISTRY: list[Help] = [
        step=6, selector="[data-tour='ads-share']"),
     _h("ads_builder.proposal.cpc", "Three numbers, and only one of them is a cost",
        "Without a measurement this is our sector benchmark \u2014 an opening "
-       "figure, labelled as one. Ask Google and it prices this campaign\u2019s own "
+       "figure, labeled as one. Ask Google and it prices this campaign\u2019s own "
        "keywords in its own target areas, but the two things Google returns are "
        "not interchangeable: a top-of-page bid is what you would have to bid to "
        "show at the top, always the larger figure, and never what you pay; the "

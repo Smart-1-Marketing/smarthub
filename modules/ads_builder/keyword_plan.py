@@ -1,7 +1,7 @@
 """Real cost-per-click, from Google's own planning services.
 
 Until now every CPC on a Smart 1 Ads estimate came from ``campaign_ai.SECTOR_CPC``
--- twelve hand-written sector ranges, labelled *industry estimate* everywhere
+-- twelve hand-written sector ranges, labeled *industry estimate* everywhere
 they appear precisely because that is all they are. They are a reasonable
 opening number and they are not this client's keywords in this client's
 counties. This module is the other answer: Google's, for the keyword set we
@@ -349,7 +349,7 @@ def forecast(customer_id, campaign: dict, *, geo_resource_names=None,
 
     This is the number worth putting on an estimate, and the only one in this
     module that is genuinely a cost per click. It is a forecast, so it is
-    labelled as one everywhere it lands.
+    labeled as one everywhere it lands.
     """
     cid = digits(customer_id)
     keywords = campaign_keywords(campaign)
@@ -436,7 +436,7 @@ def measure(customer_id, campaign: dict, *, store=None) -> dict:
 
     The shape written onto the campaign JSON as ``cpcMeasured``. It always
     answers: where planning is unavailable it says which tier would fix it and
-    the estimate goes on showing the benchmark, labelled as the benchmark. It
+    the estimate goes on showing the benchmark, labeled as the benchmark. It
     never returns a number without ``source``.
     """
     out = {
@@ -525,7 +525,7 @@ def planning_available(store=None) -> dict:
                 "missing": status["missing"]}
     if not status["connected"]:
         return {"available": False, "state": "not_connected",
-                "detail": "Google Ads is not authorised yet — connect it in Settings."}
+                "detail": "Google Ads is not authorized yet — connect it in Settings."}
 
     try:
         customers = google_ads.list_accessible_customers(store)

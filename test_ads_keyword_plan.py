@@ -169,7 +169,7 @@ check("a measurement that failed is still the benchmark", prov["source"] == "ben
 
 prov = spec.cpc_provenance({"cpcMeasured": {"measured": True, "source": "nonsense",
                                             "cpc": 9.99}})
-check("an unrecognised source falls back rather than printing itself",
+check("an unrecognized source falls back rather than printing itself",
       prov["source"] == "benchmark" and prov["value"] is None)
 
 
@@ -278,7 +278,7 @@ section("A tier nobody recorded is unknown, which is not broken")
 
 t = api_readiness.declared_tier(None)
 check("with nothing recorded the tier is empty", t["tier"] == "")
-check("...labelled 'Not recorded' rather than guessed", t["label"] == "Not recorded")
+check("...labeled 'Not recorded' rather than guessed", t["label"] == "Not recorded")
 check("...and says Google does not publish it",
       "does not publish" in t["note"].lower(), t["note"])
 check("...naming its source as none", t["source"] == "none")
@@ -297,7 +297,7 @@ class FakeStore:
 
 st = FakeStore({api_readiness.TIER_SETTING: "basic"})
 check("a tier typed on Settings is read", api_readiness.declared_tier(st)["tier"] == "basic")
-check("...but is labelled a claim, not an observation",
+check("...but is labeled a claim, not an observation",
       api_readiness.declared_tier(st)["measured"] is False)
 
 api_readiness.record_probe(st, {"available": True, "state": "ok", "detail": "answered"})
@@ -348,7 +348,7 @@ no_forecast = with_google(
     lambda _r: keyword_plan.measure("1234567890", CAMPAIGN))
 check("with no forecast it falls back to the bid range",
       no_forecast["source"] == "top_of_page_bid", no_forecast.get("source"))
-check("...and the number is the bid, labelled as the bid",
+check("...and the number is the bid, labeled as the bid",
       no_forecast["cpc"] == 21.60
       and "bid, not a cost per click" in keyword_plan.summary_line(no_forecast))
 
@@ -547,7 +547,7 @@ check("...and never prints CPC_NOTE beside the headline number",
       "CPC_NOTE }})</span></div>\n      </div>" not in doc)
 check("an unresolved area is named on the document itself",
       "areas_unresolved" in doc, "the client cannot see a gap nothing mentions")
-check("the tier row is labelled by whichever CPC costed it",
+check("the tier row is labeled by whichever CPC costed it",
       "cpcSource" in doc)
 
 for name in ("ads_estimate.html", "ads_client_proposal.html"):
