@@ -272,6 +272,21 @@ jobs:
             echo "test_landing_embeds.py not on this branch — nothing to run."
           fi
 
+      - name: Calculator embed tests
+        # The same rules as the step above, on the path they did not cover.
+        # The calculators are a blueprint on the hub app and every gameplan
+        # tool is dispatcher-mounted, so nothing written for /land/<tool>/embed
+        # was in force on /tools/calculators — and both halves failed at once:
+        # the hub's embed policy answered the marketing site's iframe with the
+        # Smart 1 Suite refusal (403, plain text, in front of a prospect), and
+        # the staff sidebar was injected into the calculator pages themselves.
+        run: |
+          if [ -f test_calculator_embeds.py ]; then
+            python test_calculator_embeds.py
+          else
+            echo "test_calculator_embeds.py not on this branch — nothing to run."
+          fi
+
       - name: IO Builder start-screen tests
         # Same skip-rather-than-fail shape as the steps around it.
         run: |
