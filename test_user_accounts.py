@@ -636,12 +636,42 @@ check("it disallows everything", "User-agent: *\nDisallow: /" in _body, True)
 # Google-Extended and Applebot-Extended exist precisely so a site can refuse
 # AI training while staying in the search index, and a wildcard does not
 # always register with them.
+#
+# Asked through a parser rather than by matching "User-agent: X\nDisallow: /"
+# as adjacent lines. That spelling was asserting the file's *layout*, not what
+# it means: the day a group gained an `Allow:` line between the two — which is
+# what opening /llms/ for the AI readers did — the check failed on eight
+# crawlers whose refusal had not changed at all. A robots.txt is read by
+# group, so read it by group.
+import urllib.robotparser as _rp                          # noqa: E402
+_parser = _rp.RobotFileParser()
+_parser.parse(_body.splitlines())
+
 for _bot in ("GPTBot", "ClaudeBot", "Google-Extended", "Applebot-Extended",
-             "PerplexityBot", "CCBot", "Bytespider", "meta-externalagent"):
-    check(f"{_bot} is named, not left to the wildcard",
-          f"User-agent: {_bot}\nDisallow: /" in _body, True)
-for _bot in ("Googlebot", "Bingbot", "DuckDuckBot", "YandexBot"):
-    check(f"{_bot} is named", f"User-agent: {_bot}\nDisallow: /" in _body, True)
+             "PerplexityBot", "CCBot", "Bytespider", "meta-externalagent",
+             "Googlebot", "Bingbot", "DuckDuckBot", "YandexBot"):
+    check(f"{_bot} has a group of its own, not left to the wildcard",
+          f"User-agent: {_bot}\n" in _body, True)
+    check(f"and {_bot} is refused the Hub",
+          _parser.can_fetch(_bot, "https://smart1.agency/client360"), False)
+
+# The one exception, and both halves of it. hub/llms_hosting.py serves each
+# client's approved llms.txt under /llms/, and a reader refused there reads
+# nothing — the whole arrangement becomes a redirect into a closed door with
+# every screen in the Hub reporting a clean publish. What must NOT happen is
+# the prefix quietly opening for anything else: Google-Extended and
+# Applebot-Extended are AI-*training* opt-outs and stay refused, because the
+# client files are for retrieval at answer time and nothing here is for a
+# training set.
+_LLMS = "https://smart1.agency/llms/a-client/llms.txt"
+for _bot in ("GPTBot", "ChatGPT-User", "OAI-SearchBot", "ClaudeBot",
+             "Claude-User", "Claude-SearchBot", "PerplexityBot",
+             "Perplexity-User"):
+    check(f"{_bot} may read a client's published llms.txt",
+          _parser.can_fetch(_bot, _LLMS), True)
+for _bot in ("Google-Extended", "Applebot-Extended", "Googlebot", "CCBot",
+             "Bytespider", "SomeCrawlerNobodyHasHeardOf"):
+    check(f"{_bot} may not", _parser.can_fetch(_bot, _LLMS), False)
 
 check("no Sitemap line — pointing a crawler at one while asking it not to "
       "crawl is a mixed message", "Sitemap" in _body, False)

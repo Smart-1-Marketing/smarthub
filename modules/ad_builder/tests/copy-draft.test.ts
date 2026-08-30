@@ -61,7 +61,7 @@ test('an offer the page does not state comes back empty, not filled in', async (
         offer: '', proof: '', cta: 'Book Now' }) },
   );
   assert.equal(out.offer, '', 'no discount invented');
-  assert.equal(out.trust, '', 'no rating, licence or count invented');
+  assert.equal(out.trust, '', 'no rating, license or count invented');
 });
 
 test('the prompt forbids inventing either of them, in words', async () => {
@@ -82,7 +82,7 @@ test('the prompt forbids inventing either of them, in words', async () => {
   assert.match(sent, /If the page states neither, return/);
 });
 
-test('what the page analyser already read is handed over, not re-guessed', async () => {
+test('what the page analyzer already read is handed over, not re-guessed', async () => {
   let sent = '';
   const capture = (async (_u: string, init: any) => {
     sent = String(init.body);
@@ -102,7 +102,7 @@ test('what the page analyser already read is handed over, not re-guessed', async
 
 test('with no model at all the proof point stays empty', async () => {
   // The fallback assembles from form answers. It has a source for an offer --
-  // what somebody typed, or what the analyser literally found on the page --
+  // what somebody typed, or what the analyzer literally found on the page --
   // and no source whatever for a proof point.
   const out = await suggestCopy(
     { business: 'Riverside HVAC', promoting: 'furnace repair',

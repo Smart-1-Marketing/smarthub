@@ -203,6 +203,23 @@ jobs:
       - name: JSON store tests
         run: python test_jsonstore.py
 
+      - name: Database boot tests
+        # A database briefly unreachable during a deploy, and the four ways
+        # that used to become permanent: a boot DDL that did not retry, a
+        # verdict nothing re-asked (which 503s every Scans route and the
+        # client upload link for the life of the worker), a Scans boot failure
+        # that was logged nowhere at all, and a sign-in that answered 500 --
+        # locking the whole company out and pointing them at their own
+        # password. Nothing here reaches a database that is not the throwaway
+        # SQLite one. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_db_boot.py ]; then
+            python test_db_boot.py
+          else
+            echo "test_db_boot.py not on this branch — nothing to run."
+          fi
+
       - name: Report day-cache tests
         # One run per report per day: that the build is called once however
         # many times a report is opened, that a failed or unmeasurable run
@@ -500,8 +517,13 @@ jobs:
         #
         # test_dashboard_trends.py and test_google_index.py had the same
         # shape and were fixed the other way, by owning DATABASE_URL as well
-        # as HUB_DATA_DIR (the test_blog_publish.py pattern).
-        # test_jsonstore.py pins that so it cannot come back.
+        # as HUB_DATA_DIR (the test_blog_publish.py pattern), and so did
+        # test_io_records.py and test_sales_status.py -- which reached the
+        # identical state by setdefaulting BOTH, so the sweep that pins this
+        # could not see them: fresh directory, inherited mirror, whenever
+        # only the database is set in the environment. test_jsonstore.py
+        # reads either spelling now, and holds every file in the shape
+        # against a list of the ones actually re-run to prove they are safe.
         run: |
           if [ -f test_target_areas.py ]; then
             python test_target_areas.py
@@ -1276,6 +1298,20 @@ jobs:
       # answered with only the pages.
       - name: The search box finds clients first, and finds the Hub
         run: python3 test_search.py
+
+      # A client's llms.txt is hosted here and reached by a redirect on the
+      # client's own website, so every part of it can be broken by somebody
+      # who never heard of the feature -- and every one of those failures is
+      # silent, because the Hub goes on reporting a clean publish while a
+      # crawler reads a 404, a login page or a refusal. Two of the three
+      # layers that had to be opened were not in the written brief at all:
+      # `hub/no_crawl.NoIndex` stamps `noai` onto every response in the
+      # composed app, and a saved draft used to overwrite the published copy.
+      # This holds the robots groups per user-agent (never by substring), the
+      # header the route sets for itself, the 301-versus-302 verdict, and that
+      # a robots.txt we could not reach is not read as permission.
+      - name: The client llms.txt is readable, redirected and verified
+        run: python3 test_llms_hosting.py
 
       # The help layer, both halves. A bubble whose key the registry does not
       # hold is removed client-side, so the template reads as helped and the

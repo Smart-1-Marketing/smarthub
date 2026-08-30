@@ -148,7 +148,7 @@ export async function suggestCopy(
     '- Headline: 3-7 words, a complete, benefit-led thought. Never a bare category label like "Football Starts".',
     '- Supporting line: one short sentence (4-12 words) that adds a NEW point, not a repeat of the headline.',
     '- Offer: the specific thing on the page - a price, a discount, a free first step. 1-6 words.',
-    '- Proof: the reason to believe it - years in business, a rating, a licence, a count. 1-8 words.',
+    '- Proof: the reason to believe it - years in business, a rating, a license, a count. 1-8 words.',
     '- CTA: 1-3 words, an action the viewer takes.',
     '- Never truncate. Never output fragments ending in "Str", "Adv", etc.',
     '- Plain, concrete, human. No hype, no "Hurry".',

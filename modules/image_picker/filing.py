@@ -38,6 +38,12 @@ KIND_LABELS = {
     "blog": "Blog images",
     "seo_image": "SEO images",
     "display_ad": "Display ads",
+    # Its own heading rather than folded into display_ad. A client looking at
+    # their gallery is choosing what to run, and "the 300x250" and "the 300x250
+    # that moves" are two files that run in different placements -- most
+    # placements take only the still one. Grouped together they read as
+    # duplicates and somebody deletes one.
+    "animated_ad": "Animated display ads",
     # Filed by hub/client_logos.py from the client's brand record or their
     # last site scan. Declared here so the gallery groups them under a name
     # rather than under a bare key -- the same reason hub/audit.LOG_NAMES
@@ -77,6 +83,7 @@ SOURCE_LABELS = {
     "unsplash": "Unsplash", "pexels": "Pexels", "pixabay": "Pixabay",
     "library": "Our own library",
     "io_creative": "Creative for their insertion orders",
+    "animated_ad": "Animated display ads",
     "blog": "Blog images",
     "seo_image": "SEO images",
     "seo_images": "SEO images",

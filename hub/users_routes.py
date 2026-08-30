@@ -214,6 +214,18 @@ def signin():
         # of them.
         auth.throttle_fail(ip, email)
         return render_template("users_signin.html", next=nxt, error=str(exc)), 401
+    except Exception:                                   # noqa: BLE001
+        # The same hole /login had, and it has to sit BELOW the UserError arm
+        # or it would swallow every wrong password as a database fault.
+        # authenticate() is a database read, and catching only UserError let an
+        # unreachable Postgres out of the route as a 500 -- on the one page
+        # nobody can already be signed in to read. Deliberately not a throttle
+        # strike: the password was never checked.
+        return render_template(
+            "users_signin.html", next=nxt,
+            error="Sign-in can't reach the Hub's database right now, so your "
+                  "password could not be checked. Nothing is wrong with your "
+                  "account - try again in a minute."), 503
     auth.throttle_reset(ip)
     return _login_response(user, request.form.get("next") or nxt)
 
