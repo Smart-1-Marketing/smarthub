@@ -43,6 +43,32 @@ template raises `UndefinedError` and 500s the page unless
 `{{ help_dot('x') if help_dot is defined else '' }}` so a missing registration
 degrades to a missing icon rather than a dead page. Keep that pattern.
 
+**The scheduler saying it is running is not the jobs working.** `status()`
+answered one question well — is a worker holding the lock — and drew a green
+pill for any job whose last run succeeded, however long ago that was. Eleven
+jobs share one thread now, so a loop stuck on a long one stops every job
+behind it: an hourly job that last ran three days ago read as healthy, and the
+only way to notice was to do that arithmetic eleven times. Overdue is measured
+now (`_overdue()`, past twice the interval with a five-minute floor so a
+one-minute job is not called late at sixty-one seconds) and drawn as a fault,
+because the thing the job refreshes is stale whether it raised or simply never
+ran.
+
+**A streak is not a failure.** `_state[name]` was overwritten every run, so a
+job that had failed fourteen times running and one that blipped a minute ago
+rendered identically. `fails` counts consecutive failures and `last_ok` keeps
+the last good run, so a broken job says how long it has been broken.
+
+**And half of all page loads could not see any of it.** `_state` is
+per-process and in memory; the standby worker holds nothing. Every job there
+read *"Not run yet this boot"* behind a grey pill — indistinguishable from a
+scheduler that has never run at all, so the same panel was alarming or
+reassuring depending on which of the two workers answered. `timings_visible`
+is on the answer now and the panel says *not measured on this worker* once,
+rather than drawing eleven rows of nevers. Nothing is called overdue on the
+strength of what a process cannot see: unknowable is `None`, never `False`.
+`test_scheduler_health.py` drives the clock rather than waiting on it.
+
 **Two gunicorn workers.** Anything with a timer or a background thread runs
 twice unless it takes the leader lock in `hub/scheduler.py`. Same reason
 `create_all()` is wrapped in a Postgres advisory lock — concurrent `CREATE
@@ -6057,6 +6083,9 @@ python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
 python3 test_jsonstore.py          # the mirror restores, and one answer on who is outside it
+python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
+                                   #   overdue, failure streaks, and the worker
+                                   #   that cannot see the timings
 python3 test_report_cache.py       # one run per report per day; a failed run is never
                                    #   the answer, and a write drops what it changed
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join

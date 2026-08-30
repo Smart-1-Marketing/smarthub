@@ -749,20 +749,66 @@ function renderScheduler(d){
     p[1]+'</span>'+
     '<span class="diag-name">Scheduler</span><span class="diag-detail">'+
     esc(d.note||"")+'</span></div>';
+  // On standby this process holds no timings at all — _state is per-process —
+  // so the rows below can only say what the job IS, not when it last ran. Said
+  // once here rather than drawn as eleven rows of "never", which is what made
+  // the same page alarming or reassuring depending on which worker answered.
+  if(d.timings_visible === false && d.state === "standby"){
+    head += '<div class="diag-row"><span class="diag-pill p-off">n/a</span>'+
+      '<span class="diag-name">Job timings</span><span class="diag-detail">'+
+      'Not measured on this worker — the other one holds the lock and runs '+
+      'the jobs. Reload to reach it, or read the activity log, which every '+
+      'run writes to.</span></div>';
+  } else if((d.failing||0) || (d.overdue||0)){
+    // The headline the panel could not previously give: the loop being alive
+    // is not the same as the jobs working.
+    var bits = [];
+    if(d.failing) bits.push(d.failing+" failing");
+    if(d.overdue) bits.push(d.overdue+" overdue");
+    head += '<div class="diag-row"><span class="diag-pill p-error">jobs</span>'+
+      '<span class="diag-name">'+esc(bits.join(" \u00b7 "))+'</span>'+
+      '<span class="diag-detail">The scheduler is running; these jobs are '+
+      'not. A job stuck or failing stops nothing else, but whatever it '+
+      'refreshes is now as old as its last good run.</span></div>';
+  }
   el.innerHTML = head + (d.jobs||[]).map(function(j){
-    var state = j.ok===false ? "error" : (j.last_run ? "ok" : "off");
+    // Overdue is as much a fault as a raised exception: the thing the job
+    // refreshes is stale either way, and a green pill over a job that last
+    // ran three days ago is the confident wrong answer.
+    var state = (j.ok===false || j.overdue) ? "error"
+              : (j.visible===false ? "off" : (j.last_run ? "ok" : "off"));
+    var when;
+    if(j.visible === false){
+      when = ' <em class="diag-fix">Timings are on the worker that holds the lock.</em>';
+    } else if(j.last_run){
+      when = ' <em class="diag-fix">Last run '+esc(j.last_run.replace("T"," ").slice(0,16))+
+        (j.overdue ? ' \u2014 <b>overdue by '+esc(fmtMins(j.overdue_by - j.every_minutes))+'</b>' : '')+
+        (j.result?" \u00b7 "+esc(JSON.stringify(j.result).slice(0,90)):"")+'</em>';
+    } else {
+      when = ' <em class="diag-fix">Not run yet this boot \u2014 it has not come round.</em>';
+    }
+    // "Failed once just now" and "failed fourteen times running" are different
+    // situations, and the row used to show them identically.
+    var streak = (j.fails > 1)
+      ? ' <em class="diag-fix" style="color:#b42318">Failed '+j.fails+' runs in a row'+
+        (j.last_ok ? '; last worked '+esc(j.last_ok.replace("T"," ").slice(0,16)) : '; never succeeded this boot')+
+        '.</em>'
+      : '';
     return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+
       (j.every_minutes>=60 ? Math.round(j.every_minutes/60)+"h" : j.every_minutes+"m")+
       '</span><span class="diag-name">'+esc(j.name.replace(/_/g," "))+'</span>'+
-      '<span class="diag-detail">'+esc(j.description||"")+
-      (j.last_run? ' <em class="diag-fix">Last run '+esc(j.last_run.replace("T"," ").slice(0,16))+
-        (j.result?" · "+esc(JSON.stringify(j.result).slice(0,90)):"")+'</em>'
-        : ' <em class="diag-fix">Not run yet this boot.</em>')+
+      '<span class="diag-detail">'+esc(j.description||"")+ when + streak +
       (j.error? ' <em class="diag-fix" style="color:#b42318">'+esc(j.error)+'</em>':'')+
       ' <button class="um-btn" style="margin:6px 0 0;padding:3px 9px;font-size:11.5px" '+
       'onclick="runJob(\''+j.name+'\')">Run now</button>'+
       '</span></div>';
   }).join("");
+}
+function fmtMins(m){
+  m = Math.max(0, Math.round(m||0));
+  if(m < 90) return m+" min";
+  if(m < 60*36) return Math.round(m/60)+" h";
+  return Math.round(m/1440)+" days";
 }
 function runJob(name){
   fetch("/api/scheduler/run/"+encodeURIComponent(name),{method:"POST",credentials:"same-origin"})

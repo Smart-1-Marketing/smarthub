@@ -1056,3 +1056,11 @@ jobs:
       # the CryptoJS envelope is round-tripped rather than assumed.
       - name: Suite SSO — who is looking, inside a client's own sub-account
         run: python3 test_suite_sso.py
+
+      # Eleven background jobs share one thread. The panel said the loop was
+      # alive and drew a green pill for any job whose last run succeeded,
+      # however long ago -- and the standby worker, which holds no timings at
+      # all, showed every job as never run. This holds the three answers it
+      # could not give: overdue, a failure streak, and not-measured-here.
+      - name: Background jobs report whether they are working
+        run: python3 test_scheduler_health.py
