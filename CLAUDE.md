@@ -653,6 +653,34 @@ conversion log with nothing saying where the request had gone. It is one
 reader now, the rule this codebase applies to rate cards, client keys and
 gallery labels alike, and `test_io_start.py` fails if the two disagree.
 
+**And a URL inside a module's own helper is one nothing checks either.**
+`linkcheck` sees a literal only where it sits directly inside `fetch("…")`, so
+`post('/api/seo/checks', body)` is invisible — on the SEO client record alone
+that was twenty-seven paths, which is most of what the page does. Four files
+declare a **pass-through** helper now and their URLs are resolved like any
+other; the count went from 336 verified to 377.
+
+**The helpers are not alike, which is why it is a table and not a list of
+names.** `post` hands the URL straight to `fetch` in `seo_client.html` and is
+`fetch(BASE + path)` in `ads_estimate.html`; `api` splits the same way between
+the Suite panel and the Commercial Builder. Resolving a prefixed helper's
+*fragment* as a root-absolute path reports a break that is not there, which is
+the crying wolf `UNCHECKED` exists to avoid — so those are declared too, and
+counted as unverified rather than left invisible. **Keyed on the file**,
+because a bare `post(` also matches `app.post(` and `client.post(`: the first
+run of it reported **292** breaks that were route decorators and test clients.
+
+**`sendBeacon` was a request the checker had never seen at all** — this file
+already spends a paragraph on how invisible it is, and it is now read like
+`fetch`. It also produced the one finding worth keeping: the first run flagged
+`test_landing_embeds.py:263`, a **comment** reading *"The bug this section
+exists for: `sendBeacon('/api/partial-lead')`"* — the note describing the trap,
+reported as the trap. **Prose is not a call site**, for the fifth time in this
+file, and a browser call matched in a `.py` file is prose by definition: the
+two browser-only patterns are scoped to front-end files. `test_linkcheck_helpers.py`
+holds the tables against the helpers they name — an entry whose helper is gone,
+or one classified as pass-through that actually prefixes, fails.
+
 **A URL built by concatenation is a URL nothing checks.** `tools/linkcheck.py`
 only sees a path literal that sits directly inside `fetch("…")`. Written as
 `fetch(BASE + "/api/thing")` it is invisible, which is how three of the
@@ -943,6 +971,34 @@ both ends and it cannot be taken retrospectively. When there are two of them,
 a comparison can come back without inventing anything.
 `test_dashboard_trends.py` holds both halves: the readings accumulate, and
 nothing on the page claims a comparison.
+
+**A customer is matched to a client exactly, or not at all.**
+`invoice_off()` fell through to `next(... if norm in n or n in norm)` — an
+unbounded substring, both directions, first out of a dict ordered by the
+export. That is the rule `hub/client_key.py` exists to refuse, and it was
+live: **32 of this deployment's 547 client names contain or are contained by
+another**, and `cirilla s` alone matches 18. So a QuickBooks customer named
+"Cirilla's" was costed against whichever of eighteen came first, and the
+variance printed with no sign a guess had been made.
+
+**It failed in both directions, and the second is the expensive one.** Forward,
+a customer was attributed to a client nobody chose. Backward, an active client
+with live billing and *no invoice at all* dropped off the report the moment any
+customer name merely contained theirs — nine clients carrying **$22,091 a month**
+sit in that shape here, seven of them the `N2 Advertising - Cirilla's <city>`
+rows, every one of which contains the parent client `Cirilla's`.
+
+Nothing is dropped to fix it, which is what made the change safe to make: a
+resemblance is **printed and still counted as unmatched**, the answer
+`sites_billing` and `domain_renewals` both arrived at, so the confident wrong
+rows become labelled unmatched ones and the hidden findings come back. A
+customer that only resembles a client is listed with **no difference at all**,
+because there is no client we can stand behind to compute one against, and it
+names what it resembles. A client invoiced under a similar but different name
+is listed too, with that name on the row: *"no invoice found"* and *"no invoice
+under this name; QuickBooks has X"* are different things to chase, and only the
+first is a billing gap. `_join_names()` caps the naming at three and says how
+many more, because a row is not a list.
 
 **And eleven reports read that export without ever asking whether it could
 be read.** `knack_data._load()` swallows `OSError` and returns `None`, so a
@@ -4114,6 +4170,50 @@ reported as billed or three reported as unbilled. A charge that names a
 Only invoices are read: sales receipts and recurring templates are not, and the
 note says so rather than letting a site billed either way read as unbilled.
 `test_sites_billing.py` asserts all of it.
+
+## Wiring four call sites is not wiring the module
+
+`/api/integrity`'s silent-module check reads a **call** now rather than an
+import, and seven modules that had bound `hub.audit` and never used it were
+fixed. `modules/sites_admin` was one of them, and what it got was four call
+sites: suspend/cancel/reactivate, connect domain, disconnect domain, delete
+website. Four more writes on the same screens stayed silent, and every one of
+them changes something a client would notice.
+
+**The create half of a destroy/create pair was the one left out.**
+`delete_website` has been attributable since that fix and `add_site` — which
+creates a client's website and can activate a paid plan — was not, so the
+record showed sites being deleted by somebody and appearing from nowhere.
+`personalization` writes brand colors and tags onto a client's live pages.
+`pricing` sets `client_price`, which is what they are billed, **and**
+`internal_client_name`, which is the join `hub/domain_links.py` writes and
+every domain-keyed report reads — changing it moves a website onto a different
+client's record, which is precisely the attribution nobody can reconstruct
+afterwards. And `project_sso` mints a builder session into the site: not a
+change, but the door the changes are made through, and an unexplained edit to
+a client's pages is answerable only if somebody can say who was let in.
+
+**Nothing could see it, because the check one level up is satisfied by one
+call site.** `test_activity_logging.py` asks whether a module logs *at all* —
+which is the same shape as the check that read the string `for_module(` and
+counted the binding, one level finer. A module can be loudly attributable
+about a quarter of its work and pass.
+
+`HOUSEKEEPING_ROUTES` is the other side, written down rather than left as an
+absence: the reads, the imports of our own tables, and the question-asking
+route, each with its reason, so a silent write is a decision somebody made
+rather than one nobody noticed. `test_sites_admin.py` holds it in **both**
+directions — a write route in neither list fails, and an entry naming a route
+that is gone or one that has since started logging fails too — reads the
+**AST** rather than the text, because this module's own comments name `_audit`
+while explaining why it went uncalled, and is handed a silent route and
+required to name it, because a check that has only ever been green is one
+nobody can trust.
+
+**And every one of the four logs after the provider answered**, inside the
+try, which is the shape `project_action`'s own comment already describes and
+the shape `approve_render` uses in the Commercial Builder: a change Simvoly
+refused is not written down as a change that was made.
 
 ## Two guards on one client account, and both worked about half the time
 
@@ -9657,6 +9757,10 @@ python3 test_client_owners.py      # whose client is this, and what is outstandi
                                    #   not be read named rather than counted
                                    #   as nothing
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
+python3 test_sites_admin.py        # every write on a client's website has a
+                                   #   name against it: creating one was silent
+                                   #   while deleting one was logged, and the
+                                   #   remainder is declared rather than absent
 python3 test_suite_panel.py        # creating and deleting Suite sub-accounts:
                                    #   a claim taken before the work and shared
                                    #   between workers, a duplicate check that
@@ -9708,6 +9812,10 @@ python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
 python3 test_site_blocks.py        # the website blocks a page is built from
+python3 test_linkcheck_helpers.py # the URLs linkcheck could not see: a
+                                   #   module's own request helper, and
+                                   #   sendBeacon; and prose is not a
+                                   #   call site
 python3 test_ci_gate.py            # the gate runs every check a person runs
 ```
 
