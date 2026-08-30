@@ -1117,16 +1117,44 @@ who will never have an account.
 
 **The check is a sweep, not a list of the three we fixed.** A test naming
 those modules proves nothing about the next blueprint. `test_blueprint_guards.py`
-boots the composed app, requests **every** static GET route it serves with no
-session at all, and requires each one that answers 200 to be in an allowlist
-that says *why* it is public — the crawler files, the health probes, the
-chrome's own scripts, the help registry, the Suite SSO frame, the calculator
-embed. A new open route fails the run without anybody having thought to add
-an assertion for it. The allowlist is held to the rule
-`check_stale_json_exemptions()` works to: an entry naming a route that no
-longer exists, or one that is not actually reachable, fails too, because an
-exemption that outlives what it exempted goes on covering whatever is served
-at that path next.
+boots the composed app, requests **every** static route it serves with no
+session at all, and requires each one it reaches to be in an allowlist that
+says *why* it is public — the crawler files, the health probes, the chrome's
+own scripts, the help registry, the Suite SSO frame, the calculator embed,
+the nine landing pages, the MSA signing page. A new open route fails the run
+without anybody having thought to add an assertion for it. The allowlist is
+held to the rule `check_stale_json_exemptions()` works to: an entry naming a
+route that no longer exists, or one that is not actually reachable, fails
+too, because an exemption that outlives what it exempted goes on covering
+whatever is served at that path next.
+
+**And a sweep can quietly stop sweeping, which is worse than not having
+one.** That check reached the mount table with
+`getattr(wsgi.application, "mounts", {})` — and `wsgi.application` is a
+`ProxyFix` wrapping `NoIndex` wrapping `ErrorMirror` wrapping the
+`DispatcherMiddleware` that actually holds it. So the **default answered**,
+the walk found no mounts at all, and the sweep covered the hub app and its
+blueprints while reporting that it had asked the composed app: 199 routes
+where there are 415, with every landing page, Smart 1 Ads, the Proposal
+Builder and Site Scans never asked. It passed, which is the whole failure —
+the same shape as a drift check regexing calls that had become a table and
+reading no groups as a clean bill of health.
+
+`_dispatcher()` unwraps to whichever layer holds `mounts`, so the next
+middleware added to `wsgi.py` cannot switch it off, and **finding none is a
+failure** rather than an empty sweep. The count is asserted against what
+`wsgi.py` mounts *and* four prefixes are named, because a set of the right
+size and the wrong contents is the same failure one step on.
+
+**Read and write are different permissions.** The same version asked GET and
+nothing else, so a POST that creates, sends or deletes was never asked at
+all. Both are swept now, against **separate** baselines: a page a stranger
+may look at is not a form a stranger may submit, and one list would let an
+entry written for a readable page cover a route that writes. A **400 counts
+as reached** — the route answered and the guard is not what refused, which
+is what an open write looks like when an empty body happens not to satisfy
+it. Nothing but an empty JSON body is ever sent, so the sweep creates no
+rows.
 
 **A provider job is not done when the call that started it returns.** HeyGen
 renders a spokesperson clip in minutes, so `POST .../spokesperson` hands back
@@ -6672,8 +6700,11 @@ python3 test_display_ads.py        # the display layouts, and the build screen's
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_blueprint_guards.py   # nothing answers a stranger: every route the
-                                   #   composed app serves, probed with no session,
-                                   #   against an allowlist that says why each is public
+                                   #   composed app serves -- reads and writes, hub
+                                   #   app and all thirty-one mounts -- probed with no
+                                   #   session, against allowlists that say why each
+                                   #   is public; and a walk that finds no mounts is
+                                   #   a failure rather than an empty sweep
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
 python3 test_knack_websites_source.py # websites live where Knack answers, the
                                    #   export where it will not, and a failed
