@@ -653,6 +653,34 @@ conversion log with nothing saying where the request had gone. It is one
 reader now, the rule this codebase applies to rate cards, client keys and
 gallery labels alike, and `test_io_start.py` fails if the two disagree.
 
+**And a URL inside a module's own helper is one nothing checks either.**
+`linkcheck` sees a literal only where it sits directly inside `fetch("…")`, so
+`post('/api/seo/checks', body)` is invisible — on the SEO client record alone
+that was twenty-seven paths, which is most of what the page does. Four files
+declare a **pass-through** helper now and their URLs are resolved like any
+other; the count went from 336 verified to 377.
+
+**The helpers are not alike, which is why it is a table and not a list of
+names.** `post` hands the URL straight to `fetch` in `seo_client.html` and is
+`fetch(BASE + path)` in `ads_estimate.html`; `api` splits the same way between
+the Suite panel and the Commercial Builder. Resolving a prefixed helper's
+*fragment* as a root-absolute path reports a break that is not there, which is
+the crying wolf `UNCHECKED` exists to avoid — so those are declared too, and
+counted as unverified rather than left invisible. **Keyed on the file**,
+because a bare `post(` also matches `app.post(` and `client.post(`: the first
+run of it reported **292** breaks that were route decorators and test clients.
+
+**`sendBeacon` was a request the checker had never seen at all** — this file
+already spends a paragraph on how invisible it is, and it is now read like
+`fetch`. It also produced the one finding worth keeping: the first run flagged
+`test_landing_embeds.py:263`, a **comment** reading *"The bug this section
+exists for: `sendBeacon('/api/partial-lead')`"* — the note describing the trap,
+reported as the trap. **Prose is not a call site**, for the fifth time in this
+file, and a browser call matched in a `.py` file is prose by definition: the
+two browser-only patterns are scoped to front-end files. `test_linkcheck_helpers.py`
+holds the tables against the helpers they name — an entry whose helper is gone,
+or one classified as pass-through that actually prefixes, fails.
+
 **A URL built by concatenation is a URL nothing checks.** `tools/linkcheck.py`
 only sees a path literal that sits directly inside `fetch("…")`. Written as
 `fetch(BASE + "/api/thing")` it is invisible, which is how three of the
@@ -9678,6 +9706,10 @@ python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
 python3 test_site_blocks.py        # the website blocks a page is built from
+python3 test_linkcheck_helpers.py # the URLs linkcheck could not see: a
+                                   #   module's own request helper, and
+                                   #   sendBeacon; and prose is not a
+                                   #   call site
 python3 test_ci_gate.py            # the gate runs every check a person runs
 ```
 

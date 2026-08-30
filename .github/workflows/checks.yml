@@ -836,6 +836,18 @@ jobs:
             echo "test_blog_publish.py not on this branch — nothing to run."
           fi
 
+      - name: linkcheck helper and sendBeacon coverage tests
+        # The helper tables linkcheck resolves URLs through, and that a
+        # browser-only pattern never reads Python prose as a call site.
+        # Guarded like the steps around it so this workflow stays mergeable
+        # on a branch that predates the file. Needs no network or database.
+        run: |
+          if [ -f test_linkcheck_helpers.py ]; then
+            python test_linkcheck_helpers.py
+          else
+            echo "test_linkcheck_helpers.py not on this branch — nothing to run."
+          fi
+
       - name: SEO client list and record tests
         # The four status pills, the empty client name that matched the whole
         # website registry, the failed record load that rendered as an empty
