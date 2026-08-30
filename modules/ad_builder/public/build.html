@@ -128,6 +128,9 @@
   textarea { min-height: 58px; resize: vertical; }
 
   .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .palette-note { margin-top: 9px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); }
+  .palette-note.warn { color: #8a5b00; background: #fff6e5; border: 1px solid #f0d9a8;
+                       border-radius: 6px; padding: 7px 9px; }
   .swatch { text-align: center; }
   .swatch input[type=color] {
     width: 44px; height: 32px; padding: 0; border: 1px solid var(--line);
@@ -702,6 +705,44 @@
      question it stood in for -- does the copy fit -- is answered per block by
      the overflow check in the rail, from real glyph measurements. */
 
+  /* Where the palette came from.
+   *
+   * A row of swatches says nothing about whether anybody chose them. With no
+   * discovered brand and no override, finalizeColors() spreads the
+   * placeholder navy and gold underneath, and the ad looks plausibly branded
+   * on every size -- absent data reading as a confident value, on the thing
+   * the client receives.
+   *
+   * Three rules. The all-default case is said plainly and drawn as a warning,
+   * because that is the one that ships a stock ad. Roles that were merely
+   * DISCOVERED are not listed: five rows of "from Brandfetch" is noise, and a
+   * line that appears on every campaign is one people stop reading. And a
+   * campaign built before colorSources existed says NOTHING at all rather
+   * than reading as default -- absent is not the same answer as placeholder,
+   * which is the whole point of the line.
+   */
+  function paletteProvenance() {
+    var src = state.doc && state.doc.colorSources;
+    if (!src) return '';
+    var roles = ['primary', 'secondary', 'accent', 'light', 'dark'];
+    var known = roles.filter(function (r) { return src[r]; });
+    if (!known.length) return '';
+
+    var defaulted = known.filter(function (r) { return src[r] === 'default'; });
+    var adjusted = known.filter(function (r) { return src[r] === 'adjusted'; });
+
+    if (defaulted.length === known.length) {
+      return '<div class="palette-note warn">No brand colors were discovered or supplied &mdash; '
+        + 'every size is built in the placeholder palette, not the client\'s own. '
+        + 'Set these before sending a proof.</div>';
+    }
+    var parts = [];
+    if (defaulted.length) parts.push(esc(defaulted.join(', ')) + ' still placeholder');
+    if (adjusted.length) parts.push(esc(adjusted.join(', ')) + ' adjusted for readability');
+    if (!parts.length) return '';
+    return '<div class="palette-note">' + parts.join(' \u00b7 ') + '</div>';
+  }
+
   function drawControls() {
     var c = concept();
     if (!c) { $('controls').innerHTML = ''; return; }
@@ -795,7 +836,8 @@
         ['primary','secondary','accent','light','dark'].map(function (k) {
           return '<div class="swatch"><input type="color" data-color="' + k + '" value="' + esc(b.colors[k]) + '"><span>' + k + '</span></div>';
         }).join('') +
-      '</div></div>' +
+        '</div>' + paletteProvenance() +
+      '</div>' +
       '<div class="group"><h3>Type' +
         help('Only families the renderer has installed will render. An unknown ' +
              'name falls back to the default face and is flagged in the checks ' +
