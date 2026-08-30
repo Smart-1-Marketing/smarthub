@@ -500,20 +500,29 @@ def _month_bounds(ym: str):
     return _dt.date(y, m, 1), _dt.date(y, m, calendar.monthrange(y, m)[1])
 
 
+from hub.knack_data import ran_in_month as _knack_ran_in_month
+
+
 def _active_in_month(r: dict, mstart, mend) -> bool:
-    """An IO counts for a month when its date range covers any of it and it
-    actually ran (Live or Complete — cancelled/pending never count)."""
-    status = str(r.get("status", "")).strip().lower()
-    if status not in ("live", "complete"):
-        return False
-    s, e = _parse_date(r.get("start")), _parse_date(r.get("end"))
-    if s and s > mend:
-        return False
-    if e and e < mstart:
-        return False
-    if not s and not e:          # undated: only trust currently-live rows
-        return status == "live"
-    return True
+    """Did this IO deliver during the month? `knack_data.ran_in_month()`.
+
+    It used to be `status in ("live", "complete")` plus a date overlap, written
+    here rather than beside `is_running()` — and it is the narrow test that
+    function's own docstring says "missed about a third of the work actually
+    running". So the two Scorecards counted Live and Complete while every other
+    report on this page counted the union: 147 rows and $140,439 a month hidden
+    from August, and two salespeople with live work — Debi Greenfield and Kim
+    Marshall — absent from the Scorecard entirely, each of whom appears on
+    Active Clients three rows up. Nothing said the two were measured
+    differently, which is what makes it the `/api/db/structure` versus
+    `/api/integrity` trap rather than a disagreement somebody could notice.
+
+    The rule is a neighbour of `is_running()` now rather than a second reading
+    of it, and the reasons the two must still differ — Complete is a pass here,
+    Live does not override the dates, a row with no dates is in no month — are
+    written there, once, where both can be read together.
+    """
+    return _knack_ran_in_month(r, mstart, mend)
 
 
 def _month_rollup(field: str, ym: str) -> dict:
