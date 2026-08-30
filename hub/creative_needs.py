@@ -643,8 +643,19 @@ def units_line(state, medium: str) -> str:
 
     # Banner units are listed as a run of sizes, because there are nine of
     # them and nine labels is a wall. Anything else is described.
-    images = [u for u in result["units"] if (u.get("kind") or "image") == "image"]
-    others = [u for u in result["units"] if (u.get("kind") or "image") != "image"]
+    # An image unit with no size of its own has to be *named*, not folded
+    # into the run of sizes -- folded in it contributes nothing and vanishes.
+    # Every social unit is in that position (the kit publishes a ratio and a
+    # recommended resolution for those rather than a fixed size), so a paid
+    # social buy's whole requirement read "Stories Video (MP4/MOV, 0-120s)":
+    # four image units silently absent, and the one line a rep and the client
+    # document read never said an image was needed at all. That is this
+    # function's own audio rule running the other way -- there it is a unit
+    # described by the wrong terms, here it is one described by none.
+    images = [u for u in result["units"]
+              if (u.get("kind") or "image") == "image" and u.get("sizes")]
+    others = [u for u in result["units"]
+              if (u.get("kind") or "image") != "image" or not u.get("sizes")]
     # Desktop, mobile and tablet each carry their own "HTML5 package" unit,
     # so describing all three printed the same words three times.
     described = list(dict.fromkeys(_describe_unit(u) for u in others))
@@ -656,9 +667,18 @@ def units_line(state, medium: str) -> str:
     # spot, and the 300x250 beside it is the optional companion; named first
     # it reads as the whole requirement, which is how somebody sends a banner
     # and no audio.
+    # "plus a companion banner" is a claim about one unit -- digital radio's
+    # optional 300x250 -- and it was fired on a *count*: one sized image plus
+    # anything described. So Snapchat's Single Image Ad and TikTok's In-Feed
+    # Image, which are the primary image of those buys, were each announced to
+    # the client as an optional companion to the video. That is the sentence
+    # above running the other way: named as the whole requirement it costs the
+    # spot, named as a companion it costs the image.
+    companion = (len(images) == 1
+                 and images[0].get("id") == "radio_companion")
     if not sizes:
         parts = described
-    elif len(sizes) == 1 and described:
+    elif companion and described:
         parts = described + [f"plus a companion banner: {sizes[0]}"]
     elif described:
         parts = [", ".join(sizes)] + [f"or {d}" for d in described]

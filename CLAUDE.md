@@ -3666,6 +3666,42 @@ and LinkedIn each carry a name rule above that pattern and were right all
 along; Pinterest was the one platform the category was answering for, which is
 why four of the five looked like proof the reading worked.
 
+**And the busiest social family on the card was taking the narrower answer.**
+The `instagram` rule sits above the Facebook one and returns a deliberately
+narrower list, because it was written for a product named only Instagram —
+and every Meta product on this card is called **"Facebook | Instagram …"**, so
+five of the seven took it and were asked for an Instagram image and a Story
+and never for the Facebook feed, the Facebook video or the carousel. On the
+one whose own name says *Video* that is worse than it sounds: `facebook_video`
+was dropped from a video buy. Nothing errors — every unit returned is a real
+Meta unit, just not all of the ones being bought — and the two products named
+"Facebook - …" got the full set the whole time, which is why it read as
+working. A product naming **both** platforms now gets the whole set, above
+both rules, and `_META_CHANNELS` is written once: two hand-typed copies of one
+list is how one of them comes to be missing the carousel.
+
+**An image unit with no size of its own vanished from the requirement.**
+`units_line()` folds image units into a run of sizes and describes everything
+else, so a unit carrying no size contributed nothing at all and was silently
+absent. Every social unit is in that position — the kit publishes a ratio and
+a recommended resolution for those rather than a fixed size — so a paid social
+buy's entire creative requirement, the one line a rep and the client document
+read, said **"Stories Video (MP4/MOV, 0–120s)"**: four image units gone, and
+nothing anywhere saying an image was needed. That is this function's own audio
+rule running the other way — there a unit is described in the wrong terms,
+here in none — and it went live the day the paid social gate did, which is
+what made it worth finding. TikTok's Profile Image and two of X's units were
+disappearing the same way.
+
+**And "plus a companion banner" is a claim about one unit, fired on a count.**
+It belongs to digital radio's optional 300x250 — named first it reads as the
+whole requirement, which is how somebody sends a banner and no audio — and it
+was triggered by *one sized image plus anything described*. So Snapchat's
+Single Image Ad and TikTok's In-Feed Image, which are the primary image of
+those buys, were each announced to the client as an optional companion to the
+video: the same sentence costing the image instead of the spot. It is keyed on
+the unit now.
+
 It maps to **nothing** now, and that is the fix rather than a guess at the
 nearest platform: `required_units()` already says *the spec kit maps no unit
 for Pinterest* when it is handed an empty list, which is the rule this module
