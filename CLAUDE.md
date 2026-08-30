@@ -7310,6 +7310,91 @@ a fetch is detached by the time the answer arrives: the write succeeds, the
 screen does not change, and it reads as a button that did nothing. Re-read the
 node after any redraw.
 
+**Motion is a second pass over an ad that already exists, and the sequencing
+is the feature.** `modules/ad_builder/src/animation.ts`. A GIF here is the
+static ad played two or three ways: a frame is one more `compose()` with a
+different `CopySet` or a different CTA fill, so there is no second renderer and
+no way for the moving version to disagree with the still one about anything
+except the thing that is moving. It is offered only once a build has been
+**saved** — not once a client has approved it, which is a different and later
+question — and it runs as its **own job** on the same queue rather than extra
+work bolted onto the render. Both halves matter: a set nobody wants animated
+costs exactly what it cost before, and an animation asked for on a Friday does
+not mean re-rendering eight ads that were signed off on Tuesday. The gate is
+enforced on the server (the campaign file on disk is what "a static build
+exists" means) as well as in the build screen, because a rule the form keeps
+while the write breaks it is not a rule.
+
+**Four published numbers, and two of them are invisible on the screen they are
+broken on.** Google requires an animated image ad to be 150 KB or less, to run
+at **5 frames a second or slower**, and to **stop animating within 30
+seconds** — loops included. A GIF with a loop count of 0 repeats for ever,
+renders correctly in every browser, passes every eye here, and is outside the
+rule; one at 20fps looks *better* than one at 5. So the loop count is
+**computed** from the cycle length rather than chosen (`loopsWithin`, floored
+at 1, so `loop: 0` is unreachable from that file), the frame delay has a 200ms
+floor, and both are printed on the panel in words beside the preview. The
+browser recomputes none of it — a second copy of that arithmetic is a second
+answer to "is this legal", and the two disagree the day either is edited.
+`ANIMATION_RULES` carries a **source** per number, and `maxSlides: 3` /
+`maxFrames: 5` are marked as **ours**, the `services/abcd_service.py` rule:
+"Google requires three slides" about a number Google has never published is a
+claim a client can talk us out of once they check. (sharp writes `loop - 1`
+into the file's Netscape block — the GIF format's count of iterations *after*
+the first — and readers disagree about that byte, so the arithmetic is done
+against the larger reading and `totalMs` can never understate what a browser
+will play.)
+
+**QA runs per frame, and that is the half most likely to be quietly wrong.**
+Slide 2 is different copy in the same box: it can overflow, collide with the
+button, or lose its contrast where slide 1 fit perfectly. Not hypothetical —
+the first run of this against the sample campaign passed the static 320x50 and
+**failed** the animated one on a clipped headline, twice, naming the slide. So
+every frame goes through `runQa`, frame 1's findings are kept whole (frame 1
+*is* the static ad) and later frames contribute only what they got wrong,
+tagged by slide. A finding frame 1 already carries is dropped rather than
+repeated once per frame, or one note about the type hierarchy becomes five and
+buries the one that is about slide 2. The background pass is composed **once**:
+none of the motions offered changes what is behind the ink, and re-composing it
+per frame triples the slowest step to produce identical bytes.
+
+That failure is also why slides carry **per-size overrides** (`sizeSlides`,
+resolved slide by slide and field by field, the way `copyForSize` already
+resolves static copy). Without them a set animates at seven sizes and fails at
+the eighth on copy nobody can shorten.
+
+**Which sizes take one is read from the platform config, never decided.** Only
+Google's eight banner sizes list `gif`; Amazon's specs here are static at
+40-50 KB, Meta converts an uploaded GIF into a video, and Google's three
+**responsive-display image assets** are image assets — Google composes its own
+headline around those. A size that cannot carry one is **refused by name** on
+the panel and in the job's own `animationSkipped`, because a set that came back
+with five moving ads out of eight and nothing saying which three or why is the
+silence this module exists to avoid. `render.ts` still strips `gif` from the
+static raster's format list, and the comment there now says why: `gif` in a
+format list means that placement will *also* take an animated file.
+
+**And it never replaces the static file.** Most placements on a buy take the
+still one, so a folder holding only GIFs is a set that cannot be trafficked.
+The GIF is written beside its sibling with `_animated` on the end, ships in the
+delivery ZIP under `animated/`, and is **counted apart** — "8 files delivered"
+about a pack of five ads and three GIFs is a sentence a client reads as eight
+ads. A QA-failing animation is **withheld** and named, and the static file goes
+in its place: the ad still runs, and the client can see the animation is
+missing. `AnimatedResult` is deliberately not a `RenderResult` with
+`format: 'gif'`, and animations are their own list on the project rather than a
+row on `RenderBatch` — a batch is a static delivery pack, and one containing
+only GIFs would be read by `deliverProject` as the whole of what was built.
+
+**The weight ladder is `raster.ts`'s in GIF terms, and it is cheap for a
+reason worth knowing.** A GIF has no quality setting: it has a palette, a
+dither, and how different two frames must be before the second re-encodes a
+pixel. Both motions offered leave the background **byte-identical** between
+frames, so the encoder only ever pays for the words or the button — measured
+against this repo's own hero photo, a three-slide 300x250 is 19 KB and a
+970x250 is 27 KB, against a 150 KB ceiling. `test_display_ads.py` asserts all
+of it, including that Amazon and Meta are offered none at any size.
+
 ## Everyone has their own login, and there are two levels of it
 
 Fourteen people, uploaded from the company census. `hub/user_directory.py`
@@ -8327,7 +8412,9 @@ python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the 
 python3 test_suite_sso.py          # the client half: the location id is the
                                    #   authorization, and every way that goes wrong
 python3 test_calculator_embed.py   # the media calculators framed on smart1marketing.com
-python3 test_display_ads.py        # the display layouts, and the build screen's contracts
+python3 test_display_ads.py        # the display layouts, the build screen's contracts, and
+                                   #   the animated GIF: whose rule each number is, a loop
+                                   #   that can never be endless, and QA on every frame
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_blueprint_guards.py   # nothing answers a stranger: every route the
