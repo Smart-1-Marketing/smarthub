@@ -339,6 +339,140 @@ check("and it is not framable from another domain",
       embed.embeddable("/tools/calculators/internal/ctv"), False)
 
 
+# --------------------------------------------------------------- crumbs
+section("The trail names the tool, and offers back the page it is tiled on")
+
+# hub-crumbs.js carries a second description of where every tool lives: the
+# first is the tile. It has drifted twice -- once when the creative tools moved
+# onto /creative (its own comment says so) and again when six tools moved to QA
+# Reports -- and both times the trail went on offering the way back to a page
+# the tool is no longer listed on, with nothing anywhere reporting it. A
+# breadcrumb pointing at the wrong index is not an error: the link resolves,
+# the page renders, and it simply lands somewhere the tool is not.
+#
+# So the block is lifted out of the file and run in node against the real
+# tiles, rather than restated here -- the arrangement test_proposal_targeting.py
+# uses on the target-area step, for the same reason a restated copy is a third
+# thing to keep in step.
+import json  # noqa: E402
+import subprocess  # noqa: E402
+
+from hub import qa  # noqa: E402
+
+CRUMBS = (ROOT / "hub/static/hub-crumbs.js").read_text(encoding="utf-8")
+_start = CRUMBS.find("/* ---- crumb resolution")
+_end = CRUMBS.find("/* ---- end crumb resolution")
+check("the resolution block is still marked for lifting",
+      _start > 0 and _end > _start, True)
+
+# Only `location` and `sessionStorage` are reached from inside it; everything
+# that touches the DOM is below the end marker.
+_driver = CRUMBS[_start:_end] + """
+var sessionStorage = { getItem: function () { return null; },
+                       setItem: function () {} };
+var location = { pathname: "/" };
+var out = {};
+JSON.parse(process.argv[1]).forEach(function (p) {
+  location.pathname = p;
+  out[p] = build();
+});
+console.log(JSON.stringify(out));
+"""
+
+# Every tile on the three index pages, as (path, name, the index it is on).
+TILES = []
+for _idx, _tpl in (("/creative", "hub/templates/creative.html"),
+                   ("/tools", "hub/templates/tools.html")):
+    _t = (ROOT / _tpl).read_text(encoding="utf-8")
+    for _m in re.finditer(r'<a class="tool-tile"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+                          _t, re.S):
+        # The tile's own words are its <h3>; the div above it is the icon.
+        _h = re.search(r"<h3[^>]*>(.*?)</h3>", _m.group(2), re.S)
+        if not _h:
+            continue
+        _name = re.sub(r"<[^>]+>", " ", _h.group(1))
+        _name = re.sub(r"\s+", " ", _name).replace("&amp;", "&").strip()
+        TILES.append((_m.group(1), _name, _idx))
+for _g, _k, _meta in qa.EXTRAS:
+    TILES.append((_meta["href"], _meta["title"], "/qa"))
+
+check("every index page was read", len(TILES) > 40, True)
+
+# What is asserted here is the *resolution*, not whether a given page happens
+# to draw a trail: /msa/ is mounted entirely public, so HubBar injects no
+# chrome there and the signing page a client opens carries no crumbs at all --
+# which is correct, and is not a reason for the map to be wrong about it.
+#
+# Landing pages are the one exclusion, because their segments (boat, hvac, ski)
+# name a page a stranger opens on somebody else's website rather than a tool,
+# and giving them Hub names would be inventing an index they belong to.
+CLIENT_FACING = tuple(t for t in TILES if t[0].startswith("/land/"))
+
+# A tile that points at a page *inside* another tool. Its trail correctly names
+# the tool it lives in rather than the tile's own words -- naming each one here
+# with the tool it belongs to, because an exemption that does not say why goes
+# on covering whatever is served at that path next.
+INSIDE = {
+    "/tools/seo-images/house": "SEO Image Pipeline",
+    "/google/ga-tools": "GA4 Tools", "/google/gtm-tools": "GTM Tools",
+    "/google/webmaster-tools": "Webmaster Tools",
+    "/google/gmb-tools": "Business Profile",
+    "/google/history": "Google History & Logs",
+    "/scans/widgets": "Scan Widgets",
+    "/tools/calculators/internal/digital-audio": "Media Calculators",
+    "/tools/calculators/internal/ctv": "Media Calculators",
+    "/tools/calculators/internal/dooh": "Media Calculators",
+    "/tools/calculators/internal/trade": "Media Calculators",
+    "/tools/display-ads/_hub/start": "Display Ad Builder",
+}
+
+_paths = [t[0] for t in TILES if t not in CLIENT_FACING]
+_res = subprocess.run(["node", "-e", _driver, "--", json.dumps(_paths)],
+                      capture_output=True, text=True)
+check("the block runs on its own", _res.returncode, 0)
+if _res.returncode:
+    print("   " + (_res.stderr or "").strip()[:400])
+    TRAILS = {}
+else:
+    TRAILS = json.loads(_res.stdout)
+
+for _href, _name, _idx in TILES:
+    if (_href, _name, _idx) in CLIENT_FACING:
+        continue
+    _trail = TRAILS.get(_href) or []
+    _labels = [c["label"] for c in _trail]
+    # The trail names the tool it lands on, not the mount it sits under.
+    check(f"{_href} is named", _labels[-1:] == [INSIDE.get(_href, _name)], True)
+    if _labels[-1:] != [INSIDE.get(_href, _name)]:
+        print(f"          trail: {_labels}")
+    # ...and offers back the index the tile is actually on. A sub-page belongs
+    # to its tool and is exempt above; everything else must land where a reader
+    # would find the tile again.
+    if _href not in INSIDE:
+        _hrefs = [c["href"] for c in _trail]
+        check(f"...and offers back {_idx}", _idx in _hrefs, True)
+        if _idx not in _hrefs:
+            print(f"          trail: {list(zip(_labels, _hrefs))}")
+
+# The trail never says one thing twice: /qa/stale-creative came out
+# "Dashboard / QA Reports / QA Reports", which names the report nowhere.
+for _href in ("/qa/stale-creative", "/sales/builder/", "/sales/landing",
+              "/scans/bulk", "/tools/io/"):
+    _t2 = TRAILS.get(_href)
+    if _t2 is None:
+        _r2 = subprocess.run(["node", "-e", _driver, "--", json.dumps([_href])],
+                             capture_output=True, text=True)
+        _t2 = json.loads(_r2.stdout)[_href] if _r2.returncode == 0 else []
+    _l2 = [c["label"] for c in _t2]
+    check(f"{_href} says nothing twice", len(_l2) == len(set(_l2)), True)
+
+# An entry naming a tool nothing serves goes on covering whatever is served at
+# that path next -- the rule check_stale_json_exemptions() works to.
+for _p in list(INSIDE):
+    check(f"the exemption for {_p} still names a tile",
+          any(t[0] == _p for t in TILES), True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)
