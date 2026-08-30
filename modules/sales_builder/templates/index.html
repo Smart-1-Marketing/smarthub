@@ -642,6 +642,27 @@ function mdy(iso){
   const d=String(iso||"").slice(0,10).split("-");
   return d.length===3 ? d[1]+"-"+d[2]+"-"+d[0].slice(2) : "";
 }
+/* The five signals, drawn from the server's own reading — the same one the
+   Hub dashboard's pipeline card uses. Two screens answering "what needs
+   chasing" separately is how they come to disagree in front of the same rep. */
+function pipelinePanel(p){
+ if(!p)return '';
+ if(p.measured===false)
+  return `<div class="note" style="margin-top:12px">${esc(p.error||'The pipeline could not be read.')}</div>`;
+ const c=p.counts||{};
+ const chip=(label,key,warn)=>{
+  const n=c[key]||0;
+  return `<span class="pill${n?' on':''}" style="cursor:pointer;${n&&warn?'color:#b42318;border-color:#f0c2bd':''}"
+    onclick="openFocus('${key}')">${esc(label)}: <b>${n}</b></span>`;};
+ return `<div class="panel" style="margin-top:12px"><div class="phead"><span class="ttl">Needs chasing</span>
+   <span class="note" style="margin:0">${esc(p.line||'')}</span></div>
+  <div style="padding:10px 14px;display:flex;gap:7px;flex-wrap:wrap">
+   ${chip('Pricing lapsed','expired',true)}
+   ${chip('Expiring this week','expiring',true)}
+   ${chip('Never opened','unopened')}
+   ${chip('Read, no answer','waiting')}
+   ${chip('Accepted, no IO','to_convert',true)}
+  </div></div>`;}
 async function drawDashboard(){
  const host=document.getElementById('view-dashboard');
  host.innerHTML='<div class="empty"><span class="spin"></span>Loading dashboard…</div>';
@@ -670,12 +691,14 @@ async function drawDashboard(){
    <div class="stat"><div class="lab">IOs This Month</div><b>${s.converted_month_count}</b><div class="sub">${money(s.converted_month_monthly)}/mo booked</div></div>
    <div class="stat"><div class="lab">Win Rate (90d)</div><b>${s.win_rate_90d}%</b><div class="sub">approved + converted</div></div>
   </div>
+  ${pipelinePanel(DASH.pipeline)}
   <div class="cols"><div>
    <div class="panel">
     <div class="phead"><span class="ttl">Recent Quotes &amp; Proposals</span>
      <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Uploaded"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t+"s"===t+"s"?(t==="Draft"?"Drafts":t):t}</span>`).join("")}</div>
      <div class="search"><input id="q" placeholder="Search client, quote #, website…" oninput="drawRows()"></div></div>
-    <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+    <div class="focusBanner"></div>
+   <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
     <tbody id="rows"></tbody></table>
    </div>
    <div class="panel" style="margin-top:16px">
@@ -822,18 +845,59 @@ This deletes the uploaded proposal, not any quote built here.`))return;
  }catch(e){toast("Could not remove it: "+e.message);}
 }
 
+/* What the list is narrowed to, from the dashboard. Null is the ordinary
+   case: no filter, every row. */
+let FOCUS=null;
+const FOCUS_LABEL={
+ expired:"whose pricing has lapsed",
+ expiring:"expiring within the week",
+ unopened:"sent and never opened",
+ waiting:"read by the client with no answer",
+ to_convert:"accepted with no insertion order yet"};
+async function openFocus(key){
+ nav('proposals');
+ await drawProposals();
+ let d=null;
+ try{d=await api('/api/sales/scoreboard');}catch(e){}
+ const ids=(d&&d.ids&&d.ids[key])||null;
+ if(!ids||!ids.length){
+  /* Nothing in that bucket any more, or the reading could not be made. Both
+     leave the whole list rather than an empty table that reads as a book with
+     nothing in it. */
+  FOCUS=null;drawRows();
+  toast(d?("Nothing is "+(FOCUS_LABEL[key]||"in that state")+" now."):
+          "The pipeline could not be read — showing every proposal.");
+  return;}
+ FOCUS={key:key,ids:new Set(ids.map(Number))};
+ drawRows();
+}
+function clearFocus(){FOCUS=null;drawRows();}
+function focusBanner(){
+ if(!FOCUS)return '';
+ const n=FOCUS.ids.size;
+ return `<div class="note" style="margin:0 0 10px">Showing the ${n} proposal${n===1?'':'s'}
+  ${esc(FOCUS_LABEL[FOCUS.key]||'in that state')}, from the dashboard.
+  <a onclick="clearFocus()" style="cursor:pointer;color:var(--blue);font-weight:700">Show all</a></div>`;}
 function drawRows(){
  const q=(document.getElementById('q')?.value||"").toLowerCase();
- const rows=LIST.filter(x=>(listTab==="all"||x.status===listTab)&&(!q||[x.quote_number,x.client,x.website,x.products_summary,x.io_number].join(" ").toLowerCase().includes(q)));
+ const rows=LIST.filter(x=>(!FOCUS||FOCUS.ids.has(Number(x.id)))
+  &&(listTab==="all"||x.status===listTab)&&(!q||[x.quote_number,x.client,x.website,x.products_summary,x.io_number].join(" ").toLowerCase().includes(q)));
  /* Uploaded proposals show under "all" and under their own tab. They have no
     Draft/Approved status, so filtering them by one would hide them entirely
     rather than say why they are missing. */
- const ups=(listTab==="all"||listTab==="Uploaded")
+ /* An uploaded proposal has no quote id in the pipeline reading, so a focused
+    list never shows one: the filter is about quotes this Hub is tracking. */
+ const ups=(!FOCUS)&&(listTab==="all"||listTab==="Uploaded")
    ? UPLOADED.filter(x=>!q||[x.client,x.filename,x.title,x.note,x.uploaded_by].join(" ").toLowerCase().includes(q))
    : [];
  const merged=rows.map(x=>({x,html:rowHtml(x),t:x.created_at||""}))
    .concat(ups.map(x=>({x,html:uploadedRowHtml(x),t:x.date_sent||x.created_at||""})))
    .sort((a,b)=>String(b.t).localeCompare(String(a.t)));
+ /* Both list views draw through drawRows, so both carry the banner and both
+    are filled: an id would have put it on whichever screen was written
+    first, which is the one nobody arrives on from the dashboard. */
+ const note=focusBanner();
+ document.querySelectorAll('.focusBanner').forEach(el=>{el.innerHTML=note;});
  const tb=document.getElementById('rows');if(!tb)return;
  tb.innerHTML=merged.map(r=>r.html).join("")||`<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
 }
@@ -881,6 +945,7 @@ async function drawProposals(){
    <div class="phead"><span class="ttl">All Quotes</span>
     <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Lost","Uploaded"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t}</span>`).join("")}</div>
     <div class="search"><input id="q" placeholder="Search client, quote #, IO #…" oninput="drawRows()"></div></div>
+   <div class="focusBanner"></div>
    <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
    <tbody id="rows"></tbody></table>
   </div>`;
@@ -4188,6 +4253,12 @@ async function runConvert(){
  // one with the client already filled in.
  const qs=new URLSearchParams(location.search);
  if(qs.get('quote')){await editQuote(qs.get('quote'));return;}
+ /* ?focus=<signal> — arriving from the Hub dashboard's pipeline card. The
+    count there is only worth pressing if it lands on the rows it counted, so
+    the list filters to exactly those quotes rather than to a status tab that
+    is nearly the same thing. The ids come from the same reading the card
+    used, so the two cannot disagree about what a signal means. */
+ if(qs.get('focus')){await openFocus(qs.get('focus'));return;}
  if(qs.get('prefill')){
   await startNewProposal();
   const map={client:'client',url:'url',industry:'industry',

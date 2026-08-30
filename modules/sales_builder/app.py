@@ -976,6 +976,16 @@ def mark_converted(qid):
         db.close()
 
 
+def _pipeline_signals() -> dict:
+    """What needs chasing, read by the Hub dashboard and by this one."""
+    try:
+        from hub import sales_status
+        return sales_status.scoreboard()
+    except Exception as exc:                            # noqa: BLE001
+        return {"measured": False,
+                "error": f"The pipeline could not be read ({type(exc).__name__})."}
+
+
 # ---- Dashboard ----
 @app.get("/api/dashboard")
 def dashboard():
@@ -1032,7 +1042,15 @@ def dashboard():
             "converted_month_count": len(conv_month),
             "converted_month_monthly": sum(r.monthly_budget or 0 for r in conv_month),
             "win_rate_90d": round(100 * len(won_90) / len(decided_90)) if decided_90 else 0,
-        }, "activity": [{"icon": a.icon, "text": a.text,
+        },
+            # The same five signals the Hub dashboard's pipeline card draws,
+            # from the same reading. Two screens answering "what needs
+            # chasing" separately is how they come to disagree in front of
+            # the same rep -- the /api/db/structure versus /api/integrity
+            # trap. Never allowed to cost this dashboard: a failure here is
+            # `measured: False` and the panel says so.
+            "pipeline": _pipeline_signals(),
+            "activity": [{"icon": a.icon, "text": a.text,
                          "when": a.created_at.isoformat() if a.created_at else ""} for a in acts],
             "nudges": nudges[:6]})
     finally:
