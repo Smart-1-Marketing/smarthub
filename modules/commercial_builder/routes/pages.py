@@ -117,6 +117,19 @@ def dashboard():
     )
 
 
+@bp.get("/library")
+def library():
+    """Every delivered spot, searchable.
+
+    Its own screen rather than a tab on the dashboard: the dashboard answers
+    "what am I working on" and this answers "what have we made", and the two
+    lists are different rows sorted on different things.
+    """
+    return render_template("commercial_library.html",
+                           archetypes=library_spec.ARCHETYPES,
+                           wizard=[])
+
+
 @bp.get("/new")
 def new_commercial():
     clients = Client.query.order_by(Client.name).all()

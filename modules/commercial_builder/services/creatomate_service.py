@@ -294,9 +294,22 @@ def submit_render(source):
         r.raise_for_status()
         data = r.json()
         render = data[0] if isinstance(data, list) else data
+        # Recorded at SUBMIT rather than on success: the request is what was
+        # spent, and a render that fails an hour later has still cost it.
+        _meter(detail=str(render.get("id") or "")[:60])
         return {"id": render.get("id"), "status": render.get("status"), "url": render.get("url")}
     except Exception as e:
+        _meter(ok=False, detail=str(e)[:80])
         return {"id": None, "status": "failed", "error": str(e)}
+
+
+def _meter(*, ok=True, detail=""):
+    """One render, counted. Never raises — a meter must not cost a render."""
+    try:
+        from hub import quotas as _q
+        _q.record_render(module="commercial_builder", detail=detail, ok=ok)
+    except Exception:                                    # noqa: BLE001
+        pass
 
 
 def check_render(render_id):

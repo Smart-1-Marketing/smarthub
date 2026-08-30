@@ -3,7 +3,7 @@ CTA/music -> variations (spec sections 1, 3, 4, 11, 14, 15)."""
 
 from flask import Blueprint, jsonify, request
 
-from .. import client_link, compliance_spec, library_spec
+from .. import client_link, compliance_spec, cost_spec, library_spec
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
                       PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
                       qr_eligible, qr_required, qr_default_on, get_structure,
@@ -12,7 +12,7 @@ from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE
                       CTV_PUBLISHERS, publisher_qr_note, shot_label)
 from ..db import db
 from ..models import (Client, CommercialProject, Scene, Campaign, Variation,
-                      ComplianceAck)
+                      ComplianceAck, RenderApproval, RenderJob)
 from ..services import (openai_service, qrcode_service, cloudinary_service,
                         qc_service, abcd_service)
 
@@ -605,6 +605,107 @@ def _actor_name():
                 or str(user or "") or "")[:200]
     except Exception:  # noqa: BLE001
         return ""
+
+
+@bp.get("/library")
+def spot_library():
+    """Finished spots, across every client.
+
+    What the dashboard offers is the 25 most recently touched PROJECTS, which
+    answers "what was I working on" — a different question from "what have we
+    actually delivered for this client", which is what somebody asks when a
+    client wants something like the one from the spring.
+
+    Delivered means APPROVED and filed: a render that succeeded is a file
+    nobody has watched, and `RenderApproval` is the row that says a human
+    signed it off. The distinction is the one `approve_render` already draws,
+    read from the other end.
+    """
+    rows = (db.session.query(RenderApproval, RenderJob, CommercialProject, Client)
+            .join(RenderJob, RenderApproval.render_job_id == RenderJob.id)
+            .join(CommercialProject, RenderApproval.project_id == CommercialProject.id)
+            .join(Client, CommercialProject.client_id == Client.id)
+            .order_by(RenderApproval.approved_at.desc())
+            .all())
+
+    q = (request.args.get("q") or "").strip().lower()
+    length = request.args.get("length") or ""
+    fmt = request.args.get("format") or ""
+    archetype = request.args.get("archetype") or ""
+
+    out = []
+    for approval, job, project, client in rows:
+        key, _source = library_spec.archetype_for(project.brief,
+                                                  project.commercial_type or "")
+        row = {
+            "project_id": project.id,
+            "title": project.title or "",
+            "client": client.name,
+            "client_id": client.id,
+            "length_seconds": project.length_seconds,
+            "format": job.format,
+            "archetype": key,
+            "archetype_label": library_spec.ARCHETYPES.get(key, {}).get("label", ""),
+            "platform": project.platform or "",
+            "approved_at": (approval.approved_at.isoformat()
+                            if approval.approved_at else None),
+            "approved_by": approval.approved_by or "",
+            # The Cloudinary copy where there is one. `stored_url` empty means
+            # the filing failed and the only copy is a provider URL that
+            # expires — reported rather than drawn as a working link.
+            "url": approval.stored_url or "",
+            "url_note": ("" if approval.stored_url else
+                         "The copy in the client's library is missing, so there "
+                         "is nothing durable to open."),
+        }
+        if length and str(row["length_seconds"]) != str(length):
+            continue
+        if fmt and row["format"] != fmt:
+            continue
+        if archetype and row["archetype"] != archetype:
+            continue
+        if q and q not in (row["client"] + " " + row["title"]).lower():
+            continue
+        out.append(row)
+
+    return jsonify({
+        "ok": True,
+        "spots": out,
+        # Counted over what was ASKED for, never the whole table. A filtered
+        # list reporting an unfiltered total is the wrong answer with two
+        # right ones either side of it -- the SEO gallery paid for that one.
+        "total": len(out),
+        "delivered_total": len(rows),
+        "lengths": sorted({r[2].length_seconds for r in rows}),
+        "formats": sorted({r[1].format for r in rows if r[1].format}),
+        "archetypes": sorted({library_spec.archetype_for(
+            r[2].brief, r[2].commercial_type or "")[0] for r in rows}),
+        "note": ("" if rows else
+                 "Nothing has been approved and filed yet. A rendered cut is "
+                 "not a delivered one until somebody approves it."),
+    })
+
+
+@bp.get("/cost-preview")
+def cost_preview():
+    """What building this will consume, before it is built.
+
+    Its own route on the Start page for the reason /spec-preview is there:
+    the decision that moves the number — three lengths or one, AI video or
+    stock — is made before a project exists, and by the time it shows on the
+    usage page the money is gone.
+    """
+    lengths = [int(x) for x in
+               (request.args.get("lengths") or "").split(",") if x.strip().isdigit()]
+    formats = [f for f in (request.args.get("formats") or "").split(",") if f.strip()]
+    return jsonify({
+        "ok": True,
+        "estimate": cost_spec.estimate(
+            lengths, formats,
+            method=request.args.get("method", "stock_vo"),
+            ai_video=request.args.get("ai_video") == "1",
+            spokesperson=request.args.get("spokesperson") == "1"),
+    })
 
 
 @bp.get("/<int:project_id>/compliance")

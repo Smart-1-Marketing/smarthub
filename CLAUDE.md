@@ -1132,6 +1132,53 @@ creates missing tables and never adds a column to an existing one, so an
 `approved_by` on `cb_render_jobs` would be silently absent on the live
 Postgres with every local test green.
 
+**The module that spends the most was invisible on the usage page.** HeyGen,
+Runway and Creatomate all bill per generation, and none of them was recorded
+anywhere — while `quotas._PROVIDER_MARKERS` knew four providers and none of
+these three, so there was no check that could ever have named the gap. That
+is why it stood: the thing that would have caught it had nothing to catch it
+with. The OpenAI **image** path was the same story one level down —
+`hub/ai.note_sdk_usage()` records the text calls by reading `.usage`, which an
+images response does not carry, so two billed options per press went uncounted
+while every chat call was tracked.
+
+All four record now, and all three have markers, so `untracked_provider_calls()`
+and `test_api_usage.py` fail on the next one rather than understating the bill.
+Three rules on the new rows. **Runway is counted in seconds**, because it bills
+by duration — counting requests would make a :10 clip cost the same as a :05,
+which is the mistake counting ElevenLabs renders rather than characters would
+have made. **A refused call keeps its row** with `ok=False`: it spent nothing
+and is out of every billable total, but a wall of them is what a spent
+allowance looks like from this side. And **no ceiling is invented** — none of
+the three publishes a plan figure this deployment can cite, so each row reads
+*not measured* against a limit and still says what was spent.
+
+**A price nobody published is a price this tool would be inventing.**
+`modules/commercial_builder/cost_spec.py` answers what a spot will consume
+*before* it is built — the decision that moves the number is three lengths or
+one, AI video or stock, and it is made on the Start page, where nothing said
+anything. Every figure is a count in the provider's own unit, and a dollar
+figure appears **only** where the Hub already holds a published rate, which
+today is OpenAI's image price and nothing else, read from
+`hub/quotas.IMAGE_PRICING` rather than restated. A total that quietly covered
+two of five rows would be the same confident low number, so the unpriced rows
+are **named** beside it. The shot count comes from `abcd_service.shot_targets()`
+— the same table the Blueprint scores against — so the estimate and the thing
+it estimates cannot drift. It is what the tools consume and never what a client
+pays; `hub/rate_card.py` is the other thing, and the caveat says so on every
+render of it.
+
+**A rendered cut is not a delivered one.** The dashboard lists the 25 most
+recently touched projects, which answers *what was I working on*; the Spot
+Library answers *what have we actually made*, and those are different rows
+sorted on different things. It reads `RenderApproval` rather than a succeeded
+`RenderJob`, because a render that succeeded is a file nobody has watched —
+the distinction `approve_render` already draws, read from the other end. It
+filters server-side and reports **both** numbers, since a filtered list quoting
+an unfiltered total is the wrong answer with two right ones either side of it
+(the SEO gallery's "Showing 1 of 7"). A spot whose Cloudinary copy is missing
+says so rather than offering a link to a provider URL that expires.
+
 **One field held two questions, and answered neither.** `COMMERCIAL_TYPES` is
 a single-select mixing how a spot gets **made** (`stock_vo`,
 `ai_spokesperson`) with what it **is** (`testimonial`, `promo_sale`,
@@ -5966,6 +6013,8 @@ python3 test_msa_embed.py          # the signing page: public, chrome-free, ours
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
+python3 test_commercial_meter.py   # every billed call records, no invented price,
+                                   #   and a library of what was actually delivered
 python3 test_commercial_library.py # what a spot is versus how it is made, the
                                    #   twelve archetypes and what each one needs
 python3 test_commercial_compliance.py # which published rules a spot engages, whose

@@ -238,6 +238,20 @@ jobs:
             echo "test_commercial_library.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder metering and spot library tests
+        # That every billed call site records, that the scanner has a marker
+        # for each of them so the gap cannot go quiet again, that no price is
+        # invented where none is published, and that the library counts what
+        # was approved rather than what merely rendered. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_commercial_meter.py ]; then
+            python test_commercial_meter.py
+          else
+            echo "test_commercial_meter.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.

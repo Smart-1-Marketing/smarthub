@@ -281,8 +281,17 @@ check("a refused call still spent its quota", g["measured"]["calls"], 12_101)
 # ------------------------------------------------------------ 11. blind spots
 section("A call site that spends without recording is named, not missed")
 blind = quotas.untracked_provider_calls(force=True)
+# Pinned deliberately. A provider that quietly leaves this list is a spend
+# nothing counts any more, and the whole point of the scanner is that the gap
+# is named rather than silent — so growing it is an edit somebody makes on
+# purpose, which is what this assertion forces.
+#
+# The last three arrived together: HeyGen, Runway and Creatomate all bill per
+# generation, were recorded nowhere, and had no marker here — so no check
+# could ever have named them, which is why it stood.
 check("every provider is scanned", sorted(blind),
-      ["brandfetch", "cloudinary", "elevenlabs", "google"])
+      ["brandfetch", "cloudinary", "creatomate", "elevenlabs", "google",
+       "heygen", "runway"])
 # This is the point of the check: the repository is expected to be clean, and
 # the moment a new module calls one of these without recording it, this fails
 # here and on /api/integrity rather than quietly understating the bill.

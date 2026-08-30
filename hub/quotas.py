@@ -46,6 +46,7 @@ plan, without a deploy.
 """
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -126,6 +127,39 @@ QUOTAS: dict[str, Quota] = {
         "in credits, not operations, so the billing number comes from "
         "Cloudinary itself and this row exists to say which module spent it.",
         authority="Cloudinary Admin API /usage"),
+    # ---- the three the Commercial Builder spends on ----------------------
+    #
+    # Every one of these bills per GENERATION, and none of them was counted
+    # anywhere: the module that spends the most in this Hub was invisible on
+    # the usage page, which is the confident low number this file exists to
+    # stop. They are here with no default allowance because none of the three
+    # publishes a plan figure this deployment can cite -- so the row reads
+    # *not measured* against a limit and still says what was spent, rather
+    # than inventing a ceiling. Set the env var the day a plan is known.
+    "heygen": Quota(
+        "heygen", "HeyGen", "clips", 0, 0,
+        "HEYGEN_WARN_AT", "HEYGEN_MONTHLY_LIMIT",
+        "One credit per spokesperson clip rendered. HeyGen prices by plan and "
+        "publishes no figure this Hub can read, so there is no ceiling here "
+        "until HEYGEN_MONTHLY_LIMIT is set — the count is real, the limit is "
+        "not measured."),
+    # Runway bills by the second of finished video, not by the request: a :10
+    # clip costs twice a :05, and counting requests would make them equal —
+    # the ElevenLabs mistake in a different unit. `record_runway()` sends
+    # seconds.
+    "runway": Quota(
+        "runway", "Runway", "seconds of video", 0, 0,
+        "RUNWAY_WARN_AT", "RUNWAY_MONTHLY_LIMIT",
+        "Seconds of generated video. Runway bills by duration rather than by "
+        "request, so a :10 clip is twice a :05 and counting requests would "
+        "make them the same. No ceiling until RUNWAY_MONTHLY_LIMIT is set."),
+    "creatomate": Quota(
+        "creatomate", "Creatomate", "renders", 0, 0,
+        "CREATOMATE_WARN_AT", "CREATOMATE_MONTHLY_LIMIT",
+        "One credit per render submitted. A render that fails still consumed "
+        "the request, which is why a refused call is recorded with ok=False "
+        "rather than dropped. No ceiling until CREATOMATE_MONTHLY_LIMIT is "
+        "set."),
     # Google costs nothing and is limited by requests per day, so a monthly
     # allowance would be the wrong shape entirely -- google_estimate() does
     # the per-day, per-API comparison. This row is the monthly total, for
@@ -209,6 +243,74 @@ def record_asset(*, module: str, kind: str = "upload", nbytes: int = 0,
         record("cloudinary", module=module, units=1, api=kind,
                nbytes=nbytes, detail=detail, cached=cached)
     except Exception:                                   # noqa: BLE001
+        pass
+
+
+def record_video(provider: str, *, module: str, seconds: float = 0.0,
+                 detail: str = "", model: str = "", ok: bool = True) -> None:
+    """One generated video clip, billed by its duration.
+
+    Runway bills by the second of finished video rather than by the request,
+    so a :10 clip is twice a :05 and counting requests would make them equal —
+    the same mistake counting ElevenLabs renders would have made. `units` is
+    therefore seconds, rounded up, because a provider does not sell a
+    fractional second.
+
+    Cannot raise. An uninstrumented call site is worse than a missing feature
+    here, and so is one that takes the render down with it.
+    """
+    try:
+        whole = max(1, int(math.ceil(float(seconds or 0)))) if seconds else 1
+        record(provider, module=module, units=whole, detail=detail,
+               model=model, ok=ok)
+    except Exception:                                    # noqa: BLE001
+        pass
+
+
+def record_render(*, module: str, detail: str = "", fmt: str = "",
+                  ok: bool = True) -> None:
+    """One render submitted to Creatomate.
+
+    Recorded when the job is SUBMITTED rather than when it succeeds: the
+    request is what was spent, and a render that fails later has still cost
+    it. A failed submission is recorded with ok=False, which keeps it out of
+    every billable total while leaving the row — a wall of those is what a
+    spent allowance looks like from this side.
+    """
+    try:
+        record("creatomate", module=module, units=1,
+               detail=(detail or fmt)[:120], model=fmt or "", ok=ok)
+    except Exception:                                    # noqa: BLE001
+        pass
+
+
+def record_clip(*, module: str, detail: str = "", model: str = "",
+                ok: bool = True) -> None:
+    """One HeyGen spokesperson clip.
+
+    Counted per clip because that is how HeyGen bills — unlike Runway, its
+    unit is the generation and not the second.
+    """
+    try:
+        record("heygen", module=module, units=1, detail=detail[:120],
+               model=model, ok=ok)
+    except Exception:                                    # noqa: BLE001
+        pass
+
+
+def record_image(*, module: str, model: str = "", count: int = 1,
+                 ok: bool = True) -> None:
+    """Generated stills, billed per image.
+
+    `hub/ai.note_sdk_usage()` records the TEXT calls and reads `.usage`, which
+    an images response does not carry — so the image path went uncounted while
+    every chat call was tracked. Two options per press at $0.04 each is the
+    commonest single spend in the Commercial Builder.
+    """
+    try:
+        record("openai", module=module, units=max(1, int(count or 1)),
+               model=model or "gpt-image-1", detail="image generation", ok=ok)
+    except Exception:                                    # noqa: BLE001
         pass
 
 
@@ -1081,6 +1183,40 @@ _PROVIDER_MARKERS = {
         "fix": "Move the lookup onto hub.brand_lookup.lookup(domain, "
                "client=..., module=...), which records it and keeps what it "
                "paid for.",
+    },
+    # The three the Commercial Builder spends on. Each was billed per
+    # generation and recorded nowhere, and no marker existed — so there was no
+    # check that could have named the gap, which is why it stood. The `calls`
+    # test matches the API host rather than a path, for the reason the
+    # brandfetch entry gives: a module that used the spelling the check did
+    # not think of gets a clean bill.
+    "heygen": {
+        "calls": lambda src: "api.heygen.com" in src,
+        "recorded": ("record_clip", 'record("heygen"'),
+        "detail": "Renders a spokesperson clip through HeyGen without "
+                  "recording it, so the clips this module generates never "
+                  "reach the usage page.",
+        "fix": "Add quotas.record_clip(module=..., detail=...) after the "
+               "response — one line, no logic change.",
+    },
+    "runway": {
+        "calls": lambda src: "api.dev.runwayml.com" in src or "api.runwayml.com" in src,
+        "recorded": ("record_video", 'record("runway"'),
+        "detail": "Generates video through Runway without recording the "
+                  "seconds, so this spend never reaches the usage page — and "
+                  "Runway bills by duration, so counting requests would make "
+                  "a :10 clip cost the same as a :05.",
+        "fix": "Add quotas.record_video('runway', module=..., seconds=...) "
+               "after the response.",
+    },
+    "creatomate": {
+        "calls": lambda src: "api.creatomate.com" in src,
+        "recorded": ("record_render", 'record("creatomate"'),
+        "detail": "Submits a render to Creatomate without recording it, so "
+                  "the renders this module pays for are invisible on the "
+                  "usage page.",
+        "fix": "Add quotas.record_render(module=..., fmt=...) where the job "
+               "is submitted.",
     },
     "google": {
         "calls": _google_calls,
