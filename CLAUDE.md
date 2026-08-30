@@ -6310,6 +6310,29 @@ gain an operator's controls. And **rebuild stays behind the login**: it
 re-renders the creative for everyone holding the link and reaches endpoints
 that are billed per call.
 
+**And making that page public changed what may be interpolated into it.**
+`renderProof` hands six values to an inline `<script>` through
+`JSON.stringify` — the copy, the colours, the meta, the per-size overrides,
+the delivered pack. That produces perfectly valid JavaScript and does **not**
+escape `</script>`, and an HTML parser ends a script block at that literal
+string wherever it appears, inside a quoted string included: one of them in
+the data closes the block early and everything after it is parsed as markup.
+It was harmless while only staff could open the page and is not now.
+`meta.promoting` is the one worth naming — it falls back to
+`campaign.landing.summary`, which is text read off the *client's own website*,
+so it is nobody here's to vouch for. `jsonScript()` escapes `<` (`\u003c` is
+the same character to `JSON.parse` and invisible to the HTML parser), and
+U+2028/U+2029 with it, since both are legal inside a JSON string and are line
+terminators to a JavaScript parser — either one unescaped is a syntax error
+that costs the whole page rather than one value. `basepath.ts` needs none of
+this: its prefix is refused by allowlist rather than escaped, because nothing
+legitimate in a mount path has an angle bracket in it. `tests/proof.test.ts`
+asserts all six are escaped rather than one of them, that the value still
+round-trips through `JSON.parse` (an escape that changed the data would be a
+different bug wearing a fix), and both halves of the editor split — a client
+keeps Approve and Request changes, and dropping those alongside the editor
+would look like a tidy-up and retire the feature.
+
 **Approving is one event and two doors.** `recordDecision()` is shared, because
 approval is the trigger for packaging and two copies of that drift into two
 ideas of what "approved" delivers. What is *not* shared is the claim: a record
