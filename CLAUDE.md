@@ -7312,6 +7312,55 @@ It is **low** severity: an orphan breaks no page, it wastes the next person
 who edits it. And it started at zero, because the three it found were deleted
 in the change that added it.
 
+**And the audit that would have said so was measured against a list nobody
+had touched.** `hub/help.py` says the registry "can be audited for coverage —
+`missing_for()` will tell you which screens have no help at all", and the
+function is fine. What decided the answer was a **hand-typed list** at each
+of the two call sites in `hub/help_routes.py`, and both had stopped keeping
+up: `/api/help/coverage` named 23 screens and answered **`missing: []`** — a
+clean bill of health — while the Proposal Builder carried bubbles on one
+panel of its fourteen steps and the IO Builder, the Social Content Planner,
+Web Tickets, Stock Photo Search, Scan Widgets, Website Blocks, GPT Ads and
+Google Access carried none at all. `/api/demos/coverage` was worse: its one
+finding was a walkthrough for `modules/proposal_builder`, whose own docstring
+opens *"The retired Proposal Builder — a redirect and an archive"*. It was
+reporting a gap in a module that no longer does anything and silence about
+two dozen live ones.
+
+That is the shape this file already names twice — a check measured against a
+restated copy, reading as clean because the copy went stale — so
+`hub/help_coverage.py` reads the **tiles on the two staff index pages**
+instead. That is this codebase's own definition of a tool somebody opens, and
+the conventions above already require one. Four rules. **Finding no tiles is
+a failure**, not a clean sweep: the templates are parsed, and a parse that
+comes back empty means the markup moved, so `measured` is False and the
+report says as much rather than answering that nothing is missing. **An
+unmapped tile is named, never counted as covered** — a help key's prefix is a
+label chosen for the registry (`utm` is `modules/utm_builder`, `display_ads`
+is the TypeScript renderer), so it is declared, and a tile in neither table
+comes back under `unmapped`. **A page a client reads takes no staff help and
+says why**: the nine landing pages and the MSA signing page are tiled for
+staff and served to a prospect, and a bubble there is an internal note in
+front of somebody we are selling to. And `stray_prefixes()` runs the other
+way, because that direction is silent — help written under a prefix no tile
+maps to leaves the tool reading as *missing* while its copy sits there
+written, and somebody writes it twice.
+
+It **reports rather than gates**. Twenty-four of the forty-seven tiles have
+no help behind them; that is all real, none of it breaks a page, and a build
+failing on it is a check switched off within a week. `env_report()`'s shape —
+the thing that stands beside a check and says what the check cannot see.
+
+**And it is on the panel the other two halves are already on.** Bubbles,
+walkthroughs and coverage are one question asked of three mechanisms — does
+an explanation resolve, can a step still be driven, was one ever written —
+and split across screens they come to disagree about which tools are
+explained, which is the trap `jsonstore.unmirrored_json_writers()` exists to
+close. `/api/help-audit` carries all three and the Diagnostics panel draws
+them together. The renderer checks `measured` before it draws a count, for
+the reason the whole change exists: *nothing to measure* and *nothing
+missing* must never render alike.
+
 ### Who is signed in, and what that number is allowed to claim
 
 `hub/presence.py`, the top of the **System status** card on the dashboard, and
@@ -7748,8 +7797,10 @@ python3 test_ads_estimate.py       # the estimate a client reads, and what they 
 python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
 python3 test_help_layer.py         # every bubble placed has help behind it, both
                                    #   ways one is placed, a key built at runtime
-                                   #   named rather than guessed at, and the
-                                   #   walkthrough saying which step it cannot run
+                                   #   named rather than guessed at, the
+                                   #   walkthrough saying which step it cannot
+                                   #   run, and coverage measured against the
+                                   #   tiles rather than a list that went stale
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
