@@ -1,20 +1,20 @@
 {% extends 'base.html' %}
 {% block content %}
-<a class="back" href="{{url_for('dashboard')}}">← Accounts</a>
-<div class="titlebar">
+<div class="s1d-head">
   <div>
+    <div class="s1d-crumb"><a href="{{url_for('dashboard')}}">Sites</a> / Packages</div>
     <h1>Package Costs</h1>
     <p>Set the platform (wholesale) cost per package. It fills the platform cost &amp; margin for every site on that plan, unless a site has its own actual-cost override.</p>
   </div>
 </div>
 
-<div class="grid2">
-<section class="card">
+<div class="s1d-grid">
+<section class="s1d-card">
   <h2>Cost per package</h2>
   <form method="post" action="{{url_for('packages')}}">
     <input type="hidden" name="csrf_token" value="{{session.csrf}}">
-    <div class="tablewrap">
-    <table>
+    <div class="s1d-scroll">
+    <table class="s1d-t">
       <thead><tr><th>Package (Plan)</th><th>Plan ID</th><th>Catalog $/mo</th><th>Platform cost $/mo</th></tr></thead>
       <tbody>
       {% for pl in plans %}
@@ -28,21 +28,21 @@
       </tbody>
     </table>
     </div>
-    <button class="primary">Save package costs</button>
+    <button class="s1d-btn">Save package costs</button>
   </form>
-  <p class="hint">Reference costs from your July invoice: Business – Self Service $11.39 · Starter Site $7.59 · ECommerce Premium $22.77 · ECommerce Self Service $16.45 · Landing Page – Self Service $4.43 · Smart 1 Business Premium ~$11.39.</p>
+  <p class="s1d-hint">Reference costs from your July invoice: Business – Self Service $11.39 · Starter Site $7.59 · ECommerce Premium $22.77 · ECommerce Self Service $16.45 · Landing Page – Self Service $4.43 · Smart 1 Business Premium ~$11.39.</p>
 </section>
 
-<section class="card">
+<section class="s1d-card">
   <h2>Import actual per-site costs (optional)</h2>
   <p>Paste your Simvoly charges/invoice text, or a JSON map of <code>{"project_id": cost}</code>. This sets an <b>exact per-site override</b> for the sites it contains (e.g. legacy pricing or add-ons), taking priority over the package cost above.</p>
   <form method="post" action="{{url_for('costs_import')}}" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{session.csrf}}">
     <label>Paste invoice text or JSON<textarea name="payload" rows="6" placeholder="22/07/2026&#10;$11.39&#10;adops-98.smart1sites.com [project id: 659227] - Payment for Business - Self Service (monthly)"></textarea></label>
     <label>…or choose a file<input type="file" name="file" accept=".txt,.json,.csv"></label>
-    <button class="primary">Import per-site costs</button>
+    <button class="s1d-btn">Import per-site costs</button>
   </form>
-  <p class="hint">Refunds net against payments automatically. Reseller-level fees (subscription, add-ons) are ignored since they aren't tied to a single site's plan.</p>
+  <p class="s1d-hint">Refunds net against payments automatically. Reseller-level fees (subscription, add-ons) are ignored since they aren't tied to a single site's plan.</p>
 </section>
 </div>
 {% endblock %}

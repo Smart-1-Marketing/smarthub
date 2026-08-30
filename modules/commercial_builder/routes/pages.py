@@ -39,6 +39,7 @@ from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE
 from ..services import abcd_service
 from ..models import Client, CommercialProject
 from ..services import provider_check
+from .. import library_spec
 
 bp = Blueprint("cb_pages", __name__)
 
@@ -131,8 +132,30 @@ def new_commercial():
 @bp.get("/project/<int:project_id>/brief")
 def brief(project_id):
     project = CommercialProject.query.get_or_404(project_id)
+    archetype, source = library_spec.archetype_for(project.brief,
+                                                  project.commercial_type or "")
+    suggested = library_spec.suggested_archetypes(
+        getattr(project.client, "industry", "") or "")
+    # Labels rather than keys: the note is read by a person, and a key is not
+    # a name. Built here so the browser holds no second copy of the table.
+    suggested = dict(suggested,
+                     labels=[library_spec.ARCHETYPES[k]["label"]
+                             for k in suggested["keys"]])
+    # Whatever has already been answered for any archetype's needs, so
+    # switching archetype and back does not lose what somebody typed.
+    brief = project.brief or {}
+    archetype_answers = {k: brief.get(k, "") for k in library_spec.NEED_KEYS
+                         if brief.get(k)}
     return render_template("commercial_brief.html", project=project, client=project.client,
-                            tones=TONE_OPTIONS, wizard=_wizard(project, "brief"))
+                            tones=TONE_OPTIONS, wizard=_wizard(project, "brief"),
+                            archetypes=library_spec.ARCHETYPES,
+                            archetype=archetype, archetype_source=source,
+                            suggested=suggested,
+                            archetype_answers=archetype_answers,
+                            method=library_spec.PRODUCTION_METHODS[
+                                library_spec.production_method(project.commercial_type or "")],
+                            needs_by_archetype={
+                                k: v["needs"] for k, v in library_spec.ARCHETYPES.items()})
 
 
 @bp.get("/project/<int:project_id>/concepts")

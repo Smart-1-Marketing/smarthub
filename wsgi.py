@@ -251,7 +251,12 @@ class HubBar:
         # DispatcherMiddleware with its own <html>, so none of them inherit the
         # hub's base template. Injecting alongside the sidebar means all 20
         # tools get bubbles and walkthroughs without touching 20 templates.
+        # hub-detail.css beside theme.css: theme.css is typography and
+        # colour, hub-detail.css is the shape of a record page. A module
+        # that adopts the s1d- class names therefore needs no stylesheet
+        # of its own, and cannot drift from the page the look came from.
         _THEME = (b'<link rel="stylesheet" href="/assets/theme.css">'
+                  b'<link rel="stylesheet" href="/assets/hub-detail.css">'
                   b'<link rel="stylesheet" href="/hub-help.css">')
         if b"</head>" in body:
             body = body.replace(b"</head>", _THEME + b"</head>", 1)

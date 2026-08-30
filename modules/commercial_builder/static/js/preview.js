@@ -14,7 +14,8 @@
     logo_persistence: "Persistent logo", youtube_hook: "YouTube hook",
     creative_spec: "Published spec", social_hook: "Feed hook", sound_off: "Sound off",
     abcd_pacing: "Pacing", abcd_brand_window: "Brand window",
-    publisher_rules: "Publisher rules",
+    publisher_rules: "Publisher rules", compliance: "Advertising rules",
+    archetype_ready: "What this spot needs",
   };
 
   /* A recommendation and a refusal are not the same finding, and painting

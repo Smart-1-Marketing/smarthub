@@ -732,7 +732,8 @@
     logo_persistence: "Persistent logo", youtube_hook: "YouTube hook",
     creative_spec: "Published spec", social_hook: "Feed hook", sound_off: "Sound off",
     abcd_pacing: "Pacing", abcd_brand_window: "Brand window",
-    publisher_rules: "Publisher rules",
+    publisher_rules: "Publisher rules", compliance: "Advertising rules",
+    archetype_ready: "What this spot needs",
   };
 
   // Severity comes off the server now. It used to be an ADVISORY set kept by
@@ -812,5 +813,109 @@
     } catch (e) { /* the panel simply stays empty */ }
   }
 
-  loadCastVoice().then(loadScenes).then(loadAbcd);
+  // ------------------------------------------------------ what rules require
+  //
+  // Never a verdict. This tool renders finished, deliverable video and two of
+  // the commercial types it offers walk straight into published rules — but
+  // whether a spot COMPLIES is a legal judgment about a specific ad in a
+  // specific state, and a green tick over that question is the thing somebody
+  // relies on. So every row says which rule is engaged and what it requires,
+  // with the citation, and the panel asks for an acknowledgment rather than
+  // claiming an answer.
+  async function loadCompliance() {
+    const box = document.getElementById("compliance-rows");
+    if (!box) return;
+    let data;
+    try {
+      data = await CB.api(`/api/projects/${projectId}/compliance`);
+    } catch (e) {
+      box.innerHTML = '<div class="cb-empty">The rule check could not run.</div>';
+      return;
+    }
+    const headline = document.getElementById("compliance-headline");
+    const ackBox = document.getElementById("compliance-ack");
+    const disclaimer = document.getElementById("compliance-disclaimer");
+    if (headline) headline.textContent = data.summary || "";
+    if (disclaimer) disclaimer.textContent = data.compliance.disclaimer || "";
+    box.innerHTML = "";
+    ackBox.innerHTML = "";
+
+    const findings = (data.compliance && data.compliance.findings) || [];
+    if (!findings.length) {
+      // Not "this is fine to run". A statement about what was scanned, and
+      // the unknown-industry case says so rather than reading as a clearance.
+      box.appendChild(CB.el(`<div class="cb-note"><p>${
+        CB.escapeHtml(data.compliance.note || data.summary || "")}</p></div>`));
+      return;
+    }
+
+    findings.forEach((f) => {
+      // "addressed" is tri-state and the middle one matters: we can sometimes
+      // see the script already carries what a rule asks for. We can never see
+      // that the spot complies, so nothing here draws a tick.
+      const state = f.addressed === true
+        ? '<span class="cb-badge cb-badge-free">the script mentions this</span>'
+        : (f.addressed === false
+            ? '<span class="cb-badge cb-badge-premium">not in the script</span>'
+            : '<span class="cb-badge cb-badge-mock">check this</span>');
+      box.appendChild(CB.el(`<div class="cb-note" style="margin-bottom:10px;">
+        <strong>${CB.escapeHtml(f.headline)}</strong> ${state}
+        <p style="margin:6px 0;">${CB.escapeHtml(f.requires)}</p>
+        <p class="cb-hint" style="margin:0;">
+          Engaged by ${CB.escapeHtml(f.evidence || "this spot")} ·
+          <strong>${CB.escapeHtml(f.citation)}</strong> ·
+          ${CB.escapeHtml(f.authority)}</p>
+      </div>`));
+    });
+
+    if (data.acknowledged) {
+      const a = data.acknowledgment || {};
+      ackBox.appendChild(CB.el(`<div class="cb-note good">
+        <strong>Acknowledged by ${CB.escapeHtml(a.acknowledged_by || "somebody")}</strong>
+        <p style="margin:6px 0 0;">That is a record of who read these, not a
+        judgment that the spot complies.${a.note ? " " + CB.escapeHtml(a.note) : ""}</p>
+      </div>`));
+      return;
+    }
+
+    // An edit retires a sign-off. "Nobody has looked" and "somebody looked at
+    // a different script" are different situations, and only the second has a
+    // name to go back to.
+    if (data.superseded) {
+      ackBox.appendChild(CB.el(`<div class="cb-note bad">
+        <strong>The copy has changed since this was acknowledged</strong>
+        <p style="margin:6px 0 0;">${CB.escapeHtml(
+          (data.acknowledgment || {}).acknowledged_by || "Somebody")} signed off an
+        earlier version, so that no longer covers this cut.</p></div>`));
+    }
+
+    const wrap = CB.el('<div style="margin-top:10px;"></div>');
+    wrap.appendChild(CB.el('<div class="cb-field"><label class="cb-label">'
+      + 'Anything worth recording <span class="cb-muted" style="font-weight:400;">'
+      + '(optional)</span></label><input type="text" id="compliance-note" '
+      + 'placeholder="Cleared with the firm\u2019s general counsel on the 14th."></div>'));
+    const btn = CB.el('<button class="cb-btn cb-btn-primary cb-btn-sm">'
+      + "I have read what these require</button>");
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await CB.api(`/api/projects/${projectId}/compliance/acknowledge`, {
+          method: "POST",
+          body: { note: (document.getElementById("compliance-note") || {}).value || "" },
+        });
+        CB.toast("Recorded against your name.");
+        await loadCompliance();
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(CB.el('<p class="cb-hint" style="margin:8px 0 0;">'
+      + "Filing a rendered cut waits on this. It is not a compliance sign-off "
+      + "\u2014 it records that these were put in front of somebody before the "
+      + "spot went out.</p>"));
+    ackBox.appendChild(wrap);
+  }
+
+  loadCastVoice().then(loadScenes).then(loadAbcd).then(loadCompliance);
 })();

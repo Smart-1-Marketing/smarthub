@@ -707,6 +707,24 @@ REGISTRY: list[Help] = [
        "the stock searches and the end card\u2019s offer. Write the offer as a client "
        "would say it \u2014 \u201c$79 air conditioning tune-up before August 31\u201d "
        "rather than \u201cHVAC services\u201d."),
+    _h("commercial_builder.brief.archetype", "What the spot is, not how it gets made",
+       "The commercial type on the Start page answers a different question \u2014 "
+       "stock footage or an AI spokesperson is how it gets BUILT. This is what "
+       "it IS: the narrative the viewer actually watches. They were one field "
+       "for a while, which meant picking \u201cAI spokesperson\u201d said "
+       "nothing about the story and picking \u201cTestimonial\u201d said nothing "
+       "about the method, and the writer was told half of what had been decided. "
+       "Each one names what it is good at, what it is bad at, and \u2014 the part "
+       "worth reading \u2014 what it needs from the client. A testimonial needs a "
+       "real customer who has agreed. A before-and-after needs the BEFORE, which "
+       "nobody photographs because at the time it was just a Tuesday. That "
+       "question appears the moment you pick one, and an unanswered one shows on "
+       "the Blueprint as something to sort out while it is still free to change. "
+       "Where the client's industry is on file, the ones that usually work in "
+       "that category are named \u2014 as a suggestion, never a filter, because an "
+       "unusual choice is often the reason a spot works. Nothing picked yet "
+       "means the tool has inferred one from the commercial type, and it says "
+       "so rather than drawing a selection you never made."),
     _h("commercial_builder.brief.landing", "The landing page becomes the QR code",
        "Where there is one, this is what the QR code on the end card points at, "
        "with tracking added so scans report as their own source rather than as "
@@ -735,6 +753,24 @@ REGISTRY: list[Help] = [
        "two-second average would be three cuts a second, which is a strobe, not "
        "a bumper.",
        step=2, selector="#abcd-rows"),
+    _h("commercial_builder.blueprint.compliance", "Which rules this copy puts in play",
+       "This tool renders finished, deliverable video, and some copy engages "
+       "published advertising rules. A payment, a rate or \u201cno money "
+       "down\u201d engages Truth in Lending. A testimonial engages the FTC\u2019s "
+       "endorsement guides. A law firm, a broker-dealer or a brewery brings its "
+       "own regime with it. Each row names the rule, the authority behind it and "
+       "what it requires \u2014 so the conversation happens while the script is "
+       "still being written rather than after the spot has run. "
+       "\u201cEngaged by\u201d quotes the words that put it in play, so you can "
+       "find them in the script. "
+       "It never says the spot is compliant, and it cannot: that is a judgment "
+       "about a specific ad in a specific state and it belongs to the client\u2019s "
+       "counsel or compliance officer. Nothing here blocks a render either. What "
+       "it asks for is one acknowledgment before a rendered cut is FILED \u2014 a "
+       "record that these were put in front of a named person, which is why a "
+       "shared login cannot give one. Rewrite the offer afterwards and that "
+       "sign-off is retired, because it was a statement about the copy as it was.",
+       step=3, selector="#compliance-card"),
     _h("commercial_builder.blueprint.checks", "The same checks Render runs",
        "They were only on the last step, and every one of them is about "
        "something on this screen: a scene with no footage, a clip shorter than "
@@ -744,7 +780,7 @@ REGISTRY: list[Help] = [
        "buying this inventory work from \u2014 and it is checked on the plan, before "
        "a frame exists, because length and aspect ratio are what a platform "
        "refuses creative over and both are decided here.",
-       step=3, selector="#run-checks-btn"),
+       step=4, selector="#run-checks-btn"),
     _h("commercial_builder.blueprint.narration", "A longer spot needs more script, not longer pauses",
        "The script writer sizes the read once, against the word budget for this "
        "length, and stops \u2014 which is why a :60 can come back reading like a :30 "
@@ -752,7 +788,7 @@ REGISTRY: list[Help] = [
        "has, and re-measures. When there is no room left it says so rather than "
        "quietly doing nothing: shorten a line first, or build a longer cut. A "
        "scene you have locked is never rewritten under you.",
-       step=4, selector="#expand-narration-btn"),
+       step=5, selector="#expand-narration-btn"),
     _h("commercial_builder.blueprint.assets", "Make a frame, then animate it",
        "The two AI buttons are one job in order, not two ways of doing the same "
        "thing. Runway animates a starting image and has no usable text-only "
@@ -762,7 +798,7 @@ REGISTRY: list[Help] = [
        "than 10 seconds is refused rather than handed a clip that stops early. "
        "Footage we already own is listed first and badged OWNED: it costs "
        "nothing and needs no license check.",
-       step=5, selector=".cb-step-pair"),
+       step=6, selector=".cb-step-pair"),
 
     _h("commercial_builder.voice.cast", "Say what it should sound like, then listen",
        "Ranked against the account\u2019s own voices by the same casting rules the "

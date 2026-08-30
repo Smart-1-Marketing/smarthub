@@ -154,8 +154,16 @@ window.WebTicket = (function () {
         '<div style="margin-bottom:16px">' +
           '<label for="wtReq" style="display:block;font-size:12px;color:#475569;margin-bottom:3px">Requested by</label>' +
           '<select id="wtReq" style="' + INPUT + '">' + reqOpts.join('') + '</select></div>' +
-        form(withSites(fields, sites), prefill);
+        form(withSites(fields, sites), prefill) +
+        '<div id="wtTriage" style="margin-top:4px"></div>';
       wire();
+      // The classification is already in the paragraph below "Describe the
+      // changes" — this offers it into the dropdowns above, into the empty
+      // ones only, and writes nothing until it is kept. Drawn from the shared
+      // renderer, so the campaign support form gets the same control from the
+      // same code rather than a second copy of it.
+      KF().triageButton('wtTriage', withSites(fields, sites), CTX,
+                        'ticket', 'description');
 
       foot.innerHTML = '<span id="wtMsg" class="muted" style="font-size:12px"></span>' +
         '<a class="btn-primary" id="wtSend" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Send to Smart 1 Team</a>';
@@ -226,8 +234,11 @@ window.WebTicket = (function () {
       body.innerHTML =
         '<div class="muted" style="font-size:12px;margin-bottom:12px">' +
         'Ticket Title is not editable — renaming a ticket breaks the thread for whoever raised it.</div>' +
-        form(withSites(fields, opts.sites || []), opened);
+        form(withSites(fields, opts.sites || []), opened) +
+        '<div id="wtTriageM" style="margin-top:4px"></div>';
       wire();
+      KF().triageButton('wtTriageM', withSites(fields, opts.sites || []), CTX,
+                        'ticket', 'description');
 
       foot.innerHTML = '<span id="wtMsg" class="muted" style="font-size:12px"></span>' +
         '<a class="btn-primary" id="wtSave" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Save changes</a>';

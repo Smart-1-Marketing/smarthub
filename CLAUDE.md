@@ -432,6 +432,60 @@ chrome check asks `suite_embed.is_embedded()` itself rather than reading a flag 
 policy handler sets — which would still be unset. `test_suite_embed.py` asserts
 all of it.
 
+**A client inside their own Suite has no Hub account, and must never be given
+one.** `hub/suite_embed.py` solved the staff half with a companion cookie; its
+own closing note said the client half needs HighLevel's SSO handshake.
+`hub/suite_sso.py` is that half. The framed page asks its parent for the user
+payload, HighLevel replies encrypted under the app's **SSO key** — a *third*
+credential, separate from `GHL_CLIENT_ID` and `GHL_CLIENT_SECRET` — and the
+Hub decrypts it server-side.
+
+**The location id in that payload is the authorization, and it is the whole
+security model.** Everything else in it — `userId`, `email`, `role` — is
+carried for the audit line and is never joined on. Identity comes from the
+sub-account, resolved to a client by `suite_accounts.client_for_location()`,
+and from nothing else: the session route accepts no client name at all, so a
+request that simply names one is refused as unreadable. Getting this wrong
+shows one client another client's record, which is the worst outcome any tool
+in this Hub can produce, and it is silent — the frame renders, the page looks
+right, and it is the wrong client's data.
+
+Five refusals, each its own state because each sends a different person
+somewhere different. **No key is `not_configured` and never a lenient
+session** — the tempting failure is treating an unverifiable frame as trusted
+because it looks like it came from HighLevel, and a frame is a URL anybody can
+point at us. **A payload that will not decrypt is `unreadable`, and a wrong
+key, a tampered payload and a truncated one all give the identical answer** —
+anything finer tells whoever is probing which guess was closer. **A payload
+naming no sub-account is `no_location`**, never a fall-through to the first
+client. **A sub-account no client records is `unknown_location`**, a setup gap
+that says where it is fixed. And **a sub-account two clients claim is
+`ambiguous`, named and refused** — picking between them is picking whose
+record a stranger sees.
+
+**The client-facing surface is deliberately two routes and no more.** They
+prove who is looking and then hand the client their *existing* content link;
+the pages behind it are already client-facing, already scoped to one client
+and already tested. The smallest way to build somewhere a client could be
+shown the wrong record is not to build one.
+
+**The path is `/suite-app`, not `/suite/app`.** `/suite` is a
+dispatcher-mounted module, so a hub route under it never receives the
+request — and it does not even 404, it is swallowed by the module and
+redirects to a *staff login*, which a client would meet as a sign-in form for
+an account they will never have. That is the first trap this file names, it
+has now bitten four times, and `/api/integrity`'s high-severity check is what
+caught this one before it shipped. `test_suite_sso.py` asserts the mount does
+not serve the frame.
+
+**The crypto is transcribed, and round-tripped rather than trusted.**
+HighLevel encrypts with CryptoJS's `AES.encrypt`, which is OpenSSL's
+`Salted__` envelope — AES-256-CBC with the key and IV from EVP_BytesToKey over
+MD5. Nothing here has ever seen a live HighLevel payload, so
+`test_suite_sso.py` carries its own independent encryptor and round-trips
+against it: if the derivation drifts from the spec, the test stops passing.
+MD5 appears only inside that derivation, where the format specifies it.
+
 **`linkcheck` sees `fetch("…")` and nothing else, and `sendBeacon` is where
 the leads were.** The trap above is about the URL it cannot verify; this is
 about the call it cannot see at all. Six landing modules posted their
@@ -1153,6 +1207,120 @@ creates missing tables and never adds a column to an existing one, so an
 `approved_by` on `cb_render_jobs` would be silently absent on the live
 Postgres with every local test green.
 
+**One field held two questions, and answered neither.** `COMMERCIAL_TYPES` is
+a single-select mixing how a spot gets **made** (`stock_vo`,
+`ai_spokesperson`) with what it **is** (`testimonial`, `promo_sale`,
+`seasonal`), so "an AI spokesperson testimonial" was unsayable and the concept
+writer was told half of what a rep had decided.
+`modules/commercial_builder/library_spec.py` splits them — and
+`commercial_type` keeps its column and its meaning, because `create_all()`
+adds no column to an existing table and `compliance_spec` reads that value (a
+`testimonial` engages 16 CFR 255). The archetype lives in the **brief JSON**,
+and `LEGACY_ARCHETYPE` reads the five narrative values as the archetype they
+always were, so nothing is migrated — `hub/target_areas.from_legacy()`'s rule.
+`archetype_for()` returns `(key, source)`, because *a rep picked this* and *we
+inferred it from a column that meant two things* are different confidences and
+the screen says which rather than drawing a selection nobody made.
+
+**An archetype is a promise about what the client has to supply.** Twelve of
+them, each naming what it is good at, what it is bad at, and what it **needs**
+— a testimonial needs a customer who has agreed; a before-and-after needs the
+BEFORE, which nobody photographs because at the time it was just a Tuesday.
+`readiness()` turns those into an advisory QC finding, so an archetype nobody
+can supply surfaces while it is still free to change rather than at the shoot;
+`hub/creative_needs.py` asks the same question one medium earlier. `NEED_KEYS`
+is derived from the table rather than typed out, so an archetype that gains a
+need is saved by the route without anybody widening a list. Each also names
+which published regimes it tends to engage — read by nothing, since
+`compliance_spec.py` scans the finished copy and is the authority, but worth
+knowing before the script exists.
+
+**A pack is creative data; `hub/industries.py` is the media plan.** Hooks,
+what proof looks like, stock vocabulary, the shape of the offer, what falls
+flat. Different data, same clients — so where an industry exists in both it is
+the **same id**, and `test_commercial_library.py` asserts it, because two
+taxonomies for one client is the year the two proposal builders cost. Four
+packs are Commercial Builder-only (`hvac`, `solar`, `medical_dental`,
+`home_services`), for categories the Proposal Builder has no page for.
+
+**A wrong pack is worse than none**, because it reads as research somebody did
+rather than as a gap. `pack_for()` is tri-state — matched, unmatched, or
+nothing recorded — and `prompt_guidance()` carries that state to the model
+with an instruction not to invent a category it was not given. What suits a
+category is a **suggestion and never a filter**: an unusual spot for a
+category is often the reason it works, and a picker that hides nine of twelve
+makes that impossible, the rule `hub/voice_casting.match_quality()` works to.
+
+**And the choice has to change something.** `check_spec()` names any archetype
+or pack field read by nothing, the way `current_marketing.unanswered_keys()`
+does — this module shipped four discovery questions read by nothing, so a rep
+could answer all four and the document came out identical. It returns an empty
+list today, which is the only way it was worth adding. Mock concepts reflect
+the archetype too, because mock mode is where a developer forms their
+impression of whether a field does anything at all.
+
+**A tool that renders finished video and never asks what the rules require.**
+`testimonial` is a commercial type on the Start page and the offer field
+invites exactly the copy Truth in Lending triggers on — "$79 a month", "0%
+APR", "no money down" — and nothing anywhere asked. The first person to find
+out was whoever had to answer for the spot after it ran.
+`modules/commercial_builder/compliance_spec.py` holds five published regimes
+as data — Reg Z (12 CFR 1026.24), the FTC's endorsement guides (16 CFR 255),
+FINRA 2210, attorney advertising (ABA 7.1–7.3 as each state adopts it) and TTB
+(27 CFR 4/5/7) — each carrying the citation and the authority, the
+`abcd_service.py` rule for the same reason: a citation is an argument a client
+cannot talk a rep out of, and "our tool thinks you need a disclaimer" is not.
+
+**It never says a spot is compliant, and that is the whole design.** Whether
+an ad complies is a judgment about a specific spot in a specific state, made
+by somebody qualified — and a green tick over that question is worse than
+silence, because the tick is what somebody relies on. Every finding is phrased
+as *this engages X* and never as *this violates X*: the first is a fact about
+the copy and the second is a legal conclusion. `summary()` says "nothing in
+the copy engaged one of these rules", never "passed".
+
+**Nothing here blocks a render.** `QR_CODE_RULES` paid for that lesson — a
+check that refuses the correct thing is a check somebody switches off, and
+switching it off costs every finding it would have raised. What a finding does
+instead is require an **acknowledgment** before a rendered cut is *filed*: one
+explicit "I have read what these require", recorded against a name in
+`cb_compliance_acks`, the shape `hub/creative_needs.py` uses for a comp
+confirmation. A shared-password session cannot give one — "Shared login" is a
+true statement about the session and a useless one in a record whose entire
+value is the name on it, the `hub/ad_copy.py` refusal.
+
+**A sign-off is about the copy as it was.** `findings_key` fingerprints the
+rule ids and the quoted evidence, so rewriting the offer retires the
+acknowledgment and the panel says it was **superseded** rather than absent —
+"nobody has looked" and "somebody looked at a different script" are different
+situations and only the second has a name to go back to. It is keyed on the
+evidence rather than the whole payload deliberately: rewording a `requires`
+sentence in that file is our edit, not the client's copy changing, and must
+not silently invalidate every sign-off on the book.
+
+**An empty industry is not an unregulated client.** Three of the five regimes
+are decided by who the client is, and `cb_clients.industry` is free text that
+is often blank — so `industries_engaged()` returns `(regimes, known)` and a
+blank reads *not measured*, with the panel saying "that is not the same as
+them not applying". Reg Z is the opposite and is detected from the **copy**
+alone: a furniture shop advertising "$40 a month" engages it and a bank
+advertising its brand does not.
+
+**A rule that fires on every spot is a rule people stop reading**, which is
+the same note. "20% off everything" is the commonest line in retail copy and
+is not a rate of finance charge, so the credit word is *required* beside the
+percentage. Every pattern also carries its match through to the end: the first
+draft quoted `recovered $` and `$40 a mo`, and evidence a reader cannot find
+in the script is not evidence.
+
+**Two things are deliberately absent.** The **FTC CARS Rule** (16 CFR Part
+463) was vacated in its entirety by the Fifth Circuit in January 2025, so
+flagging it would raise a rule that does not exist — it is in `NOT_ENFORCED`
+with the reason, named rather than silently dropped so nobody adds it back
+from memory. And **fifty states** are not encoded: attorney advertising is
+genuinely state-by-state, so `state_bar` says which state's rules govern is
+the first question and does not pretend to answer it.
+
 **A rep approving a cut is not the client approving it.** Filing was a rep
 pressing Approve & file; the client saw the spot when somebody emailed an MP4,
 replied with three changes in the body of an email, and a person retyped them
@@ -1799,6 +1967,88 @@ Two rules it enforces, both learned the hard way:
 
 `/api/clients/crosswalk` shows what is joined, what shares a domain, and what
 carries a name with no URL and therefore cannot be joined to anything.
+
+### Where a model proposes, and what stops it deciding
+
+Three places where the Hub already held everything a model needed and asked it
+nothing. All three are the same shape, and it is the shape that makes them
+safe: **the model proposes a candidate, existing code decides, and a person
+presses.** None of them writes anything by arriving. `test_ai_proposals.py`
+asserts that for all three at once, including that the source of each carries
+no path to a write.
+
+**The model reading a project name is never shown the client list.**
+`hub/site_names_ai.py`. The hand-written shapes in `hub/site_names.py` turned
+42 raw matches into 305 exact and 60 candidates out of 1,021 projects; 229 more
+are placeholders and are correctly unmatchable. The rest carry a real business
+name in a shape no rule anticipated, and each is a client whose website cannot
+be joined to anything. So a model is handed project *titles* and asked one
+question — which run of words is the business — and what it returns goes into
+`site_names.exact_matches()` against the real book like any other candidate.
+The client book is not in the prompt, so it cannot name a client; a bad answer
+costs a candidate nobody accepts.
+
+Four rules. **A reading must be *in* the title it came from** —
+`_is_grounded()` requires every word of the answer to appear in the original,
+because a model asked to extract a name will occasionally tidy it, and "SERVPRO
+of Fresno NW" coming back as "…Northwest" is a different string that matches a
+different client or none. Ungrounded readings are dropped and **counted**.
+**A placeholder is never sent**, since `is_placeholder()` has answered already
+and paying a model to find a business in "S1M Test" invites it to. **Nothing is
+read twice**, keyed on the normalised title, which is what makes the whole
+portfolio one pass of about forty calls and every later run free. And it is
+**a button, never a page load** — `suggest()` is opened several times a day and
+the call is billed, the rule `hub/brand_lookup.py` arrived at. The readings
+live under `jsonstore.data_dir("site_names")`; a bare relative path lands in
+the repo checkout and is wiped on every deploy.
+
+**A client sends forty photographs and nothing looked at any of them.**
+`modules/image_picker/vision.py`. `alt_text` on an upload comes from
+`body.get("alt")` — typed, or blank — and the gallery had no search, so what a
+client sent was forty thumbnails nobody could find anything in. Meanwhile
+`modules/seo_images` runs vision on images a rep picked and
+`hub/video_library.index_backlog()` describes every clip in two folder trees.
+This is that sweep aimed at the missing bucket, inheriting its rules rather
+than restating them: a **closed tag vocabulary** (terms outside it dropped and
+counted, or the search vocabulary grows in silence), **three attempts and then
+given up on in writing** (a give-up held in memory forgets itself on the next
+deploy, and one unreadable file otherwise costs a vision call an hour for
+ever), and a **wall-clock budget** beside the count, because scheduler jobs
+share one thread.
+
+Its own rule is the important one: **a description is an observation, never the
+alt text.** The reason `alt_text` is sometimes blank is that nobody typed it,
+and the reason it is sometimes filled is that somebody did — a sweep that wrote
+into it would overwrite the second to fix the first, silently, on wording a
+client may have chosen. So it is stored beside the image, drawn dotted, and
+offered into an **empty** field only; `accept()` is the press and refuses a
+field that is not empty **by name** rather than reporting a clean success. The
+row is its own table (`image_picker_descriptions`) because `create_all()` never
+adds a column to an existing one. A file that is not an image is given up on at
+once rather than retried twice more to learn the same thing.
+
+**A ticket arrives with a paragraph describing the work and every dropdown
+above it untouched.** `hub/request_triage.py`. object_107 writes a type and a
+billable flag; object_121 writes a Campaign Support type, a Timeline and a
+rush. The classification is sitting in prose the person has already written,
+and the dropdown gets skipped — which is `hub/knack_api.py`'s own finding one
+step on, that twenty questions became eight answers and twelve blanks.
+
+It proposes **into the empty fields only** — the `contact_suggestions()`
+overlay rule — and the gate is on the endpoint as well as the form, because a
+rule the form keeps while the write breaks it is not a rule. **Every suggestion
+is one of Knack's own published choices, verbatim**, matched exactly or on
+punctuation and case alone and never on the nearest: Knack refuses the *whole
+record* over one bad choice, so an invented option would cost the request
+rather than the field, and anything else is dropped and counted. A **connection
+is never offered** (it is a record id, not a name), nor is a field publishing
+fewer than two options, nor a free-text box. A field it cannot answer is **left
+out** rather than filled with something plausible — thirteen rows of a guess is
+a form somebody stops reading, and one wrong row in it is the one that gets
+sent. Nothing is applied by arriving: `KnackForm.triageButton()` draws each
+suggestion dashed with the reason beside it, Keep takes it and Dismiss puts the
+field back. One control, drawn once, so both objects get it and a third form
+added later gets it without being edited.
 
 ### A client with no URL is invisible, and the URL is usually not missing
 
@@ -3312,6 +3562,194 @@ at creation and never rewritten, so the column cannot quietly become "last
 touched by" while the heading says Created by; an uploaded proposal answers
 the same question with its own field, and a row from before it was recorded
 says *not recorded* rather than showing a blank somebody reads as nobody.
+
+### A price with no end on it
+
+`hub/quote_validity.py`. `VALID_STATUSES` has carried **Expired** since the day
+it was written — a badge color, a ⏰ in the status picker, and nothing anywhere
+that set it, so it was reachable only by a rep remembering to click it, which
+in practice meant never.
+
+That was cosmetic until the client got a link. `/sales/builder/p/<token>` lets
+a client accept a proposal themselves, and the accept route checked that the
+link was live, that the reader was not staff, and that this revision had not
+already been accepted — and **nothing at all about when the quote was
+written**. So a March link could be accepted in September at March's rates,
+filed as a clean acceptance with the client's name and a timestamp on it,
+while the rate card and the sell multiplier had both moved underneath it.
+
+Six rules, each a way to be confidently wrong:
+
+- **Only a document the client was given can expire.** A Draft was never
+  sent — an old one is *abandoned*, a different word and a different thing to
+  do about it; an Approved quote is one they said yes to, and expiring an
+  acceptance takes back an agreement; Converted has an insertion order behind
+  it. `Sent` and nothing else.
+- **Derived on read, never stored** — the `hub/creative_evergreen.py` rule.
+  Two gunicorn workers, so a status written by whichever one ran a sweep is
+  one the other disagrees with, and a stored `Expired` would survive an
+  extension: a quote reading as dead on the one screen a rep would go to
+  revive it. `status` stays exactly as stored and `shown_status` is the same
+  fact with the clock applied, so nothing can round-trip a derived value into
+  the column.
+- **The clock starts when the client could first see it**, which is the send
+  rather than the writing — and *which date answered* is carried and printed,
+  because "thirty days from when I sent it" and "from when I wrote it" are
+  different promises and the client is holding one of them. Re-sending
+  restarts it, since a re-send is the current document at current rates.
+- **A quote with no date at all is not measured**, never expired. An absent
+  timestamp reading as "expired today" would refuse an acceptance a client is
+  entitled to give.
+- **The client is never turned away.** Past the date the page says so *above*
+  the document — the embed is 78vh tall, and underneath it a client reads four
+  pages and only then finds out the price is stale — and names who to ask, with
+  the accept form replaced rather than the page 404ing. A revoked or invented
+  token still answers 404, because saying "that one expired" tells somebody
+  probing which tokens are real; an expired quote is a real quote belonging to
+  a real client who is trying to say yes. The accept route refuses in the same
+  words, so the rule is not one the form merely keeps.
+- **A window a rep chose is refused when it is out of range, not clamped.**
+  Somebody who typed 3650 and got 365 has been told something different from
+  what they asked, on a date a client relies on. It lives in the quote's own
+  data blob — `create_all()` adds no column to an existing table — and is set
+  from the share panel, where the send happens.
+
+The follow-up nudge on the dashboard says which kind of follow-up it is:
+"chase this" and "this one needs re-quoting before they can say yes" are
+different jobs, and the second has a client sitting in front of a page that
+will not let them accept.
+
+### Two systems disagreeing about whether a proposal was won
+
+`hub/ghl_hooks.sync_quote_status()`. The push into Suite has always recorded
+`suite_opportunity_id` on the quote and **nothing ever read it back**: a deal
+marked Won in Suite updated the client's Proposals card and left the Proposal
+Builder's dashboard — the screen a rep actually looks at — still saying Sent.
+Neither screen said the other existed.
+
+Four rules. It matches on the **opportunity id and nothing else** — never the
+client name, which for a client with three quotes is the guess
+`hub/client_key.py` exists to refuse. **Only the decided outcomes write**
+(`won` → Approved, `lost` → Lost): "open", "quoted" and "viewed" tell us
+nothing the Hub does not already know better, and letting them write would
+walk an approved quote backwards to Sent because somebody dragged a card in a
+pipeline. **Converted is never moved** — an insertion order exists, Suite has
+no way to know that, and it is the one change nobody could undo from either
+screen. And **a status that changed by itself says who changed it**, on the
+quote's own activity strip as well as in the Hub log, or a rep reading "Lost"
+has no way to find out why. It reuses the module `wsgi.py` loaded (`salesb_app`)
+rather than importing a second declarative mapping of the same tables, and it
+can never fail the webhook: the client card is written either way, and
+GoHighLevel retries a non-2xx.
+
+### Delivery figures belong under the media plan
+
+`media_plan_rows()`. Impression counts came off the client document with
+"Expected Results & ROI", correctly — an impression count answers what the
+money *bought*, not what the business gets, and printed under that heading it
+read as a promise about outcomes. But it left the proposal with no answer to
+the question the media plan itself asks, and a client comparing two proposals
+had no way to tell a $4.25 CPM apart from an $8.50 one.
+
+It is `expected_results()`'s arithmetic and never a second copy: the **quoted**
+rate rather than the listed one, a one-time line spread across the flight and
+labelled *once* rather than multiplied by it under a per-month heading, and a
+management fee reporting **no units at all** rather than a plausible number.
+The words travel with the figures — an estimate printed bare reads as a
+guarantee — and the lines that are *not* in the headline total are named
+rather than quietly under-reporting the campaign.
+
+**One reading, three renderers.** The PDF drew five columns and the Word export
+drew four, so one client's proposal already said two different things depending
+on which file was sent; both read `media_plan_rows()` now, and the builder's
+preview is handed the server's rows on the quote payload rather than carrying a
+**fourth** copy of the arithmetic — the mirror this codebase has paid for twice.
+A row priced against a budget that has since been edited reads *recalculating*
+rather than stating a confident wrong number.
+
+**And the copy above it was contradicting it.** The seeded media-plan paragraph
+said "every rate is the Smart 1 card rate — there is no markup between the line
+item and what runs", printed directly above a table quoting CPM at 2x, on a
+document a client reads. `client_safe()` was written against "the rate card"
+and this said "card rate", so the rule passed a sentence written for exactly
+it; it matches both orders now, and the seeded copy says what the split is and
+nothing about markup.
+
+### An interruption cost the work in one builder and the place in the other
+
+`hub/drafts.py`. Fifteen minutes of concentration is what an insertion order
+or a proposal takes, and a rep almost never gets fifteen uninterrupted
+minutes. Both builders already had half of the answer and each was missing
+the other half, in opposite directions.
+
+**The Proposal Builder saved the work and lost the place.** It autosaves to
+the server on every keystroke, so nothing was ever lost — and `editLoaded()`
+set `step=0`, so reopening a quote put the rep on step 1 of 14 pressing
+Continue until they found the media plan they had been on. The position is
+`S._step` now, stamped on every save and read back on open. **Inside the
+quote's own data blob, never a new column**: `create_all()` adds no column to
+an existing table, so one here would be silently absent on the live Postgres
+with every local test green — the `client_key` rule. It is **clamped** on
+read, because that number was written by whatever version of the wizard saved
+it and an index past the end throws inside `renderStep()`, which is a blank
+builder over a quote whose answers are all perfectly intact. And arriving on
+step 7 **says so** and offers step one: a wizard that opens somewhere other
+than the beginning with no explanation reads as having skipped ahead, and Back
+from there is six presses. The proposals list carries it too — *Left at step 7
+of 14* against a Draft, because "which of these was nearly finished?" is the
+question somebody scans that list asking.
+
+**The IO Builder kept the place and could lose the work.** Its draft went to
+`localStorage`, which is the right instinct and survives exactly one browser:
+somebody interrupted on their laptop and picking the IO up on a different
+machine found no draft at all, and — worse — nothing on any screen said an
+unfinished IO existed, so it was simply started again from the top. The local
+copy stays, because it is instant and it is nearly always the right one; what
+is new is a copy on the **server** and a list of them on the start screen.
+
+Six rules in the store, each a way a draft quietly becomes a liability:
+
+- **One file per draft, never one file holding all of them.** Two reps
+  autosaving at the same moment would each write the whole collection back and
+  the second write would drop the first one's work, which is precisely the
+  failure a draft store exists to prevent.
+- **Through `jsonstore`, so it outlives the disk** — and deleted through
+  `jsonstore.delete_json`, never `os.remove`, or the mirror restores it and
+  the discard undoes itself.
+- **Nothing in it may raise.** A draft is insurance and insurance that breaks
+  the thing it insures is worse than none, so every entry point returns a
+  value, every route answers 200 with what happened in the body, and an
+  autosave that could not write costs the server copy and never the IO
+  somebody is in the middle of.
+- **Bounded, and never in silence.** A per-owner cap and a per-draft size cap,
+  because an autosave loop that fills the 5 GB disk takes the whole Hub with
+  it — and when the cap drops the oldest draft the save **names it**, since a
+  draft that goes missing quietly is the thing the feature exists to stop.
+- **A colleague's unfinished IO is on the list too**, marked whose. Hiding it
+  is how the same insertion order gets built twice. What the listing does not
+  carry is the state blob: it is read into a page, and the blob is fetched
+  only when a draft is actually resumed.
+- **"Nobody has one" and "we could not look" are different answers**, the
+  `connected_accounts_result()` rule — the list says which rather than drawing
+  a clean empty panel over a store it could not read.
+
+Three things the browser half has to get right. The autosave and the discard
+**carry the mount** (`{{ request.script_root }}`): a root-absolute
+`/api/draft` leaves this module and reaches the hub app, the trap
+`test_landing_embeds.py` exists for. A closing tab is exactly the interruption
+this is for and a debounce has usually not fired yet, so `pagehide` posts
+through `sendBeacon` — which returns a boolean nobody reads, so a wrong path
+there fails in total silence. And both deletes are `keepalive`, because
+submitting the IO and pressing Reset are each followed by a navigation that
+cancels a plain fetch, which would leave a finished IO sitting on the
+unfinished list.
+
+Starting a new IO and throwing the old one away are **different statements**.
+The boot prompt's Cancel drops this browser's copy alone; the server draft
+stays on the start screen, where discarding it is a deliberate press with the
+name in the confirmation. Reset clears both, because its confirmation says it
+clears the saved draft and that sentence has to stay true.
+`test_drafts.py` asserts all of it.
 
 ### Every medium is asked about before it is priced
 
@@ -5421,6 +5859,89 @@ exempts `PUBLIC_PREFIXES` — a guard that also refuses the embedded calculator
 is a broken grey box on a client's website, which is the failure
 `test_calculator_embed.py` was written about.
 
+## One description of what a record page looks like
+
+`hub/static/hub-detail.css`. The SEO client page is the shape every record-like
+screen in this Hub should have — a crumb and a title with the actions beside
+them, white cards with a small navy heading and a control on the right,
+key/value rows that line up, muted secondary text, one blue button — and it was
+written as ninety lines of `.seoc-*` rules inside that one template. So the
+three module screens beside it each grew their own idea of what a card is:
+Sites Admin with a dark "Smart 1 Sites Admin" bar of its own, the Suite panel
+with a second one, and the client lookup at `/clients` still in the old
+near-black and lime green. Four screens of one product, three palettes, and a
+person moving between them reading it as three different tools.
+
+The primitives are in one stylesheet now, declared under **both** the `s1d-`
+names the modules use **and** the `seoc-` ones the SEO page already had, *in
+the same rule*. That is the whole point: a change to what a card looks like
+lands once, and the page the look came from cannot drift away from the pages
+that adopted it. It is loaded twice because the Hub is two apps —
+`hub/templates/base.html` links it for the hub's own pages and `wsgi.py`'s
+HubBar injects it beside `theme.css` for every mounted module — so a module
+that adopts the class names needs no stylesheet of its own. `.s1d-card` carries
+its own background and border rather than assuming hub.css's `.card`
+underneath it, because a mounted module never loads hub.css.
+
+What each module keeps is what is genuinely its own: Sites keeps the filter
+row, the website blocks and the pager; the Suite panel keeps the fact that a
+button there may hold a spinner. **A second branded header bar is not one of
+them** — the Hub's sidebar is already on the page, so that bar was chrome
+twice, and it is what made each of these read as a separate product. What those
+modules do still need is a *second level* of navigation (Accounts / Inventory /
+Packages; Create / Manage / Activity / Status), which is `.s1d-subnav`. Sites
+marks the current section from `request.endpoint` rather than having every view
+pass one in — a nav that has to be told which entry to highlight is a nav that
+gets it wrong on the next page somebody adds — and the shared strip answers to
+`.active` as well as `.on`, because the Suite panel's tabs are driven by a
+script that has written `active` since they were an underline bar. Renaming
+that in the script to suit a stylesheet would be the stylesheet deciding what
+the page's state is called.
+
+**A status pill says the same thing everywhere.** `sites_admin.status_class()`
+returned `good` / `warn` / `bad` / `muted`, which are not the modifiers the
+shared sheet defines, so its pills were a second set that looked nearly like
+the Hub's. It returns `ok` / `warn` / `bad` and **`""`** now — and that last
+one is the point: a status this app has never seen is not a *bad* status, so it
+is grey rather than red, the confident wrong answer this codebase keeps having
+to undo.
+
+**A prebuilt bundle can be restyled, and cannot be rebuilt.** `clients_app/` is
+a compiled React app: the minified JS and CSS are committed and there is no
+source in this repo, so its markup cannot be edited. What it can be given is a
+later stylesheet, and `hub/static/clients-theme.css` is injected by
+`clients_index()` *after* the bundle's own `<link>` so equal rules win.
+Remapping the five variables it declares does most of the work; the rest is
+there because the bundle also hardcodes colors in rules carrying no variable at
+all, and a half-converted palette is worse than an unconverted one. Two things
+it deliberately does not do. `--s1-dark` is that bundle's ink **and** its dark
+surfaces — one variable doing two jobs — so the surfaces are named individually
+rather than remapped, or the body text would come out as heavy as a heading.
+And nothing in it changes layout: this is a color pass over a working tool, not
+a rebuild of one. It is scoped to a `body` class even though it is injected on
+one page, because `.kpi`, `.badge`, `.tabs` and `.search` are ordinary words and
+an unscoped rule for one of them would restyle a module nobody was thinking
+about.
+
+**`:not(:has(.main))` was matching modules, and one of them was laid out from
+x=0.** The sidebar offsets `<body>` by 224px except where the page already
+offsets itself — hub.css lays the Hub's own pages out with
+`.main{margin-left:224px}`, and applying both pushed the content 448px right.
+The guard was `.main` anywhere in the document, and "main" is one of the most
+ordinary class names there is: the client lookup names its content wrapper
+`.main`, so **the whole React app got no offset and its first column of tiles
+sat behind the sidebar**, on every visit, with nothing erroring and every page
+still passing linkcheck and pagecheck. It is `.shell > .main` now — only
+`base.html` puts a `.main` directly inside a `.shell`, which is precisely the
+layout the rule needs to keep its hands off. Image Creator, which also uses
+`.main` and reads `--s1hub-offset` to size a full-height canvas, was reading 0
+for the same reason.
+
+`test_detail_ui.py` asserts all of it, including that the SEO page no longer
+restates the rules it handed over: a copy left behind is not a broken page, it
+is a page that silently stops matching the others the next time one of them is
+edited.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -5465,9 +5986,14 @@ python3 test_prospect_record.py    # the record a scan produces: four kinds of e
 python3 test_website_audit.py      # the spend block that leads the audit, the customer
                                    #   placement, the lead every scan files, merging two
                                    #   rows that are one prospect
+python3 test_detail_ui.py          # one description of the record-page look, and the
+                                   #   three module screens that read from it
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
                                    #   only once, and the internal calculator that
                                    #   computes the same plan and captures nothing
+python3 test_quote_validity.py     # how long a price stands, the Expired nothing
+                                   #   set, what Suite may decide, and delivery
+                                   #   back under the media plan
 python3 test_proposal_share.py     # the client's copy: who opened it, how often,
                                    #   and an acceptance tied to one revision
 python3 test_proposal_targeting.py # the coverage map, the pasted location list,
@@ -5517,6 +6043,10 @@ python3 test_msa_embed.py          # the signing page: public, chrome-free, ours
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
+python3 test_commercial_library.py # what a spot is versus how it is made, the
+                                   #   twelve archetypes and what each one needs
+python3 test_commercial_compliance.py # which published rules a spot engages, whose
+                                   #   they are, and the acknowledgment before filing
 python3 test_commercial_review.py  # the client's review link: public and chrome-free,
                                    #   three answers, the strictest one wins, and a
                                    #   refusal that stops a delivery
@@ -5525,10 +6055,15 @@ python3 test_commercial_wizard.py  # the seven steps, the client join, the spec 
                                    #   shots inside beats with their grammar, the published
                                    #   thresholds and whose each is, and the Amazon warning
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
+python3 test_drafts.py             # interrupted work: the IO's server draft and
+                                   #   its list, the proposal reopening where it
+                                   #   was left, and a cap that names what it drops
 python3 test_landing_spec.py       # what a landing page is for, and what it sells
 python3 test_client_groups.py      # grouped clients: what merges, what must not double
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
 python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the chrome, who may frame
+python3 test_suite_sso.py          # the client half: the location id is the
+                                   #   authorization, and every way that goes wrong
 python3 test_calculator_embed.py   # the media calculators framed on smart1marketing.com
 python3 test_display_ads.py        # the display layouts, and the build screen's contracts
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
@@ -5544,6 +6079,8 @@ python3 test_client_prefill.py     # one client reader: what a form is offered,
                                    #   model is told about the client
 python3 test_client_logos.py       # a logo we found reaches the client's gallery,
                                    #   once, labeled with where it came from
+python3 test_ai_proposals.py       # the model proposes, the code decides, a person
+                                   #   presses: project names, client photos, ticket type
 python3 test_thinking.py           # the mark that says a scan or a model is running:
                                    #   one implementation, three kinds, both halves
                                    #   of the app, and nothing claiming a result

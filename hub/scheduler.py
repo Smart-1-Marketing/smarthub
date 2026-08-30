@@ -412,6 +412,28 @@ def job_index_video_backlog(app) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+def job_describe_client_uploads(app) -> dict:
+    """Describe another batch of the photographs clients have sent us.
+
+    The same shape as the video sweep above and for the same reason: a client
+    who uploads forty photographs is never going to type forty descriptions,
+    and without one the gallery is forty thumbnails nobody can search. Bounded
+    by a count *and* a wall clock, because scheduler jobs share one thread and
+    a vision call has no useful ceiling on how long it takes.
+    """
+    try:
+        from modules.image_picker import vision
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    if not vision.can_describe():
+        # Not an error and not silence, per job_index_video_backlog above.
+        return {"skipped": "OPENAI_API_KEY is not set"}
+    try:
+        return vision.describe_backlog(actor="scheduler")
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": type(exc).__name__}
+
+
 def job_social_idea_batches(app) -> dict:
     """Offer another week's ideas to the clients who are actually swiping.
 
@@ -472,6 +494,8 @@ JOBS = {
                           "Re-pull the purchased-domain registry once a night."),
     "video_backlog":     (60, job_index_video_backlog,
                           "Describe another batch of the video background library."),
+    "picker_describe":   (60, job_describe_client_uploads,
+                          "Describe another batch of the photos clients sent us."),
     "social_ideas":      (60, job_social_idea_batches,
                           "Offer another week's ideas to clients who are swiping."),
 }

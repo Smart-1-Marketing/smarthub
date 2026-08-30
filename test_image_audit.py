@@ -301,9 +301,17 @@ check("every producer declares what it writes",
 check("and every value it writes has a heading",
       [v for v in written if v not in labels], [])
 
-check("the gallery has a search box", 'id="gq"' in GALLERY, True)
-check("and group chips with counts", 'id="chips"' in GALLERY, True)
-check("the search is debounced", "setTimeout(redraw" in GALLERY, True)
+# The search is the SERVER's: it is the only half that can see the vision
+# descriptions, and the only one that searches the whole library rather than
+# the rows this page happened to load. The chips filter what comes back.
+check("the gallery has a search box", 'id="gSearch"' in GALLERY, True)
+check("and it asks the server", '"&q=" + encodeURIComponent(QUERY)' in GALLERY, True)
+check("with group chips over the result", 'id="chips"' in GALLERY, True)
+check("counted off what the search returned, not the whole library",
+      "redraw();" in GALLERY and "ALL = d.images" in GALLERY, True)
+# A chip from the previous result set would show an empty gallery with no
+# sign of why.
+check("a new search clears the chip", 'GROUP = "";' in GALLERY, True)
 # A filtered list that reports an unfiltered total is a wrong answer with two
 # right ones either side of it.
 check("a filtered view says it is filtered", '" of " + ALL.length' in GALLERY, True)

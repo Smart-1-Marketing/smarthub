@@ -6,6 +6,10 @@
 <title>{% block title %}Smart 1 Hub{% endblock %}</title>
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, notranslate, noai, noimageai">
 <link rel="stylesheet" href="/assets/hub.css">
+{# The detail-page look — page head, cards, key/value rows, pills — as one
+   description shared with the twenty mounted modules, which get it from
+   wsgi.py's HubBar instead. See hub/static/hub-detail.css. #}
+<link rel="stylesheet" href="/assets/hub-detail.css">
   <link rel="stylesheet" href="/hub-help.css">
 </head>
 <body data-module="{{ hub_demo_module or 'hub' }}">
