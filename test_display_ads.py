@@ -417,6 +417,24 @@ def test_the_palette_says_whether_anybody_chose_it():
 
     check("the screen draws it beside the swatches",
           "paletteProvenance()" in screen and "palette-note" in screen)
+
+    # The warning told a rep to set five swatches and gave them nothing to set
+    # them from: a brand-new prospect has no scan for the site-brand panel to
+    # read and no Brandfetch record either. colorsFromImage() was written for
+    # exactly that and had never been called -- and would have returned the
+    # padding rather than the mark, because sharp's `dominant` is a histogram
+    # over RGB that takes no notice of alpha. The same blindness as the corner
+    # sample in logo-tools.ts.
+    check("the logo's own colors are read from the mark, not what is behind it",
+          "data[i + 3] < 128" in intake and "flatBackdrop(file)" in intake)
+    check("and offered only where nobody has answered for the palette",
+          "everyRoleDefault && logoFile" in intake)
+    check("never from a wordmark we drew in the placeholder ink",
+          "assetSources.logo === 'upload' || assetSources.logo === 'brandfetch'" in intake)
+    check("the screen offers them to copy rather than applying them",
+          "logoPaletteOffer()" in screen and "click to copy" in screen)
+    check("and says it copied only when it did",
+          "could not copy, select and copy it by hand" in screen)
     check("and says nothing at all when the field is absent",
           "if (!src) return '';" in screen)
     check("naming only the roles nobody answered for",

@@ -129,6 +129,9 @@
 
   .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
   .palette-note { margin-top: 9px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); }
+  .logopal { display: inline-flex; gap: 6px; margin-left: 7px; vertical-align: middle; }
+  .logosw { width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--line);
+            cursor: pointer; padding: 0; }
   .palette-note.warn { color: #8a5b00; background: #fff6e5; border: 1px solid #f0d9a8;
                        border-radius: 6px; padding: 7px 9px; }
   .swatch { text-align: center; }
@@ -705,6 +708,29 @@
      question it stood in for -- does the copy fit -- is answered per block by
      the overflow check in the rail, from real glyph measurements. */
 
+  /* The logo's own colors, offered where the palette is placeholder.
+   *
+   * A brand-new prospect has no Insites scan for the site-brand panel to read
+   * and no Brandfetch record either, so the warning above told a rep to set
+   * five swatches and gave them nothing to set them from. The logo is the one
+   * thing we do have.
+   *
+   * Copied, not applied -- the rule the site-brand panel works to. Which of
+   * the five roles a color should become is a judgment, and guessing it
+   * moves four other things.
+   */
+  function logoPaletteOffer() {
+    var pal = state.doc && state.doc.logoPalette;
+    if (!pal || !pal.length) return '';
+    return '<div class="palette-note">From the logo &mdash; click to copy, then paste into a swatch:'
+      + '<span class="logopal">'
+      + pal.map(function (hex) {
+          return '<button type="button" class="logosw" data-hex="' + esc(hex) + '"'
+            + ' style="background:' + esc(hex) + '" title="' + esc(hex) + '"></button>';
+        }).join('')
+      + '</span></div>';
+  }
+
   /* Where the palette came from.
    *
    * A row of swatches says nothing about whether anybody chose them. With no
@@ -734,7 +760,7 @@
     if (defaulted.length === known.length) {
       return '<div class="palette-note warn">No brand colors were discovered or supplied &mdash; '
         + 'every size is built in the placeholder palette, not the client\'s own. '
-        + 'Set these before sending a proof.</div>';
+        + 'Set these before sending a proof.</div>' + logoPaletteOffer();
     }
     var parts = [];
     if (defaulted.length) parts.push(esc(defaulted.join(', ')) + ' still placeholder');
@@ -945,6 +971,28 @@
         state.doc.campaign.brand.colors[el.dataset.color] = el.value.toUpperCase();
         state.dirty = true;
         schedule();
+      });
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-hex]'), function (el) {
+      el.addEventListener('click', function () {
+        var hex = el.dataset.hex;
+        // Copied, never applied: which of the five roles a logo color should
+        // become is a judgment, and guessing it moves four other things.
+        //
+        // And it only claims to have copied when it did. navigator.clipboard
+        // is absent on http and is allowed to refuse, and a button that says
+        // "copied" either way is the one CLAUDE.md names on the Smart 1 Ads
+        // estimate -- worse than one that asks.
+        var said = function (ok) {
+          el.title = ok ? hex + ' copied \u2014 paste it into a swatch'
+                        : hex + ' \u2014 could not copy, select and copy it by hand';
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(hex).then(function () { said(true); },
+                                                  function () { said(false); });
+        } else {
+          said(false);
+        }
       });
     });
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-font]'), function (el) {

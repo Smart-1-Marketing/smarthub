@@ -483,6 +483,7 @@ const server = http.createServer(async (req, res) => {
             notes: result.notes,
             assetSources: result.assetSources,
             colorSources: result.colorSources,
+            logoPalette: result.logoPalette,
           }, null, 2),
         );
         build = { renderable: result.renderable, notes: result.notes };
