@@ -18,7 +18,7 @@
     <label class="seoc-check"><input type="checkbox" id="ck_setup"> Setup complete</label>
     <label class="seoc-check"><input type="checkbox" id="ck_schema"> Schema updated</label>
     <label class="seoc-check"><input type="checkbox" id="ck_listings"> Listings complete</label>
-    <span class="seoc-check seoc-check-ro" id="ck_blogs_wrap"><span id="ck_blogs_dot" class="seoc-dot"></span> Blogs current <span class="seoc-muted" style="font-weight:400">(from the posted checkboxes below)</span></span>
+    <span class="seoc-check seoc-check-ro" id="ck_blogs_wrap"><span id="ck_blogs_dot" class="seoc-dot"></span> Blogs <span class="seoc-muted" style="font-weight:400">&mdash; <span id="ck_blogs_label">&mdash;</span></span></span>
     <span id="ckMsg" class="seoc-muted"></span>
   </div>
 </div>
@@ -735,6 +735,12 @@ table.seoc-blogt input[type=checkbox]{width:auto}
 .seoc-check-ro{cursor:default}
 .seoc-dot{width:12px;height:12px;border-radius:50%;display:inline-block;background:#dc2626}
 .seoc-dot.on{background:#16a34a}
+/* The four blogs states. `not_sold` is gray rather than red: a client who
+   does not buy blogs is not a client who is behind on them. */
+.seoc-dot.current{background:#16a34a}
+.seoc-dot.behind{background:#dc2626}
+.seoc-dot.none{background:#d97706}
+.seoc-dot.not_sold{background:#cbd5e1}
 .seoc-socialgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
 .seoc-socialgrid .srow{display:flex;gap:6px;align-items:center}
 .seoc-socialgrid .srow b{width:76px;font-size:12px;color:#475569;text-transform:capitalize;flex:none}
@@ -948,6 +954,46 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   function $(id){return document.getElementById(id);}
   function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
   function post(u,b){return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(function(r){return r.json();});}
+
+  /* ---- editors that get rebuilt underneath somebody -------------------
+     The alt-text list and the FAQ draft are both a container of live inputs
+     that is redrawn with innerHTML — by a *sibling row's* button, and by a
+     fetch that lands tens of seconds later. That is the trap CLAUDE.md names
+     for the Smart 1 Ads target-area rows, with a different trigger: there the
+     redraw came from the typing itself and was fixed by never redrawing an
+     input, and here the list genuinely changes shape, so the rule has to be
+     that a redraw cannot destroy what has not been read yet.
+
+     Two halves. `dirty()` marks a field the moment somebody types in it, and
+     only a dirty field is ever harvested — a field is *not* dirty just because
+     its value differs from the model, which is what a fetch response makes
+     true of every field at once. Harvesting on difference alone would revert a
+     whole page of AI-written alt text to the boxes' pre-write contents, which
+     is worse than the loss it fixes. And `keepCaret()` puts the cursor back:
+     text that survives while the caret jumps out of the sentence is a fix
+     somebody notices only slightly less. */
+  function dirty(el){ el.addEventListener('input', function(){ el.dataset.dirty='1'; }); }
+
+  function keepCaret(box, redraw){
+    /* Nothing in here may cost the redraw. Putting a cursor back is a
+       courtesy; the rebuild is the feature, so a missing container or a
+       browser that will not take a selection range loses the caret and never
+       the page -- the rule hub-thinking.js works to. */
+    if(!box){ redraw(); return; }
+    var a=document.activeElement, mark=null;
+    if(a && box.contains(a) && ('selectionStart' in a)){
+      mark={tag:a.tagName, i:a.dataset.i, url:a.dataset.url, src:a.dataset.src,
+            cls:a.className, s:a.selectionStart, e:a.selectionEnd};
+    }
+    redraw();
+    if(!mark) return;
+    var sel=Array.prototype.slice.call(box.querySelectorAll(mark.tag)).filter(function(n){
+      return n.dataset.i===mark.i && n.dataset.url===mark.url
+          && n.dataset.src===mark.src && n.className===mark.cls;
+    })[0];
+    if(!sel) return;
+    try{ sel.focus(); sel.setSelectionRange(mark.s, mark.e); }catch(err){}
+  }
   function kv(k,v){return '<div class="seoc-kv"><b>'+k+'</b><span>'+v+'</span></div>';}
 
   // ---------------- load detail ----------------
@@ -958,6 +1004,17 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     catch(err){ console.error('[seo_client] '+label+' failed:', err); }
   }
   fetch('/api/seo/detail?name='+encodeURIComponent(CLIENT)+'&full=1').then(function(r){return r.json();}).then(function(d){
+    /* A failed build comes back as a body with `error` on it, and fetch()
+       resolves for 4xx and 5xx alike -- so the .catch() below never sees it.
+       Read straight past this and every card renders its own empty state:
+       "no site on file", no business info, no schema pages. That is a client
+       with months of work behind them drawn as a client with none, which is
+       the confident wrong answer this codebase treats as worse than an error. */
+    if(d&&d.error){
+      var em='<span class="seoc-bad">Could not load this client &mdash; '+esc(d.error)+'</span>';
+      ['accBody','siteBody','socialBody'].forEach(function(id){ if($(id)) $(id).innerHTML=em; });
+      return;
+    }
     detail=d; slug=d.slug||''; siteUrl=d.url||'';
     $('seocSub').textContent=(d.products||[]).join(' · ')+(d.billing?'  —  $'+Number(d.billing).toLocaleString()+'/mo':'');
     if(siteUrl){var b=$('btnSite');b.href=siteUrl;b.style.display='inline-block';}
@@ -1230,7 +1287,16 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('ck_setup').checked=!!st.setup;
     $('ck_schema').checked=!!st.schema;
     $('ck_listings').checked=!!st.listings;
-    $('ck_blogs_dot').className='seoc-dot'+(st.blogs?' on':'');
+    /* Four answers, not two. The dot was red for a client who does not buy
+       blogs exactly as it was for one whose posts are overdue -- and this
+       page already knew the difference (blogsVisible / blogOffNote) and drew
+       the dot without it. The state is the server's, so this record and the
+       SEO client list cannot disagree about who is behind. */
+    var bs=String(st.blogs||'none');
+    $('ck_blogs_dot').className='seoc-dot '+bs;
+    $('ck_blogs_wrap').title='Blogs: '+(st.blogs_label||bs);
+    var lbl=$('ck_blogs_label');
+    if(lbl) lbl.textContent=st.blogs_label||bs;
   }
   ['ck_setup','ck_schema','ck_listings'].forEach(function(id){
     $(id).onchange=function(){
@@ -2203,7 +2269,49 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('altSelAll').checked=false;
     renderAltDetail();
   }
+  /* ---- alt harvest (lifted and driven in node by test_seo_page.py) ---- */
+  function altImage(url, src){
+    var p=altPages.find(function(x){return x.url===url;});
+    return p&&(p.images||[]).find(function(x){return x.src===src;});
+  }
+  /* One save path, used by the blur and by the harvest below. `new_alt` is set
+     from the typed value BEFORE the request goes out, so a redraw that lands
+     while it is in flight shows what was typed rather than the pre-edit value
+     — and the harvest then sees no difference and cannot fire a second write
+     for the same edit. The server's answer replaces it on the way back,
+     because it clamps the length and strips "image of". */
+  function altSave(t){
+    var im=altImage(t.dataset.url, t.dataset.src);
+    if(im) im.new_alt=t.value;
+    delete t.dataset.dirty;
+    return post('/api/seo/alt/update',
+                {client:CLIENT,url:t.dataset.url,src:t.dataset.src,alt:t.value})
+      .then(function(d){
+        if(d.error){ alert(d.error); return; }
+        var im2=altImage(t.dataset.url, t.dataset.src);
+        if(im2){ im2.new_alt=d.image.new_alt; im2.decorative=d.image.decorative; }
+        if(t.isConnected && t.dataset.dirty!=='1') t.value=d.image.new_alt||'';
+      });
+  }
+  /* Anything typed and not yet blurred lives only in the DOM, and the AI
+     write takes tens of seconds — long enough to type in another box while it
+     runs. Removing a focused field does not fire `change`, so without this the
+     text goes silently when the response lands. */
+  function altHarvest(){
+    var box=$('altDetail'); if(!box) return;
+    box.querySelectorAll('.altNew').forEach(function(t){
+      if(t.dataset.dirty!=='1') return;
+      var im=altImage(t.dataset.url, t.dataset.src);
+      if(!im || t.value===(im.new_alt||'')){ delete t.dataset.dirty; return; }
+      altSave(t);
+    });
+  }
+  /* ---- end alt harvest ---- */
   function renderAltDetail(){
+    altHarvest();
+    keepCaret($('altDetail'), function(){ drawAltDetail(); });
+  }
+  function drawAltDetail(){
     var open=altPages.filter(function(p){return altOpen[p.url];});
     if(!open.length){ $('altDetail').innerHTML=''; return; }
     $('altDetail').innerHTML=open.map(function(p){
@@ -2228,18 +2336,8 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         +'</div></div></div>';
     }).join('');
     $('altDetail').querySelectorAll('.altNew').forEach(function(t){
-      t.onchange=function(){
-        post('/api/seo/alt/update',{client:CLIENT,url:t.dataset.url,src:t.dataset.src,alt:t.value})
-          .then(function(d){
-            if(d.error){ alert(d.error); return; }
-            /* The server clamps length and strips "image of", so show what was
-               stored rather than what was typed. */
-            t.value=d.image.new_alt||'';
-            var p=altPages.find(function(x){return x.url===t.dataset.url;});
-            var im=p&&(p.images||[]).find(function(x){return x.src===t.dataset.src;});
-            if(im){ im.new_alt=d.image.new_alt; im.decorative=d.image.decorative; }
-          });
-      };
+      dirty(t);
+      t.onchange=function(){ altSave(t); };
     });
   }
   $('btnAltScan').onclick=function(){
@@ -2698,7 +2796,34 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     return {pending:pending,approved:ok,skipped:sk};
   }
 
-  function renderDraft(){
+  /* An open editor's question and answer live ONLY in the DOM until Save
+     answer is pressed for that row -- these inputs carry no change handler at
+     all -- and every one of Approve, Skip, Edit, Cancel and Another rebuilds
+     the whole list from `draft.items`. So half-writing an answer on row 3 and
+     pressing Approve on row 5 discarded row 3, immediately and in silence.
+     `skip` is the row whose edit is being deliberately thrown away, which is
+     the one case where not reading it back is the point: harvesting on Cancel
+     would keep the text the button exists to discard.
+     Empty is not an edit -- a cleared box keeps what was there, the rule
+     `savedit` already worked to, so clearing a question cannot delete it. */
+  /* ---- faq harvest (lifted and driven in node by test_seo_page.py) ---- */
+  function faqHarvest(skip){
+    var list=$('faqList'); if(!list) return;
+    list.querySelectorAll('input.qedit[data-i], textarea[data-i]').forEach(function(el){
+      if(el.dataset.dirty!=='1') return;
+      var i=Number(el.dataset.i);
+      if(i===skip) return;
+      var it=draft.items[i]; if(!it) return;
+      var v=el.value.trim(); if(!v) return;
+      if(el.tagName==='INPUT') it.question=v; else it.answer=v;
+    });
+  }
+  /* ---- end faq harvest ---- */
+  function renderDraft(skip){
+    faqHarvest(typeof skip==='number'?skip:-1);
+    keepCaret($('faqList'), function(){ drawDraft(); });
+  }
+  function drawDraft(){
     var c=faqCounts();
     $('faqProgress').textContent=draft.items.length
       ? c.approved+' approved · '+c.skipped+' skipped · '+c.pending+' left to review' : '';
@@ -2724,6 +2849,8 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('faqList').querySelectorAll('[data-act]').forEach(function(b){
       b.onclick=function(){ faqAction(b.dataset.act, Number(b.dataset.i), b); };
     });
+    $('faqList').querySelectorAll('input.qedit[data-i], textarea[data-i]')
+      .forEach(function(el){ dirty(el); });
     $('faqSavePrompt').style.display=(draft.items.length && !c.pending) ? 'block' : 'none';
     if(draft.items.length && !c.pending && !c.approved){
       $('faqSavePrompt').style.display='none';
@@ -2737,7 +2864,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     if(act==='approve'){ it.state='approved'; it.editing=false; renderDraft(); return; }
     if(act==='skip'){ it.state='skipped'; it.editing=false; renderDraft(); return; }
     if(act==='edit'){ it.editing=true; renderDraft(); return; }
-    if(act==='canceledit'){ it.editing=false; renderDraft(); return; }
+    if(act==='canceledit'){ it.editing=false; renderDraft(i); return; }
     if(act==='savedit'){
       var box=$('faqList').querySelector('.seoc-faqq:nth-of-type('+(i+1)+')');
       var qi=$('faqList').querySelector('input.qedit[data-i="'+i+'"]');
@@ -2759,8 +2886,13 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         if(!fresh){ faqBusy.done();
           $('faqMsg').textContent='No new question came back — try again.'; return; }
         faqBusy.done();
+        /* Read every other open editor back before this row is replaced, then
+           render with this row skipped: the reply arrives tens of seconds
+           after the press, and the row it replaces must not be re-harvested
+           out of markup that is about to be thrown away. */
+        faqHarvest(i);
         draft.items[i]={question:fresh.question,answer:fresh.answer,state:'pending',editing:false};
-        renderDraft();
+        renderDraft(i);
       }).catch(function(){ faqBusy.done();
         $('faqMsg').textContent='That did not come back — try again.'; });
     }

@@ -1187,7 +1187,9 @@ def test_the_delivery_zip_describes_itself_to_a_machine():
     check("the zip carries a machine-readable manifest",
           "campaign-manifest.json" in deliver)
     check("built from the same arrays as the README",
-          "campaignManifest(project, concept, clientSlug, root, shipped, skipped)" in deliver)
+          "campaignManifest(project, concept, clientSlug, root, shipped, skipped, animated)"
+          in deliver
+          and "readme(project, concept, clientSlug, shipped, skipped, animated)" in deliver)
     check("the unit is a file in the zip, not a render",
           "for (const platform of targets) {" in deliver)
     check("a shared creative names the other platforms carrying it",
@@ -1408,6 +1410,257 @@ def test_the_font_signal_says_only_what_it_measured():
           "nothing here will match it by accident" in screen)
     check("it sits in the Type panel, where the decision is",
           "'<div id=\"siteType\"></div>' +" in screen)
+
+# ---------------------------------------------------------------- animation
+
+ANIMATION_TS = MODULE / "src" / "animation.ts"
+RENDER_TS = MODULE / "src" / "render.ts"
+SERVER_TS = MODULE / "src" / "server.ts"
+DELIVER_TS = MODULE / "src" / "deliver.ts"
+PLATFORM_DIR = MODULE / "src" / "config" / "platforms"
+PROXY_PY = ROOT / "hub" / "ad_builder_proxy.py"
+
+
+def test_the_animation_rules_are_googles_and_say_so():
+    """The four numbers that get an animated ad refused, and whose each is.
+
+    Every one of these is a published Google requirement for an animated image
+    ad, and every one is invisible on the screen it is broken on: a GIF that
+    loops for ever plays perfectly in every browser, and one running at 20
+    frames a second looks better than one at 5. So they are data with a source
+    against them rather than a habit in the encoder — the rule
+    ``services/abcd_service.py`` works to. The two that are OURS are marked as
+    ours, because "Google requires three slides" about a number Google has
+    never published is a claim a client can talk us out of once they check.
+    """
+    src = ANIMATION_TS.read_text()
+    check("there is an animation module at all", ANIMATION_TS.exists())
+
+    for name, value in (("minFrameMs", "200"), ("maxTotalMs", "30_000"),
+                        ("maxSlides", "3"), ("maxFrames", "5")):
+        check(f"{name} is stated as {value}",
+              re.search(rf"{name}:\s*{re.escape(value)}", src) is not None)
+
+    check("Google's own page is cited for the platform half",
+          "support.google.com/adspolicy" in src)
+    # The house numbers are named as house numbers, in the same block.
+    rules = src[src.index("export const ANIMATION_RULES"):]
+    rules = rules[:rules.index("} as const;")]
+    check("maxSlides and maxFrames are marked as ours, not Google's",
+          "Ours." in rules and "house:" in rules)
+
+
+def test_a_looping_gif_can_never_be_endless():
+    """`loop: 0` is the one value the 30-second rule forbids, and it is unreachable.
+
+    A GIF with a loop count of zero repeats for ever. It renders correctly in
+    every browser, passes every eye on every screen here, and is outside
+    Google's rule — which is exactly the shape of failure this codebase keeps
+    having to undo. So the count is COMPUTED from the cycle length rather than
+    chosen, and the floor is 1.
+    """
+    src = ANIMATION_TS.read_text()
+    body = src[src.index("export function loopsWithin"):]
+    body = body[:body.index("\n}")]
+    check("the loop count is computed from the cycle, not passed in",
+          "Math.floor(maxTotalMs / cycleMs)" in body)
+    check("and it can never come back as 0", "Math.max(1," in body)
+
+    # The encoder must take its loop from the plan and from nothing else.
+    enc = src[src.index("export async function encodeAnimation"):]
+    check("the encoder writes the plan's loop count",
+          "loop: plan.loop" in enc)
+    check("and never a literal 0", not re.search(r"loop:\s*0", enc))
+
+
+def test_only_a_placement_that_takes_a_gif_is_offered_one():
+    """Read out of the platform config, and refused by name where it is not.
+
+    Only Google's banner sizes list ``gif``. Amazon's specs here are static at
+    40-50 KB and Meta turns an uploaded GIF into a video, so an animation
+    offered there is a tickbox that consents and then fails for a reason that
+    is nothing to do with the operator — the failure that took Google Ads off
+    the Google Access list. And a size that came back static with nothing
+    saying which or why is the silent gap this module exists to avoid.
+    """
+    src = ANIMATION_TS.read_text()
+    check("support is read from the platform config, not decided in code",
+          "rule.formats.includes('gif')" in src)
+    check("a refusal carries a reason a person can read",
+          "ships as the static ad" in src)
+
+    google = json.loads((PLATFORM_DIR / "google.json").read_text())
+    animatable = [s for s, r in google["sizes"].items() if "gif" in r["formats"]]
+    check("Google's banner sizes accept an animated file", len(animatable) >= 8,
+          f"{len(animatable)} sizes")
+    # The responsive-display IMAGE assets must not: Google composes its own
+    # headline around those, and they are image assets rather than ad slots.
+    for size in ("1200x628", "1200x1200", "1200x1500"):
+        rule = google["sizes"].get(size)
+        check(f"{size} is not offered an animation",
+              rule is not None and "gif" not in rule["formats"])
+
+    for name in ("amazon", "meta"):
+        cfg = json.loads((PLATFORM_DIR / f"{name}.json").read_text())
+        gif = [s for s, r in cfg["sizes"].items() if "gif" in r["formats"]]
+        check(f"{name} is not offered one at any size", not gif, ", ".join(gif))
+
+
+def test_every_frame_is_checked_and_not_just_the_first():
+    """Slide 2 is different copy in the same box, and it can break it.
+
+    The static 320x50 of the sample campaign passes; the same ad with a
+    three-word-longer slide 2 fails on a clipped headline. Checking frame one
+    and calling the animation checked is how that reaches a client. This is
+    the one thing about the whole feature most likely to be quietly wrong,
+    because a set whose first frame is fine looks fine.
+    """
+    src = RENDER_TS.read_text()
+    frames = src[src.index("async function buildFrames"):]
+    frames = frames[:frames.index("\n/** Frame overrides")]
+    check("QA runs inside the per-frame loop", frames.count("await runQa(") == 1
+          and "for (let i = 0; i < plan.frames.length; i++)" in frames)
+    check("a later frame's finding names the slide it is on",
+          "frame.tag" in frames and "frame.label" in frames)
+    # And it must not repeat frame 1's findings once per frame: five copies of
+    # one warning is how a panel of warnings stops being read.
+    check("a finding frame 1 already carries is not repeated per frame",
+          "seen.has(key)" in frames)
+
+
+def test_slide_copy_can_be_written_for_one_canvas():
+    """Without it a set animates at seven sizes and fails at the eighth.
+
+    Exactly the reason ``CreativeConcept.copy`` carries per-size entries: a
+    headline that fits the 300x600 is two lines on the 320x50. Resolved slide
+    by slide and field by field, so a size that needs a shorter slide 2
+    overrides slide 2 and inherits slide 3.
+    """
+    src = ANIMATION_TS.read_text()
+    check("the spec carries per-size slides", "sizeSlides?" in src)
+    body = src[src.index("export function slidesFor"):]
+    body = body[:body.index("\n}")]
+    check("a size's slides overlay the default field by field",
+          "...(base[i] ?? {}), ...(forSize[i] ?? {})" in body)
+    check("and the planner resolves through it",
+          "slidesFor(spec, ctx.size)" in src)
+
+    screen = BUILD_HTML.read_text()
+    check("the build screen offers writing a slide for this size only",
+          "animThisSize" in screen and "sizeSlides" in screen)
+    # The scope trap the static copy fields already carry: writing the default
+    # while an override still holds the old value reads as the edit failing.
+    check("writing the default clears that field's override for this size",
+          "delete per2[i][field]" in screen)
+
+
+def test_animating_needs_a_saved_static_build_and_says_so():
+    """The gate, on the server rather than only in the form.
+
+    An animation is built FROM the still ad, so there is nothing to animate
+    until one exists. The campaign file on disk is what "a static build
+    exists" means — it is what Save writes and what the render job reads. A
+    rule the form keeps while the write breaks it is not a rule, so both the
+    options route and the build route check it.
+    """
+    src = SERVER_TS.read_text()
+    gate = "There is no saved build for this set yet."
+    check("the options route refuses without a saved build",
+          src.count(gate) >= 2, f"found {src.count(gate)} of 2")
+    check("and it names saving as the way out",
+          "Save the static ' +\n                 'design first" in src
+          or "Save the static design first" in src.replace("' +\n                 '", ""))
+
+    screen = BUILD_HTML.read_text()
+    check("the Animate button appears only once the build is saved",
+          "animBtn.style.display = state.saved ? '' : 'none'" in screen)
+    check("and it reads the saved build rather than the screen",
+          "leaveIfSafe('the animation panel', openAnimator)" in screen)
+
+
+def test_an_animation_never_replaces_the_static_file():
+    """Most placements on a buy take the still one, so both ship.
+
+    A folder holding only GIFs is a set that cannot be trafficked: Amazon takes
+    none of them and three of Google's own sizes take none either. So the GIF
+    is written beside its sibling with ``_animated`` on the end, delivered in
+    its own folder, and counted apart — "8 files delivered" about a pack of
+    five ads and three GIFs is a sentence a client reads as eight ads.
+    """
+    src = RENDER_TS.read_text()
+    check("the file is written beside the static one", "_animated" in src)
+
+    dsrc = DELIVER_TS.read_text()
+    check("the zip carries them in their own folder",
+          "${root}/animated/${clientSlug}_${a.size}_animated.gif" in dsrc)
+    check("the count is reported apart from the static one",
+          "animatedCount" in dsrc)
+    check("the machine manifest lists them apart from `assets`",
+          re.search(r"animated: animated\.map", dsrc) is not None)
+    # A failing animation is withheld, and the static file goes in its place.
+    check("a QA-failing animation is withheld and named",
+          "the animated version did not pass creative checks and was withheld" in dsrc)
+
+
+def test_the_animation_is_its_own_job():
+    """So a static build costs exactly what it costs today.
+
+    The whole point of the sequencing: animation is asked for after the fact,
+    on the sizes that take one, and must not be extra work bolted onto the
+    render every set goes through. Same queue — so it is watched, persisted and
+    recovered like any other job — and its own branch.
+    """
+    jobs = (MODULE / "src" / "jobs.ts").read_text()
+    check("a job says which of the two it is", "mode?: 'static' | 'animated'" in jobs)
+    check("'static' stays the default, so recovered jobs mean what they meant",
+          "mode: input.mode ?? 'static'" in jobs)
+    check("the animated branch does not write a static manifest",
+          "if (input.mode === 'animated')" in jobs
+          and jobs.index("if (input.mode === 'animated')") < jobs.index("const cld = new CloudinaryService()"))
+    # The denominator has to be the sizes that can actually carry one, or a
+    # finished job's progress bar stops short of its own total.
+    check("progress is counted over sizes that accept an animation",
+          "animationSupport(platform, size).supported" in jobs)
+
+
+def test_an_animation_is_attributable():
+    """A route added in TypeScript cannot be silent about client work.
+
+    The Display Ad Builder is the one module that is not Python, so everything
+    it does happens in a process that has never heard of ``hub/audit.py``. The
+    proxy is the single point it all passes through. Its own action rather than
+    folded into the render: a client record showing one entry for both could
+    not say whether the animated versions on a delivery were ever built here.
+    """
+    proxy = PROXY_PY.read_text()
+    check("the animate route has a name in the activity log",
+          'r"^api/animate/([\\w-]+)$"' in proxy and '"ads_animated"' in proxy)
+    check("and it is not one of the paths a client may reach",
+          "animate" not in proxy[proxy.index("PUBLIC_PATTERNS"):
+                                 proxy.index("def is_public")])
+
+
+def test_the_panel_prints_the_timing_rather_than_implying_it():
+    """The two numbers that refuse an ad are invisible on screen.
+
+    A GIF running at 20 frames a second looks better than one at 5, and one
+    looping for ever plays perfectly everywhere. Neither is visible on the
+    preview, so both are printed beside it, in words, from the SERVER's plan —
+    a second copy of that arithmetic in the browser is a second answer to "is
+    this legal", and the two disagree the day either is edited.
+    """
+    screen = BUILD_HTML.read_text()
+    for phrase in ("frames</b> at ", "then stops", "in total",
+                   "of the ", "KB this placement allows"):
+        check(f"the panel prints {phrase.strip('<>b/ ')!r}", phrase in screen)
+    check("the numbers come from the server's own plan",
+          "r.loop" in screen and "r.totalMs" in screen and "r.fps" in screen)
+    # No local recomputation of the rule.
+    check("the browser does not compute the loop count itself",
+          "30000" not in screen and "30_000" not in screen)
+    check("a size that cannot take one is said, not drawn as an error",
+          "r.supported === false" in screen and "ships as the static ad" in screen)
+
 
 
 def main():

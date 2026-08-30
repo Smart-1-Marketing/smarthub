@@ -285,6 +285,52 @@ added before that observer existed did not.
 **`audit.log()`'s first positional is `module`.** Passing `module=` in the
 extras raises `TypeError` and silently zeroes cost tracking. Use `tool=`.
 
+**And binding the logger is not calling it.** `/api/integrity`'s silent-module
+check asked whether the *string* `"for_module("` appeared in a module's source,
+which the binding alone satisfies. So seven modules — `calculators`,
+`google_finder`, `image_optimizer`, `page_image_optimizer`, `pdf_optimizer`,
+`sites_admin` and `tickets` — imported `hub.audit`, bound it to `_audit`,
+wrapped it in a no-op fallback for running standalone, wrote a comment above
+the import explaining exactly why attribution mattered there, and called it
+nowhere. The comments are the part worth reading: pdf_optimizer's said *"work
+that isn't logged is work nobody can point to later"*, and
+page_image_optimizer's and sites_admin's said *"an unattributable change to a
+client's account is one nobody can explain later"*. All three were true and
+none of them wrote a row, so **deleting a client's live website, connecting a
+domain, deploying a tag into somebody else's Tag Manager container and
+compressing a client's documents were the least attributable actions in this
+Hub** — behind a check reporting them clean. That is the declared-but-unwired
+integration point this file already counts in `RECORD_HOOK`, `io_creative`,
+`manifest()`, `thumb_url()`, `mark_pushed()` and `check_limits()`, wearing the
+activity log. The check reads a **call** now, through the AST — an import
+cannot satisfy it, and a docstring quoting `audit.log(` is not a call site,
+the rule `hub/config.py`'s drift check gives. A module whose work genuinely
+does not belong in the log is declared in `audit.NO_ACTIVITY` with the reason
+rather than left as a dangling import: `calculators` is the only one, because
+what a public estimate box produces is a **lead**, and leads go through
+`hub/leads.py`.
+
+**A module's own `log()` wrapper hid the same failure one step on.**
+`check_work_kinds()` counted only a direct `audit.log("mod", …, client=…)`,
+reasoning that a bare `log()` is a wrapper whose first argument is the event
+rather than the module. True, and it drops those modules entirely — the name is
+one level up, in whatever bound the wrapper (`log = audit.for_module("msa")`,
+or `def log(event, **extra): hub_audit.log("radio_promo", event, **extra)`).
+Four fell through, and **`radio_promo` is the one that shows the cost**:
+`fan_radio` has been in `WORK_KINDS` since it was written and its sibling was
+not, so a client who had a Fan Radio spot made appeared on their own record and
+a client who had a Radio Promo spot made did not — two tools writing, casting
+and recording a commercial for the same client, one of them invisible.
+`gpt_ads`, `landing_ads` and `msa` were the others; `hub/prospect.py` and
+`hub/stale_creative.py` surfaced with them and are the *other* answer, in
+`NOT_WORK`. **And the check's two halves each had their own copy of the walk** —
+`stale_work_exemptions()` asks what no longer logs, the same walk from the
+opposite end, so the moment one learned to resolve a wrapper and the other did
+not, every `NOT_WORK` entry added for a wrapper-shaped call site was reported
+stale. They read one `_client_log_modules()` now, the
+`/api/db/structure` versus `/api/integrity` rule. `test_activity_logging.py`
+asserts all of it, and both checks were reverted and confirmed red first.
+
 **A provider is not metered in calls just because you counted calls.**
 `hub/quotas.py` estimates six providers now, and only three of them bill per
 call. ElevenLabs bills the **character** of script, so counting renders makes
@@ -1206,6 +1252,96 @@ with Image Creator on the bare query `image` and took the top slot off it —
 `search_index` breaks an equal score alphabetically, so a name is a ranking
 decision. It is **Unattached Images**, beside "No Dashboards" and "Stale
 Creative". `test_image_audit.py` asserts all of it.
+
+**A pill with four answers was a bool, and the page contradicted itself.**
+The SEO client list draws four status pills per client. Three are a tick
+somebody makes and are genuinely yes/no; `blogs` is *derived*, and `False`
+covered both **"this client does not buy blogs"** and **"their plan is
+behind"**. On this deployment's own book that drew a permanent red *"Blogs —
+not yet"* on **16 of the 21** SEO clients, for a product they have never
+bought, in the one column that says what to act on — the permanent-red failure
+`hub/creative_evergreen.py` exists to undo. And the summary tile at the top of
+the *same page* counts the **product** and read **"With blogs: 5"**, so the
+screen said five clients have blogs and twenty-one are behind on them. Neither
+figure is wrong on its own, which is why it stood: the `/api/db/structure`
+versus `/api/integrity` trap, wearing a pill.
+
+`client_status()` returns a `BLOGS_STATES` key now — `not_sold`, `none`,
+`behind`, `current` — with the label beside it, and both screens read that one
+function rather than each deciding from truthiness, so the list and the record
+cannot come to disagree about who is behind. The client record already *knew*
+the difference (`blogsVisible()` draws a "blogs are off" note) and drew its
+dot without it. **`not_sold` is never reached by inference**: it is the state
+that takes a row out of the queue, so a caller that could not look reads as
+`none` — unknown owes a plan, and silencing a row on a guess is how a client
+who is genuinely behind stops being chased. `/api/seo/checks` is handed the
+same fact, or ticking *Setup* would move a no-blogs client's pill from gray to
+amber and read as the tick having done something it did not do.
+
+**A name nobody gave matched everybody.** `_client_websites("")` tested
+`ck in wk`, and `"" in wk` is true of every string — so `/api/seo/detail?name=`
+came back with the **whole 610-row website registry** attributed to a nameless
+client, and `webs[0]` then supplied that client's "website", its GA id and the
+domain its Brandfetch is looked up under. The `client_key.resolve()` rule about
+substrings, one field along. The route refuses an empty name now, the way
+`/api/seo/tasks` already did.
+
+**And a record that could not be built rendered as a record with nothing in
+it.** `/api/seo/detail` answered **200** with an `error` key — and `fetch()`
+resolves for 4xx and 5xx alike, so the page's `.catch()` never saw it. Reading
+straight past it, every card drew its own empty state: *"no site on file"*, no
+business info, no schema pages. A client with months of work behind them,
+drawn as a client with none, on the one screen that would have shown the work.
+The page reads `error` before it assigns anything now, and the route answers
+502, so the next reader of it does not inherit the same silence.
+
+**Every route in that section filed its work under `hub`.** Schema, blogs,
+FAQs, alt text, the publish instructions — all `audit.log("hub", …)`, and
+`client_brand.NOT_WORK` calls `hub` housekeeping, so `work_log()` dropped the
+lot and a client who had just had a month of blogs written read as a client
+nobody had done any work for. The `display_ads` failure, one section later.
+`check_work_kinds()` **cannot** see this one: it flags a module in *neither*
+table, and `hub` is in one — so `test_seo_page.py` walks the call sites by AST
+and requires every `seo`/`faq` event to log under a module the record can name.
+The three helper modules beside them (`schema_questions`, `blog_images`,
+`llms_txt`) had been logging under `seo` the whole time, so the section was
+filing half its output as a deliverable and half as housekeeping.
+
+**An editor rebuilt underneath somebody loses what they typed.** Two on the
+SEO client record: the alt-text list and the FAQ draft. Both are a container
+of live inputs redrawn with `innerHTML` — and the trigger is not the typing,
+which is what makes it a different bug from the Smart 1 Ads target-area rows.
+It is a **sibling row's** button and a **fetch that lands tens of seconds
+later**. The FAQ half was the worse of the two: those inputs carry no change
+handler at all, so half-writing an answer on question 3 and pressing Approve
+on question 5 discarded question 3 immediately, in silence. Removing a focused
+field does not fire `change`, so the alt half went the same way whenever the
+AI write finished while somebody was typing in another box.
+
+`faqHarvest()` and `altHarvest()` read the open editors back into the model
+before any redraw, so a redraw cannot destroy what nothing has read yet.
+Three rules on them. **Only a field somebody typed in is harvested** — a
+`dirty` flag set on `input`, never a comparison against the model, because a
+fetch response makes *every* field differ at once and harvesting on
+difference would revert a whole page of freshly AI-written alt text to what
+the boxes held before the write, which is worse than the loss it fixes.
+**Cancel skips its own row**, or the harvest would keep the text that button
+exists to throw away. And **an empty box is not an edit**: clearing a
+question keeps it, the rule `savedit` already worked to, so a cleared field
+cannot delete the answer behind it. `altSave()` sets `new_alt` from the typed
+value *before* the request goes out, so a redraw mid-flight shows what was
+typed and the harvest then sees nothing to write twice. `keepCaret()` puts
+the cursor back, and costs the caret rather than the page when it cannot.
+`test_seo_page.py` lifts both blocks and drives them in **node**, the
+arrangement `test_menu_layout.py` uses on `hub-crumbs.js` — a copy restated
+in the test would be a third thing to keep in step.
+
+**None of it was checked, because the page redirects.** `tools/pagecheck.py`
+names parameterized pages like `/prospect/none` explicitly, and `/seo/client`
+was on no list: without a `?name=` the route **redirects to `/seo`**, so a
+sweep of bare paths lands on the list, reports it green, and the largest
+template in the Hub — 3,600 lines, drawn almost entirely from fetches — goes
+unchecked while reading as covered. Both it and `/seo/webmaster` are named now.
 
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
@@ -6571,6 +6707,53 @@ the blueprint now rather than on each route, the arrangement
 `modules/commercial_builder/__init__.py` arrived at for the same reason: the
 write route added here must not have to remember, and neither must the next one.
 
+**And it was reading two of its four sources.** `SOURCES` is a table of field
+names for four modules this file does not own, and three of the four guessed
+wrong — silently, each differently, on the report whose entire purpose is
+*what have we made for this client*. **Image Picker** reflected over
+`SavedImage` expecting Flask-SQLAlchemy's `.query`; it is a plain declarative
+model with its own `session()`, so `_load_source` returned `[]` at the guard —
+and that is the store `filing.file_asset` writes to, which is every asset every
+tool files against a client. **Image Creator** asked for `created_at` /
+`updated_at` where the index writes `created` / `updated`, so every row was
+dropped by `if not when: continue`. **Commercial Builder** asked for
+`client_name` where the row carries `client_id`, and that one is the worst of
+the three because the rows were *not* empty: the source counted as **live**,
+inflated `totals.creatives`, and every record was then dropped for having no
+client. So a client whose gallery, canvas graphics and commercial were all
+produced this month read as *"No creative on file"*, with two of the three
+showing only as a footer line and the third showing as nothing at all.
+
+**`hub/image_audit.py` reads exactly those stores and had them right the whole
+time.** Two modules each guessing at one store's columns is the drift
+`hub/storage.py` exists to stop, wearing a report — so the image sources are
+not described here any more: `store` names one of its `STORES` entries and the
+tuples read that reader's normalised shape. The reflection branch is gone with
+them, because a table of column names for somebody else's model is what broke
+this; a new source writes a reader, and `_commercial_rows()` is the example.
+That one is **an approved render rather than a project row**: a cut nobody has
+watched is not creative the client received, the distinction `approve_render`
+already draws, and it resolves the name through `cb_clients` rather than
+guessing at a column. `_thumb()` went with it — it was a second reading of
+`hub/storage.preview_url()` that disagreed on both halves, `c_fill` where the
+rule is `c_limit` and a second derived size Cloudinary caches and bills
+separately, with neither of that function's guards, so a video URL was rewritten
+as an image transformation.
+
+**And `measured` covered one half of a join.** `_registry_clients()` tries four
+paths and swallows each failure, so a client list that refused returned `[]` and
+the audit reported **nought clients** while the creative sources answered
+perfectly well — `measured: True`, and held as the day's answer. It is both
+halves now, and each is named, because *the client list refused* and *no source
+answered* send somebody to different places. The page draws it: `measured` was
+on the payload for exactly this and **no template read it**, so a morning where
+everything refused rendered the full six tiles and a "No creative on file"
+section naming the whole book, with the only clue being *"Sources read: none."*
+in the footer below everything. `test_stale_creative.py` seeds each store and
+requires **every** entry in `SOURCES` to produce a record with a client, a date
+and a title — a sweep, because a test naming the three that were wrong proves
+nothing about the fourth.
+
 ## A report that has been opened has already been run
 
 `hub/report_cache.py`. Every QA report and every report-shaped tool page
@@ -6669,6 +6852,57 @@ workaround.** `test_domain_links.py` and `test_google_links.py` swap a source
 out from under a report between assertions — a Knack that answers, then one
 that times out — which is the one thing a report held for the day cannot see.
 They assert the report; `test_report_cache.py` asserts the holding.
+
+**And `measured: False` was read by the cache and by nothing on the page.**
+That flag is the whole reason a refused run is not frozen into the day's
+answer — and `qa_report.html` never looked at it. Its branch order was
+`error`, then `needs_qb`, then `unavailable`, then an all-clear, so a report
+that carried its refusal in `note` alone fell through to **"Nothing to
+report — all clear ✓"**. Four returns are in that shape:
+`upsell._unmeasured()` when the client list or the site audits refuse,
+`prospect_queue._unmeasured()` when the lead store does, and the two
+uploads-gallery refusals in `qa.uploads_not_in_suite()`. So a Knack timeout
+drew a green tick directly above the report's own sentence reading *"which is
+not the same as nobody"*, and *"Couldn't read the uploads database"* was
+rendered as every client's files being safely in Suite — the page contradicting
+the line printed beneath it, which is worse than either half alone. The
+page's own comment had said exactly this for three years: *"'We looked and it
+is fine' and 'we could not look' are different answers, and rendering both as
+a green tick is how a page ends up confidently telling you the opposite of the
+truth."* It said it about `unavailable`, and `unavailable` was the one case
+that already worked.
+
+`cannotLook(d)` is the one reading now — `unavailable` keeps its action button
+because it has one, and `measured: false` becomes the same panel with the note
+as its message. A report that genuinely found nothing **keeps its green tick**,
+because crying wolf on every clean run is its own failure and is the one that
+gets a page ignored. `campaign_assets.html` had this right all along and was
+the only one of the QA screens that did.
+
+**And `is_answer()` did not read `needs_qb` either, which is the same gap on
+the other side of the wire.** This module's own docstring names it — *"it is
+also what stops 'QuickBooks isn't connected yet' being cached for a day by
+whoever opened the report before anyone connected it"* — and `serve()`'s
+comment three hundred lines down calls the connect call-to-action a payload
+that "ran and could not measure". `is_answer()` tested `error`, `unavailable`
+and `measured is False` and never `needs_qb`, so all three billing reports
+stored it: somebody who opened Invoice Off at 08:50, before the QuickBooks
+connect at 09:10, left *"QuickBooks isn't configured"* and an Open System
+Status button on Customer Billing Comparison, Invoice Off and Sites Billing
+for everybody for the rest of the day — and the person who had just connected
+it read that as the connection having failed. A POST-Refresh cleared it; a GET
+never could.
+
+`test_qa_reports.py` asserts both directions, and it is **a sweep rather than
+the four that were wrong** — a test naming those four proves nothing about the
+fifth. It reads the **AST** of every module a report is built from and fails
+any return of no rows carrying nothing the page draws, because three of those
+modules explain this very trap in prose and a check that matches text reports
+the explanation as the defect. The decision block is **lifted out of the page**
+between its own markers and run in node, the arrangement `test_menu_layout.py`
+uses over `hub-crumbs.js`: a copy restated in the test is a third thing to keep
+in step, and a regex pinned to one line's formatting fails the day somebody
+reindents it, which is how a check gets switched off.
 
 ## An ad copy request is fourteen fields, and the form asked four
 
@@ -7344,6 +7578,91 @@ nothing at all rather than filling the space.
 a fetch is detached by the time the answer arrives: the write succeeds, the
 screen does not change, and it reads as a button that did nothing. Re-read the
 node after any redraw.
+
+**Motion is a second pass over an ad that already exists, and the sequencing
+is the feature.** `modules/ad_builder/src/animation.ts`. A GIF here is the
+static ad played two or three ways: a frame is one more `compose()` with a
+different `CopySet` or a different CTA fill, so there is no second renderer and
+no way for the moving version to disagree with the still one about anything
+except the thing that is moving. It is offered only once a build has been
+**saved** — not once a client has approved it, which is a different and later
+question — and it runs as its **own job** on the same queue rather than extra
+work bolted onto the render. Both halves matter: a set nobody wants animated
+costs exactly what it cost before, and an animation asked for on a Friday does
+not mean re-rendering eight ads that were signed off on Tuesday. The gate is
+enforced on the server (the campaign file on disk is what "a static build
+exists" means) as well as in the build screen, because a rule the form keeps
+while the write breaks it is not a rule.
+
+**Four published numbers, and two of them are invisible on the screen they are
+broken on.** Google requires an animated image ad to be 150 KB or less, to run
+at **5 frames a second or slower**, and to **stop animating within 30
+seconds** — loops included. A GIF with a loop count of 0 repeats for ever,
+renders correctly in every browser, passes every eye here, and is outside the
+rule; one at 20fps looks *better* than one at 5. So the loop count is
+**computed** from the cycle length rather than chosen (`loopsWithin`, floored
+at 1, so `loop: 0` is unreachable from that file), the frame delay has a 200ms
+floor, and both are printed on the panel in words beside the preview. The
+browser recomputes none of it — a second copy of that arithmetic is a second
+answer to "is this legal", and the two disagree the day either is edited.
+`ANIMATION_RULES` carries a **source** per number, and `maxSlides: 3` /
+`maxFrames: 5` are marked as **ours**, the `services/abcd_service.py` rule:
+"Google requires three slides" about a number Google has never published is a
+claim a client can talk us out of once they check. (sharp writes `loop - 1`
+into the file's Netscape block — the GIF format's count of iterations *after*
+the first — and readers disagree about that byte, so the arithmetic is done
+against the larger reading and `totalMs` can never understate what a browser
+will play.)
+
+**QA runs per frame, and that is the half most likely to be quietly wrong.**
+Slide 2 is different copy in the same box: it can overflow, collide with the
+button, or lose its contrast where slide 1 fit perfectly. Not hypothetical —
+the first run of this against the sample campaign passed the static 320x50 and
+**failed** the animated one on a clipped headline, twice, naming the slide. So
+every frame goes through `runQa`, frame 1's findings are kept whole (frame 1
+*is* the static ad) and later frames contribute only what they got wrong,
+tagged by slide. A finding frame 1 already carries is dropped rather than
+repeated once per frame, or one note about the type hierarchy becomes five and
+buries the one that is about slide 2. The background pass is composed **once**:
+none of the motions offered changes what is behind the ink, and re-composing it
+per frame triples the slowest step to produce identical bytes.
+
+That failure is also why slides carry **per-size overrides** (`sizeSlides`,
+resolved slide by slide and field by field, the way `copyForSize` already
+resolves static copy). Without them a set animates at seven sizes and fails at
+the eighth on copy nobody can shorten.
+
+**Which sizes take one is read from the platform config, never decided.** Only
+Google's eight banner sizes list `gif`; Amazon's specs here are static at
+40-50 KB, Meta converts an uploaded GIF into a video, and Google's three
+**responsive-display image assets** are image assets — Google composes its own
+headline around those. A size that cannot carry one is **refused by name** on
+the panel and in the job's own `animationSkipped`, because a set that came back
+with five moving ads out of eight and nothing saying which three or why is the
+silence this module exists to avoid. `render.ts` still strips `gif` from the
+static raster's format list, and the comment there now says why: `gif` in a
+format list means that placement will *also* take an animated file.
+
+**And it never replaces the static file.** Most placements on a buy take the
+still one, so a folder holding only GIFs is a set that cannot be trafficked.
+The GIF is written beside its sibling with `_animated` on the end, ships in the
+delivery ZIP under `animated/`, and is **counted apart** — "8 files delivered"
+about a pack of five ads and three GIFs is a sentence a client reads as eight
+ads. A QA-failing animation is **withheld** and named, and the static file goes
+in its place: the ad still runs, and the client can see the animation is
+missing. `AnimatedResult` is deliberately not a `RenderResult` with
+`format: 'gif'`, and animations are their own list on the project rather than a
+row on `RenderBatch` — a batch is a static delivery pack, and one containing
+only GIFs would be read by `deliverProject` as the whole of what was built.
+
+**The weight ladder is `raster.ts`'s in GIF terms, and it is cheap for a
+reason worth knowing.** A GIF has no quality setting: it has a palette, a
+dither, and how different two frames must be before the second re-encodes a
+pixel. Both motions offered leave the background **byte-identical** between
+frames, so the encoder only ever pays for the words or the button — measured
+against this repo's own hero photo, a three-slide 300x250 is 19 KB and a
+970x250 is 27 KB, against a 150 KB ceiling. `test_display_ads.py` asserts all
+of it, including that Amazon and Meta are offered none at any size.
 
 ## Everyone has their own login, and there are two levels of it
 
@@ -8231,6 +8550,9 @@ python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   that cannot see the timings
 python3 test_report_cache.py       # one run per report per day; a failed run is never
                                    #   the answer, and a write drops what it changed
+python3 test_qa_reports.py         # every report on /qa answers and is drawable,
+                                   #   and one that could not look never renders
+                                   #   as "all clear"
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
 python3 test_ads_keyword_plan.py   # measured CPC, the access tier, the deploy preflight
@@ -8303,6 +8625,10 @@ python3 test_dashboard_trends.py   # the monthly readings accumulate; no card cl
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
+python3 test_seo_page.py           # the SEO list and record: a pill with four
+                                   #   answers, a name nobody gave, a failed
+                                   #   record that is not an empty one, and SEO
+                                   #   work reaching the client's own page
 python3 test_image_download.py     # image downloads, the shared zip builder, and the
                                    #   preview every gallery draws instead of the original
 python3 test_image_audit.py        # every image attached to a client or a lead,
@@ -8328,6 +8654,10 @@ python3 test_google_index.py       # the Google sweep: no request, and none vs c
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_calculator_embeds.py  # the calculator embeds: framed, public, chrome-free
+python3 test_activity_logging.py   # every module's work is attributable: an
+                                   #   import is not a call, a module's own
+                                   #   log() wrapper is resolved, and the
+                                   #   remainder is declared with its reason
 python3 test_radio_builders.py     # the two radio builders: the client's own
                                    #   approval page public and chrome-free,
                                    #   nobody's trademark leaving the building,
@@ -8367,7 +8697,9 @@ python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the 
 python3 test_suite_sso.py          # the client half: the location id is the
                                    #   authorization, and every way that goes wrong
 python3 test_calculator_embed.py   # the media calculators framed on smart1marketing.com
-python3 test_display_ads.py        # the display layouts, and the build screen's contracts
+python3 test_display_ads.py        # the display layouts, the build screen's contracts, and
+                                   #   the animated GIF: whose rule each number is, a loop
+                                   #   that can never be endless, and QA on every frame
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_blueprint_guards.py   # nothing answers a stranger: every route the

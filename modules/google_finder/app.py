@@ -1162,6 +1162,12 @@ def disconnect(email):
     email = email.lower()
     delete_account(email)
     CACHE.pop(email, None)
+    # _audit was bound at the top of this module and called nowhere, so the
+    # three things here that change somebody else's Google account were the
+    # least attributable writes in the Hub. Disconnecting is one of them: it
+    # is what makes every property under this login stop being swept, and it
+    # reads afterwards as a login that was never connected.
+    _audit("google_disconnected", google_login=email)
     return jsonify({"ok": True})
 
 
@@ -1369,6 +1375,11 @@ def gtm_deploy_event():
             )
             conn.commit()
 
+            # Logged after Google accepted the tag, so a refused deploy is
+            # never recorded as a made one. Plain reads only.
+            _audit("gtm_tag_deployed", google_login=google_login,
+                   account_id=account_id, container_id=container_id,
+                   tag_id=created_tag.get("tagId"))
             return jsonify({"ok": True, "created_tag_id": created_tag["tagId"], "created_trigger_id": created_trigger["triggerId"]})
     except Exception as exc:
         logger.warning("Failed deploying tag to GTM: %s", exc)

@@ -218,6 +218,24 @@ jobs:
             echo "test_report_cache.py not on this branch — nothing to run."
           fi
 
+      - name: QA report tests
+        # Every report on /qa answers, returns a table the page can draw, and
+        # is JSON-encodable -- run with no Knack, no QuickBooks and no
+        # GoHighLevel, which is the state that produces a confident empty.
+        # Then the half that matters: a report which could not look must never
+        # render as "Nothing to report - all clear". That is swept by AST over
+        # every module a report is built from, rather than asserted about the
+        # four returns that were wrong, and the page's own decision block is
+        # lifted out of qa_report.html and run in node. Reaches no provider.
+        # Guarded like the steps around it so this workflow stays mergeable on
+        # a branch that predates the file.
+        run: |
+          if [ -f test_qa_reports.py ]; then
+            python test_qa_reports.py
+          else
+            echo "test_qa_reports.py not on this branch — nothing to run."
+          fi
+
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
@@ -768,6 +786,19 @@ jobs:
             echo "test_blog_publish.py not on this branch — nothing to run."
           fi
 
+      - name: SEO client list and record tests
+        # The four status pills, the empty client name that matched the whole
+        # website registry, the failed record load that rendered as an empty
+        # record, and that SEO work reaches the client's own 360 page. Guarded
+        # like the steps above so this workflow stays mergeable on a branch
+        # that predates the file. Needs no network.
+        run: |
+          if [ -f test_seo_page.py ]; then
+            python test_seo_page.py
+          else
+            echo "test_seo_page.py not on this branch — nothing to run."
+          fi
+
       - name: Image download and shared zip builder tests
         # The SEO pipeline's downloads, hub/storage.bundle_zip, and the image
         # picker's gallery download now that it runs on the shared builder.
@@ -1268,15 +1299,31 @@ jobs:
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
 
+      # Every module's work is attributable, and the two checks that say so
+      # both bite. /api/integrity's silent-module check tested whether the
+      # STRING "for_module(" appeared in a module's source, which binding the
+      # logger satisfies -- so seven modules imported hub.audit, bound it,
+      # wrapped it in a no-op fallback, wrote a comment above the import
+      # explaining why attribution mattered, and called it nowhere. Deleting a
+      # client's live website, connecting a domain, deploying a tag into
+      # somebody's Tag Manager container and compressing a client's documents
+      # were the least attributable actions in the Hub, behind a check
+      # reporting them clean. Its neighbour had the same shape one step on:
+      # check_work_kinds() could not see a module's own log() wrapper, so
+      # radio_promo logged client work that never reached the client record
+      # while fan_radio, doing the same job, did.
+      - name: Every module's work is attributable
+        run: python3 test_activity_logging.py
       # The IO Builder had no test of its own, and booting it and pressing its
       # buttons found every AI button in the tool dead: this module carried a
       # second copy of the OpenAI Responses call, and the copy attached the
       # hosted web_search tool to every request — the failure CLAUDE.md
       # records against the Proposal Builder, whose copy was fixed while this
       # one was never touched. There is one reader now and both read it. It
-      # also holds the two things that were reported as successes: a truncated
-      # answer that reached the internal PDF as an empty landing-page review,
-      # and an order the route refused being filed as submitted work, which
-      # put an IO nobody ever sent on the reconciliation chase list for good.
-      - name: IO Builder — the model calls, and what a refused order files
+      # also holds the two answers that were reported as successes -- a
+      # truncated answer reaching the internal PDF as an empty landing-page
+      # review, and a media mix with every field blank -- the landing review
+      # that now reads the page rather than asking a model to visit it, and
+      # where the line falls between an order and an attempt on submit.
+      - name: IO Builder — the model calls, and the landing page it now reads
         run: python3 test_io_builder.py

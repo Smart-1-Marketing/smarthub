@@ -40,6 +40,33 @@ failure below is one where a screen would go on looking healthy:
   6. **The buttons open the tools that already exist** — the Campaign Change
      Request form from /campaign-request.js, and the Display Ad Builder with
      the client filled in — rather than a second copy of either.
+
+  7. **Every source in SOURCES actually reports.** Three of the four did not,
+     each silently and each differently: the Image Picker entry reflected over
+     `SavedImage` expecting Flask-SQLAlchemy's `.query`, which a plain
+     declarative model does not have; Image Creator asked for `created_at` /
+     `updated_at` where the index writes `created` / `updated`, so every row
+     was dropped for having no date; and Commercial Builder asked for
+     `client_name` where the row carries `client_id`, which is the worst of the
+     three because the rows were *not* empty — the source counted as live,
+     inflated the creative total, and every record was then dropped for having
+     no client. A client whose gallery, canvas graphics and commercial were all
+     produced this month read as "No creative on file", on the report whose
+     entire purpose is that question.
+
+     So this is swept rather than asserted about the three that were wrong: the
+     stores are seeded and **every** entry in SOURCES is required to produce a
+     record with a client, a date and a title. The field names are no longer
+     declared here either — `hub/image_audit.py` reads these same stores and
+     had them right all along, so the two modules guessing separately at one
+     store's columns is the drift that caused this.
+
+  8. **"We could not look" is not "nobody is overdue."** `measured` was on the
+     payload for exactly this and no template read it, so a morning where every
+     source refused drew the full six tiles and a "No creative on file" section
+     naming the whole book. It now covers both halves of the join — a client
+     list that refused returned `[]` and the audit reported nought clients while
+     reading `measured: True` — and the page draws it.
 """
 import os
 import shutil
@@ -253,6 +280,163 @@ try:
     check("with nothing marked", group(data, "evergreen")["count"], 0)
 finally:
     evergreen.marks = _real
+
+
+# ---------------------------------------------------------------------------
+section("Every source reports, and none of them guesses at another module's columns")
+# ---------------------------------------------------------------------------
+import datetime as _dt                                        # noqa: E402
+
+from hub import image_audit                                   # noqa: E402
+
+# The shape `hub/image_audit.py`'s readers emit. A `store` source may name
+# these keys and nothing else -- naming a column of the underlying table is
+# how this file came to be guessing at four modules it does not own.
+AUDIT_KEYS = {"id", "client", "public_id", "label", "url", "when", "where",
+              "kind_of_client"}
+
+_store_keys = {s["key"] for s in image_audit.STORES}
+for src in stale_creative.SOURCES:
+    store = src.get("store")
+    if not store:
+        continue
+    check(f"{src['key']} names a real image_audit store",
+          store in _store_keys, True)
+    named = set()
+    for field in ("client", "when", "title", "url", "note", "alt"):
+        named.update(src.get(field) or ())
+    check(f"{src['key']} reads only that reader's own shape",
+          sorted(named - AUDIT_KEYS), [])
+
+check("no source reflects over a model's columns any more",
+      [s["key"] for s in stale_creative.SOURCES if s.get("models")], [])
+check("and every source declares something that can be read",
+      [s["key"] for s in stale_creative.SOURCES
+       if not (s.get("store") or s.get("callable"))], [])
+
+
+# Seed each store, then require every source to produce a record. A sweep, so a
+# source added next month cannot go quiet without failing this run.
+with app.app_context():
+    from modules.image_picker.models import PickerClient, SavedImage, session
+    _db = session()
+    _pc = PickerClient(name="Icon Solar", slug="icon-solar", kind="client")
+    _db.add(_pc)
+    _db.commit()
+    _db.add(SavedImage(
+        client_id=_pc.id, filename="panel.jpg", provider="upload",
+        provider_image_id="u1", source_url="https://x/u.jpg",
+        cloudinary_url="https://res.cloudinary.com/d/image/upload/v1/x.jpg",
+        cloudinary_public_id="x", collection_kind="upload",
+        created_at=_dt.datetime(2026, 8, 1, 9, 0)))
+    _db.commit()
+    _db.close()
+
+    from hub import jsonstore
+    from modules.image_creator import projects as _icp
+    jsonstore.write_json(_icp._index_path(), [{
+        "id": "p1", "client": "Icon Solar", "name": "Summer banner",
+        "preview_url": "https://res.cloudinary.com/d/image/upload/v1/b.png",
+        "created": "2026-07-02 10:00", "updated": "2026-08-05 11:30"}])
+
+    from modules.seo_images import app as _seoapp
+    jsonstore.write_json(_seoapp._INDEX_PATH, [{
+        "id": "s1", "company": "Icon Solar", "filename": "hero.webp",
+        "public_id": "seo/hero",
+        "url": "https://res.cloudinary.com/d/image/upload/v1/hero.webp",
+        "saved_at": "2026-08-20T14:00:00", "project": "Summer refresh"}])
+
+    from hub.extensions import db as _hubdb
+    from modules.commercial_builder.models import (                # noqa: E402
+        Client as _CBClient, CommercialProject as _CBProject,
+        RenderApproval as _CBApproval, RenderJob as _CBJob)
+    _cb = _CBClient(name="Northgate Dental", slug="northgate-dental")
+    _hubdb.session.add(_cb)
+    _hubdb.session.commit()
+    _proj = _CBProject(client_id=_cb.id, title="Spring promo",
+                       length_seconds=30, platform="ctv")
+    _hubdb.session.add(_proj)
+    _hubdb.session.commit()
+    _job = _CBJob(project_id=_proj.id, format="16:9", status="succeeded")
+    _hubdb.session.add(_job)
+    _hubdb.session.commit()
+    _hubdb.session.add(_CBApproval(
+        project_id=_proj.id, render_job_id=_job.id, approved_by="Todd",
+        approved_at=_dt.datetime(2026, 8, 10, 12, 0),
+        stored_url="https://res.cloudinary.com/d/video/upload/v1/spot.mp4"))
+    _hubdb.session.commit()
+
+    for src in stale_creative.SOURCES:
+        rows = stale_creative._load_source(src)
+        check(f"{src['key']} produces a record", bool(rows), True)
+        if not rows:
+            continue
+        r = rows[0]
+        check(f"{src['key']} names a client", bool(r["client_raw"]), True)
+        check(f"{src['key']} carries a date", r["uploaded_at"] is not None, True)
+        check(f"{src['key']} carries a title", r["title"] != "Untitled", True)
+
+    # The commercial is an *approved* render rather than a project row: a cut
+    # nobody has watched is not creative the client received, which is the
+    # distinction approve_render already draws.
+    _cbrows = stale_creative._commercial_rows()
+    check("the commercial resolves its client through cb_clients",
+          [r["client"] for r in _cbrows], ["Northgate Dental"])
+    check("and carries the Cloudinary copy, not the provider URL",
+          _cbrows[0]["url"].endswith("/spot.mp4"), True)
+
+    # The thumbnail rule is hub/storage.preview_url()'s, not a second one here.
+    _img = stale_creative._thumb(
+        "https://res.cloudinary.com/d/image/upload/v1/x.jpg")
+    check("a tile is capped, never center-cropped", "c_limit" in _img, True)
+    check("and does not carry the old c_fill crop", "c_fill" in _img, False)
+    check("a video is left alone -- it is not an image transformation",
+          stale_creative._thumb(
+              "https://res.cloudinary.com/d/video/upload/v1/spot.mp4"),
+          "https://res.cloudinary.com/d/video/upload/v1/spot.mp4")
+
+
+# ---------------------------------------------------------------------------
+section("A source that could not look never reads as nobody being overdue")
+# ---------------------------------------------------------------------------
+PAGE = (ROOT / "hub" / "templates" / "stale_creative.html").read_text()
+check("the page reads `measured` at all", "data.measured" in PAGE, True)
+
+
+def _audit_flags(**patched):
+    """build_audit() with some of its readers replaced, then put back."""
+    originals = {k: getattr(stale_creative, k) for k in patched}
+    for k, v in patched.items():
+        setattr(stale_creative, k, v)
+    try:
+        with app.app_context():
+            return stale_creative.build_audit()
+    finally:
+        for k, v in originals.items():
+            setattr(stale_creative, k, v)
+
+
+good = _audit_flags()
+check("a run that read both halves is measured", good["measured"], True)
+
+no_clients = _audit_flags(_registry_clients=lambda: [])
+check("a client list that refused is not measured",
+      no_clients["measured"], False)
+check("and says which half it was", no_clients["clients_measured"], False)
+
+no_sources = _audit_flags(_load_source=lambda src: [],
+                          _load_knack_creative=lambda: [],
+                          _load_cloudinary=lambda: [])
+check("every creative source refusing is not measured",
+      no_sources["measured"], False)
+check("and says which half that was", no_sources["sources_measured"], False)
+
+# report_cache reads the same flag, so an unmeasured run is not frozen into the
+# day's answer -- connecting the source an hour later is not lost until tomorrow.
+from hub import report_cache                                   # noqa: E402
+check("so it is never stored as the day's answer",
+      report_cache.is_answer(no_sources), False)
+check("while a good run is", report_cache.is_answer(good), True)
 
 
 print(f"\n{_passed} passed, {_failed} failed")
