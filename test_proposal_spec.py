@@ -45,7 +45,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
 _TMP = tempfile.mkdtemp(prefix="s1-spec-")
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(_TMP, "t.db"))
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
 os.environ.setdefault("SECRET_KEY", "proposal-spec-test")
 os.environ.setdefault("PANEL_PASSWORD", "test")
 os.environ.setdefault("HUB_DATA_DIR", _TMP)
@@ -686,6 +686,95 @@ for _name in (u["name"] for u in _tt.values()):
     else:
         check(f"{_name!r} is named on the requirement line",
               _name in _tt_line, _tt_line)
+
+
+# ---------------------------------------------------------------------------
+section("Snapchat is judged at the lengths and shapes the kit publishes")
+# ---------------------------------------------------------------------------
+# The 2025 model named two formats to the kit's seven, and both of the two
+# refused creative the kit allows: video capped at :30 against a published
+# :03 to 3:00, and both pinned to a fixed 1080x1920 when the kit names that as
+# what to build at and 720x1280 as the minimum.
+_sn = {u["id"]: u for u in cs.UNITS if u["channel"] == "snapchat"}
+check("Snapchat carries the seven formats the kit publishes", len(_sn) == 7,
+      sorted(u["name"] for u in _sn.values()))
+check("and the two are named the way the kit names them",
+      _sn["snap_image"]["name"] == "Single Image Ads"
+      and _sn["snap_video"]["name"] == "Video Ads",
+      [_sn["snap_image"]["name"], _sn["snap_video"]["name"]])
+check("...keeping their ids, because tags_for() has written them onto creative",
+      "snap_image" in cs.BY_ID and "snap_video" in cs.BY_ID)
+
+check("a :45 spot is accepted — the :30 cap is gone",
+      cs.check(unit_id="snap_video", width=1080, height=1920, fmt="mp4",
+               size_bytes=200 * _MB, duration=45)["result"] == "pass",
+      cs.check(unit_id="snap_video", width=1080, height=1920, fmt="mp4",
+               size_bytes=200 * _MB, duration=45)["summary"])
+check("and 2:30, up to the published 3:00",
+      cs.check(unit_id="snap_video", width=1080, height=1920, fmt="mp4",
+               size_bytes=200 * _MB, duration=150)["result"] == "pass")
+check("but 3:30 is still outside it",
+      cs.check(unit_id="snap_video", width=1080, height=1920, fmt="mp4",
+               size_bytes=200 * _MB, duration=210)["result"] == "fail")
+
+# Three numbers, not one: 9:16 is required and fails, 1080x1920 is what to
+# build at and warns, 720x1280 is the floor and fails under it. Collapsing
+# them into a fixed size is what refused a legal file.
+_at_min = cs.check(unit_id="snap_image", width=720, height=1280, fmt="jpg",
+                   size_bytes=2 * _MB)
+check("720x1280 — the stated minimum — is not refused",
+      _at_min["result"] == "warn", _at_min["summary"])
+check("...and says it is under what the kit says to build at",
+      "1080x1920" in _at_min["summary"], _at_min["summary"])
+check("under the 720px floor is a failure, not a warning",
+      cs.check(unit_id="snap_image", width=640, height=1138, fmt="jpg",
+               size_bytes=2 * _MB)["result"] == "fail")
+check("and a square still is refused on the ratio",
+      cs.check(unit_id="snap_image", width=1080, height=1080, fmt="jpg",
+               size_bytes=2 * _MB)["result"] == "fail")
+check("the 5 MB ceiling on a still still bites",
+      cs.check(unit_id="snap_image", width=1080, height=1920, fmt="jpg",
+               size_bytes=12 * _MB)["result"] == "fail")
+
+# One row on the kit, two shapes. It stays one unit because "AR Filters" is
+# what Snapchat sells; two units would be two names the kit does not publish.
+for _w, _h, _f in ((945, 2048, "png"), (720, 1560, "gif")):
+    check(f"an AR filter at {_w}x{_h} {_f} is accepted",
+          cs.check(unit_id="snap_ar_filter", width=_w, height=_h,
+                   fmt=_f)["result"] == "pass")
+check("and no file-weight ceiling is invented for it",
+      "max_bytes" not in _sn["snap_ar_filter"])
+
+# ---------------------------------------------------------------------------
+section("a unit specified by ratio still says what it is on the line")
+# ---------------------------------------------------------------------------
+# An image unit with no fixed size used to reach the requirement line as a
+# bare name -- "or Single Image Ads", with nothing saying 9:16, 1080x1920 or
+# JPG. That is the same silence as vanishing, one step less complete, and it
+# is the line a client reads.
+_sn_line = cn.units_line(
+    {"items": [{"product": "Snapchat - Paid Social Media Advertising",
+                "category": "SOCIAL ADS - VIDEO", "dollars": 3000}]}, "video")
+# Every unit but the AR filter, which is announced by the words below rather
+# than by its unit name — the shape the radio companion already had.
+for _name in (u["name"] for u in _sn.values() if u["id"] != "snap_ar_filter"):
+    check(f"{_name!r} is named on the requirement line",
+          _name in _sn_line, _sn_line)
+check("and a ratio-specified unit carries its shape and its formats",
+      "Single Image Ads (9:16, build at 1080x1920, JPG" in _sn_line, _sn_line)
+
+# An optional extra with a size of its own must not lead. Named first it
+# reads as the whole requirement -- how somebody sends a banner and no audio.
+check("the AR filter is named after the ask, not before it",
+      _sn_line.index("Video Ads") < _sn_line.index("945x2048")
+      and "plus an AR filter" in _sn_line, _sn_line)
+check("and the radio companion still says it is a companion banner",
+      "plus a companion banner: 300x250" in cn.units_line(
+          {"items": [{"product": "Digital Radio - Targeted",
+                      "category": "DIGITAL RADIO", "dollars": 3000}]}, "audio"))
+check("each addition names itself rather than sharing one sentence",
+      set(cn.ADDITIONS) == {"radio_companion", "snap_ar_filter"}
+      and len(set(cn.ADDITIONS.values())) == 2, cn.ADDITIONS)
 
 
 # ---------------------------------------------------------------------------

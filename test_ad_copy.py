@@ -521,8 +521,7 @@ import tempfile
 os.environ.setdefault("SECRET_KEY", "ad-copy-test-key-0123456789")
 os.environ.setdefault("PANEL_PASSWORD", "x")
 os.environ.setdefault("HUB_DATA_DIR", tempfile.mkdtemp())
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + tempfile.mkstemp()[1])
-
+os.environ["DATABASE_URL"] = "sqlite:///" + tempfile.mkstemp()[1]
 import hub as _hub
 from hub import auth as _auth, request_triage as _triage
 

@@ -3295,6 +3295,71 @@ onto a sibling's record through a shared parent, which is what
 `hub/client_groups.py` exists to do **on purpose and by opt-in**. The rows
 came live; the rule that decides whose they are did not move.
 
+**And `/qa` was the third reader on the export, behind two flags that made it
+look like a one-line swap.** Every client report on that page — Active
+Clients, No Dashboards, Lapsed, Lost by Partner, both Scorecards, the two
+Analytics reports — is built by grouping `_client_groups()`, which read
+`knack_data.products()` while Client 360 read the same object live. Same
+failure as the SEO section, one page later, and silent in the same way: a
+short book looks exactly like a complete one.
+
+**The reason it had stood is that pointing it at the live source would have
+made four reports go quiet rather than wrong.** `thisM` and `lastM` are
+Knack's own flags and they exist **only on the export** —
+`knack_products._row()` emits neither — so the swap alone would set both False
+on every row: "billed this month" reads $0 for the whole book, `lost_by_partner`
+reports that nobody has ever churned, `stale_90` loses the guard that keeps a
+client we are billing off the lapsed list, and `no_gtm` loses half the test
+that decides which clients are priority. Four confident wrong answers to fix
+one staleness problem, each of them an *empty* answer, which is the shape this
+page's own cache is built to refuse.
+
+**And the flags do not mean what the reports read them as.** They describe the
+month the export was generated **for**, and nothing recomputes them — so on a
+deployment whose export has slipped a month, "billed this month" is a true
+statement about a month that has passed, printed under a heading that says
+otherwise. `export_state()` has known that all along and no report on `/qa`
+asked it.
+
+`knack_data.ran_in_month()` — the neighbour of `is_running()` written for the
+Scorecards — answers the same question from the dates and the status, which
+live rows *do* carry, against the calendar rather than against whenever
+somebody last exported. On this deployment's own export the two agree
+**exactly**, 373 of 373 rows for this month and 510 of 510 for last, which is
+what makes this safe: every row of all nineteen reports is unchanged today,
+and the change only bites when the export slips or Knack answers. That is
+deliberately *not* the scorecard rebuild this file describes being removed —
+nothing here is compared against a differently-measured number; `live` is
+still `is_running()`'s union and only the two month flags moved, from being
+read to being computed.
+
+Three smaller rules. The two reports that read a row's flag **outside** the
+grouping (`no_dashboards`' product fallback, `no_gtm`'s priority test) go
+through the same computed test, or the fix covers the grouping and leaves two
+call sites behind — and `test_qa_reports.py` sweeps the **AST** of `hub/`
+for any product row's flag read, with `month_over_month()` named as the one
+allowed reader **and its reason**: the dashboard scorecard is deliberately
+measured against the export's own period, and that decision predates this one.
+`products_error()` asks **whichever source answered** rather than the export
+alone — those were one question while `/qa` read the export directly, and
+asking the export now would refuse to measure on the strength of a file
+nothing read. And the source is **named on the report**, appended once in
+`run()` from what `_products()` recorded rather than by a table of which
+reports read products: a report that asks gets the sentence, one that does not
+gets nothing, and there is no list to keep in step. `products_note()` moved to
+`knack_data` while it was at it — `hub/seo.py`'s own comment already said the
+wording was knack_data's while the string sat in seo, which is how a third
+screen comes to word it a third way.
+
+**What is deliberately not here is a memo.** `products_error()` and
+`_client_groups()` now ask within a few lines of each other and a scorecard
+asks four times, so a minute's cache of the shape `_WEB_CACHE` uses next door
+is the obvious addition. It was written and removed: it costs about a tenth of
+a second a day, because these reports are built once and held by
+`hub/report_cache.py`, and it buys a window in which a source swapped
+underneath is invisible to every caller — `test_seo_page.py` swaps one, and
+found the memo hiding it within minutes of it being added.
+
 **Websites now read live too, and the split between the two readers is the
 point.** `clients_registry.all_clients()` — which feeds client search, every
 client picker, Client 360's lookup and the social content link — built its
@@ -4953,12 +5018,12 @@ tag; leaving them in would go on asking.
 
 `kit_name_drift()` is the check, at **high**, and it covers only the channels
 declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x`,
-`linkedin` and `tiktok` today. The three still on the 2025 transcription are
-named in `_KIT_NAMES_PENDING` with what is known to have moved (YouTube's
-*TrueView* is now *Skippable in-stream*), and `kit_coverage()` carries them. A
-backlog named rather than left as an absence — a check listing every platform
-on the day it is written is red on the day it is written, and gets switched
-off.
+`linkedin`, `tiktok` and `snapchat` today. The two still on the 2025
+transcription are named in `_KIT_NAMES_PENDING` with what is known to have
+moved (YouTube's *TrueView* is now *Skippable in-stream*), and
+`kit_coverage()` carries them. A backlog named rather than left as an absence
+— a check listing every platform on the day it is written is red on the day
+it is written, and gets switched off.
 
 **And a name check cannot see a number, which is how LinkedIn was refusing
 files the kit told the client to send.** Its 2025 model held five formats to
@@ -5020,6 +5085,47 @@ kit publishes *"100 KB suggested per image"*, which is `target_bytes` and not
 `max_bytes` — carried as `min_bytes` once already, in DOOH, where a clean 30 KB
 billboard was refused against a number nobody published as a minimum. Read as a
 maximum here it would refuse a 140 KB card the kit is perfectly happy with.
+
+**And Snapchat is the case where the names were right all along.** It is the
+one platform of the four whose two format names the kit still sells, so the
+name pass would never have raised it and `_KIT_NAMES_PENDING` recorded it as a
+count — *seven formats against our two*. Both of the two were nonetheless
+refusing creative the kit allows, which is the third transcription in a row
+where the numbers were worse than the names and the whole argument for working
+the list down rather than waiting for a check to raise its hand. Video was
+capped at **:30** against a published **:03 to 3:00** — the kit's own update
+note says *"the 30-second cap is gone"* — so a :45 spot was refused outright.
+
+**One fact, three numbers, and collapsing them is what refused the file.** The
+kit publishes *"9:16, 1080x1920"* as the media spec and says beside it that
+**720x1280 is the stated minimum, not the target**. Carried as one fixed
+`size`, a perfectly legal 720x1280 file failed on dimensions. It is the
+`gpt_ads_square` rule: a **required** ratio is a `ratios` entry and a fail, a
+**recommended** build size is `min_size` and a warn — it runs, it just runs
+soft — and the floor is `min_width` and a fail under it. Three answers,
+because there are three questions.
+
+**A unit specified by ratio still has to say what it is.** `units_line()`
+already knew an image unit with no size of its own must be *named* rather than
+folded into the run of sizes, because folded in it vanishes. Named alone it
+reached the client document as **"or Single Image Ads"** — nothing saying
+9:16, nothing saying 1080x1920, nothing saying JPG — which is the same silence
+one step less complete. `_shape_of()` is what a unit carries when it has no
+fixed size, and every social unit is in that position.
+
+**And an optional extra must not lead.** The companion rule was keyed on
+`radio_companion` deliberately, after firing on a *count* once and announcing
+Snapchat's and TikTok's primary images as optional companions. There are two
+of them now: an AR filter is the same shape as the radio companion — a sized
+extra beside a buy whose ask is a 9:16 spot — and being the only sized image
+unit there, it led the requirement, announcing an AR filter as the whole of
+what the client owed us. `ADDITIONS` maps each to **its own words**, because
+"a companion banner" is a true sentence about one of them and not the other.
+
+**AR Filters stays one unit carrying two shapes** — a static 945x2048 PNG and
+a moving 720x1560 GIF. Splitting it would invent two names the kit does not
+publish, which is exactly what `kit_name_drift()` exists to catch. No file
+weight is published for it, so none is invented.
 
 **Three of the twenty are a different kind of gap, and it reaches the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive

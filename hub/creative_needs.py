@@ -617,6 +617,7 @@ def required_units(state, medium: str) -> dict:
                 "channel": creative_specs.CHANNEL_LABELS.get(
                     unit.get("channel", ""), unit.get("channel", "")),
                 "sizes": [f"{w}x{h}" for w, h in pairs if w and h],
+                "shape": _shape_of(unit),
                 "formats": [str(f).upper() for f in (unit.get("formats") or [])],
                 "seconds": list(duration) if len(duration) == 2 else [],
             })
@@ -650,6 +651,36 @@ def required_units(state, medium: str) -> dict:
             "source": getattr(creative_specs, "SPEC_KIT_URL", "")}
 
 
+# A sized image unit that is an optional extra beside the buy's real ask,
+# rather than the ask itself. Named first it reads as the whole requirement,
+# which is how somebody sends a banner and no audio. Each carries the words it
+# is announced with, so the sentence is true of the unit it describes.
+ADDITIONS = {
+    "radio_companion": "a companion banner",
+    "snap_ar_filter": "an AR filter",
+}
+
+
+def _shape_of(unit) -> str:
+    """How a unit is specified when it carries no fixed size.
+
+    Every social unit is in that position: the kit publishes a ratio and a
+    resolution to build at rather than one exact size, because the platform
+    accepts a range. Without this the unit reaches the requirement line as a
+    bare name -- "or Single Image Ads", with nothing saying 9:16 or 1080x1920
+    -- which is the same silence as vanishing, one step less complete.
+    """
+    if unit.get("size") or unit.get("sizes"):
+        return ""
+    ratios = unit.get("ratios") or []
+    shape = " or ".join(f"{w}:{h}" for w, h in ratios)
+    build = unit.get("min_size")
+    if build:
+        built = f"build at {build[0]}x{build[1]}"
+        return f"{shape}, {built}" if shape else built
+    return shape
+
+
 def _describe_unit(unit) -> str:
     """One spec-kit unit in the terms it is actually specified in.
 
@@ -667,12 +698,18 @@ def _describe_unit(unit) -> str:
               and seconds[0] != seconds[1] else
               (f"{seconds[0]}s" if seconds else ""))
     fmt = "/".join(unit.get("formats") or [])
+    shape = unit.get("shape") or ""
     if kind in ("video", "audio"):
-        bits = [b for b in (", ".join(unit.get("sizes") or []), fmt, length) if b]
+        bits = [b for b in (", ".join(unit.get("sizes") or []) or shape,
+                            fmt, length) if b]
         return f"{unit['label']} ({', '.join(bits)})" if bits else unit["label"]
     if unit.get("sizes"):
         return ", ".join(unit["sizes"])
-    return unit["label"]
+    # An image with no fixed size is described the way the video above is:
+    # by the shape it is specified in and what it may be delivered as. Named
+    # alone it says nothing a client can act on.
+    bits = [b for b in (shape, fmt) if b]
+    return f"{unit['label']} ({', '.join(bits)})" if bits else unit["label"]
 
 
 def units_line(state, medium: str) -> str:
@@ -714,12 +751,18 @@ def units_line(state, medium: str) -> str:
     # the client as an optional companion to the video. That is the sentence
     # above running the other way: named as the whole requirement it costs the
     # spot, named as a companion it costs the image.
-    companion = (len(images) == 1
-                 and images[0].get("id") == "radio_companion")
+    # Keyed on the unit, and there is now more than one of them: Snapchat's
+    # AR Filters is the same shape as the radio companion -- an optional
+    # extra with a size of its own, on a buy whose ask is a 9:16 spot. It is
+    # the only sized image unit there, so leading with 945x2048 announced an
+    # AR filter as the whole requirement. Each names itself, because "a
+    # companion banner" is a true sentence about one of them and not the
+    # other.
+    addition = ADDITIONS.get(images[0].get("id")) if len(images) == 1 else None
     if not sizes:
         parts = described
-    elif companion and described:
-        parts = described + [f"plus a companion banner: {sizes[0]}"]
+    elif addition and described:
+        parts = described + [f"plus {addition}: {', '.join(sizes)}"]
     elif described:
         parts = [", ".join(sizes)] + [f"or {d}" for d in described]
     else:
