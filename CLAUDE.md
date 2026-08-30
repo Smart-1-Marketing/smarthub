@@ -924,6 +924,40 @@ in a client's gallery as a bare key under no heading, sorted in with stock.
 gained a search and per-group chips with counts, and a filtered view says *N
 of M shown* rather than reporting the whole as the part.
 
+**And the other direction: what is in Cloudinary that no store knows about.**
+Everything above audits what the Hub *recorded*; the account is the ground
+truth for what *exists*, and an asset no store has a row for is invisible to
+all of it — which is most of what the six silent tools produced before they
+were fixed. `hub/storage.manifest()` was written for exactly this and had no
+caller at all: its docstring says it "feeds the orphaned-asset audit", and
+that audit had never existed. The third declared-but-unwired integration point
+in this corner, after `RECORD_HOOK` and `io_creative`.
+
+`reconcile()` is a **POST behind a button** — a paged Admin API call per
+folder tree is billed and slow, and a GET that costs money is one a reload or
+a prefetch fires without anybody asking. Four rules. An account that cannot be
+listed is **not measured**, never a clean bill. A **store that would not
+answer is named**, because everything it knows about would otherwise read as
+an orphan — one outage turned into a page of false findings. A folder listing
+that hit the cap **says it was capped**, since an undercount here looks like
+good news. And the folders deliberately left out (`proposals`, `backups`) are
+**named with the reason**: a folder silently missing from a completeness
+report is the same failure the report is about.
+
+**A proposed owner is a guess from a path, and says so.** `<folder>/<client
+-slug>/…` is the shape three tools use, so it is read — resolved against the
+real client list where one matches, and otherwise offered as *the folder it is
+in, but no client of that name*. Nothing is applied without a press, and
+`unfiled/` proposes nobody, because that is the folder a cut-out with no
+client already lands in.
+
+**Forty orphans is not forty presses.** `attach_many()` takes a selection and
+one client, and every row still reports its own outcome — a bulk action that
+returns one number hides the two that failed, the rule
+`client_urls.accept_many()` works to. `file_orphan()` is its own function
+rather than a branch of `attach()`: there is no store row to update, and the
+absence of one is the finding.
+
 **A QA report is named for its finding, not its process.** "Image Audit" tied
 with Image Creator on the bare query `image` and took the top slot off it —
 `search_index` breaks an equal score alphabetically, so a name is a ranking

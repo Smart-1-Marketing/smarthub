@@ -76,7 +76,30 @@
       <input type="checkbox" id="onlyUnfiled" checked> Only unattached
     </label>
   </div>
+  <!-- Attaching forty images one at a time is forty presses, and forty
+       confirm dialogs is how somebody stops reading them. The client is
+       picked once and applied to the ticked rows; every row still reports
+       its own outcome. -->
+  <div class="bar" id="bulkBar" style="display:none">
+    <b style="font-size:13.5px"><span id="bulkCount">0</span> selected</b>
+    <input type="text" id="bulkClient" list="clientList"
+           placeholder="Attach all of them to…" style="max-width:280px">
+    <button type="button" class="btn go" id="bulkGo">Attach selected</button>
+    <span class="muted" id="bulkMsg" style="font-size:12.5px"></span>
+  </div>
   <div id="stores"><div class="empty">Loading…</div></div>
+
+  <h2>In Cloudinary, known to nothing</h2>
+  <p class="sub" style="margin-bottom:10px">The audit above reads what the Hub
+     <em>recorded</em>. The account is the ground truth for what <em>exists</em>,
+     and an asset no store has a row for is invisible to all of it. This lists
+     the account — a paged call per folder, which is why it is a button and not
+     something this page does on its own.</p>
+  <div class="bar">
+    <button type="button" class="btn go" id="reconGo">List the account</button>
+    <span class="muted" id="reconMsg" style="font-size:12.5px"></span>
+  </div>
+  <div id="recon"></div>
 
   <p class="note" id="scopeNote"></p>
 </div>
@@ -145,9 +168,11 @@ function drawStores(d){
       return;
     }
     out.push('<div class="card">'+head
-      + '<table><thead><tr><th></th><th>Image</th><th>Where</th><th>When</th>'
-      + '<th>Attach to</th></tr></thead><tbody>'
+      + '<table><thead><tr><th style="width:26px"></th><th></th><th>Image</th>'
+      + '<th>Where</th><th>When</th><th>Attach to</th></tr></thead><tbody>'
       + rows.map(r=>'<tr>'
+          + '<td><input type="checkbox" class="pick" data-store="'+esc(s.key)
+          + '" data-id="'+esc(r.id)+'"></td>'
           + '<td>'+(r.url?'<img class="thumb" loading="lazy" src="'+esc(r.url)+'" alt="">':'')+'</td>'
           + '<td>'+esc(r.label)+'</td>'
           + '<td class="muted">'+esc(r.where||'—')+'</td>'
@@ -161,7 +186,46 @@ function drawStores(d){
   });
   $('stores').innerHTML = out.join('') || '<div class="empty">No stores to read.</div>';
   wireAttach();
+  wirePicks();
 }
+
+// ---------------------------------------------------------------- bulk
+function picked(){
+  return Array.prototype.slice.call(document.querySelectorAll('.pick:checked'))
+    .map(c => ({store: c.dataset.store, id: c.dataset.id}));
+}
+function wirePicks(){
+  document.querySelectorAll('.pick').forEach(c => { c.onchange = refreshBulk; });
+  refreshBulk();
+}
+function refreshBulk(){
+  const n = picked().length;
+  $('bulkCount').textContent = n;
+  $('bulkBar').style.display = n ? 'flex' : 'none';
+  if(!n) $('bulkMsg').textContent = '';
+}
+$('bulkGo').onclick = () => {
+  const client = $('bulkClient').value.trim();
+  const items = picked();
+  if(!client){ $('bulkMsg').textContent = 'Pick a client first.'; return; }
+  if(!items.length) return;
+  $('bulkGo').disabled = true;
+  $('bulkMsg').textContent = 'Attaching ' + items.length + '…';
+  fetch('/api/image-audit/attach-many',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({items: items.map(i => ({...i, client}))})})
+    .then(r=>r.json()).then(d=>{
+      $('bulkGo').disabled = false;
+      /* Counted apart. A bulk action that reports one number hides the two
+         that failed, and "attached" is not the same as "attached in both
+         places". */
+      $('bulkMsg').innerHTML = '<b>'+d.attached+'</b> attached ('
+        + d.gallery_filed + ' reached a gallery)'
+        + (d.failed ? ' · <span style="color:#c0392b">'+d.failed+' failed: '
+            + esc((d.failures||[]).map(f=>f.error).join('; ')) + '</span>' : '');
+      load();
+    }).catch(()=>{ $('bulkGo').disabled=false; $('bulkMsg').textContent='That did not work.'; });
+};
 
 /* A searchable list of real clients, never a free text box that accepts
    anything: a typo'd name files the image under a client nothing joins to and
@@ -198,6 +262,96 @@ function wireAttach(){
             ? '<span class="pill ok">filed</span>'
             : '<span class="pill warn">tool updated, gallery not</span> '
               + esc(d.gallery_error||'');
+          box.closest('tr').style.opacity = .55;
+        }).catch(()=>{ msg.textContent='That did not work.'; btn.disabled=false; });
+    };
+  });
+}
+
+// ------------------------------------------------------- reconcile
+$('reconGo').onclick = () => {
+  $('reconGo').disabled = true;
+  $('reconMsg').textContent = 'Listing the account — a paged call per folder…';
+  fetch('/api/image-audit/reconcile',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:'{}'})
+    .then(r=>r.json()).then(drawRecon)
+    .catch(()=>{ $('reconGo').disabled=false;
+      $('reconMsg').textContent='The account could not be listed.'; });
+};
+
+function drawRecon(d){
+  $('reconGo').disabled = false;
+  $('reconMsg').textContent = '';
+  if(d.configured === false){
+    /* Not measured, not "nothing found": an unconfigured account reported as
+       a clean bill is the confident wrong answer this page is about. */
+    $('recon').innerHTML = '<div class="card"><span class="pill warn">not measured</span> '
+      + esc(d.error||'') + '</div>';
+    return;
+  }
+  const head = '<div class="tiles">'
+    + '<div class="tile neutral"><b>'+Number(d.total||0).toLocaleString()
+    + '</b><span>assets listed</span></div>'
+    + '<div class="tile '+(d.orphans?'bad':'ok')+'"><b>'
+    + Number(d.orphans||0).toLocaleString()+'</b><span>no store has a record</span></div>'
+    + '</div>';
+  const body = (d.folders||[]).map(f=>{
+    if(!f.measured) return '<div class="card"><b>'+esc(f.label)+'</b> '
+      + '<span class="pill warn">not measured</span><div class="why">'+esc(f.error)+'</div></div>';
+    const bar = '<b>'+esc(f.label)+'</b> <span class="pill '+(f.orphans?'bad':'ok')+'">'
+      + (f.orphans? f.orphans+' unknown' : 'all accounted for')+'</span> '
+      + '<span class="muted" style="font-size:12.5px">'+f.count+' listed'
+      + (f.truncated?' (capped — there are more)':'')+'</span>';
+    if(!f.rows.length) return '<div class="card">'+bar+'</div>';
+    return '<div class="card">'+bar
+      + '<table><thead><tr><th></th><th>Asset</th><th>Proposed owner</th>'
+      + '<th>File it to</th></tr></thead><tbody>'
+      + f.rows.map(r=>'<tr>'
+        + '<td>'+(r.url?'<img class="thumb" loading="lazy" src="'+esc(r.url)+'" alt="">':'')+'</td>'
+        + '<td style="font:11.5px ui-monospace,Consolas,monospace;overflow-wrap:anywhere">'
+        + esc(r.public_id)+'</td>'
+        /* A proposal from a folder path is a guess and says so. Filing one
+           client's creative into another's gallery is the mistake this whole
+           page is arranged to prevent, so nothing is applied without a press. */
+        + '<td>'+(r.proposed
+            ? esc(r.proposed)+'<div class="why">from '+esc(r.proposed_how)+'</div>'
+            : '<span class="muted">nothing to go on</span>')+'</td>'
+        + '<td><div class="orph" data-pid="'+esc(r.public_id)+'" data-url="'+esc(r.url||'')
+        + '" data-kind="'+esc(r.kind)+'">'
+        + '<input type="text" list="clientList" value="'+esc(r.confident?r.proposed:'')
+        + '" placeholder="Client…"> <button type="button" class="btn go">File</button>'
+        + ' <span class="msg muted" style="font-size:12px"></span></div></td>'
+        + '</tr>').join('')
+      + '</tbody></table></div>';
+  }).join('');
+  const skipped = (d.not_reconciled||[]).length
+    ? '<p class="note">Not listed, on purpose: '
+      + (d.not_reconciled||[]).map(x=>esc(x.key)+' — '+esc(x.why)).join(' ') + '</p>'
+    : '';
+  const unread = (d.stores_unread||[]).length
+    ? '<p class="note" style="color:#d18b1f">These stores would not answer, so '
+      + 'anything they know about may be listed here wrongly: '
+      + (d.stores_unread||[]).map(x=>esc(x.label)+' ('+esc(x.error)+')').join('; ')+'</p>'
+    : '';
+  $('recon').innerHTML = head + body + unread + skipped + '<p class="note">'+esc(d.note||'')+'</p>';
+  wireOrphans();
+}
+
+function wireOrphans(){
+  document.querySelectorAll('.orph').forEach(box=>{
+    const btn = box.querySelector('button'), inp = box.querySelector('input'),
+          msg = box.querySelector('.msg');
+    btn.onclick = () => {
+      const client = inp.value.trim();
+      if(!client){ msg.textContent = 'Pick a client first.'; return; }
+      btn.disabled = true; msg.textContent = 'Filing…';
+      fetch('/api/image-audit/file-orphan',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({public_id:box.dataset.pid, url:box.dataset.url,
+                             kind:box.dataset.kind, client})})
+        .then(r=>r.json()).then(d=>{
+          if(!d.ok){ msg.textContent = d.error||'That did not work.'; btn.disabled=false; return; }
+          msg.innerHTML = '<span class="pill ok">filed</span>';
           box.closest('tr').style.opacity = .55;
         }).catch(()=>{ msg.textContent='That did not work.'; btn.disabled=false; });
     };
