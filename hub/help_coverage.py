@@ -124,7 +124,12 @@ PREFIXES: dict[str, str] = {
     "/tools/radio-promo/": "radio_promo",
     "/tools/fan-radio/": "fan_radio",
     # Client tools
-    "/tools/website-audit": "website_audit",
+    # Two segments, because that is the screen the registry publishes. The
+    # Website Audit tool's keys are filed under `hub.website_audit.*` -- it is
+    # a hub route, not a mounted module -- and declared as bare
+    # `website_audit` this matched nothing and reported a tool carrying six
+    # bubbles and a six-step tour as having no help at all.
+    "/tools/website-audit": "hub.website_audit",
     "/sales/builder/": "sales_builder",
     "/tools/io/": "io_builder",
     "/sales/landing": "landing_maker",
@@ -197,6 +202,50 @@ def stray_prefixes() -> list[str]:
     return sorted({s.split(".")[0] for s in help_registry.screens()} - known)
 
 
+def mislabeled_prefixes() -> list[dict]:
+    """A tile's declared prefix that backs nothing, where help exists anyway.
+
+    `stray_prefixes()` above asks the reverse question and cannot see this
+    one: it reduces every screen to its **first segment**, so help written as
+    `hub.website_audit.*` reduces to `hub`, which `NOT_A_TOOL` exempts as the
+    dashboard and Client 360. That exemption has to be broad -- the Hub's own
+    pages genuinely are not tiled tools -- so nothing on that side can tell a
+    real hub page from a tool whose keys happen to start `hub.`.
+
+    Which leaves the forward direction, and it fails in the **safe-looking**
+    way: the tool is reported as having no help written, which reads as a
+    backlog entry rather than as a defect, so nobody investigates and the
+    copy gets written a second time. That is exactly what happened to the
+    Website Audit tool the release after it was given six bubbles and a tour.
+
+    A prefix matching nothing is *ordinarily correct* -- fourteen tiled tools
+    have genuinely never had help written -- so the finding is narrower than
+    that: a prefix that resolves to no screen **while the registry holds one
+    whose name contains it**. That is a label that names the wrong thing, and
+    it is the only case where "no help written" is a wrong answer rather than
+    a true one.
+    """
+    from . import help as help_registry
+
+    screens = list(help_registry.screens())
+    have = set(screens) | {s.split(".")[0] for s in screens}
+
+    by_prefix: dict[str, list] = {}
+    for href, prefix in PREFIXES.items():
+        by_prefix.setdefault(prefix, []).append(href)
+
+    out = []
+    for prefix, hrefs in sorted(by_prefix.items()):
+        if prefix in have:
+            continue
+        found = sorted(s for s in screens
+                       if prefix in s.split("."))
+        if found:
+            out.append({"prefix": prefix, "tiles": sorted(hrefs),
+                        "registered": found})
+    return out
+
+
 def report() -> dict:
     """Coverage of the tools staff are actually sent to.
 
@@ -216,7 +265,17 @@ def report() -> dict:
                 "tools": [], "covered": [], "missing": [],
                 "unmapped": [], "client_facing": []}
 
-    have = {s.split(".")[0] for s in help_registry.screens()}
+    # Both shapes, because a prefix is a label chosen for the registry and
+    # some of them need two segments to be unambiguous: `hub.website_audit`
+    # is a tool, `hub.prospect` is a record page, and the bare `hub` they
+    # share names neither. Matching the first segment alone made a tile
+    # mapped to a two-segment screen resolve to nothing, and the tool then
+    # read as unexplained -- the failure this whole module exists to find,
+    # inside the module.
+    have = set()
+    for screen in help_registry.screens():
+        have.add(screen)
+        have.add(screen.split(".")[0])
 
     covered, missing, unmapped, client = [], [], [], []
     for t in found:
@@ -239,6 +298,11 @@ def report() -> dict:
         "unmapped": unmapped,
         "client_facing": client,
         "stray": stray_prefixes(),
+        # Kept apart from `missing`, because they are two different jobs:
+        # a missing tool needs copy written, a mislabeled one needs one line
+        # corrected -- and folded together the second is invisible inside the
+        # first, which is how it went unnoticed.
+        "mislabeled": mislabeled_prefixes(),
         "note": "Measured against the tiles on " + " and ".join(INDEX_PAGES) +
                 ", which is what decides whether a member of staff is sent to "
                 "a tool at all. A tool with no tile has a bigger problem than "

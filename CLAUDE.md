@@ -7983,7 +7983,32 @@ way, because that direction is silent — help written under a prefix no tile
 maps to leaves the tool reading as *missing* while its copy sits there
 written, and somebody writes it twice.
 
-It **reports rather than gates**. Twenty-four of the forty-seven tiles have
+**And the third side, which `stray_prefixes()` structurally cannot see.** It
+reduces every screen to its **first segment**, so help written as
+`hub.website_audit.*` reduces to `hub`, which `NOT_A_TOOL` exempts as the
+dashboard and Client 360 — an exemption that has to be broad, since the Hub's
+own pages genuinely are not tiled tools. So the forward direction is the only
+one that can catch a tile mapped to a prefix naming the wrong screen, and it
+fails in the **safe-looking** way: the tool reads as never explained, which
+is a backlog entry rather than a defect, so nobody looks. That is what
+happened to the Website Audit tool the release after it was given six bubbles
+and a six-step tour — declared as bare `website_audit` against keys filed
+under `hub.website_audit`, matching nothing, reported as carrying no help at
+all. A prefix may name two segments now, because `hub.website_audit` is a
+tool and `hub.prospect` is a record page and the bare `hub` they share names
+neither.
+
+`mislabeled_prefixes()` is the check, and it is deliberately **narrower than
+"this prefix backs nothing"** — twenty-three tiled tools have genuinely never
+had help written, and reporting those here would be a list somebody
+re-triages on every run. The finding is a prefix that resolves to no screen
+*while the registry holds one whose name contains it*: the only case where
+"no help written" is a wrong answer rather than a true one. It is one line to
+fix and a paragraph to write, so the two are counted apart. `test_help_layer.py`
+feeds it the bug it was written for and requires it to say so, because a
+check that reads green either way is one nobody can trust.
+
+It **reports rather than gates**. Twenty-three of the forty-seven tiles have
 no help behind them; that is all real, none of it breaks a page, and a build
 failing on it is a check switched off within a week. `env_report()`'s shape —
 the thing that stands beside a check and says what the check cannot see.
@@ -8506,14 +8531,30 @@ access rule, in one expression that **both call sites read**" while neither
 did — a shared rule that nothing shares is worse than no shared rule, because
 the next reader believes it.
 
-**One entry is a finding rather than an exemption.**
-`modules/sites_admin/seed_boot.py` promises that a freshly-recreated database
-"repopulates itself on the next startup"; it is imported by nothing and there
-is no `seed/portfolio.json` for it to read, so it has never run and could not.
-Wiring it means a database write at boot in two gunicorn workers and a seed
-file exported from the live portfolio — neither is a decision a check should
-make quietly, so the allowlist says REPAIR THIS OR REMOVE IT and names both
-halves.
+**One entry was a finding rather than an exemption, and it has been
+removed.** `modules/sites_admin/seed_boot.py` promised that a freshly-recreated
+database *"repopulates itself on the next startup with no manual
+paste/upload"* — and it was imported by nothing, there is no
+`seed/portfolio.json` for it to read and there never has been, so it had never
+run and could not. The allowlist said REPAIR THIS OR REMOVE IT and named both
+halves; repairing it needs a seed file exported from the live portfolio, which
+is not a thing a check or a cleanup can conjure.
+
+So the promise is gone rather than left standing. It is the same failure as a
+report that answers zero when it could not look, in a docstring: **the Sites
+Admin portfolio does not repopulate itself, and the file saying otherwise was
+the only reason anybody would think it did.** That matters here more than most
+places, because this Hub's own backup rule is about exactly this — the Render
+disk is not backed up, and a plan change, region move or resize hands back an
+empty one. Recovering that table is a management-panel *list-projects* export
+imported through Sites Admin's own inventory import, by hand, and nothing in
+the boot path shortens that. Wiring a seed at boot would also be a database
+write in **two** gunicorn workers, which is the `create_all()` advisory-lock
+problem one layer up, so it is not a one-line restoration either.
+
+Removing it is checkable rather than remembered: the allowlist entry went with
+the file, and `test_unwired.py` fails on an entry naming a function that is
+gone — so the removal cannot be half-done.
 
 ## Conventions
 
@@ -8606,6 +8647,12 @@ python3 test_proposal_targeting.py # the coverage map, the pasted location list,
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math,
                                    #   the 2x quoted rate, the product a goal leads
                                    #   with, ZIP exceptions and what the Suite covers
+python3 test_rate_card_coverage.py # every product on the card, bought on a
+                                   #   proposal that renders: eight campaigns
+                                   #   derived from the card's own categories,
+                                   #   a ninth holding every name that means
+                                   #   two products, and a new category that
+                                   #   fails by name rather than being skipped
 python3 test_landing_maker.py      # built pages stay public and chrome-free
 python3 test_quote_numbers.py      # uploaded quotes are numbered, drafts delete
 python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
@@ -8730,6 +8777,8 @@ python3 test_thinking.py           # the mark that says a scan or a model is run
 python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
+python3 test_site_blocks.py        # the website blocks a page is built from
+python3 test_ci_gate.py            # the gate runs every check a person runs
 ```
 
 The test files need no pytest and no new dependencies; each runs against a
@@ -8740,6 +8789,29 @@ touches `/var/data` or the real one.
 the single gate. CI runs the same scripts a person runs, so a green run means
 the same thing in both places and no check exists only where nobody can
 reproduce it.
+
+**And that sentence was not true, in the file that makes it.** Seven of the
+files this list names were run by nobody but somebody who thought to type
+them: `test_unwired.py`, `test_thinking.py`, `test_menu_layout.py`,
+`test_detail_ui.py`, `test_ai_proposals.py` and the two explainer files. What
+they hold is not marginal — that nothing is declared and left unwired, that
+one tool is tiled once and its trail names it, that four copies of the wait
+mark agree, that the three places a model proposes carry no route to a write.
+An eighth, `test_site_blocks.py`, was in neither this list nor the workflow,
+which is the same gap one step further on. Every one of them passed; they were
+simply gated by nobody, and the list saying otherwise is what stopped anybody
+noticing — a sweep that has quietly stopped sweeping, reporting a clean bill of
+health about the part it still covers.
+
+The claim is **asserted** now rather than made. `test_ci_gate.py` reads the
+workflow and holds it to this list in **both** directions: a `test_*.py` in
+the repo that no step invokes, and a step naming a file that is not here —
+which runs nothing at all. Several steps are deliberately written
+`if [ -f x ]; then … else echo "not on this branch"`, so that second half
+reads the guard rather than the filename, or it would report the thing that
+keeps this workflow mergeable on an older branch. `EXEMPT` is the way out and
+carries its reason, and it is **empty**, which is the only way this was worth
+adding.
 
 Two workflows briefly existed: `checks.yml` and a `ci.yml` written in parallel
 on another branch, overlapping on `jscheck` and `linkcheck` and each carrying
