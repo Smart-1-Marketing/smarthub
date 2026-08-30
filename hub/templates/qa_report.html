@@ -393,6 +393,32 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
     };
   }
 
+  /* ---- cannot-look decision (pure; lifted by test_qa_reports.py) ----
+     "We looked and it is fine" and "we could not look" are different answers,
+     and rendering both as a green tick is how a page ends up confidently
+     telling you the opposite of the truth.
+
+     A report says it could not look in one of two ways, and only the first was
+     read here. `unavailable` carries a message and usually something to press.
+     `measured: false` carries the reason in `note` and nothing else, which is
+     what upsell._unmeasured(), prospect_queue._unmeasured() and the two
+     uploads-gallery refusals in hub/qa.py return when the client list, the site
+     audits, the lead store or the picker database will not answer -- and those
+     fell through to the all-clear below, so a Knack timeout drew "Nothing to
+     report - all clear" directly above the report's own sentence reading
+     "which is not the same as nobody".
+
+     Both mean the same thing, so both draw the same panel; `unavailable` keeps
+     its action button because it has one. A report that genuinely found nothing
+     keeps its green tick -- crying wolf on every clean run is its own failure,
+     and it is the one that gets a page ignored. */
+  function cannotLook(d){
+    if(d.unavailable) return d.unavailable;
+    if(d.measured === false) return {message: d.note || ''};
+    return null;
+  }
+  /* ---- end cannot-look decision ---- */
+
   function render(d){
     data = d;
     note.textContent = d.note || '';
@@ -426,12 +452,13 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
       wrap.innerHTML = '<div class="qa-qbcta">'+esc(d.note)+'<br><a href="/status">Open System Status</a></div>';
       return;
     }
-    // "We looked and it is fine" and "we could not look" are different
-    // answers, and rendering both as a green tick is how a page ends up
-    // confidently telling you the opposite of the truth. A report that sets
-    // `unavailable` is saying it could not look.
-    if(d.unavailable){
-      var u = d.unavailable;
+    var u = cannotLook(d);
+    if(u){
+      // The panel is where the reason belongs, beside the words "Not
+      // measured". `#qaNote` has already been given the same string a few
+      // lines up, and one sentence printed twice on one screen reads as two
+      // findings.
+      if(u.message && u.message === d.note){ note.textContent = ''; }
       wrap.innerHTML = '<div class="qa-unavailable">'+
         '<b>Not measured</b><span>'+esc(u.message||'')+'</span>'+
         (u.action_post ? '<button class="qa-act" data-post="'+esc(u.action_post)+'">'+

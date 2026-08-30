@@ -83,6 +83,13 @@
   @media(max-width:560px){h1{font-size:22px}.script{font-size:16px}
     .acts button{flex:1}}
 </style>
+{# The mark that says something is running. /r/ is in this module's
+   PUBLIC_PREFIXES, which wsgi.py hands to HubBar as well as to AuthGuard —
+   the client reading this has no Hub account and must not meet our chrome —
+   and hub-thinking.js rides in with that chrome. So approving a spot said one
+   word and grayed a button out, with nothing moving. Guarded, so a Jinja
+   environment without the global loses the mark rather than the page. #}
+{{ s1_wait_assets() if s1_wait_assets is defined else '' }}
 </head>
 <body>
 
@@ -263,15 +270,24 @@
 
   function send(body, msgNode, btn){
     body.name = name();
-    if(btn) btn.disabled = true;
-    say(msgNode, "Sending…");
+    // busy() keeps the button's own label to put back, so the message line is
+    // free to hold the answer rather than the word "Sending…".
+    var w = window.S1Wait
+      ? S1Wait.busy(btn, {kind:"wait", label:"Sending\u2026"})
+      : {done:function(){ if(btn) btn.disabled = false; }};
+    if(!window.S1Wait){
+      if(btn) btn.disabled = true;
+      say(msgNode, "Sending…");
+    } else {
+      say(msgNode, "");
+    }
     fetch(API + "/feedback", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify(body)
     }).then(function(r){ return r.json().then(function(j){
         return {ok:r.ok, j:j}; }); })
       .then(function(res){
-        if(btn) btn.disabled = false;
+        w.done();
         if(!res.ok || !res.j.ok){
           say(msgNode, res.j.error || "That didn't send. Try once more.", "err");
           return;
@@ -281,7 +297,7 @@
         say(document.getElementById("genmsg"), "");
       })
       .catch(function(){
-        if(btn) btn.disabled = false;
+        w.done();
         // Never say "sent" when it wasn't. The customer needs to know.
         say(msgNode, "That didn't send — check your connection and try again.",
             "err");

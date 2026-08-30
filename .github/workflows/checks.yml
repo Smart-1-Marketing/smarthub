@@ -218,6 +218,24 @@ jobs:
             echo "test_report_cache.py not on this branch — nothing to run."
           fi
 
+      - name: QA report tests
+        # Every report on /qa answers, returns a table the page can draw, and
+        # is JSON-encodable -- run with no Knack, no QuickBooks and no
+        # GoHighLevel, which is the state that produces a confident empty.
+        # Then the half that matters: a report which could not look must never
+        # render as "Nothing to report - all clear". That is swept by AST over
+        # every module a report is built from, rather than asserted about the
+        # four returns that were wrong, and the page's own decision block is
+        # lifted out of qa_report.html and run in node. Reaches no provider.
+        # Guarded like the steps around it so this workflow stays mergeable on
+        # a branch that predates the file.
+        run: |
+          if [ -f test_qa_reports.py ]; then
+            python test_qa_reports.py
+          else
+            echo "test_qa_reports.py not on this branch — nothing to run."
+          fi
+
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
@@ -518,6 +536,22 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: Rate card coverage — every product, on a proposal that renders
+        # The tests around the card check its rules against the rows somebody
+        # thought to write down, which is the set that was already right. This
+        # builds eight proposals from the card's own categories, buys every
+        # product on one of them, and renders each as a PDF and a Word file —
+        # so a product added tomorrow is exercised without anybody editing a
+        # list, and a whole new category fails by name rather than being
+        # silently skipped. Guarded like the steps around it; it reaches no
+        # third party and owns its own database.
+        run: |
+          if [ -f test_rate_card_coverage.py ]; then
+            python test_rate_card_coverage.py
+          else
+            echo "test_rate_card_coverage.py not on this branch — nothing to run."
+          fi
+
       - name: IO record tests — the order as a record, not just a PDF
         # One row per order, a resubmission that updates rather than doubling,
         # and bookkeeping that cannot fail the submit it is bookkeeping for.
@@ -766,6 +800,19 @@ jobs:
             python test_blog_publish.py
           else
             echo "test_blog_publish.py not on this branch — nothing to run."
+          fi
+
+      - name: SEO client list and record tests
+        # The four status pills, the empty client name that matched the whole
+        # website registry, the failed record load that rendered as an empty
+        # record, and that SEO work reaches the client's own 360 page. Guarded
+        # like the steps above so this workflow stays mergeable on a branch
+        # that predates the file. Needs no network.
+        run: |
+          if [ -f test_seo_page.py ]; then
+            python test_seo_page.py
+          else
+            echo "test_seo_page.py not on this branch — nothing to run."
           fi
 
       - name: Image download and shared zip builder tests
@@ -1058,6 +1105,33 @@ jobs:
             echo "test_housekeeping.py not on this branch — nothing to run."
           fi
 
+      - name: Client ownership and the My Clients report
+        # Who owns which client, and what is outstanding on each of them: that
+        # a client has exactly one owner and a handover names who held it, that
+        # "Riverside HVAC" never collects "Riverside HVAC Supply", that a bulk
+        # assignment reports every row's own outcome and writes the file once
+        # rather than once per client, that a standing partner rule writes no
+        # assignment rows at all and every row it owns says which partner it
+        # came from, that a direct assignment beats a rule and taking a client
+        # off everybody sticks rather than being re-claimed on the next read,
+        # that two rules naming different people leave the client unassigned
+        # and name both, that an owner whose account is gone is named rather
+        # than read as unassigned, that owners and Ignore/Done marks are
+        # applied on read so one gunicorn worker's press is not invisible to
+        # the other, that a Done mark on an issue which has since changed
+        # reports itself superseded, that a source which could not be read is
+        # named instead of counted as nothing, and that every route refuses a
+        # stranger. Guarded like the steps above so this
+        # workflow stays mergeable on a branch that predates the file. It sets
+        # its own DATABASE_URL and HUB_DATA_DIR, so it never touches the real
+        # ones.
+        run: |
+          if [ -f test_client_owners.py ]; then
+            python test_client_owners.py
+          else
+            echo "test_client_owners.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a
@@ -1089,6 +1163,11 @@ jobs:
                    # redirect; a 3xx here is the correct answer.
                    "/sales/builder/", "/sales/proposals/", "/tools/io/",
                    "/client360", "/tools",
+                   # Two blueprint pages and the API each draws itself from.
+                   # A page that boots while its API 500s is a blank tool, and
+                   # this one's whole content arrives from the fetch.
+                   "/my-clients", "/api/my-clients/scoreboard",
+                   "/qa/client-owners", "/api/client-owners",
                    # The landing maker, and the API its page calls.
                    "/sales/landing", "/api/landing",
                    # The website block builder. Its page draws itself entirely
@@ -1283,3 +1362,87 @@ jobs:
       # while fan_radio, doing the same job, did.
       - name: Every module's work is attributable
         run: python3 test_activity_logging.py
+      # Declared and never wired is the failure this repo has paid for most
+      # often -- an ">>> INTEGRATION POINT <<<" naming three writers that have
+      # never existed, `storage.manifest()` feeding an audit nobody built,
+      # `check_limits()` written while the page that needed it 500'd. None of
+      # them errored: an uncalled function is indistinguishable from a working
+      # one until somebody goes looking for the feature it was half of. Every
+      # survivor carries the reason it is allowed to, and an entry naming a
+      # function that is gone -- or one something now calls -- fails.
+      - name: Nothing is declared and left unwired
+        run: python3 test_unwired.py
+
+      # `.spin` was defined nine times before hub-thinking.js. The script reaches
+      # the Hub three ways (base.html, HubBar, the hub app's own injector) and
+      # three client-facing pages inline their own copy, because a Hub script on
+      # a stranger's page is a new outbound dependency. This holds the four in
+      # step -- same paths, same speed, same reduced-motion rule -- so a prospect
+      # and a rep are not looking at two different features.
+      - name: One mark for a wait, in all four places it is drawn
+        run: python3 test_thinking.py
+
+      # The three index pages, and the crumb map held against the tiles rather
+      # than remembered. It has drifted twice: the creative tools moved onto
+      # /creative while their URLs stayed under /tools/, and six QA tools moved
+      # with their "back" still landing on Client Tools. Nothing reports that --
+      # the link resolves and the page renders, it simply lands where the tool
+      # is not. Lifts the resolution block out of the page and runs it in node.
+      - name: Every tool is tiled once, and the trail names it
+        run: python3 test_menu_layout.py
+
+      # The primitives four screens of one product share. It also walks the
+      # rendered HTML to assert the page wrapper still contains the page: one
+      # stray closing tag ends it early, after which every rule scoped to it
+      # silently stops applying -- valid markup, resolving links, passing
+      # pagecheck, and invisible in the diff.
+      - name: One description of the record-page look
+        run: python3 test_detail_ui.py
+
+      # Three places a model reads something the Hub already holds -- a project
+      # name, a client's photographs, a ticket's prose. The safety argument is
+      # that none of them writes by arriving, and this asserts it from the AST:
+      # the source of each carries no path to a write.
+      - name: The model proposes, the code decides, a person presses
+        run: python3 test_ai_proposals.py
+
+      # Its walkthrough described a wizard that no longer exists -- a Storyboard
+      # step the tool had replaced, lengths with no :06 in them, and a QR code
+      # called required where the rule is advisory. A rep believes a
+      # walkthrough, so this asserts against each of those by name.
+      - name: The Commercial Builder explains the tool it is
+        run: python3 test_commercial_explainer.py
+
+      # Every help key placed resolves, every tour step rings a card its own
+      # screen actually draws, and none of it reaches the two pages a prospect
+      # reads -- a staff note there is an internal note in front of a client.
+      - name: The prospect record and the audit explain themselves
+        run: python3 test_prospect_explainer.py
+
+      # Named in neither this workflow nor CLAUDE.md's list until now, which is
+      # the same gap one step further on: a check nobody runs and nobody has
+      # written down is one nothing would miss.
+      - name: Website block tests (the second file)
+        run: python3 test_site_blocks.py
+
+      # CLAUDE.md ends its list of checks by saying all of it runs on every
+      # pull request, and it did not: seven of the files that list names were
+      # run by nobody but a person who thought to type them -- and the file
+      # making the claim is the file listing them. This asserts it in both
+      # directions, so the next check added cannot be gated by nobody.
+      - name: The gate runs every check a person runs
+        run: python3 test_ci_gate.py
+
+      # The IO Builder had no test of its own, and booting it and pressing its
+      # buttons found every AI button in the tool dead: this module carried a
+      # second copy of the OpenAI Responses call, and the copy attached the
+      # hosted web_search tool to every request — the failure CLAUDE.md
+      # records against the Proposal Builder, whose copy was fixed while this
+      # one was never touched. There is one reader now and both read it. It
+      # also holds the two answers that were reported as successes -- a
+      # truncated answer reaching the internal PDF as an empty landing-page
+      # review, and a media mix with every field blank -- the landing review
+      # that now reads the page rather than asking a model to visit it, and
+      # where the line falls between an order and an attempt on submit.
+      - name: IO Builder — the model calls, and the landing page it now reads
+        run: python3 test_io_builder.py
