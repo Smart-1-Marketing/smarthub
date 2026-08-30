@@ -3669,6 +3669,79 @@ touched by" while the heading says Created by; an uploaded proposal answers
 the same question with its own field, and a row from before it was recorded
 says *not recorded* rather than showing a blank somebody reads as nobody.
 
+### One proposal, three monthly figures, and a fourth on the insertion order
+
+`campaign_cost()`. `summarize_into()` took `monthly_budget` from the selected
+package or from `state["budget"]` — the number typed on the Budget step, which
+is what the client **asked for** — while the media plan totalled the lines
+actually being bought and `ioDataPayload()` billed those same lines. Editing a
+line is the ordinary case, and the moment one is edited the document says four
+different things:
+
+| On the document | Monthly | Campaign |
+|---|---|---|
+| Cover | $8,000 | $48,000 |
+| Media Mix & Budget Allocation | $5,750 | $34,500 |
+| Investment Summary | $8,000 of media | $51,594 |
+| The insertion order | $5,750 | — |
+
+$2,250 a month between the document a client signs and the order that bills
+them. Nothing errored, and every screen was internally consistent, which is
+why it survived.
+
+**The plan is the number.** Once there are line items they are what is being
+bought, and the cover, the media plan, the investment summary, the packages,
+the IO and the dashboard's pipeline all derive from `campaign_cost()`.
+
+Four rules in it. **Recurring and one-time are never added together** — a
+$1,500 shoot is not $1,500 a month, and the old `sum(i["dollars"])` fallback
+said it was. **A line runs for its own term**, read once rather than in each
+caller. **The Suite licence is not campaign cost**: it is a separate product
+with its own line, and blending it is how a client comes to believe the
+platform stops costing money when they pause the media. And **a quote with no
+plan yet still answers**, with the ask, so nothing has to branch on whether
+there are items.
+
+**The working budget follows the plan, and what the client asked for is
+kept.** `syncBudgetToPlan()` runs from both editors and from a change of
+basis, because otherwise the number depends on which screen the rep happened
+to edit the plan from; `budgetAsked` records the conversation and is never
+overwritten; and the Budget step **says when the two have parted company**,
+because a rep who set $8,000, built a $5,750 plan and came back reads $5,750
+with no explanation and assumes the tool lost their answer. The **Recommended
+package is the plan exactly** rather than the plan rounded to the nearest
+$250 — a package table saying $5,750 beside a media plan saying $5,730 is the
+disagreement this whole change exists to end.
+
+**Every figure is labelled with its scope, and same-scope figures agree.**
+There is no single number for two different questions: the cover and the media
+plan's totals row are the campaign's own cost, and the Investment Summary adds
+the licence and says *including licensing* on its total. What is forbidden is
+two figures with the same label disagreeing.
+
+**Two more figures the same mistake was hiding.** `creative_needs.medium_spend()`
+multiplied *every* line by the flight, so a one-time production read as six
+times its cost — printed on the client's creative section, and, worse, it
+switches the comp confirmation **off**, since that question is only asked where
+the spend is *below* the threshold, which is exactly the small campaign it
+exists for. And the **Recommended Channel Strategy** table listed every line,
+so "Video Production — top of funnel, builds awareness and trust on the screens
+the household already watches" and "Management Fee — supports the campaign"
+were printed on a document a client reads; `channel_lines()` keeps the lines
+that are channels, and the preview filters through the same reading rather than
+keeping its own.
+
+**And the insertion order was handed the buy-side rate.** `lineForIO()` sent
+the card's own rate, so an IO read `CPM 4.25` for a line the client had been
+quoted at $8.50; it sends `sellRateOf()` now. Its management fee field asks
+for "an amount, percentage, INCLUDED, or NONE" and was being handed
+*"Yes — per rate card"* — not an amount, and our pricing sheet named on a
+document that reaches a client. It is read off the plan's own fee lines, or
+**NONE**, which is a real answer and the word that field expects.
+
+`test_campaign_cost.py` asserts all of it, including that the browser keeps no
+copy of the arithmetic.
+
 ### A price with no end on it
 
 `hub/quote_validity.py`. `VALID_STATUSES` has carried **Expired** since the day
@@ -6162,6 +6235,8 @@ python3 test_detail_ui.py          # one description of the record-page look, an
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
                                    #   only once, and the internal calculator that
                                    #   computes the same plan and captures nothing
+python3 test_campaign_cost.py      # one number for what the campaign costs: the
+                                   #   cover, the plan, the summary and the IO
 python3 test_quote_validity.py     # how long a price stands, the Expired nothing
                                    #   set, what Suite may decide, and delivery
                                    #   back under the media plan
