@@ -495,21 +495,83 @@ UNITS: list[dict[str, Any]] = [
      "text": {"brand_name": 25, "headline": 34}},
 
     # ---- TikTok ----------------------------------------------------------
-    {"id": "tiktok_video", "channel": "tiktok", "name": "In-Feed Video Ad",
-     "kind": "video", "formats": ["mp4", "mov"],
-     "ratios": [(9, 16), (16, 9), (1, 1)], "max_bytes": 500 * MB,
-     "duration": (5, 60),
-     "text": {"brand_name": (2, 20), "description": (12, 100)},
-     "notes": ["Emojis cannot appear in the brand name.",
+    # Transcribed against the 2026 kit. The 2025 model held three formats to
+    # the kit's six and not one of the three names is a format TikTok sells --
+    # which is how it was found, and is the smaller half of it. Two of the
+    # three refused creative the kit allows:
+    #
+    #   * the in-feed video capped at :60 against a published **10 minutes**,
+    #     and taking two file types where the kit takes five;
+    #   * the image ad pinned to 1200x628 at 500 KB, when the kit specs
+    #     images by ratio now and says in as many words that 1200x628
+    #     "survives only as the horizontal carousel option" -- so a 720x1280
+    #     vertical, the shape TikTok recommends, was refused outright.
+    #
+    # `tiktok_video` keeps its id through the rename, the rule `billboard`
+    # gives. The other two are in RETIRED_UNITS rather than edited into
+    # something else: an in-feed still and a profile image are not formats
+    # this kit sells, and quietly re-pointing their ids at the carousel would
+    # make a delivered 1200x628 read as one card of a 2-to-35 image set.
+    {"id": "tiktok_video", "channel": "tiktok", "name": "Auction In-Feed",
+     "kind": "video", "formats": ["mp4", "mov", "mpeg", "3gp", "avi"],
+     "ratios": [(9, 16), (16, 9), (1, 1)],
+     "min_width": 540, "max_bytes": 500 * MB, "duration": (1, 600),
+     "text": {"caption": 100},
+     "notes": ["9:16 is recommended, 540x960 minimum; 16:9 at 960x540 and "
+               "1:1 at 640x640.",
+               "Bitrate 516 kbps or better.",
+               "The caption is ~100 characters, 50 for CJK.",
+               "Brand Name and Profile Image are obsolete for new auction "
+               "campaigns — from January 2026 the display name and avatar "
+               "are inherited from the linked TikTok account.",
+               "Emojis cannot appear in the account name.",
                "Emojis, {} and # cannot appear in the description.",
                "Punctuation and spaces occupy characters."]},
-    {"id": "tiktok_image", "channel": "tiktok", "name": "In-Feed Image Ad",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (1200, 628),
-     "max_bytes": 500 * KB,
-     "text": {"brand_name": (2, 20), "description": (12, 100)}},
-    {"id": "tiktok_profile", "channel": "tiktok", "name": "Profile Image",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "ratios": [(1, 1)],
-     "max_bytes": 50 * KB},
+    {"id": "tiktok_spark", "channel": "tiktok", "name": "Spark Ads",
+     "kind": "video", "formats": ["mp4", "mov"], "duration": (1, 600),
+     "text": {"caption": 150},
+     "notes": ["No aspect ratio, resolution, bitrate or file-size "
+               "restriction — the organic post is the creative.",
+               "Copy is inherited from that post and is not editable; a "
+               "pulled caption runs to 150 characters."]},
+    {"id": "tiktok_reservation", "channel": "tiktok",
+     "name": "Reservation In-Feed",
+     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(9, 16)],
+     "max_bytes": 500 * MB, "duration": (5, 60),
+     "text": {"caption": 100},
+     "notes": ["9:16 recommended, bitrate 2,500 kbps or better.",
+               ":09 to :15 is the recommended length."]},
+    {"id": "tiktok_carousel", "channel": "tiktok", "name": "Carousel Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "sizes": [(1200, 628), (640, 640), (720, 1280)],
+     "target_bytes": 100 * KB,
+     "notes": ["2 to 35 images: 1200x628 horizontal, 640x640 square or "
+               "720x1280 vertical.",
+               "100 KB per image is what the kit suggests, not a ceiling it "
+               "publishes.",
+               "A music track is required and is a separate file: MP3, at "
+               "least :02, up to 10 MB.",
+               "One caption and one call to action cover the whole "
+               "carousel."]},
+    {"id": "tiktok_gab_video", "channel": "tiktok",
+     "name": "Global App Bundle — Video",
+     "kind": "video", "formats": ["mp4", "mov", "mpeg", "avi"],
+     "ratios": [(9, 16), (16, 9), (1, 1)],
+     "min_width": 640, "max_bytes": 500 * MB, "duration": (5, 60),
+     "text": {"brand_name": (2, 20), "description": (1, 100)},
+     "notes": ["9:16 at 720x1280 minimum, 16:9 at 1280x720, 1:1 at 640x640.",
+               ":21 to :30 is the recommended length.",
+               "Brand name is 2-20 Latin characters, 1-10 Asian.",
+               "Global App Bundle is what Pangle is called now, and it "
+               "covers the CapCut and Fizzo placements."]},
+    {"id": "tiktok_gab_image", "channel": "tiktok",
+     "name": "Global App Bundle — Image",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "ratios": [(9, 16), (16, 9), (1, 1)],
+     "min_width": 640, "max_bytes": 100 * MB,
+     "text": {"brand_name": (2, 20), "description": (1, 100)},
+     "notes": ["9:16 at 720x1280 recommended, 16:9 at 1280x720, "
+               "1:1 at 640x640."]},
 
     # ---- GPT ads ---------------------------------------------------------
     # NOT from the 2025 kit — this one is transcribed from the platform's own
@@ -548,6 +610,15 @@ UNITS: list[dict[str, Any]] = [
 #
 # Each says what replaced it, so a row carrying the tag can be read.
 RETIRED_UNITS = [
+    {"id": "tiktok_image", "channel": "tiktok", "name": "In-Feed Image Ad",
+     "kind": "image", "retired": "The kit specs TikTok images by ratio now, "
+                                 "and 1200x628 survives only as the "
+                                 "horizontal Carousel Ads option."},
+    {"id": "tiktok_profile", "channel": "tiktok", "name": "Profile Image",
+     "kind": "image", "retired": "Custom Identity is being retired — from "
+                                 "January 2026 the avatar is inherited from "
+                                 "the linked TikTok account, so there is no "
+                                 "profile image to supply."},
     {"id": "x_direct_message", "channel": "x", "name": "Direct Message Card",
      "kind": "image", "retired": "X retired the format; there is no 2026 "
                                  "equivalent on the kit."},
@@ -791,7 +862,8 @@ def _plain(fragment: str) -> str:
         re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment or ""))).strip()
 
 
-_KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin"}
+_KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin",
+                     "tiktok": "tiktok"}
 
 # Transcribed against the 2025 kit and not yet re-checked against 2026, with
 # what is known to have moved. Not findings -- a backlog somebody works down,
@@ -799,8 +871,6 @@ _KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin"}
 # the build on them. Each is a client being asked for a format under a name
 # its platform has changed or dropped.
 _KIT_NAMES_PENDING = {
-    "tiktok": "the kit sells 6 formats and none of our 3 names is among "
-              "them (Auction In-Feed, Spark Ads, Reservation In-Feed...)",
     "snapchat": "the kit sells 7 formats against our 2",
     "youtube": "'TrueView' is retired branding for what the kit calls "
                "Skippable in-stream; the kit also sells Shorts and Masthead",

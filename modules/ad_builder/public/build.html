@@ -2130,16 +2130,44 @@
      writing over the panel, which the indicator's own isConnected check
      already handles. */
   function bgBusy(what, kind) {
+    return waitIn(bgResults(), what, kind, function (text) {
+      bgSay('<span class="bgmsg">' + esc(text) + '</span>');
+    });
+  }
+
+  /* bgBusy was hardwired to the background panel, and the animation panel has
+     three waits of its own -- encoding a real GIF to preview it, running the
+     job, and the Cloudinary upload behind Approve. Each of those said a word
+     in plain text and nothing else, on the one screen this repo has already
+     been fixed for saying "Running report..." with no sign it was still going.
+
+     Two helpers because there are two targets and hub-thinking.js draws them
+     differently: a box gets a glyph and an elapsed line, a button keeps its
+     width and its original label. Neither may raise -- a handle comes back
+     even with nothing to draw on -- and neither writes "Done" or a tick,
+     because whether the call succeeded is the caller's answer. */
+  function waitIn(target, what, kind, fallback) {
     if (window.S1Think) {
-      return window.S1Think.attach(bgResults(),
-        { kind: kind || 'wait', label: what });
+      return window.S1Think.attach(target, { kind: kind || 'wait', label: what });
     }
-    bgSay('<span class="bgmsg">' + esc(what) + '</span>');
+    if (fallback) fallback(what);
     return {
-      stage: function (text) {
-        if (text) bgSay('<span class="bgmsg">' + esc(text) + '</span>');
-      },
+      stage: function (text) { if (text && fallback) fallback(text); },
       done: function () {}
+    };
+  }
+
+  function waitBtn(btn, what, kind) {
+    if (!btn) return { stage: function () {}, done: function () {} };
+    if (window.S1Think) {
+      return window.S1Think.busy(btn, { kind: kind || 'wait', label: what });
+    }
+    var was = btn.innerHTML, wasDisabled = btn.disabled;
+    btn.disabled = true;
+    btn.textContent = what;
+    return {
+      stage: function (text) { if (text) btn.textContent = text; },
+      done: function () { btn.innerHTML = was; btn.disabled = wasDisabled; }
     };
   }
 
@@ -4502,8 +4530,14 @@
      stands even when the rest fails, so nothing here can lose it. */
   function animApprove(size, on) {
     var row = document.querySelector('.anim-built[data-size="' + size + '"]');
+    /* Approve is an upload to Cloudinary and then a write to the Hub, which
+       is seconds of somebody watching a button that had gone gray. The handle
+       is ended before the redraw rather than left to it: animRefreshBuilt()
+       re-reads the rows from the server, and a fetch that fails there does not
+       rewrite the row -- which left the button disabled reading "Sending..."
+       with nothing coming. */
     var btn = row && row.querySelector('[data-approve]');
-    if (btn) { btn.disabled = true; btn.textContent = on ? 'Sending…' : 'Removing…'; }
+    var mark = waitBtn(btn, on ? 'Sending…' : 'Removing…');
     post('/api/animate/' + encodeURIComponent(state.requestId) + '/approve', {
       conceptId: anim.conceptId,
       platform: state.platform,
@@ -4525,8 +4559,10 @@
         return { note: note + ' ' + f };
       });
     }).then(function (out) {
+      mark.done();
       animRefreshBuilt(out.note);
     }).catch(function (e) {
+      mark.done();
       animRefreshBuilt((e && e.message) || 'That could not be recorded.', true);
     });
   }
@@ -4589,7 +4625,14 @@
   function animPreview() {
     var stage = $('animStage'); if (!stage || !anim.spec) return;
     var seq = ++anim.seq;
-    stage.innerHTML = '<span style="font-size:12px;color:var(--ink-2)">Building…</span>';
+    /* This encodes a real GIF server-side -- every frame composed and the
+       weight ladder stepped -- so it is the longest wait on the panel and it
+       said the word "Building" in gray. Every exit below writes over the
+       stage, which is what ends the mark: the indicator stops itself when its
+       box leaves the page, and requiring each of five returns to remember a
+       .done() is how one of them forgets. */
+    stage.innerHTML = '';
+    waitIn(stage, 'Encoding the animation…', 'wait');
     $('animFacts').innerHTML = '';
     $('animIssues').innerHTML = '';
     post('/api/animate/preview', {
@@ -4641,21 +4684,27 @@
       return;
     }
     anim.busy = true;
-    var btn = $('animBuild');
-    btn.disabled = true; btn.textContent = 'Building…';
+    var mark = waitBtn($('animBuild'), 'Building…');
     post('/api/animate/' + encodeURIComponent(state.requestId), {
       conceptId: anim.conceptId,
       sizes: anim.sizes,
       animation: anim.spec
     }).then(function (r) {
       if (r && r.error) throw new Error(r.error);
+      mark.done();
       anim.close();
-      showNextSteps('Building ' + r.total + ' animated file(s). They are written ' +
-        'beside the static ones and go into the delivery ZIP under animated/.');
+      /* What this used to say -- "they go into the delivery ZIP under
+         animated/" -- stopped being true the day approving one became how it
+         reaches the client, and nothing anywhere said so. An operator reading
+         it built eight moving ads and waited for a ZIP that was never going to
+         hold one. */
+      showNextSteps('Building ' + r.total + ' animated file(s). Each is watched ' +
+        'and approved on its own and sent to the client as its own file — ' +
+        'none of them goes into the delivery ZIP.');
       followAnimate(r.jobId);
     }).catch(function (e) {
       anim.busy = false;
-      btn.disabled = false; btn.textContent = 'Build the animation';
+      mark.done();
       $('animFacts').innerHTML = '<span class="bad">' +
         esc((e && e.message) || 'That could not be started.') + '</span>';
     });
@@ -4678,12 +4727,12 @@
             var bad = (j.animations || []).filter(function (a) { return a.status === 'fail'; });
             var msg = 'Animated ' + made + ' size' + (made === 1 ? '' : 's') + '.';
             if (bad.length) {
-              /* Named, because a failing animation is WITHHELD from the
-                 delivery and the static file goes in its place -- a count that
-                 said 8 and a ZIP that held 6 is the gap this sentence closes. */
-              msg += ' ' + bad.length + ' did not pass its checks and will not be ' +
-                'delivered (' + bad.map(function (a) { return a.size; }).join(', ') +
-                ') — the still versions of those still ship.';
+              /* Named, because approving is the only thing that sends one and
+                 a failing animation cannot be approved -- so a count that said
+                 8 with two of them unsendable is the gap this sentence closes. */
+              msg += ' ' + bad.length + ' did not pass its checks and cannot be ' +
+                'approved or sent (' + bad.map(function (a) { return a.size; }).join(', ') +
+                ') — the still versions of those are unaffected.';
             }
             var skipped = j.animationSkipped || [];
             if (skipped.length) {

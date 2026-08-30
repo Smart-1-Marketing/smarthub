@@ -1540,17 +1540,6 @@ jobs:
       # the same fix already done beside it.
       - name: Work filed against a client reaches that client's record
         run: python3 test_work_attribution.py
-      # CLAUDE.md records that `_audit` was bound at the top of Sites Admin and
-      # called nowhere, so deleting a client's live website and connecting a
-      # domain were among the least attributable actions in the Hub. The sweep
-      # that fixed it wired four call sites and stopped: creating a site,
-      # writing brand colors onto a client's live pages, setting what they are
-      # billed, and opening a builder session into their site all stayed
-      # silent. test_activity_logging.py cannot see that — it asks whether a
-      # module logs *at all*, and one call site satisfies it. This asks the
-      # finer question of every write route, with the remainder declared.
-      - name: Sites Admin — every write on a client's site has a name on it
-        run: python3 test_sites_admin.py
       # The last two modules no test named except in passing. Each carried a
       # failure no screen could report: UTM Builder printed the length of its
       # own page as the match count ("300 of 900" for a search matching 450),
@@ -1564,3 +1553,15 @@ jobs:
       # offers at 120, as an HTML 413 the page could only report as "Failed".
       - name: UTM Builder and Background Remover
         run: python3 test_utm_bg_tools.py
+      # /api/integrity's silent-module check reads a call rather than an
+      # import now, and the seven modules that had bound hub.audit and never
+      # used it were fixed. That sweep wired a handful of call sites per
+      # module and stopped, and nothing could see the remainder: the check one
+      # level up is satisfied by ONE call site. Sites Admin recorded deleting
+      # a client's website and not creating one; Google Finder recorded
+      # deploying a tag and not deploying a pixel into the same container,
+      # which is the very action CLAUDE.md names. One walk, in hub/audit.py,
+      # holds both -- and each module declares the writes that deliberately
+      # record nothing, so a silent one is a decision rather than an oversight.
+      - name: Every write into a client's own account has a name on it
+        run: python3 test_write_attribution.py

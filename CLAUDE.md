@@ -4240,46 +4240,67 @@ note says so rather than letting a site billed either way read as unbilled.
 ## Wiring four call sites is not wiring the module
 
 `/api/integrity`'s silent-module check reads a **call** now rather than an
-import, and seven modules that had bound `hub.audit` and never used it were
-fixed. `modules/sites_admin` was one of them, and what it got was four call
-sites: suspend/cancel/reactivate, connect domain, disconnect domain, delete
-website. Four more writes on the same screens stayed silent, and every one of
-them changes something a client would notice.
+import, and the seven modules that had bound `hub.audit` and never used it
+were fixed. That sweep wired a handful of call sites per module and stopped,
+and nothing could see the remainder — because **the check one level up is
+satisfied by one call site.** It asks whether a module logs *at all*, which is
+the same shape as the check that read the string `for_module(` and counted the
+binding. A module can be loudly attributable about a quarter of its work and
+pass.
 
-**The create half of a destroy/create pair was the one left out.**
-`delete_website` has been attributable since that fix and `add_site` — which
-creates a client's website and can activate a paid plan — was not, so the
-record showed sites being deleted by somebody and appearing from nowhere.
-`personalization` writes brand colors and tags onto a client's live pages.
-`pricing` sets `client_price`, which is what they are billed, **and**
-`internal_client_name`, which is the join `hub/domain_links.py` writes and
-every domain-keyed report reads — changing it moves a website onto a different
-client's record, which is precisely the attribution nobody can reconstruct
-afterwards. And `project_sso` mints a builder session into the site: not a
-change, but the door the changes are made through, and an unexplained edit to
-a client's pages is answerable only if somebody can say who was let in.
+**Two modules were found doing exactly that, and in both the creating half of
+a create/destroy pair was the half left out.**
 
-**Nothing could see it, because the check one level up is satisfied by one
-call site.** `test_activity_logging.py` asks whether a module logs *at all* —
-which is the same shape as the check that read the string `for_module(` and
-counted the binding, one level finer. A module can be loudly attributable
-about a quarter of its work and pass.
+`modules/sites_admin` recorded `delete_website` and not `add_site`, which
+makes a client's website and can activate a paid plan — so the record showed
+sites being deleted by somebody and appearing from nowhere. Nor
+`personalization`, which writes brand colors onto their live pages, nor
+`pricing`, which sets `client_price` **and** `internal_client_name` — the join
+`hub/domain_links.py` writes and every domain-keyed report reads, so changing
+it moves a website onto a different client's record. Nor `project_sso`, which
+is not a change to the site but is the door the changes are made through.
 
-`HOUSEKEEPING_ROUTES` is the other side, written down rather than left as an
-absence: the reads, the imports of our own tables, and the question-asking
-route, each with its reason, so a silent write is a decision somebody made
-rather than one nobody noticed. `test_sites_admin.py` holds it in **both**
-directions — a write route in neither list fails, and an entry naming a route
-that is gone or one that has since started logging fails too — reads the
-**AST** rather than the text, because this module's own comments name `_audit`
-while explaining why it went uncalled, and is handed a silent route and
-required to name it, because a check that has only ever been green is one
-nobody can trust.
+`modules/google_finder` recorded `disconnect` and not `oauth_callback`, which
+is the moment the Hub *gains* a refresh token for somebody else's Google
+account — the grant every write in that module is made under. And it recorded
+`gtm_deploy_event` while `gtm_deploy_pixel` went unrecorded: arbitrary code,
+in a container we do not own, which is the very action this file already names
+as one of the least attributable in the Hub. `api_gsc_bulk_add` writes
+properties into their Search Console and was silent too.
 
-**And every one of the four logs after the provider answered**, inside the
-try, which is the shape `project_action`'s own comment already describes and
-the shape `approve_render` uses in the Commercial Builder: a change Simvoly
-refused is not written down as a change that was made.
+**One walk, read by both.** `audit.write_route_attribution()` is the question
+asked one level finer, and it lives beside the log rather than being copied
+per module: two readings of one question drift the day either is edited, the
+failure `_client_log_modules()` already had to undo. It reads the **AST**,
+because both modules name `_audit` in comments explaining why it had gone
+uncalled and a check matching text reports the fix as the defect; it resolves
+a module's own `log()` wrapper, the shape `check_work_kinds()` had to learn;
+and it is handed a silent route and required to name it.
+
+**A route that writes without a write method is named rather than missed.**
+Google redirects the browser to `oauth_callback`, so it is a `GET` by protocol
+and a method-based walk cannot classify it — while what it does is store a
+credential. It is asserted by name, because the one thing worse than a walk
+that misses a route is a walk that misses it silently.
+
+**`HOUSEKEEPING_ROUTES` is the other side**, per module, each entry with its
+reason: the reads, the imports of our own tables, and GA4's `runReport`, which
+is a POST that reads. Held in both directions, so an entry naming a route that
+is gone — or one that has since started logging — fails.
+
+**And every one of the new calls logs after the provider answered**, inside
+the try, the shape `project_action`'s own comment already describes and
+`approve_render` uses in the Commercial Builder: a change Simvoly or Google
+refused is not written down as one that was made.
+
+**What is deliberately not here is a repo-wide gate.** The same walk over
+every module that logs finds about **229 silent write routes across 34
+files**, and the great majority are genuinely housekeeping — autosaves,
+drafts, previews, and POSTs that read. A check landing with 229 findings
+nobody can act on is the one people learn to skip, which is the note
+`help_audit.demo_targets()` already makes about the walkthrough backlog. The
+modules that have been triaged declare their remainder and are held to it; the
+rest is a list somebody works down, module by module.
 
 ## Two guards on one client account, and both worked about half the time
 
@@ -4891,13 +4912,13 @@ resolves to a unit that says what replaced it.** Deleting them would orphan the
 tag; leaving them in would go on asking.
 
 `kit_name_drift()` is the check, at **high**, and it covers only the channels
-declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x` and
-`linkedin` today. The four still on the 2025 transcription are named in
-`_KIT_NAMES_PENDING` with what is known to have moved (TikTok's six names
-include none of our three; YouTube's *TrueView* is now *Skippable in-stream*),
-and `kit_coverage()` carries them. A backlog named rather than left as an
-absence — a check listing every platform on the day it is written is red on
-the day it is written, and gets switched off.
+declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x`,
+`linkedin` and `tiktok` today. The three still on the 2025 transcription are
+named in `_KIT_NAMES_PENDING` with what is known to have moved (YouTube's
+*TrueView* is now *Skippable in-stream*), and `kit_coverage()` carries them. A
+backlog named rather than left as an absence — a check listing every platform
+on the day it is written is red on the day it is written, and gets switched
+off.
 
 **And a name check cannot see a number, which is how LinkedIn was refusing
 files the kit told the client to send.** Its 2025 model held five formats to
@@ -4929,6 +4950,36 @@ and an Event ad pulls its 4:1 image off the LinkedIn Event page. Those are
 modeled as `kind: "other"` with no ceilings rather than left out, so a
 requirement can name them and `check()` is never handed one — the answer
 `x_polls` already gives.
+
+**And TikTok is the same finding with the cost the other way up.** Its 2025
+model named three formats to the kit's six and not one of the three was a
+format TikTok sells — found by the name pass, as X and LinkedIn were. What the
+names could not reach is that **two of the three refused creative the kit
+allows, and the third asked for a file that no longer exists.** The in-feed
+video was capped at **:60** against a published **10 minutes** and took two
+file types where the kit takes five; the image ad was pinned to **1200x628 at
+500 KB**, when the kit specs images by ratio now and says in as many words that
+1200x628 *"survives only as the horizontal carousel option"* — so a 720x1280
+vertical, the shape TikTok itself recommends, was refused outright. That is the
+LinkedIn ceiling failure one channel over, and the second time in two
+transcriptions that the numbers were worse than the names.
+
+**A format the kit stops selling is retired, never re-pointed.** `tiktok_image`
+and `tiktok_profile` are in `RETIRED_UNITS` — out of `UNITS`, so nothing asks a
+client for them, and still in `BY_ID`, so a row carrying `unit_tiktok_image`
+resolves to a unit saying what replaced it. Quietly aiming that id at the
+carousel instead would make a delivered 1200x628 read as one card of a
+two-to-thirty-five image set, which is a wrong answer wearing a fix. Profile
+Image goes for a reason that is not about pixels at all: Custom Identity is
+being retired, so from January 2026 the avatar is **inherited from the linked
+TikTok account** and there is nothing for a client to supply. `tiktok_video`
+keeps its id through its rename, the `billboard` rule.
+
+**A target is not a ceiling, and the carousel is where that bites next.** The
+kit publishes *"100 KB suggested per image"*, which is `target_bytes` and not
+`max_bytes` — carried as `min_bytes` once already, in DOOH, where a clean 30 KB
+billboard was refused against a number nobody published as a minimum. Read as a
+maximum here it would refuse a 140 KB card the kit is perfectly happy with.
 
 **Three of the twenty are a different kind of gap, and it reaches the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive
@@ -8715,6 +8766,42 @@ half that did not happen, and an already-stored file is never re-uploaded.
 body** — a name a browser can put in a POST is a name anybody can put in a
 POST, and it is the entire content of the record.
 
+**And the panel went on describing the delivery it had stopped being part
+of.** The build screen's own success message said the files *"are written
+beside the static ones and go into the delivery ZIP under `animated/`"* — true
+for exactly one release, and nothing corrected it the day approving one became
+how it reaches the client. Both halves stayed internally consistent, which is
+why it survived: the deliverer really does withhold them and the panel really
+does build them, so an operator built eight moving ads and waited for a folder
+that was never going to exist. The wording about a failing size was the same
+mistake one clause on — *"will not be delivered"* describes a zip that is now
+all-static either way; what is actually true is that it **cannot be approved,
+and approving is the only thing that sends one**. `test_display_ads.py` asserts
+it from **both ends**, because either alone reads as fine.
+
+**Three waits arrived on the one screen this file had already fixed for
+having none.** The note above about `bgBusy(what, kind)` was written because
+the Display Ad Builder's build screen made three billed calls behind a
+sentence of text that did not change. The animation panel then added three
+more — encoding a real GIF to preview it, running the job, and the Cloudinary
+upload behind Approve — and each said a word in plain text, because `bgBusy`
+was **hardwired to the background panel** and nothing generalised it. A helper
+that only one panel can reach is how the next panel writes its own.
+
+`waitIn()` and `waitBtn()` are the one reading of *put the mark here*, and
+`bgBusy` delegates to the first rather than keeping the copy it had. **Two of
+them because there are two targets**, which `hub-thinking.js` already draws
+differently: a box gets the glyph and the elapsed line, a button keeps its
+width and its **original label** — the failure that helper's own note names,
+where a hand-written swap loses the label and re-enables the button in
+whichever of the two exit paths the author remembered. That was live here:
+`animApprove` ended by redrawing the row from the server, and a fetch that
+failed there never rewrote it, leaving the button disabled reading
+*"Sending…"* with nothing coming. The handle is ended before the redraw now
+rather than by it. The preview is the opposite case and is left to
+`isConnected`: five returns each write over the stage, and requiring every one
+of them to remember a `.done()` is how one forgets.
+
 **The upload is its own Cloudinary call, and that is not tidiness.**
 `uploadCreative` passes `quality: 100`, which is an incoming transformation,
 and **any** re-encode of a GIF rewrites its frame delays and its loop block —
@@ -9862,10 +9949,11 @@ python3 test_client_owners.py      # whose client is this, and what is outstandi
                                    #   not be read named rather than counted
                                    #   as nothing
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
-python3 test_sites_admin.py        # every write on a client's website has a
-                                   #   name against it: creating one was silent
-                                   #   while deleting one was logged, and the
-                                   #   remainder is declared rather than absent
+python3 test_write_attribution.py   # every write into a client's own account
+                                   #   has a name against it: in both modules
+                                   #   the creating half of a pair was the half
+                                   #   left out, and the remainder is declared
+                                   #   rather than left as an absence
 python3 test_suite_panel.py        # creating and deleting Suite sub-accounts:
                                    #   a claim taken before the work and shared
                                    #   between workers, a duplicate check that
