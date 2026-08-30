@@ -28,40 +28,96 @@
 (function () {
   "use strict";
 
+  /* ---- crumb resolution ---------------------------------------------
+   * Pure: it reads a path and returns a trail. test_menu_layout.py lifts
+   * this block out of the file and runs it in node against the real tiles,
+   * rather than restating it -- the arrangement test_proposal_targeting.py
+   * uses on the target-area step, and the reason is the same. What is below
+   * is a second description of where every tool lives, and the first
+   * description is the tile on /creative, /tools or /qa. It has already
+   * drifted twice: once when the creative tools moved off the Tools index
+   * (the note under CREATIVE says so), and again when Scan All Clients,
+   * Match Sites, Match Google Accounts, Web Tickets, Domain Renewals and
+   * Campaign Assets Needed moved to QA Reports and nothing here was told.
+   * Both times the trail went on offering the way back to a page the tool is
+   * no longer listed on, and nothing anywhere reported it.
+   * ------------------------------------------------------------------- */
+
+  // What each tool is called. A segment with no entry is title-cased, which
+  // is right for "site-blocks" and wrong for "io" and "msa" -- so every tool
+  // that has a tile is named here, spelled the way its tile spells it.
   var LABELS = {
     "tools": "Tools", "qa": "QA Reports", "scans": "Site Scans",
     "client360": "Client 360", "seo": "SEO Clients", "diagnostics": "Diagnostics",
     "activity": "Activity Log", "status": "System Status", "sites": "Sites",
-    "suite": "Suite", "google": "Google", "clients": "Clients",
-    "seo-images": "SEO Image Pipeline", "image-creator": "Image Creator",
-    "bg-remover": "Background Remover", "utm": "UTM Builder",
-    "image": "Image Optimizer", "pdf": "PDF Optimizer",
-    "radio-promo": "Radio Promo", "landing-ads": "Landing Page Ads",
-    "fan-radio": "Fan Radio", "tickets": "Web Tickets",
-    "calculators": "Calculators", "page-images": "Page Images",
-    "google-access": "Google Access",
-    "image-picker": "Client Image Uploads",
-    "sites-match": "Match Sites", "commercial-builder": "Commercial Builder",
-    "stale-creative": "Stale Creative", "bulk": "Scan All Clients",
-    "users": "Users", "builder": "Sales Builder", "proposals": "Proposal Builder"
+    "suite": "Suite", "google": "Google Finder", "clients": "Clients",
+    // Creative
+    "display-ads": "Display Ad Builder", "image-creator": "Image Creator",
+    "image": "Image Optimizer & Resizer", "bg-remover": "Background Remover",
+    "page-images": "Page Image Optimizer", "image-picker": "Client Image Uploads",
+    "seo-images": "SEO Image Pipeline", "landing-ads": "Landing Page Ads",
+    "stock-photos": "Stock Photo Search", "commercial-builder": "Commercial Builder",
+    // "Video Search", not "Video Backgrounds": the mount kept its name so
+    // every existing link still resolves, and the tool did not.
+    "video-backgrounds": "Video Search",
+    "radio-promo": "Radio Promo", "fan-radio": "Fan Radio",
+    // Tools
+    "website-audit": "Website Audit", "builder": "Proposal Builder",
+    "io": "IO Builder", "landing": "Landing Page Maker",
+    "msa": "Master Services Agreement", "pdf": "PDF Optimizer",
+    "ads": "Smart 1 Ads", "calculators": "Media Calculators",
+    "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",
+    "site-blocks": "Website Blocks", "widgets": "Scan Widgets",
+    "google-access": "Google Access", "utm": "UTM Builder",
+    "ga-tools": "GA4 Tools", "gtm-tools": "GTM Tools",
+    "webmaster-tools": "Webmaster Tools", "gmb-tools": "Business Profile",
+    "history": "Google History & Logs", "leads": "Leads",
+    // QA Reports
+    "stale-creative": "Stale Creative", "unattached-images": "Unattached Images",
+    "tickets": "Web Tickets", "bulk": "Scan All Clients",
+    "sites-match": "Match Sites to Clients", "google-match": "Match Google Accounts",
+    "campaign-assets": "Campaign Assets Needed", "domains": "Domain Renewals",
+    "users": "Users"
   };
 
-  // Which index page each tool belongs under, so the trail is meaningful
-  // rather than just a copy of the URL.
+  // A mount that holds several tools: its second segment names the tool, so
+  // /sales/builder is the Proposal Builder rather than "Sales", and
+  // /qa/stale-creative is Stale Creative rather than QA Reports twice over.
+  // Only /tools was read this way before, which is why every page under
+  // /sales, /qa and /scans drew its own mount's name as both crumbs.
+  var CONTAINERS = ["tools", "sales", "qa", "scans", "google", "land"];
+
+  // Which index page each tool is tiled on, so the trail is meaningful rather
+  // than a copy of the URL — and, more to the point, so "back" lands on a
+  // page the tool is actually listed on. Anything absent falls back to the
+  // mount it sits under, which is right for a tool tiled where its URL says.
   var PARENT = {
     "tools": null, "qa": null, "scans": null, "client360": null, "seo": null,
     "diagnostics": null, "activity": null, "status": null,
-    "stale-creative": ["/qa", "QA Reports"], "tickets": ["/tools", "Tools"],
+    // Moved to QA Reports; their URLs stayed where they were.
+    "stale-creative": ["/qa", "QA Reports"],
+    "unattached-images": ["/qa", "QA Reports"],
+    "tickets": ["/qa", "QA Reports"], "bulk": ["/qa", "QA Reports"],
+    "sites-match": ["/qa", "QA Reports"], "google-match": ["/qa", "QA Reports"],
+    "campaign-assets": ["/qa", "QA Reports"], "domains": ["/qa", "QA Reports"],
+    // Tiled on Tools.
     "calculators": ["/tools", "Tools"], "google-access": ["/tools", "Tools"],
-    "sites-match": ["/tools", "Tools"], "bulk": ["/tools", "Tools"]
+    "builder": ["/tools", "Tools"], "landing": ["/tools", "Tools"],
+    "msa": ["/tools", "Tools"], "widgets": ["/tools", "Tools"],
+    "ga-tools": ["/tools", "Tools"], "gtm-tools": ["/tools", "Tools"],
+    "webmaster-tools": ["/tools", "Tools"], "gmb-tools": ["/tools", "Tools"],
+    "history": ["/tools", "Tools"], "google": ["/tools", "Tools"],
+    "leads": ["/tools", "Tools"]
   };
 
   // The creative tools moved off the Tools index onto /creative, but their
   // URLs stayed under /tools/, so the trail kept sending people back to a page
-  // their tool is no longer listed on.
+  // their tool is no longer listed on. Display Ad Builder and Stock Photo
+  // Search joined them later and were missed for the same reason.
   var CREATIVE = ["seo-images", "image-creator", "bg-remover", "image",
                   "image-picker", "radio-promo", "fan-radio", "landing-ads",
-                  "page-images", "commercial-builder"];
+                  "page-images", "commercial-builder", "display-ads",
+                  "stock-photos", "video-backgrounds"];
   CREATIVE.forEach(function (k) { PARENT[k] = ["/creative", "Creative"]; });
 
   function pretty(seg) {
@@ -79,14 +135,25 @@
     } catch (e) {}
   }
 
+  // Which segment of a path names the tool. One reading, because the trail
+  // and the "where you came from" crumb are the same question asked about two
+  // paths -- and read separately, the origin crumb said "\u2190 Sales" for the
+  // Proposal Builder and "\u2190 Site Scans" for Scan All Clients, naming the
+  // mount rather than the page somebody had actually been on.
+  function keyOf(path) {
+    var segs = String(path || "").replace(/^\/+/, "").split(/[/?#]/).filter(Boolean);
+    if (!segs.length) return "";
+    return (CONTAINERS.indexOf(segs[0]) >= 0 && segs[1]) ? segs[1] : segs[0];
+  }
+
   function origin() {
     try {
       var f = sessionStorage.getItem("s1crumb:from");
       if (!f || f === location.pathname + location.search) return null;
       // Only offer it when it's a different page, and give it a real name.
-      var seg = f.replace(/^\/+/, "").split(/[/?]/)[0];
-      if (!seg) return { href: f, label: "Dashboard" };
-      return { href: f, label: pretty(seg) };
+      var key = keyOf(f);
+      if (!key) return { href: f, label: "Dashboard" };
+      return { href: f, label: pretty(key) };
     } catch (e) { return null; }
   }
 
@@ -99,22 +166,23 @@
     var crumbs = [{ href: "/", label: "Dashboard" }];
 
     var back = origin();
-    var last = segs[segs.length - 1];
     var first = segs[0];
-    var key = (first === "tools" && segs[1]) ? segs[1] : first;
+    // Under a container the second segment is the tool; anywhere else the
+    // first segment is. Read as `first === "tools"` alone, every page under
+    // /sales, /qa and /scans took its *mount's* name -- so /qa/stale-creative
+    // came out "Dashboard / QA Reports / QA Reports", naming the report
+    // nowhere, and /sales/builder and /sales/landing were both "Sales".
+    var key = keyOf(path);
     var parent = PARENT[key];
 
     if (parent) {
       crumbs.push({ href: parent[0], label: parent[1] });
-    } else if (first === "tools" && segs.length > 1) {
-      crumbs.push({ href: "/tools", label: "Tools" });
-    } else if (first === "qa" && segs.length > 1) {
-      crumbs.push({ href: "/qa", label: "QA Reports" });
-    } else if (first === "scans" && segs.length > 1) {
-      crumbs.push({ href: "/scans/", label: "Site Scans" });
+    } else if (key !== first) {
+      // No index claims it, so the mount it sits under is the way back.
+      crumbs.push({ href: "/" + first, label: pretty(first) });
     }
 
-    crumbs.push({ href: null, label: pretty(key === first ? first : key) });
+    crumbs.push({ href: null, label: pretty(key) });
 
     // If we came from somewhere that isn't already in the trail, surface it.
     if (back && !crumbs.some(function (c) { return c.href === back.href; })) {
@@ -122,6 +190,8 @@
     }
     return crumbs;
   }
+
+  /* ---- end crumb resolution ---------------------------------------- */
 
   function render() {
     if (document.querySelector(".s1-crumbs")) return;

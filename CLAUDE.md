@@ -783,6 +783,48 @@ drawn. Landing back on `/client360` clears it: a bar offering the way back to
 the page you are standing on is noise, and one pointing at yesterday's client
 is worse than noise.
 
+**And the rest of that trail was a second description of where every tool
+lives.** `hub-crumbs.js` carries a hand-written map of URL segment to tool
+name and of tool to index page; the first description is the tile on
+`/creative`, `/tools` or `/qa`. It has drifted **twice**, and its own comment
+records the first: the creative tools moved onto `/creative` while their URLs
+stayed under `/tools/`, so the trail went on offering the way back to a page
+the tool is no longer listed on. It happened again the day Scan All Clients,
+Match Sites, Match Google Accounts, Web Tickets, Domain Renewals and Campaign
+Assets Needed moved to QA Reports — six tools whose "back" landed on Client
+Tools, where none of them is tiled. Nothing reports this: the link resolves,
+the page renders, and it simply lands somewhere the tool is not.
+
+**A segment with no entry is title-cased, which is right for `site-blocks` and
+wrong for `io`.** The IO Builder's trail read **"Io"**, Smart 1 Ads read
+"Ads", the GPT Ads Builder read "Gpt Ads", and Video Search read *Video
+Backgrounds* — the mount kept that name so existing links resolve, and the
+tool did not. Every tiled tool is named now, spelled the way its tile spells
+it.
+
+**Only `/tools` was read as holding several tools**, so every page under
+`/sales`, `/qa` and `/scans` took its **mount's** name — twice.
+`/qa/stale-creative` came out *Dashboard / QA Reports / QA Reports*, naming
+the report nowhere; `/sales/builder` and `/sales/landing` were both *Sales*.
+`CONTAINERS` is the list, `keyOf()` is the one reading of which segment names
+the tool, and the *"where you came from"* crumb reads it too — asked
+separately, that crumb said **← Sales** for the Proposal Builder and **← Site
+Scans** for Scan All Clients, naming the mount rather than the page somebody
+had just been on.
+
+**The map is held against the tiles rather than remembered.**
+`test_menu_layout.py` lifts the resolution block out of the file — it is
+marked for it, and it is pure — runs it in **node**, and requires every tile
+on the three index pages to resolve to a trail that names the tool the tile
+names and offers back the index the tile is on. That is the arrangement
+`test_proposal_targeting.py` uses on the target-area step, for the same
+reason: a copy restated in the test is a third thing to keep in step. It
+started green and it bites on both kinds of drift — a renamed tool and a
+moved tile — which is the only way it was worth adding. A tile pointing at a
+page *inside* another tool is exempt **by name with the tool it belongs to**,
+and an exemption naming a tile that no longer exists fails, the rule
+`check_stale_json_exemptions()` works to.
+
 **The brand card read stored data and nothing ever stored any.** Three modules
 ran live Brandfetch lookups — Image Creator, Smart 1 Ads and the Suite Panel —
 and only the Suite Panel ever saved the answer, and only when it was handed a
