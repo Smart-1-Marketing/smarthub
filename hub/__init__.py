@@ -5701,6 +5701,21 @@ def create_hub_app() -> Flask:
                          b'<script defer src="/hub-thinking.js"></script>'
                          b'<script defer src="/hub-autofill.js"></script>'
                          b'<script defer src="/hub-accordion.js"></script>')
+            # The third code path. hub/templates/base.html links these for the
+            # Hub's own pages and wsgi.py's HubBar injects them into the twenty
+            # dispatcher-mounted modules -- and a blueprint registered on the
+            # hub app passes through neither, which is the same three-way split
+            # hub-thinking.js already names. Google Access, the Image Picker,
+            # Page Image Optimizer, Tickets, the Calculators, Video Search and
+            # the Commercial Builder all arrive here, so a stylesheet added to
+            # only the first two reaches none of them: theme.css was missing
+            # from every one of those pages, and adopting the shared record-page
+            # look on them did nothing at all until this line existed.
+            if b"assets/theme.css" not in body and b"</head>" in body:
+                body = body.replace(
+                    b"</head>",
+                    b'<link rel="stylesheet" href="/assets/theme.css">'
+                    b'<link rel="stylesheet" href="/assets/hub-detail.css"></head>', 1)
             if b"hub-help.css" not in body and b"</head>" in body:
                 body = body.replace(
                     b"</head>",

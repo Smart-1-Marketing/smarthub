@@ -5,37 +5,26 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Scan all clients · Smart 1 Hub</title>
 <style>
+/* The page head, cards, buttons, tables and form controls come from
+   hub/static/hub-detail.css via `s1d-page` on <main> below. What is left is
+   what is genuinely this screen: the credit-cost metrics, the quota band, and
+   the per-row disposition pills. */
 :root{--nav:#1a2e58;--blue:#2563eb;--bg:#f4f6fa;--text:#1e293b;--muted:#64748b;
   --border:#e2e8f0;--good:#147d52;--warn:#a06a00;--bad:#b42318}
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.5 'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text)}
 main{max-width:1200px;margin:0 auto;padding:26px}
-h1{margin:0 0 4px;font-size:27px}
-.sub{color:var(--muted);margin:0 0 20px}
-.card{background:#fff;border:1px solid var(--border);border-radius:11px;padding:18px;margin-bottom:16px}
 .opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;align-items:end}
-label{display:block;font-weight:600;margin-bottom:5px;font-size:13px}
-input[type=number]{width:100%;padding:9px;border:1px solid #cfd7df;border-radius:7px;font:inherit}
 .chk{display:flex;align-items:center;gap:8px;font-weight:500}
 .chk input{width:auto}
-button{border:1px solid #c9d2dc;border-radius:7px;padding:10px 15px;background:#fff;
-  cursor:pointer;font:inherit;font-weight:600}
-button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
-button.go{background:var(--good);border-color:var(--good);color:#fff}
-button:disabled{opacity:.45;cursor:not-allowed}
 .hint{color:var(--muted);font-size:12px;margin-top:6px}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:16px 0}
-.metric{background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px}
-.metric b{font-size:24px;display:block}
-.metric span{color:var(--muted);font-size:12px}
-.metric.spend b{color:var(--bad)}
+/* The one tile that is not a count: what this run will cost in credits. */
+.s1d-tile.spend > b{color:var(--bad)}
 .q{padding:12px 14px;border-radius:9px;margin:14px 0;font-size:13.5px}
 .q.ok{background:#e8f7ef;color:#11633f}
 .q.warn{background:#fff4d7;color:var(--warn)}
 .q.over{background:#fff0ee;color:var(--bad);font-weight:600}
-table{width:100%;border-collapse:collapse;margin-top:8px}
-th,td{text-align:left;padding:9px 11px;border-bottom:1px solid #edf0f3;font-size:13px}
-th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:#fafbfc}
 .pill{display:inline-block;border-radius:20px;padding:3px 9px;font-size:11px;font-weight:700;white-space:nowrap}
 .pill.scan{background:#e7f6ef;color:var(--good)}
 .pill.skip_recent{background:#eef1f4;color:var(--muted)}
@@ -44,17 +33,28 @@ th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute
 .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
 .muted{color:var(--muted)}
 .filters{display:flex;gap:6px;margin:14px 0 0;flex-wrap:wrap}
-.filters button{padding:5px 11px;font-size:12px;font-weight:600}
+/* Not the shared blue: this is the button that spends Insites credits, and it
+   is deliberately a different color from every other control on the page. */
+button.go{background:var(--good);color:#fff}
+button.go:hover{background:#0f6642}
+/* The plain buttons on this page are secondary; the shared default is blue. */
+button:not(.primary):not(.go){background:#fff;color:var(--text);border:1px solid var(--border)}
+button:not(.primary):not(.go):hover{background:#f8fafc;border-color:var(--blue)}
+.filters button{padding:5px 11px;font-size:12px}
 .filters button.on{background:var(--nav);border-color:var(--nav);color:#fff}
 #result{display:none}
 </style>
 </head>
 <body data-module="scans">
-<main>
-  <p class="muted" style="margin:0 0 6px"><a href="/scans/">Site Scans</a> / Scan all clients</p>
-  <h1>Scan all clients</h1>
-  <p class="sub">Audits every client with a website on file. Each scan spends one
-    Insites credit, so nothing starts until you've seen the list and the cost.</p>
+<main class="s1d-page">
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb"><a href="/scans/">Site Scans</a> / Scan all clients</div>
+      <h1>Scan all clients</h1>
+      <p>Audits every client with a website on file. Each scan spends one
+        Insites credit, so nothing starts until you've seen the list and the cost.</p>
+    </div>
+  </div>
 
   <div class="card">
     <div class="opts">
@@ -78,12 +78,12 @@ th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute
   </div>
 
   <div id="plan" style="display:none">
-    <div class="metrics">
-      <div class="metric"><b id="mTotal">0</b><span>Clients on file</span></div>
-      <div class="metric spend"><b id="mScan">0</b><span>Will be scanned</span></div>
-      <div class="metric"><b id="mRecent">0</b><span>Skipped &mdash; recent</span></div>
-      <div class="metric"><b id="mCap">0</b><span>Queued &mdash; over cap</span></div>
-      <div class="metric"><b id="mNo">0</b><span>No usable domain</span></div>
+    <div class="s1d-tiles metrics">
+      <div class="s1d-tile"><b id="mTotal">0</b><span>Clients on file</span></div>
+      <div class="s1d-tile spend"><b id="mScan">0</b><span>Will be scanned</span></div>
+      <div class="s1d-tile"><b id="mRecent">0</b><span>Skipped &mdash; recent</span></div>
+      <div class="s1d-tile"><b id="mCap">0</b><span>Queued &mdash; over cap</span></div>
+      <div class="s1d-tile"><b id="mNo">0</b><span>No usable domain</span></div>
     </div>
     <div id="quota" class="q ok"></div>
     <div class="card">

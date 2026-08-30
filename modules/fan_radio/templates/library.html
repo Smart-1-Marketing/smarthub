@@ -5,23 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Fan Radio library — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
         --ok:#16a34a;--warn:#b45309}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
-  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px}
   .back{color:var(--blue);text-decoration:none;font-size:13px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
   .row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
   input[type=search],select{padding:9px 11px;border:1px solid var(--line);
     border-radius:8px;font:13.5px inherit;background:#fff}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th{background:var(--soft);text-align:left;padding:8px 9px;font-size:10.5px;
-     text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
-     border-bottom:1px solid var(--line);white-space:nowrap}
-  td{padding:9px;border-bottom:1px solid #eef2f7;vertical-align:top}
   a.lnk{color:var(--blue);text-decoration:none} a.lnk:hover{text-decoration:underline}
   .tag{display:inline-block;border-radius:20px;padding:2px 9px;font-size:11px;
        font-weight:700;margin-right:4px;background:var(--soft);color:var(--muted)}
@@ -32,7 +28,7 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap s1d-page">
   <a class="back" href="/tools/fan-radio/">← Fan Radio</a>
   <h1>Fan Radio library</h1>
   <p class="sub">Every set of spots, who approved what, and what they asked to change.</p>

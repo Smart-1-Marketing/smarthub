@@ -6570,6 +6570,64 @@ restates the rules it handed over: a copy left behind is not a broken page, it
 is a page that silently stops matching the others the next time one of them is
 edited.
 
+**The look reaches the Hub three ways, and a sheet added to two of them
+reaches most of it and not the rest.** `hub/templates/base.html` links it for
+the Hub's own pages, `wsgi.py`'s HubBar injects it into the twenty
+dispatcher-mounted modules, and the hub app's own `after_request` injects it
+into the blueprints registered on it — Google Access, the Image Picker, Page
+Image Optimizer, Tickets, the Calculators, Video Search and the Commercial
+Builder. That is the same three-way split `hub-thinking.js` already names, and
+it bit again here: `theme.css` had never been on any of those blueprint pages,
+so adopting the shared look on them did nothing at all until the third injector
+carried it.
+
+**An opt-in page layer, because the sweep is otherwise hundreds of edits.** A
+module puts `s1d-page` on its content wrapper and the ordinary elements inside
+it — a bare `<button>`, a `<table>`, an `<input>`, an `<h1>` — take the Hub's
+look without a class on each one. Site Scans alone declared **three palettes
+across five staff templates** (`--blue` as `#5b8bff`, `#2563eb` and the cyan
+`#009ED2`), each restating `button {}`, `table {}` and `.card {}` in almost the
+same words; converting that element by element is hundreds of edits and a fresh
+chance to miss one, where deleting a stylesheet block and adding one class is a
+change you can read.
+
+Opt-in and scoped, both deliberately: `button`, `table` and `.card` are far too
+ordinary to style globally in a sheet twenty modules receive, and a module that
+has not asked for it is untouched. It **accepts the names pages already use**
+rather than requiring a rename — `ghost` and `sec`, `.on` and `.active`, a tile
+written as `<b>` and `<span>` as well as `.v` and `.l` — because a stylesheet
+that needs the page renamed to suit it does not get adopted. And it **excludes
+the Hub's own injected controls by name**: `hub-help.js` renders a help bubble
+as a `<button>`, so a bare element rule turned every help dot on every adopting
+module into a pill at once, which is how a broad rule goes wrong.
+
+**A label sits above its control, except one that contains it.** That shape is a
+tick box and its wording. The exclusion is a `:has()` rather than something for
+the page to win back, because the injected `<link>` comes *after* the module's
+inline `<style>` — so a same-specificity local rule loses, which is exactly what
+makes adoption a matter of deleting rules.
+
+**And one stray `</div>` closes the wrapper, after which none of it applies.**
+The page still renders, every link resolves, `pagecheck` passes — and every rule
+scoped to `.s1d-page` silently stops at the break. That is what one extra
+closing tag did to Smart 1 Ads, and it is not visible in the diff, so
+`test_detail_ui.py` walks the rendered HTML and asserts the wrapper still
+contains the page.
+
+**What is kept local is kept for a stated reason.** Smart 1 Ads' buttons default
+to *secondary* — nearly every one is a row action and `.b-primary` is the one
+that commits, so a page of blue buttons would have no primary action. Google
+Finder's `.btn` stays because `app.js` builds most of them with a per-platform
+background that color-codes the action to the account it acts on. Neither is
+taste; both are the module's own meaning, and the shared sheet carries the
+shape either way.
+
+**Client-facing templates are untouched throughout.** The scan widget and its
+reports, the client's proposal and social pages, the public estimate, the
+gated calculators and the Google Access connect flow are served to somebody
+with no Hub account, and a staff look is not what they should arrive wearing.
+`test_detail_ui.py` asserts both directions.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.

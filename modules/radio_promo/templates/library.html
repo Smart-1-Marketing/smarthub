@@ -5,21 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Radio Promo library — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--bad:#dc2626}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
-  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px}
   a.back{color:var(--blue);text-decoration:none;font-size:13px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px}
   input[type=search]{width:100%;max-width:360px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit}
   .chips{display:flex;gap:6px;margin:12px 0}
   .chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 13px;font-size:12.5px;cursor:pointer}
   .chip.on{background:var(--blue);color:#fff;border-color:var(--blue)}
-  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
-  th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
-  th{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
   .tag{display:inline-block;font-size:11px;border-radius:10px;padding:1px 8px;background:#e2e8f0;color:#475569}
   .tag.spec{background:#fef3c7;color:#92400e}
   .tag.client{background:#dbeafe;color:#1e40af}
@@ -31,7 +29,7 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap s1d-page">
   <a class="back" href=".">&larr; Radio Promo</a>
   <h1>Library</h1>
   <p class="sub">Every spot written here, spec and client alike.</p>

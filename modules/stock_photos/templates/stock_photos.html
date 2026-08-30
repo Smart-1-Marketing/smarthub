@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Stock Photo Search — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
         --bad:#dc2626;--ok:#16a34a;--warn:#b45309;--gold:#a16207}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1240px;margin:0 auto;padding:28px 22px 70px}
-  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px;max-width:80ch;line-height:1.55}
   .back{color:var(--blue);text-decoration:none;font-size:13px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
   label.f{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
   input[type=search],select{width:100%;padding:10px 12px;border:1px solid var(--line);
     border-radius:8px;font:14px inherit;background:#fff}
@@ -60,7 +61,7 @@
 </style>
 </head>
 <body data-module="stock_photos" data-screen="stock.search">
-<div class="wrap">
+<div class="wrap s1d-page">
   <a class="back" href="/creative">&larr; Creative</a>
   <h1>Stock Photo Search</h1>
   <p class="sub">One search across <b>Pexels</b>, <b>Pixabay</b>, <b>Unsplash</b> and

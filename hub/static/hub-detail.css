@@ -51,6 +51,10 @@
 /* Only .s1d-head. The SEO page's head is also a .page-head, which carries a
    margin from hub.css already, and a second one opens a gap there. */
 .s1d-head { margin-bottom: 16px; }
+/* The title column takes the slack, so a long subtitle does not push the
+   actions onto a line of their own. Only .s1d-head: the SEO page's head
+   lays out from .page-head and is already right. */
+.s1d-head > :first-child { flex: 1 1 380px; min-width: 0; }
 .s1d-head h1, .s1d-head h2 {
   margin: 0; color: var(--s1d-navy); font-size: 23px; line-height: 1.2;
 }
@@ -153,10 +157,12 @@
   background: var(--s1d-wash); border: 1px solid var(--s1d-line);
   border-radius: 10px; padding: 12px 14px;
 }
-.s1d-tile .v, .seoc-tile .v { font-size: 22px; font-weight: 800; color: var(--s1d-navy); }
-.s1d-tile .l, .seoc-tile .l {
+.s1d-tile .v, .seoc-tile .v, .s1d-tile > b {
+  font-size: 22px; font-weight: 800; color: var(--s1d-navy); display: block;
+}
+.s1d-tile .l, .seoc-tile .l, .s1d-tile > span {
   font-size: 11px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .6px; color: var(--s1d-muted); margin-top: 2px;
+  letter-spacing: .6px; color: var(--s1d-muted); margin-top: 2px; display: block;
 }
 
 /* ---------------- tables ---------------- */
@@ -259,3 +265,108 @@ table.s1d-t a, table.seoc-t td a.u {
 .s1d-note.ok { background: #f0fdf4; border-color: #bbf7d0; color: #14532d; }
 .s1d-note.warn { background: #fffbeb; border-color: #fde68a; color: #78350f; }
 .s1d-note.bad { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+
+/* ---------------- the opt-in page layer ---------------- */
+/*
+ * Everything above is a class a template asks for by name. This block is the
+ * other half: a module puts `s1d-page` on its content wrapper and the ordinary
+ * elements inside it — a bare <button>, a <table>, an <input>, an <h1> — take
+ * the Hub's look without a class on each one.
+ *
+ * It exists because of what the sweep across the modules actually found. Site
+ * Scans alone declared three palettes across five templates (--blue as
+ * #5b8bff, #2563eb and #009ED2), and every one of those templates restated
+ * `button {}`, `table {}` and `.card {}` in almost the same words. Converting
+ * that by hand, element by element, is hundreds of edits and a fresh chance to
+ * miss one; converting it by deleting a stylesheet block and adding one class
+ * to a wrapper is a change you can read.
+ *
+ * Opt-in and scoped, both deliberately. `button`, `table` and `.card` are far
+ * too ordinary to style globally in a sheet injected into twenty modules — a
+ * bare element rule reaching a module nobody has looked at is exactly how a
+ * shared stylesheet earns a reputation for breaking things. A module that has
+ * not asked for this is untouched.
+ */
+
+.s1d-page h1 { color: var(--s1d-navy); font-size: 23px; margin: 0 0 2px; line-height: 1.2; }
+.s1d-page h2 { color: var(--s1d-navy); font-size: 17px; }
+.s1d-page .sub { color: var(--s1d-muted); font-size: 13px; margin: 0 0 20px; }
+
+.s1d-page .card {
+  background: #fff; border: 1px solid var(--s1d-line); border-radius: 12px;
+  padding: 18px; margin-bottom: 16px;
+}
+.s1d-page .card > h2, .s1d-page .card > h3 {
+  margin: 0 0 10px; font-size: 15px; color: var(--s1d-navy);
+  /* Not uppercase. Two of the five Scans templates set their card headings in
+     caps with letter-spacing, which reads as a section label rather than as
+     the name of the thing under it — and made the same card look like two
+     different components on two screens of one module. */
+  text-transform: none; letter-spacing: 0;
+}
+
+/* Not the Hub's own injected controls. hub-help.js renders a help bubble as a
+   <button class="s1-help-dot">, and the tour and walkthrough cards are buttons
+   too — all of them injected into the page rather than written by it. Styling
+   them as page buttons turned every help dot into a pill, on every module that
+   adopts this layer at once, which is the way a broad element rule goes wrong.
+   Their own look is in hub-help.css, which loads after this file. */
+.s1d-page button:not([class*="s1-help"]):not([class*="s1-tour"]):not([class*="s1-demo"]),
+.s1d-page .btn {
+  background: var(--s1d-brand); color: #fff; border: 0; border-radius: 8px;
+  padding: 9px 16px; font: 600 13px 'Segoe UI', system-ui, sans-serif;
+  cursor: pointer; text-decoration: none; display: inline-block; line-height: 1.3;
+}
+.s1d-page button:not([class*="s1-help"]):not([class*="s1-tour"]):not([class*="s1-demo"]):hover, .s1d-page .btn:hover { background: var(--s1d-brand-dark); }
+/* `ghost` and `sec` mean the same thing in different modules' vocabularies.
+   Both are accepted rather than one being renamed: the name is the page's, and
+   a stylesheet that requires a rename to be adopted does not get adopted. */
+.s1d-page button.ghost, .s1d-page button.sec, .s1d-page .btn.sec {
+  background: #fff; color: var(--s1d-ink); border: 1px solid var(--s1d-line);
+}
+.s1d-page button.ghost:hover, .s1d-page button.sec:hover, .s1d-page .btn.sec:hover {
+  background: var(--s1d-wash); border-color: var(--s1d-brand);
+}
+.s1d-page button.danger, .s1d-page .btn.danger {
+  background: #fff1f0; color: #b42318; border: 1px solid #f3b8b3;
+}
+.s1d-page button.danger:hover { background: #b42318; color: #fff; border-color: #b42318; }
+.s1d-page button.small, .s1d-page button.btn-sm { padding: 6px 12px; font-size: 12.5px; }
+.s1d-page button:disabled { opacity: .45; cursor: not-allowed; }
+
+.s1d-page table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.s1d-page th {
+  background: var(--s1d-wash); text-align: left; padding: 8px 10px; font-size: 11px;
+  text-transform: uppercase; letter-spacing: .6px; color: var(--s1d-muted);
+  border-bottom: 1px solid var(--s1d-line); font-weight: 700;
+}
+.s1d-page td { padding: 8px 10px; border-bottom: 1px solid var(--s1d-line-soft); }
+.s1d-page tbody tr:hover td { background: #fbfdff; }
+
+.s1d-page input[type=text], .s1d-page input[type=email], .s1d-page input[type=url],
+.s1d-page input[type=number], .s1d-page input[type=search], .s1d-page input[type=date],
+.s1d-page input:not([type]), .s1d-page select, .s1d-page textarea {
+  padding: 8px 10px; border: 1px solid var(--s1d-line); border-radius: 8px;
+  font: 13px 'Segoe UI', system-ui, sans-serif; background: #fff; color: var(--s1d-ink);
+}
+.s1d-page input:focus, .s1d-page select:focus, .s1d-page textarea:focus {
+  outline: 2px solid rgba(37, 99, 235, .35); border-color: var(--s1d-brand);
+}
+/* A field's label sits above its control. Not a label that *contains* its
+   control, though: that shape is a tick box and its wording, which reads on one
+   line and is laid out by the page. The module's inline <style> is in the head
+   *before* the injected link, so a same-specificity local rule loses -- which is
+   what makes adoption a matter of deleting rules, and is also why this one has
+   to exclude the case rather than leave it to the page to win back. */
+.s1d-page label:not(:has(input[type=checkbox])):not(:has(input[type=radio])) {
+  display: block; font-weight: 600; font-size: 12.5px; color: #475569; margin: 0 0 5px;
+}
+
+/* The four states again, on whichever of the two names a module already uses. */
+.s1d-page .badge {
+  display: inline-block; border-radius: 999px; padding: 3px 10px;
+  font-size: 11.5px; font-weight: 700; background: #eef3f8; color: #68798c;
+}
+.s1d-page .badge.ok, .s1d-page .badge.complete, .s1d-page .badge.live { background: #ecfdf3; color: #12794b; }
+.s1d-page .badge.warn, .s1d-page .badge.running, .s1d-page .badge.pending { background: #fef7e7; color: #94620a; }
+.s1d-page .badge.bad, .s1d-page .badge.error, .s1d-page .badge.cancelled { background: #fdecec; color: #b01919; }
