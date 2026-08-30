@@ -210,7 +210,15 @@ def _init() -> bool:
             # Advisory-locked, and it returns the error rather than raising, so
             # a database still waking cannot stop this module from loading and
             # saying why it is not mirroring.
-            err = extensions.create_all_metadata(meta)
+            #
+            # retry=False because this is not boot. _init() is reached from the
+            # write path, so the boot retry budget would be spent inside
+            # somebody's save -- a database that is down would cost every
+            # writer the full backoff in turn, which is the per-visit timeout
+            # this codebase refuses to carry on a page load. The lazy retry
+            # this module wants is INIT_RETRY_SECONDS above, and two backoffs
+            # stacked is worse than either on its own.
+            err = extensions.create_all_metadata(meta, retry=False)
             if err:
                 _init_error = err
                 _engine = None

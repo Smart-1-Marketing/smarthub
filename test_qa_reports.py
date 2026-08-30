@@ -466,6 +466,99 @@ for _who in ("Debi Greenfield", "Kim Marshall"):
 
 
 # ---------------------------------------------------------------------------
+section("A products export that could not be read is not a book with nobody in it")
+# ---------------------------------------------------------------------------
+# `knack_data._load()` swallows OSError and returns None, so a missing,
+# unreadable or malformed products.json yields [] -- and to a caller that is
+# indistinguishable from a client base with nobody on it. Six client reports
+# and both Scorecards then rendered a clean empty table: "every client has a
+# dashboard, nobody has lapsed, nobody is missing Analytics, nobody churned",
+# and `report_cache.is_answer()` stored it as the day's answer, frozen until
+# tomorrow, on a source that was never read.
+#
+# Which reports are built on that source is read from the AST rather than
+# listed, so one added next month is swept without anybody remembering. The
+# closure is over qa.py's own calls, because `salesperson_scorecard` reaches
+# `_month_rollup` through `_scorecard`.
+_QA_TREE = ast.parse(pathlib.Path(ROOT, "hub", "qa.py").read_text())
+_QA_FNS = {n.name: n for n in ast.walk(_QA_TREE)
+           if isinstance(n, ast.FunctionDef)}
+_PRODUCT_READERS = {"_client_groups", "_month_rollup"}
+
+
+def _reads_products(name, seen=None):
+    """Does this qa.py function reach the products export, at any depth?"""
+    seen = seen or set()
+    if name in seen or name not in _QA_FNS:
+        return False
+    seen.add(name)
+    for node in ast.walk(_QA_FNS[name]):
+        if not isinstance(node, ast.Call):
+            continue
+        called = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        if called in _PRODUCT_READERS:
+            return True
+        if called and _reads_products(called, seen):
+            return True
+    return False
+
+
+_product_backed = sorted(k for k, meta in qa.REPORTS.items()
+                         if _reads_products(meta["fn"].__name__))
+check("the sweep found the reports built on the products export",
+      len(_product_backed) >= 8, _product_backed)
+
+_real_base = knack_data.BASE
+knack_data.BASE = os.path.join(_TMP, "no-such-export")
+knack_data._cache.clear()
+try:
+    # Asked without assuming the helper exists: on the code this was written
+    # against it did not, and an AttributeError here would crash the file
+    # before the sweep below could name a single report -- a failure that
+    # reports nothing is barely better than a green run.
+    _src_state = getattr(knack_data, "products_error", lambda: "")()
+    check("the source says it could not be read",
+          "could not be read" in _src_state,
+          f"products_error() -> {_src_state!r}")
+    _all_clear = []
+    for _key in _product_backed:
+        _out = qa.run(_key)
+        # What the page would draw: anything but a green tick is acceptable
+        # here -- `cannotLook()` reads `measured`, and a report with its own
+        # error or call to action is already saying it could not look.
+        _drawn_as_all_clear = (
+            not _out.get("error") and not _out.get("needs_qb")
+            and not _out.get("unavailable") and _out.get("measured") is not False
+            and not _out.get("rows"))
+        if _drawn_as_all_clear:
+            _all_clear.append(_key)
+        # The invariant is "never a green tick", not "always `measured:
+        # False`". Two of these reach a provider before they reach the export
+        # and say so first -- with GHL and QuickBooks unconfigured here, that
+        # is what they answer, and it is a true statement about why they could
+        # not look. Asserting the flag would pass or fail on which providers
+        # this environment happens to have.
+        check(f"{_key} never draws a green tick on an unreadable export",
+              not _drawn_as_all_clear,
+              f"rows={len(_out.get('rows') or [])} measured={_out.get('measured')!r}")
+        check(f"{_key} is not stored as the day's answer",
+              report_cache.is_answer(_out) is False)
+    check("and not one of them renders as a green tick", _all_clear == [],
+          _all_clear)
+finally:
+    knack_data.BASE = _real_base
+    knack_data._cache.clear()
+
+# ...and with the export readable they answer exactly as before. Over-correcting
+# is its own failure: a page that cries wolf on every clean run is one people
+# stop reading.
+check("a readable export is not reported as unmeasured",
+      knack_data.products_error() == "", knack_data.products_error())
+check("and the reports draw their tables again",
+      all(qa.run(k).get("measured") is not False for k in _product_backed))
+
+
+# ---------------------------------------------------------------------------
 section("Every QA tile points at something that answers")
 # ---------------------------------------------------------------------------
 # Six of the eight EXTRAS are whole tools rather than table-returning
