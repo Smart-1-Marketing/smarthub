@@ -475,6 +475,46 @@ def job_social_idea_batches(app) -> dict:
     return result
 
 
+def job_verify_llms_txt(app) -> dict:
+    """Re-check every published client llms.txt overnight.
+
+    The redirect that carries this lives on the *client's* website, in a
+    builder we do not control, and the file it points at is on our host behind
+    a robots.txt and an X-Robots-Tag that other work here edits. Every one of
+    those can be broken by somebody who has never heard of this feature, and
+    the failure is completely silent: the Hub goes on reporting a clean
+    publish while a crawler reads a 404, a login page or a refusal.
+
+    So the only thing that makes this feature real is asking. It reaches the
+    client's site and two robots.txt files per client, which is why it is a
+    nightly job and a button rather than anything a page load does.
+
+    Bounded, and only over the clients with something published: a client with
+    no live file has nothing that can have broken, and walking the whole book
+    would spend four outbound requests each on several hundred businesses to
+    learn nothing.
+
+    Safe to run late, skip and repeat, as the job contract requires: it writes
+    each client's own last result and nothing else.
+    """
+    try:
+        from . import llms_hosting
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context: the client's domain is read through
+        # hub/client_context.py, which reaches the shared engine -- the
+        # flask.g trap that had the Google sweep reporting an empty book from
+        # a background thread.
+        result = llms_hosting.sweep(actor="scheduler")
+    if not result.get("checked"):
+        # Nothing published is a *state*, not a failure. Logged as a skip so
+        # an unconfigured Hub does not write an identical line every night for
+        # ever -- the noise hub/google_index.py had to learn to stop making.
+        return {"skipped": "no client has a published llms.txt"}
+    return result
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -498,6 +538,8 @@ JOBS = {
                           "Describe another batch of the photos clients sent us."),
     "social_ideas":      (60, job_social_idea_batches,
                           "Offer another week's ideas to clients who are swiping."),
+    "llms_verify":       (720, job_verify_llms_txt,
+                          "Re-check every published client llms.txt end to end."),
 }
 
 
