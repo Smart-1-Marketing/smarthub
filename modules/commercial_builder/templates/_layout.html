@@ -28,26 +28,44 @@
     page. -#}
 {%- set has_own_tour = screen and (has_tour is not defined or has_tour(screen)) -%}
 <body data-module="commercial_builder"{% if has_own_tour %} data-screen="{{ screen }}"{% endif %}{% if no_demo %} data-demo="off"{% endif %}>
-<header class="cb-topbar">
-  <div class="cb-topbar-inner">
-    <a class="cb-brand" href="{{ url_for('commercial_builder.cb_pages.dashboard') }}">
-      <span class="cb-brand-mark">S1</span>
-      <span class="cb-brand-text">Creative Hub <span class="cb-brand-sub">Commercial Builder</span></span>
-    </a>
-    <nav class="cb-topnav">
-      <a href="{{ url_for('commercial_builder.cb_pages.dashboard') }}">Dashboard</a>
-      {# A tool with no link is invisible — CLAUDE.md counts six that were. #}
-      <a href="{{ url_for('commercial_builder.cb_pages.library') }}">Spot Library</a>
-      {% if has_own_tour %}
-      {# The way back to a tour once it has been dismissed. Without this the
-         offer is a one-shot and there is no second chance at it. #}
-      <a href="#" data-tour-start="{{ screen }}">How this works</a>
-      {% endif %}
-      <a href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}" class="cb-btn cb-btn-primary cb-btn-sm">+ New Commercial</a>
-    </nav>
-  </div>
-</header>
+{#
+  No branded bar. This module is blueprint-registered on the hub app, so every
+  page here already carries the Hub's sidebar; a sticky "Creative Hub ·
+  Commercial Builder" strip above it was chrome twice, and it is what made the
+  tool read as a separate product standing next to Client 360. The Proposal
+  Builder shipped the same bar and lost it for the same reason.
+
+  What it genuinely needs survives: Dashboard and Spot Library are a real
+  second level of navigation, and they are the Hub's own strip now
+  (`.s1d-subnav`, hub/static/hub-detail.css) rather than a bar of this
+  module's own -- and *inside* the page container rather than above it, or a
+  full-bleed strip at the top of the viewport is the branded bar again wearing
+  the shared classes, sitting over the Hub's own breadcrumb.
+#}
 <main class="cb-main">
+<nav class="cb-topnav s1d-subnav">
+  {#
+    Marked from the request rather than passed in by each view: a nav that has
+    to be told which entry to highlight is one that gets it wrong on the next
+    page somebody adds -- the rule modules/sites_admin/templates/base.html
+    works to. A wizard step marks *nothing*, deliberately: the step has its own
+    stepper, and lighting up Dashboard while somebody is on step four of seven
+    says they are somewhere they are not.
+  #}
+  {% set _here = (request.endpoint or '').rsplit('.', 1)[-1] %}
+  <a href="{{ url_for('commercial_builder.cb_pages.dashboard') }}"
+     class="{{ 'on' if _here == 'dashboard' }}">Dashboard</a>
+  {# A tool with no link is invisible — CLAUDE.md counts six that were. #}
+  <a href="{{ url_for('commercial_builder.cb_pages.library') }}"
+     class="{{ 'on' if _here == 'library' }}">Spot Library</a>
+  {% if has_own_tour %}
+  {# The way back to a tour once it has been dismissed. Without this the
+     offer is a one-shot and there is no second chance at it. #}
+  <a href="#" data-tour-start="{{ screen }}">How this works</a>
+  {% endif %}
+  <span class="sp"></span>
+  <a href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}" class="cb-btn cb-btn-primary cb-btn-sm">+ New Commercial</a>
+</nav>
   {% block content %}{% endblock %}
 </main>
 <footer class="cb-footer">Smart 1 Creative Hub — Commercial Builder V1</footer>
