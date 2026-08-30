@@ -1894,6 +1894,39 @@ are data. Nothing ticked says **nothing**, rather than reading as an all-clear:
 absence of a publisher is not evidence of permission, and a rep who named none
 has told us nothing about Amazon either way.
 
+**A logo bug is not a QR code, and one fact had four readings.** Which
+lengths carry a persistent logo bug is `LOGO_PERSISTENCE_RULES`, and
+`logo_persistence_eligible()` was written to read it and called by **nothing**.
+QC and the CTA route asked `qr_eligible()` instead — right by coincidence,
+since both tables hold the same three lengths, and a change to where a QR code
+makes sense would have moved where a logo bug is drawn with neither table
+saying so. `creatomate_service` asked a fourth way, `length_seconds != 5`,
+which had already stopped agreeing the day the **:06** arrived: only the CTA
+route's own gate kept a :06 from rendering a logo bug that QC would
+simultaneously report as not applicable. They are separate questions with
+separate reasons — a QR code is a response mechanism and needs seconds on
+screen to be scannable, a logo bug is brand recall and needs none — so they
+are asked separately, of their own tables. A **bare literal is the reading
+that cannot be kept in step**, because nothing points at it. And the copy is
+derived: the panels said *":05 bumpers"* and went on saying only that after
+the :06 was added, describing two lengths while naming one, so
+`short_form_phrase()` names them from the table.
+
+**A placeholder QR is worse than no QR.** `generate_qr()` failed soft when the
+`qrcode` package was missing, handing back a placehold.co image of the letters
+"QR" marked `_mock`. Nothing read that mark, and `is_available()` had no
+caller — so the placeholder would be stored on the CTA and rendered onto the
+end card of a CTV spot, where the code is the only response mechanism there
+is and **nobody proof-reads the thing that scans**, the rule
+`hub/qr_codes.py` refuses to invent a destination for. It also walked straight
+past the check written for exactly this: `_check_qr_code` blocks a code that
+is enabled and not generated, and a truthy placeholder is indistinguishable
+from a real one to that test. Nothing is invented now — no image, and the
+reason named on the CTA — so the blank says *why* rather than reading as a
+button nobody pressed. The dependency is pinned and installed, so this
+fallback has never fired; it is the same shape as filing a mock render as a
+delivered commercial, which `approve_render` already refuses.
+
 **Severity is the server's, and it was two JavaScript files' before.**
 `blueprint.js` and `preview.js` each kept an `ADVISORY = new Set([...])` by
 hand — two copies of a decision `qc_service` has every fact to make, and the

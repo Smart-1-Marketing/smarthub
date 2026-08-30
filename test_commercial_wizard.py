@@ -565,6 +565,73 @@ check("the code is generated", cta["qr_data_url"].startswith("data:image/png;bas
 check("the destination is recorded on it", bool(cta["qr_destination_url"]), True)
 check("so is the attribution", cta["qr_attribution"]["state"] in ("own", "agency", "unknown"), True)
 
+check("and no placeholder is ever passed off as one",
+      "placehold.co" in (cta.get("qr_data_url") or ""), False)
+# A picture that reads as a QR code and scans to nothing goes onto the end
+# card of a CTV spot, where the code is the only response mechanism — and it
+# walked straight past the QC check written for exactly this, because a
+# truthy placeholder is indistinguishable from a real code to `if not
+# cta.get("qr_data_url")`.
+import modules.commercial_builder.services.qrcode_service as _qr           # noqa: E402
+_was = _qr._AVAILABLE
+try:
+    _qr._AVAILABLE = False
+    _absent = _qr.generate_qr("https://example.test")
+finally:
+    _qr._AVAILABLE = _was
+check("a missing dependency draws no code at all", _absent["data_url"], None)
+check("and says why rather than leaving a blank",
+      "qrcode" in (_absent.get("error") or "").lower(), True)
+check("so QC's enabled-but-not-generated block still bites",
+      qc_service._check_qr_code({"length_seconds": 30, "platform": "ctv",
+                             "cta": {"qr_enabled": True}}, [])["level"], "fail")
+
+
+section("One reading of which lengths carry a logo bug")
+# Four readings before this: the table, a function nothing called, two call
+# sites asking the QR table instead (right by coincidence — both hold the
+# same three lengths), and creatomate asking `length_seconds != 5`, a literal
+# that had already stopped agreeing the day the :06 arrived.
+check("the table is the answer", cb_config.logo_persistence_eligible(30), True)
+check("a :05 carries none", cb_config.logo_persistence_eligible(5), False)
+check("and neither does the :06", cb_config.logo_persistence_eligible(6), False)
+check("the copy names both rather than one", cb_config.short_form_phrase(), ":05 and :06")
+check("QC answers a :06 with both named",
+      ":05 and :06" in qc_service._check_logo_persistence({"length_seconds": 6})["message"], True)
+_creato_src = (ROOT / "modules/commercial_builder/services/creatomate_service.py").read_text()
+# Read as CODE, not as text. The comment in that file explains the literal it
+# replaced, and a text match reports the explanation as the defect — the rule
+# hub/config.py's drift check and the image-audit producer check both work to.
+import ast as _ast                                                       # noqa: E402
+
+
+def _compares_length_to(src, value):
+    for node in _ast.walk(_ast.parse(src)):
+        if not isinstance(node, _ast.Compare):
+            continue
+        parts = [node.left, *node.comparators]
+        names = {getattr(n, "id", "") for n in parts}
+        consts = {getattr(n, "value", None) for n in parts
+                  if isinstance(n, _ast.Constant)}
+        if "length_seconds" in names and value in consts:
+            return True
+    return False
+
+
+check("the renderer keeps no literal of its own",
+      _compares_length_to(_creato_src, 5), False)
+check("and the check reads code rather than prose",
+      _compares_length_to("if length_seconds != 5: pass", 5), True)
+check("it asks the table",
+      "logo_persistence_eligible(length_seconds)" in _creato_src, True)
+# The two questions are separate on purpose: a QR code is a response
+# mechanism and needs seconds on screen, a logo bug is brand recall and needs
+# none. That they agree today is a fact about the tables, not a rule.
+_proj = (ROOT / "modules/commercial_builder/routes/projects.py").read_text()
+check("the CTA route asks each of its own table",
+      "logo_ok = logo_persistence_eligible(" in _proj, True)
+
+
 section("Severity is the server's answer, not each screen's")
 # Two JS files each kept an ADVISORY set by hand — two copies of a decision
 # qc_service has every fact to make, and the fastest way to have one panel
