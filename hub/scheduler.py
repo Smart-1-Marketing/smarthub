@@ -515,8 +515,23 @@ def _run_job(app, name: str) -> None:
         result, ok, err = {}, False, f"{type(exc).__name__}: {exc}"
     ms = int((time.time() - started) * 1000)
     with _state_lock:
-        _state[name] = {"last_run": _now().isoformat(timespec="seconds"),
-                        "ok": ok, "ms": ms, "result": result, "error": err}
+        # Carried forward rather than overwritten wholesale, because two of
+        # these answer questions a single latest-run snapshot cannot.
+        #
+        # `fails` is the consecutive run of failures: a job that has failed
+        # fourteen times running and one that blipped once just now are
+        # different situations, and overwriting the row made them render
+        # identically. `last_ok` is when it last actually worked, so a job
+        # that is failing can still say how long it has been broken rather
+        # than only that it is.
+        prev = _state.get(name) or {}
+        _state[name] = {
+            "last_run": _now().isoformat(timespec="seconds"),
+            "ok": ok, "ms": ms, "result": result, "error": err,
+            "fails": 0 if ok else int(prev.get("fails") or 0) + 1,
+            "last_ok": (_now().isoformat(timespec="seconds") if ok
+                        else prev.get("last_ok")),
+        }
     try:
         from hub import audit
         audit.log("scheduler", "job", job=name, ok=ok, ms=ms,
@@ -591,6 +606,47 @@ def _leader_exists(app) -> bool:
         return False
 
 
+# How far past its interval a job may run before it is called overdue. Jobs
+# share one thread, so a slow one legitimately pushes the next along; two
+# intervals plus a five-minute floor is late enough to mean something and
+# loose enough not to cry wolf on a job that ticks every minute.
+OVERDUE_FACTOR = 2.0
+OVERDUE_FLOOR_MINUTES = 5.0
+
+
+def _overdue(row: dict, every_minutes: float, visible: bool):
+    """(overdue, minutes late) — or (None, None) when it cannot be known.
+
+    The gap this closes: the panel drew a green pill for any job whose last
+    run succeeded, however long ago that was. A job whose interval is an hour
+    and which last ran three days ago read as healthy, and with eleven jobs
+    sharing one thread the reader would have had to do that arithmetic eleven
+    times. A loop stuck on one long job stops every job behind it and nothing
+    on the page said so.
+
+    `None` rather than `False` where it is unknowable — on the standby worker,
+    or before a job's first run this boot. A confident "not overdue" about a
+    job whose timings this process cannot see is exactly the wrong answer.
+    """
+    if not visible:
+        return None, None
+    last = str(row.get("last_run") or "")
+    if not last:
+        # Never run *in this process*. On the leader that is honest — it has
+        # not come round yet — and it is not overdue, because there is no
+        # previous run to be late relative to.
+        return None, None
+    try:
+        when = datetime.fromisoformat(last)
+    except ValueError:
+        return None, None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    late = (_now() - when).total_seconds() / 60.0
+    allowed = max(float(every_minutes) * OVERDUE_FACTOR, OVERDUE_FLOOR_MINUTES)
+    return (late > allowed), round(late, 1)
+
+
 def status(app=None) -> dict:
     """What the scheduler is doing, for Diagnostics."""
     with _state_lock:
@@ -604,16 +660,38 @@ def status(app=None) -> dict:
         state = "standby"          # healthy: the other worker has the jobs
     else:
         state = "down"             # nobody is running jobs — a real fault
+    # Whether this process can *see* the job timings at all. `_state` is
+    # per-process and in memory, so the standby worker holds nothing — and
+    # with two gunicorn workers that is half of all page loads. The panel used
+    # to render every job there as "Not run yet this boot" behind a grey pill,
+    # which is indistinguishable from a scheduler that has genuinely never
+    # run: the same page said two different things depending on which worker
+    # answered, and one of them was alarming and wrong.
+    #
+    # Absent is not zero. On standby the timings are *not measured here*, and
+    # that is said rather than drawn as a row of nevers.
+    visible = state == "leading"
+
+    jobs = []
+    for name, (every, _fn, desc) in JOBS.items():
+        row = {"name": name, "every_minutes": every, "description": desc,
+               "visible": visible, "overdue": None, "overdue_by": None,
+               "fails": 0, "last_ok": None,
+               **runs.get(name, {"last_run": None, "ok": None})}
+        row["overdue"], row["overdue_by"] = _overdue(row, every, visible)
+        jobs.append(row)
+
     return {
         "enabled": enabled(),
         "running": alive,
         "is_leader": _is_leader,
         "state": state,
-        "jobs": [
-            {"name": n, "every_minutes": every, "description": desc,
-             **runs.get(n, {"last_run": None, "ok": None})}
-            for n, (every, _fn, desc) in JOBS.items()
-        ],
+        "timings_visible": visible,
+        # Counted here rather than in the browser so the page and anything
+        # else reading this API cannot disagree about what "a problem" is.
+        "failing": sum(1 for j in jobs if j.get("ok") is False),
+        "overdue": sum(1 for j in jobs if j.get("overdue")),
+        "jobs": jobs,
         "note": {
             "off": "Disabled. Set HUB_SCHEDULER=true to turn the jobs on.",
             "leading": "This worker holds the lock and is running the jobs.",
