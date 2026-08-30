@@ -494,6 +494,18 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: IO record tests — the order as a record, not just a PDF
+        # One row per order, a resubmission that updates rather than doubling,
+        # and bookkeeping that cannot fail the submit it is bookkeeping for.
+        # Guarded like the steps around it; nothing in it reaches a third
+        # party, and the only write it makes is the Hub's own record.
+        run: |
+          if [ -f test_io_records.py ]; then
+            python test_io_records.py
+          else
+            echo "test_io_records.py not on this branch — nothing to run."
+          fi
+
       - name: IO reconciliation tests — orders with no campaign in Knack
         # Whether the campaign an insertion order was written for was ever set
         # up. A stale source read as proof that nothing was trafficked is the

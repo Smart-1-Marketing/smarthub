@@ -258,9 +258,15 @@ check("the note counts it", "settled as never expected" in io_reconcile.note(aft
 check("and a book with nothing outstanding but something settled does not "
       "claim every order has a campaign — a settle mark is the opposite of "
       "one",
-      "either" in io_reconcile.note({"measured": True, "checked": 1,
-                                     "outstanding": [],
-                                     "settled": [{"order": "1"}]}))
+      io_reconcile.note({"measured": True, "checked": 1, "outstanding": [],
+                         "settled": [{"order": "1"}]}
+                        ).startswith("Nothing outstanding"))
+check("nor does a book whose only orders are still inside the grace period",
+      io_reconcile.note({"measured": True, "checked": 1, "outstanding": [],
+                         "waiting": 1}).startswith("Nothing outstanding"))
+check("but a book where every order really did land says so plainly",
+      "has a campaign in Knack" in
+      io_reconcile.note({"measured": True, "checked": 4, "outstanding": []}))
 
 check("putting it back works", io_reconcile.unsettle("10403") is True
       and "10403" in orders_in(io_reconcile.report()))

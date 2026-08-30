@@ -4410,6 +4410,82 @@ document that reaches a client. It is read off the plan's own fee lines, or
 `test_campaign_cost.py` asserts all of it, including that the browser keeps no
 copy of the arithmetic.
 
+### The insertion order is a record, not a PDF and a webhook
+
+`hub/io_records.py`, the **Orders we have sent** card on Client 360, and
+`/api/client/orders`. Submitting an insertion order allocated a number from a
+Postgres sequence, built two PDFs into Cloudinary, wrote one line in the
+activity log and POSTed the whole campaign to Smart 1 Suite. **Then it kept
+nothing** — no orders table, no list of what had been sent, no way to reopen
+one, and no answer to "what have we written for this client" until the campaign
+appeared in Knack weeks later. A rep asked what went out in July opened
+Cloudinary, or asked whoever built it.
+
+Three things followed from that and all three were live. `hub/io_reconcile.py`
+had to be assembled out of the **activity log**, which rotates — so the one
+report about orders that were never trafficked could see only as far back as
+the log did. That log line carried an **empty order number** on every entry the
+route had ever written and nothing noticed for months, because nothing read it.
+And the log line, the client overlay and everything else were written at the
+**top** of the route, *before the request was validated* — so a submit refused
+for missing documents still logged an order and still registered the client,
+and the reconciliation would have reported it as a campaign nobody set up. All
+three are one `_keep()` now, reached at every exit past the point where the
+documents exist, so the three records cannot disagree about what was submitted.
+
+Five rules on the store.
+
+**One file per order, never one file holding all of them** — the
+`hub/drafts.py` rule, and the stakes here are a signed document rather than a
+draft. **A resubmission updates the order rather than adding a second one**: a
+correction sent an hour later is the same order at a new revision, and two rows
+under one number is how a client record grows three identical entries with no
+way to tell which is current, which `upsert_from_ghl` learned from GoHighLevel
+first. Each attempt is appended to a short history, and the **first**
+submission's date survives — an order written in July must not be re-dated to
+the day somebody fixed a typo in September.
+
+**The row is written whether or not Suite took it.** An order the client has
+been sent is an order, and "delivered" and "built, and Suite refused it" are
+different states that send somebody to different places. That is three facts
+rather than one: `delivered` is what the latest attempt did, `ever_delivered`
+is whether Suite holds *any* version — a correction that failed after a first
+submission that landed leaves Suite holding the old one, which is real and is
+not the same as an order that never arrived — and only the second means the
+order reached neither system.
+
+**What is stored is the agreement, not the wizard.** The campaign state is tens
+of kilobytes of answers, working notes and generated copy; a record has to
+answer who, what, when, how much and where the document is. Lines are capped,
+the row is capped, and a row too large drops its **lines** rather than being
+refused — who and how much are what it exists for, and a record refused for
+size is an order with no trace at all.
+
+**And a number handed out is not an order.** The sequence issues one at the
+*start* of the wizard, so an abandoned IO burns a number and leaves a gap in
+the numbering somebody in accounting eventually asks about.
+`note_allocated()` is the only thing that makes that answerable, and it stays a
+**note** rather than a row: an allocation is not an order, and a listing that
+mixed them would report work nobody sent.
+
+**The reconciliation reads the durable half now**, so its note stops saying the
+activity log is the horizon — that sentence was true and would have gone on
+being printed while understating what the report can see. It also names the
+orders Suite never took and the numbers that never became orders.
+
+**On the client record it is deliberately its own card.** Products & IOs is
+Knack's answer to *what is running*; this is the Hub's answer to *what we
+sent*, and the two exist at different moments — which is the whole point for a
+client written up on their first IO, whose record is otherwise empty until
+somebody sets the campaign up. Whether Knack has the campaign is read off the
+products already on the page rather than from a second reconciliation that
+would come to disagree with the first, and the flag is **not drawn at all**
+when that card did not answer: absent data must not read as a finding. The
+route is under `/api/client/` because `hub/suite_embed.EMBEDDABLE` allowlists
+that prefix — a card pointed anywhere else renders on every screen except
+inside the Suite frame, and fails silently there. `test_io_records.py` asserts
+all of it.
+
 ### An order we sent, and the campaign nobody set up
 
 `hub/io_reconcile.py` and **QA → Data Quality → Orders With No Campaign**.
@@ -7371,6 +7447,9 @@ python3 test_sales_status.py       # the pipeline on the dashboard: five signals
 python3 test_io_reconcile.py       # the orders we sent against the campaigns
                                    #   Knack has: a stale source never reads as
                                    #   proof, and a row can be settled
+python3 test_io_records.py         # the order written down: one row per
+                                   #   number, a resubmission that revises it,
+                                   #   and bookkeeping that cannot fail a submit
 python3 test_campaign_cost.py      # one number for what the campaign costs: the
                                    #   cover, the plan, the summary and the IO
 python3 test_quote_validity.py     # how long a price stands, the Expired nothing
