@@ -3704,6 +3704,46 @@ report drift that is not there.
 those four units carry `source: "house"` rather than reading as transcribed —
 the rule `HOUSE_LEGIBILITY` in `services/abcd_service.py` already works to.
 
+**And the check covered three sections of twenty-three while answering "no
+drift".** That is a clean bill of health about seven per cent of the thing it
+audits, and the exclusion note explained only half of it: six Meta sections
+genuinely publish prose per format, and seven more — native display, YouTube,
+the CTV interactive formats, X, LinkedIn, Snapchat and TikTok — publish a
+perfectly good *table* whose columns are Format / Copy / Media / File Size
+rather than Unit / Dimensions / weight. The blanket reason was applied to all
+twenty. The page in this repo is now the **2026** kit and says on itself
+*"20 formats updated · 3 added"*, against a transcription taken from 2025, so
+a section outside the parser is not a hypothetical gap — and what makes it
+dangerous is that it is invisible: a section the *next* rebuild adds is
+silently outside every check here for ever, with the panel green. The same
+shape as a sweep that quietly stops sweeping.
+
+Every published section is declared now — `_KIT_UNREAD` with the reason its
+table cannot be read, and `kit_coverage()` reports one that is not, in **both**
+directions: a section on the page nobody declared, and a declaration that
+outlives the section it described. `compliance_spec.NOT_ENFORCED` and
+`ghl_scopes.NOT_REQUESTED`'s rule, wearing a spec: a thing left out on purpose
+is named with its reason, so its absence is never ambiguous between an
+oversight and a decision. A page that cannot be read is **not measured**,
+never "nothing undeclared" — that is the one state where a clean answer would
+be a lie. It started empty, which is the only way it was worth adding.
+
+**Three of the twenty are a different kind of gap, and it reaches the client
+document.** Instagram Reels, Facebook Reels and the six CTV interactive
+formats are sold by the kit and this module holds **no unit** for any of them
+— not "we cannot parse that table" but "there is nothing here to judge one
+against". So a Meta requirement listed Stories and never Reels and read as
+complete, on the page the client is sent, while the kit itself says in as many
+words that *"Facebook Reels and Instagram Reels are not interchangeable —
+different file types, text limits and duration rules."* That is the Pinterest
+failure one placement along: judged against the nearest thing rather than
+reported as not measured. `_KIT_NOT_MODELLED` names them against the channels
+whose presence puts them in play, and `required_units()` carries them in the
+payload **and** on the one line `units_line()` prints — left in the note alone,
+the requirement a client actually reads still looks complete. `measured` stays
+true, because the units we do have are measured; what is withdrawn is the
+claim that the list is all of it.
+
 ### A category heading is not a word about the product
 
 `creative_needs.medium_of()` read a blob of `category + product + label +

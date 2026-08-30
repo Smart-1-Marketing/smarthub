@@ -569,12 +569,128 @@ _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
 _KIT_PAGE = pathlib.Path(__file__).with_name("partner_pages") / "creative-specs.html"
 
 # Which page section holds each channel's unit table. Only the channels whose
-# table is Unit / Dimensions / weight are listed: the social sections publish
-# prose per format rather than a dimension column, and a parser that guessed
+# table is Unit / Dimensions / weight are listed: the rest publish prose per
+# format, or a table of entirely different columns, and a parser that guessed
 # at those would report drift that is not there.
 _KIT_SECTIONS = {"desktop-display": "desktop_display",
                  "mobile-display": "mobile_display",
                  "dooh": "dooh"}
+
+# ...and that sentence covered three sections of twenty-three while the check
+# answered "no drift", which is a clean bill of health about seven per cent of
+# the thing it is auditing. The page in the repo is now the **2026** kit and
+# says on itself "20 formats updated, 3 added", against a transcription taken
+# from 2025 -- so a section outside the parser is not a hypothetical gap. What
+# makes it dangerous is that the gap is invisible: a section the next rebuild
+# adds is silently outside the check for ever, exactly as the twenty already
+# are, with the panel green.
+#
+# So every published section is declared, and `kit_coverage()` reports one
+# that is not. Same shape as `compliance_spec.NOT_ENFORCED` and
+# `ghl_scopes.NOT_REQUESTED`: a thing left out on purpose is named with its
+# reason, so its absence is never ambiguous between an oversight and a
+# decision. It starts empty, which is the only way it was worth adding.
+_SHAPE = ("published as prose per format rather than a Unit / Dimensions / "
+          "weight table")
+_COLUMNS = ("published as a table of Format / Copy / Media / File Size, not "
+            "the Unit / Dimensions / weight shape this parser reads")
+
+_KIT_UNREAD = {
+    "native-display": _COLUMNS,
+    "standard-video": _SHAPE,
+    "youtube-video": _COLUMNS,
+    "ctv-ott": _SHAPE,
+    "native-video": _SHAPE,
+    "digital-radio": _SHAPE,
+    "standard-email": _SHAPE,
+    "facebook-display": _SHAPE,
+    "instagram-display": _SHAPE,
+    "facebook-video": _SHAPE,
+    "facebook-carousel": _SHAPE,
+    "stories-display": _SHAPE,
+    "stories-video": _SHAPE,
+    "x-twitter": _COLUMNS,
+    "linkedin": _COLUMNS,
+    "snapchat": _COLUMNS,
+    "tiktok": _COLUMNS,
+}
+
+# And three of the twenty are a different kind of gap. These are formats the
+# kit sells and this module has no unit for at all -- not "we cannot parse the
+# table", but "there is nothing here to judge one against". `when` names the
+# channels whose presence in a requirement means the format is in play, so
+# `required_units()` can say the kit publishes something it cannot measure
+# rather than answering confidently with the units it does have. That is the
+# rule this module works to everywhere else, and the reason it matters here is
+# the page's own sentence: "Facebook Reels and Instagram Reels are not
+# interchangeable -- different file types, text limits and duration rules."
+# A Meta requirement that lists Stories and never Reels is the Pinterest
+# failure again, one placement along.
+_KIT_NOT_MODELLED = (
+    {"id": "instagram-reels", "name": "Instagram Reels",
+     "when": ("instagram", "stories", "facebook", "facebook_video",
+              "facebook_carousel")},
+    {"id": "facebook-reels", "name": "Facebook Reels",
+     "when": ("instagram", "stories", "facebook", "facebook_video",
+              "facebook_carousel")},
+    {"id": "ctv-new-formats", "name": "CTV interactive formats "
+                                      "(pause, menu, screensaver, in-scene, "
+                                      "squeezeback, overlay)",
+     "when": ("ctv",)},
+)
+
+
+def _kit_section_ids() -> tuple[list[str], str]:
+    """Every section id the published page carries, in page order."""
+    try:
+        html = _KIT_PAGE.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return [], f"the published kit could not be read ({exc})"
+    ids = re.findall(r'<section class="section" id="([^"]+)"', html)
+    if not ids:
+        return [], "no sections could be read out of the published kit"
+    return ids, ""
+
+
+def kit_coverage() -> dict:
+    """Which sections of the published kit this transcription accounts for.
+
+    `kit_drift()` compares numbers; this asks the question one step earlier --
+    is every section of the page one somebody has looked at. A section nobody
+    declared is the finding, because that is what a rebuild adds and what no
+    other check here can see.
+
+    A page that cannot be read is **not measured**, never a clean answer: that
+    is the one state where "nothing undeclared" would be a lie.
+    """
+    ids, error = _kit_section_ids()
+    if error:
+        return {"measured": False, "error": error, "sections": 0,
+                "checked": [], "unread": [], "not_modelled": [],
+                "undeclared": [], "stale": []}
+    modelled = {e["id"] for e in _KIT_NOT_MODELLED}
+    declared = set(_KIT_SECTIONS) | set(_KIT_UNREAD) | modelled
+    return {
+        "measured": True,
+        "error": "",
+        "sections": len(ids),
+        "checked": [i for i in ids if i in _KIT_SECTIONS],
+        "unread": [i for i in ids if i in _KIT_UNREAD],
+        "not_modelled": [i for i in ids if i in modelled],
+        # A section on the page that nobody has declared. This is the finding.
+        "undeclared": [i for i in ids if i not in declared],
+        # ...and the other direction, the rule check_stale_json_exemptions()
+        # works to: a declaration that outlives the section it described goes
+        # on excusing whatever is published under that id next.
+        "stale": sorted(d for d in declared if d not in set(ids)),
+    }
+
+
+def unmodelled_for(channels) -> list[str]:
+    """Published formats in play for these channels that we cannot measure."""
+    have = set(channels or ())
+    return [e["name"] for e in _KIT_NOT_MODELLED
+            if have & set(e["when"])]
 
 
 def _kit_rows() -> tuple[dict, str]:
