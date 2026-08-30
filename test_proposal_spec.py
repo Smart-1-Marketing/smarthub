@@ -2053,6 +2053,123 @@ for _kid in ("x_image_website_card", "x_video_website_card",
     check(f"{_kid!r} kept its id through the rename",
           _kid in {u["id"] for u in cs.UNITS})
 
+
+# ---------------------------------------------------------------------------
+section("YouTube is asked for formats YouTube still sells")
+# ---------------------------------------------------------------------------
+# The last of the four name-checked channels, and the same failure as X: the
+# requirement asked a client to supply a "TrueView", which Google repurposed
+# in October 2025 as a *metric* -- TrueView views, spanning skippable
+# in-stream, in-feed, Shorts and Masthead -- so there is no such thing to
+# send. Shorts was absent entirely and only 16:9 was modeled against a kit
+# selling 16:9, 9:16 and 1:1.
+_yt = {u["name"] for u in cs.UNITS if u["channel"] == "youtube"}
+check("YouTube is modeled on the six formats the kit publishes",
+      _yt == {"Skippable in-stream", "Non-skippable in-stream", "Bumper",
+              "In-feed video", "YouTube Shorts", "Masthead"}, sorted(_yt))
+check("nothing is still called TrueView", "TrueView" not in _yt)
+
+# The weight was the half that refused real work, which is the third
+# transcription of four to run that way: 10 MB against a published 256 GB,
+# the kit's own "wrong by four orders of magnitude".
+_yt_bytes = {u["id"]: u.get("max_bytes") for u in cs.UNITS
+             if u["channel"] == "youtube"}
+check("and the 10 MB ceiling that refused real deliveries is gone",
+      all(v == 256 * cs.GB for v in _yt_bytes.values()), _yt_bytes)
+
+# A recommendation is not a ceiling. The kit publishes "no maximum, under
+# 3:00 recommended" for skippable in-stream, and one invented from the
+# recommendation refuses a cut the kit permits -- the `target_bytes` rule,
+# wearing a stopwatch.
+check("no duration is invented where the kit publishes none",
+      not cs.BY_ID["youtube_trueview"].get("duration"))
+check("but the bumper keeps the six seconds Google does publish",
+      tuple(cs.BY_ID["youtube_bumper"]["duration"]) == (0, 6))
+check("and the non-skippable keeps its :30 auction policy cap",
+      tuple(cs.BY_ID["youtube_nonskippable"]["duration"]) == (7, 30))
+
+check("youtube is checked against the published names now",
+      "youtube" in cs.kit_coverage()["names_checked"])
+check("...and is no longer listed as pending",
+      "youtube" not in cs.kit_coverage()["names_pending"])
+check("no unit on any checked channel is a format the kit no longer sells",
+      cs.kit_name_drift() == [],
+      [d["detail"][:70] for d in cs.kit_name_drift()][:4])
+
+# ...and the check goes red on exactly that, or it is furniture.
+_yt_was = cs.BY_ID["youtube_trueview"]["name"]
+try:
+    cs.BY_ID["youtube_trueview"]["name"] = "TrueView"
+    _yt_bit = cs.kit_name_drift()
+finally:
+    cs.BY_ID["youtube_trueview"]["name"] = _yt_was
+check("a retired name is reported rather than passing quietly",
+      len(_yt_bit) == 1 and "TrueView" in _yt_bit[0]["detail"], _yt_bit)
+
+# The id is what Cloudinary has tagged, and skippable in-stream is what
+# TrueView was, so it keeps its id rather than being retired beside a new one.
+for _kid in ("youtube_trueview", "youtube_bumper"):
+    check(f"{_kid!r} kept its id through the rename",
+          _kid in {u["id"] for u in cs.UNITS})
+
+
+# ---------------------------------------------------------------------------
+section("A format name is the ask where the kit publishes a format name")
+# ---------------------------------------------------------------------------
+# `units_line()` folds image units into one run of sizes, which is right for
+# a display buy -- "Leaderboard" IS 728x90, and eleven labels beside eleven
+# sizes is the wall its own comment describes. It is wrong wherever the kit's
+# first column is a Format, and it had been: an X buy asked for nine bare
+# sizes with Image Ads, Carousel Ads, Conversation Button and Spotlight
+# Takeover all dissolved into them, and native display printed
+# "1200x628, 200x200" with nothing saying which of the two is the logo.
+#
+# That is `_shape_of()`'s note running the other way -- there a unit reaches
+# the line as a bare name, here as bare sizes with the name gone.
+#
+# The discriminator is the published page's own structure rather than a
+# judgment: three sections are Unit / Dimensions / weight, and those are the
+# ones where the size is the unit.
+check("the size-set channels are the kit's own Unit/Dimensions/weight ones",
+      cs.SIZE_SET_CHANNELS == {"desktop_display", "mobile_display", "dooh",
+                               "tablet_display"},
+      sorted(cs.SIZE_SET_CHANNELS))
+
+
+def _req_line(product, category):
+    item = {"product": product, "category": category, "dollars": 5000}
+    return cn.units_line({"items": [item]}, cn.medium_of(item))
+
+
+_x_req = _req_line("X (Twitter) - Paid Social Media Advertising",
+                   "SOCIAL ADS - VIDEO")
+for _fmt in ("Image Ads", "Carousel Ads", "Conversation Button",
+             "Spotlight Takeover"):
+    check(f"an X requirement names {_fmt!r}", _fmt in _x_req, _x_req[:120])
+
+_nat = _req_line("Native Display", "NATIVE")
+check("native display says which one is the logo",
+      "Brand Logo (200x200" in _nat, _nat[:160])
+
+# ...and nothing that was already right moved.
+_disp = _req_line("Run of Network", "DISPLAY")
+check("a display buy still reads as a run of sizes, not eleven labels",
+      "728x90, 300x250" in _disp or "320x50, 300x50" in _disp, _disp[:120])
+check("...and still offers the HTML5 package as the alternative it is",
+      "or HTML5 package" in _disp, _disp[:160])
+
+_radio = _req_line("Digital Radio - Targeted", "DIGITAL RADIO")
+check("the audio spot still leads its own requirement",
+      _radio.startswith("Audio Spot"), _radio)
+check("...and the 300x250 is still named as the companion it is",
+      "plus a companion banner: 300x250" in _radio, _radio)
+
+_snap = _req_line("Snapchat - Paid Social Media Advertising",
+                  "SOCIAL ADS - VIDEO")
+check("and the AR filter is still an addition rather than the whole ask",
+      "plus an AR filter" in _snap and _snap.startswith("Single Image Ads"),
+      _snap[:120])
+
 # A real file still lands on a sensible unit -- Polls carries no media at all
 # and must never be what a file is judged against.
 for _w, _h, _fmt, _want in ((1080, 1080, "jpg", "Image Ads"),

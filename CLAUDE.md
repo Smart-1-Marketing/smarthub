@@ -5041,12 +5041,65 @@ tag; leaving them in would go on asking.
 
 `kit_name_drift()` is the check, at **high**, and it covers only the channels
 declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x`,
-`linkedin`, `tiktok` and `snapchat` today. The two still on the 2025
-transcription are named in `_KIT_NAMES_PENDING` with what is known to have
-moved (YouTube's *TrueView* is now *Skippable in-stream*), and
-`kit_coverage()` carries them. A backlog named rather than left as an absence
-— a check listing every platform on the day it is written is red on the day
-it is written, and gets switched off.
+`linkedin`, `tiktok`, `snapchat` and `youtube` today. What is still on the
+2025 transcription is named in `_KIT_NAMES_PENDING` and carried by
+`kit_coverage()`. A backlog named rather than left as an absence — a check
+listing every platform on the day it is written is red on the day it is
+written, and gets switched off.
+
+**YouTube was the last of the four, and asked for a format that does not
+exist.** Google repurposed *TrueView* in October 2025 as a **metric** —
+TrueView views, spanning skippable in-stream, in-feed, Shorts and Masthead —
+so the requirement line asked a client to supply a thing with no definition.
+Shorts was absent entirely and only 16:9 was modelled against a kit selling
+16:9, 9:16 and 1:1. And the weight was the half that refused real work: **10
+MB against a published 256 GB**, the kit's own *"wrong by four orders of
+magnitude"* — the third of the four transcriptions to run that way, after
+TikTok's two units and Snapchat's pair.
+
+Six formats now, and **no duration on skippable in-stream at all**: the kit
+publishes *"no maximum, under 3:00 recommended"*, and a ceiling invented from
+a recommendation refuses a cut the kit permits — the `target_bytes` rule
+wearing a stopwatch. `youtube_trueview` keeps its id, because skippable
+in-stream is what TrueView was and `tags_for()` has written
+`unit_youtube_trueview` onto delivered creative: the rule `billboard` follows
+from the IAB retiring the Rising Stars name.
+
+`native_display` is the one left pending, and the note now says **why it is a
+different job** rather than more of the same: its first column is a field to
+supply (Main image, Brand logo, Short title…) rather than a format to buy.
+
+**What did not move is the rate card.** It sells products called *TrueView*
+and *TrueView - Targeted* — product names on an invoice rather than format
+names in a creative requirement. Renaming one orphans every quote, every IO's
+`productConfig` key and the published partner page, which is the migration
+this codebase refuses to do casually.
+
+**And naming the formats exposed the line that had been dissolving them.**
+`units_line()` folds image units into one run of sizes, which is right for a
+display buy — "Leaderboard" *is* 728x90, and eleven labels beside eleven sizes
+is the wall its own comment describes. It is wrong wherever the kit's first
+column is a **Format**, and it had been wrong on every such channel: an X buy
+asked for **nine bare sizes** with Image Ads, Carousel Ads, Conversation
+Button and Spotlight Takeover all dissolved into them; LinkedIn the same
+across six; and native display printed *"1200x628, 200x200"* with nothing
+saying which of the two is the brand logo. That is `_shape_of()`'s own note
+running the other way — there a unit reaches the line as a bare name, here as
+bare sizes with the name gone, and on a format-name channel the name is the
+entire ask.
+
+The discriminator is the published page's own structure rather than a
+judgment. `SIZE_SET_CHANNELS` is derived from `_KIT_SECTIONS` — the three
+sections whose table is Unit / Dimensions / weight, the same three
+`kit_drift()` can read — plus `tablet_display`, which is ours and is the same
+shape. Everywhere else the name leads and its sizes ride with it. Nothing
+about display, DOOH, email, CTV or Meta changed, and **both `ADDITIONS`
+entries are decided before the split** — the radio companion and Snapchat's
+AR filter each sit on a channel that sells no size set, so filtering by
+channel first would have retired the one rule that keeps *"plus a companion
+banner: 300x250"* from reading as the whole requirement.
+`test_proposal_spec.py` asserts both directions, and every new check was
+confirmed red against the real defect first.
 
 **And a name check cannot see a number, which is how LinkedIn was refusing
 files the kit told the client to send.** Its 2025 model held five formats to
