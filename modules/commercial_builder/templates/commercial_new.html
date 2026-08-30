@@ -21,7 +21,7 @@
        it — so a client of eleven years' standing had to be retyped as new,
        and the finished commercial was filed under a name that joins to
        nothing. #}
-    <div class="cb-choice-grid" id="client-mode" style="margin-bottom:12px;">
+    <div class="cb-choice-grid" id="client-mode" data-demo="cb-client" style="margin-bottom:12px;">
       <div class="cb-choice selected" data-value="hub"><div class="cb-choice-title">An existing client</div>
         <div class="cb-choice-sub">Search the agency's client list</div></div>
       <div class="cb-choice" data-value="profile"><div class="cb-choice-title">A brand profile here</div>
@@ -65,7 +65,7 @@
     <label class="cb-label">Where is it running?
       {{ help_dot('commercial_builder.start.platform') if help_dot is defined else '' }}
     </label>
-    <div class="cb-choice-grid" id="platform-choices">
+    <div class="cb-choice-grid" id="platform-choices" data-demo="cb-platform">
       {% for p in platforms %}
         <div class="cb-choice {{ 'selected' if p.id == 'both' else '' }}" data-value="{{ p.id }}">
           <div class="cb-choice-title">{{ p.label }}</div>
@@ -83,9 +83,12 @@
     <label class="cb-label">Length — pick one or several
       {{ help_dot('commercial_builder.start.lengths') if help_dot is defined else '' }}
     </label>
-    <div class="cb-choice-grid" id="length-choices">
+    <div class="cb-choice-grid" id="length-choices" data-demo="cb-lengths">
       {% for l in lengths %}
-        <div class="cb-choice" data-value="{{ l }}">
+        {# The walkthrough's "Choose it" lands on ONE option: hub-demo.js calls
+           node.click(), and clicking the grid selects nothing. :30 because
+           that is what BUILD_ORDER builds first and cuts the others down from. #}
+        <div class="cb-choice" data-value="{{ l }}"{% if l == 30 %} data-demo="cb-length"{% endif %}>
           <div class="cb-choice-title">:{{ '%02d'|format(l) }}</div>
           <div class="cb-choice-sub">{{ length_notes.get(l, {}).get('label', '') }}</div>
         </div>
@@ -109,7 +112,7 @@
        for one reason: Amazon Streaming TV takes neither a QR code nor a
        click-encouraging CTA, and until now nothing told a rep that. Not
        publisher targeting — it drives one warning. #}
-    <div class="cb-choice-grid" id="publisher-choices">
+    <div class="cb-choice-grid" id="publisher-choices" data-demo="cb-publishers">
       {% for pub in publishers %}
         <div class="cb-choice" data-value="{{ pub.id }}"><div class="cb-choice-title">{{ pub.label }}</div></div>
       {% endfor %}

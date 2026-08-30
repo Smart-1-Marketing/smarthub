@@ -18,7 +18,16 @@
   one module-wide scenario on every screen, including two where none of its
   selectors existed).
 #}
-<body data-module="commercial_builder"{% if screen %} data-screen="{{ screen }}"{% endif %}{% if no_demo %} data-demo="off"{% endif %}>
+{#- A screen is offered its tour only where the registry has steps OF ITS OWN.
+    `hub/help.tour()` falls back to the module prefix when a screen has none,
+    which is right for serving a tour somebody asked for and wrong for
+    deciding whether to offer one: named that way, a screen with no steps
+    draws every other screen's steps over elements that are not on the page.
+    Guarded `is not defined` like every helper call in this repo, so a Jinja
+    environment that never got the global loses the guard rather than the
+    page. -#}
+{%- set has_own_tour = screen and (has_tour is not defined or has_tour(screen)) -%}
+<body data-module="commercial_builder"{% if has_own_tour %} data-screen="{{ screen }}"{% endif %}{% if no_demo %} data-demo="off"{% endif %}>
 <header class="cb-topbar">
   <div class="cb-topbar-inner">
     <a class="cb-brand" href="{{ url_for('commercial_builder.cb_pages.dashboard') }}">
@@ -29,7 +38,7 @@
       <a href="{{ url_for('commercial_builder.cb_pages.dashboard') }}">Dashboard</a>
       {# A tool with no link is invisible — CLAUDE.md counts six that were. #}
       <a href="{{ url_for('commercial_builder.cb_pages.library') }}">Spot Library</a>
-      {% if screen %}
+      {% if has_own_tour %}
       {# The way back to a tour once it has been dismissed. Without this the
          offer is a one-shot and there is no second chance at it. #}
       <a href="#" data-tour-start="{{ screen }}">How this works</a>

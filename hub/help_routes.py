@@ -303,6 +303,14 @@ def install_template_helpers(app) -> None:
     """
     app.jinja_env.globals.setdefault("help_dot", help_dot)
     app.jinja_env.globals.setdefault("help_text", help_text)
+    # Whether a screen registers tour steps OF ITS OWN. A layout that draws
+    # data-screen on the truth of a name alone will happily name a screen the
+    # registry has no steps for — and hub/help.tour() then falls back to the
+    # MODULE prefix and serves every other screen's steps over elements that
+    # are not on the page. Guarded `if has_tour is defined` at the call site,
+    # the way every helper here is, so a module whose Jinja env never got this
+    # loses the guard rather than the page.
+    app.jinja_env.globals.setdefault("has_tour", help_registry.has_tour)
     app.jinja_env.globals.setdefault("demo_launcher", demo_launcher)
     app.jinja_env.globals.setdefault("demo_banner", lambda *a, **k: Markup(""))
     app.jinja_env.globals.setdefault("hub_sidebar", lambda *a, **k: Markup(""))
@@ -328,4 +336,7 @@ def register_help(app, current_user_fn=None) -> None:
         demo_launcher=demo_launcher,
         demo_scenarios=demos.for_module,
         hub_help_screens=help_registry.screens,
+        # See install_template_helpers above for why a layout asks this rather
+        # than drawing data-screen on the truth of a name.
+        has_tour=help_registry.has_tour,
     )

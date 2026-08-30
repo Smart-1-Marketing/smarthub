@@ -5937,6 +5937,10 @@ def create_hub_app() -> Flask:
         app.jinja_env.globals.setdefault("help_dot", lambda *a, **k: _M(""))
         app.jinja_env.globals.setdefault("demo_launcher", lambda *a, **k: _M(""))
         app.jinja_env.globals.setdefault("help_text", lambda *a, **k: "")
+        # True, not False: with the help layer down there is no tour to serve
+        # either way, and this keeps a failure here degrading to exactly
+        # today's markup rather than quietly changing it.
+        app.jinja_env.globals.setdefault("has_tour", lambda *a, **k: True)
         try:
             errors.log_exception("hub", _help_exc)
         except Exception:  # noqa: BLE001

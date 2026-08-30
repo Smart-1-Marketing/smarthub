@@ -11,7 +11,15 @@
        <span class="cb-status-pill">{{ project.platform|capitalize }}</span> ·
        <span id="wc-summary">checking narration length…</span></p>
   </div>
-  <a class="cb-btn cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.voice', project_id=project.id) }}">Continue to Voice &amp; music →</a>
+  <div style="display:flex;gap:8px;align-items:center;">
+    {# Its own start button, not the floating one. hub-demo.js's launcher
+       offers the module's FIRST scenario, which is the Start page's — and a
+       page carrying [data-demo-start] is skipped by that launcher, so naming
+       the scenario here is what stops this screen offering the wrong one. #}
+    <button type="button" class="cb-btn"
+            data-demo-start="commercial_builder.blueprint">▶ Walk me through this</button>
+    <a class="cb-btn cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.voice', project_id=project.id) }}">Continue to Voice &amp; music →</a>
+  </div>
 </div>
 
 {% if length_warning %}
@@ -22,7 +30,7 @@
   <p>{{ length_warning }}</p></div>
 {% endif %}
 
-<div class="cb-card" data-tour="cb-beats" style="margin-bottom:16px;">
+<div class="cb-card" data-tour="cb-beats" data-demo="cb-beats" style="margin-bottom:16px;">
   <h3 style="margin-bottom:10px;">
     The beats of a :{{ '%02d'|format(project.length_seconds) }}{% if social %} in a feed{% endif %}
     {{ help_dot('commercial_builder.blueprint.beats') if help_dot is defined else '' }}
@@ -61,7 +69,7 @@
   <p class="cb-hint" style="margin-top:0;">
     {{ shot_targets.note }}
   </p>
-  <div id="abcd-rows"></div>
+  <div id="abcd-rows" data-demo="cb-abcd"></div>
   <details style="margin-top:10px;">
     <summary style="cursor:pointer;font-size:12.5px;font-weight:640;">What Amazon measured</summary>
     <table class="cb-table" style="margin-top:8px;">
@@ -84,7 +92,7 @@
    exists rather than after the spot has run. It never says the spot is
    compliant -- compliance_spec.py says at length why a tick over that
    question is worse than nothing. #}
-<div class="cb-card" style="margin-bottom:16px;" id="compliance-card">
+<div class="cb-card" style="margin-bottom:16px;" id="compliance-card" data-demo="cb-compliance">
   <div class="cb-flex-between" style="margin-bottom:6px;">
     <h3 style="margin:0;">What the rules require
       {{ help_dot('commercial_builder.blueprint.compliance') if help_dot is defined else '' }}
@@ -101,7 +109,7 @@
     <h3 style="margin:0;">Checks
       {{ help_dot('commercial_builder.blueprint.checks') if help_dot is defined else '' }}
     </h3>
-    <button type="button" class="cb-btn cb-btn-sm" id="run-checks-btn">Run checks</button>
+    <button type="button" class="cb-btn cb-btn-sm" id="run-checks-btn" data-demo="cb-checks">Run checks</button>
   </div>
   <p class="cb-hint" style="margin-top:0;">The same checks Render runs. Everything here is
     fixable on this screen — finding out on the last step means coming back.</p>
@@ -116,12 +124,12 @@
       </h3>
       <p style="margin:0;" id="narration-budget">Counting…</p>
     </div>
-    <button type="button" class="cb-btn" id="expand-narration-btn">Write more narration</button>
+    <button type="button" class="cb-btn" id="expand-narration-btn" data-demo="cb-narration">Write more narration</button>
   </div>
   <div id="narration-note"></div>
 </div>
 
-<div id="scenes-wrap" data-project-id="{{ project.id }}" data-client-id="{{ client.id }}"
+<div id="scenes-wrap" data-demo="cb-scenes" data-project-id="{{ project.id }}" data-client-id="{{ client.id }}"
      data-client-slug="{{ client.slug }}" data-length="{{ project.length_seconds }}"></div>
 
 <template id="scene-card-tpl">

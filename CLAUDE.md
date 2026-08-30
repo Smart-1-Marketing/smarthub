@@ -1693,6 +1693,43 @@ rename. `hub/proposal_spec.py` and `hub/blog_spec.py` carry the suffix for the
 same kind of reason. `test_commercial_review.py` asserts both names resolve to
 what they should.
 
+**A walkthrough drives one page, and this one walked seven.** `hub-demo.js`
+does not navigate: it rings the current step's selector on the page you are
+standing on, and `perform()` opens with `if (!node) return`. So
+`commercial_builder.first_spot` — nine steps across the whole wizard, offered
+by the floating button on **every** screen in the module because nothing set
+`data-demo="off"` — drew no ring and did nothing, nine times, from wherever it
+was pressed. Not one of its nine `data-demo` hooks existed in any template at
+all. That is the Smart 1 Ads failure verbatim, and `ads_builder` had already
+paid for the fix: **split it per screen**, because a walkthrough drives one
+page. It is `start_a_spot` on the Start page and `blueprint` on the Blueprint —
+the two screens a rep works in — with every other screen opted out, and the
+Blueprint carrying its own `[data-demo-start]` because the launcher offers a
+module's *first* scenario and a page holding that attribute is skipped by it.
+A billed step is `simulated` so the button is never drawn: a walkthrough that
+spends money on a press somebody made to learn the tool is the one thing it
+must not do.
+
+**And it was describing a tool that no longer exists**, which is worse than
+describing none — a rep believes a walkthrough. It walked a Storyboard step
+the wizard had replaced with Blueprint / Voice / CTA, offered lengths with no
+:06 in them, said "eleven checks" where `run_qc` returns twenty-four, and
+called a QR code **required** with QC **hard-failing** without it, which is the
+exact rule `QR_CODE_RULES` reversed. `test_commercial_explainer.py` asserts
+against each of those by name, and asserts no count is quoted at all — a number
+in that copy is a number that drifts.
+
+**A screen is offered its tour only where the registry has steps of its own.**
+`hub/help.tour()` falls back to the **module** prefix when a screen has none,
+which is right for serving a tour somebody asked for and wrong for deciding
+whether to offer one: named that way, a screen with no steps draws all
+seventeen of four other screens' steps over elements that are not on the page,
+ring anchored to nothing, narration reading confidently. `has_tour()` is the
+exact question, and `_layout.html` asks it rather than drawing `data-screen` on
+the truth of a name — guarded `is not defined`, the pattern every helper call
+here uses, so a Jinja environment that never got the global loses the guard
+rather than the page.
+
 **Several lengths are built :30 first, not shortest first.**
 `config.BUILD_ORDER` is `[30, 15, 6, 5, 60]`. The :30 is the length the others are
 cut down from, so getting it approved first means every later cut starts from
@@ -6696,6 +6733,8 @@ python3 test_commercial_wizard.py  # the seven steps, the batch an approval open
                                    #   the QR destination and who owns the scan; the :06,
                                    #   shots inside beats with their grammar, the published
                                    #   thresholds and whose each is, and the Amazon warning
+python3 test_commercial_explainer.py # the bubbles, the per-screen tours, and a
+                                   #   walkthrough that drives the page it is on
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
 python3 test_drafts.py             # interrupted work: the IO's server draft and
                                    #   its list, the proposal reopening where it
