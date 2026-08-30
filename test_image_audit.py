@@ -508,6 +508,58 @@ check("and a photo sent with a social request is theirs, not stock",
 check("the provider modules/social_planner actually files under is named",
       SOURCE_LABELS.get("social_request"), "Sent with a social request")
 
+# ---------------------------------------------------------------------------
+# ...and the direction that assertion cannot cover.
+#
+# Every check above runs from the TABLE outwards: what PRODUCERS declares must
+# have a heading. That catches a label somebody forgot to write. It cannot
+# catch a value somebody forgot to declare -- and those are different
+# failures, of which only the second is silent, because the file is filed and
+# every count on every screen stays correct while the gallery draws it under a
+# bare key.
+#
+# It has happened twice. `social_request` was found by somebody opening a
+# client's gallery, and is recorded above as one assertion about one string;
+# `animated_ad` arrived the same way one release later. A list of the two we
+# fixed proves nothing about the third, so this asks every producer module.
+check("nothing files under a provider this table never declared",
+      image_audit.undeclared_providers(), [])
+
+# The Display Ad Builder is the one that found it: it files stills and, since
+# animations are delivered one approved file at a time, animated versions too.
+check("the animated provider is declared on the tool that writes it",
+      "animated_ad" in dict((p["key"], p["provider"])
+                            for p in image_audit.PRODUCERS)["display_ads"], True)
+check("and the gallery can name it", SOURCE_LABELS.get("animated_ad"),
+      "Animated display ads")
+
+# A value decided at runtime is NAMED as unknowable rather than guessed at --
+# the rule tools/linkcheck.py applies to a URL built by concatenation. What is
+# knowable is a literal, and a module-level constant holding one, which is how
+# hub/ad_builder_link.py actually writes it.
+_written = image_audit.written_providers("hub/ad_builder_link.py")
+check("a module constant used as provider= is resolved",
+      "animated_ad" in _written, True)
+check("and so is a literal", "display_ad" in _written, True)
+
+# ...and the check bites. Take the declaration away and the finding comes
+# back, naming the tool and the value -- a check that reads green either way
+# is one nobody can trust.
+_row = next(p for p in image_audit.PRODUCERS if p["key"] == "display_ads")
+_keep = _row["provider"]
+_row["provider"] = [v for v in _keep if v != "animated_ad"]
+try:
+    _found = image_audit.undeclared_providers()
+finally:
+    _row["provider"] = _keep
+check("undeclaring one brings the finding back",
+      [(f["producer"], f["provider"]) for f in _found],
+      [("display_ads", "animated_ad")])
+check("and it says what it costs",
+      "bare key" in (_found[0]["cost"] if _found else ""), True)
+check("with the declaration restored, it is green again",
+      image_audit.undeclared_providers(), [])
+
 
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
