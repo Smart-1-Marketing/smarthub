@@ -598,6 +598,170 @@ ok("the swipe holds the other choice while the tap is in flight",
    "other.disabled = true" in IDEAS and "other.disabled = false" in IDEAS)
 
 
+# ------------------------------------ and the sweep that finds the ninth page
+section("Every public page that runs a wait carries a mark")
+
+# The seven above were found by reading, which is how the eighth was missed:
+# modules/fan_radio/templates/share.html is the page a rep mails a client to
+# approve a radio spot, and approving said one word and grayed a button out
+# with nothing moving. A list of the seven we fixed proves nothing about the
+# ninth, so this asks the question of every public route instead — the rule
+# test_blueprint_guards.py works to, wearing a spinner.
+
+import ast as _ast
+
+def _public_lists(mod):
+    """PUBLIC_PREFIXES / PUBLIC_PATHS as the module itself declares them."""
+    out = []
+    for py in mod.rglob("*.py"):
+        try:
+            tree = _ast.parse(py.read_text(encoding="utf-8", errors="ignore"))
+        except SyntaxError:
+            continue
+        for n in _ast.walk(tree):
+            if isinstance(n, _ast.Assign):
+                for t in n.targets:
+                    if isinstance(t, _ast.Name) and t.id in ("PUBLIC_PREFIXES",
+                                                             "PUBLIC_PATHS"):
+                        try:
+                            out += [v for v in _ast.literal_eval(n.value)
+                                    if isinstance(v, str)]
+                        except Exception:
+                            pass
+    return out
+
+
+def _route_paths(fn):
+    out = []
+    for d in fn.decorator_list:
+        if isinstance(d, _ast.Call) and d.args and isinstance(d.args[0], _ast.Constant):
+            f = d.func
+            if (getattr(f, "attr", None) or getattr(f, "id", None)) in ("route", "get", "post"):
+                out.append(d.args[0].value)
+    return out
+
+
+def _strings(node):
+    return [n.value for n in _ast.walk(node)
+            if isinstance(n, _ast.Constant) and isinstance(n.value, str)
+            and n.value.endswith(".html")]
+
+
+def _templates(fn, helpers):
+    """The templates a route function renders.
+
+    A computed name is still a render — modules/scans picks between
+    widget.html and widget_audit.html inside a helper and passes the result,
+    so reading only the literal arguments would skip the three pages a
+    prospect actually meets. Where the argument is a call to a helper in the
+    same file, that helper's own string constants are read, which is the
+    looser reading integrity.check_orphan_templates() settled on for the same
+    reason: missing one costs a page nobody checked, and guessing wrongly
+    costs nothing but a name in a list.
+    """
+    out = []
+    for n in _ast.walk(fn):
+        if not isinstance(n, _ast.Call):
+            continue
+        f = n.func
+        if (getattr(f, "id", None) or getattr(f, "attr", None)) != "render_template":
+            continue
+        for a in n.args:
+            if isinstance(a, _ast.Constant) and isinstance(a.value, str):
+                out.append(a.value)
+            elif isinstance(a, _ast.IfExp):
+                out += _strings(a)
+            elif isinstance(a, _ast.Call):
+                name = getattr(a.func, "id", None) or getattr(a.func, "attr", None)
+                if name in helpers:
+                    out += _strings(helpers[name])
+    return [t for t in out if t.endswith(".html")]
+
+
+# Named with the reason, so an absence here is never ambiguous between a
+# decision and an oversight — the rule compliance_spec.NOT_ENFORCED and
+# ghl_scopes.NOT_REQUESTED both work to.
+MARK_EXEMPT = {
+    "modules/calculators/templates/calculators_calculator.html":
+        "already draws a complete inline mark of its own — its own SVG, "
+        "role=status, aria-live and a reduced-motion rule, torn down in a "
+        "finally. It is framed on smart1marketing.com, where the shared "
+        "block would be several kilobytes on a page whose whole job is to "
+        "load, to replace six working lines. Converging what it draws with "
+        "the Hub's own arc is separate work.",
+}
+
+_swept, _unmarked = [], []
+for _mod in sorted((ROOT / "modules").iterdir()):
+    if not _mod.is_dir():
+        continue
+    _pubs = tuple(_public_lists(_mod))
+    if not _pubs:
+        continue
+    for _py in _mod.rglob("*.py"):
+        try:
+            _tree = _ast.parse(_py.read_text(encoding="utf-8", errors="ignore"))
+        except SyntaxError:
+            continue
+        _helpers = {n.name: n for n in _ast.walk(_tree)
+                    if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))}
+        for _fn in _helpers.values():
+            if not any(p.startswith(_pubs) for p in _route_paths(_fn)):
+                continue
+            for _name in _templates(_fn, _helpers):
+                for _t in _mod.rglob(_name):
+                    _src = _t.read_text(encoding="utf-8", errors="ignore")
+                    if not re.search(r"\b(?:fetch|sendBeacon)\s*\(", _src):
+                        continue      # nothing to wait on, nothing to mark
+                    _full = _src
+                    for _inc in re.findall(r'\{%-?\s*(?:include|import)\s+"([^"]+)"',
+                                           _src):
+                        for _c in _mod.rglob(_inc):
+                            _full += _c.read_text(encoding="utf-8", errors="ignore")
+                    _rel = str(_t.relative_to(ROOT))
+                    _swept.append(_rel)
+                    _marked = ("s1_wait_assets" in _full or "scan_mark" in _full
+                               or "S1Think" in _src)
+                    if not _marked and _rel not in MARK_EXEMPT:
+                        _unmarked.append(_rel)
+
+_swept = sorted(set(_swept))
+# A sweep that quietly stops sweeping is worse than not having one — the
+# failure test_blueprint_guards.py had when its mount walk found no mounts and
+# reported a clean bill of health over 199 routes instead of 415.
+ok("the sweep found public pages to look at", len(_swept) >= 8, str(len(_swept)))
+ok("every public page that runs a wait marks it", not _unmarked,
+   ", ".join(_unmarked))
+# An exemption that outlives what it exempted goes on covering whatever is
+# written at that path next — check_stale_json_exemptions()'s rule.
+_stale = [k for k in MARK_EXEMPT if k not in _swept]
+ok("no exemption names a page that is no longer swept", not _stale,
+   ", ".join(_stale))
+ok("and none names a page that now carries the mark",
+   not [k for k in MARK_EXEMPT
+        if "s1_wait_assets" in (ROOT / k).read_text(encoding="utf-8")],
+   "an exemption is not a preference")
+# A set of the right size and the wrong contents is the same failure one step
+# on, so the families are named as well as counted — the arrangement
+# test_blueprint_guards.py uses on its mount table. The radio approval page is
+# the eighth, and the reason this is a sweep rather than an eighth entry in the
+# list above; the two scan widgets are reached only by resolving a template
+# name computed inside a helper, so naming them is what keeps that half alive.
+for _named in ("modules/fan_radio/templates/share.html",
+               "modules/scans/templates/widget.html",
+               "modules/scans/templates/widget_audit.html",
+               "modules/sales_builder/templates/client_proposal.html"):
+    ok(f"the sweep reaches {_named.split('/')[-1]}", _named in _swept)
+
+# What this cannot see, said rather than left implied: the display-ad proof is
+# served straight off the Node renderer through hub/ad_builder_proxy.py, so no
+# Flask route renders it and no Jinja global exists on it — the same position
+# modules/ad_builder/public/embed.html is in, and it carries its own inlined
+# glyphs for that reason.
+ok("and it says what it cannot reach",
+   "ad_builder" not in " ".join(_swept))
+
+
 print()
 if _failed:
     print(f"{_failed} FAILED, {_passed} passed")
